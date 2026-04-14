@@ -593,8 +593,6 @@ export default function Layout(props: ParentProps) {
     if (!dir) return
     await openProject(dir, true)
   })
-    }
-  })
 
   const workspaceName = (directory: string, projectId?: string, branch?: string) => {
     const key = workspaceKey(directory)
