@@ -22,8 +22,16 @@
 - v1.0 已发布：https://github.com/Astro-Han/pawwork/releases/tag/v1.0.0
 - 域名：pawwork.ai（Cloudflare Registrar，到期 2028-04）
 - 品牌替换完成：Electron config、system prompts、i18n、logo/icons 全部 PawWork
-- macOS .dmg 可用（134MB），Windows .exe 待重新打包
+- macOS .dmg (134MB) + Windows .exe (114MB) 可用
 - Apple Developer ID 证书注册中（688元/年），等审核
+- 纯刻团队仍在用原版 OpenCode（PawWork UI 还没重做）
+
+## Next: UI 改造（来自 2026-04-14 团队反馈）
+
+- 首页加场景卡片（解决"不知道能做什么"，WorkBuddy 的分类：文档处理/视频生成/深度研究/金融服务/数据分析/数据可视化/幻灯片/产品管理）
+- 配色字体更美观（解决"太极客风"）
+- 右侧面板从 git/diff 改为文件树 + 产物预览（git/diff 对非技术用户是负资产：郭进问"Git是什么"，张倩说"diff看起来像报错"）
+- 详细反馈：docs/interviews/2026-04-14-WorkBuddy对比反馈.md
 
 ## Architecture
 
