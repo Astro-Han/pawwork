@@ -245,6 +245,15 @@ test("returns empty array when no skills exist", async () => {
   })
 })
 
+test("builtinRoots falls back to import.meta.url when baseDir is missing", () => {
+  const roots = Skill.builtinRoots(undefined)
+  expect(roots.length).toBeGreaterThanOrEqual(2)
+  for (const root of roots) {
+    expect(typeof root).toBe("string")
+    expect(root.endsWith(path.join("skills"))).toBe(true)
+  }
+})
+
 test("discovers skills from .agents/skills/ directory", async () => {
   await using tmp = await tmpdir({
     git: true,

@@ -1,6 +1,6 @@
 import os from "os"
 import path from "path"
-import { pathToFileURL } from "url"
+import { fileURLToPath, pathToFileURL } from "url"
 import z from "zod"
 import { Effect, Layer, Context } from "effect"
 import { NamedError } from "@opencode-ai/util/error"
@@ -65,13 +65,22 @@ export namespace Skill {
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
   }
 
-  export function builtinRoots(baseDir = import.meta.dir) {
+  function builtinBaseDir(baseDir?: string) {
+    if (baseDir) return baseDir
+    if (typeof import.meta.dir === "string") return import.meta.dir
+    if (typeof import.meta.dirname === "string") return import.meta.dirname
+    if (typeof import.meta.url === "string") return path.dirname(fileURLToPath(import.meta.url))
+    return process.cwd()
+  }
+
+  export function builtinRoots(baseDir?: string) {
+    const resolvedBaseDir = builtinBaseDir(baseDir)
     const roots = new Set<string>()
     if (processWithResourcesPath.resourcesPath) {
       roots.add(path.join(processWithResourcesPath.resourcesPath, "skills"))
     }
     for (const rel of ["../../../..", "../../../../.."]) {
-      roots.add(path.resolve(baseDir, rel, "skills"))
+      roots.add(path.resolve(resolvedBaseDir, rel, "skills"))
     }
     return [...roots]
   }
