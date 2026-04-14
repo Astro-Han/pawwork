@@ -363,9 +363,13 @@ export const BashTool = Tool.define(
         { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
         { env: {} },
       )
+      // Prepend bundled tools directory to PATH so the agent can call them
+      const bundledToolsDir = path.join(process.resourcesPath ?? "", "tools")
+      const currentPath = extra.env.PATH || process.env.PATH || ""
       return {
         ...process.env,
         ...extra.env,
+        PATH: `${bundledToolsDir}${path.delimiter}${currentPath}`,
       }
     })
 

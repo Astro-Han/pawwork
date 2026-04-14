@@ -1,0 +1,2 @@
+packages/desktop-electron/resources/tools/*
+!.gitignore
