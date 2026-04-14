@@ -25,6 +25,5 @@ dist-ssr
 out/
 
 resources/opencode-cli*
-resources/icons
 resources/tools/*
 !resources/tools/.gitignore
