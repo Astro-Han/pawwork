@@ -20,8 +20,10 @@ import { Discovery } from "./discovery"
 
 export namespace Skill {
   const log = Log.create({ service: "skill" })
+  const processWithResourcesPath = process as NodeJS.Process & { resourcesPath?: string }
   const EXTERNAL_DIRS = [".claude", ".agents"]
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
+  const BUILTIN_SKILL_PATTERN = "*/SKILL.md"
   const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
 
@@ -61,6 +63,17 @@ export namespace Skill {
     readonly all: () => Effect.Effect<Info[]>
     readonly dirs: () => Effect.Effect<string[]>
     readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  }
+
+  export function builtinRoots(baseDir = import.meta.dir) {
+    const roots = new Set<string>()
+    if (processWithResourcesPath.resourcesPath) {
+      roots.add(path.join(processWithResourcesPath.resourcesPath, "skills"))
+    }
+    for (const rel of ["../../../..", "../../../../.."]) {
+      roots.add(path.resolve(baseDir, rel, "skills"))
+    }
+    return [...roots]
   }
 
   const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface) {
@@ -157,6 +170,11 @@ export namespace Skill {
       for (const root of upDirs) {
         yield* scan(state, bus, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "project" })
       }
+    }
+
+    for (const root of builtinRoots()) {
+      if (!(yield* fsys.isDir(root))) continue
+      yield* scan(state, bus, root, BUILTIN_SKILL_PATTERN, { scope: "builtin" })
     }
 
     const configDirs = yield* config.directories()

@@ -5,6 +5,8 @@ import { tmpdir } from "../fixture/fixture"
 import path from "path"
 import fs from "fs/promises"
 
+const processWithResourcesPath = process as NodeJS.Process & { resourcesPath?: string }
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
@@ -22,6 +24,21 @@ description: A global skill from ~/.claude/skills for testing.
 # Global Test Skill
 
 This skill is loaded from the global home directory.
+`,
+  )
+}
+
+async function createBundledSkill(resourcesDir: string, name: string, description = "A bundled skill for testing.") {
+  const skillDir = path.join(resourcesDir, "skills", name)
+  await fs.mkdir(skillDir, { recursive: true })
+  await Bun.write(
+    path.join(skillDir, "SKILL.md"),
+    `---
+name: ${name}
+description: ${description}
+---
+
+# ${name}
 `,
   )
 }
@@ -50,7 +67,6 @@ Instructions here.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills.length).toBe(1)
       const testSkill = skills.find((s) => s.name === "test-skill")
       expect(testSkill).toBeDefined()
       expect(testSkill!.description).toBe("A test skill for verification.")
@@ -87,7 +103,7 @@ description: Skill for dirs test.
         const dirs = await Skill.dirs()
         const skillDir = path.join(tmp.path, ".opencode", "skill", "dir-skill")
         expect(dirs).toContain(skillDir)
-        expect(dirs.length).toBe(1)
+        expect(dirs.length).toBeGreaterThanOrEqual(1)
       },
     })
   } finally {
@@ -128,7 +144,6 @@ description: Second test skill.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills.length).toBe(2)
       expect(skills.find((s) => s.name === "skill-one")).toBeDefined()
       expect(skills.find((s) => s.name === "skill-two")).toBeDefined()
     },
@@ -154,7 +169,7 @@ Just some content without YAML frontmatter.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills).toEqual([])
+      expect(skills.find((s) => s.name === "no-frontmatter")).toBeUndefined()
     },
   })
 })
@@ -181,7 +196,6 @@ description: A skill in the .claude/skills directory.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills.length).toBe(1)
       const claudeSkill = skills.find((s) => s.name === "claude-skill")
       expect(claudeSkill).toBeDefined()
       expect(claudeSkill!.location).toContain(path.join(".claude", "skills", "claude-skill", "SKILL.md"))
@@ -201,10 +215,10 @@ test("discovers global skills from ~/.claude/skills/ directory", async () => {
       directory: tmp.path,
       fn: async () => {
         const skills = await Skill.all()
-        expect(skills.length).toBe(1)
-        expect(skills[0].name).toBe("global-test-skill")
-        expect(skills[0].description).toBe("A global skill from ~/.claude/skills for testing.")
-        expect(skills[0].location).toContain(path.join(".claude", "skills", "global-test-skill", "SKILL.md"))
+        const skill = skills.find((item) => item.name === "global-test-skill")
+        expect(skill).toBeDefined()
+        expect(skill!.description).toBe("A global skill from ~/.claude/skills for testing.")
+        expect(skill!.location).toContain(path.join(".claude", "skills", "global-test-skill", "SKILL.md"))
       },
     })
   } finally {
@@ -219,7 +233,14 @@ test("returns empty array when no skills exist", async () => {
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills).toEqual([])
+      expect(
+        skills.find(
+          (s) =>
+            s.location.startsWith(path.join(tmp.path, ".opencode")) ||
+            s.location.startsWith(path.join(tmp.path, ".claude")) ||
+            s.location.startsWith(path.join(tmp.path, ".agents")),
+        ),
+      ).toBeUndefined()
     },
   })
 })
@@ -246,7 +267,6 @@ description: A skill in the .agents/skills directory.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills.length).toBe(1)
       const agentSkill = skills.find((s) => s.name === "agent-skill")
       expect(agentSkill).toBeDefined()
       expect(agentSkill!.location).toContain(path.join(".agents", "skills", "agent-skill", "SKILL.md"))
@@ -280,10 +300,10 @@ This skill is loaded from the global home directory.
       directory: tmp.path,
       fn: async () => {
         const skills = await Skill.all()
-        expect(skills.length).toBe(1)
-        expect(skills[0].name).toBe("global-agent-skill")
-        expect(skills[0].description).toBe("A global skill from ~/.agents/skills for testing.")
-        expect(skills[0].location).toContain(path.join(".agents", "skills", "global-agent-skill", "SKILL.md"))
+        const skill = skills.find((item) => item.name === "global-agent-skill")
+        expect(skill).toBeDefined()
+        expect(skill!.description).toBe("A global skill from ~/.agents/skills for testing.")
+        expect(skill!.location).toContain(path.join(".agents", "skills", "global-agent-skill", "SKILL.md"))
       },
     })
   } finally {
@@ -324,7 +344,6 @@ description: A skill in the .agents/skills directory.
     directory: tmp.path,
     fn: async () => {
       const skills = await Skill.all()
-      expect(skills.length).toBe(2)
       expect(skills.find((s) => s.name === "claude-skill")).toBeDefined()
       expect(skills.find((s) => s.name === "agent-skill")).toBeDefined()
     },
@@ -386,7 +405,63 @@ description: A skill in the .opencode/skills directory.
     directory: tmp.path,
     fn: async () => {
       const dirs = await Skill.dirs()
-      expect(dirs.length).toBe(4)
+      expect(dirs).toContain(path.join(tmp.path, ".opencode", "skill", "agent-skill"))
+      expect(dirs).toContain(path.join(tmp.path, ".opencode", "skills", "agent-skill"))
+      expect(dirs).toContain(path.join(tmp.path, ".claude", "skills", "claude-skill"))
+      expect(dirs).toContain(path.join(tmp.path, ".agents", "skills", "agent-skill"))
     },
   })
+})
+
+test("discovers bundled skills from process.resourcesPath", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  const resourcesDir = path.join(tmp.path, "resources")
+  const original = processWithResourcesPath.resourcesPath
+  await createBundledSkill(resourcesDir, "packaged-only-skill", "A bundled packaged skill.")
+  Object.defineProperty(process, "resourcesPath", { value: resourcesDir, configurable: true })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        const bundled = skills.find((item) => item.name === "packaged-only-skill")
+        expect(bundled).toBeDefined()
+        expect(bundled!.description).toBe("A bundled packaged skill.")
+        expect(bundled!.location).toContain(path.join("skills", "packaged-only-skill", "SKILL.md"))
+      },
+    })
+  } finally {
+    Object.defineProperty(process, "resourcesPath", { value: original, configurable: true })
+  }
+})
+
+test("discovers bundled skills from the repo skills directory in dev", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  const original = processWithResourcesPath.resourcesPath
+  Object.defineProperty(process, "resourcesPath", { value: undefined, configurable: true })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        expect(skills.find((item) => item.name === "document-processing")).toBeDefined()
+        expect(skills.find((item) => item.name === "data-analysis")).toBeDefined()
+        expect(skills.find((item) => item.name === "writing-assistant")).toBeDefined()
+      },
+    })
+  } finally {
+    Object.defineProperty(process, "resourcesPath", { value: original, configurable: true })
+  }
+})
+
+test("returns bundled skill roots for source and dist layouts", () => {
+  const sourceRoots = Skill.builtinRoots("/repo/packages/opencode/src/skill")
+  expect(sourceRoots).toContain("/repo/skills")
+
+  const distRoots = Skill.builtinRoots("/repo/packages/opencode/dist/node/skill")
+  expect(distRoots).toContain("/repo/skills")
 })

@@ -49,7 +49,6 @@ import { AppFileSystem } from "../filesystem"
 import { Bus } from "../bus"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
-import { Permission } from "@/permission"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
