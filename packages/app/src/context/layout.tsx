@@ -41,6 +41,9 @@ type SessionTabs = {
 type SessionView = {
   scroll: Record<string, SessionScroll>
   reviewOpen?: string[]
+  sidePanelTab?: "files" | "changes"
+  filesAutoOpenSeen?: boolean
+  filesAutoOpenDismissed?: boolean
   pendingMessage?: string
   pendingMessageAt?: number
 }
@@ -231,7 +234,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
       { ...target, migrate },
       createStore({
         sidebar: {
-          opened: false,
+          opened: true,
           width: DEFAULT_SIDEBAR_WIDTH,
           workspaces: {} as Record<string, boolean>,
           workspacesDefault: false,
@@ -242,7 +245,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
         review: {
           diffStyle: "split" as ReviewDiffStyle,
-          panelOpened: true,
+          panelOpened: false,
         },
         fileTree: {
           opened: false,
@@ -749,7 +752,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const key = createSessionKeyReader(sessionKey, ensureKey)
         const s = createMemo(() => store.sessionView[key()] ?? { scroll: {} })
         const terminalOpened = createMemo(() => store.terminal?.opened ?? false)
-        const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? true)
+        const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? false)
 
         function setTerminalOpened(next: boolean) {
           const current = store.terminal
@@ -804,6 +807,76 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             },
             toggle() {
               setReviewPanelOpened(!reviewPanelOpened())
+            },
+          },
+          sidePanel: {
+            opened: reviewPanelOpened,
+            open() {
+              setReviewPanelOpened(true)
+            },
+            close() {
+              const session = key()
+              if (s().sidePanelTab === "files" && (s().filesAutoOpenSeen ?? false)) {
+                setStore("sessionView", session, "filesAutoOpenDismissed", true)
+              }
+              setReviewPanelOpened(false)
+            },
+            toggle() {
+              if (reviewPanelOpened()) {
+                this.close()
+                return
+              }
+              this.open()
+            },
+            tab: createMemo(() => s().sidePanelTab ?? "changes"),
+            setTab(tab: "files" | "changes") {
+              const session = key()
+              if (!store.sessionView[session]) {
+                setStore("sessionView", session, { scroll: {}, sidePanelTab: tab })
+                return
+              }
+              setStore("sessionView", session, "sidePanelTab", tab)
+            },
+            toggleTab(tab: "files" | "changes") {
+              if (reviewPanelOpened() && (s().sidePanelTab ?? "changes") === tab) {
+                this.close()
+                return
+              }
+              this.setTab(tab)
+              this.open()
+            },
+            filesAutoOpenSeen: createMemo(() => s().filesAutoOpenSeen ?? false),
+            filesAutoOpenDismissed: createMemo(() => s().filesAutoOpenDismissed ?? false),
+            setAutoOpenState(next: { seenAdded: boolean; dismissed: boolean }) {
+              const session = key()
+              if (!store.sessionView[session]) {
+                setStore("sessionView", session, {
+                  scroll: {},
+                  filesAutoOpenSeen: next.seenAdded,
+                  filesAutoOpenDismissed: next.dismissed,
+                })
+                return
+              }
+              setStore("sessionView", session, "filesAutoOpenSeen", next.seenAdded)
+              setStore("sessionView", session, "filesAutoOpenDismissed", next.dismissed)
+            },
+            explorer: {
+              tab: createMemo(() => store.fileTree?.tab ?? "changes"),
+              setTab(tab: "changes" | "all") {
+                if (!store.fileTree) {
+                  setStore("fileTree", { opened: false, width: DEFAULT_FILE_TREE_WIDTH, tab })
+                  return
+                }
+                setStore("fileTree", "tab", tab)
+              },
+              width: createMemo(() => store.fileTree?.width ?? DEFAULT_FILE_TREE_WIDTH),
+              resize(width: number) {
+                if (!store.fileTree) {
+                  setStore("fileTree", { opened: false, width, tab: "changes" })
+                  return
+                }
+                setStore("fileTree", "width", width)
+              },
             },
           },
           review: {

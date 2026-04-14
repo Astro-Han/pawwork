@@ -147,6 +147,7 @@ export default function Layout(props: ParentProps) {
   }
   const colorSchemeLabel = (scheme: ColorScheme) => language.t(colorSchemeKey[scheme])
   const currentDir = createMemo(() => route().dir)
+  const pawworkSidebar = createMemo(() => globalSync.data.project.length <= 1)
 
   const [state, setState] = createStore({
     autoselect: !initialDirectory,
@@ -2160,22 +2161,24 @@ export default function Layout(props: ParentProps) {
                       >
                         <DropdownMenu.ItemLabel>{language.t("common.edit")}</DropdownMenu.ItemLabel>
                       </DropdownMenu.Item>
-                      <DropdownMenu.Item
-                        data-action="project-workspaces-toggle"
-                        data-project={slug()}
-                        disabled={!canToggle()}
-                        onSelect={() => {
-                          const item = project()
-                          if (!item) return
-                          toggleProjectWorkspaces(item)
-                        }}
-                      >
-                        <DropdownMenu.ItemLabel>
-                          {workspacesEnabled()
-                            ? language.t("sidebar.workspaces.disable")
-                            : language.t("sidebar.workspaces.enable")}
-                        </DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
+                      <Show when={!pawworkSidebar()}>
+                        <DropdownMenu.Item
+                          data-action="project-workspaces-toggle"
+                          data-project={slug()}
+                          disabled={!canToggle()}
+                          onSelect={() => {
+                            const item = project()
+                            if (!item) return
+                            toggleProjectWorkspaces(item)
+                          }}
+                        >
+                          <DropdownMenu.ItemLabel>
+                            {workspacesEnabled()
+                              ? language.t("sidebar.workspaces.disable")
+                              : language.t("sidebar.workspaces.enable")}
+                          </DropdownMenu.ItemLabel>
+                        </DropdownMenu.Item>
+                      </Show>
                       <DropdownMenu.Item
                         data-action="project-clear-notifications"
                         data-project={slug()}
@@ -2205,35 +2208,31 @@ export default function Layout(props: ParentProps) {
             </div>
 
             <div class="flex-1 min-h-0 flex flex-col">
-              <Show
-                when={workspacesEnabled()}
-                fallback={
-                  <>
-                    <div class="shrink-0 py-4">
-                      <Button
-                        size="large"
-                        icon="new-session"
-                        class="w-full"
-                        onClick={() => {
-                          const dir = worktree()
-                          if (!dir) return
-                          navigateWithSidebarReset(`/${base64Encode(dir)}/session`)
-                        }}
-                      >
-                        {language.t("command.session.new")}
-                      </Button>
-                    </div>
-                    <div class="flex-1 min-h-0">
-                      <LocalWorkspace
-                        ctx={workspaceSidebarCtx}
-                        project={project()!}
-                        sortNow={sortNow}
-                        mobile={panelProps.mobile}
-                      />
-                    </div>
-                  </>
-                }
-              >
+              <Show when={pawworkSidebar() || !workspacesEnabled()}>
+                <div class="shrink-0 py-4">
+                  <Button
+                    size="large"
+                    icon="new-session"
+                    class="w-full"
+                    onClick={() => {
+                      const dir = worktree()
+                      if (!dir) return
+                      navigateWithSidebarReset(`/${base64Encode(dir)}/session`)
+                    }}
+                  >
+                    {language.t("command.session.new")}
+                  </Button>
+                </div>
+                <div class="flex-1 min-h-0">
+                  <LocalWorkspace
+                    ctx={workspaceSidebarCtx}
+                    project={project()!}
+                    sortNow={sortNow}
+                    mobile={panelProps.mobile}
+                  />
+                </div>
+              </Show>
+              <Show when={!pawworkSidebar() && workspacesEnabled()}>
                 <>
                   <div class="shrink-0 py-4">
                     <Button
