@@ -27,7 +27,7 @@ const channel = (() => {
 })()
 
 const getBase = (): Configuration => ({
-  artifactName: "opencode-electron-${os}-${arch}.${ext}",
+  artifactName: "pawwork-${os}-${arch}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",
@@ -59,8 +59,8 @@ const getBase = (): Configuration => ({
     sign: true,
   },
   protocols: {
-    name: "OpenCode",
-    schemes: ["opencode"],
+    name: "PawWork",
+    schemes: ["pawwork"],
   },
   win: {
     icon: `resources/icons/icon.ico`,
@@ -89,29 +89,29 @@ function getConfig() {
     case "dev": {
       return {
         ...base,
-        appId: "ai.opencode.desktop.dev",
-        productName: "OpenCode Dev",
-        rpm: { packageName: "opencode-dev" },
+        appId: "ai.pawwork.desktop.dev",
+        productName: "PawWork Dev",
+        rpm: { packageName: "pawwork-dev" },
       }
     }
     case "beta": {
       return {
         ...base,
-        appId: "ai.opencode.desktop.beta",
-        productName: "OpenCode Beta",
-        protocols: { name: "OpenCode Beta", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode-beta", channel: "latest" },
-        rpm: { packageName: "opencode-beta" },
+        appId: "ai.pawwork.desktop.beta",
+        productName: "PawWork Beta",
+        protocols: { name: "PawWork Beta", schemes: ["pawwork"] },
+        publish: { provider: "github", owner: "AstroHan", repo: "pawwork-beta", channel: "latest" },
+        rpm: { packageName: "pawwork-beta" },
       }
     }
     case "prod": {
       return {
         ...base,
-        appId: "ai.opencode.desktop",
-        productName: "OpenCode",
-        protocols: { name: "OpenCode", schemes: ["opencode"] },
-        publish: { provider: "github", owner: "anomalyco", repo: "opencode", channel: "latest" },
-        rpm: { packageName: "opencode" },
+        appId: "ai.pawwork.desktop",
+        productName: "PawWork",
+        protocols: { name: "PawWork", schemes: ["pawwork"] },
+        publish: { provider: "github", owner: "AstroHan", repo: "pawwork", channel: "latest" },
+        rpm: { packageName: "pawwork" },
       }
     }
   }

@@ -14,17 +14,17 @@ contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithG
 process.env.OPENCODE_DISABLE_EMBEDDED_WEB_UI = "true"
 
 const APP_NAMES: Record<string, string> = {
-  dev: "OpenCode Dev",
-  beta: "OpenCode Beta",
-  prod: "OpenCode",
+  dev: "PawWork Dev",
+  beta: "PawWork Beta",
+  prod: "PawWork",
 }
 const APP_IDS: Record<string, string> = {
-  dev: "ai.opencode.desktop.dev",
-  beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  dev: "ai.pawwork.desktop.dev",
+  beta: "ai.pawwork.desktop.beta",
+  prod: "ai.pawwork.desktop",
 }
-app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "OpenCode Dev")
-app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.opencode.desktop.dev"))
+app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "PawWork Dev")
+app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.pawwork.desktop.dev"))
 const { autoUpdater } = pkg
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
