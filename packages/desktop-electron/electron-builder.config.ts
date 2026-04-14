@@ -62,7 +62,7 @@ const getBase = (): Configuration => ({
     signtoolOptions: {
       sign: signWindows,
     },
-    target: ["nsis"],
+    target: [{ target: "nsis", arch: ["x64"] }],
   },
   nsis: {
     oneClick: false,
