@@ -1,6 +1,10 @@
 ;(function () {
   var key = "opencode-theme-id"
-  var themeId = localStorage.getItem(key) || "oc-2"
+  var schemeKey = "opencode-color-scheme"
+  var storedTheme = localStorage.getItem(key)
+  var storedScheme = localStorage.getItem(schemeKey)
+  var firstInstall = !storedTheme && !storedScheme
+  var themeId = storedTheme || "pawwork"
 
   if (themeId === "oc-1") {
     themeId = "oc-2"
@@ -9,14 +13,15 @@
     localStorage.removeItem("opencode-theme-css-dark")
   }
 
-  var scheme = localStorage.getItem("opencode-color-scheme") || "system"
+  var scheme = themeId === "pawwork" ? "light" : storedScheme || (firstInstall ? "light" : "system")
+  if (themeId === "pawwork") localStorage.setItem(schemeKey, "light")
   var isDark = scheme === "dark" || (scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
   var mode = isDark ? "dark" : "light"
 
   document.documentElement.dataset.theme = themeId
   document.documentElement.dataset.colorScheme = mode
 
-  if (themeId === "oc-2") return
+  if (themeId === "pawwork" || themeId === "oc-2") return
 
   var css = localStorage.getItem("opencode-theme-css-" + mode)
   if (css) {

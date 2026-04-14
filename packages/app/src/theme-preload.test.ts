@@ -19,6 +19,30 @@ beforeEach(() => {
 })
 
 describe("theme preload", () => {
+  test("uses PawWork as the empty-storage default theme", () => {
+    run()
+    expect(document.documentElement.dataset.theme).toBe("pawwork")
+  })
+
+  test("uses light mode for a first install with no saved theme settings", () => {
+    run()
+    expect(document.documentElement.dataset.colorScheme).toBe("light")
+  })
+
+  test("keeps PawWork light-only even when the system prefers dark", () => {
+    localStorage.setItem("opencode-theme-id", "pawwork")
+    Object.defineProperty(window, "matchMedia", {
+      value: () =>
+        ({
+          matches: true,
+        }) as MediaQueryList,
+      configurable: true,
+    })
+    run()
+    expect(document.documentElement.dataset.theme).toBe("pawwork")
+    expect(document.documentElement.dataset.colorScheme).toBe("light")
+  })
+
   test("migrates legacy oc-1 to oc-2 before mount", () => {
     localStorage.setItem("opencode-theme-id", "oc-1")
     localStorage.setItem("opencode-theme-css-light", "--background-base:#fff;")

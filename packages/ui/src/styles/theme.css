@@ -90,12 +90,12 @@
   color-scheme: light;
   --text-mix-blend-mode: multiply;
 
-  /* OC-2 fallback variables (light) */
-  --background-base: #f8f8f8;
-  --background-weak: #f3f3f3;
-  --background-strong: #fcfcfc;
+  /* PawWork fallback variables (light) */
+  --background-base: #faf9f7;
+  --background-weak: #f6f3ef;
+  --background-strong: #fffdfa;
   --background-stronger: #fcfcfc;
-  --surface-base: rgba(0, 0, 0, 0.031);
+  --surface-base: #f7f4f1;
   --base: rgba(0, 0, 0, 0.034);
   --surface-base-hover: rgba(0, 0, 0, 0.059);
   --surface-base-active: rgba(0, 0, 0, 0.051);
@@ -106,12 +106,12 @@
   --surface-inset-base-hover: rgba(0, 0, 0, 0.055);
   --surface-inset-strong: rgba(0, 0, 0, 0.09);
   --surface-inset-strong-hover: rgba(0, 0, 0, 0.09);
-  --surface-raised-base: rgba(0, 0, 0, 0.031);
+  --surface-raised-base: #f4f0ec;
   --surface-float-base: #161616;
   --surface-float-base-hover: #1c1c1c;
   --surface-raised-base-hover: rgba(0, 0, 0, 0.051);
   --surface-raised-base-active: rgba(0, 0, 0, 0.09);
-  --surface-raised-strong: #fcfcfc;
+  --surface-raised-strong: #fffdfa;
   --surface-raised-strong-hover: #ffffff;
   --surface-raised-stronger: #ffffff;
   --surface-raised-stronger-hover: #ffffff;
@@ -122,8 +122,8 @@
   --surface-raised-stronger-non-alpha: #ffffff;
   --surface-brand-base: #dcde8d;
   --surface-brand-hover: #d0d283;
-  --surface-interactive-base: #ecf3ff;
-  --surface-interactive-hover: #e0eaff;
+  --surface-interactive-base: #fff0ec;
+  --surface-interactive-hover: #ffe7e1;
   --surface-interactive-weak: #f7faff;
   --surface-interactive-weak-hover: #ecf3ff;
   --surface-success-base: #dbfed7;
@@ -161,17 +161,17 @@
   --input-selected: #e0eaff;
   --input-focus: #fcfdff;
   --input-disabled: #ededed;
-  --text-base: #6f6f6f;
-  --text-weak: #8f8f8f;
+  --text-base: #6d625b;
+  --text-weak: #8c817a;
   --text-weaker: #c7c7c7;
-  --text-strong: #171717;
+  --text-strong: #211a16;
   --text-invert-base: #f8f8f8;
   --text-invert-weak: #f3f3f3;
   --text-invert-weaker: #ededed;
   --text-invert-strong: #fcfcfc;
-  --text-interactive-base: #034cff;
+  --text-interactive-base: #e8533a;
   --text-on-brand-base: rgba(0, 0, 0, 0.574);
-  --text-on-interactive-base: #fcfcfc;
+  --text-on-interactive-base: #ffffff;
   --text-on-interactive-weak: rgba(0, 0, 0, 0.574);
   --text-on-success-base: #2dba26;
   --text-on-critical-base: #ed4831;
@@ -192,7 +192,7 @@
   --text-on-brand-weak: rgba(0, 0, 0, 0.453);
   --text-on-brand-weaker: rgba(0, 0, 0, 0.232);
   --text-on-brand-strong: rgba(0, 0, 0, 0.915);
-  --button-primary-base: #171717;
+  --button-primary-base: #e8533a;
   --button-secondary-base: #fcfcfc;
   --button-secondary-hover: #f8f8f8;
   --button-ghost-hover: rgba(0, 0, 0, 0.031);
@@ -203,7 +203,7 @@
   --border-selected: rgba(3, 76, 255, 0.99);
   --border-disabled: rgba(0, 0, 0, 0.236);
   --border-focus: rgba(0, 0, 0, 0.46);
-  --border-weak-base: #e5e5e5;
+  --border-weak-base: #e0dcd7;
   --border-strong-base: rgba(0, 0, 0, 0.151);
   --border-strong-hover: rgba(0, 0, 0, 0.232);
   --border-strong-active: rgba(0, 0, 0, 0.151);
@@ -215,7 +215,7 @@
   --border-weak-selected: rgba(3, 76, 255, 0.24);
   --border-weak-disabled: rgba(0, 0, 0, 0.118);
   --border-weak-focus: rgba(0, 0, 0, 0.151);
-  --border-weaker-base: #f0f0f0;
+  --border-weaker-base: #ece7e1;
   --border-weaker-hover: rgba(0, 0, 0, 0.075);
   --border-weaker-active: rgba(0, 0, 0, 0.118);
   --border-weaker-selected: rgba(3, 76, 255, 0.16);
@@ -606,4 +606,8 @@
     --avatar-text-lime: #c4f042;
     --text-stronger: rgba(255, 255, 255, 0.936);
   }
+}
+
+:root[data-theme="pawwork"] {
+  --font-family-sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
 }

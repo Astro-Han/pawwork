@@ -1,0 +1,71 @@
+{
+  "$schema": "https://opencode.ai/desktop-theme.json",
+  "name": "PawWork",
+  "id": "pawwork",
+  "light": {
+    "palette": {
+      "neutral": "#FAF9F7",
+      "ink": "#211A16",
+      "primary": "#E8533A",
+      "success": "#2D9D5A",
+      "warning": "#E6A23C",
+      "error": "#D6452F",
+      "info": "#4F6D8A",
+      "interactive": "#E8533A",
+      "diffAdd": "#86D39A",
+      "diffDelete": "#E97866"
+    },
+    "overrides": {
+      "background-base": "#FAF9F7",
+      "background-weak": "#F6F3EF",
+      "surface-base": "#F7F4F1",
+      "surface-raised-base": "#F4F0EC",
+      "surface-raised-strong": "#FFFCFA",
+      "surface-raised-stronger": "#FFFFFF",
+      "text-strong": "#211A16",
+      "text-base": "#6D625B",
+      "text-weak": "#8C817A",
+      "border-weak-base": "#E0DCD7",
+      "border-weaker-base": "#ECE7E1",
+      "surface-interactive-base": "#FFF0EC",
+      "surface-interactive-hover": "#FFE7E1",
+      "button-primary-base": "#E8533A",
+      "text-on-interactive-base": "#FFFFFF",
+      "icon-base": "#8C817A",
+      "icon-weak-base": "#B6ADA7"
+    }
+  },
+  "dark": {
+    "palette": {
+      "neutral": "#FAF9F7",
+      "ink": "#211A16",
+      "primary": "#E8533A",
+      "success": "#2D9D5A",
+      "warning": "#E6A23C",
+      "error": "#D6452F",
+      "info": "#4F6D8A",
+      "interactive": "#E8533A",
+      "diffAdd": "#86D39A",
+      "diffDelete": "#E97866"
+    },
+    "overrides": {
+      "background-base": "#FAF9F7",
+      "background-weak": "#F6F3EF",
+      "surface-base": "#F7F4F1",
+      "surface-raised-base": "#F4F0EC",
+      "surface-raised-strong": "#FFFCFA",
+      "surface-raised-stronger": "#FFFFFF",
+      "text-strong": "#211A16",
+      "text-base": "#6D625B",
+      "text-weak": "#8C817A",
+      "border-weak-base": "#E0DCD7",
+      "border-weaker-base": "#ECE7E1",
+      "surface-interactive-base": "#FFF0EC",
+      "surface-interactive-hover": "#FFE7E1",
+      "button-primary-base": "#E8533A",
+      "text-on-interactive-base": "#FFFFFF",
+      "icon-base": "#8C817A",
+      "icon-weak-base": "#B6ADA7"
+    }
+  }
+}
