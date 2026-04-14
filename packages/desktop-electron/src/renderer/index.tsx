@@ -148,6 +148,28 @@ const createPlatform = (): Platform => {
       return window.api.openPath(path, app)
     },
 
+    async showItemInFolder(path: string) {
+      const resolved =
+        os === "windows" && window.__OPENCODE__?.wsl ? await window.api.wslPath(path, "windows").catch(() => path) : path
+      return window.api.showItemInFolder(resolved)
+    },
+
+    async statPaths(paths: string[]) {
+      const pairs = await Promise.all(
+        paths.map(async (original) => {
+          const resolved =
+            os === "windows" && window.__OPENCODE__?.wsl
+              ? await window.api.wslPath(original, "windows").catch(() => original)
+              : original
+          return [original, resolved] as const
+        }),
+      )
+      const stats = await window.api.statPaths(pairs.map(([, resolved]) => resolved))
+      return Object.fromEntries(
+        pairs.map(([original, resolved]) => [original, stats[resolved] ?? { size: 0, exists: false }]),
+      )
+    },
+
     back() {
       window.history.back()
     },

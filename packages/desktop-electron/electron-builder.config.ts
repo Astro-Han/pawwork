@@ -35,6 +35,11 @@ const getBase = (): Configuration => ({
   files: ["out/**/*", "resources/**/*"],
   extraResources: [
     {
+      from: path.join(rootDir, "skills"),
+      to: "skills",
+      filter: ["**/*"],
+    },
+    {
       from: "native/",
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],

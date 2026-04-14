@@ -1,3 +1,4 @@
+import fs from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
@@ -135,6 +136,24 @@ export function registerIpcHandlers(deps: Deps) {
         process.platform === "darwin" ? (["open", ["-a", app, path]] as const) : ([app, [path]] as const)
       execFile(cmd, args, (err) => (err ? reject(err) : resolve()))
     })
+  })
+
+  ipcMain.handle("show-item-in-folder", (_event: IpcMainInvokeEvent, path: string) => {
+    shell.showItemInFolder(path)
+  })
+
+  ipcMain.handle("stat-paths", async (_event: IpcMainInvokeEvent, paths: string[]) => {
+    const entries = await Promise.all(
+      paths.map(async (file) => {
+        try {
+          const stat = await fs.stat(file)
+          return [file, { size: stat.size, exists: true }] as const
+        } catch {
+          return [file, { size: 0, exists: false }] as const
+        }
+      }),
+    )
+    return Object.fromEntries(entries)
   })
 
   ipcMain.handle("read-clipboard-image", () => {
