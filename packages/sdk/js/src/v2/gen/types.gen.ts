@@ -921,6 +921,7 @@ export type Session = {
   workspaceID?: string
   directory: string
   parentID?: string
+  skill?: string
   summary?: {
     additions: number
     deletions: number
@@ -1085,6 +1086,7 @@ export type SyncEventSessionUpdated = {
       workspaceID: string | null
       directory: string | null
       parentID: string | null
+      skill: string | null
       summary: {
         additions: number
         deletions: number
@@ -1814,6 +1816,7 @@ export type GlobalSession = {
   workspaceID?: string
   directory: string
   parentID?: string
+  skill?: string
   summary?: {
     additions: number
     deletions: number
@@ -1847,6 +1850,11 @@ export type McpResource = {
   description?: string
   mimeType?: string
   client: string
+}
+
+export type SessionArtifact = {
+  file: string
+  kind: "added" | "modified"
 }
 
 export type TextPartInput = {
@@ -3138,6 +3146,7 @@ export type SessionCreateData = {
     title?: string
     permission?: PermissionRuleset
     workspaceID?: string
+    skill?: string
   }
   path?: never
   query?: {
@@ -3555,6 +3564,27 @@ export type SessionDiffResponses = {
 }
 
 export type SessionDiffResponse = SessionDiffResponses[keyof SessionDiffResponses]
+
+export type SessionArtifactsData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/artifacts"
+}
+
+export type SessionArtifactsResponses = {
+  /**
+   * Successfully retrieved artifacts
+   */
+  200: Array<SessionArtifact>
+}
+
+export type SessionArtifactsResponse = SessionArtifactsResponses[keyof SessionArtifactsResponses]
 
 export type SessionSummarizeData = {
   body?: {

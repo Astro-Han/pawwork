@@ -69,6 +69,7 @@ export namespace Session {
       directory: row.directory,
       parentID: row.parent_id ?? undefined,
       title: row.title,
+      skill: row.skill ?? undefined,
       version: row.version,
       summary,
       share,
@@ -92,6 +93,7 @@ export namespace Session {
       slug: info.slug,
       directory: info.directory,
       title: info.title,
+      skill: info.skill,
       version: info.version,
       share_url: info.share?.url,
       summary_additions: info.summary?.additions,
@@ -125,6 +127,7 @@ export namespace Session {
       workspaceID: WorkspaceID.zod.optional(),
       directory: z.string(),
       parentID: SessionID.zod.optional(),
+      skill: z.string().optional(),
       summary: z
         .object({
           additions: z.number(),
@@ -316,6 +319,7 @@ export namespace Session {
       title?: string
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
+      skill?: string
     }) => Effect.Effect<Info>
     readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
     readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -381,6 +385,7 @@ export namespace Session {
         workspaceID?: WorkspaceID
         directory: string
         permission?: Permission.Ruleset
+        skill?: string
       }) {
         const ctx = yield* InstanceState.context
         const result: Info = {
@@ -392,6 +397,7 @@ export namespace Session {
           workspaceID: input.workspaceID,
           parentID: input.parentID,
           title: input.title ?? createDefaultTitle(!!input.parentID),
+          skill: input.skill,
           permission: input.permission,
           time: {
             created: Date.now(),
@@ -503,6 +509,7 @@ export namespace Session {
         title?: string
         permission?: Permission.Ruleset
         workspaceID?: WorkspaceID
+        skill?: string
       }) {
         const directory = yield* InstanceState.directory
         return yield* createNext({
@@ -511,6 +518,7 @@ export namespace Session {
           title: input?.title,
           permission: input?.permission,
           workspaceID: input?.workspaceID,
+          skill: input?.skill,
         })
       })
 
@@ -691,6 +699,7 @@ export namespace Session {
         title: z.string().optional(),
         permission: Info.shape.permission,
         workspaceID: WorkspaceID.zod.optional(),
+        skill: z.string().optional(),
       })
       .optional(),
     (input) => runPromise((svc) => svc.create(input)),

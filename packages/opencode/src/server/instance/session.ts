@@ -481,6 +481,37 @@ export const SessionRoutes = lazy(() =>
         return c.json(result)
       },
     )
+    .get(
+      "/:sessionID/artifacts",
+      describeRoute({
+        summary: "Get session artifacts",
+        description: "Get the cumulative files created or updated across a session.",
+        operationId: "session.artifacts",
+        responses: {
+          200: {
+            description: "Successfully retrieved artifacts",
+            content: {
+              "application/json": {
+                schema: resolver(SessionSummary.Artifact.array()),
+              },
+            },
+          },
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionSummary.ArtifactsInput.shape.sessionID,
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        const result = await SessionSummary.artifacts({
+          sessionID: params.sessionID,
+        })
+        return c.json(result)
+      },
+    )
     .delete(
       "/:sessionID/share",
       describeRoute({

@@ -9,6 +9,16 @@ import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
 
 export namespace SessionSummary {
+  export const Artifact = z
+    .object({
+      file: z.string(),
+      kind: z.enum(["added", "modified"]),
+    })
+    .meta({
+      ref: "SessionArtifact",
+    })
+  export type Artifact = z.infer<typeof Artifact>
+
   function unquoteGitPath(input: string) {
     if (!input.startsWith('"')) return input
     if (!input.endsWith('"')) return input
@@ -68,6 +78,7 @@ export namespace SessionSummary {
   export interface Interface {
     readonly summarize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<void>
     readonly diff: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Snapshot.FileDiff[]>
+    readonly artifacts: (input: { sessionID: SessionID }) => Effect.Effect<Artifact[]>
     readonly computeDiff: (input: { messages: MessageV2.WithParts[] }) => Effect.Effect<Snapshot.FileDiff[]>
   }
 
@@ -146,7 +157,38 @@ export namespace SessionSummary {
         return next
       })
 
-      return Service.of({ summarize, diff, computeDiff })
+      const artifacts = Effect.fn("SessionSummary.artifacts")(function* (input: { sessionID: SessionID }) {
+        const messages = yield* sessions.messages({ sessionID: input.sessionID })
+        const result = new Map<string, Artifact>()
+
+        for (const message of messages) {
+          if (message.info.role !== "user") continue
+          const diffs = message.info.summary?.diffs ?? []
+          for (const diff of diffs) {
+            if (diff.status !== "added" && diff.status !== "modified") continue
+            const file = unquoteGitPath(diff.file)
+            if (result.has(file)) continue
+            result.set(file, {
+              file,
+              kind: diff.status,
+            })
+          }
+        }
+
+        if (result.size === 0) {
+          const current = yield* diff({ sessionID: input.sessionID })
+          for (const item of current) {
+            if (item.status !== "added" && item.status !== "modified") continue
+            const file = unquoteGitPath(item.file)
+            if (result.has(file)) continue
+            result.set(file, { file, kind: item.status })
+          }
+        }
+
+        return Array.from(result.values())
+      })
+
+      return Service.of({ summarize, diff, artifacts, computeDiff })
     }),
   )
 
@@ -169,7 +211,15 @@ export namespace SessionSummary {
     messageID: MessageID.zod.optional(),
   })
 
+  export const ArtifactsInput = z.object({
+    sessionID: SessionID.zod,
+  })
+
   export async function diff(input: z.infer<typeof DiffInput>) {
     return runPromise((svc) => svc.diff(input))
+  }
+
+  export async function artifacts(input: z.infer<typeof ArtifactsInput>) {
+    return runPromise((svc) => svc.artifacts(input))
   }
 }

@@ -24,6 +24,7 @@ export const SessionTable = sqliteTable(
     slug: text().notNull(),
     directory: text().notNull(),
     title: text().notNull(),
+    skill: text(),
     version: text().notNull(),
     share_url: text(),
     summary_additions: integer(),
