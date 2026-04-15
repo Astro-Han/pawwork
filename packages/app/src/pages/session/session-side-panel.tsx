@@ -203,30 +203,15 @@ export function SessionSidePanel(props: {
         }}
         style={{ width: panelWidth() }}
       >
-        <Tabs
-          value={sidePanelTab()}
-          onChange={(value) => {
-            if (value !== "files" && value !== "changes") return
-            view().sidePanel.setTab(value)
-          }}
-          class="size-full border-l border-border-weaker-base"
-        >
-          <div class="sticky top-0 z-10 shrink-0 bg-background-base px-3 pt-3">
-            <Tabs.List>
-              <Tabs.Trigger value="files" class="flex-1" classes={{ button: "w-full" }}>
-                {language.t("session.panel.files")}
-              </Tabs.Trigger>
-              <Tabs.Trigger value="changes" class="flex-1" classes={{ button: "w-full" }}>
-                {language.t("session.panel.changes")}
-              </Tabs.Trigger>
-            </Tabs.List>
-          </div>
-
-          <Tabs.Content value="files" class="h-full min-h-0 overflow-hidden">
+        <div class="size-full border-l border-border-weaker-base">
+          <Show when={sidePanelTab() === "files"}>
+            <div class="h-full min-h-0 overflow-hidden">
             <FilesTab files={props.files()} />
-          </Tabs.Content>
+            </div>
+          </Show>
 
-          <Tabs.Content value="changes" class="h-full min-h-0 overflow-hidden">
+          <Show when={sidePanelTab() === "changes"}>
+            <div class="h-full min-h-0 overflow-hidden">
             <div class="size-full flex">
               <div class="relative min-w-0 h-full flex-1 overflow-hidden bg-background-base">
                 <div class="size-full min-w-0 h-full bg-background-base">
@@ -440,8 +425,9 @@ export function SessionSidePanel(props: {
                 </div>
               </div>
             </div>
-          </Tabs.Content>
-        </Tabs>
+            </div>
+          </Show>
+        </div>
       </aside>
     </Show>
   )

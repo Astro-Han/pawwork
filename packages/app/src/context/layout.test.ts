@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
-import { createSessionKeyReader, ensureSessionKey, pruneSessionKeys } from "./layout"
+import { createSessionKeyReader, defaultSidePanelTab, ensureSessionKey, pruneSessionKeys } from "./layout"
 
 describe("layout session-key helpers", () => {
   test("couples touch and scroll seed in order", () => {
@@ -65,5 +65,13 @@ describe("pruneSessionKeys", () => {
     })
 
     expect(drop).toEqual([])
+  })
+})
+
+describe("defaultSidePanelTab", () => {
+  test("defaults the desktop side panel to files", () => {
+    expect(defaultSidePanelTab(undefined)).toBe("files")
+    expect(defaultSidePanelTab("files")).toBe("files")
+    expect(defaultSidePanelTab("changes")).toBe("changes")
   })
 })

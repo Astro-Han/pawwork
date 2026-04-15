@@ -436,6 +436,31 @@ export function SessionHeader() {
 
                 <div class="hidden md:flex items-center gap-1 shrink-0">
                   <TooltipKeybind
+                    title={language.t("command.review.toggle")}
+                    keybind={command.keybind("review.toggle")}
+                  >
+                    <Button
+                      variant="ghost"
+                      class="titlebar-icon w-8 h-6 p-0 box-border"
+                      onClick={() => view().sidePanel.toggleTab("changes")}
+                      aria-label={language.t("command.review.toggle")}
+                      aria-expanded={view().sidePanel.opened() && view().sidePanel.tab() === "changes"}
+                      aria-controls="review-panel"
+                    >
+                      <div class="relative flex items-center justify-center size-4">
+                        <Icon
+                          size="small"
+                          name={view().sidePanel.opened() && view().sidePanel.tab() === "changes" ? "review-active" : "review"}
+                          classList={{
+                            "text-icon-strong": view().sidePanel.opened() && view().sidePanel.tab() === "changes",
+                            "text-icon-weak": !(view().sidePanel.opened() && view().sidePanel.tab() === "changes"),
+                          }}
+                        />
+                      </div>
+                    </Button>
+                  </TooltipKeybind>
+
+                  <TooltipKeybind
                     title={language.t("command.fileTree.toggle")}
                     keybind={command.keybind("fileTree.toggle")}
                   >

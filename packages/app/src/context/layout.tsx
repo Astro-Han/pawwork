@@ -73,6 +73,10 @@ export function createSessionKeyReader(sessionKey: string | Accessor<string>, en
   }
 }
 
+export function defaultSidePanelTab(tab?: "files" | "changes") {
+  return tab ?? "files"
+}
+
 export function pruneSessionKeys(input: {
   keep?: string
   max: number
@@ -828,7 +832,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
               }
               this.open()
             },
-            tab: createMemo(() => s().sidePanelTab ?? "changes"),
+            tab: createMemo(() => defaultSidePanelTab(s().sidePanelTab)),
             setTab(tab: "files" | "changes") {
               const session = key()
               if (!store.sessionView[session]) {
@@ -838,7 +842,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
               setStore("sessionView", session, "sidePanelTab", tab)
             },
             toggleTab(tab: "files" | "changes") {
-              if (reviewPanelOpened() && (s().sidePanelTab ?? "changes") === tab) {
+              if (reviewPanelOpened() && defaultSidePanelTab(s().sidePanelTab) === tab) {
                 this.close()
                 return
               }
