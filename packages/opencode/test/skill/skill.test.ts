@@ -474,3 +474,79 @@ test("returns bundled skill roots for source and dist layouts", () => {
   const distRoots = Skill.builtinRoots("/repo/packages/opencode/dist/node/skill")
   expect(distRoots).toContain("/repo/skills")
 })
+
+test("bundled productivity skills enforce question-first workflow and locale guidance", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  const original = processWithResourcesPath.resourcesPath
+  Object.defineProperty(process, "resourcesPath", { value: undefined, configurable: true })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        const getContent = (name: string) => skills.find((item) => item.name === name)?.content ?? ""
+
+        const assertSharedStructure = (content: string) => {
+          expect(content).toContain("<GATE>")
+          expect(content).toContain("ALWAYS use the `question` tool to clarify before acting.")
+          expect(content).toContain("Do NOT proceed with assumptions. Do NOT skip this step.")
+          expect(content).toContain("## Workflow")
+          expect(content).toContain("1. **Clarify**")
+          expect(content).toContain("2. **Execute**")
+          expect(content).toContain("3. **Verify**")
+          expect(content).toContain("## Step 1: Clarify")
+          expect(content).toContain("## Step 2: Execute")
+          expect(content).toContain("## Step 3: Verify")
+          expect(content).toContain("## Language")
+          expect(content).toContain('Reply in the user\'s locale (shown in system environment as "User locale").')
+          expect(content).toContain("```json")
+          expect(content).toContain('"questions"')
+        }
+
+        const documentProcessing = getContent("document-processing")
+        assertSharedStructure(documentProcessing)
+        expect(documentProcessing).toContain('"header": "Task type"')
+        expect(documentProcessing).toContain('"label": "Create new"')
+        expect(documentProcessing).toContain('"label": "Edit existing"')
+        expect(documentProcessing).toContain('"label": "Convert format"')
+        expect(documentProcessing).toContain('"label": "Extract content"')
+        expect(documentProcessing).toContain('"header": "Source"')
+        expect(documentProcessing).toContain('"label": "I\'ll upload/specify files"')
+        expect(documentProcessing).toContain('"label": "Use files from a previous step"')
+
+        const dataAnalysis = getContent("data-analysis")
+        assertSharedStructure(dataAnalysis)
+        expect(dataAnalysis).toContain('"header": "Data source"')
+        expect(dataAnalysis).toContain('"label": "Spreadsheet (xlsx/csv)"')
+        expect(dataAnalysis).toContain('"label": "Database export"')
+        expect(dataAnalysis).toContain('"label": "I\'ll describe the data"')
+        expect(dataAnalysis).toContain('"header": "Output"')
+        expect(dataAnalysis).toContain('"label": "Summary report"')
+        expect(dataAnalysis).toContain('"label": "Chart/visualization"')
+        expect(dataAnalysis).toContain('"label": "Updated spreadsheet"')
+        expect(dataAnalysis).toContain('"multiple": true')
+
+        const writingAssistant = getContent("writing-assistant")
+        assertSharedStructure(writingAssistant)
+        expect(writingAssistant).toContain('"header": "Content type"')
+        expect(writingAssistant).toContain('"label": "Email"')
+        expect(writingAssistant).toContain('"label": "Report/memo"')
+        expect(writingAssistant).toContain('"label": "Announcement"')
+        expect(writingAssistant).toContain('"label": "Plan/proposal"')
+        expect(writingAssistant).toContain('"header": "Tone"')
+        expect(writingAssistant).toContain('"label": "Formal"')
+        expect(writingAssistant).toContain('"label": "Conversational"')
+        expect(writingAssistant).toContain('"label": "Concise/direct"')
+        expect(writingAssistant).toContain('"label": "Persuasive"')
+        expect(writingAssistant).toContain('"header": "Key points"')
+        expect(writingAssistant).toContain('"label": "I\'ll provide details now"')
+        expect(writingAssistant).toContain('"label": "Draft from what I\'ve said"')
+        expect(writingAssistant).toContain('"label": "Ask me more first"')
+      },
+    })
+  } finally {
+    Object.defineProperty(process, "resourcesPath", { value: original, configurable: true })
+  }
+})
