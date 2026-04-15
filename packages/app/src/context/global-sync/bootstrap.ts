@@ -122,20 +122,27 @@ export async function bootstrapGlobal(input: {
         }),
       ),
   ]
-
-  showErrors({
-    errors: errors(await runAll(fast)),
-    title: input.requestFailedTitle,
-    translate: input.translate,
-    formatMoreCount: input.formatMoreCount,
-  })
+  const fastErrs = errors(await runAll(fast))
+  if (fastErrs.length > 0) {
+    console.error("Failed to bootstrap global sync", fastErrs[0])
+  }
+  // showErrors({
+  //   errors: errors(await runAll(fast)),
+  //   title: input.requestFailedTitle,
+  //   translate: input.translate,
+  //   formatMoreCount: input.formatMoreCount,
+  // })
   await waitForPaint()
-  showErrors({
-    errors: errors(await runAll(slow)),
-    title: input.requestFailedTitle,
-    translate: input.translate,
-    formatMoreCount: input.formatMoreCount,
-  })
+  const slowErrs = errors(await runAll(slow))
+  if (slowErrs.length > 0) {
+    console.error("Failed to finish global sync bootstrap", slowErrs[0])
+  }
+  // showErrors({
+  //   errors: errors(),
+  //   title: input.requestFailedTitle,
+  //   translate: input.translate,
+  //   formatMoreCount: input.formatMoreCount,
+  // })
   input.setGlobalStore("ready", true)
 }
 
