@@ -48,7 +48,7 @@ cd packages/desktop-electron && bun run dev
 
 ## 致谢
 
-PawWork fork 自 [OpenCode](https://github.com/anomalyco/opencode)。
+PawWork fork 自 [OpenCode](https://github.com/anomalyco/opencode)，有修改。
 
 ## License
 

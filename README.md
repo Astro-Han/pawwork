@@ -48,7 +48,7 @@ cd packages/desktop-electron && bun run dev
 
 ## Credits
 
-PawWork is a fork of [OpenCode](https://github.com/anomalyco/opencode).
+PawWork is a fork of [OpenCode](https://github.com/anomalyco/opencode), with modifications.
 
 ## License
 
