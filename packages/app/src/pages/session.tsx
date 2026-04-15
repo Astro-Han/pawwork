@@ -1098,7 +1098,7 @@ export default function Page() {
         seenAdded: view().sidePanel.filesAutoOpenSeen(),
         dismissed: view().sidePanel.filesAutoOpenDismissed(),
       },
-      turnDiffs(),
+      diffs(),
     )
 
     if (next.open) {
