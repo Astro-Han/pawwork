@@ -1093,12 +1093,15 @@ export default function Page() {
   createEffect(() => {
     if (!params.id) return
 
+    // Use Snapshot diffs (SSE-pushed, authoritative) with turnDiffs as fallback
+    // for reopened sessions where session_diff hasn't been fetched yet.
+    const source = diffs().length > 0 ? diffs() : turnDiffs()
     const next = nextFilesPanelAutoOpen(
       {
         seenAdded: view().sidePanel.filesAutoOpenSeen(),
         dismissed: view().sidePanel.filesAutoOpenDismissed(),
       },
-      diffs(),
+      source,
     )
 
     if (next.open) {
