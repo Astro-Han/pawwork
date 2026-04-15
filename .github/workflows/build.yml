@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       phase:
-        description: "Workflow phase"
+        description: "Release mode (submit/finalize for production, full for debugging)"
         required: false
         type: choice
         options:
-          - full
           - submit
           - finalize
-        default: full
+          - full
+        default: submit
       channel:
         description: "Build channel"
         required: false
