@@ -444,16 +444,16 @@ export function SessionHeader() {
                       class="titlebar-icon w-8 h-6 p-0 box-border"
                       onClick={() => view().sidePanel.toggleTab("files")}
                       aria-label={language.t("command.fileTree.toggle")}
-                      aria-expanded={view().sidePanel.opened()}
+                      aria-expanded={view().sidePanel.opened() && view().sidePanel.tab() === "files"}
                       aria-controls="review-panel"
                     >
                       <div class="relative flex items-center justify-center size-4">
                         <Icon
                           size="small"
-                          name={view().sidePanel.opened() ? "file-tree-active" : "file-tree"}
+                          name={view().sidePanel.opened() && view().sidePanel.tab() === "files" ? "file-tree-active" : "file-tree"}
                           classList={{
-                            "text-icon-strong": view().sidePanel.opened(),
-                            "text-icon-weak": !view().sidePanel.opened(),
+                            "text-icon-strong": view().sidePanel.opened() && view().sidePanel.tab() === "files",
+                            "text-icon-weak": !(view().sidePanel.opened() && view().sidePanel.tab() === "files"),
                           }}
                         />
                       </div>
