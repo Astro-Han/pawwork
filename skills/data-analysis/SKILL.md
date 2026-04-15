@@ -8,47 +8,22 @@ description: Use when user wants analysis, charts, summaries, or reports from sp
 Analyze structured local data and return conclusions, charts, or updated files.
 
 <GATE>
-ALWAYS use the `question` tool to clarify before acting.
-Do NOT proceed with assumptions. Do NOT skip this step.
+Do NOT start analyzing until you understand the data and the question. Ask clarifying questions first, then act.
 </GATE>
 
 ## Workflow
 
-1. **Clarify** - Use the `question` tool and ask the predefined questions in one call.
+1. **Clarify** - Ask the user what they need before touching any data.
 2. **Execute** - Inspect the data, run the analysis, and produce the requested outputs.
 3. **Verify** - Check that the findings and deliverables match the user's request.
 
 ## Step 1: Clarify
 
-Always ask these questions before acting:
+Ask the user the following before acting:
 
-```json
-{
-  "questions": [
-    {
-      "question": "What kind of data source are you working with?",
-      "header": "Data source",
-      "options": [
-        { "label": "Spreadsheet (xlsx/csv)", "description": "The data is in a spreadsheet or flat file" },
-        { "label": "Database export", "description": "The data came from a database export or report dump" },
-        { "label": "I'll describe the data", "description": "I will explain the schema or sample rows in chat" }
-      ]
-    },
-    {
-      "question": "What outputs do you want me to produce?",
-      "header": "Output",
-      "multiple": true,
-      "options": [
-        { "label": "Summary report", "description": "Write up the main findings and supporting metrics" },
-        { "label": "Chart/visualization", "description": "Create a chart or visual output" },
-        { "label": "Updated spreadsheet", "description": "Return a modified workbook or data file" }
-      ]
-    }
-  ]
-}
-```
-
-Also confirm the business question, key metrics, dimensions, and date range when they matter to the analysis.
+- **Data source** — Is it a spreadsheet (xlsx/csv), a database export, or will they describe the data in chat?
+- **Output** — Do they want a summary report, a chart or visualization, an updated spreadsheet, or some combination?
+- **Business question** — What question should the analysis answer? Confirm key metrics, dimensions, and date ranges when they matter.
 
 ## Step 2: Execute
 

@@ -8,57 +8,25 @@ description: Use when user wants to draft or revise work writing like emails, re
 Draft or revise business writing without inventing facts, commitments, or details.
 
 <GATE>
-ALWAYS use the `question` tool to clarify before acting.
-Do NOT proceed with assumptions. Do NOT skip this step.
+Do NOT start drafting until you understand what the user needs. Ask clarifying questions first, then write.
 </GATE>
 
 ## Workflow
 
-1. **Clarify** - Use the `question` tool and ask the predefined questions in one call.
+1. **Clarify** - Ask the user what they need before writing anything.
 2. **Execute** - Extract the facts, choose the right structure, and draft in the requested tone.
 3. **Verify** - Check the draft for factual fidelity, tone, and usability.
 
 ## Step 1: Clarify
 
-Always ask these questions before acting:
+Ask the user the following before acting:
 
-```json
-{
-  "questions": [
-    {
-      "question": "What kind of writing do you need?",
-      "header": "Content type",
-      "options": [
-        { "label": "Email", "description": "Draft or revise an email" },
-        { "label": "Report/memo", "description": "Write a report, memo, or internal brief" },
-        { "label": "Announcement", "description": "Prepare an update or announcement" },
-        { "label": "Plan/proposal", "description": "Draft a plan, proposal, or recommendation" }
-      ]
-    },
-    {
-      "question": "What tone should I use?",
-      "header": "Tone",
-      "options": [
-        { "label": "Formal", "description": "Professional and polished" },
-        { "label": "Conversational", "description": "Natural and approachable" },
-        { "label": "Concise/direct", "description": "Short, clear, and to the point" },
-        { "label": "Persuasive", "description": "Structured to convince the reader" }
-      ]
-    },
-    {
-      "question": "How should I handle the key points?",
-      "header": "Key points",
-      "options": [
-        { "label": "I'll provide details now", "description": "Wait for me to give the facts or bullet points" },
-        { "label": "Draft from what I've said", "description": "Use the details already in the conversation" },
-        { "label": "Ask me more first", "description": "Collect more facts before drafting" }
-      ]
-    }
-  ]
-}
-```
+- **Content type** — Email, report or memo, announcement, or plan/proposal?
+- **Tone** — Formal, conversational, concise and direct, or persuasive?
+- **Key points** — Will they provide details now, should you draft from what they already said, or should you ask more questions first? Always ask this, even when input seems sufficient.
+- **Constraints** — Any length, audience, structure, or deadline requirements.
 
-Also confirm any length, audience, structure, or deadline constraints that affect the final draft.
+If the user chooses to provide details later, wait for their next message before proceeding to draft.
 
 ## Step 2: Execute
 

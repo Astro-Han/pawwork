@@ -8,46 +8,22 @@ description: Use when user wants to create, edit, convert, or extract from Word,
 Handle document creation, editing, conversion, and extraction for local office files.
 
 <GATE>
-ALWAYS use the `question` tool to clarify before acting.
-Do NOT proceed with assumptions. Do NOT skip this step.
+Do NOT start working on files until you understand what the user needs. Ask clarifying questions first, then act.
 </GATE>
 
 ## Workflow
 
-1. **Clarify** - Use the `question` tool and ask the predefined questions in one call.
+1. **Clarify** - Ask the user what they need before touching any files.
 2. **Execute** - Choose the least-destructive toolchain, then perform the task.
 3. **Verify** - Check the output against the user's constraints and report the result.
 
 ## Step 1: Clarify
 
-Always ask these questions before acting:
+Ask the user the following before acting:
 
-```json
-{
-  "questions": [
-    {
-      "question": "What type of document task do you need?",
-      "header": "Task type",
-      "options": [
-        { "label": "Create new", "description": "Create a new document from scratch" },
-        { "label": "Edit existing", "description": "Modify an existing file" },
-        { "label": "Convert format", "description": "Convert a file into another format" },
-        { "label": "Extract content", "description": "Pull text, tables, slides, or other content from a file" }
-      ]
-    },
-    {
-      "question": "Where should I get the source material?",
-      "header": "Source",
-      "options": [
-        { "label": "I'll upload/specify files", "description": "I will name or upload the source files for this task" },
-        { "label": "Use files from a previous step", "description": "Reuse files already created or referenced earlier in this session" }
-      ]
-    }
-  ]
-}
-```
-
-Also confirm any output constraints that must stay unchanged, such as layout, formulas, comments, branding, or slide order.
+- **Task type** — Are they creating a new document, editing an existing one, converting between formats, or extracting content?
+- **Source** — Will they upload or specify files, or should you reuse files from a previous step?
+- **Constraints** — Anything that must stay unchanged: layout, formulas, comments, branding, slide order.
 
 ## Step 2: Execute
 
