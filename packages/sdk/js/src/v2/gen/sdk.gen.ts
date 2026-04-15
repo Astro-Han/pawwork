@@ -2165,6 +2165,7 @@ export class Session2 extends HeyApiClient {
         modelID: string
       }
       agent?: string
+      locale?: string
       noReply?: boolean
       tools?: {
         [key: string]: boolean
@@ -2187,6 +2188,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "messageID" },
             { in: "body", key: "model" },
             { in: "body", key: "agent" },
+            { in: "body", key: "locale" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
             { in: "body", key: "format" },
@@ -2297,6 +2299,7 @@ export class Session2 extends HeyApiClient {
         modelID: string
       }
       agent?: string
+      locale?: string
       noReply?: boolean
       tools?: {
         [key: string]: boolean
@@ -2319,6 +2322,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "messageID" },
             { in: "body", key: "model" },
             { in: "body", key: "agent" },
+            { in: "body", key: "locale" },
             { in: "body", key: "noReply" },
             { in: "body", key: "tools" },
             { in: "body", key: "format" },
@@ -2354,6 +2358,7 @@ export class Session2 extends HeyApiClient {
       messageID?: string
       agent?: string
       model?: string
+      locale?: string
       arguments?: string
       command?: string
       variant?: string
@@ -2379,6 +2384,7 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "messageID" },
             { in: "body", key: "agent" },
             { in: "body", key: "model" },
+            { in: "body", key: "locale" },
             { in: "body", key: "arguments" },
             { in: "body", key: "command" },
             { in: "body", key: "variant" },

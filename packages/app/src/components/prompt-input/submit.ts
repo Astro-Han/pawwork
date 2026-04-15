@@ -34,6 +34,7 @@ export type FollowupDraft = {
   context: (ContextItem & { key: string })[]
   agent: string
   model: { providerID: string; modelID: string }
+  locale?: string
   variant?: string
 }
 
@@ -88,6 +89,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
         arguments: tail.join(" "),
         agent: input.draft.agent,
         model: `${input.draft.model.providerID}/${input.draft.model.modelID}`,
+        locale: input.draft.locale,
         variant: input.draft.variant,
         parts: images.map((attachment) => ({
           id: Identifier.ascending("part"),
@@ -153,6 +155,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
       sessionID: input.draft.sessionID,
       agent: input.draft.agent,
       model: input.draft.model,
+      locale: input.draft.locale,
       messageID,
       parts: requestParts,
       variant: input.draft.variant,
@@ -389,6 +392,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       modelID: currentModel.id,
       providerID: currentModel.provider.id,
     }
+    const locale = language.intl()
     const agent = currentAgent.name
     const context = prompt.context.items().slice()
     const draft: FollowupDraft = {
@@ -398,6 +402,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       context,
       agent,
       model,
+      locale,
       variant,
     }
 
@@ -462,6 +467,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             arguments: args.join(" "),
             agent,
             model: `${model.providerID}/${model.modelID}`,
+            locale,
             variant,
             parts: images.map((attachment) => ({
               id: Identifier.ascending("part"),

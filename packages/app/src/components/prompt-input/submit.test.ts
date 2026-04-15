@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
 
 let createPromptSubmit: typeof import("./submit").createPromptSubmit
+let sendFollowupDraft: typeof import("./submit").sendFollowupDraft
 
 const createdClients: string[] = []
 const createdSessions: string[] = []
@@ -20,12 +21,24 @@ const storedSessions: Record<string, Array<{ id: string; title?: string }>> = {}
 const promoted: Array<{ directory: string; sessionID: string }> = []
 const sentShell: string[] = []
 const syncedDirectories: string[] = []
+const promptAsyncCalls: Array<Record<string, unknown>> = []
+const commandCalls: Array<Record<string, unknown>> = []
+const commandDefinitions: Array<{ name: string }> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 
-const promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
+let currentIntl = "zh-Hans"
+let promptValue: Prompt = [{ type: "text", content: "ls", start: 0, end: 2 }]
+
+const waitForCall = async (check: () => boolean) => {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (check()) return
+    await Promise.resolve()
+  }
+  throw new Error("timed out waiting for async request")
+}
 
 const clientFor = (directory: string) => {
   createdClients.push(directory)
@@ -45,8 +58,14 @@ const clientFor = (directory: string) => {
         return { data: undefined }
       },
       prompt: async () => ({ data: undefined }),
-      promptAsync: async () => ({ data: undefined }),
-      command: async () => ({ data: undefined }),
+      promptAsync: async (input: Record<string, unknown>) => {
+        promptAsyncCalls.push(input)
+        return { data: undefined }
+      },
+      command: async (input: Record<string, unknown>) => {
+        commandCalls.push(input)
+        return { data: undefined }
+      },
       abort: async () => ({ data: undefined }),
     },
     worktree: {
@@ -140,7 +159,7 @@ beforeAll(async () => {
 
   mock.module("@/context/sync", () => ({
     useSync: () => ({
-      data: { command: [] },
+      data: { command: commandDefinitions },
       session: {
         optimistic: {
           add: (value: {
@@ -194,11 +213,13 @@ beforeAll(async () => {
   mock.module("@/context/language", () => ({
     useLanguage: () => ({
       t: (key: string) => key,
+      intl: () => currentIntl,
     }),
   }))
 
   const mod = await import("./submit")
   createPromptSubmit = mod.createPromptSubmit
+  sendFollowupDraft = mod.sendFollowupDraft
 })
 
 beforeEach(() => {
@@ -208,11 +229,16 @@ beforeEach(() => {
   optimistic.length = 0
   optimisticSeeded.length = 0
   promoted.length = 0
+  promptAsyncCalls.length = 0
+  commandCalls.length = 0
+  commandDefinitions.length = 0
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
   variant = undefined
+  currentIntl = "zh-Hans"
+  promptValue = [{ type: "text", content: "ls", start: 0, end: 2 }]
   for (const key of Object.keys(storedSessions)) delete storedSessions[key]
 })
 
@@ -341,5 +367,117 @@ describe("prompt submit worktree selection", () => {
 
     expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
     expect(optimisticSeeded).toEqual([true])
+  })
+
+  test("sends locale with promptAsync requests", async () => {
+    params = { id: "session-existing" }
+    currentIntl = "pt-BR"
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    expect(promptAsyncCalls.at(-1)?.locale).toBe("pt-BR")
+  })
+
+  test("queues locale on followup drafts", async () => {
+    params = { id: "session-existing" }
+    const queued: Array<Record<string, unknown>> = []
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      shouldQueue: () => true,
+      onQueue: (draft) => queued.push(draft as unknown as Record<string, unknown>),
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(queued.at(-1)?.locale).toBe("zh-Hans")
+  })
+
+  test("sends locale with direct slash-command submits", async () => {
+    params = { id: "session-existing" }
+    currentIntl = "nb-NO"
+    commandDefinitions.push({ name: "summarize" })
+    promptValue = [{ type: "text", content: "/summarize this", start: 0, end: 15 }]
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => commandCalls.length > 0)
+
+    expect(commandCalls.at(-1)?.locale).toBe("nb-NO")
+  })
+
+  test("sends locale with slash-command followups", async () => {
+    await sendFollowupDraft({
+      client: clientFor("/repo/main") as any,
+      globalSync: {
+        child: () => [{}, () => undefined],
+      } as any,
+      sync: {
+        data: { command: [{ name: "summarize" }] },
+        session: {
+          optimistic: {
+            add: () => undefined,
+            remove: () => undefined,
+          },
+        },
+      } as any,
+      draft: {
+        sessionID: "session-1",
+        sessionDirectory: "/repo/main",
+        prompt: [{ type: "text", content: "/summarize this", start: 0, end: 15 }],
+        context: [],
+        agent: "agent",
+        model: { providerID: "provider", modelID: "model" },
+        locale: "zh-Hans",
+      },
+    })
+
+    expect(commandCalls.at(-1)?.locale).toBe("zh-Hans")
   })
 })

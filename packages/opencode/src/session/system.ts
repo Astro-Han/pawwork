@@ -34,7 +34,7 @@ export namespace SystemPrompt {
   }
 
   export interface Interface {
-    readonly environment: (model: Provider.Model) => string[]
+    readonly environment: (model: Provider.Model, locale?: string) => string[]
     readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
   }
 
@@ -46,20 +46,24 @@ export namespace SystemPrompt {
       const skill = yield* Skill.Service
 
       return Service.of({
-        environment(model) {
+        environment(model, locale) {
           const project = Instance.project
+          const env = [
+            `You are powered by the model named ${model.api.id}. The exact model ID is ${model.providerID}/${model.api.id}`,
+            `Here is some useful information about the environment you are running in:`,
+            `<env>`,
+            `  Working directory: ${Instance.directory}`,
+            `  Workspace root folder: ${Instance.worktree}`,
+            `  Is directory a git repo: ${project.vcs === "git" ? "yes" : "no"}`,
+            `  Platform: ${process.platform}`,
+            `  Today's date: ${new Date().toDateString()}`,
+          ]
+
+          if (locale) env.push(`  User locale: ${locale}`)
+
+          env.push(`</env>`)
           return [
-            [
-              `You are powered by the model named ${model.api.id}. The exact model ID is ${model.providerID}/${model.api.id}`,
-              `Here is some useful information about the environment you are running in:`,
-              `<env>`,
-              `  Working directory: ${Instance.directory}`,
-              `  Workspace root folder: ${Instance.worktree}`,
-              `  Is directory a git repo: ${project.vcs === "git" ? "yes" : "no"}`,
-              `  Platform: ${process.platform}`,
-              `  Today's date: ${new Date().toDateString()}`,
-              `</env>`,
-            ].join("\n"),
+            env.join("\n"),
           ]
         },
 

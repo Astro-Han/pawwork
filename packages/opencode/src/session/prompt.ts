@@ -943,6 +943,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             modelID: model.modelID,
             variant,
           },
+          locale: input.locale,
           system: input.system,
           format: input.format,
         }
@@ -1468,7 +1469,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
               const [skills, env, instructions, modelMsgs] = yield* Effect.all([
                 sys.skills(agent),
-                Effect.sync(() => sys.environment(model)),
+                Effect.sync(() => sys.environment(model, lastUser.locale)),
                 instruction.system().pipe(Effect.orDie),
                 MessageV2.toModelMessagesEffect(msgs, model),
               ])
@@ -1645,6 +1646,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           model: userModel,
           agent: userAgent,
           parts,
+          locale: input.locale,
           variant: input.variant,
         })
         yield* bus.publish(Command.Event.Executed, {
@@ -1715,6 +1717,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
       .optional(),
     agent: z.string().optional(),
+    locale: z.string().optional(),
     noReply: z.boolean().optional(),
     tools: z
       .record(z.string(), z.boolean())
@@ -1815,6 +1818,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     sessionID: SessionID.zod,
     agent: z.string().optional(),
     model: z.string().optional(),
+    locale: z.string().optional(),
     arguments: z.string(),
     command: z.string(),
     variant: z.string().optional(),

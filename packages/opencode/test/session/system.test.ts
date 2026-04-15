@@ -7,6 +7,33 @@ import { SystemPrompt } from "../../src/session/system"
 import { tmpdir } from "../fixture/fixture"
 
 describe("session.system", () => {
+  test("environment includes user locale only when provided", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = {
+          providerID: "openai",
+          api: { id: "gpt-5.2" },
+        } as any
+
+        const envWithLocale = await Effect.gen(function* () {
+          const svc = yield* SystemPrompt.Service
+          return svc.environment(model, "zh-Hans").join("\n")
+        }).pipe(Effect.provide(SystemPrompt.defaultLayer), Effect.runPromise)
+
+        const envWithoutLocale = await Effect.gen(function* () {
+          const svc = yield* SystemPrompt.Service
+          return svc.environment(model).join("\n")
+        }).pipe(Effect.provide(SystemPrompt.defaultLayer), Effect.runPromise)
+
+        expect(envWithLocale).toContain("User locale: zh-Hans")
+        expect(envWithoutLocale).not.toContain("User locale:")
+      },
+    })
+  })
+
   test("skills output is sorted by name and stable across calls", async () => {
     await using tmp = await tmpdir({
       git: true,
