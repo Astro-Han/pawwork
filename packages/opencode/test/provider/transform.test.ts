@@ -292,6 +292,22 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
+
+  test("gpt-5 compatible proxies should not inject reasoningSummary", () => {
+    const model = {
+      ...createGpt5Model("gpt-5"),
+      id: "custom-provider/gpt-5",
+      providerID: "custom-provider",
+      api: {
+        id: "gpt-5",
+        url: "https://api.custom.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    }
+    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
+    expect(result.reasoningEffort).toBe("medium")
+    expect(result.reasoningSummary).toBeUndefined()
+  })
 })
 
 describe("ProviderTransform.options - gateway", () => {
@@ -2404,6 +2420,7 @@ describe("ProviderTransform.variants", () => {
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
     })
+
   })
 
   describe("@ai-sdk/azure", () => {
