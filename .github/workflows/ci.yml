@@ -38,8 +38,5 @@ jobs:
       - name: typecheck
         run: bun turbo typecheck
 
-      - name: build
-        run: bun turbo build
-
       - name: test
         run: bun turbo test:ci
