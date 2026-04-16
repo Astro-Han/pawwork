@@ -986,6 +986,87 @@ test("reinstalls when declared config dependencies are missing from node_modules
   }
 })
 
+test("Instance.disposeAll waits for background config dependency installs to finish", async () => {
+  await using tmp = await tmpdir<string>({
+    init: async (dir) => {
+      const cfg = path.join(dir, "configdir")
+      await fs.mkdir(cfg, { recursive: true })
+      return cfg
+    },
+  })
+
+  const prev = process.env.OPENCODE_CONFIG_DIR
+  process.env.OPENCODE_CONFIG_DIR = tmp.extra
+  const secondDir = path.join(tmp.path, "other-config")
+  await fs.mkdir(secondDir, { recursive: true })
+
+  const platform = process.platform
+  Object.defineProperty(process, "platform", {
+    value: "win32",
+    configurable: true,
+  })
+
+  let release = () => {}
+  let started = () => {}
+  const installing = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const ready = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const online = spyOn(Network, "online").mockReturnValue(false)
+  const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+    if (path.normalize(dir) === path.normalize(tmp.extra)) {
+      started()
+      await installing
+    }
+    await writeMockConfigInstall(dir)
+  })
+
+  let disposing: Promise<void> | undefined
+  let waited = false
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.get()
+      },
+    })
+    await ready
+
+    let done = false
+    disposing = Instance.disposeAll().then(() => {
+      done = true
+    })
+    const afterDispose = disposing.then(() =>
+      Config.installDependencies(secondDir, {
+        waitTick: () => {
+          waited = true
+        },
+      }),
+    )
+    await Bun.sleep(50)
+
+    expect(done).toBe(false)
+    expect(waited).toBe(false)
+
+    release()
+    await afterDispose
+    expect(done).toBe(true)
+  } finally {
+    release()
+    await disposing?.catch(() => undefined)
+    Object.defineProperty(process, "platform", {
+      value: platform,
+      configurable: true,
+    })
+    online.mockRestore()
+    install.mockRestore()
+    if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = prev
+  }
+})
+
 test("resolves scoped npm plugins in config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
