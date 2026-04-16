@@ -23,6 +23,7 @@ import { Filesystem } from "../../src/util/filesystem"
 import * as Network from "../../src/util/network"
 import { Npm } from "../../src/npm"
 import { writeMockConfigInstall } from "../shared/mock-npm-install"
+import { Installation } from "../../src/installation"
 
 const emptyAccount = Layer.mock(Account.Service)({
   active: () => Effect.succeed(Option.none()),
@@ -864,7 +865,7 @@ test("dedupes concurrent config dependency installs for the same dir", async () 
     run.mockRestore()
   }
 
-  expect(calls).toBe(2)
+  expect(calls).toBe(1)
   expect(ticks.length).toBeGreaterThan(0)
   expect(await Filesystem.exists(path.join(dir, "package.json"))).toBe(true)
 })
@@ -922,6 +923,34 @@ test("serializes config dependency installs across dirs", async () => {
 
   expect(calls).toBe(2)
   expect(peak).toBe(1)
+})
+
+test("skips reinstall when config dependencies are already bootstrapped", async () => {
+  await using tmp = await tmpdir()
+  const dir = path.join(tmp.path, "configdir")
+  await fs.mkdir(dir, { recursive: true })
+  const target = Installation.isLocal() ? "*" : Installation.VERSION
+  await Filesystem.writeJson(path.join(dir, "package.json"), {
+    dependencies: {
+      "@opencode-ai/plugin": target,
+    },
+  })
+  await Filesystem.write(
+    path.join(dir, ".gitignore"),
+    ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+  )
+  await writeMockConfigInstall(dir)
+
+  const install = spyOn(Npm, "install").mockImplementation(async () => {
+    throw new Error("should not reinstall bootstrapped config dependencies")
+  })
+
+  try {
+    await expect(Config.installDependencies(dir)).resolves.toBeUndefined()
+    expect(install).not.toHaveBeenCalled()
+  } finally {
+    install.mockRestore()
+  }
 })
 
 test("resolves scoped npm plugins in config", async () => {

@@ -144,6 +144,10 @@ export namespace Config {
     waitTick?: (input: { dir: string; attempt: number; delay: number; waited: number }) => void | Promise<void>
   }
 
+  type Package = {
+    dependencies?: Record<string, string>
+  }
+
   export async function installDependencies(dir: string, input?: InstallInput) {
     if (!(await isWritable(dir))) return
     const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
@@ -160,24 +164,30 @@ export namespace Config {
     input?.signal?.throwIfAborted()
 
     const pkg = path.join(dir, "package.json")
+    const plugin = path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json")
     const target = Installation.isLocal() ? "*" : Installation.VERSION
-    const json = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => ({
+    const json = await Filesystem.readJson<Package>(pkg).catch(() => ({
       dependencies: {},
     }))
+    const hasDep = json.dependencies?.["@opencode-ai/plugin"] === target
     json.dependencies = {
       ...json.dependencies,
       "@opencode-ai/plugin": target,
     }
-    await Filesystem.writeJson(pkg, json)
 
     const gitignore = path.join(dir, ".gitignore")
     const ignore = await Filesystem.exists(gitignore)
+    const hasPkg = await Filesystem.exists(plugin)
+    if (!hasDep) {
+      await Filesystem.writeJson(pkg, json)
+    }
     if (!ignore) {
       await Filesystem.write(
         gitignore,
         ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
       )
     }
+    if (hasDep && ignore && hasPkg) return
     await Npm.install(dir)
   }
 
