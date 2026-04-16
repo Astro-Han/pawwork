@@ -410,8 +410,8 @@ export const dict = {
   "error.page.action.checking": "확인 중...",
   "error.page.action.checkUpdates": "업데이트 확인",
   "error.page.action.updateTo": "{{version}} 버전으로 업데이트",
-  "error.page.report.prefix": "이 오류를 OpenCode 팀에 제보해 주세요: ",
-  "error.page.report.discord": "Discord",
+  "error.page.report.prefix": "이 오류를 PawWork 팀에 제보해 주세요: ",
+  "error.page.report.github": "GitHub",
   "error.page.version": "버전: {{version}}",
   "error.dev.rootNotFound":
     "루트 요소를 찾을 수 없습니다. index.html에 추가하는 것을 잊으셨나요? 또는 id 속성의 철자가 틀렸을 수 있습니다.",

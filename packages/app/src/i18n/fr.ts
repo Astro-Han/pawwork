@@ -411,8 +411,8 @@ export const dict = {
   "error.page.action.checking": "Vérification...",
   "error.page.action.checkUpdates": "Vérifier les mises à jour",
   "error.page.action.updateTo": "Mettre à jour vers {{version}}",
-  "error.page.report.prefix": "Veuillez signaler cette erreur à l'équipe OpenCode",
-  "error.page.report.discord": "sur Discord",
+  "error.page.report.prefix": "Veuillez signaler cette erreur à l'équipe PawWork",
+  "error.page.report.github": "sur GitHub",
   "error.page.version": "Version : {{version}}",
   "error.dev.rootNotFound":
     "Élément racine introuvable. Avez-vous oublié de l'ajouter à votre index.html ? Ou peut-être que l'attribut id est mal orthographié ?",
