@@ -208,7 +208,7 @@ export namespace ToolRegistry {
             const spec = process.platform === "win32" ? match : pathToFileURL(match).href
             if (!depsReady && (yield* Effect.promise(() => needsConfigDependencies(text, path.dirname(path.dirname(match)))))) {
               depsReady = true
-              yield* config.waitForDependencies()
+              yield* config.waitForDependencies().pipe(Effect.orDie)
             }
             const mod = yield* Effect.promise(() => import(spec))
             for (const [id, def] of Object.entries<ToolDefinition>(mod)) {
