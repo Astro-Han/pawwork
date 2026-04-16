@@ -6,6 +6,8 @@ import { writeMockConfigInstall } from "../shared/mock-npm-install"
 import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Npm } from "../../src/npm"
+import { Config } from "../../src/config/config"
+import { Global } from "../../src/global"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -193,6 +195,74 @@ describe("tool.registry", () => {
       ).toBe(true)
     } finally {
       install.mockRestore()
+    }
+  })
+
+  test("does not wait for unrelated global config installs before importing local tools with bare imports", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const toolsDir = path.join(dir, ".opencode", "tools")
+        await fs.mkdir(toolsDir, { recursive: true })
+
+        await Bun.write(
+          path.join(toolsDir, "late.ts"),
+          [
+            "import { ready } from 'late-dep'",
+            "export default {",
+            "  description: 'tool that only needs local config deps',",
+            "  args: {},",
+            "  execute: async () => ready,",
+            "}",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    const prevGlobal = Global.Path.config
+    let globalDir = ""
+    let release = () => {}
+    let started = () => {}
+    let idsTask: Promise<string[]> | undefined
+    const installing = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const ready = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+      if (path.normalize(dir) === path.normalize(globalDir)) {
+        started()
+        await installing
+      }
+      await writeMockConfigInstall(dir)
+    })
+
+    try {
+      globalDir = path.join(tmp.path, "global")
+      await fs.mkdir(globalDir, { recursive: true })
+      ;(Global.Path as { config: string }).config = globalDir
+      await Config.invalidate(true)
+
+      idsTask = Instance.provide({
+        directory: tmp.path,
+        fn: async () => ToolRegistry.ids(),
+      })
+
+      await ready
+
+      const result = await Promise.race([
+        idsTask.then((ids) => (ids.includes("late") ? "done" : "missing")),
+        Bun.sleep(200).then(() => "timeout"),
+      ])
+
+      expect(result).toBe("done")
+    } finally {
+      release()
+      await idsTask?.catch(() => undefined)
+      install.mockRestore()
+      ;(Global.Path as { config: string }).config = prevGlobal
+      await Config.invalidate(true)
     }
   })
 

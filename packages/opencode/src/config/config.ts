@@ -1073,7 +1073,10 @@ export namespace Config {
   type State = {
     config: Info
     directories: string[]
-    deps: Fiber.Fiber<Exit.Exit<void, unknown>, never>[]
+    deps: {
+      dir: string
+      fiber: Fiber.Fiber<Exit.Exit<void, unknown>, never>
+    }[]
     consoleState: ConsoleState
   }
 
@@ -1086,7 +1089,7 @@ export namespace Config {
     readonly updateGlobal: (config: Info) => Effect.Effect<Info>
     readonly invalidate: (wait?: boolean) => Effect.Effect<void>
     readonly directories: () => Effect.Effect<string[]>
-    readonly waitForDependencies: () => Effect.Effect<void, unknown>
+    readonly waitForDependencies: (directories?: string[]) => Effect.Effect<void, unknown>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
@@ -1346,10 +1349,12 @@ export namespace Config {
                 ).pipe(Effect.onInterrupt(() => Effect.sync(() => controller.abort()))),
               ).pipe(
                 Effect.flatMap((lease) =>
-                  Effect.gen(function* () {
-                    input?.signal?.throwIfAborted()
-                    yield* install(dir).pipe(Effect.uninterruptible)
-                  }).pipe(
+                  restore(
+                    Effect.gen(function* () {
+                      input?.signal?.throwIfAborted()
+                      yield* install(dir)
+                    }),
+                  ).pipe(
                     Effect.ensuring(Effect.promise(() => lease.release())),
                   ),
                 ),
@@ -1444,7 +1449,7 @@ export namespace Config {
             log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
           }
 
-          const deps: Fiber.Fiber<Exit.Exit<void, unknown>, never>[] = []
+          const deps: State["deps"] = []
 
           for (const dir of unique(directories)) {
             if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
@@ -1469,7 +1474,7 @@ export namespace Config {
               ),
               Effect.forkScoped,
             )
-            deps.push(dep)
+            deps.push({ dir, fiber: dep })
 
             result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => loadCommand(dir)))
             result.agent = mergeDeep(result.agent, yield* Effect.promise(() => loadAgent(dir)))
@@ -1604,9 +1609,14 @@ export namespace Config {
           return yield* InstanceState.use(state, (s) => s.consoleState)
         })
 
-        const waitForDependencies = Effect.fn("Config.waitForDependencies")(function* () {
+        const waitForDependencies = Effect.fn("Config.waitForDependencies")(function* (directories?: string[]) {
+          const filter = directories ? new Set(directories.map((dir) => Filesystem.resolve(dir))) : undefined
           yield* InstanceState.useEffect(state, (s) =>
-            Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(
+            Effect.forEach(
+              s.deps.filter((dep) => !filter || filter.has(Filesystem.resolve(dep.dir))),
+              ({ fiber }) => Fiber.join(fiber),
+              { concurrency: "unbounded" },
+            ).pipe(
               Effect.flatMap((exits) => Effect.forEach(exits, (exit) => exit, { discard: true })),
             ),
           )
@@ -1710,7 +1720,7 @@ export namespace Config {
     return runPromise((svc) => svc.directories())
   }
 
-  export async function waitForDependencies() {
-    return runPromise((svc) => svc.waitForDependencies())
+  export async function waitForDependencies(directories?: string[]) {
+    return runPromise((svc) => svc.waitForDependencies(directories))
   }
 }
