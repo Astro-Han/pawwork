@@ -86,6 +86,30 @@ export namespace Flock {
     })
   }
 
+  function retryableReleaseError(err: unknown) {
+    const errCode = code(err)
+    return errCode === "EBUSY" || errCode === "ENOTEMPTY" || errCode === "EPERM"
+  }
+
+  async function removeLockDir(lockDir: string) {
+    let delay = 10
+
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rm(lockDir, { recursive: true, force: true })
+        return
+      } catch (err) {
+        if (!retryableReleaseError(err) || attempt >= 4) {
+          throw err
+        }
+      }
+
+      // Windows can briefly report the lock dir as still in use after heartbeat cleanup.
+      await sleep(delay)
+      delay *= 2
+    }
+  }
+
   function jitter(ms: number) {
     const j = Math.floor(ms * 0.3)
     const d = Math.floor(Math.random() * (2 * j + 1)) - j
@@ -247,7 +271,7 @@ export namespace Flock {
         throw new Error("Refusing to release: lock token mismatch (not the owner).")
       }
 
-      await rm(lockDir, { recursive: true, force: true })
+      await removeLockDir(lockDir)
     }
 
     return {
