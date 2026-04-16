@@ -972,6 +972,68 @@ test("skips reinstall when config dependencies are already bootstrapped", async 
   }
 })
 
+test("Instance.disposeAll interrupts Config.get background installs for global config on Windows", async () => {
+  await using tmp = await tmpdir({ git: true })
+
+  const prevGlobal = Global.Path.config
+  let globalDir = ""
+
+  const platform = process.platform
+  Object.defineProperty(process, "platform", {
+    value: "win32",
+    configurable: true,
+  })
+
+  let release = () => {}
+  let started = () => {}
+  const installing = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const ready = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const online = spyOn(Network, "online").mockReturnValue(false)
+  const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+    if (path.normalize(dir) === path.normalize(globalDir)) {
+      started()
+      await installing
+    }
+    await writeMockConfigInstall(dir)
+  })
+
+  try {
+    globalDir = path.join(tmp.path, "global")
+    await fs.mkdir(globalDir, { recursive: true })
+    ;(Global.Path as { config: string }).config = globalDir
+    await Config.invalidate()
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.get()
+      },
+    })
+    await ready
+
+    const dispose = Promise.race([
+      Instance.disposeAll().then(() => "done" as const),
+      Bun.sleep(200).then(() => "timeout" as const),
+    ])
+
+    expect(await dispose).toBe("done")
+  } finally {
+    release()
+    Object.defineProperty(process, "platform", {
+      value: platform,
+      configurable: true,
+    })
+    online.mockRestore()
+    install.mockRestore()
+    ;(Global.Path as { config: string }).config = prevGlobal
+    await Config.invalidate()
+  }
+})
+
 test("Instance.disposeAll interrupts waiting background config installs without leaking Windows lock", async () => {
   await using tmp = await tmpdir<string>({
     init: async (dir) => {

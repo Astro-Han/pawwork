@@ -191,7 +191,7 @@ export namespace ToolRegistry {
           )
           const cfg = yield* config.get()
           const rules = Permission.fromConfig(cfg.permission ?? {})
-          let depsReady = false
+          const readyDirs = new Set<string>()
           for (const match of matches) {
             const namespace = path.basename(match, path.extname(match))
             const text = yield* Effect.promise(() => Bun.file(match).text())
@@ -206,9 +206,10 @@ export namespace ToolRegistry {
             ])
             if (ids.length && ids.every((id) => disabled.has(id))) continue
             const spec = process.platform === "win32" ? match : pathToFileURL(match).href
-            if (!depsReady && (yield* Effect.promise(() => needsConfigDependencies(text, path.dirname(path.dirname(match)))))) {
-              depsReady = true
-              yield* config.waitForDependencies().pipe(Effect.orDie)
+            const toolDir = path.dirname(path.dirname(match))
+            if (!readyDirs.has(toolDir) && (yield* Effect.promise(() => needsConfigDependencies(text, toolDir)))) {
+              readyDirs.add(toolDir)
+              yield* config.waitForDependencies([toolDir]).pipe(Effect.orDie)
             }
             const mod = yield* Effect.promise(() => import(spec))
             for (const [id, def] of Object.entries<ToolDefinition>(mod)) {
