@@ -166,12 +166,15 @@ export namespace Config {
     const pkg = path.join(dir, "package.json")
     const plugin = path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json")
     const target = Installation.isLocal() ? "*" : Installation.VERSION
-    const json = await Filesystem.readJson<Package>(pkg).catch(() => ({
-      dependencies: {},
-    }))
-    const hasDep = json.dependencies?.["@opencode-ai/plugin"] === target
+    const json = await Filesystem.readJson<Package>(pkg).catch(
+      (): Package => ({
+        dependencies: {},
+      }),
+    )
+    const dependencies: Record<string, string> = json.dependencies ?? {}
+    const hasDep = dependencies["@opencode-ai/plugin"] === target
     json.dependencies = {
-      ...json.dependencies,
+      ...dependencies,
       "@opencode-ai/plugin": target,
     }
 
