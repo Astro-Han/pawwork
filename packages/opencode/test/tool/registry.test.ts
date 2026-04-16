@@ -8,6 +8,7 @@ import { ToolRegistry } from "../../src/tool/registry"
 import { Npm } from "../../src/npm"
 import { Config } from "../../src/config/config"
 import { Global } from "../../src/global"
+import { withTimeout } from "../../src/util/timeout"
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -251,12 +252,7 @@ describe("tool.registry", () => {
 
       await ready
 
-      const result = await Promise.race([
-        idsTask.then((ids) => (ids.includes("late") ? "done" : "missing")),
-        Bun.sleep(200).then(() => "timeout"),
-      ])
-
-      expect(result).toBe("done")
+      await expect(withTimeout(idsTask, 2_000)).resolves.toContain("late")
     } finally {
       release()
       await idsTask?.catch(() => undefined)
