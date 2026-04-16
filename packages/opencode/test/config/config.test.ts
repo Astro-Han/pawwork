@@ -24,6 +24,7 @@ import * as Network from "../../src/util/network"
 import { Npm } from "../../src/npm"
 import { writeMockConfigInstall } from "../shared/mock-npm-install"
 import { Installation } from "../../src/installation"
+import { Flock } from "../../src/util/flock"
 
 const emptyAccount = Layer.mock(Account.Service)({
   active: () => Effect.succeed(Option.none()),
@@ -763,9 +764,16 @@ test("does not try to install dependencies in read-only OPENCODE_CONFIG_DIR", as
   })
 
   const prev = process.env.OPENCODE_CONFIG_DIR
-  process.env.OPENCODE_CONFIG_DIR = tmp.extra
+  const prevGlobal = Global.Path.config
+  let globalDir = ""
 
   try {
+    globalDir = path.join(tmp.path, "global")
+    await fs.mkdir(globalDir, { recursive: true })
+    process.env.OPENCODE_CONFIG_DIR = tmp.extra
+    ;(Global.Path as { config: string }).config = globalDir
+    await Config.invalidate()
+
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
@@ -775,6 +783,8 @@ test("does not try to install dependencies in read-only OPENCODE_CONFIG_DIR", as
   } finally {
     if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = prev
+    ;(Global.Path as { config: string }).config = prevGlobal
+    await Config.invalidate()
   }
 })
 
@@ -788,11 +798,18 @@ test("installs dependencies in writable OPENCODE_CONFIG_DIR", async () => {
   })
 
   const prev = process.env.OPENCODE_CONFIG_DIR
-  process.env.OPENCODE_CONFIG_DIR = tmp.extra
+  const prevGlobal = Global.Path.config
+  let globalDir = ""
   const online = spyOn(Network, "online").mockReturnValue(false)
   const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
 
   try {
+    globalDir = path.join(tmp.path, "global")
+    await fs.mkdir(globalDir, { recursive: true })
+    process.env.OPENCODE_CONFIG_DIR = tmp.extra
+    ;(Global.Path as { config: string }).config = globalDir
+    await Config.invalidate()
+
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
@@ -809,6 +826,8 @@ test("installs dependencies in writable OPENCODE_CONFIG_DIR", async () => {
     install.mockRestore()
     if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = prev
+    ;(Global.Path as { config: string }).config = prevGlobal
+    await Config.invalidate()
   }
 })
 
@@ -953,7 +972,7 @@ test("skips reinstall when config dependencies are already bootstrapped", async 
   }
 })
 
-test("Instance.disposeAll waits for background config dependency installs to finish", async () => {
+test("Instance.disposeAll interrupts waiting background config installs without leaking Windows lock", async () => {
   await using tmp = await tmpdir<string>({
     init: async (dir) => {
       const cfg = path.join(dir, "configdir")
@@ -963,8 +982,112 @@ test("Instance.disposeAll waits for background config dependency installs to fin
   })
 
   const prev = process.env.OPENCODE_CONFIG_DIR
-  process.env.OPENCODE_CONFIG_DIR = tmp.extra
+  const prevGlobal = Global.Path.config
   const secondDir = path.join(tmp.path, "other-config")
+  let globalDir = ""
+
+  const platform = process.platform
+  Object.defineProperty(process, "platform", {
+    value: "win32",
+    configurable: true,
+  })
+
+  let release = () => {}
+  let started = () => {}
+  let waiting = () => {}
+  const installing = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const ready = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const waitStarted = new Promise<void>((resolve) => {
+    waiting = resolve
+  })
+  const online = spyOn(Network, "online").mockReturnValue(false)
+  let secondCalls = 0
+  const originalAcquire = Flock.acquire
+  let configAcquireCalls = 0
+  const acquire = spyOn(Flock, "acquire").mockImplementation(async (key, input = {}) => {
+    if (key === "config-install:win32") {
+      configAcquireCalls += 1
+      if (configAcquireCalls > 1) {
+        const onWait = input.onWait
+        input = {
+          ...input,
+          onWait: async (tick) => {
+            waiting()
+            await onWait?.(tick)
+          },
+        }
+      }
+    }
+    return originalAcquire(key, input)
+  })
+  const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+    if (path.normalize(dir) === path.normalize(tmp.extra)) {
+      started()
+      await installing
+    }
+    if (path.normalize(dir) === path.normalize(secondDir)) {
+      secondCalls += 1
+    }
+    await writeMockConfigInstall(dir)
+  })
+
+  try {
+    globalDir = path.join(tmp.path, "global")
+    process.env.OPENCODE_CONFIG_DIR = secondDir
+    await fs.mkdir(globalDir, { recursive: true })
+    ;(Global.Path as { config: string }).config = globalDir
+    await Config.invalidate()
+    await fs.mkdir(secondDir, { recursive: true })
+
+    const first = Config.installDependencies(tmp.extra)
+    await ready
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.get()
+      },
+    })
+    await waitStarted
+    const dispose = Promise.race([
+      Instance.disposeAll().then(() => "done" as const),
+      Bun.sleep(200).then(() => "timeout" as const),
+    ])
+
+    expect(await dispose).toBe("done")
+
+    release()
+    await first
+    await Bun.sleep(50)
+    expect(secondCalls).toBe(0)
+
+    await Config.installDependencies(secondDir)
+    expect(secondCalls).toBe(1)
+  } finally {
+    release()
+    Object.defineProperty(process, "platform", {
+      value: platform,
+      configurable: true,
+    })
+    online.mockRestore()
+    acquire.mockRestore()
+    install.mockRestore()
+    if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = prev
+    ;(Global.Path as { config: string }).config = prevGlobal
+    await Config.invalidate()
+  }
+})
+
+test("config dependency install aborts while waiting for Windows lock", async () => {
+  await using tmp = await tmpdir()
+  const firstDir = path.join(tmp.path, "a")
+  const secondDir = path.join(tmp.path, "b")
+  await fs.mkdir(firstDir, { recursive: true })
   await fs.mkdir(secondDir, { recursive: true })
 
   const platform = process.platform
@@ -982,55 +1105,43 @@ test("Instance.disposeAll waits for background config dependency installs to fin
     started = resolve
   })
   const online = spyOn(Network, "online").mockReturnValue(false)
+  let secondCalls = 0
   const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
-    if (path.normalize(dir) === path.normalize(tmp.extra)) {
+    if (path.normalize(dir) === path.normalize(firstDir)) {
       started()
       await installing
+    }
+    if (path.normalize(dir) === path.normalize(secondDir)) {
+      secondCalls += 1
     }
     await writeMockConfigInstall(dir)
   })
 
-  let disposing: Promise<void> | undefined
-  let waited = false
   try {
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        await Config.get()
-      },
-    })
+    const first = Config.installDependencies(firstDir)
     await ready
 
-    let done = false
-    disposing = Instance.disposeAll().then(() => {
-      done = true
-    })
-    const afterDispose = disposing.then(() =>
+    const controller = new AbortController()
+    await expect(
       Config.installDependencies(secondDir, {
+        signal: controller.signal,
         waitTick: () => {
-          waited = true
+          controller.abort(new Error("stop waiting"))
         },
       }),
-    )
-    await Bun.sleep(50)
-
-    expect(done).toBe(false)
-    expect(waited).toBe(false)
+    ).rejects.toThrow("stop waiting")
 
     release()
-    await afterDispose
-    expect(done).toBe(true)
+    await first
+    expect(secondCalls).toBe(0)
   } finally {
     release()
-    await disposing?.catch(() => undefined)
     Object.defineProperty(process, "platform", {
       value: platform,
       configurable: true,
     })
     online.mockRestore()
     install.mockRestore()
-    if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
-    else process.env.OPENCODE_CONFIG_DIR = prev
   }
 })
 

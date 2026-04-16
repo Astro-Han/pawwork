@@ -22,7 +22,7 @@ import { Instance, type InstanceContext } from "../project/instance"
 import { LSPServer } from "../lsp/server"
 import { Installation } from "@/installation"
 import { ConfigMarkdown } from "./markdown"
-import { constants, existsSync } from "fs"
+import { existsSync } from "fs"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
@@ -35,7 +35,7 @@ import type { ConsoleState } from "./console-state"
 import { AppFileSystem } from "@/filesystem"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
-import { Duration, Effect, Layer, Option, Context } from "effect"
+import { Duration, Effect, Layer, Option, Context, Exit, Fiber } from "effect"
 import { Flock } from "@/util/flock"
 import { isPathPluginSpec, parsePluginSpecifier, resolvePathPluginTarget } from "@/plugin/shared"
 import { Npm } from "@/npm"
@@ -148,58 +148,7 @@ export namespace Config {
   }
 
   export async function installDependencies(dir: string, input?: InstallInput) {
-    if (!(await isWritable(dir))) return
-    const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
-    await using _ = await Flock.acquire(key, {
-      signal: input?.signal,
-      onWait: (tick) =>
-        input?.waitTick?.({
-          dir,
-          attempt: tick.attempt,
-          delay: tick.delay,
-          waited: tick.waited,
-        }),
-    })
-    input?.signal?.throwIfAborted()
-
-    const pkg = path.join(dir, "package.json")
-    const plugin = path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json")
-    const target = Installation.isLocal() ? "*" : Installation.VERSION
-    const json = await Filesystem.readJson<Package>(pkg).catch(
-      (): Package => ({
-        dependencies: {},
-      }),
-    )
-    const dependencies: Record<string, string> = json.dependencies ?? {}
-    const hasDep = dependencies["@opencode-ai/plugin"] === target
-    json.dependencies = {
-      ...dependencies,
-      "@opencode-ai/plugin": target,
-    }
-
-    const gitignore = path.join(dir, ".gitignore")
-    const ignore = await Filesystem.exists(gitignore)
-    const hasPkg = await Filesystem.exists(plugin)
-    if (!hasDep) {
-      await Filesystem.writeJson(pkg, json)
-    }
-    if (!ignore) {
-      await Filesystem.write(
-        gitignore,
-        ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
-      )
-    }
-    if (hasDep && ignore && hasPkg) return
-    await Npm.install(dir)
-  }
-
-  async function isWritable(dir: string) {
-    try {
-      await fsNode.access(dir, constants.W_OK)
-      return true
-    } catch {
-      return false
-    }
+    return runPromise((svc) => svc.installDependencies(dir, input))
   }
 
   function rel(item: string, patterns: string[]) {
@@ -1124,7 +1073,7 @@ export namespace Config {
   type State = {
     config: Info
     directories: string[]
-    deps: Promise<void>[]
+    deps: Fiber.Fiber<Exit.Exit<void, unknown>, never>[]
     consoleState: ConsoleState
   }
 
@@ -1132,11 +1081,12 @@ export namespace Config {
     readonly get: () => Effect.Effect<Info>
     readonly getGlobal: () => Effect.Effect<Info>
     readonly getConsoleState: () => Effect.Effect<ConsoleState>
+    readonly installDependencies: (dir: string, input?: InstallInput) => Effect.Effect<void, unknown>
     readonly update: (config: Info) => Effect.Effect<void>
     readonly updateGlobal: (config: Info) => Effect.Effect<Info>
     readonly invalidate: (wait?: boolean) => Effect.Effect<void>
     readonly directories: () => Effect.Effect<string[]>
-    readonly waitForDependencies: () => Effect.Effect<void>
+    readonly waitForDependencies: () => Effect.Effect<void, unknown>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
@@ -1333,6 +1283,85 @@ export namespace Config {
           return yield* cachedGlobal
         })
 
+        const install = Effect.fnUntraced(function* (dir: string) {
+          const pkg = path.join(dir, "package.json")
+          const plugin = path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json")
+          const target = Installation.isLocal() ? "*" : Installation.VERSION
+          const json = yield* fs.readJson(pkg).pipe(
+            Effect.catch(() => Effect.succeed({} satisfies Package)),
+            Effect.map((x): Package => (isRecord(x) ? (x as Package) : {})),
+          )
+          const dependencies: Record<string, string> = json.dependencies ?? {}
+          const hasDep = dependencies["@opencode-ai/plugin"] === target
+          const gitignore = path.join(dir, ".gitignore")
+          const ignore = yield* fs.existsSafe(gitignore)
+          const hasPkg = yield* fs.existsSafe(plugin)
+          if (!hasDep) {
+            yield* fs.writeJson(pkg, {
+              ...json,
+              dependencies: {
+                ...dependencies,
+                "@opencode-ai/plugin": target,
+              },
+            })
+          }
+          if (!ignore) {
+            yield* fs.writeFileString(
+              gitignore,
+              ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+            )
+          }
+          if (hasDep && ignore && hasPkg) return
+          yield* Effect.promise(() => Npm.install(dir))
+        })
+
+        const installDependencies = (dir: string, input?: InstallInput) =>
+          Effect.gen(function* () {
+            const writable = yield* fs.access(dir, { writable: true }).pipe(
+              Effect.as(true),
+              Effect.catch(() => Effect.succeed(false)),
+            )
+            if (!writable) return
+
+            const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
+            const controller = new AbortController()
+            const onAbort = () => controller.abort(input?.signal?.reason)
+            if (input?.signal) {
+              if (input.signal.aborted) controller.abort(input.signal.reason)
+              else input.signal.addEventListener("abort", onAbort, { once: true })
+            }
+            yield* Effect.uninterruptibleMask((restore) =>
+              restore(
+                Effect.promise(() =>
+                  Flock.acquire(key, {
+                    signal: controller.signal,
+                    onWait: (tick) =>
+                      input?.waitTick?.({
+                        dir,
+                        attempt: tick.attempt,
+                        delay: tick.delay,
+                        waited: tick.waited,
+                      }),
+                  }),
+                ).pipe(Effect.onInterrupt(() => Effect.sync(() => controller.abort()))),
+              ).pipe(
+                Effect.flatMap((lease) =>
+                  Effect.gen(function* () {
+                    input?.signal?.throwIfAborted()
+                    yield* install(dir).pipe(Effect.uninterruptible)
+                  }).pipe(
+                    Effect.ensuring(Effect.promise(() => lease.release())),
+                  ),
+                ),
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    input?.signal?.removeEventListener("abort", onAbort)
+                  }),
+                ),
+              ),
+            )
+          })
+
         const loadInstanceState = Effect.fnUntraced(function* (ctx: InstanceContext) {
           const auth = yield* authSvc.all().pipe(Effect.orDie)
 
@@ -1415,10 +1444,7 @@ export namespace Config {
             log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
           }
 
-          const deps: Promise<void>[] = []
-          yield* Effect.addFinalizer(() =>
-            Effect.promise(() => Promise.allSettled(deps).then(() => undefined)),
-          )
+          const deps: Fiber.Fiber<Exit.Exit<void, unknown>, never>[] = []
 
           for (const dir of unique(directories)) {
             if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
@@ -1432,10 +1458,17 @@ export namespace Config {
               }
             }
 
-            const dep = installDependencies(dir)
-            void dep.catch((err) => {
-              log.warn("background dependency install failed", { dir, error: err })
-            })
+            const dep = yield* installDependencies(dir).pipe(
+              Effect.exit,
+              Effect.tap((exit) =>
+                Exit.isFailure(exit)
+                  ? Effect.sync(() => {
+                      log.warn("background dependency install failed", { dir, error: String(exit.cause) })
+                    })
+                  : Effect.void,
+              ),
+              Effect.forkScoped,
+            )
             deps.push(dep)
 
             result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => loadCommand(dir)))
@@ -1572,7 +1605,11 @@ export namespace Config {
         })
 
         const waitForDependencies = Effect.fn("Config.waitForDependencies")(function* () {
-          yield* InstanceState.useEffect(state, (s) => Effect.promise(() => Promise.all(s.deps).then(() => undefined)))
+          yield* InstanceState.useEffect(state, (s) =>
+            Effect.forEach(s.deps, Fiber.join, { concurrency: "unbounded" }).pipe(
+              Effect.flatMap((exits) => Effect.forEach(exits, (exit) => exit, { discard: true })),
+            ),
+          )
         })
 
         const update = Effect.fn("Config.update")(function* (config: Info) {
@@ -1627,6 +1664,7 @@ export namespace Config {
           get,
           getGlobal,
           getConsoleState,
+          installDependencies,
           update,
           updateGlobal,
           invalidate,
