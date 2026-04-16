@@ -138,7 +138,7 @@ export const dict = {
   "provider.connect.apiKey.label": "{{provider}} API 金鑰",
   "provider.connect.apiKey.placeholder": "API 金鑰",
   "provider.connect.apiKey.required": "API 金鑰為必填",
-  "provider.connect.opencodeZen.line1": "OpenCode Zen 為你提供一組精選的可靠最佳化模型，用於程式碼代理程式。",
+  "provider.connect.opencodeZen.line1": "OpenCode Zen 為你提供一組精選的可靠最佳化模型，用於 AI 助手。",
   "provider.connect.opencodeZen.line2": "只需一個 API 金鑰，你就能使用 Claude、GPT、Gemini、GLM 等模型。",
   "provider.connect.opencodeZen.visit.prefix": "造訪 ",
   "provider.connect.opencodeZen.visit.link": "opencode.ai/zen",
@@ -237,6 +237,8 @@ export const dict = {
   "prompt.mode.shell": "Shell",
   "prompt.mode.normal": "Prompt",
   "prompt.mode.shell.exit": "按 esc 退出",
+  "session.child.promptDisabled": "子任務執行中，暫時無法輸入。",
+  "session.child.backToParent": "返回主工作階段",
 
   "prompt.example.1": "修復程式碼庫中的一個 TODO",
   "prompt.example.2": "這個專案的技術堆疊是什麼?",
@@ -450,8 +452,8 @@ export const dict = {
   "error.page.action.checking": "檢查中...",
   "error.page.action.checkUpdates": "檢查更新",
   "error.page.action.updateTo": "更新到 {{version}}",
-  "error.page.report.prefix": "請將此錯誤回報給 OpenCode 團隊",
-  "error.page.report.discord": "在 Discord 上",
+  "error.page.report.prefix": "請將此錯誤回報給 PawWork 團隊",
+  "error.page.report.github": "在 GitHub 上",
   "error.page.version": "版本: {{version}}",
 
   "error.dev.rootNotFound": "找不到根元素。你是不是忘了把它新增到 index.html? 或者 id 屬性拼錯了?",
@@ -609,6 +611,8 @@ export const dict = {
   "sidebar.project.recentSessions": "最近工作階段",
   "sidebar.project.viewAllSessions": "查看全部工作階段",
   "sidebar.project.clearNotifications": "清除通知",
+  "sidebar.empty.title": "尚未開啟專案",
+  "sidebar.empty.description": "開啟一個專案以開始使用",
 
   "app.name.desktop": "OpenCode Desktop",
   "settings.section.desktop": "桌面",
