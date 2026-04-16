@@ -13,6 +13,11 @@ process.chdir(dir)
 
 await import("./generate.ts")
 
+await fs.promises.rm(path.join(dir, "dist", "node"), {
+  recursive: true,
+  force: true,
+})
+
 // Load migrations from migration directories
 const migrationDirs = (
   await fs.promises.readdir(path.join(dir, "migration"), {

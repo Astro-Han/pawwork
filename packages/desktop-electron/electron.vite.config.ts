@@ -1,6 +1,13 @@
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
+import { existsSync } from "node:fs"
 import * as fs from "node:fs/promises"
+import path from "node:path"
+import {
+  embeddedServerArtifacts,
+  embeddedServerMissingArtifacts,
+  embeddedServerMissingArtifactsMessage,
+} from "./src/main/embedded-server-contract"
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
@@ -8,7 +15,13 @@ const channel = (() => {
   return "dev"
 })()
 
-const OPENCODE_SERVER_DIST = "../opencode/dist/node"
+const OPENCODE_ROOT = path.resolve(process.cwd(), "../opencode")
+const { runtimeDir: OPENCODE_SERVER_DIST, runtimeEntry: OPENCODE_SERVER_ENTRY } = embeddedServerArtifacts(OPENCODE_ROOT)
+const missingArtifacts = embeddedServerMissingArtifacts(OPENCODE_ROOT, existsSync)
+
+if (missingArtifacts.length > 0) {
+  throw new Error(embeddedServerMissingArtifactsMessage(OPENCODE_ROOT, missingArtifacts))
+}
 
 const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
 
@@ -35,7 +48,7 @@ export default defineConfig({
         name: "opencode:virtual-server-module",
         enforce: "pre",
         resolveId(id) {
-          if (id === "virtual:opencode-server") return this.resolve(`${OPENCODE_SERVER_DIST}/node.js`)
+          if (id === "virtual:opencode-server") return this.resolve(OPENCODE_SERVER_ENTRY)
         },
       },
       {
@@ -43,7 +56,7 @@ export default defineConfig({
         async writeBundle() {
           for (const l of await fs.readdir(OPENCODE_SERVER_DIST)) {
             if (!l.endsWith(".wasm")) continue
-            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(`${OPENCODE_SERVER_DIST}/${l}`))
+            await fs.writeFile(`./out/main/chunks/${l}`, await fs.readFile(path.join(OPENCODE_SERVER_DIST, l)))
           }
         },
       },
