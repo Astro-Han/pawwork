@@ -1,11 +1,11 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { dirname, join, relative, resolve as pathResolve } from "path"
-import { realpathSync } from "fs"
+import { dirname, join } from "path"
 import * as NFS from "fs/promises"
 import { lookup } from "mime-types"
 import { Effect, FileSystem, Layer, Schema, Context } from "effect"
 import type { PlatformError } from "effect/PlatformError"
 import { Glob } from "../util/glob"
+import { Filesystem } from "../util/filesystem"
 
 export namespace AppFileSystem {
   export class FileSystemError extends Schema.TaggedErrorClass<FileSystemError>()("FileSystemError", {
@@ -187,50 +187,26 @@ export namespace AppFileSystem {
   }
 
   export function normalizePath(p: string): string {
-    if (process.platform !== "win32") return p
-    const resolved = pathResolve(windowsPath(p))
-    try {
-      return realpathSync.native(resolved)
-    } catch {
-      return resolved
-    }
+    return Filesystem.normalizePath(p)
   }
 
   export function normalizePathPattern(p: string): string {
-    if (process.platform !== "win32") return p
-    if (p === "*") return p
-    const match = p.match(/^(.*)[\\/]\*$/)
-    if (!match) return normalizePath(p)
-    const dir = /^[A-Za-z]:$/.test(match[1]) ? match[1] + "\\" : match[1]
-    return join(normalizePath(dir), "*")
+    return Filesystem.normalizePathPattern(p)
   }
 
   export function resolve(p: string): string {
-    const resolved = pathResolve(windowsPath(p))
-    try {
-      return normalizePath(realpathSync(resolved))
-    } catch (e: any) {
-      if (e?.code === "ENOENT") return normalizePath(resolved)
-      throw e
-    }
+    return Filesystem.resolve(p)
   }
 
   export function windowsPath(p: string): string {
-    if (process.platform !== "win32") return p
-    return p
-      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-      .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+    return Filesystem.windowsPath(p)
   }
 
   export function overlaps(a: string, b: string) {
-    const relA = relative(a, b)
-    const relB = relative(b, a)
-    return !relA || !relA.startsWith("..") || !relB || !relB.startsWith("..")
+    return Filesystem.overlaps(a, b)
   }
 
   export function contains(parent: string, child: string) {
-    return !relative(parent, child).startsWith("..")
+    return Filesystem.contains(parent, child)
   }
 }

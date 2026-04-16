@@ -209,9 +209,13 @@ export namespace ProviderTransform {
       copilot: {
         copilot_cache_control: { type: "ephemeral" },
       },
-      alibaba: {
-        cacheControl: { type: "ephemeral" },
-      },
+      ...(model.api.npm === "@ai-sdk/alibaba"
+        ? {
+            alibaba: {
+              cacheControl: { type: "ephemeral" },
+            },
+          }
+        : {}),
     }
 
     for (const msg of unique([...system, ...final])) {
