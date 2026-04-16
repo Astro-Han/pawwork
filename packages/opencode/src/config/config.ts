@@ -27,7 +27,6 @@ import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
 import { Glob } from "../util/glob"
-import { iife } from "@/util/iife"
 import { Account } from "@/account"
 import { isRecord } from "@/util/record"
 import { ConfigPaths } from "./paths"
@@ -1417,6 +1416,9 @@ export namespace Config {
           }
 
           const deps: Promise<void>[] = []
+          yield* Effect.addFinalizer(() =>
+            Effect.promise(() => Promise.allSettled(deps).then(() => undefined)),
+          )
 
           for (const dir of unique(directories)) {
             if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
@@ -1430,9 +1432,7 @@ export namespace Config {
               }
             }
 
-            const dep = iife(async () => {
-              await installDependencies(dir)
-            })
+            const dep = installDependencies(dir)
             void dep.catch((err) => {
               log.warn("background dependency install failed", { dir, error: err })
             })
