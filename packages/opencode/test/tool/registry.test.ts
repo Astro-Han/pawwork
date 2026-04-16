@@ -2,6 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
+import { writeMockConfigInstall } from "../shared/mock-npm-install"
 import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Npm } from "../../src/npm"
@@ -177,19 +178,7 @@ describe("tool.registry", () => {
       },
     })
 
-    const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
-      const pkgDir = path.join(dir, "node_modules", "late-dep")
-      await fs.mkdir(pkgDir, { recursive: true })
-      await Bun.write(
-        path.join(pkgDir, "package.json"),
-        JSON.stringify({
-          name: "late-dep",
-          type: "module",
-          exports: "./index.js",
-        }),
-      )
-      await Bun.write(path.join(pkgDir, "index.js"), 'export const ready = "hello"\n')
-    })
+    const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
 
     try {
       await Instance.provide({
@@ -199,8 +188,9 @@ describe("tool.registry", () => {
           expect(ids).toContain("late")
         },
       })
-      expect(install.mock.calls.some(([dir]) => path.normalize(dir) === path.normalize(path.join(tmp.path, ".opencode"))))
-        .toBe(true)
+      expect(
+        install.mock.calls.some(([dir]) => path.normalize(dir) === path.normalize(path.join(tmp.path, ".opencode"))),
+      ).toBe(true)
     } finally {
       install.mockRestore()
     }

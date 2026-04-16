@@ -22,6 +22,7 @@ import { ProjectID } from "../../src/project/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import * as Network from "../../src/util/network"
 import { Npm } from "../../src/npm"
+import { writeMockConfigInstall } from "../shared/mock-npm-install"
 
 const emptyAccount = Layer.mock(Account.Service)({
   active: () => Effect.succeed(Option.none()),
@@ -788,14 +789,7 @@ test("installs dependencies in writable OPENCODE_CONFIG_DIR", async () => {
   const prev = process.env.OPENCODE_CONFIG_DIR
   process.env.OPENCODE_CONFIG_DIR = tmp.extra
   const online = spyOn(Network, "online").mockReturnValue(false)
-  const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
-    const mod = path.join(dir, "node_modules", "@opencode-ai", "plugin")
-    await fs.mkdir(mod, { recursive: true })
-    await Filesystem.write(
-      path.join(mod, "package.json"),
-      JSON.stringify({ name: "@opencode-ai/plugin", version: "1.0.0" }),
-    )
-  })
+  const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
 
   try {
     await Instance.provide({
@@ -845,12 +839,7 @@ test("dedupes concurrent config dependency installs for the same dir", async () 
       start()
       await gate
     }
-    const mod = path.join(d, "node_modules", "@opencode-ai", "plugin")
-    await fs.mkdir(mod, { recursive: true })
-    await Filesystem.write(
-      path.join(mod, "package.json"),
-      JSON.stringify({ name: "@opencode-ai/plugin", version: "1.0.0" }),
-    )
+    await writeMockConfigInstall(d)
     if (hit) {
       start()
       await gate
@@ -914,12 +903,7 @@ test("serializes config dependency installs across dirs", async () => {
         await gate
       }
     }
-    const mod = path.join(cwd, "node_modules", "@opencode-ai", "plugin")
-    await fs.mkdir(mod, { recursive: true })
-    await Filesystem.write(
-      path.join(mod, "package.json"),
-      JSON.stringify({ name: "@opencode-ai/plugin", version: "1.0.0" }),
-    )
+    await writeMockConfigInstall(cwd)
     if (hit) {
       open -= 1
     }

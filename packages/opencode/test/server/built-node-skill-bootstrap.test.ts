@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import fs from "node:fs/promises"
 import { pathToFileURL } from "url"
 import { Process } from "../../src/util/process"
 import { tmpdir } from "../fixture/fixture"
@@ -12,9 +13,36 @@ describe("built node server skill bootstrap", () => {
   test("built node server serves /agent and /command when builtin skill roots are resolved implicitly", async () => {
     await withEmbeddedServerArtifactLock(async () => {
       await using tmp = await tmpdir()
+      const runtimeRoot = path.join(tmp.path, "runtime")
+      const runtimeHome = path.join(runtimeRoot, "home")
+      const isolatedEnv = {
+        ...process.env,
+        HOME: runtimeHome,
+        USERPROFILE: runtimeHome,
+        XDG_DATA_HOME: path.join(runtimeRoot, "share"),
+        XDG_CACHE_HOME: path.join(runtimeRoot, "cache"),
+        XDG_CONFIG_HOME: path.join(runtimeRoot, "config"),
+        XDG_STATE_HOME: path.join(runtimeRoot, "state"),
+        OPENCODE_TEST_HOME: runtimeHome,
+        OPENCODE_TEST_MANAGED_CONFIG_DIR: path.join(runtimeRoot, "managed"),
+        OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
+        OPENCODE_DB: ":memory:",
+      }
+
+      await Promise.all(
+        [
+          isolatedEnv.HOME,
+          isolatedEnv.XDG_DATA_HOME,
+          isolatedEnv.XDG_CACHE_HOME,
+          isolatedEnv.XDG_CONFIG_HOME,
+          isolatedEnv.XDG_STATE_HOME,
+          isolatedEnv.OPENCODE_TEST_MANAGED_CONFIG_DIR,
+        ].map((dir) => fs.mkdir(dir, { recursive: true })),
+      )
 
       await Process.run([process.execPath, "run", "build:embedded-server"], {
         cwd: root,
+        env: isolatedEnv,
       })
 
       const script = `
@@ -57,13 +85,15 @@ describe("built node server skill bootstrap", () => {
         await listener.stop(true)
       }
 
+      // Give Windows a moment to finish async handle teardown before exiting the child process.
+      await new Promise((resolve) => setTimeout(resolve, 50))
       process.exit(exitCode)
     `
 
       const result = await Process.run(["node", "--input-type=module", "-e", script], {
         cwd: root,
         env: {
-          ...process.env,
+          ...isolatedEnv,
           OPENCODE_SERVER_USERNAME: "opencode",
           OPENCODE_SERVER_PASSWORD: "testpass",
           TEST_DIRECTORY: tmp.path,
