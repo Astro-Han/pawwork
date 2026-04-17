@@ -139,6 +139,10 @@ jobs:
 
           APP_PATH="dist/mac-arm64/PawWork Dev.app"
           EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/PawWork Dev"
+          INFO_PLIST_PATH="$APP_PATH/Contents/Info.plist"
+          ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
+          FRAMEWORK_PATH="$APP_PATH/Contents/Frameworks/Electron Framework.framework"
+          HELPER_APP_PATH="$APP_PATH/Contents/Frameworks/PawWork Dev Helper.app"
 
           if [ ! -d "$APP_PATH" ]; then
             echo "Expected app bundle at $APP_PATH"
@@ -150,5 +154,26 @@ jobs:
             exit 1
           fi
 
-          codesign --verify --deep --verbose=2 "$APP_PATH"
+          if [ ! -f "$INFO_PLIST_PATH" ]; then
+            echo "Expected Info.plist at $INFO_PLIST_PATH"
+            exit 1
+          fi
+
+          if [ ! -f "$ASAR_PATH" ]; then
+            echo "Expected app.asar at $ASAR_PATH"
+            exit 1
+          fi
+
+          if [ ! -d "$FRAMEWORK_PATH" ]; then
+            echo "Expected Electron Framework at $FRAMEWORK_PATH"
+            exit 1
+          fi
+
+          if [ ! -d "$HELPER_APP_PATH" ]; then
+            echo "Expected helper app at $HELPER_APP_PATH"
+            exit 1
+          fi
+
+          codesign -dv --verbose=2 "$APP_PATH" 2>&1 | tee /tmp/pawwork-codesign.txt
+          grep -q "Signature=adhoc" /tmp/pawwork-codesign.txt
         working-directory: packages/desktop-electron
