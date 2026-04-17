@@ -26,10 +26,9 @@ All tools are built in. Nothing to install, no terminal, no package managers.
 
 macOS (Apple Silicon): **[Download .dmg](https://github.com/Astro-Han/pawwork/releases/latest)**
 
-### macOS first launch
+The .dmg is signed and notarized by Apple. Double-click to open.
 
-PawWork is not yet signed with Apple Developer ID. On first launch:
-Right-click the app > Open > confirm "Open" in the dialog.
+Windows and Intel Mac are not in the current release. macOS Apple Silicon is the only supported platform for now.
 
 ## Who This Is For
 
