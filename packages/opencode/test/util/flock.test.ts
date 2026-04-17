@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import { pathToFileURL } from "url"
 import { Flock } from "../../src/util/flock"
 import { Hash } from "../../src/util/hash"
 import { Process } from "../../src/util/process"
@@ -64,6 +65,49 @@ function spawn(msg: Msg) {
     stdout: "pipe",
     stderr: "pipe",
   })
+}
+
+async function importFlockWithAfterAcquireHook(root: string, tempDir: string) {
+  const source = path.join(root, "src", "util", "flock.ts")
+  await fs.mkdir(tempDir, { recursive: true })
+
+  const hookPath = path.join(tempDir, "after-acquire.ts")
+  const flockPath = path.join(tempDir, "flock-under-test.ts")
+  const original = await fs.readFile(source, "utf8")
+  const globalUrl = pathToFileURL(path.join(root, "src", "global", "index.ts")).href
+  const hashUrl = pathToFileURL(path.join(root, "src", "util", "hash.ts")).href
+
+  await fs.writeFile(
+    hookPath,
+    [
+      "let hook: (() => Promise<void>) | undefined",
+      "",
+      "export function setAfterAcquire(next: (() => Promise<void>) | undefined) {",
+      "  hook = next",
+      "}",
+      "",
+      "export function afterAcquire() {",
+      "  return hook?.()",
+      "}",
+      "",
+    ].join("\n"),
+    "utf8",
+  )
+
+  await fs.writeFile(
+    flockPath,
+    original
+      .replace('import { Global } from "@/global"', `import { Global } from "${globalUrl}"`)
+      .replace('import { Hash } from "@/util/hash"', `import { Hash } from "${hashUrl}"\nimport { afterAcquire } from "./after-acquire.ts"`)
+      .replace("    lock.startHeartbeat()", "    await afterAcquire()\n    lock.startHeartbeat()")
+      .concat('\nexport { setAfterAcquire } from "./after-acquire.ts"\n'),
+    "utf8",
+  )
+
+  return import(pathToFileURL(flockPath).href + `?t=${Date.now()}`) as Promise<{
+    Flock: typeof Flock
+    setAfterAcquire: (next: (() => Promise<void>) | undefined) => void
+  }>
 }
 
 describe("util.flock", () => {
@@ -312,6 +356,52 @@ describe("util.flock", () => {
     }
 
     expect(await exists(lockDir)).toBe(false)
+  })
+
+  test("releases the lock when aborted immediately after acquisition", async () => {
+    await using tmp = await tmpdir()
+    const root = path.join(import.meta.dir, "../..")
+    const { Flock, setAfterAcquire } = await importFlockWithAfterAcquireHook(root, path.join(tmp.path, "module-fixtures"))
+    const dir = path.join(tmp.path, "locks")
+    const key = "flock:post-acquire-abort"
+    const lockDir = lock(dir, key)
+    const controller = new AbortController()
+
+    setAfterAcquire(async () => {
+      controller.abort(new Error("stop"))
+      await Promise.resolve()
+    })
+
+    const err = await Flock.acquire(key, {
+      dir,
+      signal: controller.signal,
+      staleMs: 1_000,
+      timeoutMs: 1_000,
+      baseDelayMs: 10,
+      maxDelayMs: 20,
+    }).catch((err) => err)
+
+    expect(err).toBeInstanceOf(Error)
+    if (!(err instanceof Error)) throw err
+    expect(err.message).toContain("stop")
+    expect(await exists(lockDir)).toBe(false)
+
+    let reacquired = false
+    await Flock.withLock(
+      key,
+      async () => {
+        reacquired = true
+      },
+      {
+        dir,
+        staleMs: 1_000,
+        timeoutMs: 1_000,
+        baseDelayMs: 10,
+        maxDelayMs: 20,
+      },
+    )
+
+    expect(reacquired).toBe(true)
   })
 
   test("refuses token mismatch release and recovers from stale", async () => {
