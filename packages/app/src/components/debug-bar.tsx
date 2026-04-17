@@ -393,7 +393,7 @@ export function DebugBar() {
           type="button"
           aria-label="Show debug bar"
           onClick={toggle}
-          class="pointer-events-auto fixed bottom-3 right-3 z-50 rounded-full border border-border-base bg-surface-raised-stronger-non-alpha px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-text-strong opacity-40 shadow-[var(--shadow-lg-border-base)] hover:opacity-100 sm:bottom-4 sm:right-4"
+          class="pointer-events-auto fixed bottom-3 right-3 z-50 rounded-full border border-border-base bg-surface-raised-stronger-non-alpha px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-text-strong opacity-60 shadow-[var(--shadow-lg-border-base)] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-interactive-base sm:bottom-4 sm:right-4"
         >
           debug
         </button>
@@ -407,7 +407,7 @@ export function DebugBar() {
         type="button"
         aria-label="Hide debug bar"
         onClick={toggle}
-        class="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-[14px] leading-none opacity-40 hover:bg-surface-raised-base hover:opacity-100"
+        class="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-[14px] leading-none opacity-60 hover:bg-surface-raised-base hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-interactive-base"
       >
         ×
       </button>

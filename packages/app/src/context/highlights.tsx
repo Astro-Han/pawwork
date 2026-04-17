@@ -202,7 +202,13 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
         signal: controller.signal,
         headers: { Accept: "application/json" },
       })
-        .then((response) => (response.ok ? (response.json() as Promise<unknown>) : undefined))
+        .then((response) => {
+          if (response.ok) return response.json() as Promise<unknown>
+          // GitHub returns 403 (rate limit) or 304 (etag-hit) under normal load;
+          // keep the failure visible in devtools instead of silently dropping it.
+          console.warn("[highlights] changelog fetch failed", response.status)
+          return undefined
+        })
         .then((json) => {
           if (!json) return
           const highlights = loadReleaseHighlights(json, platform.version, previous)
