@@ -14,6 +14,7 @@ const { readPackageThemes } = await import("../../src/plugin/shared")
 const { Instance } = await import("../../src/project/instance")
 const { Npm } = await import("../../src/npm")
 const { Config } = await import("../../src/config/config")
+const { writeMockConfigInstall } = await import("../shared/mock-npm-install")
 
 afterAll(() => {
   if (disableDefault === undefined) {
@@ -745,6 +746,48 @@ describe("plugin.loader.shared", () => {
       expect(await Bun.file(tmp.extra.mark).text()).toBe("ok")
     } finally {
       wait.mockRestore()
+    }
+  })
+
+  test("retries auto-discovered file plugins that reach config deps through helper imports", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const pluginsDir = path.join(dir, ".opencode", "plugins")
+        const pluginFile = path.join(pluginsDir, "plugin.ts")
+        const helperFile = path.join(pluginsDir, "helper.ts")
+        const mark = path.join(dir, "plugin.txt")
+
+        await fs.mkdir(pluginsDir, { recursive: true })
+        await Bun.write(
+          helperFile,
+          ["import { ready } from 'late-dep'", "export { ready }", ""].join("\n"),
+        )
+        await Bun.write(
+          pluginFile,
+          [
+            "import { ready } from './helper'",
+            "export default {",
+            '  id: "demo.helper",',
+            "  server: async () => {",
+            `    await Bun.write(${JSON.stringify(mark)}, ready)`,
+            "    return {}",
+            "  },",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        return { mark }
+      },
+    })
+
+    const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => writeMockConfigInstall(dir))
+
+    try {
+      await load(tmp.path)
+      expect(await Bun.file(tmp.extra.mark).text()).toBe("hello")
+    } finally {
+      install.mockRestore()
     }
   })
 

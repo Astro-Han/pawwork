@@ -953,6 +953,39 @@ test("skips reinstall when config dependencies are already bootstrapped", async 
   }
 })
 
+test("reinstalls when declared config dependencies are missing from node_modules", async () => {
+  await using tmp = await tmpdir()
+  const dir = path.join(tmp.path, "configdir")
+  await fs.mkdir(path.join(dir, "node_modules", "@opencode-ai", "plugin"), { recursive: true })
+  const target = Installation.isLocal() ? "*" : Installation.VERSION
+  await Filesystem.writeJson(path.join(dir, "package.json"), {
+    dependencies: {
+      "@opencode-ai/plugin": target,
+      "late-dep": "^1.0.0",
+    },
+  })
+  await Filesystem.write(
+    path.join(dir, ".gitignore"),
+    ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+  )
+  await Filesystem.writeJson(path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json"), {
+    name: "@opencode-ai/plugin",
+    version: "1.0.0",
+    type: "module",
+    exports: "./index.js",
+  })
+
+  const install = spyOn(Npm, "install").mockImplementation(async (cwd: string) => writeMockConfigInstall(cwd))
+
+  try {
+    await expect(Config.installDependencies(dir)).resolves.toBeUndefined()
+    expect(install).toHaveBeenCalledTimes(1)
+    await expect(Filesystem.exists(path.join(dir, "node_modules", "late-dep", "package.json"))).resolves.toBe(true)
+  } finally {
+    install.mockRestore()
+  }
+})
+
 test("resolves scoped npm plugins in config", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

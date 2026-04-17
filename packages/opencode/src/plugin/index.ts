@@ -18,46 +18,17 @@ import { EffectLogger } from "@/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { errorMessage } from "@/util/error"
-import { Filesystem } from "@/util/filesystem"
+import { needsConfigDependencies } from "@/config/dependency"
 import { PluginLoader } from "./loader"
 import { parsePluginSpecifier, readPluginId, readV1Plugin, resolvePluginId } from "./shared"
-import { builtinModules, isBuiltin } from "module"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
-  const DEPENDENCY_IMPORT =
-    /(?:^|\n)\s*(?:import\s+(?:[^"'`]+\s+from\s+)?|export\s+[^"'`]+\s+from\s+)["']([^./"'`][^"'`]*)["']|import\s*\(\s*["']([^./"'`][^"'`]*)["']\s*\)|require\(\s*["']([^./"'`][^"'`]*)["']\s*\)/gm
-  const BUILTIN_MODULES = new Set(builtinModules)
-
-  function packageName(spec: string) {
-    if (spec.startsWith("node:") || isBuiltin(spec) || BUILTIN_MODULES.has(spec)) return
-    if (spec.startsWith("@")) {
-      const [scope, name] = spec.split("/")
-      if (!scope || !name) return
-      return `${scope}/${name}`
-    }
-    return spec.split("/")[0]
-  }
 
   function dependencyDir(source: string, projectDir: string) {
     if (source === "OPENCODE_CONFIG_CONTENT") return projectDir
     if (source.endsWith(".json") || source.endsWith(".jsonc")) return path.dirname(source)
     return source
-  }
-
-  async function needsConfigDependencies(file: string, source: string, projectDir: string) {
-    const text = await Filesystem.readText(file).catch(() => "")
-    const configDir = dependencyDir(source, projectDir)
-    for (const match of text.matchAll(DEPENDENCY_IMPORT)) {
-      const spec = match[1] ?? match[2] ?? match[3]
-      if (!spec) continue
-      const pkg = packageName(spec)
-      if (!pkg) continue
-      const pkgPath = path.join(configDir, "node_modules", ...pkg.split("/"))
-      if (await Filesystem.exists(path.join(pkgPath, "package.json"))) continue
-      return true
-    }
-    return false
   }
 
   type State = {
@@ -192,6 +163,15 @@ export namespace Plugin {
           if (Flag.OPENCODE_PURE && cfg.plugin_origins?.length) {
             log.info("skipping external plugins in pure mode", { count: cfg.plugin_origins.length })
           }
+          for (const origin of plugins) {
+            const spec = Config.pluginSpecifier(origin.spec)
+            if (!spec.startsWith("file://")) continue
+            if (!(yield* Effect.promise(() => needsConfigDependencies(fileURLToPath(spec), dependencyDir(origin.source, ctx.directory))))) {
+              continue
+            }
+            yield* Effect.promise(() => Config.waitForDependencies().catch(() => undefined))
+            break
+          }
 
           const loaded = yield* Effect.promise(() =>
             PluginLoader.loadExternal({
@@ -201,7 +181,7 @@ export namespace Plugin {
               shouldRetry: (origin) => {
                 const spec = Config.pluginSpecifier(origin.spec)
                 if (!spec.startsWith("file://")) return Promise.resolve(false)
-                return needsConfigDependencies(fileURLToPath(spec), origin.source, ctx.directory)
+                return needsConfigDependencies(fileURLToPath(spec), dependencyDir(origin.source, ctx.directory))
               },
               report: {
                 start(candidate) {

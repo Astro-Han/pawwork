@@ -49,37 +49,10 @@ import { AppFileSystem } from "../filesystem"
 import { Bus } from "../bus"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
-import { builtinModules, isBuiltin } from "module"
-import { Filesystem } from "../util/filesystem"
+import { needsConfigDependencies } from "../config/dependency"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
-  const DEPENDENCY_IMPORT =
-    /(?:^|\n)\s*(?:import\s+(?:[^"'`]+\s+from\s+)?|export\s+[^"'`]+\s+from\s+)["']([^./"'`][^"'`]*)["']|import\s*\(\s*["']([^./"'`][^"'`]*)["']\s*\)|require\(\s*["']([^./"'`][^"'`]*)["']\s*\)/gm
-  const BUILTIN_MODULES = new Set(builtinModules)
-
-  function packageName(spec: string) {
-    if (spec.startsWith("node:") || isBuiltin(spec) || BUILTIN_MODULES.has(spec)) return
-    if (spec.startsWith("@")) {
-      const [scope, name] = spec.split("/")
-      if (!scope || !name) return
-      return `${scope}/${name}`
-    }
-    return spec.split("/")[0]
-  }
-
-  async function needsConfigDependencies(text: string, dir: string) {
-    for (const match of text.matchAll(DEPENDENCY_IMPORT)) {
-      const spec = match[1] ?? match[2] ?? match[3]
-      if (!spec) continue
-      const pkg = packageName(spec)
-      if (!pkg) continue
-      const pkgPath = path.join(dir, "node_modules", ...pkg.split("/"))
-      if (await Filesystem.exists(path.join(pkgPath, "package.json"))) continue
-      return true
-    }
-    return false
-  }
 
   type TaskDef = Tool.InferDef<typeof TaskTool>
   type ReadDef = Tool.InferDef<typeof ReadTool>
@@ -206,7 +179,7 @@ export namespace ToolRegistry {
             ])
             if (ids.length && ids.every((id) => disabled.has(id))) continue
             const spec = process.platform === "win32" ? match : pathToFileURL(match).href
-            if (!depsReady && (yield* Effect.promise(() => needsConfigDependencies(text, path.dirname(path.dirname(match)))))) {
+            if (!depsReady && (yield* Effect.promise(() => needsConfigDependencies(match, path.dirname(path.dirname(match)))))) {
               depsReady = true
               yield* config.waitForDependencies()
             }

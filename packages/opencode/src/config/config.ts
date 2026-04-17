@@ -173,14 +173,17 @@ export namespace Config {
     )
     const dependencies: Record<string, string> = json.dependencies ?? {}
     const hasDep = dependencies["@opencode-ai/plugin"] === target
-    json.dependencies = {
+    const required = {
       ...dependencies,
       "@opencode-ai/plugin": target,
     }
+    json.dependencies = required
 
     const gitignore = path.join(dir, ".gitignore")
     const ignore = await Filesystem.exists(gitignore)
-    const hasPkg = await Filesystem.exists(plugin)
+    const installed = await Promise.all(
+      Object.keys(required).map((pkg) => Filesystem.exists(path.join(dir, "node_modules", ...pkg.split("/"), "package.json"))),
+    )
     if (!hasDep) {
       await Filesystem.writeJson(pkg, json)
     }
@@ -190,7 +193,7 @@ export namespace Config {
         ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
       )
     }
-    if (hasDep && ignore && hasPkg) return
+    if (hasDep && ignore && installed.every(Boolean)) return
     await Npm.install(dir)
   }
 
