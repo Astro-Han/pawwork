@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest a workflow improvement or new capability
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion.
+
+        PawWork is built for non-technical knowledge workers, so the most useful requests describe the real task and why the current workflow is not enough.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What task are you trying to do?
+      description: Describe the real workflow or job to be done.
+      placeholder: I want to summarize a spreadsheet and turn it into a shareable report without leaving the app.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: What do you do today?
+      description: Explain the current workaround or why the current flow is painful.
+      placeholder: Today I export the file, switch to another tool, then copy the result back manually.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would a good result look like?
+      description: Describe the outcome you want, not only the implementation you have in mind.
+      placeholder: I can open a file, ask for a summary, and get a clean report in one place.
+    validations:
+      required: true
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Which audience does this matter to most?
+      options:
+        - Chinese market users
+        - Global users
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra context
+      description: Add screenshots, references, or examples if useful.
+      placeholder: Similar workflows, screenshots, or example files.
