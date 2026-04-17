@@ -9,6 +9,19 @@ const LOCAL_IMPORT =
 const BUILTIN_MODULES = new Set(builtinModules)
 const LOCAL_IMPORT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
 
+function isTypeOnlyImport(statement: string) {
+  const normalized = statement.trimStart()
+  if (/^(?:import|export)\s+type\b/s.test(normalized)) return true
+
+  const named = normalized.match(/^(?:import|export)\s*\{([^}]*)\}\s+from\b/s)
+  if (!named) return false
+  const specifiers = named[1]
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return specifiers.length > 0 && specifiers.every((part) => /^type\s+(?!as\b)\S/s.test(part))
+}
+
 function packageName(spec: string) {
   if (spec.startsWith("node:") || isBuiltin(spec) || BUILTIN_MODULES.has(spec)) return
   if (spec.startsWith("@")) {
@@ -38,6 +51,7 @@ export async function needsConfigDependencies(file: string, configDir: string, v
   visited.add(resolved)
   const text = await Filesystem.readText(resolved).catch(() => "")
   for (const match of text.matchAll(DEPENDENCY_IMPORT)) {
+    if (isTypeOnlyImport(match[0])) continue
     const spec = match[1] ?? match[2] ?? match[3]
     if (!spec) continue
     const pkg = packageName(spec)
@@ -47,6 +61,7 @@ export async function needsConfigDependencies(file: string, configDir: string, v
     return true
   }
   for (const match of text.matchAll(LOCAL_IMPORT)) {
+    if (isTypeOnlyImport(match[0])) continue
     const spec = match[1] ?? match[2] ?? match[3]
     if (!spec) continue
     const next = await resolveLocalImport(resolved, spec)

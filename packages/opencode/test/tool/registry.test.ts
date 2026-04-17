@@ -7,6 +7,7 @@ import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Npm } from "../../src/npm"
 import { Config } from "../../src/config/config"
+import { needsConfigDependencies } from "../../src/config/dependency"
 import { Global } from "../../src/global"
 import { withTimeout } from "../../src/util/timeout"
 
@@ -254,6 +255,125 @@ describe("tool.registry", () => {
     } finally {
       install.mockRestore()
     }
+  })
+
+  test("does not wait on local config installs for helper files with type-only imports or exports", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const toolsDir = path.join(dir, ".opencode", "tools")
+        await fs.mkdir(toolsDir, { recursive: true })
+
+        await Bun.write(
+          path.join(toolsDir, "helper.ts"),
+          [
+            "import type { Missing } from 'late-dep'",
+            "export type { Missing } from 'late-dep'",
+            "import { type Missing as InlineImport } from 'late-dep'",
+            "export { type Missing as InlineExport } from 'late-dep'",
+            "export const ready = 'local'",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(toolsDir, "late.ts"),
+          [
+            "import { ready } from './helper'",
+            "export default {",
+            "  description: 'tool with helper type-only imports or exports',",
+            "  args: {},",
+            "  execute: async () => ready,",
+            "}",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    let release = () => {}
+    let started = () => {}
+    let idsTask: Promise<string[]> | undefined
+    const installing = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const ready = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const localConfigDir = path.join(tmp.path, ".opencode")
+    const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+      if (path.normalize(dir) === path.normalize(localConfigDir)) {
+        started()
+        await installing
+      }
+      await writeMockConfigInstall(dir)
+    })
+
+    try {
+      idsTask = Instance.provide({
+        directory: tmp.path,
+        fn: () => ToolRegistry.ids(),
+      }).then((ids) => ids)
+
+      await ready
+
+      await expect(withTimeout(idsTask, 2_000)).resolves.toContain("late")
+    } finally {
+      release()
+      await idsTask?.catch(() => undefined)
+      install.mockRestore()
+    }
+  })
+
+  test("ignores multiline type-only dependency imports and exports when scanning config dependencies", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const toolsDir = path.join(dir, ".opencode", "tools")
+        await fs.mkdir(toolsDir, { recursive: true })
+
+        await Bun.write(
+          path.join(toolsDir, "helper.ts"),
+          [
+            "import type",
+            "  { Missing as MultilineImport } from 'late-dep'",
+            "export type",
+            "  { Missing as MultilineExport } from 'late-dep'",
+            "import { type",
+            "  Missing as InlineMultilineImport } from 'late-dep'",
+            "export { type",
+            "  Missing as InlineMultilineExport } from 'late-dep'",
+            "export const ready = 'local'",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    await expect(
+      needsConfigDependencies(path.join(tmp.path, ".opencode", "tools", "helper.ts"), path.join(tmp.path, ".opencode")),
+    ).resolves.toBe(false)
+  })
+
+  test("keeps runtime imports and exports for bindings literally named type", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const toolsDir = path.join(dir, ".opencode", "tools")
+        await fs.mkdir(toolsDir, { recursive: true })
+
+        await Bun.write(
+          path.join(toolsDir, "helper.ts"),
+          [
+            "import { type as RuntimeImport } from 'late-dep'",
+            "export { type as RuntimeExport } from 'late-dep'",
+            "export const ready = 'local'",
+            "",
+          ].join("\n"),
+        )
+      },
+    })
+
+    await expect(
+      needsConfigDependencies(path.join(tmp.path, ".opencode", "tools", "helper.ts"), path.join(tmp.path, ".opencode")),
+    ).resolves.toBe(true)
   })
 
   test("does not wait for unrelated global config installs before importing local tools with bare imports", async () => {
