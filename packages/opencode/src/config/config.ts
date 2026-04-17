@@ -1408,9 +1408,13 @@ export namespace Config {
           }
 
           if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-            for (const file of yield* Effect.promise(() =>
+            const opencodeProjectFiles = yield* Effect.promise(() =>
               ConfigPaths.projectFiles("opencode", ctx.directory, ctx.worktree),
-            )) {
+            )
+            const pawworkProjectFiles = yield* Effect.promise(() =>
+              ConfigPaths.projectFiles("pawwork", ctx.directory, ctx.worktree),
+            )
+            for (const file of [...opencodeProjectFiles, ...pawworkProjectFiles]) {
               yield* merge(file, yield* loadFile(file), "local")
             }
           }
