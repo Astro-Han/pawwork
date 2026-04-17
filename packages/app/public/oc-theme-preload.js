@@ -1,3 +1,7 @@
+// Phase 1 ships only the `pawwork` theme, which is locked to light mode.
+// When a dark-capable theme is bundled, this file must gain a theme-aware
+// guard so `opencode-color-scheme` is forced to "light" ONLY for light-only
+// themes; tracked in issue #23.
 ;(function () {
   var key = "opencode-theme-id"
   var schemeKey = "opencode-color-scheme"

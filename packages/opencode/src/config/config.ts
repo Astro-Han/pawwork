@@ -1408,9 +1408,12 @@ export namespace Config {
           }
 
           if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-            // Per-directory, walk opencode first then pawwork so pawwork wins
-            // within a directory; rootFirst ensures the innermost directory
-            // wins across directories regardless of filename.
+            // Precedence: innermost directory wins across directories (via
+            // Filesystem.findUp with rootFirst: true, which returns paths
+            // outermost -> innermost so last-wins merge lands on innermost);
+            // within a single directory, pawwork wins over opencode because
+            // projectFiles interleaves the name list in the order given and
+            // pawwork comes after opencode.
             for (const file of yield* Effect.promise(() =>
               ConfigPaths.projectFiles(["opencode", "pawwork"], ctx.directory, ctx.worktree),
             )) {
@@ -1432,6 +1435,9 @@ export namespace Config {
 
           for (const dir of unique(directories)) {
             if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
+              // Same pawwork-wins-within-directory ordering as the project-root
+              // cascade above: opencode files are merged first so pawwork can
+              // override them.
               for (const file of ["opencode.json", "opencode.jsonc", "pawwork.json", "pawwork.jsonc"]) {
                 const source = path.join(dir, file)
                 log.debug(`loading config from ${source}`)
