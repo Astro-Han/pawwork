@@ -1146,9 +1146,13 @@ export namespace Config {
   export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
   function globalConfigFile() {
-    const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
-      path.join(Global.Path.config, file),
-    )
+    const candidates = [
+      "pawwork.jsonc",
+      "pawwork.json",
+      "opencode.jsonc",
+      "opencode.json",
+      "config.json",
+    ].map((file) => path.join(Global.Path.config, file))
     for (const file of candidates) {
       if (existsSync(file)) return file
     }
@@ -1302,6 +1306,8 @@ export namespace Config {
             mergeDeep(yield* loadFile(path.join(Global.Path.config, "config.json"))),
             mergeDeep(yield* loadFile(path.join(Global.Path.config, "opencode.json"))),
             mergeDeep(yield* loadFile(path.join(Global.Path.config, "opencode.jsonc"))),
+            mergeDeep(yield* loadFile(path.join(Global.Path.config, "pawwork.json"))),
+            mergeDeep(yield* loadFile(path.join(Global.Path.config, "pawwork.jsonc"))),
           )
 
           const legacy = path.join(Global.Path.config, "config")
@@ -1423,7 +1429,7 @@ export namespace Config {
 
           for (const dir of unique(directories)) {
             if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
-              for (const file of ["opencode.json", "opencode.jsonc"]) {
+              for (const file of ["opencode.json", "opencode.jsonc", "pawwork.json", "pawwork.jsonc"]) {
                 const source = path.join(dir, file)
                 log.debug(`loading config from ${source}`)
                 yield* merge(source, yield* loadFile(source))
@@ -1496,7 +1502,7 @@ export namespace Config {
           }
 
           if (existsSync(managedDir)) {
-            for (const file of ["opencode.json", "opencode.jsonc"]) {
+            for (const file of ["opencode.json", "opencode.jsonc", "pawwork.json", "pawwork.jsonc"]) {
               const source = path.join(managedDir, file)
               yield* merge(source, yield* loadFile(source), "global")
             }
