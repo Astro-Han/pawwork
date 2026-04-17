@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir as baseTmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Config } from "../../src/config/config"
 import { TuiConfig } from "../../src/config/tui"
@@ -10,6 +10,27 @@ import { Filesystem } from "../../src/util/filesystem"
 
 const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR!
 const wintest = process.platform === "win32" ? test : test.skip
+
+type TestTmpdirOptions<T> = {
+  git?: boolean
+  config?: Partial<Config.Info>
+  init?: (dir: string) => Promise<T>
+  dispose?: (dir: string) => Promise<T>
+}
+
+async function tmpdir<T>(options?: TestTmpdirOptions<T>) {
+  return baseTmpdir<T>({
+    ...options,
+    dispose: async (dir) => {
+      await Instance.provide({
+        directory: dir,
+        fn: () => TuiConfig.waitForDependencies(),
+      })
+      await Config.invalidate(true)
+      return (await options?.dispose?.(dir)) as T
+    },
+  })
+}
 
 beforeEach(async () => {
   await Config.invalidate(true)
@@ -80,6 +101,7 @@ test("keeps server and tui plugin merge semantics aligned", async () => {
     directory: tmp.path,
     fn: async () => {
       const server = await Config.get()
+      await Config.waitForDependencies()
       const tui = await TuiConfig.get()
       const serverPlugins = (server.plugin ?? []).map((item) => Config.pluginSpecifier(item))
       const tuiPlugins = (tui.plugin ?? []).map((item) => Config.pluginSpecifier(item))
