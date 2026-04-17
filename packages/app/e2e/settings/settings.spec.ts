@@ -16,7 +16,7 @@ import {
   settingsUpdatesStartupSelector,
 } from "../selectors"
 
-test("new installs start with the PawWork theme", async ({ page, gotoSession }) => {
+test("@smoke new installs start with the PawWork theme", async ({ page, gotoSession }) => {
   await page.addInitScript(() => {
     localStorage.removeItem("opencode-theme-id")
     localStorage.removeItem("opencode-color-scheme")
@@ -28,7 +28,7 @@ test("new installs start with the PawWork theme", async ({ page, gotoSession }) 
   await expect(page.locator("html")).toHaveAttribute("data-color-scheme", "light")
 })
 
-test("smoke settings dialog opens, switches tabs, closes", async ({ page, gotoSession }) => {
+test("@smoke settings dialog opens, switches tabs, closes", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const dialog = await openSettings(page)

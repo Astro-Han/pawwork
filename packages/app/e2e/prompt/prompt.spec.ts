@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures"
 import { assistantText } from "../actions"
 
-test("can send a prompt and receive a reply", async ({ page, project, assistant }) => {
+test("@smoke can send a prompt and receive a reply", async ({ page, project, assistant }) => {
   test.setTimeout(120_000)
 
   const pageErrors: string[] = []

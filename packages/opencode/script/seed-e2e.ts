@@ -15,7 +15,6 @@ const seed = async () => {
   const { MessageID, PartID } = await import("../src/session/schema")
   const { Project } = await import("../src/project/project")
   const { ModelID, ProviderID } = await import("../src/provider/schema")
-  const { ToolRegistry } = await import("../src/tool/registry")
 
   try {
     await Instance.provide({
@@ -23,7 +22,6 @@ const seed = async () => {
       init: InstanceBootstrap,
       fn: async () => {
         await Config.waitForDependencies()
-        await ToolRegistry.ids()
 
         const session = await Session.create({ title })
         const messageID = MessageID.ascending()

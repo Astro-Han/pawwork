@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures"
 import { openSidebar, toggleSidebar, withSession } from "../actions"
 
-test("sidebar can be collapsed and expanded", async ({ page, gotoSession }) => {
+test("@smoke sidebar can be collapsed and expanded", async ({ page, gotoSession }) => {
   await gotoSession()
 
   await openSidebar(page)

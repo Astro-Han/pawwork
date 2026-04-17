@@ -14,7 +14,11 @@ const pageErrors = (page: Page) => {
   }
 }
 
-test("first replied message in a new session renders without page errors", async ({ page, project, assistant }) => {
+test("@smoke first replied message in a new session renders without page errors", async ({
+  page,
+  project,
+  assistant,
+}) => {
   test.setTimeout(120_000)
 
   const token = `FIRST_REPLY_${Date.now()}`
