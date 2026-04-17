@@ -5,19 +5,91 @@ on:
     branches: [dev]
   pull_request:
     branches: [dev]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  check:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          is_docs_path() {
+            case "$1" in
+              README.md|README_CN.md|packages/*/README.md|packages/opencode/specs/*|packages/opencode/BUN_SHELL_MIGRATION_PLAN.md|packages/app/create-effect-simplification-spec.md)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          docs_only=false
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+          mapfile -t changes < <(git diff --name-status --find-renames --find-copies "$BASE_SHA" "$HEAD_SHA" --)
+
+          if [ "${#changes[@]}" -gt 0 ]; then
+            docs_only=true
+
+            for change in "${changes[@]}"; do
+              IFS=$'\t' read -r status path1 path2 <<< "$change"
+
+              case "$status" in
+                A*|M*|T*|D*)
+                  if ! is_docs_path "$path1"; then
+                    docs_only=false
+                    break
+                  fi
+                  ;;
+                R*|C*)
+                  if ! is_docs_path "$path1" || ! is_docs_path "$path2"; then
+                    docs_only=false
+                    break
+                  fi
+                  ;;
+                *)
+                  docs_only=false
+                  break
+                  ;;
+              esac
+            done
+          fi
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
+  typecheck:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -31,18 +103,111 @@ jobs:
 
       - uses: actions/cache@v4
         with:
-          path: |
-            ~/.bun/install/cache
-            ~/AppData/Local/bun/install/cache
+          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-${{ runner.os }}-
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-
 
       - run: bun install --frozen-lockfile
 
       - name: typecheck
         run: bun turbo typecheck
 
-      - name: test
+  unit:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+
+      - name: unit
         run: bun turbo test:ci
+
+      - name: Publish unit reports
+        if: >
+          always() &&
+          (
+            github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.full_name == github.repository
+          )
+        uses: mikepenz/action-junit-report@v6
+        with:
+          report_paths: packages/*/.artifacts/unit/junit.xml
+          check_name: unit results
+          detailed_summary: true
+          include_time_in_summary: true
+          fail_on_failure: false
+
+      - name: Upload unit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+          path: packages/*/.artifacts/unit/junit.xml
+
+  check:
+    if: always()
+    needs:
+      - changes
+      - typecheck
+      - unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate CI result
         env:
-          OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: ${{ runner.os == 'Windows' && 'true' || 'false' }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+        run: |
+          set -euo pipefail
+
+          if [ "$DOCS_ONLY" = "true" ]; then
+            echo "Docs-only change, daily CI skipped."
+            exit 0
+          fi
+
+          if [ "$TYPECHECK_RESULT" != "success" ] || [ "$UNIT_RESULT" != "success" ]; then
+            echo "typecheck=$TYPECHECK_RESULT"
+            echo "unit=$UNIT_RESULT"
+            exit 1
+          fi
