@@ -177,3 +177,27 @@ jobs:
           codesign -dv --verbose=2 "$APP_PATH" 2>&1 | tee /tmp/pawwork-codesign.txt
           grep -q "Signature=adhoc" /tmp/pawwork-codesign.txt
         working-directory: packages/desktop-electron
+
+  check:
+    if: always()
+    needs:
+      - changes
+      - smoke-macos-arm64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate desktop smoke result
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          SMOKE_RESULT: ${{ needs.smoke-macos-arm64.result }}
+        run: |
+          set -euo pipefail
+
+          if [ "$DOCS_ONLY" = "true" ]; then
+            echo "Docs-only change, desktop smoke skipped."
+            exit 0
+          fi
+
+          if [ "$SMOKE_RESULT" != "success" ]; then
+            echo "smoke-macos-arm64=$SMOKE_RESULT"
+            exit 1
+          fi
