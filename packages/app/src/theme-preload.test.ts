@@ -39,14 +39,16 @@ describe("theme preload", () => {
     expect(document.documentElement.dataset.colorScheme).toBe("light")
   })
 
-  test("does not touch localStorage when the stored theme is already PawWork", () => {
+  test("preserves stored PawWork and keeps color scheme locked to light", () => {
     localStorage.setItem("opencode-theme-id", "pawwork")
-    localStorage.setItem("opencode-color-scheme", "light")
+    localStorage.setItem("opencode-color-scheme", "dark")
 
     run()
 
     expect(document.documentElement.dataset.theme).toBe("pawwork")
+    expect(document.documentElement.dataset.colorScheme).toBe("light")
     expect(localStorage.getItem("opencode-theme-id")).toBe("pawwork")
+    expect(localStorage.getItem("opencode-color-scheme")).toBe("light")
     expect(document.getElementById("oc-theme-preload")).toBeNull()
   })
 
