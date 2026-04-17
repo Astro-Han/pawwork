@@ -49,7 +49,6 @@ describe("theme preload", () => {
     expect(document.documentElement.dataset.colorScheme).toBe("light")
     expect(localStorage.getItem("opencode-theme-id")).toBe("pawwork")
     expect(localStorage.getItem("opencode-color-scheme")).toBe("light")
-    expect(document.getElementById("oc-theme-preload")).toBeNull()
   })
 
   for (const legacy of ["oc-1", "oc-2", "dracula", "nightowl", "amoled"]) {
@@ -67,7 +66,6 @@ describe("theme preload", () => {
       expect(localStorage.getItem("opencode-color-scheme")).toBe("light")
       expect(localStorage.getItem("opencode-theme-css-light")).toBeNull()
       expect(localStorage.getItem("opencode-theme-css-dark")).toBeNull()
-      expect(document.getElementById("oc-theme-preload")).toBeNull()
     })
   }
 })

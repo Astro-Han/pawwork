@@ -1408,13 +1408,12 @@ export namespace Config {
           }
 
           if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-            const opencodeProjectFiles = yield* Effect.promise(() =>
-              ConfigPaths.projectFiles("opencode", ctx.directory, ctx.worktree),
-            )
-            const pawworkProjectFiles = yield* Effect.promise(() =>
-              ConfigPaths.projectFiles("pawwork", ctx.directory, ctx.worktree),
-            )
-            for (const file of [...opencodeProjectFiles, ...pawworkProjectFiles]) {
+            // Per-directory, walk opencode first then pawwork so pawwork wins
+            // within a directory; rootFirst ensures the innermost directory
+            // wins across directories regardless of filename.
+            for (const file of yield* Effect.promise(() =>
+              ConfigPaths.projectFiles(["opencode", "pawwork"], ctx.directory, ctx.worktree),
+            )) {
               yield* merge(file, yield* loadFile(file), "local")
             }
           }
