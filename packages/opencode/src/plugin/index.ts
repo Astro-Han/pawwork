@@ -18,72 +18,17 @@ import { EffectLogger } from "@/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { errorMessage } from "@/util/error"
-import { Filesystem } from "@/util/filesystem"
+import { needsConfigDependencies } from "@/config/dependency"
 import { PluginLoader } from "./loader"
 import { parsePluginSpecifier, readPluginId, readV1Plugin, resolvePluginId } from "./shared"
-import { builtinModules, isBuiltin } from "module"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
-  const DEPENDENCY_IMPORT =
-    /(?:^|\n)\s*(?:import\s+(?:[^"'`]+\s+from\s+)?|export\s+[^"'`]+\s+from\s+)["']([^./"'`][^"'`]*)["']|import\s*\(\s*["']([^./"'`][^"'`]*)["']\s*\)|require\(\s*["']([^./"'`][^"'`]*)["']\s*\)/gm
-  const LOCAL_IMPORT =
-    /(?:^|\n)\s*(?:import\s+(?:[^"'`]+\s+from\s+)?|export\s+[^"'`]+\s+from\s+)["']((?:\.\.?\/)[^"'`]*)["']|import\s*\(\s*["']((?:\.\.?\/)[^"'`]*)["']\s*\)|require\(\s*["']((?:\.\.?\/)[^"'`]*)["']\s*\)/gm
-  const BUILTIN_MODULES = new Set(builtinModules)
-  const LOCAL_IMPORT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
-
-  function packageName(spec: string) {
-    if (spec.startsWith("node:") || isBuiltin(spec) || BUILTIN_MODULES.has(spec)) return
-    if (spec.startsWith("@")) {
-      const [scope, name] = spec.split("/")
-      if (!scope || !name) return
-      return `${scope}/${name}`
-    }
-    return spec.split("/")[0]
-  }
 
   function dependencyDir(source: string, projectDir: string) {
     if (source === "OPENCODE_CONFIG_CONTENT") return projectDir
     if (source.endsWith(".json") || source.endsWith(".jsonc")) return path.dirname(source)
     return source
-  }
-
-  async function resolveLocalImport(file: string, spec: string) {
-    const target = path.resolve(path.dirname(file), spec)
-    const candidates = path.extname(target)
-      ? [target]
-      : [
-          ...LOCAL_IMPORT_EXTENSIONS.map((ext) => `${target}${ext}`),
-          ...LOCAL_IMPORT_EXTENSIONS.map((ext) => path.join(target, `index${ext}`)),
-        ]
-    for (const candidate of candidates) {
-      if (await Filesystem.exists(candidate)) return candidate
-    }
-  }
-
-  async function needsConfigDependencies(file: string, source: string, projectDir: string, visited = new Set<string>()) {
-    const resolved = path.resolve(file)
-    if (visited.has(resolved)) return false
-    visited.add(resolved)
-    const text = await Filesystem.readText(resolved).catch(() => "")
-    const configDir = dependencyDir(source, projectDir)
-    for (const match of text.matchAll(DEPENDENCY_IMPORT)) {
-      const spec = match[1] ?? match[2] ?? match[3]
-      if (!spec) continue
-      const pkg = packageName(spec)
-      if (!pkg) continue
-      const pkgPath = path.join(configDir, "node_modules", ...pkg.split("/"))
-      if (await Filesystem.exists(path.join(pkgPath, "package.json"))) continue
-      return true
-    }
-    for (const match of text.matchAll(LOCAL_IMPORT)) {
-      const spec = match[1] ?? match[2] ?? match[3]
-      if (!spec) continue
-      const next = await resolveLocalImport(resolved, spec)
-      if (!next) continue
-      if (await needsConfigDependencies(next, source, projectDir, visited)) return true
-    }
-    return false
   }
 
   type State = {
@@ -224,7 +169,7 @@ export namespace Plugin {
             if (!spec.startsWith("file://")) continue
             const dir = dependencyDir(origin.source, ctx.directory)
             if (readyDirs.has(dir)) continue
-            const needsDeps = yield* Effect.promise(() => needsConfigDependencies(fileURLToPath(spec), origin.source, ctx.directory))
+            const needsDeps = yield* Effect.promise(() => needsConfigDependencies(fileURLToPath(spec), dir))
             if (!needsDeps) continue
             readyDirs.add(dir)
             yield* Effect.promise(() => Config.waitForDependencies([dir]).catch(() => undefined))
@@ -238,7 +183,7 @@ export namespace Plugin {
               shouldRetry: (origin) => {
                 const spec = Config.pluginSpecifier(origin.spec)
                 if (!spec.startsWith("file://")) return Promise.resolve(false)
-                return needsConfigDependencies(fileURLToPath(spec), origin.source, ctx.directory)
+                return needsConfigDependencies(fileURLToPath(spec), dependencyDir(origin.source, ctx.directory))
               },
               report: {
                 start(candidate) {
