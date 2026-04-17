@@ -56,9 +56,17 @@ export function loadLocaleDict(locale: Locale) {
   return loadDict(locale).then(() => undefined)
 }
 
+const ZHT_REGIONS = ["tw", "hk", "mo"]
+export const isTraditionalChinese = (language: string) => {
+  if (!language.startsWith("zh")) return false
+  if (language.includes("hant")) return true
+  const region = language.split(/[-_]/, 2)[1]
+  return region !== undefined && ZHT_REGIONS.includes(region)
+}
+
 const localeMatchers: Array<{ locale: Locale; match: (language: string) => boolean }> = [
   { locale: "en", match: (language) => language.startsWith("en") },
-  { locale: "zht", match: (language) => language.startsWith("zh") && language.includes("hant") },
+  { locale: "zht", match: isTraditionalChinese },
   { locale: "zh", match: (language) => language.startsWith("zh") },
 ]
 

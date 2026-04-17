@@ -15,6 +15,14 @@ type Dictionary = i18n.Flatten<RawDictionary>
 
 const LOCALES: readonly Locale[] = ["en", "zh", "zht"]
 
+const ZHT_REGIONS = ["tw", "hk", "mo"]
+
+export function isTraditionalChinese(language: string) {
+  if (language.includes("hant")) return true
+  const region = language.split(/[-_]/, 2)[1]
+  return region !== undefined && ZHT_REGIONS.includes(region)
+}
+
 function detectLocale(): Locale {
   if (typeof navigator !== "object") return "en"
 
@@ -23,8 +31,7 @@ function detectLocale(): Locale {
     if (!language) continue
     const normalized = language.toLowerCase()
     if (normalized.startsWith("zh")) {
-      if (normalized.includes("hant")) return "zht"
-      return "zh"
+      return isTraditionalChinese(normalized) ? "zht" : "zh"
     }
     if (normalized.startsWith("en")) return "en"
   }
