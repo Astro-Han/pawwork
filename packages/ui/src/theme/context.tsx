@@ -174,9 +174,12 @@ function cacheThemeVariants(theme: DesktopTheme, themeId: string) {
 export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
   name: "Theme",
   init: (props: { defaultTheme?: string; onThemeApplied?: (theme: DesktopTheme, mode: "light" | "dark") => void }) => {
-    const storedTheme = normalize(read(STORAGE_KEYS.THEME_ID))
+    const rawStoredTheme = read(STORAGE_KEYS.THEME_ID)
+    const normalizedStoredTheme = normalize(rawStoredTheme)
+    const storedTheme =
+      normalizedStoredTheme && knownThemes().has(normalizedStoredTheme) ? normalizedStoredTheme : null
     const storedScheme = read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null
-    const firstInstall = !storedTheme && !storedScheme
+    const firstInstall = !rawStoredTheme && !storedScheme
     const themeId = storedTheme ?? normalize(props.defaultTheme) ?? DEFAULT_THEME_ID
     const colorScheme =
       themeId === DEFAULT_THEME_ID ? "light" : ((storedScheme ?? (firstInstall ? "light" : "system")) as ColorScheme)
@@ -273,7 +276,9 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       const rawTheme = read(STORAGE_KEYS.THEME_ID)
       const rawScheme = read(STORAGE_KEYS.COLOR_SCHEME) as ColorScheme | null
       const firstInstall = !rawTheme && !rawScheme
-      const savedTheme = normalize(rawTheme ?? props.defaultTheme) ?? DEFAULT_THEME_ID
+      const normalizedRaw = normalize(rawTheme ?? props.defaultTheme)
+      const savedTheme =
+        normalizedRaw && knownThemes().has(normalizedRaw) ? normalizedRaw : DEFAULT_THEME_ID
       const savedScheme =
         savedTheme === DEFAULT_THEME_ID ? "light" : ((rawScheme ?? (firstInstall ? "light" : "system")) as ColorScheme)
       if (rawTheme && rawTheme !== savedTheme) {
