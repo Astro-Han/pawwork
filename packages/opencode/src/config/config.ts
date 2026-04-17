@@ -141,6 +141,7 @@ export namespace Config {
   export type InstallInput = {
     signal?: AbortSignal
     waitTick?: (input: { dir: string; attempt: number; delay: number; waited: number }) => void | Promise<void>
+    queueKey?: string | false
   }
 
   type Package = {
@@ -1326,9 +1327,32 @@ export namespace Config {
             )
             if (!writable) return
 
-            const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
             const controller = new AbortController()
             const onAbort = () => controller.abort(input?.signal?.reason)
+            const scopedKey = `config-install:${Filesystem.resolve(dir)}`
+            const queueKey = input?.queueKey ?? (process.platform === "win32" ? "config-install:win32" : false)
+            const signal = (inner: AbortSignal) => AbortSignal.any([controller.signal, inner])
+            const acquire = (key: string, waitTick = false) =>
+              Effect.acquireRelease(
+                Effect.tryPromise({
+                  try: (inner) =>
+                    Flock.acquire(key, {
+                      signal: signal(inner),
+                      onWait: waitTick
+                        ? (tick) =>
+                            input?.waitTick?.({
+                              dir,
+                              attempt: tick.attempt,
+                              delay: tick.delay,
+                              waited: tick.waited,
+                            })
+                        : undefined,
+                    }),
+                  catch: (cause) => cause,
+                }),
+                (lease) => Effect.promise(() => lease.release()),
+                { interruptible: true },
+              )
             yield* Effect.acquireUseRelease(
               Effect.sync(() => {
                 if (!input?.signal) return
@@ -1338,25 +1362,10 @@ export namespace Config {
               () =>
                 Effect.scoped(
                   Effect.gen(function* () {
-                    yield* Effect.acquireRelease(
-                      Effect.tryPromise({
-                        try: (signal) =>
-                          Flock.acquire(key, {
-                            signal: AbortSignal.any([controller.signal, signal]),
-                            onWait: (tick) =>
-                              input?.waitTick?.({
-                                dir,
-                                attempt: tick.attempt,
-                                delay: tick.delay,
-                                waited: tick.waited,
-                              }),
-                          }),
-                        catch: (cause) => cause,
-                      }),
-                      (lease) => Effect.promise(() => lease.release()),
-                      { interruptible: true },
-                    )
-
+                    if (queueKey) {
+                      yield* acquire(queueKey, true)
+                    }
+                    yield* acquire(scopedKey, !queueKey)
                     input?.signal?.throwIfAborted()
                     yield* install(dir)
                   }),
@@ -1451,6 +1460,10 @@ export namespace Config {
           }
 
           const deps: State["deps"] = []
+          const queueKey = (dir: string) => {
+            if (process.platform !== "win32") return false
+            return dir.endsWith(".opencode") ? "config-install:win32:local" : "config-install:win32"
+          }
 
           for (const dir of unique(directories)) {
             if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
@@ -1464,7 +1477,7 @@ export namespace Config {
               }
             }
 
-            const dep = yield* installDependencies(dir).pipe(
+            const dep = yield* installDependencies(dir, { queueKey: queueKey(dir) }).pipe(
               Effect.exit,
               Effect.tap((exit) =>
                 Exit.isFailure(exit)

@@ -14,6 +14,22 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+async function withPlatform<T>(value: NodeJS.Platform, fn: () => Promise<T>) {
+  const previous = process.platform
+  Object.defineProperty(process, "platform", {
+    value,
+    configurable: true,
+  })
+  try {
+    return await fn()
+  } finally {
+    Object.defineProperty(process, "platform", {
+      value: previous,
+      configurable: true,
+    })
+  }
+}
+
 describe("tool.registry", () => {
   test("loads tools from .opencode/tool (singular)", async () => {
     await using tmp = await tmpdir({
@@ -260,6 +276,157 @@ describe("tool.registry", () => {
       ;(Global.Path as { config: string }).config = prevGlobal
       await Config.invalidate(true)
     }
+  })
+
+  test("does not wait for unrelated global config installs on Windows before importing local tools with bare imports", async () => {
+    await withPlatform("win32", async () => {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          const toolsDir = path.join(dir, ".opencode", "tools")
+          await fs.mkdir(toolsDir, { recursive: true })
+
+          await Bun.write(
+            path.join(toolsDir, "late.ts"),
+            [
+              "import { ready } from 'late-dep'",
+              "export default {",
+              "  description: 'tool that only needs local config deps',",
+              "  args: {},",
+              "  execute: async () => ready,",
+              "}",
+              "",
+            ].join("\n"),
+          )
+        },
+      })
+
+      const prevGlobal = Global.Path.config
+      let globalDir = ""
+      let release = () => {}
+      let started = () => {}
+      let idsTask: Promise<string[]> | undefined
+      const installing = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const ready = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+        if (path.normalize(dir) === path.normalize(globalDir)) {
+          started()
+          await installing
+        }
+        await writeMockConfigInstall(dir)
+      })
+
+      try {
+        globalDir = path.join(tmp.path, "global")
+        await fs.mkdir(globalDir, { recursive: true })
+        ;(Global.Path as { config: string }).config = globalDir
+        await Config.invalidate(true)
+
+        idsTask = Instance.provide({
+          directory: tmp.path,
+          fn: () => ToolRegistry.ids(),
+        }).then((ids) => ids)
+
+        await ready
+
+        await expect(withTimeout(idsTask, 2_000)).resolves.toContain("late")
+      } finally {
+        release()
+        await idsTask?.catch(() => undefined)
+        install.mockRestore()
+        ;(Global.Path as { config: string }).config = prevGlobal
+        await Config.invalidate(true)
+      }
+    })
+  })
+
+  test("serializes concurrent Windows local tool dependency installs across directories", async () => {
+    await withPlatform("win32", async () => {
+      async function createToolProject() {
+        return await tmpdir({
+          init: async (dir) => {
+            const toolsDir = path.join(dir, ".opencode", "tools")
+            await fs.mkdir(toolsDir, { recursive: true })
+            await Bun.write(
+              path.join(toolsDir, "late.ts"),
+              [
+                "import { ready } from 'late-dep'",
+                "export default {",
+                "  description: 'tool that needs local config deps',",
+                "  args: {},",
+                "  execute: async () => ready,",
+                "}",
+                "",
+              ].join("\n"),
+            )
+          },
+        })
+      }
+
+      await using first = await createToolProject()
+      await using second = await createToolProject()
+
+      const targets = new Set([
+        path.normalize(path.join(first.path, ".opencode")),
+        path.normalize(path.join(second.path, ".opencode")),
+      ])
+      let open = 0
+      let peak = 0
+      let calls = 0
+      let release = () => {}
+      let started = () => {}
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const firstInstall = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      const install = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+        const key = path.normalize(dir)
+        const hit = targets.has(key)
+        if (hit) {
+          calls += 1
+          open += 1
+          peak = Math.max(peak, open)
+          if (calls === 1) {
+            started()
+            await gate
+          }
+        }
+        await writeMockConfigInstall(dir)
+        if (hit) {
+          open -= 1
+        }
+      })
+
+      try {
+        const firstIds = Instance.provide({
+          directory: first.path,
+          fn: () => ToolRegistry.ids(),
+        })
+        await firstInstall
+
+        const secondIds = Instance.provide({
+          directory: second.path,
+          fn: () => ToolRegistry.ids(),
+        })
+        await Bun.sleep(100)
+        release()
+
+        await expect(firstIds).resolves.toContain("late")
+        await expect(secondIds).resolves.toContain("late")
+      } finally {
+        release()
+        install.mockRestore()
+        await Config.invalidate(true)
+      }
+
+      expect(calls).toBe(2)
+      expect(peak).toBe(1)
+    })
   })
 
   test("skips disabled tools before importing them", async () => {
