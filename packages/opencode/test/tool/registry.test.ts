@@ -263,8 +263,8 @@ describe("tool.registry", () => {
 
       idsTask = Instance.provide({
         directory: tmp.path,
-        fn: async () => ToolRegistry.ids(),
-      })
+        fn: () => ToolRegistry.ids(),
+      }).then((ids) => ids)
 
       await ready
 
