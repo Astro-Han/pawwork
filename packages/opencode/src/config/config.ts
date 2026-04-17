@@ -1419,8 +1419,13 @@ export namespace Config {
           }
 
           const deps: Promise<void>[] = []
+          const abortInstalls = new AbortController()
           yield* Effect.addFinalizer(() =>
-            Effect.promise(() => Promise.allSettled(deps).then(() => undefined)),
+            Effect.sync(() => abortInstalls.abort()).pipe(
+              Effect.flatMap(() =>
+                Effect.promise(() => Promise.allSettled(deps).then(() => undefined)),
+              ),
+            ),
           )
 
           for (const dir of unique(directories)) {
@@ -1435,8 +1440,9 @@ export namespace Config {
               }
             }
 
-            const dep = installDependencies(dir)
+            const dep = installDependencies(dir, { signal: abortInstalls.signal })
             void dep.catch((err) => {
+              if (abortInstalls.signal.aborted) return
               log.warn("background dependency install failed", { dir, error: err })
             })
             deps.push(dep)
