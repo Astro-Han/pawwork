@@ -1329,41 +1329,42 @@ export namespace Config {
             const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
             const controller = new AbortController()
             const onAbort = () => controller.abort(input?.signal?.reason)
-            if (input?.signal) {
-              if (input.signal.aborted) controller.abort(input.signal.reason)
-              else input.signal.addEventListener("abort", onAbort, { once: true })
-            }
-            yield* Effect.uninterruptibleMask((restore) =>
-              restore(
-                Effect.promise(() =>
-                  Flock.acquire(key, {
-                    signal: controller.signal,
-                    onWait: (tick) =>
-                      input?.waitTick?.({
-                        dir,
-                        attempt: tick.attempt,
-                        delay: tick.delay,
-                        waited: tick.waited,
+            yield* Effect.acquireUseRelease(
+              Effect.sync(() => {
+                if (!input?.signal) return
+                if (input.signal.aborted) controller.abort(input.signal.reason)
+                else input.signal.addEventListener("abort", onAbort, { once: true })
+              }),
+              () =>
+                Effect.scoped(
+                  Effect.gen(function* () {
+                    yield* Effect.acquireRelease(
+                      Effect.tryPromise({
+                        try: (signal) =>
+                          Flock.acquire(key, {
+                            signal: AbortSignal.any([controller.signal, signal]),
+                            onWait: (tick) =>
+                              input?.waitTick?.({
+                                dir,
+                                attempt: tick.attempt,
+                                delay: tick.delay,
+                                waited: tick.waited,
+                              }),
+                          }),
+                        catch: (cause) => cause,
                       }),
-                  }),
-                ).pipe(Effect.onInterrupt(() => Effect.sync(() => controller.abort()))),
-              ).pipe(
-                Effect.flatMap((lease) =>
-                  restore(
-                    Effect.gen(function* () {
-                      input?.signal?.throwIfAborted()
-                      yield* install(dir)
-                    }),
-                  ).pipe(
-                    Effect.ensuring(Effect.promise(() => lease.release())),
-                  ),
-                ),
-                Effect.ensuring(
-                  Effect.sync(() => {
-                    input?.signal?.removeEventListener("abort", onAbort)
+                      (lease) => Effect.promise(() => lease.release()),
+                      { interruptible: true },
+                    )
+
+                    input?.signal?.throwIfAborted()
+                    yield* install(dir)
                   }),
                 ),
-              ),
+              () =>
+                Effect.sync(() => {
+                  input?.signal?.removeEventListener("abort", onAbort)
+                }),
             )
           })
 

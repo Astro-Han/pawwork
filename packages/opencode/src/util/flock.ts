@@ -338,9 +338,34 @@ export namespace Flock {
       },
       cfg,
     )
+    let abortReason: unknown
+    const onAbort = () => {
+      abortReason = input.signal?.reason ?? new Error("Aborted")
+    }
+    let released: Promise<void> | undefined
+    const release = () => {
+      input.signal?.removeEventListener("abort", onAbort)
+      return (released ??= lock.release())
+    }
+
+    input.signal?.addEventListener("abort", onAbort, { once: true })
+    if (input.signal?.aborted) {
+      abortReason = input.signal.reason ?? new Error("Aborted")
+    }
+
     lock.startHeartbeat()
 
-    const release = () => lock.release()
+    // Hold the abort hook through the handoff microtask so callers can
+    // register their own finalizer without leaking a just-acquired lock.
+    if (input.signal) {
+      await Promise.resolve()
+      if (abortReason !== undefined || input.signal.aborted) {
+        await release()
+        throw (abortReason ?? input.signal.reason ?? new Error("Aborted"))
+      }
+      input.signal.removeEventListener("abort", onAbort)
+    }
+
     return {
       release,
       [Symbol.asyncDispose]() {
