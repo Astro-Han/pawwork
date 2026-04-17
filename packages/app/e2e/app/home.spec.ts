@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures"
 import { serverNamePattern } from "../utils"
 
-test("home renders and shows core entrypoints", async ({ page }) => {
+test("@smoke home renders and shows core entrypoints", async ({ page }) => {
   await page.goto("/")
   const nav = page.locator('[data-component="sidebar-nav-desktop"]')
 
@@ -11,7 +11,7 @@ test("home renders and shows core entrypoints", async ({ page }) => {
   await expect(page.getByRole("button", { name: serverNamePattern })).toBeVisible()
 })
 
-test("server picker dialog opens from home", async ({ page }) => {
+test("@smoke server picker dialog opens from home", async ({ page }) => {
   await page.goto("/")
 
   const trigger = page.getByRole("button", { name: serverNamePattern })

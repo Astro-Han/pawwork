@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures"
 import { modelVariantCycleSelector } from "./selectors"
 
-test("smoke model variant cycle updates label", async ({ page, gotoSession }) => {
+test("model variant cycle updates label", async ({ page, gotoSession }) => {
   await gotoSession()
 
   await page.addStyleTag({

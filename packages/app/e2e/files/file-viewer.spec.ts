@@ -2,7 +2,7 @@ import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
 import { modKey } from "../utils"
 
-test("smoke file viewer renders real file content", async ({ page, gotoSession }) => {
+test("file viewer renders real file content", async ({ page, gotoSession }) => {
   await gotoSession()
 
   await page.locator(promptSelector).click()

@@ -2,7 +2,7 @@ import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
 import { dirPath } from "../utils"
 
-test("project route redirects to /session", async ({ page, directory, slug }) => {
+test("@smoke project route redirects to /session", async ({ page, directory, slug }) => {
   await page.goto(dirPath(directory))
 
   await expect(page).toHaveURL(new RegExp(`/${slug}/session`))

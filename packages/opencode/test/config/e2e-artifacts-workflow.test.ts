@@ -8,6 +8,9 @@ async function readWorkflow() {
   return await fs.readFile(workflowPath, "utf8")
 }
 
+const runBlockPattern =
+  /run: \|\n\s+if \[ "\$EVENT_NAME" = "pull_request" \] \|\| \[ "\$E2E_SUITE" = "smoke" \]; then\n\s+bun --cwd packages\/app test:e2e:local -- --grep @smoke\n\s+else\n\s+bun --cwd packages\/app test:e2e:local\n\s+fi/
+
 describe("e2e artifacts workflow", () => {
   test("exists as a dedicated non-blocking PR diagnostics workflow", async () => {
     const workflow = await readWorkflow()
@@ -16,6 +19,13 @@ describe("e2e artifacts workflow", () => {
     expect(workflow).toContain("pull_request:")
     expect(workflow).toContain("branches: [dev]")
     expect(workflow).toContain("workflow_dispatch:")
+    expect(workflow).toContain("suite:")
+    expect(workflow).toContain("default: full")
+    expect(workflow).toContain("- smoke")
+    expect(workflow).toContain("- full")
+    expect(workflow).toContain(
+      "group: e2e-artifacts-${{ github.event.pull_request.number || github.ref }}-${{ inputs.suite || 'pr-smoke' }}",
+    )
     expect(workflow).toContain("permissions:")
     expect(workflow).toContain("contents: read")
     expect(workflow).not.toContain("pull_request_target:")
@@ -25,7 +35,7 @@ describe("e2e artifacts workflow", () => {
     expect(workflow).toContain("persist-credentials: false")
     expect(workflow).toContain("bun install --frozen-lockfile")
     expect(workflow).toContain("bunx playwright install --with-deps chromium")
-    expect(workflow).toContain("bun --cwd packages/app test:e2e:local")
+    expect(workflow).toMatch(runBlockPattern)
     expect(workflow).toContain("if: always()")
     expect(workflow).toContain("actions/upload-artifact@v4")
     expect(workflow).toContain("retention-days: 7")

@@ -4,9 +4,18 @@ on:
   pull_request:
     branches: [dev]
   workflow_dispatch:
+    inputs:
+      suite:
+        description: E2E suite to run
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - smoke
 
 concurrency:
-  group: e2e-artifacts-${{ github.event.pull_request.number || github.ref }}
+  group: e2e-artifacts-${{ github.event.pull_request.number || github.ref }}-${{ inputs.suite || 'pr-smoke' }}
   cancel-in-progress: true
 
 permissions:
@@ -54,8 +63,15 @@ jobs:
       - name: Run e2e
         env:
           CI: "true"
+          EVENT_NAME: ${{ github.event_name }}
+          E2E_SUITE: ${{ inputs.suite || '' }}
           PLAYWRIGHT_JUNIT_OUTPUT: e2e/junit-linux.xml
-        run: bun --cwd packages/app test:e2e:local
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ] || [ "$E2E_SUITE" = "smoke" ]; then
+            bun --cwd packages/app test:e2e:local -- --grep @smoke
+          else
+            bun --cwd packages/app test:e2e:local
+          fi
 
       - name: Upload e2e artifacts
         if: always()
