@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test"
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { tmpdir as baseTmpdir } from "../fixture/fixture"
@@ -6,7 +6,9 @@ import { Instance } from "../../src/project/instance"
 import { Config } from "../../src/config/config"
 import { TuiConfig } from "../../src/config/tui"
 import { Global } from "../../src/global"
+import { Npm } from "../../src/npm"
 import { Filesystem } from "../../src/util/filesystem"
+import { writeMockConfigInstall } from "../shared/mock-npm-install"
 
 const managedConfigDir = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR!
 const wintest = process.platform === "win32" ? test : test.skip
@@ -48,6 +50,8 @@ afterEach(async () => {
 })
 
 test("keeps server and tui plugin merge semantics aligned", async () => {
+  const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
+
   await using tmp = await tmpdir({
     init: async (dir) => {
       const local = path.join(dir, ".opencode")
@@ -97,26 +101,31 @@ test("keeps server and tui plugin merge semantics aligned", async () => {
     },
   })
 
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const server = await Config.get()
-      await Config.waitForDependencies()
-      const tui = await TuiConfig.get()
-      const serverPlugins = (server.plugin ?? []).map((item) => Config.pluginSpecifier(item))
-      const tuiPlugins = (tui.plugin ?? []).map((item) => Config.pluginSpecifier(item))
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const server = await Config.get()
+        await Config.waitForDependencies()
+        const tui = await TuiConfig.get()
+        const serverPlugins = (server.plugin ?? []).map((item) => Config.pluginSpecifier(item))
+        const tuiPlugins = (tui.plugin ?? []).map((item) => Config.pluginSpecifier(item))
 
-      expect(serverPlugins).toEqual(tuiPlugins)
-      expect(serverPlugins).toContain("shared-plugin@2.0.0")
-      expect(serverPlugins).not.toContain("shared-plugin@1.0.0")
+        expect(serverPlugins).toEqual(tuiPlugins)
+        expect(serverPlugins).toContain("shared-plugin@2.0.0")
+        expect(serverPlugins).not.toContain("shared-plugin@1.0.0")
 
-      const serverOrigins = server.plugin_origins ?? []
-      const tuiOrigins = tui.plugin_origins ?? []
-      expect(serverOrigins.map((item) => Config.pluginSpecifier(item.spec))).toEqual(serverPlugins)
-      expect(tuiOrigins.map((item) => Config.pluginSpecifier(item.spec))).toEqual(tuiPlugins)
-      expect(serverOrigins.map((item) => item.scope)).toEqual(tuiOrigins.map((item) => item.scope))
-    },
-  })
+        const serverOrigins = server.plugin_origins ?? []
+        const tuiOrigins = tui.plugin_origins ?? []
+        expect(serverOrigins.map((item) => Config.pluginSpecifier(item.spec))).toEqual(serverPlugins)
+        expect(tuiOrigins.map((item) => Config.pluginSpecifier(item.spec))).toEqual(tuiPlugins)
+        expect(serverOrigins.map((item) => item.scope)).toEqual(tuiOrigins.map((item) => item.scope))
+        expect(install).toHaveBeenCalledWith(path.join(tmp.path, ".opencode"))
+      },
+    })
+  } finally {
+    install.mockRestore()
+  }
 })
 
 test("loads tui config with the same precedence order as server config paths", async () => {
