@@ -800,23 +800,19 @@ export function registerPartComponent(type: string, component: PartComponent) {
 
 export function Message(props: MessageProps) {
   return (
-    <Switch>
-      <Match when={props.message.role === "user" && props.message}>
-        {(userMessage) => (
-          <UserMessageDisplay message={userMessage() as UserMessage} parts={props.parts} actions={props.actions} />
-        )}
-      </Match>
-      <Match when={props.message.role === "assistant" && props.message}>
-        {(assistantMessage) => (
-          <AssistantMessageDisplay
-            message={assistantMessage() as AssistantMessage}
-            parts={props.parts}
-            showAssistantCopyPartID={props.showAssistantCopyPartID}
-            showReasoningSummaries={props.showReasoningSummaries}
-          />
-        )}
-      </Match>
-    </Switch>
+    <>
+      <Show when={props.message.role === "user"}>
+        <UserMessageDisplay message={props.message as UserMessage} parts={props.parts} actions={props.actions} />
+      </Show>
+      <Show when={props.message.role === "assistant"}>
+        <AssistantMessageDisplay
+          message={props.message as AssistantMessage}
+          parts={props.parts}
+          showAssistantCopyPartID={props.showAssistantCopyPartID}
+          showReasoningSummaries={props.showReasoningSummaries}
+        />
+      </Show>
+    </>
   )
 }
 
@@ -1026,12 +1022,10 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
     const match = data.store.provider?.all?.find((p) => p.id === providerID)
     return match?.models?.[modelID]?.name ?? modelID
   })
-  const timefmt = createMemo(() => new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }))
-
   const stamp = createMemo(() => {
     const created = props.message.time?.created
     if (typeof created !== "number") return ""
-    return timefmt().format(created)
+    return new Intl.DateTimeFormat(i18n.locale(), { timeStyle: "short" }).format(created)
   })
 
   const metaHead = createMemo(() => {
