@@ -152,6 +152,18 @@ export namespace Worktree {
     )
   }
 
+  function removeErrorCode(error: unknown) {
+    if (typeof error !== "object" || error === null || !("code" in error)) return
+    const value = error.code
+    if (typeof value !== "string") return
+    return value
+  }
+
+  function retryableRemoveError(error: unknown) {
+    const code = removeErrorCode(error)
+    return code === "EBUSY" || code === "ENOTEMPTY" || code === "EPERM"
+  }
+
   // ---------------------------------------------------------------------------
   // Effect service
   // ---------------------------------------------------------------------------
@@ -358,14 +370,25 @@ export namespace Worktree {
       }
 
       function cleanDirectory(target: string) {
-        return Effect.promise(() =>
-          import("fs/promises")
-            .then((fsp) => fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-            .catch((error) => {
+        return Effect.promise(async () => {
+          const fsp = await import("fs/promises")
+          let delay = 50
+
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              await fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+              return
+            } catch (error) {
+              if (retryableRemoveError(error) && attempt < 7) {
+                await new Promise((resolve) => setTimeout(resolve, delay))
+                delay = Math.min(delay * 2, 1_000)
+                continue
+              }
               const message = errorMessage(error)
               throw new RemoveFailedError({ message: message || "Failed to remove git worktree directory" })
-            }),
-        )
+            }
+          }
+        })
       }
 
       const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {
