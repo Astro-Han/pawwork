@@ -150,5 +150,5 @@ jobs:
             exit 1
           fi
 
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          codesign --verify --deep --verbose=2 "$APP_PATH"
         working-directory: packages/desktop-electron

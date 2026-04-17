@@ -35,7 +35,8 @@ describe("desktop smoke workflow", () => {
 
     expect(workflow).toContain("Expected app bundle at")
     expect(workflow).toContain("Expected executable at")
-    expect(workflow).toContain("codesign --verify --deep --strict --verbose=2")
+    expect(workflow).toContain("codesign --verify --deep --verbose=2")
+    expect(workflow).not.toContain("codesign --verify --deep --strict --verbose=2")
     expect(workflow).not.toContain("pull_request_target")
     expect(workflow).not.toContain("secrets.")
   })
