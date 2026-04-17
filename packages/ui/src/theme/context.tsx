@@ -3,7 +3,6 @@ import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createSimpleContext } from "../context/helper"
 import pawworkThemeJson from "./themes/pawwork.json"
-import oc2ThemeJson from "./themes/oc-2.json"
 import { resolveThemeVariant, themeToCss } from "./resolve"
 import type { DesktopTheme } from "./types"
 
@@ -83,7 +82,6 @@ const names: Record<string, string> = {
   zenburn: "Zenburn",
 }
 const pawworkTheme = pawworkThemeJson as DesktopTheme
-const oc2Theme = oc2ThemeJson as DesktopTheme
 
 function normalize(id: string | null | undefined) {
   return id === "oc-1" ? "oc-2" : id
@@ -137,7 +135,7 @@ function resolveMode(themeId: string, colorScheme: ColorScheme): "light" | "dark
 }
 
 function shouldCacheTheme(themeId: string) {
-  return themeId !== DEFAULT_THEME_ID && themeId !== "oc-2"
+  return themeId !== DEFAULT_THEME_ID
 }
 
 function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "dark") {
@@ -186,7 +184,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     const [store, setStore] = createStore({
       themes: {
         [DEFAULT_THEME_ID]: pawworkTheme,
-        "oc-2": oc2Theme,
       } as Record<string, DesktopTheme>,
       themeId,
       colorScheme,
