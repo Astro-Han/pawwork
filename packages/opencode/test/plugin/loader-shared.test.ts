@@ -3,6 +3,7 @@ import fs from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "url"
 import { tmpdir } from "../fixture/fixture"
+import { writeMockConfigInstall } from "../shared/mock-npm-install"
 import { Filesystem } from "../../src/util/filesystem"
 
 const disableDefault = process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS
@@ -745,6 +746,51 @@ describe("plugin.loader.shared", () => {
       expect(await Bun.file(tmp.extra.mark).text()).toBe("ok")
     } finally {
       wait.mockRestore()
+    }
+  })
+
+  test("waits for auto-discovered file plugins that reach config deps through helper imports", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const configDir = path.join(dir, ".opencode")
+        const pluginsDir = path.join(configDir, "plugins")
+        const pluginFile = path.join(pluginsDir, "demo.ts")
+        const mark = path.join(dir, "demo.txt")
+
+        await fs.mkdir(pluginsDir, { recursive: true })
+        await Bun.write(
+          path.join(pluginsDir, "helper.ts"),
+          ["import { ready } from 'late-dep'", "export { ready }", ""].join("\n"),
+        )
+        await Bun.write(
+          pluginFile,
+          [
+            'import { ready } from "./helper"',
+            "export default {",
+            '  id: "demo.helper",',
+            "  server: async () => {",
+            `    await Bun.write(${JSON.stringify(mark)}, ready)`,
+            "    return {}",
+            "  },",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        return { mark, configDir }
+      },
+    })
+
+    const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
+
+    try {
+      await load(tmp.path)
+      expect(
+        install.mock.calls.some(([dir]) => path.normalize(dir) === path.normalize(tmp.extra.configDir)),
+      ).toBe(true)
+      expect(await Bun.file(tmp.extra.mark).text()).toBe("hello")
+    } finally {
+      install.mockRestore()
     }
   })
 

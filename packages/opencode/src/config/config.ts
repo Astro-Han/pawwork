@@ -1289,7 +1289,6 @@ export namespace Config {
 
         const install = Effect.fnUntraced(function* (dir: string) {
           const pkg = path.join(dir, "package.json")
-          const plugin = path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json")
           const target = Installation.isLocal() ? "*" : Installation.VERSION
           const json = yield* fs.readJson(pkg).pipe(
             Effect.catch(() => Effect.succeed({} satisfies Package)),
@@ -1297,16 +1296,21 @@ export namespace Config {
           )
           const dependencies: Record<string, string> = json.dependencies ?? {}
           const hasDep = dependencies["@opencode-ai/plugin"] === target
+          const required = {
+            ...dependencies,
+            "@opencode-ai/plugin": target,
+          }
           const gitignore = path.join(dir, ".gitignore")
           const ignore = yield* fs.existsSafe(gitignore)
-          const hasPkg = yield* fs.existsSafe(plugin)
+          const installed = yield* Effect.forEach(
+            Object.keys(required),
+            (name) => fs.existsSafe(path.join(dir, "node_modules", ...name.split("/"), "package.json")),
+            { concurrency: "unbounded" },
+          )
           if (!hasDep) {
             yield* fs.writeJson(pkg, {
               ...json,
-              dependencies: {
-                ...dependencies,
-                "@opencode-ai/plugin": target,
-              },
+              dependencies: required,
             })
           }
           if (!ignore) {
@@ -1315,7 +1319,7 @@ export namespace Config {
               ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
             )
           }
-          if (hasDep && ignore && hasPkg) return
+          if (hasDep && ignore && installed.every(Boolean)) return
           yield* Effect.promise(() => Npm.install(dir))
         })
 

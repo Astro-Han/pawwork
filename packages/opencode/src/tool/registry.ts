@@ -56,7 +56,10 @@ export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
   const DEPENDENCY_IMPORT =
     /(?:^|\n)\s*(?:import\s+(?:[^"'`]+\s+from\s+)?|export\s+[^"'`]+\s+from\s+)["']([^./"'`][^"'`]*)["']|import\s*\(\s*["']([^./"'`][^"'`]*)["']\s*\)|require\(\s*["']([^./"'`][^"'`]*)["']\s*\)/gm
+  const LOCAL_IMPORT =
+    /(?:^|\n)\s*(?:import\s+(?:[^"'`]+\s+from\s+)?|export\s+[^"'`]+\s+from\s+)["']((?:\.\.?\/)[^"'`]*)["']|import\s*\(\s*["']((?:\.\.?\/)[^"'`]*)["']\s*\)|require\(\s*["']((?:\.\.?\/)[^"'`]*)["']\s*\)/gm
   const BUILTIN_MODULES = new Set(builtinModules)
+  const LOCAL_IMPORT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
 
   function packageName(spec: string) {
     if (spec.startsWith("node:") || isBuiltin(spec) || BUILTIN_MODULES.has(spec)) return
@@ -68,7 +71,24 @@ export namespace ToolRegistry {
     return spec.split("/")[0]
   }
 
-  async function needsConfigDependencies(text: string, dir: string) {
+  async function resolveLocalImport(file: string, spec: string) {
+    const target = path.resolve(path.dirname(file), spec)
+    const candidates = path.extname(target)
+      ? [target]
+      : [
+          ...LOCAL_IMPORT_EXTENSIONS.map((ext) => `${target}${ext}`),
+          ...LOCAL_IMPORT_EXTENSIONS.map((ext) => path.join(target, `index${ext}`)),
+        ]
+    for (const candidate of candidates) {
+      if (await Filesystem.exists(candidate)) return candidate
+    }
+  }
+
+  async function needsConfigDependencies(file: string, dir: string, visited = new Set<string>()) {
+    const resolved = path.resolve(file)
+    if (visited.has(resolved)) return false
+    visited.add(resolved)
+    const text = await Filesystem.readText(resolved).catch(() => "")
     for (const match of text.matchAll(DEPENDENCY_IMPORT)) {
       const spec = match[1] ?? match[2] ?? match[3]
       if (!spec) continue
@@ -77,6 +97,13 @@ export namespace ToolRegistry {
       const pkgPath = path.join(dir, "node_modules", ...pkg.split("/"))
       if (await Filesystem.exists(path.join(pkgPath, "package.json"))) continue
       return true
+    }
+    for (const match of text.matchAll(LOCAL_IMPORT)) {
+      const spec = match[1] ?? match[2] ?? match[3]
+      if (!spec) continue
+      const next = await resolveLocalImport(resolved, spec)
+      if (!next) continue
+      if (await needsConfigDependencies(next, dir, visited)) return true
     }
     return false
   }
@@ -207,7 +234,7 @@ export namespace ToolRegistry {
             if (ids.length && ids.every((id) => disabled.has(id))) continue
             const spec = process.platform === "win32" ? match : pathToFileURL(match).href
             const toolDir = path.dirname(path.dirname(match))
-            if (!readyDirs.has(toolDir) && (yield* Effect.promise(() => needsConfigDependencies(text, toolDir)))) {
+            if (!readyDirs.has(toolDir) && (yield* Effect.promise(() => needsConfigDependencies(match, toolDir)))) {
               readyDirs.add(toolDir)
               yield* config.waitForDependencies([toolDir]).pipe(Effect.orDie)
             }
