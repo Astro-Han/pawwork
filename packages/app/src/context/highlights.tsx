@@ -7,7 +7,7 @@ import { useSettings } from "@/context/settings"
 import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
-const CHANGELOG_URL = "https://opencode.ai/changelog.json"
+const CHANGELOG_URL = "https://api.github.com/repos/Astro-Han/pawwork/releases"
 
 type Store = {
   version?: string
@@ -61,31 +61,52 @@ function parseHighlight(value: unknown): Highlight | undefined {
   return { title, description, media }
 }
 
+function summarizeBody(body: string): string | undefined {
+  const lines = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"))
+  if (lines.length === 0) return
+  const first = lines[0].replace(/^[-*+]\s+/, "").replace(/^\d+\.\s+/, "")
+  return first.length > 200 ? first.slice(0, 200).trimEnd() + "…" : first
+}
+
 function parseRelease(value: unknown): ParsedRelease | undefined {
   if (!isRecord(value)) return
   const tag = getText(value.tag) ?? getText(value.tag_name) ?? getText(value.name)
 
-  if (!Array.isArray(value.highlights)) {
-    return { tag, highlights: [] }
+  if (Array.isArray(value.highlights)) {
+    const highlights = value.highlights.flatMap((group) => {
+      if (!isRecord(group)) return []
+
+      const source = getText(group.source)
+      if (!source) return []
+      if (!source.toLowerCase().includes("desktop")) return []
+
+      if (Array.isArray(group.items)) {
+        return group.items.map((item) => parseHighlight(item)).filter((item): item is Highlight => item !== undefined)
+      }
+
+      const item = parseHighlight(group)
+      if (!item) return []
+      return [item]
+    })
+
+    return { tag, highlights }
   }
 
-  const highlights = value.highlights.flatMap((group) => {
-    if (!isRecord(group)) return []
-
-    const source = getText(group.source)
-    if (!source) return []
-    if (!source.toLowerCase().includes("desktop")) return []
-
-    if (Array.isArray(group.items)) {
-      return group.items.map((item) => parseHighlight(item)).filter((item): item is Highlight => item !== undefined)
+  const body = getText(value.body)
+  if (tag && body) {
+    const summary = summarizeBody(body)
+    if (summary) {
+      return {
+        tag,
+        highlights: [{ title: `PawWork ${tag}`, description: summary }],
+      }
     }
+  }
 
-    const item = parseHighlight(group)
-    if (!item) return []
-    return [item]
-  })
-
-  return { tag, highlights }
+  return { tag, highlights: [] }
 }
 
 function parseChangelog(value: unknown): ParsedRelease[] | undefined {
@@ -131,7 +152,7 @@ function dedupeKey(highlight: Highlight) {
   return [highlight.title, highlight.description, highlight.media?.type ?? "", highlight.media?.src ?? ""].join("\n")
 }
 
-function loadReleaseHighlights(value: unknown, current?: string, previous?: string) {
+export function loadReleaseHighlights(value: unknown, current?: string, previous?: string) {
   const releases = parseChangelog(value)
   if (!releases?.length) return []
   return sliceHighlights({ releases, current, previous })
