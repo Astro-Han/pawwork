@@ -1,0 +1,71 @@
+name: Bug report
+description: Report something that is broken or behaving incorrectly
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug.
+
+        Please keep the report concrete. Screenshots or screen recordings are very helpful for desktop issues.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the actual problem in one or two short paragraphs.
+      placeholder: When I tried to export a PDF, the app got stuck on loading and never finished.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the shortest path to reproduce the issue.
+      placeholder: |
+        1. Open PawWork
+        2. Click ...
+        3. Import ...
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: The file should export successfully.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PawWork version
+      description: "Example: v0.2.2"
+      placeholder: v0.2.2
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS version
+      description: "Example: macOS 15.4.1"
+      placeholder: macOS ...
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: Can you reproduce it again?
+      options:
+        - Yes, every time
+        - Sometimes
+        - Only once so far
+    validations:
+      required: true
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Screenshots, recordings, or extra context
+      description: Drag files into the issue, or paste any extra details here.
+      placeholder: Attach screenshots, recordings, logs, or sample files if helpful.
