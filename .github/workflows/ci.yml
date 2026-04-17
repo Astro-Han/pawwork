@@ -17,7 +17,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -43,17 +43,6 @@ jobs:
         run: bun turbo typecheck
 
       - name: test
-        if: runner.os != 'Windows'
         run: bun turbo test:ci
-
-      # Windows GitHub runners have intermittent resource jitter that causes
-      # timing-sensitive shell/loop tests (3000ms bound) to cross the threshold
-      # by ~16ms. One retry absorbs this without masking stable bugs.
-      - name: test (windows, with retry)
-        if: runner.os == 'Windows'
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 20
-          max_attempts: 2
-          command: bun turbo test:ci
-          shell: pwsh
+        env:
+          OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: ${{ runner.os == 'Windows' && 'true' || 'false' }}
