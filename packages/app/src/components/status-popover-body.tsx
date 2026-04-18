@@ -1,5 +1,3 @@
-/** @jsxImportSource solid-js */
-
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"

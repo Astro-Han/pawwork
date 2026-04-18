@@ -455,7 +455,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       id: "review.toggle",
       title: language.t("command.review.toggle"),
       keybind: "mod+shift+r",
-      onSelect: () => view().sidePanel.toggleTab("changes"),
+      onSelect: () => view().sidePanel.toggleTab("review"),
     }),
     viewCommand({
       id: "fileTree.toggle",

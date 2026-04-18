@@ -427,7 +427,7 @@ export default function Page() {
 
   const openReviewPanel = () => {
     if (!view().sidePanel.opened()) view().sidePanel.open()
-    if (view().sidePanel.tab() !== "changes") view().sidePanel.setTab("changes")
+    if (view().sidePanel.tab() !== "review") view().sidePanel.setTab("review")
   }
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
@@ -1074,7 +1074,7 @@ export default function Page() {
 
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
   const wantsReview = createMemo(() =>
-    isDesktop() ? desktopReviewOpen() && view().sidePanel.tab() === "changes" && activeTab() === "review" : store.mobileTab === "changes",
+    isDesktop() ? desktopReviewOpen() && view().sidePanel.tab() === "review" && activeTab() === "review" : store.mobileTab === "changes",
   )
 
   createEffect(() => {
@@ -1440,7 +1440,7 @@ export default function Page() {
     const dir = sdk.directory
     if (!isDesktop()) return
     if (!view().sidePanel.opened()) return
-    if (view().sidePanel.tab() !== "changes") return
+    if (view().sidePanel.tab() !== "review") return
     if (sync.status === "loading") return
 
     fileTreeTab()

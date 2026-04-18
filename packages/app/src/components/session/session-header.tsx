@@ -442,18 +442,18 @@ export function SessionHeader() {
                     <Button
                       variant="ghost"
                       class="titlebar-icon w-8 h-6 p-0 box-border"
-                      onClick={() => view().sidePanel.toggleTab("changes")}
+                      onClick={() => view().sidePanel.toggleTab("review")}
                       aria-label={language.t("command.review.toggle")}
-                      aria-expanded={view().sidePanel.opened() && view().sidePanel.tab() === "changes"}
-                      aria-controls="review-panel"
+                      aria-expanded={view().sidePanel.opened() && view().sidePanel.tab() === "review"}
+                      aria-controls="right-panel"
                     >
                       <div class="relative flex items-center justify-center size-4">
                         <Icon
                           size="small"
-                          name={view().sidePanel.opened() && view().sidePanel.tab() === "changes" ? "review-active" : "review"}
+                          name={view().sidePanel.opened() && view().sidePanel.tab() === "review" ? "review-active" : "review"}
                           classList={{
-                            "text-icon-strong": view().sidePanel.opened() && view().sidePanel.tab() === "changes",
-                            "text-icon-weak": !(view().sidePanel.opened() && view().sidePanel.tab() === "changes"),
+                            "text-icon-strong": view().sidePanel.opened() && view().sidePanel.tab() === "review",
+                            "text-icon-weak": !(view().sidePanel.opened() && view().sidePanel.tab() === "review"),
                           }}
                         />
                       </div>
@@ -470,7 +470,7 @@ export function SessionHeader() {
                       onClick={() => view().sidePanel.toggleTab("files")}
                       aria-label={language.t("command.fileTree.toggle")}
                       aria-expanded={view().sidePanel.opened() && view().sidePanel.tab() === "files"}
-                      aria-controls="review-panel"
+                      aria-controls="right-panel"
                     >
                       <div class="relative flex items-center justify-center size-4">
                         <Icon

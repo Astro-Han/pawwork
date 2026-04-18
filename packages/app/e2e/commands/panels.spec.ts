@@ -7,13 +7,13 @@ const expanded = async (el: { getAttribute: (name: string) => Promise<string | n
   return value === "true"
 }
 
-test("desktop side-panel buttons switch between review and files without an in-panel tab strip", async ({
+test("desktop side-panel buttons switch between review and files within a unified right-panel tab shell", async ({
   page,
   gotoSession,
 }) => {
   await gotoSession()
 
-  const reviewPanel = page.locator("#review-panel")
+  const rightPanel = page.locator("#right-panel")
   const reviewToggle = page.getByRole("button", { name: "Toggle review" }).first()
   const fileToggle = page.getByRole("button", { name: "Toggle file tree" }).first()
 
@@ -23,26 +23,31 @@ test("desktop side-panel buttons switch between review and files without an in-p
   if (await expanded(reviewToggle)) await reviewToggle.click()
   if (await expanded(fileToggle)) await fileToggle.click()
 
-  await expect(reviewPanel.getByRole("tab", { name: "Files" })).toHaveCount(0)
-  await expect(reviewPanel.getByRole("tab", { name: "Changes" })).toHaveCount(0)
-
   await reviewToggle.click()
   await expect(reviewToggle).toHaveAttribute("aria-expanded", "true")
   await expect(fileToggle).toHaveAttribute("aria-expanded", "false")
-  await expect(reviewPanel).toHaveAttribute("aria-hidden", "false")
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+  const shellTabList = rightPanel.getByRole("tablist").first()
+  await expect(shellTabList.getByRole("tab", { name: "Status", exact: true })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: "Files", exact: true })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: "Review", exact: true })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: "Terminal", exact: true })).toBeVisible()
+  await expect(shellTabList.getByRole("tab", { name: "Review", exact: true })).toHaveAttribute("aria-selected", "true")
 
   await fileToggle.click()
   await expect(reviewToggle).toHaveAttribute("aria-expanded", "false")
   await expect(fileToggle).toHaveAttribute("aria-expanded", "true")
-  await expect(reviewPanel).toHaveAttribute("aria-hidden", "false")
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+  await expect(shellTabList.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true")
 
   await fileToggle.click()
   await expect(fileToggle).toHaveAttribute("aria-expanded", "false")
   await expect(reviewToggle).toHaveAttribute("aria-expanded", "false")
-  await expect(reviewPanel).toHaveAttribute("aria-hidden", "true")
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
   await page.keyboard.press(`${modKey}+Shift+R`)
   await expect(reviewToggle).toHaveAttribute("aria-expanded", "true")
   await expect(fileToggle).toHaveAttribute("aria-expanded", "false")
-  await expect(reviewPanel).toHaveAttribute("aria-hidden", "false")
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+  await expect(shellTabList.getByRole("tab", { name: "Review", exact: true })).toHaveAttribute("aria-selected", "true")
 })
