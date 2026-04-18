@@ -8,7 +8,11 @@ import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
 
 export namespace ConfigPaths {
-  export async function projectFiles(name: string | string[], directory: string, worktree: string) {
+  export async function projectFiles(
+    name: string | readonly string[],
+    directory: string,
+    worktree: string,
+  ) {
     const names = Array.isArray(name) ? name : [name]
     const targets = names.flatMap((n) => [`${n}.json`, `${n}.jsonc`])
     return Filesystem.findUp(targets, directory, worktree, { rootFirst: true })

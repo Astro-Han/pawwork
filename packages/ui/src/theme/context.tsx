@@ -292,6 +292,11 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       name: (id: string) => store.themes[id]?.name ?? names[id] ?? id,
       loadThemes,
       themes: () => store.themes,
+      // Whether the current theme supports user-selectable color schemes.
+      // The bundled pawwork theme is light-only for Phase 1, so setColorScheme
+      // coerces to "light"; expose this so UI surfaces can hide the picker
+      // rather than showing a no-op control.
+      canSwitchColorScheme: () => store.themeId !== DEFAULT_THEME_ID,
       setTheme,
       setColorScheme,
       registerTheme: (theme: DesktopTheme) => setStore("themes", theme.id, theme),

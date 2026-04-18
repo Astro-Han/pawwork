@@ -284,28 +284,30 @@ export const SettingsGeneral: Component = () => {
       <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.appearance")}</h3>
 
       <SettingsList>
-        <SettingsRow
-          title={language.t("settings.general.row.colorScheme.title")}
-          description={language.t("settings.general.row.colorScheme.description")}
-        >
-          <Select
-            data-action="settings-color-scheme"
-            options={colorSchemeOptions()}
-            current={colorSchemeOptions().find((o) => o.value === theme.colorScheme())}
-            value={(o) => o.value}
-            label={(o) => o.label}
-            onSelect={(option) => option && theme.setColorScheme(option.value)}
-            onHighlight={(option) => {
-              if (!option) return
-              theme.previewColorScheme(option.value)
-              return () => theme.cancelPreview()
-            }}
-            variant="secondary"
-            size="small"
-            triggerVariant="settings"
-            triggerStyle={{ "min-width": "220px" }}
-          />
-        </SettingsRow>
+        <Show when={theme.canSwitchColorScheme()}>
+          <SettingsRow
+            title={language.t("settings.general.row.colorScheme.title")}
+            description={language.t("settings.general.row.colorScheme.description")}
+          >
+            <Select
+              data-action="settings-color-scheme"
+              options={colorSchemeOptions()}
+              current={colorSchemeOptions().find((o) => o.value === theme.colorScheme())}
+              value={(o) => o.value}
+              label={(o) => o.label}
+              onSelect={(option) => option && theme.setColorScheme(option.value)}
+              onHighlight={(option) => {
+                if (!option) return
+                theme.previewColorScheme(option.value)
+                return () => theme.cancelPreview()
+              }}
+              variant="secondary"
+              size="small"
+              triggerVariant="settings"
+              triggerStyle={{ "min-width": "220px" }}
+            />
+          </SettingsRow>
+        </Show>
 
         <SettingsRow
           title={language.t("settings.general.row.theme.title")}

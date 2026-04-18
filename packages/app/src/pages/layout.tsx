@@ -1134,47 +1134,57 @@ export default function Layout(props: ParentProps) {
           })
         },
       },
-      {
+    ]
+
+    // Only surface theme-switching commands when more than one theme ships.
+    // Phase 1 bundles only the pawwork theme, so cycling and per-theme set
+    // commands are no-ops that would clutter the command palette.
+    if (availableThemeEntries().length > 1) {
+      commands.push({
         id: "theme.cycle",
         title: language.t("command.theme.cycle"),
         category: language.t("command.category.theme"),
         keybind: "mod+shift+t",
         onSelect: () => cycleTheme(1),
-      },
-    ]
-
-    for (const [id] of availableThemeEntries()) {
-      commands.push({
-        id: `theme.set.${id}`,
-        title: language.t("command.theme.set", { theme: theme.name(id) }),
-        category: language.t("command.category.theme"),
-        onSelect: () => theme.commitPreview(),
-        onHighlight: () => {
-          theme.previewTheme(id)
-          return () => theme.cancelPreview()
-        },
       })
+
+      for (const [id] of availableThemeEntries()) {
+        commands.push({
+          id: `theme.set.${id}`,
+          title: language.t("command.theme.set", { theme: theme.name(id) }),
+          category: language.t("command.category.theme"),
+          onSelect: () => theme.commitPreview(),
+          onHighlight: () => {
+            theme.previewTheme(id)
+            return () => theme.cancelPreview()
+          },
+        })
+      }
     }
 
-    commands.push({
-      id: "theme.scheme.cycle",
-      title: language.t("command.theme.scheme.cycle"),
-      category: language.t("command.category.theme"),
-      keybind: "mod+shift+s",
-      onSelect: () => cycleColorScheme(1),
-    })
-
-    for (const scheme of colorSchemeOrder) {
+    // Only register color-scheme commands when the current theme actually
+    // supports switching. The bundled pawwork theme forces light for Phase 1.
+    if (theme.canSwitchColorScheme()) {
       commands.push({
-        id: `theme.scheme.${scheme}`,
-        title: language.t("command.theme.scheme.set", { scheme: colorSchemeLabel(scheme) }),
+        id: "theme.scheme.cycle",
+        title: language.t("command.theme.scheme.cycle"),
         category: language.t("command.category.theme"),
-        onSelect: () => theme.commitPreview(),
-        onHighlight: () => {
-          theme.previewColorScheme(scheme)
-          return () => theme.cancelPreview()
-        },
+        keybind: "mod+shift+s",
+        onSelect: () => cycleColorScheme(1),
       })
+
+      for (const scheme of colorSchemeOrder) {
+        commands.push({
+          id: `theme.scheme.${scheme}`,
+          title: language.t("command.theme.scheme.set", { scheme: colorSchemeLabel(scheme) }),
+          category: language.t("command.category.theme"),
+          onSelect: () => theme.commitPreview(),
+          onHighlight: () => {
+            theme.previewColorScheme(scheme)
+            return () => theme.cancelPreview()
+          },
+        })
+      }
     }
 
     commands.push({

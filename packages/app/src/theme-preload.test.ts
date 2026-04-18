@@ -25,15 +25,7 @@ describe("theme preload", () => {
     expect(document.documentElement.dataset.colorScheme).toBe("light")
   })
 
-  test("locks PawWork to light regardless of stored color scheme", () => {
-    localStorage.setItem("opencode-theme-id", "pawwork")
-    localStorage.setItem("opencode-color-scheme", "dark")
-    run()
-    expect(document.documentElement.dataset.theme).toBe("pawwork")
-    expect(document.documentElement.dataset.colorScheme).toBe("light")
-  })
-
-  test("preserves stored PawWork and keeps color scheme locked to light", () => {
+  test("locks PawWork to light and rewrites stored color scheme", () => {
     localStorage.setItem("opencode-theme-id", "pawwork")
     localStorage.setItem("opencode-color-scheme", "dark")
 

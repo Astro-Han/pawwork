@@ -4,7 +4,7 @@ import { pathToFileURL } from "url"
 import os from "os"
 import { Process } from "../util/process"
 import z from "zod"
-import { mergeDeep, pipe, unique } from "remeda"
+import { mergeDeep, unique } from "remeda"
 import { Global } from "../global"
 import fsNode from "fs/promises"
 import { NamedError } from "@opencode-ai/util/error"
@@ -1145,14 +1145,20 @@ export namespace Config {
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
+  // Project config basenames. Ordered so the last entry wins within a single
+  // directory when results are merged (pawwork overrides opencode). This order
+  // is preserved by `ConfigPaths.projectFiles` and by the filename cascades
+  // below; if you add a name, keep "wins last" at the tail.
+  const PROJECT_CONFIG_NAMES = ["opencode", "pawwork"] as const
+  const PROJECT_CONFIG_FILENAMES = PROJECT_CONFIG_NAMES.flatMap((n) => [`${n}.json`, `${n}.jsonc`])
+
   function globalConfigFile() {
-    const candidates = [
-      "pawwork.jsonc",
-      "pawwork.json",
-      "opencode.jsonc",
-      "opencode.json",
-      "config.json",
-    ].map((file) => path.join(Global.Path.config, file))
+    // Reverse of merge order because this helper picks FIRST match (not merge),
+    // so pawwork must come before opencode. Legacy `config.json` last.
+    const candidates = [...PROJECT_CONFIG_FILENAMES]
+      .reverse()
+      .concat("config.json")
+      .map((file) => path.join(Global.Path.config, file))
     for (const file of candidates) {
       if (existsSync(file)) return file
     }
@@ -1248,7 +1254,6 @@ export namespace Config {
           text: string,
           options: { path: string } | { dir: string; source: string },
         ) {
-          const original = text
           const source = "path" in options ? options.path : options.source
           const isFile = "path" in options
           const data = yield* Effect.promise(() =>
@@ -1266,17 +1271,12 @@ export namespace Config {
             delete copy.theme
             delete copy.keybinds
             delete copy.tui
-            log.warn("tui keys in opencode config are deprecated; move them to tui.json", { path: source })
+            log.warn("tui keys in config are deprecated; move them to tui.json", { path: source })
             return copy
           })()
 
           const parsed = Info.safeParse(normalized)
           if (parsed.success) {
-            if (!parsed.data.$schema && isFile) {
-              parsed.data.$schema = "https://opencode.ai/config.json"
-              const updated = original.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
-              yield* fs.writeFileString(options.path, updated).pipe(Effect.catch(() => Effect.void))
-            }
             const data = parsed.data
             if (data.plugin && isFile) {
               const list = data.plugin
@@ -1301,14 +1301,12 @@ export namespace Config {
         })
 
         const loadGlobal = Effect.fnUntraced(function* () {
-          let result: Info = pipe(
-            {},
-            mergeDeep(yield* loadFile(path.join(Global.Path.config, "config.json"))),
-            mergeDeep(yield* loadFile(path.join(Global.Path.config, "opencode.json"))),
-            mergeDeep(yield* loadFile(path.join(Global.Path.config, "opencode.jsonc"))),
-            mergeDeep(yield* loadFile(path.join(Global.Path.config, "pawwork.json"))),
-            mergeDeep(yield* loadFile(path.join(Global.Path.config, "pawwork.jsonc"))),
-          )
+          // Merge order matches PROJECT_CONFIG_FILENAMES: legacy `config.json`
+          // first, then opencode -> pawwork so pawwork wins via last-in merge.
+          let result: Info = {}
+          for (const file of ["config.json", ...PROJECT_CONFIG_FILENAMES]) {
+            result = mergeDeep(result, yield* loadFile(path.join(Global.Path.config, file)))
+          }
 
           const legacy = path.join(Global.Path.config, "config")
           if (existsSync(legacy)) {
@@ -1408,14 +1406,16 @@ export namespace Config {
           }
 
           if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-            // Precedence: innermost directory wins across directories (via
-            // Filesystem.findUp with rootFirst: true, which returns paths
-            // outermost -> innermost so last-wins merge lands on innermost);
-            // within a single directory, pawwork wins over opencode because
-            // projectFiles interleaves the name list in the order given and
-            // pawwork comes after opencode.
+            // Precedence:
+            //   - Across directories: innermost wins. `Filesystem.findUp` with
+            //     `rootFirst: true` returns outermost -> innermost, so the
+            //     last-wins merge below lands on the innermost directory.
+            //   - Within one directory: last basename in PROJECT_CONFIG_NAMES
+            //     wins. `findUp` iterates its `targets` array in order per dir,
+            //     so pawwork.{json,jsonc} are emitted after opencode.{json,jsonc}
+            //     and overwrite them in the merge.
             for (const file of yield* Effect.promise(() =>
-              ConfigPaths.projectFiles(["opencode", "pawwork"], ctx.directory, ctx.worktree),
+              ConfigPaths.projectFiles(PROJECT_CONFIG_NAMES, ctx.directory, ctx.worktree),
             )) {
               yield* merge(file, yield* loadFile(file), "local")
             }
@@ -1435,10 +1435,7 @@ export namespace Config {
 
           for (const dir of unique(directories)) {
             if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
-              // Same pawwork-wins-within-directory ordering as the project-root
-              // cascade above: opencode files are merged first so pawwork can
-              // override them.
-              for (const file of ["opencode.json", "opencode.jsonc", "pawwork.json", "pawwork.jsonc"]) {
+              for (const file of PROJECT_CONFIG_FILENAMES) {
                 const source = path.join(dir, file)
                 log.debug(`loading config from ${source}`)
                 yield* merge(source, yield* loadFile(source))
@@ -1511,7 +1508,7 @@ export namespace Config {
           }
 
           if (existsSync(managedDir)) {
-            for (const file of ["opencode.json", "opencode.jsonc", "pawwork.json", "pawwork.jsonc"]) {
+            for (const file of PROJECT_CONFIG_FILENAMES) {
               const source = path.join(managedDir, file)
               yield* merge(source, yield* loadFile(source), "global")
             }
