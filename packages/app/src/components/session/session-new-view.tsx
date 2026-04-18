@@ -64,9 +64,6 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
           <h1 class="text-24-medium text-text-strong">{language.t("session.new.title")}</h1>
           <p class="text-14-regular text-text-weak">{language.t("session.new.subtitle")}</p>
         </div>
-        <Show when={props.composer}>
-          <div class="w-full max-w-170">{props.composer}</div>
-        </Show>
         <div class="grid w-full max-w-170 gap-3 md:grid-cols-3">
           <For each={pawworkSkillCards}>
             {(card) => (
@@ -84,6 +81,9 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
             )}
           </For>
         </div>
+        <Show when={props.composer}>
+          <div class="w-full max-w-170">{props.composer}</div>
+        </Show>
       </div>
     </div>
   )
