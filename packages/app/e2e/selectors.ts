@@ -23,6 +23,12 @@ export const settingsSoundsPermissionsSelector = '[data-action="settings-sounds-
 export const settingsSoundsErrorsSelector = '[data-action="settings-sounds-errors"]'
 export const settingsUpdatesStartupSelector = '[data-action="settings-updates-startup"]'
 export const settingsReleaseNotesSelector = '[data-action="settings-release-notes"]'
+export const desktopShellSelector = '[data-component="desktop-shell"]'
+export const desktopShellFrameSelector = '[data-component="desktop-shell-frame"]'
+export const desktopShellMainSelector = '[data-component="desktop-shell-main"]'
+export const titlebarShellSelector = '[data-component="titlebar-shell"]'
+export const titlebarLeftSelector = "#opencode-titlebar-left"
+export const titlebarCenterSelector = "#opencode-titlebar-center"
 
 const sidebarNavSelector = '[data-component="sidebar-nav-desktop"]'
 
@@ -38,6 +44,7 @@ export const projectWorkspacesToggleSelector = (slug: string) =>
   `[data-action="project-workspaces-toggle"][data-project="${slug}"]`
 
 export const titlebarRightSelector = "#opencode-titlebar-right"
+export const sidebarNavMobileSelector = '[data-component="sidebar-nav-mobile"]'
 
 export const popoverBodySelector = '[data-slot="popover-body"]'
 

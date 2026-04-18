@@ -66,4 +66,90 @@
       width: auto;
     }
   }
+
+  [data-component="desktop-shell"][data-platform="desktop"] {
+    --shell-titlebar-height: 40px;
+    --shell-frame-margin: 12px;
+    --shell-frame-radius: 18px;
+    --shell-background-base: #F4EFE9;
+    --shell-background-weak: #EEE6DE;
+    --shell-surface-base: #FBF8F4;
+    --shell-surface-raised: #F7F1EA;
+    --shell-surface-strong: #FEFBF8;
+    --shell-border-base: #D8CFC6;
+    --shell-border-weak: #E7DED6;
+    --shell-frame-border: color-mix(in srgb, var(--shell-border-base) 78%, #c4b5a8 22%);
+    --shell-frame-shadow:
+      0 24px 64px -36px rgb(33 26 22 / 0.34),
+      0 10px 28px -20px rgb(33 26 22 / 0.2);
+    --shell-frame-surface: linear-gradient(180deg, var(--shell-surface-strong) 0%, var(--shell-surface-base) 100%);
+    --shell-titlebar-border: color-mix(in srgb, var(--shell-border-weak) 72%, var(--shell-border-base) 28%);
+    background:
+      radial-gradient(circle at top, rgb(255 255 255 / 0.72), transparent 52%),
+      linear-gradient(180deg, var(--shell-background-base), var(--shell-background-weak));
+  }
+
+  [data-component="desktop-shell"][data-platform="desktop"][data-os="macos"] {
+    --shell-titlebar-height: 48px;
+  }
+
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"] {
+    padding-inline: 8px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--shell-surface-raised) 84%, white 16%) 0%,
+      var(--shell-surface-raised) 100%
+    );
+    border-bottom: 1px solid var(--shell-titlebar-border);
+  }
+
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"] [data-shell-slot="left-portal"] {
+    padding-inline: 12px;
+  }
+
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"] {
+    border-radius: 10px;
+  }
+
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"]:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--shell-surface-strong) 90%, var(--shell-background-base) 10%);
+  }
+
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-expanded="true"],
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-current="page"] {
+    background-color: color-mix(in srgb, var(--shell-surface-strong) 82%, var(--shell-background-base) 18%);
+  }
+
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-expanded="true"]
+    [data-slot="icon-svg"],
+  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
+    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-current="page"]
+    [data-slot="icon-svg"] {
+    color: var(--color-text-strong);
+  }
+
+  [data-component="desktop-shell-main"][data-platform="desktop"][data-os="macos"] {
+    border-top-width: 0;
+  }
+
+  @media (min-width: 1280px) {
+    [data-component="desktop-shell-frame"][data-platform="desktop"] {
+      margin: var(--shell-frame-margin);
+      border: 1px solid var(--shell-frame-border);
+      border-radius: var(--shell-frame-radius);
+      background: var(--shell-frame-surface);
+      box-shadow: var(--shell-frame-shadow);
+      overflow: hidden;
+    }
+
+    [data-component="desktop-shell-main"][data-platform="desktop"] {
+      background: color-mix(in srgb, var(--shell-background-base) 92%, white 8%);
+    }
+
+  }
 }

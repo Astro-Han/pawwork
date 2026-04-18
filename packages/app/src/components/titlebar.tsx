@@ -49,7 +49,8 @@ export function Titlebar() {
   const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
   const web = createMemo(() => platform.platform === "web")
   const zoom = () => platform.webviewZoom?.() ?? 1
-  const minHeight = () => (mac() ? `${40 / zoom()}px` : undefined)
+  const currentTitlebarHeight = () =>
+    mac() ? "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 40px))" : undefined
 
   const [history, setHistory] = createStore({
     stack: [] as string[],
@@ -162,8 +163,12 @@ export function Titlebar() {
 
   return (
     <header
-      class="h-10 shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
-      style={{ "min-height": minHeight() }}
+      data-component="titlebar-shell"
+      data-platform={platform.platform}
+      data-os={platform.os}
+      class="shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
+      classList={{ "h-10": !mac() }}
+      style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}
       data-tauri-drag-region
       onMouseDown={drag}
       onDblClick={maximize}
@@ -286,7 +291,7 @@ export function Titlebar() {
             </Show>
           </div>
         </div>
-        <div id="opencode-titlebar-left" class="flex items-center gap-3 min-w-0 px-2" />
+        <div id="opencode-titlebar-left" data-shell-slot="left-portal" class="flex items-center gap-3 min-w-0 px-2" />
       </div>
 
       <div class="min-w-0 flex items-center justify-center pointer-events-none">
@@ -301,7 +306,11 @@ export function Titlebar() {
         data-tauri-drag-region
         onMouseDown={drag}
       >
-        <div id="opencode-titlebar-right" class="flex items-center gap-1 shrink-0 justify-end" />
+        <div
+          id="opencode-titlebar-right"
+          data-shell-slot="right-portal"
+          class="flex items-center gap-1 shrink-0 justify-end"
+        />
         <Show when={windows()}>
           {!tauriApi() && <div class="w-36 shrink-0" />}
           <div data-tauri-decorum-tb class="flex flex-row" />
