@@ -18,7 +18,7 @@ test("build agent uses PawWork permission defaults", async () => {
       expect(build).toBeDefined()
       expect(Permission.evaluate("read", "notes.txt", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("edit", "notes.txt", build!.permission).action).toBe("allow")
-      expect(Permission.evaluate("external_directory", "/tmp/outside", build!.permission).action).toBe("allow")
+      expect(Permission.evaluate("external_directory", "/tmp/outside", build!.permission).action).toBe("ask")
       expect(Permission.evaluate("bash", "ls -la", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("bash", "git status", build!.permission).action).toBe("allow")
       expect(Permission.evaluate("bash", "rm file.txt", build!.permission).action).toBe("deny")
