@@ -245,6 +245,20 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
   const openTerminal = () => {
     if (terminal.all().length > 0) terminal.new()
+    view().sidePanel.open()
+    view().sidePanel.setTab("terminal")
+    view().terminal.open()
+  }
+
+  const toggleTerminal = () => {
+    const open = view().sidePanel.opened() && view().sidePanel.tab() === "terminal"
+    if (open) {
+      view().sidePanel.close()
+      view().terminal.close()
+      return
+    }
+    view().sidePanel.open()
+    view().sidePanel.setTab("terminal")
     view().terminal.open()
   }
 
@@ -449,7 +463,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       title: language.t("command.terminal.toggle"),
       keybind: "ctrl+`",
       slash: "terminal",
-      onSelect: () => view().terminal.toggle(),
+      onSelect: toggleTerminal,
     }),
     viewCommand({
       id: "review.toggle",

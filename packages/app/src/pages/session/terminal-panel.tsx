@@ -21,7 +21,7 @@ import { getTerminalHandoff, setTerminalHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { terminalProbe } from "@/testing/terminal"
 
-export function TerminalPanel() {
+export function TerminalPanel(props: { embedded?: boolean }) {
   const delays = [120, 240]
   const layout = useLayout()
   const terminal = useTerminal()
@@ -29,7 +29,7 @@ export function TerminalPanel() {
   const command = useCommand()
   const { params, view } = useSessionLayout()
 
-  const opened = createMemo(() => view().terminal.opened())
+  const opened = createMemo(() => (props.embedded ? true : view().terminal.opened()))
   const size = createSizing()
   const height = createMemo(() => layout.terminal.height())
   const close = () => view().terminal.close()
@@ -186,22 +186,22 @@ export function TerminalPanel() {
       id="terminal-panel"
       role="region"
       aria-label={language.t("terminal.title")}
-      aria-hidden={!opened()}
-      inert={!opened()}
-      class="relative w-full shrink-0 overflow-hidden bg-background-stronger"
+      aria-hidden={props.embedded ? undefined : !opened()}
+      inert={props.embedded ? undefined : !opened()}
+      class={props.embedded ? "h-full min-h-0 flex flex-col bg-background-stronger" : "relative w-full shrink-0 overflow-hidden bg-background-stronger"}
       classList={{
-        "border-t border-border-weak-base": opened(),
+        "border-t border-border-weak-base": !props.embedded && opened(),
         "transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none":
-          !size.active(),
+          !props.embedded && !size.active(),
       }}
-      style={{ height: opened() ? `${pane()}px` : "0px" }}
+      style={props.embedded ? undefined : { height: opened() ? `${pane()}px` : "0px" }}
     >
       <div
-        class="absolute inset-x-0 top-0 flex flex-col"
+        class={props.embedded ? "size-full flex flex-col" : "absolute inset-x-0 top-0 flex flex-col"}
         classList={{
-          "pointer-events-none": !opened(),
+          "pointer-events-none": !props.embedded && !opened(),
         }}
-        style={{ height: `${pane()}px` }}
+        style={props.embedded ? undefined : { height: `${pane()}px` }}
       >
         <div class="hidden md:block" onPointerDown={() => size.start()}>
           <ResizeHandle

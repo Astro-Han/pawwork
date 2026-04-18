@@ -15,6 +15,7 @@ const keys = [
   "session.new.card.analysis.description",
   "session.new.card.writing.title",
   "session.new.card.writing.description",
+  "session.panel.utility",
   "session.panel.files",
   "session.panel.changes",
 ] as const

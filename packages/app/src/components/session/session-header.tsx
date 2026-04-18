@@ -10,6 +10,7 @@ import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import { createEffect, createMemo, For, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
+import { useLocation } from "@solidjs/router"
 import { Portal } from "solid-js/web"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
@@ -136,6 +137,7 @@ export function SessionHeader() {
   const language = useLanguage()
   const sync = useSync()
   const terminal = useTerminal()
+  const location = useLocation()
   const { params, view } = useSessionLayout()
 
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
@@ -198,9 +200,16 @@ export function SessionHeader() {
   })
 
   const toggleTerminal = () => {
-    const next = !view().terminal.opened()
-    view().terminal.toggle()
-    if (!next) return
+    const open = view().sidePanel.opened() && view().sidePanel.tab() === "terminal"
+    if (open) {
+      view().sidePanel.close()
+      view().terminal.close()
+      return
+    }
+
+    view().sidePanel.open()
+    view().sidePanel.setTab("terminal")
+    view().terminal.open()
 
     const id = terminal.active()
     if (!id) return
@@ -224,6 +233,15 @@ export function SessionHeader() {
   const tint = createMemo(() =>
     messageAgentColor(params.id ? sync.data.message[params.id] : undefined, sync.data.agent),
   )
+  const statusOpen = createMemo(() => view().sidePanel.opened() && view().sidePanel.tab() === "status")
+  const onSessionRoute = createMemo(() => location.pathname.includes("/session"))
+  const statusReady = createMemo(() => server.healthy() === false || sync.data.mcp_ready)
+  const statusHealthy = createMemo(() => {
+    const serverHealthy = server.healthy() === true
+    const mcp = Object.values(sync.data.mcp ?? {})
+    const issue = mcp.some((item) => item.status !== "connected" && item.status !== "disabled")
+    return serverHealthy && !issue
+  })
 
   const selectApp = (app: OpenApp) => {
     if (!options().some((item) => item.id === app)) return
@@ -415,9 +433,39 @@ export function SessionHeader() {
                 </div>
               </Show>
               <div class="flex items-center gap-1">
-                <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
-                  <StatusPopover />
-                </Tooltip>
+                <Show
+                  when={onSessionRoute()}
+                  fallback={
+                    <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
+                      <StatusPopover />
+                    </Tooltip>
+                  }
+                >
+                  <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
+                    <Button
+                      variant="ghost"
+                      class="titlebar-icon w-8 h-6 p-0 box-border"
+                      onClick={() => view().sidePanel.toggleTab("status")}
+                      aria-label={language.t("status.popover.trigger")}
+                      aria-expanded={statusOpen()}
+                      aria-controls="right-panel"
+                    >
+                      <div class="relative size-4">
+                        <div class="badge-mask-tight size-4 flex items-center justify-center">
+                          <Icon name={statusOpen() ? "status-active" : "status"} size="small" />
+                        </div>
+                        <div
+                          classList={{
+                            "absolute -top-px -right-px size-1.5 rounded-full": true,
+                            "bg-icon-success-base": statusReady() && statusHealthy(),
+                            "bg-icon-critical-base": server.healthy() === false || (statusReady() && !statusHealthy()),
+                            "bg-border-weak-base": server.healthy() === undefined || !statusReady(),
+                          }}
+                        />
+                      </div>
+                    </Button>
+                  </Tooltip>
+                </Show>
                 <TooltipKeybind
                   title={language.t("command.terminal.toggle")}
                   keybind={command.keybind("terminal.toggle")}
@@ -427,10 +475,13 @@ export function SessionHeader() {
                     class="group/terminal-toggle titlebar-icon w-8 h-6 p-0 box-border shrink-0"
                     onClick={toggleTerminal}
                     aria-label={language.t("command.terminal.toggle")}
-                    aria-expanded={view().terminal.opened()}
-                    aria-controls="terminal-panel"
+                    aria-expanded={view().sidePanel.opened() && view().sidePanel.tab() === "terminal"}
+                    aria-controls="right-panel"
                   >
-                    <Icon size="small" name={view().terminal.opened() ? "terminal-active" : "terminal"} />
+                    <Icon
+                      size="small"
+                      name={view().sidePanel.opened() && view().sidePanel.tab() === "terminal" ? "terminal-active" : "terminal"}
+                    />
                   </Button>
                 </TooltipKeybind>
 

@@ -155,6 +155,22 @@ export function SessionSidePanel(props: {
     activeDraggable: undefined as string | undefined,
   })
 
+  createEffect(() => {
+    if (!isDesktop()) return
+
+    if (!open()) {
+      if (view().terminal.opened()) view().terminal.close()
+      return
+    }
+
+    if (sidePanelTab() === "terminal") {
+      if (!view().terminal.opened()) view().terminal.open()
+      return
+    }
+
+    if (view().terminal.opened()) view().terminal.close()
+  })
+
   const handleDragStart = (event: unknown) => {
     const id = getDraggableId(event)
     if (!id) return
@@ -200,7 +216,7 @@ export function SessionSidePanel(props: {
     <Show when={isDesktop()}>
       <aside
         id="right-panel"
-        aria-label={language.t("session.panel.reviewAndFiles")}
+        aria-label={language.t("session.panel.utility")}
         aria-hidden={!open()}
         inert={!open()}
         class="relative min-w-0 h-full flex shrink-0 overflow-hidden bg-background-base"

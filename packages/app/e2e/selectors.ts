@@ -1,5 +1,5 @@
 export const promptSelector = '[data-component="prompt-input"]'
-const terminalPanelSelector = '#terminal-panel[aria-hidden="false"]'
+const terminalPanelSelector = '#terminal-panel:not([aria-hidden="true"])'
 export const terminalSelector = `${terminalPanelSelector} [data-component="terminal"]`
 export const sessionComposerDockSelector = '[data-component="session-prompt-dock"]'
 export const questionDockSelector = '[data-component="dock-prompt"][data-kind="question"]'

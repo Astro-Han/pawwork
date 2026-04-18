@@ -2112,14 +2112,13 @@ export default function Page() {
           reviewCount={reviewCount}
           reviewPanel={reviewPanel}
           files={artifactFiles}
+          terminalPanel={() => <TerminalPanel embedded />}
           activeDiff={tree.activeDiff}
           focusReviewDiff={focusReviewDiff}
           reviewSnap={ui.reviewSnap}
           size={size}
         />
       </div>
-
-      <TerminalPanel />
     </div>
   )
 }

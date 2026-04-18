@@ -56,6 +56,7 @@ export const dict = {
   "command.review.toggle": "Toggle review",
   "session.panel.files": "Files",
   "session.panel.changes": "Changes",
+  "session.panel.utility": "Right utility panel",
   "command.terminal.new": "New terminal",
   "command.terminal.new.description": "Create a new terminal tab",
   "command.steps.toggle": "Toggle steps",

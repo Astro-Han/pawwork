@@ -1,5 +1,4 @@
 import { test, expect } from "../fixtures"
-import { openStatusPopover } from "../actions"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
 test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
@@ -54,10 +53,14 @@ test("@smoke home hero prompt starts a session", async ({ page, project, assista
   await expect(page.getByText("home hero reply")).toBeVisible()
 })
 
-test("@smoke home route server picker dialog opens", async ({ page, project }) => {
+test("@smoke project home status panel can open the server picker dialog", async ({ page, project }) => {
   await project.open()
-  const { popoverBody } = await openStatusPopover(page)
-  await popoverBody.getByRole("button", { name: "Manage servers" }).click()
+  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const rightPanel = page.locator("#right-panel")
+
+  await statusButton.click()
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+  await rightPanel.getByRole("button", { name: "Manage servers" }).click()
 
   const dialog = page.getByRole("dialog")
   await expect(dialog).toBeVisible()

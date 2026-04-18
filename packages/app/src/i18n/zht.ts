@@ -57,6 +57,7 @@ export const dict = {
   "command.review.toggle": "切換審查",
   "session.panel.files": "檔案",
   "session.panel.changes": "變更",
+  "session.panel.utility": "右側工具面板",
   "command.terminal.new": "新增終端機",
   "command.terminal.new.description": "建立新的終端機標籤頁",
   "command.steps.toggle": "切換步驟",

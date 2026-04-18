@@ -1,94 +1,47 @@
 import { test, expect } from "../fixtures"
-import { openStatusPopover } from "../actions"
 
-test("status popover opens and shows tabs", async ({ page, gotoSession }) => {
+test("session status button opens the right-panel status tab", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const { popoverBody } = await openStatusPopover(page)
+  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const rightPanel = page.locator("#right-panel")
+  const shellTabList = rightPanel.getByRole("tablist").first()
 
-  await expect(popoverBody.getByRole("tab", { name: /servers/i })).toBeVisible()
-  await expect(popoverBody.getByRole("tab", { name: /mcp/i })).toBeVisible()
-  await expect(popoverBody.getByRole("tab", { name: /lsp/i })).toBeVisible()
-  await expect(popoverBody.getByRole("tab", { name: /plugins/i })).toBeVisible()
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
-  await page.keyboard.press("Escape")
-  await expect(popoverBody).toHaveCount(0)
+  await statusButton.click()
+
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+  await expect(shellTabList.getByRole("tab", { name: "Status", exact: true })).toHaveAttribute("aria-selected", "true")
+  await expect(rightPanel.getByRole("tab", { name: /servers/i })).toBeVisible()
+  await expect(rightPanel.getByRole("tab", { name: /mcp/i })).toBeVisible()
+  await expect(rightPanel.getByRole("tab", { name: /lsp/i })).toBeVisible()
+  await expect(rightPanel.getByRole("tab", { name: /plugins/i })).toBeVisible()
 })
 
-test("status popover servers tab shows current server", async ({ page, gotoSession }) => {
+test("session status tab can switch to mcp", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const { popoverBody } = await openStatusPopover(page)
+  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const rightPanel = page.locator("#right-panel")
 
-  const serversTab = popoverBody.getByRole("tab", { name: /servers/i })
-  await expect(serversTab).toHaveAttribute("aria-selected", "true")
+  await statusButton.click()
 
-  const serverList = popoverBody.locator('[role="tabpanel"]').first()
-  await expect(serverList.locator("button").first()).toBeVisible()
-})
-
-test("status popover can switch to mcp tab", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const { popoverBody } = await openStatusPopover(page)
-
-  const mcpTab = popoverBody.getByRole("tab", { name: /mcp/i })
+  const mcpTab = rightPanel.getByRole("tab", { name: /mcp/i })
   await mcpTab.click()
-
-  const ariaSelected = await mcpTab.getAttribute("aria-selected")
-  expect(ariaSelected).toBe("true")
-
-  const mcpContent = popoverBody.locator('[role="tabpanel"]:visible').first()
-  await expect(mcpContent).toBeVisible()
+  await expect(mcpTab).toHaveAttribute("aria-selected", "true")
+  await expect(rightPanel.locator('[role="tabpanel"]:visible').first()).toBeVisible()
 })
 
-test("status popover can switch to lsp tab", async ({ page, gotoSession }) => {
+test("session status button toggles the right panel closed", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const { popoverBody } = await openStatusPopover(page)
+  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const rightPanel = page.locator("#right-panel")
 
-  const lspTab = popoverBody.getByRole("tab", { name: /lsp/i })
-  await lspTab.click()
+  await statusButton.click()
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  const ariaSelected = await lspTab.getAttribute("aria-selected")
-  expect(ariaSelected).toBe("true")
-
-  const lspContent = popoverBody.locator('[role="tabpanel"]:visible').first()
-  await expect(lspContent).toBeVisible()
-})
-
-test("status popover can switch to plugins tab", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const { popoverBody } = await openStatusPopover(page)
-
-  const pluginsTab = popoverBody.getByRole("tab", { name: /plugins/i })
-  await pluginsTab.click()
-
-  const ariaSelected = await pluginsTab.getAttribute("aria-selected")
-  expect(ariaSelected).toBe("true")
-
-  const pluginsContent = popoverBody.locator('[role="tabpanel"]:visible').first()
-  await expect(pluginsContent).toBeVisible()
-})
-
-test("status popover closes on escape", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const { popoverBody } = await openStatusPopover(page)
-  await expect(popoverBody).toBeVisible()
-
-  await page.keyboard.press("Escape")
-  await expect(popoverBody).toHaveCount(0)
-})
-
-test("status popover closes when clicking outside", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const { popoverBody } = await openStatusPopover(page)
-  await expect(popoverBody).toBeVisible()
-
-  await page.getByRole("main").click({ position: { x: 5, y: 5 } })
-
-  await expect(popoverBody).toHaveCount(0)
+  await statusButton.click()
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 })

@@ -70,6 +70,7 @@ export const dict = {
   "command.review.toggle": "切换审查",
   "session.panel.files": "文件",
   "session.panel.changes": "变更",
+  "session.panel.utility": "右侧工具面板",
 
   "command.terminal.new": "新建终端",
   "command.terminal.new.description": "创建新的终端标签页",
