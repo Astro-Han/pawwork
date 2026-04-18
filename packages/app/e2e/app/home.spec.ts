@@ -2,14 +2,15 @@ import { test, expect } from "../fixtures"
 import { openStatusPopover } from "../actions"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
-test("@smoke cold-start root route still renders home entrypoints", async ({ page }) => {
+test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
   await page.goto("/")
 
   await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
-  await expect(page.getByText("No projects open").first()).toBeVisible()
-  await expect(page.getByText("Open a project to get started").first()).toBeVisible()
-  await expect(page.getByText("No recent projects")).toBeVisible()
-  await expect(page.getByText("Get started by opening a local project")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Choose what to do" })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Process documents/i })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Analyze data/i })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Write faster/i })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Status" })).toBeVisible()
 })
 
 test("@smoke home renders the hero composer and starter cards", async ({ page, project }) => {
