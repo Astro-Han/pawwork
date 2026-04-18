@@ -69,9 +69,15 @@ describe("pruneSessionKeys", () => {
 })
 
 describe("defaultSidePanelTab", () => {
-  test("defaults the desktop side panel to files", () => {
-    expect(defaultSidePanelTab(undefined)).toBe("files")
+  test("defaults the unified right panel to status", () => {
+    expect(defaultSidePanelTab(undefined)).toBe("status")
+  })
+
+  test("migrates the old changes tab to review", () => {
+    expect(defaultSidePanelTab("changes")).toBe("review")
+  })
+
+  test("keeps files stable", () => {
     expect(defaultSidePanelTab("files")).toBe("files")
-    expect(defaultSidePanelTab("changes")).toBe("changes")
   })
 })

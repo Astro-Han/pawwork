@@ -12,6 +12,7 @@ import { decode64 } from "@/utils/base64"
 import { same } from "@/utils/same"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
 import { createPathHelpers } from "./file/path"
+import { defaultRightPanelTab, type RightPanelTab } from "@/pages/session/right-panel-tabs"
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 const DEFAULT_SIDEBAR_WIDTH = 344
@@ -41,7 +42,7 @@ type SessionTabs = {
 type SessionView = {
   scroll: Record<string, SessionScroll>
   reviewOpen?: string[]
-  sidePanelTab?: "files" | "changes"
+  sidePanelTab?: RightPanelTab | "changes"
   filesAutoOpenSeen?: boolean
   filesAutoOpenDismissed?: boolean
   pendingMessage?: string
@@ -73,8 +74,8 @@ export function createSessionKeyReader(sessionKey: string | Accessor<string>, en
   }
 }
 
-export function defaultSidePanelTab(tab?: "files" | "changes") {
-  return tab ?? "files"
+export function defaultSidePanelTab(tab?: RightPanelTab | "changes") {
+  return defaultRightPanelTab(tab)
 }
 
 export function pruneSessionKeys(input: {
@@ -833,7 +834,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
               this.open()
             },
             tab: createMemo(() => defaultSidePanelTab(s().sidePanelTab)),
-            setTab(tab: "files" | "changes") {
+            setTab(tab: RightPanelTab | "changes") {
               const session = key()
               if (!store.sessionView[session]) {
                 setStore("sessionView", session, { scroll: {}, sidePanelTab: tab })
@@ -841,7 +842,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
               }
               setStore("sessionView", session, "sidePanelTab", tab)
             },
-            toggleTab(tab: "files" | "changes") {
+            toggleTab(tab: RightPanelTab | "changes") {
               if (reviewPanelOpened() && defaultSidePanelTab(s().sidePanelTab) === tab) {
                 this.close()
                 return
