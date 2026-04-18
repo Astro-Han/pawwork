@@ -7,6 +7,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/app/home.spec.ts:@smoke home renders and shows core entrypoints",
   "packages/app/e2e/app/home.spec.ts:@smoke server picker dialog opens from home",
   "packages/app/e2e/app/navigation.spec.ts:@smoke project route redirects to /session",
+  "packages/app/e2e/app/shell-frame.spec.ts:@smoke shell frame exposes stable desktop hooks",
   "packages/app/e2e/files/file-tree.spec.ts:@smoke file tree entrypoints can open the panel and a file",
   "packages/app/e2e/projects/projects-switch.spec.ts:@smoke can switch between projects from sidebar",
   "packages/app/e2e/prompt/first-message-reply.spec.ts:@smoke first replied message in a new session renders without page errors",
