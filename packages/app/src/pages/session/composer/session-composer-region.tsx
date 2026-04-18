@@ -18,6 +18,7 @@ import type { FollowupDraft } from "@/components/prompt-input/submit"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 
 export function SessionComposerRegion(props: {
+  variant?: "session" | "home"
   state: SessionComposerState
   ready: boolean
   centered: boolean
@@ -55,6 +56,7 @@ export function SessionComposerRegion(props: {
   const info = createMemo(() => (route.params.id ? sync.session.get(route.params.id) : undefined))
   const parentID = createMemo(() => info()?.parentID)
   const child = createMemo(() => !!parentID())
+  const home = createMemo(() => props.variant === "home")
   const showComposer = createMemo(() => !props.state.blocked() || child())
 
   const previewPrompt = () =>
@@ -139,12 +141,19 @@ export function SessionComposerRegion(props: {
     <div
       ref={props.setPromptDockRef}
       data-component="session-prompt-dock"
-      class="shrink-0 w-full pb-3 flex flex-col justify-center items-center bg-background-stronger pointer-events-none"
+      data-variant={home() ? "home" : "session"}
+      classList={{
+        "w-full flex flex-col justify-center items-center pointer-events-none": true,
+        "shrink-0 pb-3 bg-background-stronger": !home(),
+        "py-0 bg-transparent": home(),
+        "text-left": home(),
+      }}
     >
       <div
         classList={{
           "w-full px-3 pointer-events-auto": true,
-          "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
+          "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered && !home(),
+          "mx-auto max-w-170": home(),
         }}
       >
         <Show when={props.state.questionRequest()} keyed>

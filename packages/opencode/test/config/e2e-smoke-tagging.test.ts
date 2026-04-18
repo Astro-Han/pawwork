@@ -4,8 +4,10 @@ import path from "node:path"
 
 const repoRoot = path.resolve(import.meta.dir, "../../../../")
 const expectedSmokeTests = [
-  "packages/app/e2e/app/home.spec.ts:@smoke home renders and shows core entrypoints",
-  "packages/app/e2e/app/home.spec.ts:@smoke server picker dialog opens from home",
+  "packages/app/e2e/app/home.spec.ts:@smoke cold-start root route still renders home entrypoints",
+  "packages/app/e2e/app/home.spec.ts:@smoke home hero prompt starts a session",
+  "packages/app/e2e/app/home.spec.ts:@smoke home renders the hero composer and starter cards",
+  "packages/app/e2e/app/home.spec.ts:@smoke home route server picker dialog opens",
   "packages/app/e2e/app/navigation.spec.ts:@smoke project route redirects to /session",
   "packages/app/e2e/app/shell-frame.spec.ts:@smoke shell frame exposes stable desktop hooks",
   "packages/app/e2e/files/file-tree.spec.ts:@smoke file tree entrypoints can open the panel and a file",

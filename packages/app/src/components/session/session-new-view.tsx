@@ -1,15 +1,14 @@
-import { For, createSignal } from "solid-js"
+import { For, Show, createSignal, type JSX } from "solid-js"
 import { useSDK } from "@/context/sdk"
 import { useLocal } from "@/context/local"
 import { useLanguage } from "@/context/language"
 import { useNavigate } from "@solidjs/router"
-import { base64Encode } from "@opencode-ai/util/encode"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Mark } from "@opencode-ai/ui/logo"
 import { pawworkSkillCards, type PawworkSkillName } from "./pawwork-skill-meta"
-import { buildSkillSessionCommandInput } from "./session-new-view-command"
+import { startPawworkSkillSession } from "./session-new-view-start"
 
-export function NewSessionView() {
+export function NewSessionView(props: { composer?: JSX.Element }) {
   const sdk = useSDK()
   const local = useLocal()
   const language = useLanguage()
@@ -31,31 +30,23 @@ export function NewSessionView() {
     }
 
     setPending(name)
-    let created: { id: string } | undefined
 
     try {
-      created = await sdk.client.session.create({ skill: name }).then((res) => res.data ?? undefined)
-      if (!created) throw new Error(language.t("prompt.toast.sessionCreateFailed.description"))
-
-      local.session.promote(sdk.directory, created.id)
-      navigate(`/${base64Encode(sdk.directory)}/session/${created.id}`)
-
-      await sdk.client.session.command(
-        buildSkillSessionCommandInput({
-          sessionID: created.id,
-          command: name,
-          agent: agent.name,
-          model: `${model.provider.id}/${model.id}`,
-          variant: local.model.variant.current() ?? undefined,
-          locale: language.intl(),
-        }),
-      )
+      await startPawworkSkillSession({
+        name,
+        client: sdk.client,
+        directory: sdk.directory,
+        agent: agent.name,
+        model: `${model.provider.id}/${model.id}`,
+        variant: local.model.variant.current() ?? undefined,
+        locale: language.intl(),
+        promote: local.session.promote,
+        navigate,
+        onSessionCreateFailed: () => {
+          throw new Error(language.t("prompt.toast.sessionCreateFailed.description"))
+        },
+      })
     } catch (error) {
-      if (created?.id) {
-        await sdk.client.session.delete({ sessionID: created.id }).catch(() => undefined)
-        navigate(`/${base64Encode(sdk.directory)}/session`)
-      }
-
       showToast({
         title: language.t("prompt.toast.commandSendFailed.title"),
         description: error instanceof Error ? error.message : language.t("common.requestFailed"),
@@ -66,13 +57,16 @@ export function NewSessionView() {
   }
 
   return (
-    <div class="size-full flex items-center justify-center px-6 pb-30">
-      <div class="w-full max-w-200 flex flex-col items-center gap-6 text-center">
+    <div data-component="session-new-home" class="size-full overflow-y-auto px-6 py-8 md:px-8 md:py-10">
+      <div class="mx-auto flex w-full max-w-200 flex-col items-center gap-6 text-center">
         <Mark class="w-10" />
         <div class="flex flex-col gap-2">
           <h1 class="text-24-medium text-text-strong">{language.t("session.new.title")}</h1>
           <p class="text-14-regular text-text-weak">{language.t("session.new.subtitle")}</p>
         </div>
+        <Show when={props.composer}>
+          <div class="w-full max-w-170">{props.composer}</div>
+        </Show>
         <div class="grid w-full max-w-170 gap-3 md:grid-cols-3">
           <For each={pawworkSkillCards}>
             {(card) => (
