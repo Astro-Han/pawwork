@@ -1,9 +1,28 @@
 import { useIsRouting, useLocation } from "@solidjs/router"
-import { batch, createEffect, onCleanup, onMount } from "solid-js"
+import { batch, createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useLanguage } from "@/context/language"
+
+const COLLAPSE_KEY = "pawwork-debug-bar-collapsed"
+
+function readCollapsed() {
+  if (typeof localStorage !== "object") return false
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function writeCollapsed(value: boolean) {
+  if (typeof localStorage !== "object") return
+  try {
+    if (value) localStorage.setItem(COLLAPSE_KEY, "1")
+    else localStorage.removeItem(COLLAPSE_KEY)
+  } catch {}
+}
 
 type Mem = Performance & {
   memory?: {
@@ -79,6 +98,12 @@ export function DebugBar() {
   const language = useLanguage()
   const location = useLocation()
   const routing = useIsRouting()
+  const [collapsed, setCollapsed] = createSignal(readCollapsed())
+  const toggle = () => {
+    const next = !collapsed()
+    setCollapsed(next)
+    writeCollapsed(next)
+  }
   const [state, setState] = createStore({
     cls: undefined as number | undefined,
     delay: undefined as number | undefined,
@@ -361,10 +386,31 @@ export function DebugBar() {
   })
 
   return (
+    <Show
+      when={!collapsed()}
+      fallback={
+        <button
+          type="button"
+          aria-label="Show debug bar"
+          onClick={toggle}
+          class="pointer-events-auto fixed bottom-3 right-3 z-50 rounded-full border border-border-base bg-surface-raised-stronger-non-alpha px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-text-strong opacity-60 shadow-[var(--shadow-lg-border-base)] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-interactive-base sm:bottom-4 sm:right-4"
+        >
+          debug
+        </button>
+      }
+    >
     <aside
       aria-label={language.t("debugBar.ariaLabel")}
       class="pointer-events-auto fixed bottom-3 right-3 z-50 w-[308px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border-base bg-surface-raised-stronger-non-alpha p-0.5 text-text-strong shadow-[var(--shadow-lg-border-base)] sm:bottom-4 sm:right-4 sm:w-[324px]"
     >
+      <button
+        type="button"
+        aria-label="Hide debug bar"
+        onClick={toggle}
+        class="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-[14px] leading-none opacity-60 hover:bg-surface-raised-base hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-interactive-base"
+      >
+        ×
+      </button>
       <div class="grid grid-cols-5 gap-px font-mono">
         <Cell
           label={language.t("debugBar.nav.label")}
@@ -439,5 +485,6 @@ export function DebugBar() {
         />
       </div>
     </aside>
+    </Show>
   )
 }

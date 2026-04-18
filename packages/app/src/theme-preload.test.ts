@@ -22,49 +22,36 @@ describe("theme preload", () => {
   test("uses PawWork as the empty-storage default theme", () => {
     run()
     expect(document.documentElement.dataset.theme).toBe("pawwork")
-  })
-
-  test("uses light mode for a first install with no saved theme settings", () => {
-    run()
     expect(document.documentElement.dataset.colorScheme).toBe("light")
   })
 
-  test("keeps PawWork light-only even when the system prefers dark", () => {
+  test("locks PawWork to light and rewrites stored color scheme", () => {
     localStorage.setItem("opencode-theme-id", "pawwork")
-    Object.defineProperty(window, "matchMedia", {
-      value: () =>
-        ({
-          matches: true,
-        }) as MediaQueryList,
-      configurable: true,
-    })
+    localStorage.setItem("opencode-color-scheme", "dark")
+
     run()
+
     expect(document.documentElement.dataset.theme).toBe("pawwork")
     expect(document.documentElement.dataset.colorScheme).toBe("light")
+    expect(localStorage.getItem("opencode-theme-id")).toBe("pawwork")
+    expect(localStorage.getItem("opencode-color-scheme")).toBe("light")
   })
 
-  test("migrates legacy oc-1 to oc-2 before mount", () => {
-    localStorage.setItem("opencode-theme-id", "oc-1")
-    localStorage.setItem("opencode-theme-css-light", "--background-base:#fff;")
-    localStorage.setItem("opencode-theme-css-dark", "--background-base:#000;")
+  for (const legacy of ["oc-1", "oc-2", "dracula", "nightowl", "amoled"]) {
+    test(`migrates legacy "${legacy}" theme to pawwork and clears cached css`, () => {
+      localStorage.setItem("opencode-theme-id", legacy)
+      localStorage.setItem("opencode-color-scheme", "dark")
+      localStorage.setItem("opencode-theme-css-light", "--background-base:#ffffff;")
+      localStorage.setItem("opencode-theme-css-dark", "--background-base:#000000;")
 
-    run()
+      run()
 
-    expect(document.documentElement.dataset.theme).toBe("oc-2")
-    expect(document.documentElement.dataset.colorScheme).toBe("light")
-    expect(localStorage.getItem("opencode-theme-id")).toBe("oc-2")
-    expect(localStorage.getItem("opencode-theme-css-light")).toBeNull()
-    expect(localStorage.getItem("opencode-theme-css-dark")).toBeNull()
-    expect(document.getElementById("oc-theme-preload")).toBeNull()
-  })
-
-  test("keeps cached css for non-default themes", () => {
-    localStorage.setItem("opencode-theme-id", "nightowl")
-    localStorage.setItem("opencode-theme-css-light", "--background-base:#fff;")
-
-    run()
-
-    expect(document.documentElement.dataset.theme).toBe("nightowl")
-    expect(document.getElementById("oc-theme-preload")?.textContent).toContain("--background-base:#fff;")
-  })
+      expect(document.documentElement.dataset.theme).toBe("pawwork")
+      expect(document.documentElement.dataset.colorScheme).toBe("light")
+      expect(localStorage.getItem("opencode-theme-id")).toBe("pawwork")
+      expect(localStorage.getItem("opencode-color-scheme")).toBe("light")
+      expect(localStorage.getItem("opencode-theme-css-light")).toBeNull()
+      expect(localStorage.getItem("opencode-theme-css-dark")).toBeNull()
+    })
+  }
 })

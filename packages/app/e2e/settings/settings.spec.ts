@@ -1,7 +1,6 @@
 import { test, expect, settingsKey } from "../fixtures"
 import { closeDialog, openSettings } from "../actions"
 import {
-  settingsColorSchemeSelector,
   settingsCodeFontSelector,
   settingsLanguageSelectSelector,
   settingsNotificationsAgentSelector,
@@ -11,7 +10,6 @@ import {
   settingsSoundsAgentSelector,
   settingsSoundsErrorsSelector,
   settingsSoundsPermissionsSelector,
-  settingsThemeSelector,
   settingsUIFontSelector,
   settingsUpdatesStartupSelector,
 } from "../selectors"
@@ -56,106 +54,36 @@ test("changing language updates settings labels", async ({ page, gotoSession }) 
   await expect(select).toBeVisible()
   await select.locator('[data-slot="select-select-trigger"]').click()
 
-  await page.locator('[data-slot="select-select-item"]').filter({ hasText: "Deutsch" }).click()
+  await page.locator('[data-slot="select-select-item"]').filter({ hasText: "简体中文" }).click()
 
-  await expect(heading).toHaveText("Allgemein")
+  await expect(heading).toHaveText("通用")
 
   await select.locator('[data-slot="select-select-trigger"]').click()
   await page.locator('[data-slot="select-select-item"]').filter({ hasText: "English" }).click()
   await expect(heading).toHaveText("General")
 })
 
-test("changing color scheme persists in localStorage", async ({ page, gotoSession }) => {
-  await page.addInitScript(() => {
-    if (sessionStorage.getItem("settings-color-scheme-init")) return
-    localStorage.setItem("opencode-theme-id", "oc-2")
-    localStorage.setItem("opencode-color-scheme", "light")
-    sessionStorage.setItem("settings-color-scheme-init", "1")
-  })
-
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const select = dialog.locator(settingsColorSchemeSelector)
-  await expect(select).toBeVisible()
-
-  await select.locator('[data-slot="select-select-trigger"]').click()
-  await page.locator('[data-slot="select-select-item"]').filter({ hasText: "Dark" }).click()
-
-  const colorScheme = await page.evaluate(() => {
-    return document.documentElement.getAttribute("data-color-scheme")
-  })
-  expect(colorScheme).toBe("dark")
-
-  await select.locator('[data-slot="select-select-trigger"]').click()
-  await page.locator('[data-slot="select-select-item"]').filter({ hasText: "Light" }).click()
-
-  const lightColorScheme = await page.evaluate(() => {
-    return document.documentElement.getAttribute("data-color-scheme")
-  })
-  expect(lightColorScheme).toBe("light")
+test.skip("changing color scheme persists in localStorage", async () => {
+  // Phase-1 ships a single pawwork theme that is locked to light mode, so the
+  // color-scheme select cannot exercise dark ↔ light switching. Revisit when a
+  // real dark palette or a second theme lands.
 })
 
-test("changing theme persists in localStorage", async ({ page, gotoSession }) => {
-  await gotoSession()
-
-  const dialog = await openSettings(page)
-  const select = dialog.locator(settingsThemeSelector)
-  await expect(select).toBeVisible()
-
-  const currentThemeId = await page.evaluate(() => {
-    return document.documentElement.getAttribute("data-theme")
-  })
-  const currentTheme = (await select.locator('[data-slot="select-select-trigger-value"]').textContent())?.trim() ?? ""
-  const trigger = select.locator('[data-slot="select-select-trigger"]')
-  const items = page.locator('[data-slot="select-select-item"]')
-
-  await trigger.click()
-  const open = await expect
-    .poll(async () => (await items.count()) > 0, { timeout: 5_000 })
-    .toBe(true)
-    .then(() => true)
-    .catch(() => false)
-  if (!open) {
-    await trigger.click()
-    await expect.poll(async () => (await items.count()) > 0, { timeout: 10_000 }).toBe(true)
-  }
-  await expect(items.first()).toBeVisible()
-  const count = await items.count()
-  expect(count).toBeGreaterThan(1)
-
-  const nextTheme = (await items.locator('[data-slot="select-select-item-label"]').allTextContents())
-    .map((x) => x.trim())
-    .find((x) => x && x !== currentTheme)
-  expect(nextTheme).toBeTruthy()
-
-  await items.filter({ hasText: nextTheme! }).first().click()
-
-  await page.keyboard.press("Escape")
-
-  const storedThemeId = await page.evaluate(() => {
-    return localStorage.getItem("opencode-theme-id")
-  })
-
-  expect(storedThemeId).not.toBeNull()
-  expect(storedThemeId).not.toBe(currentThemeId)
-
-  const dataTheme = await page.evaluate(() => {
-    return document.documentElement.getAttribute("data-theme")
-  })
-  expect(dataTheme).toBe(storedThemeId)
+test.skip("changing theme persists in localStorage", async () => {
+  // Phase-1 only bundles the pawwork theme; the theme select has a single entry
+  // and cannot exercise switching. Revisit once a second theme is added.
 })
 
-test("legacy oc-1 theme migrates to oc-2", async ({ page, gotoSession }) => {
+test("legacy theme ids migrate to pawwork and clear cached CSS", async ({ page, gotoSession }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("opencode-theme-id", "oc-1")
+    localStorage.setItem("opencode-theme-id", "dracula")
     localStorage.setItem("opencode-theme-css-light", "--background-base:#fff;")
     localStorage.setItem("opencode-theme-css-dark", "--background-base:#000;")
   })
 
   await gotoSession()
 
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "oc-2")
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "pawwork")
 
   await expect
     .poll(async () => {
@@ -163,7 +91,7 @@ test("legacy oc-1 theme migrates to oc-2", async ({ page, gotoSession }) => {
         return localStorage.getItem("opencode-theme-id")
       })
     })
-    .toBe("oc-2")
+    .toBe("pawwork")
 
   await expect
     .poll(async () => {
@@ -374,10 +302,10 @@ test("clearing the UI font field restores the default placeholder and stack", as
   expect(fontFamily).not.toContain("Reset Sans")
 })
 
-test("color scheme, code font, and UI font rehydrate after reload", async ({ page, gotoSession }) => {
+test("code font and UI font rehydrate after reload", async ({ page, gotoSession }) => {
   await page.addInitScript(() => {
     if (sessionStorage.getItem("settings-rehydrate-init")) return
-    localStorage.setItem("opencode-theme-id", "oc-2")
+    localStorage.setItem("opencode-theme-id", "pawwork")
     localStorage.setItem("opencode-color-scheme", "light")
     sessionStorage.setItem("settings-rehydrate-init", "1")
   })
@@ -385,12 +313,6 @@ test("color scheme, code font, and UI font rehydrate after reload", async ({ pag
   await gotoSession()
 
   const dialog = await openSettings(page)
-
-  const colorSchemeSelect = dialog.locator(settingsColorSchemeSelector)
-  await expect(colorSchemeSelect).toBeVisible()
-  await colorSchemeSelect.locator('[data-slot="select-select-trigger"]').click()
-  await page.locator('[data-slot="select-select-item"]').filter({ hasText: "Dark" }).click()
-  await expect(page.locator("html")).toHaveAttribute("data-color-scheme", "dark")
 
   const code = dialog.locator(settingsCodeFontSelector)
   const ui = dialog.locator(settingsUIFontSelector)
@@ -456,8 +378,6 @@ test("color scheme, code font, and UI font rehydrate after reload", async ({ pag
 
   await closeDialog(page, dialog)
   await page.reload()
-
-  await expect(page.locator("html")).toHaveAttribute("data-color-scheme", "dark")
 
   await expect
     .poll(async () => {

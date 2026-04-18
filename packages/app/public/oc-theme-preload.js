@@ -1,40 +1,27 @@
+// Phase 1 ships only the `pawwork` theme, which is locked to light mode.
+// When a dark-capable theme is bundled, this file must gain a theme-aware
+// guard so `opencode-color-scheme` is forced to "light" ONLY for light-only
+// themes; tracked in issue #23.
 ;(function () {
   var key = "opencode-theme-id"
   var schemeKey = "opencode-color-scheme"
-  var storedTheme = localStorage.getItem(key)
-  var storedScheme = localStorage.getItem(schemeKey)
-  var firstInstall = !storedTheme && !storedScheme
-  var themeId = storedTheme || "pawwork"
+  var cssLightKey = "opencode-theme-css-light"
+  var cssDarkKey = "opencode-theme-css-dark"
 
-  if (themeId === "oc-1") {
-    themeId = "oc-2"
-    localStorage.setItem(key, themeId)
-    localStorage.removeItem("opencode-theme-css-light")
-    localStorage.removeItem("opencode-theme-css-dark")
+  try {
+    var storedTheme = localStorage.getItem(key)
+
+    if (storedTheme !== "pawwork") {
+      localStorage.setItem(key, "pawwork")
+      localStorage.removeItem(cssLightKey)
+      localStorage.removeItem(cssDarkKey)
+    }
+    localStorage.setItem(schemeKey, "light")
+  } catch (_err) {
+    // Private mode / blocked storage / non-browser environment: the app still
+    // needs the dataset attributes below so the first paint is not unstyled.
   }
 
-  var scheme = themeId === "pawwork" ? "light" : storedScheme || (firstInstall ? "light" : "system")
-  if (themeId === "pawwork") localStorage.setItem(schemeKey, "light")
-  var isDark = scheme === "dark" || (scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
-  var mode = isDark ? "dark" : "light"
-
-  document.documentElement.dataset.theme = themeId
-  document.documentElement.dataset.colorScheme = mode
-
-  if (themeId === "pawwork" || themeId === "oc-2") return
-
-  var css = localStorage.getItem("opencode-theme-css-" + mode)
-  if (css) {
-    var style = document.createElement("style")
-    style.id = "oc-theme-preload"
-    style.textContent =
-      ":root{color-scheme:" +
-      mode +
-      ";--text-mix-blend-mode:" +
-      (isDark ? "plus-lighter" : "multiply") +
-      ";" +
-      css +
-      "}"
-    document.head.appendChild(style)
-  }
+  document.documentElement.dataset.theme = "pawwork"
+  document.documentElement.dataset.colorScheme = "light"
 })()
