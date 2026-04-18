@@ -3,6 +3,7 @@ import { app, BrowserWindow, nativeImage, nativeTheme } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
+import { WINDOWS_TITLEBAR_OVERLAY_HEIGHT, macTrafficLightPosition } from "./window-chrome"
 
 type Globals = {
   updaterEnabled: boolean
@@ -39,7 +40,7 @@ function overlay(theme: Partial<TitlebarTheme> = {}) {
   return {
     color: "#00000000",
     symbolColor: mode === "dark" ? "white" : "black",
-    height: 40,
+    height: WINDOWS_TITLEBAR_OVERLAY_HEIGHT,
   }
 }
 
@@ -73,7 +74,7 @@ export function createMainWindow(globals: Globals) {
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden" as const,
-          trafficLightPosition: { x: 12, y: 14 },
+          trafficLightPosition: macTrafficLightPosition(),
         }
       : {}),
     ...(process.platform === "win32"

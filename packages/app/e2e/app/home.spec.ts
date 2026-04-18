@@ -3,11 +3,12 @@ import { openStatusPopover } from "../actions"
 
 test("@smoke home renders and shows core entrypoints", async ({ page }) => {
   await page.goto("/")
-  const nav = page.locator('[data-component="sidebar-nav-desktop"]')
 
   await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
-  await expect(nav.getByText("No projects open")).toBeVisible()
-  await expect(nav.getByText("Open a project to get started")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Choose what to do" })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Process documents/i })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Analyze data/i })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Write faster/i })).toBeVisible()
   await expect(page.getByRole("button", { name: "Status" })).toBeVisible()
 })
 

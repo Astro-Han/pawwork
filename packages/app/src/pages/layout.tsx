@@ -2364,150 +2364,173 @@ export default function Layout(props: ParentProps) {
   )
 
   return (
-    <div class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text">
-      <Titlebar />
-      <div class="flex-1 min-h-0 min-w-0 flex">
-        <div class="flex-1 min-h-0 relative">
-          <div class="size-full relative overflow-x-hidden">
-            <nav
-              aria-label={language.t("sidebar.nav.projectsAndSessions")}
-              data-component="sidebar-nav-desktop"
-              classList={{
-                "hidden xl:block": true,
-                "absolute inset-y-0 left-0": true,
-                "z-10": true,
-              }}
-              style={{ width: `${side()}px` }}
-              ref={(el) => {
-                setState("nav", el)
-              }}
-              onMouseEnter={() => {
-                disarm()
-              }}
-              onMouseLeave={() => {
-                aim.reset()
-                if (!sidebarHovering()) return
-
-                arm()
-              }}
-            >
-              <div class="@container w-full h-full contain-strict">{sidebarContent()}</div>
-            </nav>
-
-            <Show when={layout.sidebar.opened()}>
-              <div
-                class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
-                style={{ left: `${side()}px` }}
-                onPointerDown={() => setState("sizing", true)}
-              >
-                <ResizeHandle
-                  direction="horizontal"
-                  size={layout.sidebar.width()}
-                  min={244}
-                  max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
-                  onResize={(w) => {
-                    setState("sizing", true)
-                    if (sizet !== undefined) clearTimeout(sizet)
-                    sizet = window.setTimeout(() => setState("sizing", false), 120)
-                    layout.sidebar.resize(w)
-                  }}
-                />
-              </div>
-            </Show>
-
-            <div
-              class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
-              style={{ left: "calc(4rem + 12px)" }}
-            />
-
-            <div class="xl:hidden">
-              <div
-                classList={{
-                  "fixed inset-x-0 top-10 bottom-0 z-40 transition-opacity duration-200": true,
-                  "opacity-100 pointer-events-auto": layout.mobileSidebar.opened(),
-                  "opacity-0 pointer-events-none": !layout.mobileSidebar.opened(),
-                }}
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) layout.mobileSidebar.hide()
-                }}
-              />
+    <div
+      data-component="desktop-shell"
+      data-platform={platform.platform}
+      data-os={platform.os}
+      class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
+      style={{
+        "--shell-titlebar-current-height":
+          platform.platform === "desktop" && platform.os === "macos"
+            ? `calc(var(--shell-titlebar-height, 40px) / ${platform.webviewZoom?.() ?? 1})`
+            : "var(--shell-titlebar-height, 40px)",
+      }}
+    >
+      <div
+        data-component="desktop-shell-frame"
+        data-platform={platform.platform}
+        data-os={platform.os}
+        class="flex flex-1 min-h-0 min-w-0 flex-col"
+      >
+        <Titlebar />
+        <div class="flex-1 min-h-0 min-w-0 flex">
+          <div class="flex-1 min-h-0 relative">
+            <div class="size-full relative overflow-x-hidden">
               <nav
                 aria-label={language.t("sidebar.nav.projectsAndSessions")}
-                data-component="sidebar-nav-mobile"
+                data-component="sidebar-nav-desktop"
                 classList={{
-                  "@container fixed top-10 bottom-0 left-0 z-50 w-full max-w-[400px] overflow-hidden border-r border-border-weaker-base bg-background-base transition-transform duration-200 ease-out": true,
-                  "translate-x-0": layout.mobileSidebar.opened(),
-                  "-translate-x-full": !layout.mobileSidebar.opened(),
+                  "hidden xl:block": true,
+                  "absolute inset-y-0 left-0": true,
+                  "z-10": true,
                 }}
-                onClick={(e) => e.stopPropagation()}
+                style={{ width: `${side()}px` }}
+                ref={(el) => {
+                  setState("nav", el)
+                }}
+                onMouseEnter={() => {
+                  disarm()
+                }}
+                onMouseLeave={() => {
+                  aim.reset()
+                  if (!sidebarHovering()) return
+
+                  arm()
+                }}
               >
-                {sidebarContent(true)}
+                <div class="@container w-full h-full contain-strict">{sidebarContent()}</div>
               </nav>
-            </div>
 
-            <div
-              classList={{
-                "absolute inset-0": true,
-                "xl:inset-y-0 xl:right-0 xl:left-[var(--main-left)]": true,
-                "z-20": true,
-                "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
-                  !state.sizing,
-              }}
-              style={{
-                "--main-left": layout.sidebar.opened() ? `${side()}px` : "4rem",
-              }}
-            >
-              <main
+              <Show when={layout.sidebar.opened()}>
+                <div
+                  class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
+                  style={{ left: `${side()}px` }}
+                  onPointerDown={() => setState("sizing", true)}
+                >
+                  <ResizeHandle
+                    direction="horizontal"
+                    size={layout.sidebar.width()}
+                    min={244}
+                    max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
+                    onResize={(w) => {
+                      setState("sizing", true)
+                      if (sizet !== undefined) clearTimeout(sizet)
+                      sizet = window.setTimeout(() => setState("sizing", false), 120)
+                      layout.sidebar.resize(w)
+                    }}
+                  />
+                </div>
+              </Show>
+
+              <div
+                class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
+                style={{ left: "calc(4rem + 12px)" }}
+              />
+
+              <div class="xl:hidden">
+                <div
+                  classList={{
+                    "fixed inset-x-0 bottom-0 z-40 transition-opacity duration-200": true,
+                    "opacity-100 pointer-events-auto": layout.mobileSidebar.opened(),
+                    "opacity-0 pointer-events-none": !layout.mobileSidebar.opened(),
+                  }}
+                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.5rem))" }}
+                  onClick={(e) => {
+                    if (e.target === e.currentTarget) layout.mobileSidebar.hide()
+                  }}
+                />
+                <nav
+                  aria-label={language.t("sidebar.nav.projectsAndSessions")}
+                  data-component="sidebar-nav-mobile"
+                  classList={{
+                    "@container fixed bottom-0 left-0 z-50 w-full max-w-[400px] overflow-hidden border-r border-border-weaker-base bg-background-base transition-transform duration-200 ease-out": true,
+                    "translate-x-0": layout.mobileSidebar.opened(),
+                    "-translate-x-full": !layout.mobileSidebar.opened(),
+                  }}
+                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.5rem))" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {sidebarContent(true)}
+                </nav>
+              </div>
+
+              <div
                 classList={{
-                  "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
+                  "absolute inset-0": true,
+                  "xl:inset-y-0 xl:right-0 xl:left-[var(--main-left)]": true,
+                  "z-20": true,
+                  "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
+                    !state.sizing,
+                }}
+                style={{
+                  "--main-left": layout.sidebar.opened() ? `${side()}px` : "4rem",
                 }}
               >
-                <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
-                  {props.children}
+                <main
+                  data-component="desktop-shell-main"
+                  data-platform={platform.platform}
+                  data-os={platform.os}
+                  classList={{
+                    "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
+                  }}
+                >
+                  <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
+                    {props.children}
+                  </Show>
+                </main>
+              </div>
+
+              <div
+                classList={{
+                  "hidden xl:flex absolute inset-y-0 left-16 z-30": true,
+                  "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
+                  "opacity-0 -translate-x-2 pointer-events-none": !state.peeked || layout.sidebar.opened(),
+                  "transition-[opacity,transform] motion-reduce:transition-none": true,
+                  "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
+                  "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
+                }}
+                onMouseMove={disarm}
+                onMouseEnter={() => {
+                  disarm()
+                  aim.reset()
+                }}
+                onPointerDown={disarm}
+                onMouseLeave={() => {
+                  arm()
+                }}
+              >
+                <Show when={peekProject()}>
+                  <SidebarPanel project={peekProject} merged={false} />
                 </Show>
-              </main>
-            </div>
+              </div>
 
-            <div
-              classList={{
-                "hidden xl:flex absolute inset-y-0 left-16 z-30": true,
-                "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
-                "opacity-0 -translate-x-2 pointer-events-none": !state.peeked || layout.sidebar.opened(),
-                "transition-[opacity,transform] motion-reduce:transition-none": true,
-                "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
-                "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
-              }}
-              onMouseMove={disarm}
-              onMouseEnter={() => {
-                disarm()
-                aim.reset()
-              }}
-              onPointerDown={disarm}
-              onMouseLeave={() => {
-                arm()
-              }}
-            >
-              <Show when={peekProject()}>
-                <SidebarPanel project={peekProject} merged={false} />
-              </Show>
-            </div>
-
-            <div
-              classList={{
-                "hidden xl:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
-                "opacity-100 translate-x-0": state.peeked && !layout.sidebar.opened(),
-                "opacity-0 -translate-x-2": !state.peeked || layout.sidebar.opened(),
-                "transition-[opacity,transform] motion-reduce:transition-none": true,
-                "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
-                "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
-              }}
-              style={{ left: `calc(4rem + ${panel()}px)` }}
-            >
-              <div class="h-full w-px" style={{ "box-shadow": "var(--shadow-sidebar-overlay)" }} />
+              <div
+                classList={{
+                  "hidden xl:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
+                  "opacity-100 translate-x-0": state.peeked && !layout.sidebar.opened(),
+                  "opacity-0 -translate-x-2": !state.peeked || layout.sidebar.opened(),
+                  "transition-[opacity,transform] motion-reduce:transition-none": true,
+                  "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
+                  "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
+                }}
+                style={{ left: `calc(4rem + ${panel()}px)` }}
+              >
+                <div class="h-full w-px" style={{ "box-shadow": "var(--shadow-sidebar-overlay)" }} />
+              </div>
             </div>
           </div>
+          {import.meta.env.DEV && <DebugBar />}
         </div>
-        {import.meta.env.DEV && <DebugBar />}
       </div>
       <Toast.Region />
     </div>
