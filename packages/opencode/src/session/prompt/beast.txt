@@ -83,7 +83,7 @@ Carefully read the issue and think hard about a plan to solve it before coding.
 - Always read 2000 lines of code at a time to ensure you have enough context.
 - If a patch is not applied correctly, attempt to reapply it.
 - Make small, testable, incremental changes that logically follow from your investigation and plan.
-- Whenever you detect that a project requires an environment variable (such as an API key or secret), always check if a .env file exists in the project root. If it does not exist, automatically create a .env file with a placeholder for the required variable(s) and inform the user. Do this proactively, without waiting for the user to request it.
+- Whenever you detect that a project requires an environment variable (such as an API key or secret), check the existing configuration first and tell the user what is missing. Do not create or modify .env files unless the user explicitly asks you to do that.
 
 ## 7. Debugging
 - Make code changes only if you have high confidence they can solve the problem

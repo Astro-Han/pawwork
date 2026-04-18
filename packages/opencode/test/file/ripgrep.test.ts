@@ -6,6 +6,24 @@ import path from "path"
 import { tmpdir } from "../fixture/fixture"
 import { Ripgrep } from "../../src/file/ripgrep"
 
+async function withRipgrepConfig(contents: string, fn: () => Promise<void>) {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(path.join(dir, "ripgreprc"), contents)
+    },
+  })
+
+  const previous = process.env.RIPGREP_CONFIG_PATH
+  process.env.RIPGREP_CONFIG_PATH = path.join(tmp.path, "ripgreprc")
+
+  try {
+    await fn()
+  } finally {
+    if (previous === undefined) delete process.env.RIPGREP_CONFIG_PATH
+    else process.env.RIPGREP_CONFIG_PATH = previous
+  }
+}
+
 describe("file.ripgrep", () => {
   test("defaults to include hidden", async () => {
     await using tmp = await tmpdir({
@@ -52,6 +70,81 @@ describe("file.ripgrep", () => {
     })
 
     expect(hits).toEqual([])
+  })
+
+  test("files throws when ripgrep exits with an invalid glob error", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "match.ts"), "const value = 1\n")
+      },
+    })
+
+    await expect(
+      Array.fromAsync(
+        Ripgrep.files({
+          cwd: tmp.path,
+          glob: ["["],
+        }),
+      ),
+    ).rejects.toThrow()
+  })
+
+  test("search keeps partial matches when ripgrep exits with code 2", async () => {
+    if (process.platform === "win32") return
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "match.ts"), "const needle = true\n")
+        const blocked = path.join(dir, "blocked")
+        await fs.mkdir(blocked, { recursive: true })
+        await Bun.write(path.join(blocked, "hidden.ts"), "const needle = false\n")
+      },
+    })
+
+    const blocked = path.join(tmp.path, "blocked")
+    await fs.chmod(blocked, 0o000)
+
+    try {
+      const hits = await Ripgrep.search({
+        cwd: tmp.path,
+        pattern: "needle",
+      })
+
+      expect(hits.length).toBeGreaterThan(0)
+      expect(hits.some((hit) => hit.path.text === "match.ts")).toBe(true)
+    } finally {
+      await fs.chmod(blocked, 0o755)
+    }
+  })
+
+  test("files ignores RIPGREP_CONFIG_PATH from the parent environment", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "match.ts"), "const value = true\n")
+      },
+    })
+
+    await withRipgrepConfig("--glob=!*.ts\n", async () => {
+      const files = await Array.fromAsync(Ripgrep.files({ cwd: tmp.path }))
+      expect(files).toContain("match.ts")
+    })
+  })
+
+  test("search ignores RIPGREP_CONFIG_PATH from the parent environment", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "match.ts"), "const needle = true\n")
+      },
+    })
+
+    await withRipgrepConfig("--glob=!*.ts\n", async () => {
+      const hits = await Ripgrep.search({
+        cwd: tmp.path,
+        pattern: "needle",
+      })
+
+      expect(hits.some((hit) => hit.path.text === "match.ts")).toBe(true)
+    })
   })
 })
 

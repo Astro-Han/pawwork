@@ -9,7 +9,6 @@ import { Account } from "@/account"
 import { Config } from "@/config/config"
 import { Git } from "@/git"
 import { Ripgrep } from "@/file/ripgrep"
-import { FileTime } from "@/file/time"
 import { File } from "@/file"
 import { FileWatcher } from "@/file/watcher"
 import { Storage } from "@/storage/storage"
@@ -57,7 +56,6 @@ export const AppLayer = Layer.mergeAll(
   Config.defaultLayer,
   Git.defaultLayer,
   Ripgrep.defaultLayer,
-  FileTime.defaultLayer,
   File.defaultLayer,
   FileWatcher.defaultLayer,
   Storage.defaultLayer,

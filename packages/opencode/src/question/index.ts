@@ -31,6 +31,9 @@ export namespace Question {
     .meta({ ref: "QuestionInfo" })
   export type Info = z.infer<typeof Info>
 
+  export const Prompt = Info.omit({ custom: true }).meta({ ref: "QuestionPrompt" })
+  export type Prompt = z.infer<typeof Prompt>
+
   export const Request = z
     .object({
       id: QuestionID.zod,

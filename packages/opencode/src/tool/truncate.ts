@@ -5,7 +5,7 @@ import type { Agent } from "../agent/agent"
 import { AppFileSystem } from "@/filesystem"
 import { evaluate } from "@/permission/evaluate"
 import { Identifier } from "../id/id"
-import { Log } from "../util/log"
+import { Log } from "../util"
 import { ToolID } from "./schema"
 import { TRUNCATION_DIR } from "./truncation-dir"
 
@@ -33,6 +33,7 @@ export namespace Truncate {
 
   export interface Interface {
     readonly cleanup: () => Effect.Effect<void>
+    readonly write: (text: string) => Effect.Effect<string>
     /**
      * Returns output unchanged when it fits within the limits, otherwise writes the full text
      * to the truncation directory and returns a preview plus a hint to inspect the saved file.
@@ -57,6 +58,13 @@ export namespace Truncate {
           if (Identifier.timestamp(entry) >= cutoff) continue
           yield* fs.remove(path.join(TRUNCATION_DIR, entry)).pipe(Effect.catch(() => Effect.void))
         }
+      })
+
+      const write = Effect.fn("Truncate.write")(function* (text: string) {
+        const file = path.join(TRUNCATION_DIR, ToolID.ascending())
+        yield* fs.ensureDir(TRUNCATION_DIR).pipe(Effect.orDie)
+        yield* fs.writeFileString(file, text).pipe(Effect.orDie)
+        return file
       })
 
       const output = Effect.fn("Truncate.output")(function* (text: string, options: Options = {}, agent?: Agent.Info) {
@@ -100,10 +108,7 @@ export namespace Truncate {
         const removed = hitBytes ? totalBytes - bytes : lines.length - out.length
         const unit = hitBytes ? "bytes" : "lines"
         const preview = out.join("\n")
-        const file = path.join(TRUNCATION_DIR, ToolID.ascending())
-
-        yield* fs.ensureDir(TRUNCATION_DIR).pipe(Effect.orDie)
-        yield* fs.writeFileString(file, text).pipe(Effect.orDie)
+        const file = yield* write(text)
 
         const hint = hasTaskTool(agent)
           ? `The tool call succeeded but the output was truncated. Full output saved to: ${file}\nUse the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.`
@@ -129,9 +134,20 @@ export namespace Truncate {
         Effect.forkScoped,
       )
 
-      return Service.of({ cleanup, output })
+      return Service.of({ cleanup, write, output })
     }),
   )
 
   export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(NodePath.layer))
 }
+
+export const MAX_LINES = Truncate.MAX_LINES
+export const MAX_BYTES = Truncate.MAX_BYTES
+export const DIR = Truncate.DIR
+export const GLOB = Truncate.GLOB
+export type Result = Truncate.Result
+export type Options = Truncate.Options
+export type Interface = Truncate.Interface
+export const Service = Truncate.Service
+export const layer = Truncate.layer
+export const defaultLayer = Truncate.defaultLayer

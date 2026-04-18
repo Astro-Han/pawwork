@@ -267,22 +267,6 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               }
             }
 
-            if (permission === "list") {
-              const raw = data.path
-              const dir = typeof raw === "string" ? raw : ""
-              return {
-                icon: "→",
-                title: `List ${normalizePath(dir)}`,
-                body: (
-                  <Show when={dir}>
-                    <box paddingLeft={1}>
-                      <text fg={theme.textMuted}>{"Path: " + normalizePath(dir)}</text>
-                    </box>
-                  </Show>
-                ),
-              }
-            }
-
             if (permission === "bash") {
               const title =
                 typeof data.description === "string" && data.description ? data.description : "Shell command"

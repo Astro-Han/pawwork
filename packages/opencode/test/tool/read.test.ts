@@ -4,7 +4,6 @@ import path from "path"
 import { Agent } from "../../src/agent/agent"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 import { AppFileSystem } from "../../src/filesystem"
-import { FileTime } from "../../src/file/time"
 import { LSP } from "../../src/lsp"
 import { Permission } from "../../src/permission"
 import { Instance } from "../../src/project/instance"
@@ -39,7 +38,6 @@ const it = testEffect(
     Agent.defaultLayer,
     AppFileSystem.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
-    FileTime.defaultLayer,
     Instruction.defaultLayer,
     LSP.defaultLayer,
     Truncate.defaultLayer,
@@ -205,10 +203,10 @@ describe("tool.read external_directory permission", () => {
 
 describe("tool.read env file permissions", () => {
   const cases: [string, boolean][] = [
-    [".env", false],
-    [".env.local", false],
-    [".env.production", false],
-    [".env.development.local", false],
+    [".env", true],
+    [".env.local", true],
+    [".env.production", true],
+    [".env.development.local", true],
     [".env.example", false],
     [".envrc", false],
     ["environment.ts", false],
@@ -255,6 +253,20 @@ describe("tool.read env file permissions", () => {
     })
   }
 })
+
+it.live("default build agent asks for external_directory access outside the project", () =>
+  Effect.gen(function* () {
+    const dir = yield* tmpdirScoped()
+    const rule = yield* provideInstance(dir)(
+      Effect.gen(function* () {
+        const agent = yield* Agent.Service
+        const info = yield* agent.get("build")
+        return Permission.evaluate("external_directory", "/tmp/external/*", info.permission)
+      }),
+    )
+    expect(rule.action).toBe("ask")
+  }),
+)
 
 describe("tool.read truncation", () => {
   it.live("truncates large file by bytes and sets truncated metadata", () =>

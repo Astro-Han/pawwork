@@ -83,16 +83,22 @@ export namespace Agent {
           const skillDirs = yield* skill.dirs()
           const whitelistedDirs = [Truncate.GLOB, ...skillDirs.map((dir) => path.join(dir, "*"))]
 
-          const defaults = Permission.fromConfig({
+        const defaults = Permission.fromConfig({
+          "*": "allow",
+          doom_loop: "ask",
+          question: "deny",
+          plan_enter: "deny",
+          plan_exit: "deny",
+          read: {
             "*": "allow",
-            doom_loop: "ask",
-            question: "deny",
-            plan_enter: "deny",
-            plan_exit: "deny",
-            bash: {
-              "*": "allow",
-              "sudo *": "deny",
-              "dd *": "deny",
+            "*.env": "ask",
+            "*.env.*": "ask",
+            "*.env.example": "allow",
+          },
+          bash: {
+            "*": "allow",
+            "sudo *": "deny",
+            "dd *": "deny",
               "mkfs*": "deny",
               "chmod *": "deny",
               "kill *": "deny",
@@ -100,12 +106,12 @@ export namespace Agent {
               "rmdir *": "deny",
               "unlink *": "deny",
               "find * -delete*": "deny",
-            },
-            external_directory: {
-              "*": "allow",
-              ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
-            },
-          })
+          },
+          external_directory: {
+            "*": "ask",
+            ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
+          },
+        })
 
           const user = Permission.fromConfig(cfg.permission ?? {})
 
@@ -171,7 +177,6 @@ export namespace Agent {
                   "*": "deny",
                   grep: "allow",
                   glob: "allow",
-                  list: "allow",
                   bash: "allow",
                   webfetch: "allow",
                   websearch: "allow",

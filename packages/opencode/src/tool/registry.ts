@@ -25,7 +25,6 @@ import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
 import { Truncate } from "./truncate"
-import { TrashTool } from "./trash"
 import { ApplyPatchTool } from "./apply_patch"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
@@ -43,7 +42,6 @@ import { Env } from "../env"
 import { Question } from "../question"
 import { Todo } from "../session/todo"
 import { LSP } from "../lsp"
-import { FileTime } from "../file/time"
 import { Instruction } from "../session/instruction"
 import { AppFileSystem } from "../filesystem"
 import { Bus } from "../bus"
@@ -89,7 +87,6 @@ export namespace ToolRegistry {
     | Session.Service
     | Provider.Service
     | LSP.Service
-    | FileTime.Service
     | Instruction.Service
     | AppFileSystem.Service
     | Bus.Service
@@ -124,7 +121,6 @@ export namespace ToolRegistry {
       const greptool = yield* GrepTool
       const patchtool = yield* ApplyPatchTool
       const skilltool = yield* SkillTool
-      const trashtool = yield* TrashTool
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -212,7 +208,6 @@ export namespace ToolRegistry {
             search: Tool.init(websearch),
             code: Tool.init(codesearch),
             skill: Tool.init(skilltool),
-            trash: Tool.init(trashtool),
             patch: Tool.init(patchtool),
             question: Tool.init(question),
             lsp: Tool.init(lsptool),
@@ -236,7 +231,6 @@ export namespace ToolRegistry {
               tool.search,
               tool.code,
               tool.skill,
-              tool.trash,
               tool.patch,
               ...(Flag.OPENCODE_EXPERIMENTAL_LSP_TOOL ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
@@ -352,7 +346,6 @@ export namespace ToolRegistry {
       Layer.provide(Session.defaultLayer),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(LSP.defaultLayer),
-      Layer.provide(FileTime.defaultLayer),
       Layer.provide(Instruction.defaultLayer),
       Layer.provide(AppFileSystem.defaultLayer),
       Layer.provide(Bus.layer),

@@ -15,7 +15,6 @@ import { Permission } from "../../permission"
 import { Tool } from "../../tool/tool"
 import { GlobTool } from "../../tool/glob"
 import { GrepTool } from "../../tool/grep"
-import { ListTool } from "../../tool/ls"
 import { ReadTool } from "../../tool/read"
 import { WebFetchTool } from "../../tool/webfetch"
 import { EditTool } from "../../tool/edit"
@@ -49,6 +48,8 @@ type Inline = {
   description?: string
 }
 
+type RenderedTool = (Inline & { kind: "inline" }) | (Inline & { kind: "block"; output?: string })
+
 function inline(info: Inline) {
   const suffix = info.description ? UI.Style.TEXT_DIM + ` ${info.description}` + UI.Style.TEXT_NORMAL : ""
   UI.println(UI.Style.TEXT_NORMAL + info.icon, UI.Style.TEXT_NORMAL + info.title + suffix)
@@ -63,15 +64,20 @@ function block(info: Inline, output?: string) {
 }
 
 function fallback(part: ToolPart) {
+  inline(fallbackInfo(part))
+}
+
+function fallbackInfo(part: ToolPart): RenderedTool {
   const state = part.state
   const input = "input" in state ? state.input : undefined
   const title =
     ("title" in state && state.title ? state.title : undefined) ||
     (input && typeof input === "object" && Object.keys(input).length > 0 ? JSON.stringify(input) : "Unknown")
-  inline({
+  return {
+    kind: "inline",
     icon: "⚙",
     title: `${part.tool} ${title}`,
-  })
+  }
 }
 
 function glob(info: ToolProps<typeof GlobTool>) {
@@ -102,12 +108,28 @@ function grep(info: ToolProps<typeof GrepTool>) {
   })
 }
 
-function list(info: ToolProps<typeof ListTool>) {
-  const dir = info.input.path ? normalizePath(info.input.path) : ""
-  inline({
-    icon: "→",
-    title: dir ? `List ${dir}` : "List",
-  })
+function renderTool(info: RenderedTool) {
+  if (info.kind === "block") {
+    return block(info, info.output)
+  }
+  return inline(info)
+}
+
+export function describeToolPartForRun(part: ToolPart): RenderedTool {
+  try {
+    if (part.tool === "bash") {
+      const info = props<typeof BashTool>(part)
+      return {
+        kind: "block",
+        icon: "$",
+        title: `${info.input.command}`,
+        output: info.part.state.status === "completed" ? info.part.state.output?.trim() : undefined,
+      }
+    }
+    return fallbackInfo(part)
+  } catch {
+    return fallbackInfo(part)
+  }
 }
 
 function read(info: ToolProps<typeof ReadTool>) {
@@ -189,17 +211,6 @@ function skill(info: ToolProps<typeof SkillTool>) {
     icon: "→",
     title: `Skill "${info.input.name}"`,
   })
-}
-
-function bash(info: ToolProps<typeof BashTool>) {
-  const output = info.part.state.status === "completed" ? info.part.state.output?.trim() : undefined
-  block(
-    {
-      icon: "$",
-      title: `${info.input.command}`,
-    },
-    output,
-  )
 }
 
 function todo(info: ToolProps<typeof TodoWriteTool>) {
@@ -416,10 +427,9 @@ export const RunCommand = cmd({
     async function execute(sdk: OpencodeClient) {
       function tool(part: ToolPart) {
         try {
-          if (part.tool === "bash") return bash(props<typeof BashTool>(part))
+          if (part.tool === "bash") return renderTool(describeToolPartForRun(part))
           if (part.tool === "glob") return glob(props<typeof GlobTool>(part))
           if (part.tool === "grep") return grep(props<typeof GrepTool>(part))
-          if (part.tool === "list") return list(props<typeof ListTool>(part))
           if (part.tool === "read") return read(props<typeof ReadTool>(part))
           if (part.tool === "write") return write(props<typeof WriteTool>(part))
           if (part.tool === "webfetch") return webfetch(props<typeof WebFetchTool>(part))

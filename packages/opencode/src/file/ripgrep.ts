@@ -5,7 +5,6 @@ import fs from "fs/promises"
 import z from "zod"
 import { Effect, Layer, Context } from "effect"
 import * as Stream from "effect/Stream"
-import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import type { PlatformError } from "effect/PlatformError"
@@ -220,6 +219,12 @@ export namespace Ripgrep {
     return filepath
   }
 
+  function env() {
+    return {
+      RIPGREP_CONFIG_PATH: undefined,
+    } satisfies NodeJS.ProcessEnv
+  }
+
   export async function* files(input: {
     cwd: string
     glob?: string[]
@@ -251,12 +256,13 @@ export namespace Ripgrep {
 
     const proc = Process.spawn(args, {
       cwd: input.cwd,
+      env: env(),
       stdout: "pipe",
-      stderr: "ignore",
+      stderr: "pipe",
       abort: input.signal,
     })
 
-    if (!proc.stdout) {
+    if (!proc.stdout || !proc.stderr) {
       throw new Error("Process output not available")
     }
 
@@ -276,9 +282,12 @@ export namespace Ripgrep {
     }
 
     if (buffer) yield buffer
-    await proc.exited
-
+    const exit = await proc.exited
     input.signal?.throwIfAborted()
+    if (exit !== 0) {
+      const stderr = (await text(proc.stderr)).trim()
+      throw new Error(stderr || `ripgrep failed with exit code ${exit}`)
+    }
   }
 
   export interface Interface {
@@ -288,6 +297,7 @@ export namespace Ripgrep {
       hidden?: boolean
       follow?: boolean
       maxDepth?: number
+      signal?: AbortSignal
     }) => Stream.Stream<string, PlatformError>
   }
 
@@ -296,45 +306,21 @@ export namespace Ripgrep {
   export const layer: Layer.Layer<Service, never, ChildProcessSpawner | AppFileSystem.Service> = Layer.effect(
     Service,
     Effect.gen(function* () {
-      const spawner = yield* ChildProcessSpawner
-      const afs = yield* AppFileSystem.Service
-
-      const files = Effect.fn("Ripgrep.files")(function* (input: {
+      const streamFiles = Effect.fn("Ripgrep.files")(function* (input: {
         cwd: string
         glob?: string[]
         hidden?: boolean
         follow?: boolean
         maxDepth?: number
+        signal?: AbortSignal
       }) {
-        const rgPath = yield* Effect.promise(() => filepath())
-        const isDir = yield* afs.isDir(input.cwd)
-        if (!isDir) {
-          return yield* Effect.die(
-            Object.assign(new Error(`No such file or directory: '${input.cwd}'`), {
-              code: "ENOENT" as const,
-              errno: -2,
-              path: input.cwd,
-            }),
-          )
-        }
-
-        const args = [rgPath, "--files", "--glob=!.git/*"]
-        if (input.follow) args.push("--follow")
-        if (input.hidden !== false) args.push("--hidden")
-        if (input.maxDepth !== undefined) args.push(`--max-depth=${input.maxDepth}`)
-        if (input.glob) {
-          for (const g of input.glob) {
-            args.push(`--glob=${g}`)
-          }
-        }
-
-        return spawner
-          .streamLines(ChildProcess.make(args[0], args.slice(1), { cwd: input.cwd }))
-          .pipe(Stream.filter((line: string) => line.length > 0))
+        return Stream.fromAsyncIterable(Ripgrep.files(input), (error) =>
+          error instanceof Error ? (error as PlatformError) : (new Error(String(error)) as PlatformError),
+        )
       })
 
       return Service.of({
-        files: (input) => Stream.unwrap(files(input)),
+        files: (input) => Stream.unwrap(streamFiles(input)),
       })
     }),
   )
@@ -427,10 +413,19 @@ export namespace Ripgrep {
 
     const result = await Process.text(args, {
       cwd: input.cwd,
+      env: env(),
       nothrow: true,
     })
-    if (result.code !== 0) {
+    if (result.code === 1) {
       return []
+    }
+
+    if (result.code !== 0 && result.code !== 2) {
+      throw new Process.RunFailedError(args, result.code, result.stdout, result.stderr)
+    }
+
+    if (result.code === 2 && !result.text.trim()) {
+      throw new Process.RunFailedError(args, result.code, result.stdout, result.stderr)
     }
 
     // Handle both Unix (\n) and Windows (\r\n) line endings

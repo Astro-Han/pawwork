@@ -25,13 +25,13 @@ assistant: Yes
 </example>
 
 <example>
-user: what command should I run to list files in the current directory?
-assistant: ls
+user: what command should I run to print the current directory?
+assistant: pwd
 </example>
 
 <example>
 user: what command should I run to watch files in the current directory?
-assistant: [use the ls tool to list the files in the current directory, then read docs/commands in the relevant file to find out how to watch files]
+assistant: [inspect the current directory and read docs/commands in the relevant file to find out how to watch files]
 npm run dev
 </example>
 
@@ -42,7 +42,7 @@ assistant: 150000
 
 <example>
 user: what files are in the directory src/?
-assistant: [runs ls and sees foo.c, bar.c, baz.c]
+assistant: [checks the directory contents and sees foo.c, bar.c, baz.c]
 user: which file contains the implementation of foo?
 assistant: src/foo.c
 </example>

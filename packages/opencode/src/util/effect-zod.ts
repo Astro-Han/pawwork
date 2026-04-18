@@ -1,11 +1,15 @@
 import { Schema, SchemaAST } from "effect"
 import z from "zod"
 
+export const ZodOverride: unique symbol = Symbol.for("effect-zod/override")
+
 export function zod<S extends Schema.Top>(schema: S): z.ZodType<Schema.Schema.Type<S>> {
   return walk(schema.ast) as z.ZodType<Schema.Schema.Type<S>>
 }
 
 function walk(ast: SchemaAST.AST): z.ZodTypeAny {
+  const override = (ast.annotations as any)?.[ZodOverride] as z.ZodTypeAny | undefined
+  if (override) return override
   const out = body(ast)
   const desc = SchemaAST.resolveDescription(ast)
   const ref = SchemaAST.resolveIdentifier(ast)

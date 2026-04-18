@@ -139,3 +139,25 @@ export namespace Tool {
     })
   }
 }
+
+export type DynamicDescription = Tool.DynamicDescription
+export type Context<M extends Record<string, any> = Record<string, any>> = Tool.Context<M>
+export type ExecuteResult<M extends Record<string, any> = Record<string, any>> = Tool.ExecuteResult<M>
+export type Def<
+  Parameters extends z.ZodType = z.ZodType,
+  M extends Record<string, any> = Record<string, any>,
+> = Tool.Def<Parameters, M>
+export type DefWithoutID<
+  Parameters extends z.ZodType = z.ZodType,
+  M extends Record<string, any> = Record<string, any>,
+> = Tool.DefWithoutID<Parameters, M>
+export type Info<
+  Parameters extends z.ZodType = z.ZodType,
+  M extends Record<string, any> = Record<string, any>,
+> = Tool.Info<Parameters, M>
+export type InferParameters<T> = Tool.InferParameters<T>
+export type InferMetadata<T> = Tool.InferMetadata<T>
+export type InferDef<T> = Tool.InferDef<T>
+
+export const define = Tool.define
+export const init = Tool.init

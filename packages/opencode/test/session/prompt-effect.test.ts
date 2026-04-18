@@ -8,7 +8,6 @@ import { Agent as AgentSvc } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
 import { Config } from "../../src/config/config"
-import { FileTime } from "../../src/file/time"
 import { LSP } from "../../src/lsp"
 import { MCP } from "../../src/mcp"
 import { Permission } from "../../src/permission"
@@ -139,16 +138,6 @@ const lsp = Layer.succeed(
   }),
 )
 
-const filetime = Layer.succeed(
-  FileTime.Service,
-  FileTime.Service.of({
-    read: () => Effect.void,
-    get: () => Effect.succeed(undefined),
-    assert: () => Effect.void,
-    withLock: (_filepath, fn) => fn(),
-  }),
-)
-
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
@@ -163,7 +152,6 @@ function makeHttp() {
     Plugin.defaultLayer,
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
-    filetime,
     lsp,
     mcp,
     AppFileSystem.defaultLayer,
@@ -1399,8 +1387,8 @@ unix(
 
           expect(tool.state.metadata.truncated).toBe(true)
           expect(typeof tool.state.metadata.outputPath).toBe("string")
-          expect(tool.state.output).toContain("The tool call succeeded but the output was truncated.")
-          expect(tool.state.output).toContain("Full output saved to:")
+          expect(tool.state.output).toMatch(/\.\.\.output truncated\.\.\./)
+          expect(tool.state.output).toMatch(/Full output saved to:\s+\S+/)
           expect(tool.state.output).not.toContain("Tool execution aborted")
         }),
       { git: true, config: providerCfg },

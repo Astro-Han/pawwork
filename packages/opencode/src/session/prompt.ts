@@ -22,7 +22,6 @@ import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { ToolRegistry } from "../tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "../lsp"
-import { FileTime } from "../file/time"
 import { Flag } from "../flag/flag"
 import { ulid } from "ulid"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -94,7 +93,6 @@ export namespace SessionPrompt {
       const fsys = yield* AppFileSystem.Service
       const mcp = yield* MCP.Service
       const lsp = yield* LSP.Service
-      const filetime = yield* FileTime.Service
       const registry = yield* ToolRegistry.Service
       const truncate = yield* Truncate.Service
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -1192,7 +1190,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   ]
                 }
 
-                yield* filetime.read(input.sessionID, filepath)
                 return [
                   {
                     messageID: info.id,
@@ -1693,7 +1690,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       Layer.provide(Permission.defaultLayer),
       Layer.provide(MCP.defaultLayer),
       Layer.provide(LSP.defaultLayer),
-      Layer.provide(FileTime.defaultLayer),
       Layer.provide(ToolRegistry.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
       Layer.provide(Provider.defaultLayer),
