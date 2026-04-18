@@ -539,8 +539,10 @@ export namespace ACP {
       log.info("initialize", { protocolVersion: params.protocolVersion })
 
       const authMethod: AuthMethod = {
+        // `opencode` is the CLI binary name (rename blocked on Zen proxy
+        // header work), so the command in the instruction stays literal.
         description: "Run `opencode auth login` in the terminal",
-        name: "Login with opencode",
+        name: "Login with PawWork",
         id: "opencode-login",
       }
 
@@ -550,7 +552,7 @@ export namespace ACP {
           "terminal-auth": {
             command: "opencode",
             args: ["auth", "login"],
-            label: "OpenCode Login",
+            label: "PawWork Login",
           },
         }
       }
@@ -575,7 +577,7 @@ export namespace ACP {
         },
         authMethods: [authMethod],
         agentInfo: {
-          name: "OpenCode",
+          name: "PawWork",
           version: Installation.VERSION,
         },
       }
