@@ -474,11 +474,13 @@ export function SessionSidePanel(props: {
             </Tabs.Content>
 
             <Tabs.Content value="terminal" class="min-h-0 flex-1 overflow-hidden">
-              <Show
-                when={props.terminalPanel}
-                fallback={<div class="px-4 py-3 text-14-regular text-text-weak">{language.t("terminal.loading")}</div>}
-              >
-                {(renderTerminal) => renderTerminal()()}
+              <Show when={sidePanelTab() === "terminal"}>
+                <Show
+                  when={props.terminalPanel}
+                  fallback={<div class="px-4 py-3 text-14-regular text-text-weak">{language.t("terminal.loading")}</div>}
+                >
+                  {(renderTerminal) => renderTerminal()()}
+                </Show>
               </Show>
             </Tabs.Content>
           </Tabs>

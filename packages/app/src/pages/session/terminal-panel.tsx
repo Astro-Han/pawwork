@@ -29,7 +29,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
   const command = useCommand()
   const { params, view } = useSessionLayout()
 
-  const opened = createMemo(() => (props.embedded ? true : view().terminal.opened()))
+  const opened = createMemo(() => view().terminal.opened())
   const size = createSizing()
   const height = createMemo(() => layout.terminal.height())
   const close = () => view().terminal.close()
