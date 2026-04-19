@@ -1346,6 +1346,39 @@ unix(
 )
 
 unix(
+  "cancel preserves partial shell output when fallback finalizes the run",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (dir) =>
+          Effect.gen(function* () {
+            const { prompt, chat } = yield* boot()
+
+            const sh = yield* prompt
+              .shell({ sessionID: chat.id, agent: "build", command: "printf 'partial output'; trap '' TERM; sleep 30" })
+              .pipe(Effect.forkChild)
+            yield* Effect.sleep(50)
+
+            yield* prompt.cancel(chat.id)
+
+            const exit = yield* Fiber.await(sh)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            if (Exit.isSuccess(exit)) {
+              expect(exit.value.info.role).toBe("assistant")
+              const tool = completedTool(exit.value.parts)
+              if (tool) {
+                expect(tool.state.output).toContain("partial output")
+                expect(tool.state.output).toContain("User aborted the command")
+              }
+            }
+          }),
+        { git: true, config: cfg },
+      ),
+    ),
+  30_000,
+)
+
+unix(
   "cancel finalizes interrupted bash tool output through normal truncation",
   () =>
     provideTmpdirServer(

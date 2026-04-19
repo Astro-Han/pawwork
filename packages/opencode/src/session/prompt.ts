@@ -1329,7 +1329,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         )
         if (!runningTool) return message
 
-        const output = "\n\n<metadata>\nUser aborted the command\n</metadata>"
+        const output = (typeof runningTool.state.metadata?.output === "string" ? runningTool.state.metadata.output : "")
+          .concat("\n\n<metadata>\nUser aborted the command\n</metadata>")
         const info = message.info.time.completed
           ? message.info
           : {
