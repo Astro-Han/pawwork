@@ -1959,13 +1959,7 @@ export default function Page() {
         </Show>
 
         {/* Session panel */}
-        <div
-          classList={{
-            "@container relative min-w-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1": true,
-            "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
-              !size.active() && !ui.reviewSnap,
-          }}
-        >
+        <div class="@container relative min-w-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
             {(() => {
               const renderComposerRegion = (variant: "session" | "home") => (

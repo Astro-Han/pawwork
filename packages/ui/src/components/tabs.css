@@ -400,8 +400,15 @@
   }
 
   &[data-variant="sidepanel"] {
-    [data-slot="tabs-list"]::after {
-      display: none;
+    [data-slot="tabs-list"] {
+      /* Override the base 48px so the consumer's h-11 (44px) is honored.
+         Tailwind class (0,1,0) would lose to the base nested selector (0,2,0)
+         without this explicit override. */
+      height: 44px;
+
+      &::after {
+        display: none;
+      }
     }
 
     /* Neutralize the base tabs-trigger-wrapper chrome (borders, bg, selected-state tint). */
