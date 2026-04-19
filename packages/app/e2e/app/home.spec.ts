@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
-test("@smoke root route renders the empty recent-projects state", async ({ page }) => {
+test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
   await page.goto("/")
 
   await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
