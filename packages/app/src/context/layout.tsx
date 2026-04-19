@@ -19,6 +19,14 @@ const DEFAULT_SIDEBAR_WIDTH = 344
 const DEFAULT_FILE_TREE_WIDTH = 200
 const DEFAULT_SESSION_WIDTH = 600
 const DEFAULT_TERMINAL_HEIGHT = 280
+export const DEFAULT_RIGHT_PANEL_WIDTH = 340
+export const MIN_RIGHT_PANEL_WIDTH = 300
+export const MAX_RIGHT_PANEL_WIDTH = 520
+
+export function clampRightPanelWidth(raw: number | undefined): number {
+  if (raw === undefined) return DEFAULT_RIGHT_PANEL_WIDTH
+  return Math.max(MIN_RIGHT_PANEL_WIDTH, Math.min(MAX_RIGHT_PANEL_WIDTH, raw))
+}
 export type AvatarColorKey = (typeof AVATAR_COLOR_KEYS)[number]
 
 export function getAvatarColors(key?: string) {
@@ -259,6 +267,9 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         },
         session: {
           width: DEFAULT_SESSION_WIDTH,
+        },
+        rightPanel: {
+          width: DEFAULT_RIGHT_PANEL_WIDTH,
         },
         mobileSidebar: {
           opened: false,
@@ -696,6 +707,12 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             return
           }
           setStore("session", "width", width)
+        },
+      },
+      rightPanel: {
+        width: createMemo(() => clampRightPanelWidth(store.rightPanel?.width)),
+        resize(width: number) {
+          setStore("rightPanel", "width", clampRightPanelWidth(width))
         },
       },
       mobileSidebar: {
