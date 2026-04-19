@@ -458,10 +458,8 @@ describe("workspace router", () => {
           )
         }
 
-        if (url.pathname !== "/sync/event") {
-          pathHits++
-          return Response.json({ ok: true })
-        }
+        pathHits++
+        return Response.json({ ok: true })
       },
     })
 
