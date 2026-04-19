@@ -1,0 +1,4 @@
+Moves a file or directory to the system Trash.
+
+Use this instead of shell deletion commands like `rm`.
+Accepts a single file or directory path, absolute or relative to the current project directory.

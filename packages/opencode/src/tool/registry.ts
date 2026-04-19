@@ -8,6 +8,7 @@ import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
 import { TodoWriteTool } from "./todo"
+import { TrashTool } from "./trash"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
@@ -121,6 +122,7 @@ export namespace ToolRegistry {
       const greptool = yield* GrepTool
       const patchtool = yield* ApplyPatchTool
       const skilltool = yield* SkillTool
+      const trashtool = yield* TrashTool
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -202,6 +204,7 @@ export namespace ToolRegistry {
             grep: Tool.init(greptool),
             edit: Tool.init(edit),
             write: Tool.init(writetool),
+            trash: Tool.init(trashtool),
             task: Tool.init(task),
             fetch: Tool.init(webfetch),
             todo: Tool.init(todo),
@@ -225,6 +228,7 @@ export namespace ToolRegistry {
               tool.grep,
               tool.edit,
               tool.write,
+              tool.trash,
               tool.task,
               tool.fetch,
               tool.todo,

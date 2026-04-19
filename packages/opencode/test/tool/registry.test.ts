@@ -13,14 +13,14 @@ afterEach(async () => {
 })
 
 describe("tool.registry", () => {
-  test("does not expose retired trash tool", async () => {
+  test("exposes trash tool", async () => {
     await using tmp = await tmpdir()
 
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const ids = await ToolRegistry.ids()
-        expect(ids).not.toContain("trash")
+        expect(ids).toContain("trash")
       },
     })
   })
