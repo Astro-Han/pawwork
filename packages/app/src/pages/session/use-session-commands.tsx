@@ -488,6 +488,13 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       onSelect: () => view().sidePanel.toggleTab("files"),
     }),
     viewCommand({
+      id: "panel.toggle",
+      title: language.t("command.panel.toggle"),
+      description: language.t("command.panel.toggle.description"),
+      keybind: "alt+mod+b",
+      onSelect: () => view().sidePanel.toggle(),
+    }),
+    viewCommand({
       id: "input.focus",
       title: language.t("command.input.focus"),
       keybind: "ctrl+l",

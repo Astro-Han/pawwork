@@ -66,6 +66,8 @@ export const dict = {
   "command.terminal.toggle": "切换终端",
 
   "command.fileTree.toggle": "切换文件树",
+  "command.panel.toggle": "切换右侧面板",
+  "command.panel.toggle.description": "打开或关闭右侧工具面板（⌥⌘B）",
 
   "command.review.toggle": "切换审查",
   "session.panel.files": "文件",
