@@ -42,7 +42,7 @@ import { AppFileSystem } from "@/filesystem"
 import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { Cause, Effect, Exit, Layer, Option, Scope, Context } from "effect"
+import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
 import { EffectLogger } from "@/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -721,7 +721,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         } satisfies MessageV2.TextPart)
       })
 
-      const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput) {
+      const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput, ready: Deferred.Deferred<void>) {
         let output = ""
         let aborted = false
         const { run, msg, part, cmd, finish } = yield* Effect.uninterruptibleMask((restore) =>
@@ -789,6 +789,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               },
             }
             yield* sessions.updatePart(part)
+            yield* Deferred.succeed(ready, undefined).pipe(Effect.ignore)
 
             const sh = Shell.preferred()
             const shellName = (
@@ -1602,7 +1603,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
         function* (input: ShellInput) {
-          return yield* state.startShell(input.sessionID, shellCancelledAssistant(input.sessionID), shellImpl(input))
+          const ready = yield* Deferred.make<void>()
+          return yield* state.startShell(input.sessionID, shellCancelledAssistant(input.sessionID), shellImpl(input, ready), ready)
         },
       )
 

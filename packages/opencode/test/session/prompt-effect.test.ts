@@ -1329,6 +1329,41 @@ unix(
 )
 
 unix(
+  "cancel immediately after shell start resolves cleanly",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (dir) =>
+          Effect.gen(function* () {
+            const { prompt, run, chat } = yield* boot()
+
+            const sh = yield* prompt
+              .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
+              .pipe(Effect.forkChild)
+            yield* Effect.yieldNow
+
+            yield* prompt.cancel(chat.id)
+
+            const busy = yield* run.assertNotBusy(chat.id).pipe(Effect.exit)
+            expect(Exit.isSuccess(busy)).toBe(true)
+
+            const exit = yield* Fiber.await(sh)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            if (Exit.isSuccess(exit)) {
+              expect(exit.value.info.role).toBe("assistant")
+              const tool = completedTool(exit.value.parts)
+              if (tool) {
+                expect(tool.state.output).toContain("User aborted the command")
+              }
+            }
+          }),
+        { git: true, config: cfg },
+      ),
+    ),
+  30_000,
+)
+
+unix(
   "cancel persists aborted shell result when shell ignores TERM",
   () =>
     withSh(() =>
