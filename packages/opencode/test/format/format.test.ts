@@ -44,6 +44,20 @@ describe("Format", () => {
     ),
   )
 
+  it.live("status() treats formatter=true as built-in defaults", () =>
+    provideTmpdirInstance(
+      () =>
+        Format.Service.use((fmt) =>
+          Effect.gen(function* () {
+            const statuses = yield* fmt.status()
+            expect(statuses.length).toBeGreaterThan(0)
+            expect(statuses.find((item) => item.name === "gofmt")).toBeDefined()
+          }),
+        ),
+      { config: { formatter: true } },
+    ),
+  )
+
   it.live("status() excludes formatters marked as disabled in config", () =>
     provideTmpdirInstance(
       () =>

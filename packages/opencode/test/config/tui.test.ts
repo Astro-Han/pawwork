@@ -3,13 +3,11 @@ import path from "path"
 import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
-import { TuiConfig } from "../../src/cli/cmd/tui/config/tui"
+import { TuiConfig } from "../../src/config/tui"
 import { Config } from "../../src/config"
 import { Global } from "../../src/global"
-import { Filesystem } from "../../src/util"
+import { Filesystem } from "../../src/util/filesystem"
 import { AppRuntime } from "../../src/effect/app-runtime"
-import { Effect, Layer } from "effect"
-import { CurrentWorkingDirectory } from "@/cli/cmd/tui/config/cwd"
 import { ConfigPlugin } from "@/config/plugin"
 
 const wintest = process.platform === "win32" ? test : test.skip
@@ -21,11 +19,10 @@ beforeEach(async () => {
 })
 
 const getTuiConfig = async (directory: string) =>
-  Effect.runPromise(
-    TuiConfig.Service.use((svc) => svc.get()).pipe(
-      Effect.provide(TuiConfig.defaultLayer.pipe(Layer.provide(Layer.succeed(CurrentWorkingDirectory, directory)))),
-    ),
-  )
+  Instance.provide({
+    directory,
+    fn: () => TuiConfig.get(),
+  })
 
 afterEach(async () => {
   delete process.env.OPENCODE_CONFIG
