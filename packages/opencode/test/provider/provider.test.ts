@@ -1891,6 +1891,38 @@ test("mode cost preserves over-200k pricing from base model", () => {
   })
 })
 
+test("models.dev normalization fills required response fields", () => {
+  const provider = {
+    id: "gateway",
+    name: "Gateway",
+    env: [],
+    models: {
+      "gpt-5.4": {
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+        family: "gpt",
+        cost: {
+          input: 2.5,
+          output: 15,
+        },
+        limit: {
+          context: 1_050_000,
+          input: 922_000,
+          output: 128_000,
+        },
+      },
+    },
+  } as unknown as ModelsDev.Provider
+
+  const model = Provider.fromModelsDevProvider(provider).models["gpt-5.4"]
+  expect(model.api.url).toBe("")
+  expect(model.capabilities.temperature).toBe(false)
+  expect(model.capabilities.reasoning).toBe(false)
+  expect(model.capabilities.attachment).toBe(false)
+  expect(model.capabilities.toolcall).toBe(true)
+  expect(model.release_date).toBe("")
+})
+
 test("model variants are generated for reasoning models", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

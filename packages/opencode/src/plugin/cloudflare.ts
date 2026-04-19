@@ -63,5 +63,11 @@ export async function CloudflareAIGatewayAuthPlugin(_input: PluginInput): Promis
         },
       ],
     },
+    "chat.params": async (input, output) => {
+      if (input.model.providerID !== "cloudflare-ai-gateway") return
+      if (!input.model.api.id.toLowerCase().startsWith("openai/")) return
+      if (!input.model.capabilities.reasoning) return
+      output.maxOutputTokens = undefined
+    },
   }
 }

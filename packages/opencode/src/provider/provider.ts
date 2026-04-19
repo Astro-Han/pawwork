@@ -959,7 +959,7 @@ export namespace Provider {
       family: model.family,
       api: {
         id: model.id,
-        url: model.provider?.api ?? provider.api!,
+        url: model.provider?.api ?? provider.api ?? "",
         npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
       },
       status: model.status ?? "active",
@@ -972,10 +972,10 @@ export namespace Provider {
         output: model.limit.output,
       },
       capabilities: {
-        temperature: model.temperature,
-        reasoning: model.reasoning,
-        attachment: model.attachment,
-        toolcall: model.tool_call,
+        temperature: model.temperature ?? false,
+        reasoning: model.reasoning ?? false,
+        attachment: model.attachment ?? false,
+        toolcall: model.tool_call ?? true,
         input: {
           text: model.modalities?.input?.includes("text") ?? false,
           audio: model.modalities?.input?.includes("audio") ?? false,
@@ -992,7 +992,7 @@ export namespace Provider {
         },
         interleaved: model.interleaved ?? false,
       },
-      release_date: model.release_date,
+      release_date: model.release_date ?? "",
       variants: {},
     }
 

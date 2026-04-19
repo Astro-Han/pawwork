@@ -75,7 +75,7 @@ export namespace ProviderTransform {
 
     if (model.api.id.includes("claude")) {
       const scrub = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_")
-      return msgs.map((msg) => {
+      msgs = msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
           return {
             ...msg,
@@ -99,6 +99,21 @@ export namespace ProviderTransform {
           }
         }
         return msg
+      })
+    }
+    if (["@ai-sdk/anthropic", "@ai-sdk/google-vertex/anthropic"].includes(model.api.npm)) {
+      msgs = msgs.flatMap((msg) => {
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) return [msg]
+
+        const parts = msg.content
+        const firstToolCall = parts.findIndex((part) => part.type === "tool-call")
+        if (firstToolCall === -1) return [msg]
+        if (!parts.slice(firstToolCall).some((part) => part.type !== "tool-call")) return [msg]
+
+        return [
+          { ...msg, content: parts.filter((part) => part.type !== "tool-call") },
+          { ...msg, content: parts.filter((part) => part.type === "tool-call") },
+        ]
       })
     }
     if (
@@ -373,10 +388,17 @@ export namespace ProviderTransform {
     if (!model.capabilities.reasoning) return {}
 
     const id = model.id.toLowerCase()
-    const isAnthropicAdaptive = ["opus-4-6", "opus-4.6", "sonnet-4-6", "sonnet-4.6"].some((v) =>
-      model.api.id.includes(v),
-    )
-    const adaptiveEfforts = ["low", "medium", "high", "max"]
+    const adaptiveEfforts = ["opus-4-7", "opus-4.7"].some((v) => model.api.id.includes(v))
+      ? ["low", "medium", "high", "xhigh", "max"]
+      : ["low", "medium", "high", "max"]
+    const isAnthropicAdaptive = [
+      "opus-4-7",
+      "opus-4.7",
+      "opus-4-6",
+      "opus-4.6",
+      "sonnet-4-6",
+      "sonnet-4.6",
+    ].some((v) => model.api.id.includes(v))
     if (
       id.includes("deepseek") ||
       id.includes("minimax") ||
@@ -567,6 +589,9 @@ export namespace ProviderTransform {
               {
                 thinking: {
                   type: "adaptive",
+                  ...(model.api.id.includes("opus-4-7") || model.api.id.includes("opus-4.7")
+                    ? { display: "summarized" }
+                    : {}),
                 },
                 effort,
               },
@@ -764,6 +789,10 @@ export namespace ProviderTransform {
       input.model.api.npm === "@ai-sdk/github-copilot"
     ) {
       result["store"] = false
+    }
+
+    if (input.model.providerID === "azure" || input.model.api.npm === "@ai-sdk/azure") {
+      result["store"] = true
     }
 
     if (input.model.api.npm === "@openrouter/ai-sdk-provider") {
