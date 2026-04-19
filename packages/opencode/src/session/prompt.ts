@@ -724,7 +724,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput) {
         let output = ""
         let aborted = false
-        const { run, msg, part, cmd, finish } = yield* Effect.uninterruptible(
+        const { run, msg, part, cmd, finish } = yield* Effect.uninterruptibleMask((restore) =>
           Effect.gen(function* () {
             const ctx = yield* InstanceState.context
             const run = yield* runner()
@@ -831,10 +831,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             const args = (invocations[shellName] ?? invocations[""]).args
             const cwd = ctx.directory
-            const shellEnv = yield* plugin.trigger(
-              "shell.env",
-              { cwd, sessionID: input.sessionID, callID: part.callID },
-              { env: {} },
+            const shellEnv = yield* restore(
+              plugin.trigger(
+                "shell.env",
+                { cwd, sessionID: input.sessionID, callID: part.callID },
+                { env: {} },
+              ),
             )
 
             const cmd = ChildProcess.make(sh, args, {
