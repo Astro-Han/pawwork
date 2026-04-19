@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { titlebarLeftSelector, titlebarRightSelector } from "../selectors"
+import { titlebarRightSelector } from "../selectors"
 import { modKey } from "../utils"
 
 test("desktop right-panel tabs switch between review and files within a unified utility shell", async ({ page, gotoSession }) => {
@@ -75,7 +75,7 @@ test("desktop session uses the design paneR icon for the right-panel toggle", as
 test("desktop session uses the design paneL icon for the left sidebar toggle", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const leftToggleIcon = page.locator(`${titlebarLeftSelector} button [data-slot="icon-svg"]`).first()
+  const leftToggleIcon = page.getByRole("button", { name: /toggle sidebar/i }).locator('[data-slot="icon-svg"]').first()
   const iconMarkup = await leftToggleIcon.evaluate((el) => el.outerHTML)
 
   expect(iconMarkup).toContain('data-slot="icon-svg"')

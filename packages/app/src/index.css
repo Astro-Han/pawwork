@@ -103,13 +103,11 @@
     --sidebar: #f2f1ee;
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --accent-brand: #ff5910;
-      --accent-brand-hover: #ff7a3a;
-      --accent-brand-on: #ffffff;
-      --sidebar: #1d1d1b;
-    }
+  :root[data-color-scheme="dark"] {
+    --accent-brand: #ff5910;
+    --accent-brand-hover: #ff7a3a;
+    --accent-brand-on: #ffffff;
+    --sidebar: #1d1d1b;
   }
 
   [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"] {
