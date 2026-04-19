@@ -1,6 +1,6 @@
 import { defineConfig } from "electron-vite"
 import appPlugin from "@opencode-ai/app/vite"
-import { existsSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import * as fs from "node:fs/promises"
 import path from "node:path"
 import {
@@ -8,6 +8,7 @@ import {
   embeddedServerMissingArtifacts,
   embeddedServerMissingArtifactsMessage,
 } from "./src/main/embedded-server-contract"
+import { createRendererWorkspaceConfig } from "./renderer-workspace-config"
 
 const channel = (() => {
   const raw = process.env.OPENCODE_CHANNEL
@@ -24,6 +25,7 @@ if (missingArtifacts.length > 0) {
 }
 
 const nodePtyPkg = `@lydell/node-pty-${process.platform}-${process.arch}`
+const rendererWorkspaceConfig = createRendererWorkspaceConfig(process.cwd(), realpathSync)
 
 export default defineConfig({
   main: {
@@ -73,6 +75,7 @@ export default defineConfig({
     plugins: [appPlugin],
     publicDir: "../../../app/public",
     root: "src/renderer",
+    ...rendererWorkspaceConfig,
     build: {
       rollupOptions: {
         input: {

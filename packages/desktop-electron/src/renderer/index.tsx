@@ -23,7 +23,7 @@ import { initI18n, t } from "./i18n"
 import { UPDATER_ENABLED } from "./updater"
 import { webviewZoom } from "./webview-zoom"
 import "./styles.css"
-import { useTheme } from "@opencode-ai/ui/theme"
+import { useTheme } from "@opencode-ai/ui/theme/context"
 
 const root = document.getElementById("root")
 if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
