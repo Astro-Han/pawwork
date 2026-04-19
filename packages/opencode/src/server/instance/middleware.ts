@@ -105,6 +105,8 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
       })
     }
 
+    Workspace.ensureSync(workspace)
+
     const adaptor = await Workspace.resolveAdaptor({
       ...workspace,
       hint: directory,

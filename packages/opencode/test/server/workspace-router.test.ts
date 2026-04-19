@@ -7,6 +7,7 @@ import { eq } from "../../src/storage/db"
 import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin"
 import { Server } from "../../src/server/server"
+import { WorkspaceID } from "../../src/control-plane/schema"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
 import { Database } from "../../src/storage/db"
@@ -35,6 +36,10 @@ afterAll(() => {
   // @ts-expect-error test-only flag override
   Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = experimental
 })
+
+function wait(ms = 50) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 async function pluginProject() {
   return tmpdir({
@@ -426,6 +431,121 @@ describe("workspace router", () => {
     expect(await response.json()).toMatchObject({
       directory: firstSpace,
     })
+  })
+
+  test("routing a persisted remote workspace restarts background sync after cold start", async () => {
+    let syncHits = 0
+    let pathHits = 0
+
+    await using remote = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const url = new URL(req.url)
+        if (url.pathname === "/sync/event") {
+          syncHits++
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.close()
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "text/event-stream",
+              },
+            },
+          )
+        }
+
+        if (url.pathname !== "/sync/event") {
+          pathHits++
+          return Response.json({ ok: true })
+        }
+      },
+    })
+
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        const type = `plug-${Math.random().toString(36).slice(2)}`
+        const file = path.join(dir, "plugin.ts")
+        await Bun.write(
+          file,
+          [
+            "export default async ({ experimental_workspace }) => {",
+            `  experimental_workspace.register(${JSON.stringify(type)}, {`,
+            '    name: "remote",',
+            '    description: "remote adaptor",',
+            '    configure(input) { return { ...input, name: "remote", branch: "remote/main", directory: null } },',
+            "    async create() {},",
+            "    async remove() {},",
+            "    target() {",
+            `      return { type: "remote", url: ${JSON.stringify(remote.url.origin)} }`,
+            "    },",
+            "  })",
+            "  return {}",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify(
+            {
+              $schema: "https://opencode.ai/config.json",
+              plugin: [pathToFileURL(file).href],
+            },
+            null,
+            2,
+          ),
+        )
+
+        return { type }
+      },
+    })
+
+    const workspace = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Plugin.init()
+        const id = WorkspaceID.ascending()
+        Database.use((db) =>
+          db.insert(WorkspaceTable)
+            .values({
+              id,
+              type: tmp.extra.type,
+              branch: "remote/main",
+              name: "remote",
+              directory: null,
+              owner_directory: tmp.path,
+              extra: null,
+              project_id: Instance.project.id,
+            })
+            .run(),
+        )
+        return { id }
+      },
+    })
+
+    const before = syncHits
+
+    await Instance.disposeAll()
+
+    const app = Server.Default().app
+    const response = await app.request(`/path?workspace=${workspace.id}`, {
+      headers: {
+        "x-opencode-directory": tmp.path,
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+
+    await wait(100)
+    expect(pathHits).toBe(1)
+    expect(syncHits).toBeGreaterThan(before)
   })
 
   test("fails explicitly when an upgraded workspace has no owner and multiple checkouts register the same type", async () => {

@@ -228,6 +228,11 @@ export namespace Workspace {
     return toInfo(space)
   })
 
+  export function ensureSync(space: Awaited<ReturnType<typeof record>> | undefined) {
+    if (!space) return
+    startSync(space)
+  }
+
   export const remove = fn(WorkspaceID.zod, async (id) => {
     const info = await record(id)
     if (info) {
