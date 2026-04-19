@@ -52,19 +52,8 @@ beforeAll(async () => {
   }))
   mock.module("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
   mock.module("@/context/layout", () => ({ useLayout: () => ({ session: { width: () => 720 } }) }))
-  mock.module("@/pages/session/file-tab-scroll", () => ({ createFileTabListSync: () => () => undefined }))
   mock.module("@/pages/session/file-tabs", () => ({ FileTabContent: () => null }))
   mock.module("@/pages/session/files-tab", () => ({ FilesTab: () => null }))
-  mock.module("@/pages/session/helpers", () => ({
-    createOpenSessionFileTab: () => () => undefined,
-    createSessionTabs: () => ({
-      contextOpen: () => false,
-      openedTabs: () => [],
-      activeTab: () => "review",
-      activeFileTab: () => undefined,
-    }),
-    getTabReorderIndex: () => undefined,
-  }))
   mock.module("@/pages/session/handoff", () => ({ setSessionHandoff: () => undefined }))
   mock.module("@/pages/session/session-layout", () => ({
     useSessionLayout: () => ({
@@ -101,5 +90,13 @@ afterAll(() => {
 describe("SessionSidePanel", () => {
   test("exports a reusable unified right-panel component", () => {
     expect(typeof SessionSidePanel).toBe("function")
+  })
+
+  test("preserves helper exports for later session tests", async () => {
+    const helpers = await import("./helpers")
+    const fileTabScroll = await import("./file-tab-scroll")
+
+    expect(typeof helpers.createOpenReviewFile).toBe("function")
+    expect(typeof fileTabScroll.nextTabListScrollLeft).toBe("function")
   })
 })
