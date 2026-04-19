@@ -1,6 +1,7 @@
-import { For, Match, Show, Switch, createEffect, createMemo, onCleanup, type JSX } from "solid-js"
+import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createMediaQuery } from "@solid-primitives/media"
+import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -29,6 +30,54 @@ import { setSessionHandoff } from "@/pages/session/handoff"
 import type { RightPanelTab } from "@/pages/session/right-panel-tabs"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
+type RightPanelShellIconName = "summary" | "folder" | "review" | "terminal"
+
+function RightPanelShellIcon(props: { icon: RightPanelShellIconName }) {
+  return (
+    <div data-component="icon" data-size="small">
+      <Switch>
+        <Match when={props.icon === "summary"}>
+          <svg data-slot="icon-svg" viewBox="0 0 13 13" fill="none" aria-hidden="true" class="text-text-weaker">
+            <path d="M2.5 3.5h8M2.5 6.5h8M2.5 9.5h5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
+          </svg>
+        </Match>
+        <Match when={props.icon === "folder"}>
+          <svg data-slot="icon-svg" viewBox="0 0 12 12" fill="none" aria-hidden="true" class="text-text-weaker">
+            <path
+              d="M1.5 3.5A1 1 0 012.5 2.5H5l1 1h3.5a1 1 0 011 1V9a1 1 0 01-1 1h-7a1 1 0 01-1-1V3.5z"
+              stroke="currentColor"
+              stroke-width="1"
+            />
+          </svg>
+        </Match>
+        <Match when={props.icon === "review"}>
+          <svg data-slot="icon-svg" viewBox="0 0 13 13" fill="none" aria-hidden="true" class="text-text-weaker">
+            <path
+              d="M2 6.5l2.5 2.5L11 3.5"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </Match>
+        <Match when={props.icon === "terminal"}>
+          <svg data-slot="icon-svg" viewBox="0 0 12 12" fill="none" aria-hidden="true" class="text-text-weaker">
+            <rect x="1.5" y="2.5" width="9" height="7" rx="1" stroke="currentColor" stroke-width="1" />
+            <path
+              d="M3.5 5l1.5 1L3.5 7M6.5 7.5h2.5"
+              stroke="currentColor"
+              stroke-width="1"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </Match>
+      </Switch>
+    </div>
+  )
+}
+
 export function SessionSidePanel(props: {
   canReview: () => boolean
   diffs: () => (SnapshotFileDiff | VcsFileDiff)[]
@@ -50,6 +99,8 @@ export function SessionSidePanel(props: {
   const command = useCommand()
   const dialog = useDialog()
   const { sessionKey, tabs, view } = useSessionLayout()
+  const [panelRef, setPanelRef] = createSignal<HTMLElement>()
+  const [compactShellTabs, setCompactShellTabs] = createSignal(false)
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
@@ -87,6 +138,15 @@ export function SessionSidePanel(props: {
       }
     }
     return out
+  })
+
+  createEffect(() => {
+    const el = panelRef()
+    if (!el) return
+
+    const updateCompactShellTabs = () => setCompactShellTabs(el.getBoundingClientRect().width < 360)
+    createResizeObserver(el, updateCompactShellTabs)
+    updateCompactShellTabs()
   })
 
   const empty = (msg: string) => (
@@ -133,19 +193,31 @@ export function SessionSidePanel(props: {
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
+  const showSecondaryReviewTabs = createMemo(() => contextOpen() || openedTabs().length > 0)
+  const shellTabs = createMemo(
+    () =>
+      [
+        { value: "status", label: language.t("status.popover.trigger"), icon: "summary" as const },
+        { value: "files", label: language.t("session.panel.files"), icon: "folder" as const },
+        { value: "review", label: language.t("session.tab.review"), icon: "review" as const },
+        { value: "terminal", label: language.t("terminal.title"), icon: "terminal" as const },
+      ] satisfies Array<{
+        value: RightPanelTab
+        label: string
+        icon: RightPanelShellIconName
+      }>,
+  )
 
-  const fileTreeTab = () => view().sidePanel.explorer.tab()
   const setSidePanelTabValue = (value: string) => {
     if (value !== "status" && value !== "files" && value !== "review" && value !== "terminal") return
     view().sidePanel.setTab(value as RightPanelTab)
     view().sidePanel.open()
   }
-
+  const fileTreeTab = () => view().sidePanel.explorer.tab()
   const setFileTreeTabValue = (value: string) => {
     if (value !== "changes" && value !== "all") return
     view().sidePanel.explorer.setTab(value)
   }
-
   const showAllFiles = () => {
     if (fileTreeTab() !== "changes") return
     view().sidePanel.explorer.setTab("all")
@@ -191,6 +263,12 @@ export function SessionSidePanel(props: {
     setStore("activeDraggable", undefined)
   }
 
+  const openFilePicker = (onOpenFile?: () => void) => {
+    void import("@/components/dialog-select-file").then((x) => {
+      dialog.show(() => <x.DialogSelectFile mode="files" onOpenFile={onOpenFile} />)
+    })
+  }
+
   createEffect(() => {
     if (!file.ready()) return
 
@@ -216,6 +294,7 @@ export function SessionSidePanel(props: {
     <Show when={isDesktop()}>
       <aside
         id="right-panel"
+        ref={setPanelRef}
         aria-label={language.t("session.panel.utility")}
         aria-hidden={!open()}
         inert={!open()}
@@ -229,24 +308,35 @@ export function SessionSidePanel(props: {
       >
         <div class="size-full border-l border-border-weaker-base">
           <Tabs
+            variant="pill"
             value={sidePanelTab()}
             onChange={setSidePanelTabValue}
             class="h-full flex flex-col"
             data-scope="right-panel"
           >
-            <Tabs.List class="h-11 shrink-0 px-2 border-b border-border-weaker-base gap-1">
-              <Tabs.Trigger value="status" class="flex-1" classes={{ button: "w-full" }}>
-                {language.t("status.popover.trigger")}
-              </Tabs.Trigger>
-              <Tabs.Trigger value="files" class="flex-1" classes={{ button: "w-full" }}>
-                {language.t("session.panel.files")}
-              </Tabs.Trigger>
-              <Tabs.Trigger value="review" class="flex-1" classes={{ button: "w-full" }}>
-                {language.t("session.tab.review")}
-              </Tabs.Trigger>
-              <Tabs.Trigger value="terminal" class="flex-1" classes={{ button: "w-full" }}>
-                {language.t("terminal.title")}
-              </Tabs.Trigger>
+            <Tabs.List class="h-11 shrink-0 px-2 py-0 border-b border-border-weaker-base gap-1 items-center">
+              <For each={shellTabs()}>
+                {(tab) => (
+                  <Tabs.Trigger
+                    value={tab.value}
+                    class="shrink-0 h-7"
+                    title={compactShellTabs() ? tab.label : undefined}
+                    aria-label={compactShellTabs() ? tab.label : undefined}
+                    classes={{
+                      button:
+                        `h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-12-medium text-text-weak ${
+                          compactShellTabs() ? "gap-0 px-2" : "gap-1.5 px-2.5"
+                        }`,
+                    }}
+                  >
+                    <RightPanelShellIcon icon={tab.icon} />
+                    <Show when={!compactShellTabs()}>
+                      <span>{tab.label}</span>
+                    </Show>
+                  </Tabs.Trigger>
+                )}
+              </For>
+              <div class="flex-1" />
             </Tabs.List>
 
             <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
@@ -271,74 +361,92 @@ export function SessionSidePanel(props: {
                       <ConstrainDragYAxis />
                       <Tabs value={activeTab()} onChange={openTab}>
                         <div class="sticky top-0 shrink-0 flex">
-                          <Tabs.List
-                            ref={(el: HTMLDivElement) => {
-                              const stop = createFileTabListSync({ el, contextOpen })
-                              onCleanup(stop)
-                            }}
+                          <Show
+                            when={showSecondaryReviewTabs()}
+                            fallback={
+                              <div class="w-full bg-background-stronger flex items-center justify-end px-3 py-1.5">
+                                <TooltipKeybind
+                                  title={language.t("command.file.open")}
+                                  keybind={command.keybind("file.open")}
+                                  class="flex items-center"
+                                >
+                                  <IconButton
+                                    icon="plus-small"
+                                    variant="ghost"
+                                    iconSize="large"
+                                    class="!rounded-md"
+                                    onClick={() => openFilePicker(showAllFiles)}
+                                    aria-label={language.t("command.file.open")}
+                                  />
+                                </TooltipKeybind>
+                              </div>
+                            }
                           >
-                            <Show when={reviewTab() && props.canReview()}>
-                              <Tabs.Trigger value="review">
-                                <div class="flex items-center gap-1.5">
-                                  <div>{language.t("session.tab.review")}</div>
-                                  <Show when={props.hasReview()}>
-                                    <div>{props.reviewCount()}</div>
-                                  </Show>
-                                </div>
-                              </Tabs.Trigger>
-                            </Show>
-                            <Show when={contextOpen()}>
-                              <Tabs.Trigger
-                                value="context"
-                                closeButton={
-                                  <TooltipKeybind
-                                    title={language.t("common.closeTab")}
-                                    keybind={command.keybind("tab.close")}
-                                    placement="bottom"
-                                    gutter={10}
-                                  >
-                                    <IconButton
-                                      icon="close-small"
-                                      variant="ghost"
-                                      class="h-5 w-5"
-                                      onClick={() => tabs().close("context")}
-                                      aria-label={language.t("common.closeTab")}
-                                    />
-                                  </TooltipKeybind>
-                                }
-                                hideCloseButton
-                                onMiddleClick={() => tabs().close("context")}
-                              >
-                                <div class="flex items-center gap-2">
-                                  <SessionContextUsage variant="indicator" />
-                                  <div>{language.t("session.tab.context")}</div>
-                                </div>
-                              </Tabs.Trigger>
-                            </Show>
-                            <SortableProvider ids={openedTabs()}>
-                              <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
-                            </SortableProvider>
-                            <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
-                              <TooltipKeybind
-                                title={language.t("command.file.open")}
-                                keybind={command.keybind("file.open")}
-                                class="flex items-center"
-                              >
-                                <IconButton
-                                  icon="plus-small"
-                                  variant="ghost"
-                                  iconSize="large"
-                                  class="!rounded-md"
-                                  onClick={() => {
-                                    void import("@/components/dialog-select-file").then((x) => {
-                                      dialog.show(() => <x.DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
-                                    })
-                                  }}
-                                  aria-label={language.t("command.file.open")}
-                                />
-                              </TooltipKeybind>
-                            </div>
-                          </Tabs.List>
+                            <Tabs.List
+                              ref={(el: HTMLDivElement) => {
+                                const stop = createFileTabListSync({ el, contextOpen })
+                                onCleanup(stop)
+                              }}
+                            >
+                              <Show when={reviewTab() && props.canReview()}>
+                                <Tabs.Trigger value="review">
+                                  <div class="flex items-center gap-1.5">
+                                    <div>{language.t("session.tab.review")}</div>
+                                    <Show when={props.hasReview()}>
+                                      <div>{props.reviewCount()}</div>
+                                    </Show>
+                                  </div>
+                                </Tabs.Trigger>
+                              </Show>
+                              <Show when={contextOpen()}>
+                                <Tabs.Trigger
+                                  value="context"
+                                  closeButton={
+                                    <TooltipKeybind
+                                      title={language.t("common.closeTab")}
+                                      keybind={command.keybind("tab.close")}
+                                      placement="bottom"
+                                      gutter={10}
+                                    >
+                                      <IconButton
+                                        icon="close-small"
+                                        variant="ghost"
+                                        class="h-5 w-5"
+                                        onClick={() => tabs().close("context")}
+                                        aria-label={language.t("common.closeTab")}
+                                      />
+                                    </TooltipKeybind>
+                                  }
+                                  hideCloseButton
+                                  onMiddleClick={() => tabs().close("context")}
+                                >
+                                  <div class="flex items-center gap-2">
+                                    <SessionContextUsage variant="indicator" />
+                                    <div>{language.t("session.tab.context")}</div>
+                                  </div>
+                                </Tabs.Trigger>
+                              </Show>
+                              <SortableProvider ids={openedTabs()}>
+                                <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
+                              </SortableProvider>
+                              <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
+                                <TooltipKeybind
+                                  title={language.t("command.file.open")}
+                                  keybind={command.keybind("file.open")}
+                                  class="flex items-center"
+                                >
+                                  <IconButton
+                                    icon="plus-small"
+                                    variant="ghost"
+                                    iconSize="large"
+                                    class="!rounded-md"
+                                    onClick={() => openFilePicker(showAllFiles)}
+                                    aria-label={language.t("command.file.open")}
+                                  />
+                                </TooltipKeybind>
+                              </div>
+                            </Tabs.List>
+                          </Show>
                         </div>
 
                         <Show when={reviewTab() && props.canReview()}>
@@ -389,7 +497,6 @@ export function SessionSidePanel(props: {
                     </DragDropProvider>
                   </div>
                 </div>
-
                 <div
                   id="file-tree-panel"
                   class="relative min-w-0 h-full shrink-0 overflow-hidden border-l border-border-weaker-base"

@@ -1,15 +1,16 @@
 import { test, expect } from "../fixtures"
+import { titlebarRightSelector } from "../selectors"
 
-test("session status button opens the right-panel status tab", async ({ page, gotoSession }) => {
+test("desktop right-panel toggle opens the status tab by default", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
   const rightPanel = page.locator("#right-panel")
   const shellTabList = rightPanel.getByRole("tablist").first()
 
   await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
-  await statusButton.click()
+  await rightToggle.click()
 
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
   await expect(shellTabList.getByRole("tab", { name: "Status", exact: true })).toHaveAttribute("aria-selected", "true")
@@ -22,10 +23,10 @@ test("session status button opens the right-panel status tab", async ({ page, go
 test("session status tab can switch to mcp", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
   const rightPanel = page.locator("#right-panel")
 
-  await statusButton.click()
+  await rightToggle.click()
 
   const mcpTab = rightPanel.getByRole("tab", { name: /mcp/i })
   await mcpTab.click()
@@ -33,16 +34,16 @@ test("session status tab can switch to mcp", async ({ page, gotoSession }) => {
   await expect(rightPanel.locator('[role="tabpanel"]:visible').first()).toBeVisible()
 })
 
-test("session status button toggles the right panel closed", async ({ page, gotoSession }) => {
+test("desktop right-panel toggle closes the right panel", async ({ page, gotoSession }) => {
   await gotoSession()
 
-  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
   const rightPanel = page.locator("#right-panel")
 
-  await statusButton.click()
+  await rightToggle.click()
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-  await statusButton.click()
+  await rightToggle.click()
   await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 })
 

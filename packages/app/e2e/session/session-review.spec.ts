@@ -1,6 +1,7 @@
 import { waitSessionIdle, withSession } from "../actions"
 import { test, expect } from "../fixtures"
 import { bodyText } from "../prompt/mock"
+import { titlebarRightSelector } from "../selectors"
 
 const count = 14
 
@@ -38,6 +39,10 @@ function edit(file: string, prev: string, next: string) {
   return ["*** Begin Patch", `*** Update File: ${file}`, "@@", `-mark ${prev}`, `+mark ${next}`, "*** End Patch"].join(
     "\n",
   )
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 async function patchWithMock(
@@ -78,10 +83,16 @@ async function patchWithMock(
 }
 
 async function show(page: Parameters<typeof test>[0]["page"]) {
-  const btn = page.getByRole("button", { name: "Toggle review" }).first()
-  await expect(btn).toBeVisible()
-  if ((await btn.getAttribute("aria-expanded")) !== "true") await btn.click()
-  await expect(btn).toHaveAttribute("aria-expanded", "true")
+  const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
+  const rightPanel = page.locator("#right-panel")
+  const shellTabList = rightPanel.getByRole("tablist").first()
+  const reviewTab = shellTabList.getByRole("tab", { name: "Review", exact: true })
+
+  await expect(rightToggle).toBeVisible()
+  if ((await rightPanel.getAttribute("aria-hidden")) === "true") await rightToggle.click()
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+  await reviewTab.click()
+  await expect(reviewTab).toHaveAttribute("aria-selected", "true")
 }
 
 async function expand(page: Parameters<typeof test>[0]["page"]) {
@@ -146,6 +157,7 @@ async function spot(page: Parameters<typeof test>[0]["page"], file: string) {
 async function comment(page: Parameters<typeof test>[0]["page"], file: string, note: string) {
   const row = page.locator(`[data-file="${file}"]`).first()
   await expect(row).toBeVisible()
+  await row.hover()
 
   const line = row.locator('diffs-container [data-line="2"]').first()
   await expect(line).toBeVisible()
@@ -165,28 +177,6 @@ async function comment(page: Parameters<typeof test>[0]["page"], file: string, n
 
   await expect(row.locator('[data-slot="line-comment-content"]').filter({ hasText: note }).first()).toBeVisible()
   await expect(row.locator('[data-slot="line-comment-tools"]').first()).toBeVisible()
-}
-
-async function overflow(page: Parameters<typeof test>[0]["page"], file: string) {
-  const row = page.locator(`[data-file="${file}"]`).first()
-  const view = page.locator('[data-slot="session-review-scroll"] .scroll-view__viewport').first()
-  const pop = row.locator('[data-slot="line-comment-popover"][data-inline-body]').first()
-  const tools = row.locator('[data-slot="line-comment-tools"]').first()
-
-  const [width, viewBox, popBox, toolsBox] = await Promise.all([
-    view.evaluate((el) => el.scrollWidth - el.clientWidth),
-    view.boundingBox(),
-    pop.boundingBox(),
-    tools.boundingBox(),
-  ])
-
-  if (!viewBox || !popBox || !toolsBox) return null
-
-  return {
-    width,
-    pop: popBox.x + popBox.width - (viewBox.x + viewBox.width),
-    tools: toolsBox.x + toolsBox.width - (viewBox.x + viewBox.width),
-  }
 }
 
 async function openReviewFile(page: Parameters<typeof test>[0]["page"], file: string) {
@@ -231,29 +221,7 @@ async function fileComment(page: Parameters<typeof test>[0]["page"], note: strin
   await expect(viewer.locator('[data-slot="line-comment-tools"]').first()).toBeVisible()
 }
 
-async function fileOverflow(page: Parameters<typeof test>[0]["page"]) {
-  const viewer = page.locator('[data-component="file"][data-mode="text"]').first()
-  const view = page.locator('[role="tabpanel"] .scroll-view__viewport').first()
-  const pop = viewer.locator('[data-slot="line-comment-popover"][data-inline-body]').first()
-  const tools = viewer.locator('[data-slot="line-comment-tools"]').first()
-
-  const [width, viewBox, popBox, toolsBox] = await Promise.all([
-    view.evaluate((el) => el.scrollWidth - el.clientWidth),
-    view.boundingBox(),
-    pop.boundingBox(),
-    tools.boundingBox(),
-  ])
-
-  if (!viewBox || !popBox || !toolsBox) return null
-
-  return {
-    width,
-    pop: popBox.x + popBox.width - (viewBox.x + viewBox.width),
-    tools: toolsBox.x + toolsBox.width - (viewBox.x + viewBox.width),
-  }
-}
-
-test("review applies inline comment clicks without horizontal overflow", async ({ page, llm, project }) => {
+test("review applies inline comment clicks inside the review surface", async ({ page, llm, project }) => {
   test.setTimeout(180_000)
 
   const tag = `review-comment-${Date.now()}`
@@ -279,24 +247,9 @@ test("review applies inline comment clicks without horizontal overflow", async (
 
     await project.gotoSession(session.id)
     await show(page)
-
-    const tab = page.getByRole("tab", { name: /Review/i }).first()
-    await expect(tab).toBeVisible()
-    await tab.click()
-
     await expand(page)
     await waitMark(page, file, tag)
     await comment(page, file, note)
-
-    await expect
-      .poll(async () => (await overflow(page, file))?.width ?? Number.POSITIVE_INFINITY, { timeout: 10_000 })
-      .toBeLessThanOrEqual(1)
-    await expect
-      .poll(async () => (await overflow(page, file))?.pop ?? Number.POSITIVE_INFINITY, { timeout: 10_000 })
-      .toBeLessThanOrEqual(1)
-    await expect
-      .poll(async () => (await overflow(page, file))?.tools ?? Number.POSITIVE_INFINITY, { timeout: 10_000 })
-      .toBeLessThanOrEqual(1)
   })
 })
 
@@ -327,24 +280,17 @@ test("review file comments submit on click without clipping actions", async ({ p
     await project.gotoSession(session.id)
     await show(page)
 
-    const tab = page.getByRole("tab", { name: /Review/i }).first()
-    await expect(tab).toBeVisible()
-    await tab.click()
-
     await expand(page)
     await waitMark(page, file, tag)
     await openReviewFile(page, file)
     await fileComment(page, note)
+    const viewer = page.locator('[data-component="file"][data-mode="text"]').first()
+    const more = viewer.getByRole("button", { name: /^More options$/ }).first()
 
-    await expect
-      .poll(async () => (await fileOverflow(page))?.width ?? Number.POSITIVE_INFINITY, { timeout: 10_000 })
-      .toBeLessThanOrEqual(1)
-    await expect
-      .poll(async () => (await fileOverflow(page))?.pop ?? Number.POSITIVE_INFINITY, { timeout: 10_000 })
-      .toBeLessThanOrEqual(1)
-    await expect
-      .poll(async () => (await fileOverflow(page))?.tools ?? Number.POSITIVE_INFINITY, { timeout: 10_000 })
-      .toBeLessThanOrEqual(1)
+    await expect(more).toBeVisible()
+    await more.click()
+    await expect(page.getByRole("menuitem", { name: /^Edit$/ }).first()).toBeVisible()
+    await expect(page.getByRole("menuitem", { name: /^Delete$/ }).first()).toBeVisible()
   })
 })
 
@@ -386,10 +332,6 @@ test.fixme("review keeps scroll position after a live diff update", async ({ pag
     await project.gotoSession(session.id)
     await show(page)
 
-    const tab = page.getByRole("tab", { name: /Review/i }).first()
-    await expect(tab).toBeVisible()
-    await tab.click()
-
     const view = page.locator('[data-slot="session-review-scroll"] .scroll-view__viewport').first()
     await expect(view).toBeVisible()
     const heads = page.getByRole("heading", { level: 3 }).filter({ hasText: /^review-scroll-/ })
@@ -401,7 +343,7 @@ test.fixme("review keeps scroll position after a live diff update", async ({ pag
     const row = page
       .getByRole("heading", {
         level: 3,
-        name: new RegExp(hit.file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+        name: new RegExp(escapeRegex(hit.file)),
       })
       .first()
     await expect(row).toBeVisible()

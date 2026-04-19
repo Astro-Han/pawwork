@@ -1,65 +1,59 @@
 import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
+import { titlebarRightSelector } from "../selectors"
 
-test("@smoke file tree entrypoints can open the panel and a file", async ({ page, project }) => {
+test("@smoke review keeps the persistent file-tree pane for review navigation", async ({ page, project }) => {
   await project.open()
 
   await withSession(project.sdk, `e2e file tree smoke ${Date.now()}`, async (session) => {
     await project.gotoSession(session.id)
 
-    const fileToggle = page.getByRole("button", { name: "Toggle file tree" })
-    const reviewToggle = page.getByRole("button", { name: "Toggle review" })
+    const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
     const rightPanel = page.locator("#right-panel")
     const panel = page.locator("#file-tree-panel")
     const shellTabList = rightPanel.getByRole("tablist").first()
-    const treeTabs = panel.locator('[data-component="tabs"][data-variant="pill"][data-scope="filetree"]')
 
-    await expect(fileToggle).toBeVisible()
-    if ((await fileToggle.getAttribute("aria-expanded")) !== "true") await fileToggle.click()
-    await expect(fileToggle).toHaveAttribute("aria-expanded", "true")
+    await expect(rightToggle).toBeVisible()
+    await rightToggle.click()
     await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
     await expect(rightPanel).toBeVisible()
-    await expect(shellTabList.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true")
-    await expect(rightPanel).toContainText("No files")
-
-    await expect(reviewToggle).toBeVisible()
-    await reviewToggle.click()
-    await expect(reviewToggle).toHaveAttribute("aria-expanded", "true")
-    await expect(fileToggle).toHaveAttribute("aria-expanded", "false")
-    await expect(shellTabList.getByRole("tab", { name: "Review", exact: true })).toHaveAttribute("aria-selected", "true")
+    const reviewTab = shellTabList.getByRole("tab", { name: "Review", exact: true })
+    await reviewTab.click()
+    await expect(reviewTab).toHaveAttribute("aria-selected", "true")
     await expect(panel).toBeVisible()
-    await expect(treeTabs).toBeVisible()
+    await expect(panel.getByRole("tab", { name: /all/i })).toBeVisible()
 
-    const allTab = treeTabs.getByRole("tab", { name: /^all files$/i })
-    await expect(allTab).toBeVisible()
-    await allTab.click()
-    await expect(allTab).toHaveAttribute("aria-selected", "true")
+    const openFile = rightPanel.getByRole("button", { name: /^Open file$/i }).first()
+    await expect(openFile).toBeVisible()
+    await openFile.click()
 
-    const tree = treeTabs.locator('[data-slot="tabs-content"]:not([hidden])')
-    await expect(tree).toBeVisible()
+    const dialog = page
+      .getByRole("dialog")
+      .filter({ has: page.getByPlaceholder(/search files/i) })
+      .first()
+    await expect(dialog).toBeVisible()
 
-    const file = tree.getByRole("button", { name: "README.md", exact: true }).first()
-    await expect(file).toBeVisible()
+    const input = dialog.getByRole("textbox").first()
+    await input.fill("README.md")
+
+    const file = dialog.locator('[data-slot="list-item"][data-key^="file:"]').first()
+    await expect(file).toBeVisible({ timeout: 30_000 })
     await file.click()
 
     const tab = page.getByRole("tab", { name: "README.md" })
     await expect(tab).toBeVisible()
     await tab.click()
     await expect(tab).toHaveAttribute("aria-selected", "true")
+    await expect(panel).toBeVisible()
 
-    await reviewToggle.click()
-    await expect(reviewToggle).toHaveAttribute("aria-expanded", "false")
+    await rightToggle.click()
+    await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
-    await reviewToggle.click()
-    await expect(reviewToggle).toHaveAttribute("aria-expanded", "true")
-    await expect(shellTabList.getByRole("tab", { name: "Review", exact: true })).toHaveAttribute("aria-selected", "true")
-    await expect(allTab).toHaveAttribute("aria-selected", "true")
+    await rightToggle.click()
+    await expect(reviewTab).toHaveAttribute("aria-selected", "true")
 
     const viewer = page.locator('[data-component="file"][data-mode="text"]').first()
     await expect(viewer).toBeVisible()
     await expect(viewer).toContainText("# e2e")
-
-    await fileToggle.click()
-    await expect(shellTabList.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true")
   })
 })

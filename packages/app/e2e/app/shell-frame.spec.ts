@@ -32,3 +32,19 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
   const palette = await openPalette(page)
   await closeDialog(page, palette)
 })
+
+test("session titlebar center keeps a project-directory affordance next to file search", async ({ page, gotoSession }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await gotoSession()
+
+  const center = page.locator(titlebarCenterSelector)
+  const buttons = center.getByRole("button")
+  const openProject = buttons.first()
+  const searchFiles = center.getByRole("button", { name: /search files/i })
+
+  await expect(buttons).toHaveCount(2)
+  await expect(openProject).toBeVisible()
+  await expect(openProject).toHaveAttribute("title", /.+/)
+  await expect(openProject).toContainText(/.+/)
+  await expect(searchFiles).toBeVisible()
+})
