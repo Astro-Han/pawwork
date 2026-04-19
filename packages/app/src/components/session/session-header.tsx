@@ -15,6 +15,7 @@ import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { decode64 } from "@/utils/base64"
+import { PaneR } from "@/components/design-icons"
 import { StatusPopover } from "../status-popover"
 
 export function SessionHeader() {
@@ -142,12 +143,7 @@ export function SessionHeader() {
                   aria-expanded={rightPanelOpen()}
                   aria-controls="right-panel"
                 >
-                  <div data-component="icon" data-size="small">
-                    <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                      <rect x="2" y="2.5" width="10" height="9" rx="1.5" stroke="currentColor" stroke-width="1.1" />
-                      <path d="M8.5 2.5v9" stroke="currentColor" stroke-width="1.1" />
-                    </svg>
-                  </div>
+                  <PaneR />
                 </Button>
               </Tooltip>
             </Show>

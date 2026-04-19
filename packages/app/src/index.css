@@ -1,5 +1,12 @@
 @import "@opencode-ai/ui/styles/tailwind";
 
+@theme {
+  --color-accent-brand: var(--accent-brand);
+  --color-accent-brand-hover: var(--accent-brand-hover);
+  --color-accent-brand-on: var(--accent-brand-on);
+  --color-sidebar: var(--sidebar);
+}
+
 @layer components {
   @keyframes session-progress-whip {
     0% {
@@ -68,9 +75,9 @@
   }
 
   [data-component="desktop-shell"][data-platform="desktop"] {
-    --shell-titlebar-height: 40px;
+    --shell-titlebar-height: 44px;
     --shell-frame-margin: 12px;
-    --shell-frame-radius: 18px;
+    --shell-frame-radius: 12px;
     --shell-background-base: #F4EFE9;
     --shell-background-weak: #EEE6DE;
     --shell-surface-base: #FBF8F4;
@@ -89,8 +96,20 @@
       linear-gradient(180deg, var(--shell-background-base), var(--shell-background-weak));
   }
 
-  [data-component="desktop-shell"][data-platform="desktop"][data-os="macos"] {
-    --shell-titlebar-height: 48px;
+  :root {
+    --accent-brand: #ff5910;
+    --accent-brand-hover: #e04e0e;
+    --accent-brand-on: #ffffff;
+    --sidebar: #f2f1ee;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --accent-brand: #ff5910;
+      --accent-brand-hover: #ff7a3a;
+      --accent-brand-on: #ffffff;
+      --sidebar: #1d1d1b;
+    }
   }
 
   [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"] {
