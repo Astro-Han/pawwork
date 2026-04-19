@@ -23,6 +23,7 @@ import { Filesystem } from "../../src/util/filesystem"
 import * as Network from "../../src/util/network"
 import { Npm } from "../../src/npm"
 import { writeMockConfigInstall } from "../shared/mock-npm-install"
+import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { Installation } from "../../src/installation"
 
 const emptyAccount = Layer.mock(Account.Service)({
@@ -741,211 +742,221 @@ test("does not try to install dependencies in read-only OPENCODE_CONFIG_DIR", as
 })
 
 test("installs dependencies in writable OPENCODE_CONFIG_DIR", async () => {
-  await using tmp = await tmpdir<string>({
-    init: async (dir) => {
-      const cfg = path.join(dir, "configdir")
-      await fs.mkdir(cfg, { recursive: true })
-      return cfg
-    },
-  })
-
-  const prev = process.env.OPENCODE_CONFIG_DIR
-  process.env.OPENCODE_CONFIG_DIR = tmp.extra
-  const online = spyOn(Network, "online").mockReturnValue(false)
-  const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
-
-  try {
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        await Config.get()
-        await Config.waitForDependencies()
+  await withConfigDepsLock(async () => {
+    await using tmp = await tmpdir<string>({
+      init: async (dir) => {
+        const cfg = path.join(dir, "configdir")
+        await fs.mkdir(cfg, { recursive: true })
+        return cfg
       },
     })
 
-    expect(await Filesystem.exists(path.join(tmp.extra, "package.json"))).toBe(true)
-    expect(await Filesystem.exists(path.join(tmp.extra, ".gitignore"))).toBe(true)
-    expect(await Filesystem.readText(path.join(tmp.extra, ".gitignore"))).toContain("package-lock.json")
-  } finally {
-    online.mockRestore()
-    install.mockRestore()
-    if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
-    else process.env.OPENCODE_CONFIG_DIR = prev
-  }
+    const prev = process.env.OPENCODE_CONFIG_DIR
+    process.env.OPENCODE_CONFIG_DIR = tmp.extra
+    const online = spyOn(Network, "online").mockReturnValue(false)
+    const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await Config.get()
+          await Config.waitForDependencies()
+        },
+      })
+
+      expect(await Filesystem.exists(path.join(tmp.extra, "package.json"))).toBe(true)
+      expect(await Filesystem.exists(path.join(tmp.extra, ".gitignore"))).toBe(true)
+      expect(await Filesystem.readText(path.join(tmp.extra, ".gitignore"))).toContain("package-lock.json")
+    } finally {
+      online.mockRestore()
+      install.mockRestore()
+      if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = prev
+    }
+  })
 })
 
 test("dedupes concurrent config dependency installs for the same dir", async () => {
-  await using tmp = await tmpdir()
-  const dir = path.join(tmp.path, "a")
-  await fs.mkdir(dir, { recursive: true })
+  await withConfigDepsLock(async () => {
+    await using tmp = await tmpdir()
+    const dir = path.join(tmp.path, "a")
+    await fs.mkdir(dir, { recursive: true })
 
-  const ticks: number[] = []
-  let calls = 0
-  let start = () => {}
-  let done = () => {}
-  let blocked = () => {}
-  const ready = new Promise<void>((resolve) => {
-    start = resolve
-  })
-  const gate = new Promise<void>((resolve) => {
-    done = resolve
-  })
-  const waiting = new Promise<void>((resolve) => {
-    blocked = resolve
-  })
-  const online = spyOn(Network, "online").mockReturnValue(false)
-  const targetDir = dir
-  const run = spyOn(Npm, "install").mockImplementation(async (d: string) => {
-    const hit = path.normalize(d) === path.normalize(targetDir)
-    if (hit) {
-      calls += 1
-      start()
-      await gate
-    }
-    await writeMockConfigInstall(d)
-    if (hit) {
-      start()
-      await gate
-    }
-  })
-
-  try {
-    const first = Config.installDependencies(dir)
-    await ready
-    const second = Config.installDependencies(dir, {
-      waitTick: (tick) => {
-        ticks.push(tick.attempt)
-        blocked()
-        blocked = () => {}
-      },
+    const ticks: number[] = []
+    let calls = 0
+    let start = () => {}
+    let done = () => {}
+    let blocked = () => {}
+    const ready = new Promise<void>((resolve) => {
+      start = resolve
     })
-    await waiting
-    done()
-    await Promise.all([first, second])
-  } finally {
-    online.mockRestore()
-    run.mockRestore()
-  }
+    const gate = new Promise<void>((resolve) => {
+      done = resolve
+    })
+    const waiting = new Promise<void>((resolve) => {
+      blocked = resolve
+    })
+    const online = spyOn(Network, "online").mockReturnValue(false)
+    const targetDir = dir
+    const run = spyOn(Npm, "install").mockImplementation(async (d: string) => {
+      const hit = path.normalize(d) === path.normalize(targetDir)
+      if (hit) {
+        calls += 1
+        start()
+        await gate
+      }
+      await writeMockConfigInstall(d)
+      if (hit) {
+        start()
+        await gate
+      }
+    })
 
-  expect(calls).toBe(1)
-  expect(ticks.length).toBeGreaterThan(0)
-  expect(await Filesystem.exists(path.join(dir, "package.json"))).toBe(true)
+    try {
+      const first = Config.installDependencies(dir)
+      await ready
+      const second = Config.installDependencies(dir, {
+        waitTick: (tick) => {
+          ticks.push(tick.attempt)
+          blocked()
+          blocked = () => {}
+        },
+      })
+      await waiting
+      done()
+      await Promise.all([first, second])
+    } finally {
+      online.mockRestore()
+      run.mockRestore()
+    }
+
+    expect(calls).toBe(1)
+    expect(ticks.length).toBeGreaterThan(0)
+    expect(await Filesystem.exists(path.join(dir, "package.json"))).toBe(true)
+  })
 })
 
 test("serializes config dependency installs across dirs", async () => {
   if (process.platform !== "win32") return
 
-  await using tmp = await tmpdir()
-  const a = path.join(tmp.path, "a")
-  const b = path.join(tmp.path, "b")
-  await fs.mkdir(a, { recursive: true })
-  await fs.mkdir(b, { recursive: true })
+  await withConfigDepsLock(async () => {
+    await using tmp = await tmpdir()
+    const a = path.join(tmp.path, "a")
+    const b = path.join(tmp.path, "b")
+    await fs.mkdir(a, { recursive: true })
+    await fs.mkdir(b, { recursive: true })
 
-  let calls = 0
-  let open = 0
-  let peak = 0
-  let start = () => {}
-  let done = () => {}
-  const ready = new Promise<void>((resolve) => {
-    start = resolve
-  })
-  const gate = new Promise<void>((resolve) => {
-    done = resolve
-  })
+    let calls = 0
+    let open = 0
+    let peak = 0
+    let start = () => {}
+    let done = () => {}
+    const ready = new Promise<void>((resolve) => {
+      start = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      done = resolve
+    })
 
-  const online = spyOn(Network, "online").mockReturnValue(false)
-  const run = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
-    const cwd = path.normalize(dir)
-    const hit = cwd === path.normalize(a) || cwd === path.normalize(b)
-    if (hit) {
-      calls += 1
-      open += 1
-      peak = Math.max(peak, open)
-      if (calls === 1) {
-        start()
-        await gate
+    const online = spyOn(Network, "online").mockReturnValue(false)
+    const run = spyOn(Npm, "install").mockImplementation(async (dir: string) => {
+      const cwd = path.normalize(dir)
+      const hit = cwd === path.normalize(a) || cwd === path.normalize(b)
+      if (hit) {
+        calls += 1
+        open += 1
+        peak = Math.max(peak, open)
+        if (calls === 1) {
+          start()
+          await gate
+        }
       }
+      await writeMockConfigInstall(cwd)
+      if (hit) {
+        open -= 1
+      }
+    })
+
+    try {
+      const first = Config.installDependencies(a)
+      await ready
+      const second = Config.installDependencies(b)
+      done()
+      await Promise.all([first, second])
+    } finally {
+      online.mockRestore()
+      run.mockRestore()
     }
-    await writeMockConfigInstall(cwd)
-    if (hit) {
-      open -= 1
-    }
+
+    expect(calls).toBe(2)
+    expect(peak).toBe(1)
   })
-
-  try {
-    const first = Config.installDependencies(a)
-    await ready
-    const second = Config.installDependencies(b)
-    done()
-    await Promise.all([first, second])
-  } finally {
-    online.mockRestore()
-    run.mockRestore()
-  }
-
-  expect(calls).toBe(2)
-  expect(peak).toBe(1)
 })
 
 test("skips reinstall when config dependencies are already bootstrapped", async () => {
-  await using tmp = await tmpdir()
-  const dir = path.join(tmp.path, "configdir")
-  await fs.mkdir(dir, { recursive: true })
-  const target = Installation.isLocal() ? "*" : Installation.VERSION
-  await Filesystem.writeJson(path.join(dir, "package.json"), {
-    dependencies: {
-      "@opencode-ai/plugin": target,
-    },
-  })
-  await Filesystem.write(
-    path.join(dir, ".gitignore"),
-    ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
-  )
-  await writeMockConfigInstall(dir)
+  await withConfigDepsLock(async () => {
+    await using tmp = await tmpdir()
+    const dir = path.join(tmp.path, "configdir")
+    await fs.mkdir(dir, { recursive: true })
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+    await Filesystem.writeJson(path.join(dir, "package.json"), {
+      dependencies: {
+        "@opencode-ai/plugin": target,
+      },
+    })
+    await Filesystem.write(
+      path.join(dir, ".gitignore"),
+      ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+    )
+    await writeMockConfigInstall(dir)
 
-  const install = spyOn(Npm, "install").mockImplementation(async () => {
-    throw new Error("should not reinstall bootstrapped config dependencies")
-  })
+    const install = spyOn(Npm, "install").mockImplementation(async () => {
+      throw new Error("should not reinstall bootstrapped config dependencies")
+    })
 
-  try {
-    await expect(Config.installDependencies(dir)).resolves.toBeUndefined()
-    expect(install).not.toHaveBeenCalled()
-  } finally {
-    install.mockRestore()
-  }
+    try {
+      await expect(Config.installDependencies(dir)).resolves.toBeUndefined()
+      expect(install).not.toHaveBeenCalled()
+    } finally {
+      install.mockRestore()
+    }
+  })
 })
 
 test("reinstalls when declared config dependencies are missing from node_modules", async () => {
-  await using tmp = await tmpdir()
-  const dir = path.join(tmp.path, "configdir")
-  await fs.mkdir(path.join(dir, "node_modules", "@opencode-ai", "plugin"), { recursive: true })
-  const target = Installation.isLocal() ? "*" : Installation.VERSION
-  await Filesystem.writeJson(path.join(dir, "package.json"), {
-    dependencies: {
-      "@opencode-ai/plugin": target,
-      "late-dep": "^1.0.0",
-    },
-  })
-  await Filesystem.write(
-    path.join(dir, ".gitignore"),
-    ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
-  )
-  await Filesystem.writeJson(path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json"), {
-    name: "@opencode-ai/plugin",
-    version: "1.0.0",
-    type: "module",
-    exports: "./index.js",
-  })
+  await withConfigDepsLock(async () => {
+    await using tmp = await tmpdir()
+    const dir = path.join(tmp.path, "configdir")
+    await fs.mkdir(path.join(dir, "node_modules", "@opencode-ai", "plugin"), { recursive: true })
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+    await Filesystem.writeJson(path.join(dir, "package.json"), {
+      dependencies: {
+        "@opencode-ai/plugin": target,
+        "late-dep": "^1.0.0",
+      },
+    })
+    await Filesystem.write(
+      path.join(dir, ".gitignore"),
+      ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+    )
+    await Filesystem.writeJson(path.join(dir, "node_modules", "@opencode-ai", "plugin", "package.json"), {
+      name: "@opencode-ai/plugin",
+      version: "1.0.0",
+      type: "module",
+      exports: "./index.js",
+    })
 
-  const install = spyOn(Npm, "install").mockImplementation(async (cwd: string) => writeMockConfigInstall(cwd))
+    const install = spyOn(Npm, "install").mockImplementation(async (cwd: string) => writeMockConfigInstall(cwd))
 
-  try {
-    await expect(Config.installDependencies(dir)).resolves.toBeUndefined()
-    expect(install).toHaveBeenCalledTimes(1)
-    await expect(Filesystem.exists(path.join(dir, "node_modules", "late-dep", "package.json"))).resolves.toBe(true)
-  } finally {
-    install.mockRestore()
-  }
+    try {
+      await expect(Config.installDependencies(dir)).resolves.toBeUndefined()
+      expect(install).toHaveBeenCalledTimes(1)
+      await expect(Filesystem.exists(path.join(dir, "node_modules", "late-dep", "package.json"))).resolves.toBe(true)
+    } finally {
+      install.mockRestore()
+    }
+  })
 })
 
 test("resolves scoped npm plugins in config", async () => {
