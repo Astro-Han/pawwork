@@ -122,4 +122,11 @@ describe("layout.rightPanel clamping", () => {
     expect(clampRightPanelWidth(Number.POSITIVE_INFINITY)).toBe(DEFAULT_RIGHT_PANEL_WIDTH)
     expect(clampRightPanelWidth(Number.NEGATIVE_INFINITY)).toBe(DEFAULT_RIGHT_PANEL_WIDTH)
   })
+
+  test("clampRightPanelWidth(string) falls back to default (corrupted persisted blob)", () => {
+    // Persisted blobs from external sources could contain stringified numbers;
+    // the type signature says number | undefined but defence matters.
+    expect(clampRightPanelWidth("400" as unknown as number)).toBe(DEFAULT_RIGHT_PANEL_WIDTH)
+    expect(clampRightPanelWidth(null as unknown as number)).toBe(DEFAULT_RIGHT_PANEL_WIDTH)
+  })
 })

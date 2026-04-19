@@ -24,7 +24,7 @@ export const MIN_RIGHT_PANEL_WIDTH = 300
 export const MAX_RIGHT_PANEL_WIDTH = 520
 
 export function clampRightPanelWidth(raw: number | undefined): number {
-  if (raw === undefined || !Number.isFinite(raw)) return DEFAULT_RIGHT_PANEL_WIDTH
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return DEFAULT_RIGHT_PANEL_WIDTH
   return Math.max(MIN_RIGHT_PANEL_WIDTH, Math.min(MAX_RIGHT_PANEL_WIDTH, raw))
 }
 export type AvatarColorKey = (typeof AVATAR_COLOR_KEYS)[number]

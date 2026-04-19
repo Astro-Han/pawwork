@@ -362,6 +362,8 @@ export function SessionSidePanel(props: {
                 )}
               </For>
               <div class="flex-1" />
+              {/* 40px right-gutter reserve — matches docs/design/src/rightpanel.jsx,
+                  gives the tab row breathing room against the panel edge. */}
               <div class="w-10 shrink-0" aria-hidden />
             </Tabs.List>
 
