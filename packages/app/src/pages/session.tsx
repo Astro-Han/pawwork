@@ -1913,6 +1913,59 @@ export default function Page() {
     if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
   })
 
+  const renderComposerRegion = (variant: "session" | "home") => (
+    <SessionComposerRegion
+      variant={variant}
+      state={composer}
+      ready={!store.deferRender && messagesReady()}
+      centered={centered()}
+      inputRef={(el) => {
+        inputRef = el
+      }}
+      newSessionWorktree={newSessionWorktree()}
+      onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+      onSubmit={() => {
+        comments.clear()
+        resumeScroll()
+      }}
+      onResponseSubmit={resumeScroll}
+      followup={
+        params.id && !isChildSession()
+          ? {
+              queue: queueEnabled,
+              items: followupDock(),
+              sending: sendingFollowup(),
+              edit: editingFollowup(),
+              onQueue: queueFollowup,
+              onAbort: () => {
+                const id = params.id
+                if (!id) return
+                setFollowup("paused", id, true)
+              },
+              onSend: (id) => {
+                void sendFollowup(params.id!, id, { manual: true })
+              },
+              onEdit: editFollowup,
+              onEditLoaded: clearFollowupEdit,
+            }
+          : undefined
+      }
+      revert={
+        rolled().length > 0
+          ? {
+              items: rolled(),
+              restoring: restoring(),
+              disabled: reverting(),
+              onRestore: restore,
+            }
+          : undefined
+      }
+      setPromptDockRef={(el) => {
+        promptDock = el
+      }}
+    />
+  )
+
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
@@ -1945,117 +1998,57 @@ export default function Page() {
         {/* Session panel */}
         <div class="@container relative min-w-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
-            {(() => {
-              const renderComposerRegion = (variant: "session" | "home") => (
-                <SessionComposerRegion
-                  variant={variant}
-                  state={composer}
-                  ready={!store.deferRender && messagesReady()}
-                  centered={centered()}
-                  inputRef={(el) => {
-                    inputRef = el
-                  }}
-                  newSessionWorktree={newSessionWorktree()}
-                  onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
-                  onSubmit={() => {
-                    comments.clear()
-                    resumeScroll()
-                  }}
-                  onResponseSubmit={resumeScroll}
-                  followup={
-                    params.id && !isChildSession()
-                      ? {
-                          queue: queueEnabled,
-                          items: followupDock(),
-                          sending: sendingFollowup(),
-                          edit: editingFollowup(),
-                          onQueue: queueFollowup,
-                          onAbort: () => {
-                            const id = params.id
-                            if (!id) return
-                            setFollowup("paused", id, true)
-                          },
-                          onSend: (id) => {
-                            void sendFollowup(params.id!, id, { manual: true })
-                          },
-                          onEdit: editFollowup,
-                          onEditLoaded: clearFollowupEdit,
-                        }
-                      : undefined
-                  }
-                  revert={
-                    rolled().length > 0
-                      ? {
-                          items: rolled(),
-                          restoring: restoring(),
-                          disabled: reverting(),
-                          onRestore: restore,
-                        }
-                      : undefined
-                  }
-                  setPromptDockRef={(el) => {
-                    promptDock = el
-                  }}
-                />
-              )
+            <Switch>
+              <Match when={params.id}>
+                <Show when={messagesReady()}>
+                  <MessageTimeline
+                    mobileChanges={mobileChanges()}
+                    mobileFallback={reviewContent({
+                      diffStyle: "unified",
+                      classes: {
+                        root: "pb-8",
+                        header: "px-4",
+                        container: "px-4",
+                      },
+                      loadingClass: "px-4 py-4 text-text-weak",
+                      emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                    })}
+                    actions={actions}
+                    scroll={ui.scroll}
+                    onResumeScroll={resumeScroll}
+                    setScrollRef={setScrollRef}
+                    onScheduleScrollState={scheduleScrollState}
+                    onAutoScrollHandleScroll={autoScroll.handleScroll}
+                    onMarkScrollGesture={markScrollGesture}
+                    hasScrollGesture={hasScrollGesture}
+                    onUserScroll={markUserScroll}
+                    onTurnBackfillScroll={historyWindow.onScrollerScroll}
+                    onAutoScrollInteraction={autoScroll.handleInteraction}
+                    centered={centered()}
+                    setContentRef={(el) => {
+                      content = el
+                      autoScroll.contentRef(el)
 
-              return (
-                <>
-                  <Switch>
-                    <Match when={params.id}>
-                      <Show when={messagesReady()}>
-                        <MessageTimeline
-                          mobileChanges={mobileChanges()}
-                          mobileFallback={reviewContent({
-                            diffStyle: "unified",
-                            classes: {
-                              root: "pb-8",
-                              header: "px-4",
-                              container: "px-4",
-                            },
-                            loadingClass: "px-4 py-4 text-text-weak",
-                            emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                          })}
-                          actions={actions}
-                          scroll={ui.scroll}
-                          onResumeScroll={resumeScroll}
-                          setScrollRef={setScrollRef}
-                          onScheduleScrollState={scheduleScrollState}
-                          onAutoScrollHandleScroll={autoScroll.handleScroll}
-                          onMarkScrollGesture={markScrollGesture}
-                          hasScrollGesture={hasScrollGesture}
-                          onUserScroll={markUserScroll}
-                          onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                          onAutoScrollInteraction={autoScroll.handleInteraction}
-                          centered={centered()}
-                          setContentRef={(el) => {
-                            content = el
-                            autoScroll.contentRef(el)
-
-                            const root = scroller
-                            if (root) scheduleScrollState(root)
-                          }}
-                          turnStart={historyWindow.turnStart()}
-                          historyMore={historyMore()}
-                          historyLoading={historyLoading()}
-                          onLoadEarlier={() => {
-                            void historyWindow.loadAndReveal()
-                          }}
-                          renderedUserMessages={historyWindow.renderedUserMessages()}
-                          anchor={anchor}
-                        />
-                      </Show>
-                    </Match>
-                    <Match when={true}>
-                      <NewSessionView composer={renderComposerRegion("home")} />
-                    </Match>
-                  </Switch>
-
-                  <Show when={params.id}>{renderComposerRegion("session")}</Show>
-                </>
-              )
-            })()}
+                      const root = scroller
+                      if (root) scheduleScrollState(root)
+                    }}
+                    turnStart={historyWindow.turnStart()}
+                    historyMore={historyMore()}
+                    historyLoading={historyLoading()}
+                    onLoadEarlier={() => {
+                      void historyWindow.loadAndReveal()
+                    }}
+                    renderedUserMessages={historyWindow.renderedUserMessages()}
+                    anchor={anchor}
+                  />
+                </Show>
+              </Match>
+              <Match when={true}>
+                <NewSessionView composer={renderComposerRegion("home")} />
+              </Match>
+            </Switch>
           </div>
+          <Show when={params.id}>{renderComposerRegion("session")}</Show>
 
         </div>
 

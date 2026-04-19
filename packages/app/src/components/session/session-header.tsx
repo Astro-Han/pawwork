@@ -1,6 +1,5 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
-import { Keybind } from "@opencode-ai/ui/keybind"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
@@ -13,6 +12,7 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
+import { useSync } from "@/context/sync"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { decode64 } from "@/utils/base64"
 import { PaneR } from "@/components/design-icons"
@@ -20,10 +20,10 @@ import { StatusPopover } from "../status-popover"
 
 export function SessionHeader() {
   const layout = useLayout()
-  const command = useCommand()
   const language = useLanguage()
   const platform = usePlatform()
   const server = useServer()
+  const sync = useSync()
   const location = useLocation()
   const { params, view } = useSessionLayout()
   const isDesktop = createMediaQuery("(min-width: 768px)")
@@ -39,7 +39,9 @@ export function SessionHeader() {
     if (current) return current.name || getFilename(current.worktree)
     return getFilename(projectDirectory())
   })
-  const hotkey = createMemo(() => command.keybind("file.open"))
+  const sessionInfo = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const sessionTitle = createMemo(() => sessionInfo()?.title || params.id || "")
+  const homeTitle = createMemo(() => language.t("command.session.new"))
   const onSessionRoute = createMemo(() => location.pathname.includes("/session"))
   const fileManagerLabel = createMemo(() => {
     if (platform.os === "windows") return language.t("session.header.open.fileExplorer")
@@ -77,48 +79,33 @@ export function SessionHeader() {
       <Show when={centerMount()}>
         {(mount) => (
           <Portal mount={mount()}>
-            <div class="hidden md:flex min-w-0 items-center gap-2">
-              <Show when={projectDirectory()}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="small"
-                  class="max-w-[180px] min-w-0 items-center gap-1.5 rounded-md border border-border-weak-base bg-surface-panel px-2.5 shadow-none"
-                  onClick={openProjectDirectory}
-                  aria-label={
-                    canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined
-                  }
-                  title={projectDirectory()}
-                  disabled={!canOpenProjectDirectory()}
-                >
-                  <Icon name="folder" size="small" class="shrink-0 text-icon-weak" />
-                  <span class="min-w-0 truncate text-12-regular text-text-strong">{name()}</span>
-                </Button>
-              </Show>
-              <Button
-                type="button"
-                variant="ghost"
-                size="small"
-                class="w-[240px] max-w-full min-w-0 items-center gap-2 justify-between rounded-md border border-border-weak-base bg-surface-panel shadow-none cursor-default"
-                onClick={() => command.trigger("file.open")}
-                aria-label={language.t("session.header.searchFiles")}
+            <div class="hidden md:flex min-w-0 items-center gap-1.5 text-13-medium">
+              <Show
+                when={params.id}
+                fallback={<div class="min-w-0 truncate text-text-strong">{homeTitle()}</div>}
               >
-                <div class="flex min-w-0 flex-1 items-center overflow-visible">
-                  <span class="flex-1 min-w-0 text-12-regular text-text-weak truncate text-left">
-                    {language.t("session.header.search.placeholder", {
-                      project: name(),
-                    })}
-                  </span>
-                </div>
-
-                <Show when={hotkey()}>
-                  {(keybind) => (
-                    <Keybind class="shrink-0 !border-0 !bg-transparent !shadow-none px-0 text-text-weaker">
-                      {keybind()}
-                    </Keybind>
-                  )}
+                <Show when={projectDirectory()}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    class="max-w-[180px] min-w-0 items-center gap-1 rounded-md px-1.5 shadow-none text-text-weak hover:text-text-strong"
+                    onClick={openProjectDirectory}
+                    aria-label={
+                      canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined
+                    }
+                    title={projectDirectory()}
+                    disabled={!canOpenProjectDirectory()}
+                  >
+                    <Icon name="folder" size="small" class="shrink-0 text-icon-weak" />
+                    <span class="min-w-0 truncate">{name()}</span>
+                  </Button>
                 </Show>
-              </Button>
+                <Show when={projectDirectory()}>
+                  <span class="shrink-0 text-text-weaker">/</span>
+                </Show>
+                <span class="min-w-0 truncate text-text-strong">{sessionTitle()}</span>
+              </Show>
             </div>
           </Portal>
         )}

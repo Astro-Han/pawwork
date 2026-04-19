@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, mock, test } from "bun:test"
 let getWorkspaceTerminalCacheKey: (dir: string) => string
 let getLegacyTerminalStorageKeys: (dir: string, legacySessionID?: string) => string[]
 let migrateTerminalState: (value: unknown) => unknown
+let createTerminalBinding: typeof import("./terminal")["createTerminalBinding"]
 
 beforeAll(async () => {
   mock.module("@solidjs/router", () => ({
@@ -19,6 +20,7 @@ beforeAll(async () => {
   getWorkspaceTerminalCacheKey = mod.getWorkspaceTerminalCacheKey
   getLegacyTerminalStorageKeys = mod.getLegacyTerminalStorageKeys
   migrateTerminalState = mod.migrateTerminalState
+  createTerminalBinding = mod.createTerminalBinding
 })
 
 describe("getWorkspaceTerminalCacheKey", () => {
@@ -78,5 +80,24 @@ describe("migrateTerminalState", () => {
         { id: "two", title: "shell", titleNumber: 7 },
       ],
     })
+  })
+})
+
+describe("createTerminalBinding", () => {
+  test("returns a safe empty terminal session when the workspace accessor is undefined", async () => {
+    const binding = createTerminalBinding(() => undefined)
+
+    expect(binding.ready()).toBe(false)
+    expect(binding.all()).toEqual([])
+    expect(binding.active()).toBeUndefined()
+    expect(() => binding.new()).not.toThrow()
+    expect(() => binding.trim("pty-1")).not.toThrow()
+    expect(() => binding.trimAll()).not.toThrow()
+    expect(() => binding.open("pty-1")).not.toThrow()
+    expect(() => binding.move("pty-1", 0)).not.toThrow()
+    expect(() => binding.next()).not.toThrow()
+    expect(() => binding.previous()).not.toThrow()
+    await expect(binding.clone("pty-1")).resolves.toBeUndefined()
+    await expect(binding.close("pty-1")).resolves.toBeUndefined()
   })
 })

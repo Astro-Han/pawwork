@@ -14,6 +14,7 @@ import { Terminal } from "@/components/terminal"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { usePlatform } from "@/context/platform"
 import { useTerminal } from "@/context/terminal"
 import { terminalTabLabel } from "@/pages/session/terminal-label"
 import { createSizing, focusTerminalById } from "@/pages/session/helpers"
@@ -26,6 +27,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
   const layout = useLayout()
   const terminal = useTerminal()
   const language = useLanguage()
+  const platform = usePlatform()
   const command = useCommand()
   const { params, view } = useSessionLayout()
 
@@ -129,10 +131,28 @@ export function TerminalPanel(props: { embedded?: boolean }) {
     if (!dir) return
     if (!terminal.ready()) return
     language.locale()
+    const all = terminal.all()
+    if (!Array.isArray(all)) {
+      const payload = JSON.stringify({
+        dir,
+        ready: terminal.ready(),
+        allType: typeof all,
+        allValue: all,
+        active: terminal.active(),
+        at: new Date().toISOString(),
+      })
+      const store = platform.storage?.("opencode.global.dat")
+      if (store) {
+        void Promise.resolve(store.setItem("debug:terminal-panel-invalid-all", payload)).catch(() => undefined)
+      }
+      throw new Error(
+        `[terminal-panel invalid all] dir=${dir} ready=${String(terminal.ready())} type=${typeof all} payload=${payload}`,
+      )
+    }
 
     setTerminalHandoff(
       dir,
-      terminal.all().map((pty) =>
+      all.map((pty) =>
         terminalTabLabel({
           title: pty.title,
           titleNumber: pty.titleNumber,

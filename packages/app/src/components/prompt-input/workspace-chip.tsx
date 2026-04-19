@@ -2,33 +2,41 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { useNavigate } from "@solidjs/router"
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, createResource, createSignal, For, Show } from "solid-js"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { findWorkspaceProject, workspaceChipChoices } from "./workspace-chip-helpers"
 import { decode64 } from "@/utils/base64"
 
 export function WorkspaceChip() {
   const language = useLanguage()
+  const globalSDK = useGlobalSDK()
   const layout = useLayout()
   const navigate = useNavigate()
   const { params } = useSessionLayout()
   const [open, setOpen] = createSignal(false)
 
   const current = createMemo(() => decode64(params.dir))
-  const project = createMemo(() => {
-    const directory = current()
-    if (!directory) return
-    return layout.projects.list().find((item) => item.worktree === directory || item.sandboxes?.includes(directory))
-  })
+  const project = createMemo(() => findWorkspaceProject(layout.projects.list(), current()))
+  const root = createMemo(() => project()?.worktree ?? current())
+  const [listed] = createResource(
+    () => (open() ? root() : undefined),
+    async (directory) => {
+      if (!directory) return []
+      return globalSDK.client.worktree
+        .list({ directory })
+        .then((x) => x.data ?? [])
+        .catch(() => [] as string[])
+    },
+  )
   const workspaces = createMemo(() => {
-    const directory = current()
-    const item = project()
-    if (!item) return directory ? [directory] : []
-
-    const list = [item.worktree, ...(item.sandboxes ?? [])]
-    if (directory && !list.includes(directory)) list.push(directory)
-    return list
+    return workspaceChipChoices({
+      directory: current(),
+      projects: layout.projects.list(),
+      listed: listed(),
+    })
   })
   const label = createMemo(() => {
     const directory = current()
