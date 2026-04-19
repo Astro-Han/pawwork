@@ -1,11 +1,9 @@
 import { expect, test } from "bun:test"
 import { Context, Effect, Layer, Logger } from "effect"
-import { WorkspaceID } from "../../src/control-plane/schema"
-import { WorkspaceContext } from "../../src/control-plane/workspace-context"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { EffectBridge } from "../../src/effect"
 import { InstanceRef } from "../../src/effect/instance-ref"
-import { WorkspaceRef } from "../../src/effect/instance-ref"
-import { EffectLogger } from "../../src/effect/logger"
+import { EffectLogger } from "../../src/effect"
 import { makeRuntime } from "../../src/effect/run-service"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
@@ -63,15 +61,32 @@ test("AppRuntime attaches InstanceRef from ALS", async () => {
   expect(dir).toBe(tmp.path)
 })
 
-test("AppRuntime attaches WorkspaceRef from ALS", async () => {
-  const workspaceID = WorkspaceID.ascending()
+test("EffectBridge preserves logger and instance context across async boundaries", async () => {
+  await using tmp = await tmpdir({ git: true })
 
-  const restored = await WorkspaceContext.provide({
-    workspaceID,
-    fn: () => AppRuntime.runPromise(Effect.gen(function* () {
-      return yield* WorkspaceRef
-    })),
+  const result = await Instance.provide({
+    directory: tmp.path,
+    fn: () =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const bridge = yield* EffectBridge.make()
+          return yield* Effect.promise(() =>
+            Promise.resolve().then(() =>
+              bridge.promise(
+                Effect.gen(function* () {
+                  return {
+                    directory: (yield* InstanceRef)?.directory,
+                    ...check(yield* Effect.service(Logger.CurrentLoggers)),
+                  }
+                }),
+              ),
+            ),
+          )
+        }),
+      ),
   })
 
-  expect(restored).toBe(workspaceID)
+  expect(result.directory).toBe(tmp.path)
+  expect(result.effectLogger).toBe(true)
+  expect(result.defaultLogger).toBe(false)
 })

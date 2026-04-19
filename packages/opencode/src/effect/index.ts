@@ -1,2 +1,5 @@
-export * as EffectLogger from "./logger"
 export { InstanceState } from "./instance-state"
+export { EffectBridge } from "./bridge"
+export { Runner } from "./runner"
+export { Observability } from "./observability"
+export { EffectLogger } from "./logger"

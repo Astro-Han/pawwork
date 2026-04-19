@@ -1,12 +1,12 @@
 import { Layer, ManagedRuntime } from "effect"
-import { attach, memoMap } from "./run-service"
-import { Observability } from "./oltp"
+import { attach } from "./run-service"
+import { Observability } from "./observability"
 
 import { AppFileSystem } from "@/filesystem"
 import { Bus } from "@/bus"
 import { Auth } from "@/auth"
 import { Account } from "@/account"
-import { Config } from "@/config/config"
+import { Config } from "@/config"
 import { Git } from "@/git"
 import { Ripgrep } from "@/file/ripgrep"
 import { File } from "@/file"
@@ -46,6 +46,7 @@ import { Pty } from "@/pty"
 import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
+import { memoMap } from "./memo-map"
 
 export const AppLayer = Layer.mergeAll(
   Observability.layer,
