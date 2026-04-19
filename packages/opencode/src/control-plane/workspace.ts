@@ -88,10 +88,11 @@ export namespace Workspace {
   ) {
     const project = Project.get(input.projectID)
     if (!project) throw error
+    const projectWorktree = project.worktree === "/" ? undefined : project.worktree
 
     const candidates = [
       ...new Set(
-        [input.hint, input.owner, project.worktree, ...project.sandboxes].filter(
+        [input.hint, input.owner, projectWorktree, ...project.sandboxes].filter(
           (value): value is string => Boolean(value),
         ),
       ),
@@ -201,7 +202,7 @@ export namespace Workspace {
 
     await adaptor.create(config)
 
-    startSync(info)
+    startSync({ space: info })
 
     return toInfo(info)
   })
@@ -211,7 +212,7 @@ export namespace Workspace {
       db.select().from(WorkspaceTable).where(eq(WorkspaceTable.project_id, project.id)).all(),
     )
     const spaces = rows.map(fromRow).sort((a, b) => a.id.localeCompare(b.id))
-    for (const space of spaces) startSync(space)
+    for (const space of spaces) startSync({ space })
     return spaces.map(toInfo)
   }
 
@@ -224,13 +225,13 @@ export namespace Workspace {
   export const get = fn(WorkspaceID.zod, async (id) => {
     const space = await record(id)
     if (!space) return
-    startSync(space)
+    startSync({ space })
     return toInfo(space)
   })
 
-  export function ensureSync(space: Awaited<ReturnType<typeof record>> | undefined) {
+  export function ensureSync(space: Awaited<ReturnType<typeof record>> | undefined, hint?: string | null) {
     if (!space) return
-    startSync(space)
+    startSync({ space, hint })
   }
 
   export const remove = fn(WorkspaceID.zod, async (id) => {
@@ -246,8 +247,13 @@ export namespace Workspace {
   })
 
   const connections = new Map<WorkspaceID, ConnectionStatus>()
+  type SyncRequest = {
+    space: StoredInfo
+    hint?: string | null
+  }
+
   const aborts = new Map<WorkspaceID, AbortController>()
-  const pending = new Map<WorkspaceID, StoredInfo>()
+  const pending = new Map<WorkspaceID, SyncRequest>()
 
   function setStatus(id: WorkspaceID, status: ConnectionStatus["status"], error?: string) {
     const prev = connections.get(id)
@@ -270,14 +276,15 @@ export namespace Workspace {
 
   const log = Log.create({ service: "workspace-sync" })
 
-  async function workspaceEventLoop(space: StoredInfo, signal: AbortSignal) {
+  async function workspaceEventLoop(input: SyncRequest, signal: AbortSignal) {
+    const space = input.space
     log.info("starting sync: " + space.id)
 
     while (!signal.aborted) {
       log.info("connecting to sync: " + space.id)
 
       setStatus(space.id, "connecting")
-      const adaptor = await resolveAdaptor(space)
+      const adaptor = await resolveAdaptor({ ...space, hint: input.hint })
       const target = await adaptor.target(space)
 
       if (target.type === "local") {
@@ -318,7 +325,8 @@ export namespace Workspace {
     }
   }
 
-  function startSync(space: StoredInfo) {
+  function startSync(input: SyncRequest) {
+    const space = input.space
     if (space.type === "worktree") {
       void Filesystem.exists(space.directory!).then((exists) => {
         setStatus(space.id, exists ? "connected" : "error", exists ? undefined : "directory does not exist")
@@ -327,14 +335,14 @@ export namespace Workspace {
     }
 
     if (aborts.has(space.id)) {
-      pending.set(space.id, space)
+      pending.set(space.id, input)
       return
     }
     const abort = new AbortController()
     aborts.set(space.id, abort)
     setStatus(space.id, "disconnected")
 
-    void workspaceEventLoop(space, abort.signal)
+    void workspaceEventLoop(input, abort.signal)
       .catch((error) => {
         setStatus(space.id, "error", String(error))
         log.warn("workspace sync listener failed", {

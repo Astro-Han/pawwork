@@ -717,4 +717,114 @@ describe("workspace router", () => {
       directory: space,
     })
   })
+
+  test("routing an ownerless non-git remote workspace restarts sync with the request directory hint", async () => {
+    let syncHits = 0
+    let pathHits = 0
+
+    await using remote = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const url = new URL(req.url)
+        if (url.pathname === "/sync/event") {
+          syncHits++
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.close()
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "text/event-stream",
+              },
+            },
+          )
+        }
+
+        pathHits++
+        return Response.json({ ok: true })
+      },
+    })
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const type = `plug-${Math.random().toString(36).slice(2)}`
+        const file = path.join(dir, "plugin.ts")
+        await Bun.write(
+          file,
+          [
+            "export default async ({ experimental_workspace }) => {",
+            `  experimental_workspace.register(${JSON.stringify(type)}, {`,
+            '    name: "remote",',
+            '    description: "remote adaptor",',
+            '    configure(input) { return { ...input, name: "remote", branch: null, directory: null } },',
+            "    async create() {},",
+            "    async remove() {},",
+            "    target() {",
+            `      return { type: "remote", url: ${JSON.stringify(remote.url.origin)} }`,
+            "    },",
+            "  })",
+            "  return {}",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify(
+            {
+              $schema: "https://opencode.ai/config.json",
+              plugin: [pathToFileURL(file).href],
+            },
+            null,
+            2,
+          ),
+        )
+
+        return { type }
+      },
+    })
+
+    const workspace = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Plugin.init()
+        const id = WorkspaceID.ascending()
+        Database.use((db) =>
+          db.insert(WorkspaceTable)
+            .values({
+              id,
+              type: tmp.extra.type,
+              branch: null,
+              name: "remote",
+              directory: null,
+              owner_directory: null,
+              extra: null,
+              project_id: Instance.project.id,
+            })
+            .run(),
+        )
+        return { id }
+      },
+    })
+
+    await Instance.disposeAll()
+
+    const app = Server.Default().app
+    const response = await app.request(`/path?workspace=${workspace.id}`, {
+      headers: {
+        "x-opencode-directory": tmp.path,
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+
+    await wait(100)
+    expect(pathHits).toBe(1)
+    expect(syncHits).toBeGreaterThan(0)
+  })
 })
