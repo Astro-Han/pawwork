@@ -9,7 +9,7 @@ test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Process documents/i })).toBeVisible()
   await expect(page.getByRole("button", { name: /Analyze data/i })).toBeVisible()
   await expect(page.getByRole("button", { name: /Write faster/i })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Status" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Right utility panel" })).toBeVisible()
 })
 
 test("@smoke home renders the hero composer and starter cards", async ({ page, project }) => {
@@ -28,7 +28,7 @@ test("@smoke home renders the hero composer and starter cards", async ({ page, p
   await expect(firstCard).toBeVisible()
   await expect(page.getByRole("button", { name: /Analyze data/i })).toBeVisible()
   await expect(page.getByRole("button", { name: /Write faster/i })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Status" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Right utility panel" })).toBeVisible()
 
   const cardBox = await firstCard.boundingBox()
   const composerBox = await composer.boundingBox()
@@ -55,7 +55,7 @@ test("@smoke home hero prompt starts a session", async ({ page, project, assista
 
 test("@smoke project home status panel can open the server picker dialog", async ({ page, project }) => {
   await project.open()
-  const statusButton = page.getByRole("button", { name: "Status" }).first()
+  const statusButton = page.getByRole("button", { name: "Right utility panel" }).first()
   const rightPanel = page.locator("#right-panel")
 
   await statusButton.click()

@@ -15,18 +15,18 @@ test("can set a default server on web", async ({ page, gotoSession }) => {
 
   await gotoSession()
 
-  const status = page.getByRole("button", { name: "Status" })
-  await expect(status).toBeVisible()
-  const popover = page.locator('[data-component="popover-content"]').filter({ hasText: "Manage servers" })
+  const statusPanel = page.getByRole("button", { name: "Right utility panel" })
+  await expect(statusPanel).toBeVisible()
+  const rightPanel = page.locator("#right-panel")
 
-  const ensurePopoverOpen = async () => {
-    if (await popover.isVisible()) return
-    await status.click()
-    await expect(popover).toBeVisible()
+  const ensureStatusPanelOpen = async () => {
+    if ((await rightPanel.getAttribute("aria-hidden")) === "false") return
+    await statusPanel.click()
+    await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
   }
 
-  await ensurePopoverOpen()
-  await popover.getByRole("button", { name: "Manage servers" }).click()
+  await ensureStatusPanelOpen()
+  await rightPanel.getByRole("button", { name: "Manage servers" }).click()
 
   const dialog = page.getByRole("dialog")
   await expect(dialog).toBeVisible()
@@ -50,9 +50,9 @@ test("can set a default server on web", async ({ page, gotoSession }) => {
 
   await closeDialog(page, dialog)
 
-  await ensurePopoverOpen()
+  await ensureStatusPanelOpen()
 
-  const serverRow = popover.locator("button").filter({ hasText: serverNamePattern }).first()
+  const serverRow = rightPanel.locator("button").filter({ hasText: serverNamePattern }).first()
   await expect(serverRow).toBeVisible()
   await expect(serverRow.getByText("Default", { exact: true })).toBeVisible()
 })

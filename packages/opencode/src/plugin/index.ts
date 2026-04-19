@@ -1,4 +1,10 @@
-import type { Hooks, PluginInput, Plugin as PluginInstance, PluginModule } from "@opencode-ai/plugin"
+import type {
+  Hooks,
+  PluginInput,
+  Plugin as PluginInstance,
+  PluginModule,
+  WorkspaceAdaptor as PluginWorkspaceAdaptor,
+} from "@opencode-ai/plugin"
 import { fileURLToPath } from "url"
 import path from "path"
 import { Config } from "../config/config"
@@ -21,6 +27,8 @@ import { errorMessage } from "@/util/error"
 import { needsConfigDependencies } from "@/config/dependency"
 import { PluginLoader } from "./loader"
 import { parsePluginSpecifier, readPluginId, readV1Plugin, resolvePluginId } from "./shared"
+import { installAdaptor, ownerKey, uninstallAdaptor } from "@/control-plane/adaptors"
+import type { Adaptor } from "@/control-plane/types"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
@@ -122,6 +130,7 @@ export namespace Plugin {
       const state = yield* InstanceState.make<State>(
         Effect.fn("Plugin.state")(function* (ctx) {
           const hooks: Hooks[] = []
+          const registeredAdaptors = new Set<string>()
 
           const { Server } = yield* Effect.promise(() => import("../server/server"))
 
@@ -141,6 +150,12 @@ export namespace Plugin {
             project: ctx.project,
             worktree: ctx.worktree,
             directory: ctx.directory,
+            experimental_workspace: {
+              register(type: string, adaptor: PluginWorkspaceAdaptor) {
+                installAdaptor(ctx.project.id, ownerKey(ctx.directory, ctx.worktree), type, adaptor as unknown as Adaptor)
+                registeredAdaptors.add(type)
+              },
+            },
             get serverUrl(): URL {
               return Server.url ?? new URL("http://localhost:4096")
             },
@@ -265,6 +280,14 @@ export namespace Plugin {
               }),
             ),
             Effect.forkScoped,
+          )
+
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              for (const type of registeredAdaptors) {
+                uninstallAdaptor(ctx.project.id, ownerKey(ctx.directory, ctx.worktree), type)
+              }
+            }),
           )
 
           return { hooks }

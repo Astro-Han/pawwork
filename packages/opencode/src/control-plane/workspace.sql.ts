@@ -9,6 +9,7 @@ export const WorkspaceTable = sqliteTable("workspace", {
   branch: text(),
   name: text(),
   directory: text(),
+  owner_directory: text(),
   extra: text({ mode: "json" }),
   project_id: text()
     .$type<ProjectID>()

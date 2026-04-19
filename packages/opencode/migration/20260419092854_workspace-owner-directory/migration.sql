@@ -1,0 +1,1 @@
+ALTER TABLE `workspace` ADD `owner_directory` text;

@@ -3,7 +3,6 @@ import type { UpgradeWebSocket } from "hono/ws"
 import { mkdirSync } from "fs"
 import os from "os"
 import path from "path"
-import { getAdaptor } from "@/control-plane/adaptors"
 import { WorkspaceID } from "@/control-plane/schema"
 import { Workspace } from "@/control-plane/workspace"
 import { ServerProxy } from "../proxy"
@@ -85,7 +84,7 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
       })
     }
 
-    const workspace = await Workspace.get(WorkspaceID.make(workspaceID))
+    const workspace = await Workspace.record(WorkspaceID.make(workspaceID))
 
     if (!workspace) {
       // Special-case deleting a session in case user's data in a
@@ -106,7 +105,12 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
       })
     }
 
-    const adaptor = await getAdaptor(workspace.type)
+    Workspace.ensureSync(workspace, directory)
+
+    const adaptor = await Workspace.resolveAdaptor({
+      ...workspace,
+      hint: directory,
+    })
     const target = await adaptor.target(workspace)
 
     if (target.type === "local") {
