@@ -348,7 +348,6 @@ export default function Page() {
 
   const [ui, setUi] = createStore({
     pendingMessage: undefined as string | undefined,
-    reviewSnap: false,
     scrollGesture: 0,
     scroll: {
       overflow: false,
@@ -563,7 +562,6 @@ export default function Page() {
     return key
   }, sessionKey())
 
-  let reviewFrame: number | undefined
   let refreshFrame: number | undefined
   let refreshTimer: number | undefined
   let todoFrame: number | undefined
@@ -632,19 +630,6 @@ export default function Page() {
     if (!untrack(wantsReview)) return
     void loadVcs(mode, true)
   }
-
-  createComputed((prev) => {
-    const open = desktopReviewOpen()
-    if (prev === undefined || prev === open) return open
-
-    if (reviewFrame !== undefined) cancelAnimationFrame(reviewFrame)
-    setUi("reviewSnap", true)
-    reviewFrame = requestAnimationFrame(() => {
-      reviewFrame = undefined
-      setUi("reviewSnap", false)
-    })
-    return open
-  }, desktopReviewOpen())
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
@@ -1918,7 +1903,6 @@ export default function Page() {
   })
 
   onCleanup(() => {
-    if (reviewFrame !== undefined) cancelAnimationFrame(reviewFrame)
     if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
     if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
@@ -2087,7 +2071,6 @@ export default function Page() {
           terminalPanel={() => <TerminalPanel embedded />}
           activeDiff={tree.activeDiff}
           focusReviewDiff={focusReviewDiff}
-          reviewSnap={ui.reviewSnap}
           size={size}
         />
       </div>

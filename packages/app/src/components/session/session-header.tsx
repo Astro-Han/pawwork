@@ -142,10 +142,12 @@ export function SessionHeader() {
                   aria-expanded={rightPanelOpen()}
                   aria-controls="right-panel"
                 >
-                  <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <rect x="2" y="2.5" width="10" height="9" rx="1.5" stroke="currentColor" stroke-width="1.1" />
-                    <path d="M8.5 2.5v9" stroke="currentColor" stroke-width="1.1" />
-                  </svg>
+                  <div data-component="icon" data-size="small">
+                    <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <rect x="2" y="2.5" width="10" height="9" rx="1.5" stroke="currentColor" stroke-width="1.1" />
+                      <path d="M8.5 2.5v9" stroke="currentColor" stroke-width="1.1" />
+                    </svg>
+                  </div>
                 </Button>
               </Tooltip>
             </Show>

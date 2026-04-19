@@ -104,7 +104,6 @@ export function SessionSidePanel(props: {
   terminalPanel?: () => JSX.Element
   activeDiff?: string
   focusReviewDiff: (path: string) => void
-  reviewSnap: boolean
   size: Sizing
 }) {
   const layout = useLayout()
@@ -313,7 +312,7 @@ export function SessionSidePanel(props: {
         classList={{
           "pointer-events-none": !open(),
           "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
-            !props.size.active() && !props.reviewSnap,
+            !props.size.active(),
         }}
         style={{ width: panelWidth() }}
       >
