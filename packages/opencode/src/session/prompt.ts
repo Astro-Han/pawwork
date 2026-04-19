@@ -722,148 +722,153 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       })
 
       const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput) {
-        const ctx = yield* InstanceState.context
-        const run = yield* runner()
-        const session = yield* sessions.get(input.sessionID)
-        if (session.revert) {
-          yield* revert.cleanup(session)
-        }
-        const agent = yield* agents.get(input.agent)
-        if (!agent) {
-          const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
-          const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-          const error = new NamedError.Unknown({ message: `Agent not found: "${input.agent}".${hint}` })
-          yield* bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
-          throw error
-        }
-        const model = input.model ?? agent.model ?? (yield* lastModel(input.sessionID))
-        const userMsg: MessageV2.User = {
-          id: input.messageID ?? MessageID.ascending(),
-          sessionID: input.sessionID,
-          time: { created: Date.now() },
-          role: "user",
-          agent: input.agent,
-          model: { providerID: model.providerID, modelID: model.modelID },
-        }
-        yield* sessions.updateMessage(userMsg)
-        const userPart: MessageV2.Part = {
-          type: "text",
-          id: PartID.ascending(),
-          messageID: userMsg.id,
-          sessionID: input.sessionID,
-          text: "The following tool was executed by the user",
-          synthetic: true,
-        }
-        yield* sessions.updatePart(userPart)
-
-        const msg: MessageV2.Assistant = {
-          id: MessageID.ascending(),
-          sessionID: input.sessionID,
-          parentID: userMsg.id,
-          mode: input.agent,
-          agent: input.agent,
-          cost: 0,
-          path: { cwd: ctx.directory, root: ctx.worktree },
-          time: { created: Date.now() },
-          role: "assistant",
-          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-          modelID: model.modelID,
-          providerID: model.providerID,
-        }
-        yield* sessions.updateMessage(msg)
-        const part: MessageV2.ToolPart = {
-          type: "tool",
-          id: PartID.ascending(),
-          messageID: msg.id,
-          sessionID: input.sessionID,
-          tool: "bash",
-          callID: ulid(),
-          state: {
-            status: "running",
-            time: { start: Date.now() },
-            input: { command: input.command },
-          },
-        }
-        yield* sessions.updatePart(part)
-
-        const sh = Shell.preferred()
-        const shellName = (
-          process.platform === "win32" ? path.win32.basename(sh, ".exe") : path.basename(sh)
-        ).toLowerCase()
-        const invocations: Record<string, { args: string[] }> = {
-          nu: { args: ["-c", input.command] },
-          fish: { args: ["-c", input.command] },
-          zsh: {
-            args: [
-              "-l",
-              "-c",
-              `
-                __oc_cwd=$PWD
-                [[ -f ~/.zshenv ]] && source ~/.zshenv >/dev/null 2>&1 || true
-                [[ -f "\${ZDOTDIR:-$HOME}/.zshrc" ]] && source "\${ZDOTDIR:-$HOME}/.zshrc" >/dev/null 2>&1 || true
-                cd "$__oc_cwd"
-                eval ${JSON.stringify(input.command)}
-              `,
-            ],
-          },
-          bash: {
-            args: [
-              "-l",
-              "-c",
-              `
-                __oc_cwd=$PWD
-                shopt -s expand_aliases
-                [[ -f ~/.bashrc ]] && source ~/.bashrc >/dev/null 2>&1 || true
-                cd "$__oc_cwd"
-                eval ${JSON.stringify(input.command)}
-              `,
-            ],
-          },
-          cmd: { args: ["/c", input.command] },
-          powershell: { args: ["-NoProfile", "-Command", input.command] },
-          pwsh: { args: ["-NoProfile", "-Command", input.command] },
-          "": { args: ["-c", input.command] },
-        }
-
-        const args = (invocations[shellName] ?? invocations[""]).args
-        const cwd = ctx.directory
-        const shellEnv = yield* plugin.trigger(
-          "shell.env",
-          { cwd, sessionID: input.sessionID, callID: part.callID },
-          { env: {} },
-        )
-
-        const cmd = ChildProcess.make(sh, args, {
-          cwd,
-          extendEnv: true,
-          env: { ...shellEnv.env, TERM: "dumb" },
-          stdin: "ignore",
-          forceKillAfter: "3 seconds",
-        })
-
         let output = ""
         let aborted = false
-
-        const finish = Effect.uninterruptible(
+        const { run, msg, part, cmd, finish } = yield* Effect.uninterruptible(
           Effect.gen(function* () {
-            if (aborted) {
-              output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
+            const ctx = yield* InstanceState.context
+            const run = yield* runner()
+            const session = yield* sessions.get(input.sessionID)
+            if (session.revert) {
+              yield* revert.cleanup(session)
             }
-            if (!msg.time.completed) {
-              msg.time.completed = Date.now()
-              yield* sessions.updateMessage(msg)
+            const agent = yield* agents.get(input.agent)
+            if (!agent) {
+              const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
+              const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+              const error = new NamedError.Unknown({ message: `Agent not found: "${input.agent}".${hint}` })
+              yield* bus.publish(Session.Event.Error, { sessionID: input.sessionID, error: error.toObject() })
+              throw error
             }
-            if (part.state.status === "running") {
-              part.state = {
-                status: "completed",
-                time: { ...part.state.time, end: Date.now() },
-                input: part.state.input,
-                title: "",
-                metadata: { output, description: "" },
-                output,
-              }
-              yield* sessions.updatePart(part)
+            const model = input.model ?? agent.model ?? (yield* lastModel(input.sessionID))
+            const userMsg: MessageV2.User = {
+              id: input.messageID ?? MessageID.ascending(),
+              sessionID: input.sessionID,
+              time: { created: Date.now() },
+              role: "user",
+              agent: input.agent,
+              model: { providerID: model.providerID, modelID: model.modelID },
             }
+            yield* sessions.updateMessage(userMsg)
+            const userPart: MessageV2.Part = {
+              type: "text",
+              id: PartID.ascending(),
+              messageID: userMsg.id,
+              sessionID: input.sessionID,
+              text: "The following tool was executed by the user",
+              synthetic: true,
+            }
+            yield* sessions.updatePart(userPart)
+
+            const msg: MessageV2.Assistant = {
+              id: MessageID.ascending(),
+              sessionID: input.sessionID,
+              parentID: userMsg.id,
+              mode: input.agent,
+              agent: input.agent,
+              cost: 0,
+              path: { cwd: ctx.directory, root: ctx.worktree },
+              time: { created: Date.now() },
+              role: "assistant",
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: model.modelID,
+              providerID: model.providerID,
+            }
+            yield* sessions.updateMessage(msg)
+            const part: MessageV2.ToolPart = {
+              type: "tool",
+              id: PartID.ascending(),
+              messageID: msg.id,
+              sessionID: input.sessionID,
+              tool: "bash",
+              callID: ulid(),
+              state: {
+                status: "running",
+                time: { start: Date.now() },
+                input: { command: input.command },
+              },
+            }
+            yield* sessions.updatePart(part)
+
+            const sh = Shell.preferred()
+            const shellName = (
+              process.platform === "win32" ? path.win32.basename(sh, ".exe") : path.basename(sh)
+            ).toLowerCase()
+            const invocations: Record<string, { args: string[] }> = {
+              nu: { args: ["-c", input.command] },
+              fish: { args: ["-c", input.command] },
+              zsh: {
+                args: [
+                  "-l",
+                  "-c",
+                  `
+                    __oc_cwd=$PWD
+                    [[ -f ~/.zshenv ]] && source ~/.zshenv >/dev/null 2>&1 || true
+                    [[ -f "\${ZDOTDIR:-$HOME}/.zshrc" ]] && source "\${ZDOTDIR:-$HOME}/.zshrc" >/dev/null 2>&1 || true
+                    cd "$__oc_cwd"
+                    eval ${JSON.stringify(input.command)}
+                  `,
+                ],
+              },
+              bash: {
+                args: [
+                  "-l",
+                  "-c",
+                  `
+                    __oc_cwd=$PWD
+                    shopt -s expand_aliases
+                    [[ -f ~/.bashrc ]] && source ~/.bashrc >/dev/null 2>&1 || true
+                    cd "$__oc_cwd"
+                    eval ${JSON.stringify(input.command)}
+                  `,
+                ],
+              },
+              cmd: { args: ["/c", input.command] },
+              powershell: { args: ["-NoProfile", "-Command", input.command] },
+              pwsh: { args: ["-NoProfile", "-Command", input.command] },
+              "": { args: ["-c", input.command] },
+            }
+
+            const args = (invocations[shellName] ?? invocations[""]).args
+            const cwd = ctx.directory
+            const shellEnv = yield* plugin.trigger(
+              "shell.env",
+              { cwd, sessionID: input.sessionID, callID: part.callID },
+              { env: {} },
+            )
+
+            const cmd = ChildProcess.make(sh, args, {
+              cwd,
+              extendEnv: true,
+              env: { ...shellEnv.env, TERM: "dumb" },
+              stdin: "ignore",
+              forceKillAfter: "3 seconds",
+            })
+
+            const finish = Effect.uninterruptible(
+              Effect.gen(function* () {
+                if (aborted) {
+                  output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
+                }
+                if (!msg.time.completed) {
+                  msg.time.completed = Date.now()
+                  yield* sessions.updateMessage(msg)
+                }
+                if (part.state.status === "running") {
+                  part.state = {
+                    status: "completed",
+                    time: { ...part.state.time, end: Date.now() },
+                    input: part.state.input,
+                    title: "",
+                    metadata: { output, description: "" },
+                    output,
+                  }
+                  yield* sessions.updatePart(part)
+                }
+              }),
+            )
+
+            return { run, msg, part, cmd, finish }
           }),
         )
 
@@ -1311,6 +1316,52 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         throw new Error("Impossible")
       })
 
+      const shellCancelledAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
+        const message = yield* lastAssistant(sessionID)
+        if (message.info.role !== "assistant") return message
+
+        const runningTool = message.parts.find(
+          (
+            part,
+          ): part is MessageV2.ToolPart & {
+            state: MessageV2.ToolStateRunning
+          } => part.type === "tool" && part.tool === "bash" && part.state.status === "running",
+        )
+        if (!runningTool) return message
+
+        const output = "\n\n<metadata>\nUser aborted the command\n</metadata>"
+        const info = message.info.time.completed
+          ? message.info
+          : {
+              ...message.info,
+              time: {
+                ...message.info.time,
+                completed: Date.now(),
+              },
+            }
+        const part: MessageV2.ToolPart = {
+          ...runningTool,
+          state: {
+            status: "completed",
+            time: { ...runningTool.state.time, end: Date.now() },
+            input: runningTool.state.input,
+            title: "",
+            metadata: { output, description: "" },
+            output,
+          },
+        }
+
+        if (info !== message.info) {
+          yield* sessions.updateMessage(info)
+        }
+        yield* sessions.updatePart(part)
+
+        return {
+          info,
+          parts: message.parts.map((item) => (item.id === part.id ? part : item)),
+        }
+      })
+
       const runLoop: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.run")(
         function* (sessionID: SessionID) {
           const ctx = yield* InstanceState.context
@@ -1548,7 +1599,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
         function* (input: ShellInput) {
-          return yield* state.startShell(input.sessionID, lastAssistant(input.sessionID), shellImpl(input))
+          return yield* state.startShell(input.sessionID, shellCancelledAssistant(input.sessionID), shellImpl(input))
         },
       )
 
