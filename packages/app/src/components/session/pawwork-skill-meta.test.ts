@@ -11,10 +11,10 @@ describe("pawwork skill cards", () => {
   })
 
   test("resolves sidebar badge metadata by skill name", () => {
-    expect(getPawworkSkillMeta("document-processing")).toMatchObject({
-      emoji: "📄",
-      name: "document-processing",
-    })
+    const meta = getPawworkSkillMeta("document-processing")
+    expect(meta).toBeDefined()
+    expect(meta!.name).toBe("document-processing")
+    expect(typeof meta!.Icon).toBe("function")
     expect(getPawworkSkillMeta("missing-skill")).toBeUndefined()
   })
 })

@@ -11,6 +11,7 @@ import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
+import { PaneL } from "@/components/design-icons"
 import { applyPath, backPath, forwardPath } from "./titlebar-history"
 
 type TauriDesktopWindow = {
@@ -167,7 +168,7 @@ export function Titlebar() {
       data-platform={platform.platform}
       data-os={platform.os}
       class="shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
-      classList={{ "h-10": !mac() }}
+      classList={{ "h-11": platform.platform === "desktop" && !mac() }}
       style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}
       data-tauri-drag-region
       onMouseDown={drag}
@@ -218,7 +219,7 @@ export function Titlebar() {
               aria-label={language.t("command.sidebar.toggle")}
               aria-expanded={layout.sidebar.opened()}
             >
-              <Icon size="small" name={layout.sidebar.opened() ? "sidebar-active" : "sidebar"} />
+              <PaneL />
             </Button>
           </TooltipKeybind>
           <div class="hidden xl:flex items-center shrink-0">

@@ -136,7 +136,16 @@ const SessionRow = (props: {
               data-session-skill={meta().name}
               class="shrink-0 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-weak"
             >
-              {meta().emoji} {language.t(meta().titleKey)}
+              {(() => {
+                const SkillIcon = createMemo(() => meta().Icon)
+                const Icon = SkillIcon()
+                return (
+                  <>
+                    <Icon class="inline-block align-middle mr-1 text-text-weak" />
+                    {language.t(meta().titleKey)}
+                  </>
+                )
+              })()}
             </span>
           )}
         </Show>

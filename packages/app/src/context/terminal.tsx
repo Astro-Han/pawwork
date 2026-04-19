@@ -1,9 +1,9 @@
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { batch, createEffect, createMemo, createRoot, on, onCleanup } from "solid-js"
+import { batch, createEffect, createMemo, createRoot, on, onCleanup, type Accessor } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { useSDK } from "./sdk"
-import type { Platform } from "./platform"
+import { usePlatform, type Platform } from "./platform"
 import { defaultTitle, titleNumber } from "./terminal-title"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
 
@@ -92,6 +92,29 @@ export function getLegacyTerminalStorageKeys(dir: string, legacySessionID?: stri
 }
 
 type TerminalSession = ReturnType<typeof createWorkspaceTerminalSession>
+type TerminalUpdate = Partial<LocalPTY> & { id: string }
+type TerminalBoundSession = {
+  trim: (id: string) => void
+  update: (pty: TerminalUpdate) => void
+  clone: (id: string) => Promise<void>
+}
+type TerminalSessionLike = {
+  ready: () => boolean
+  all: () => LocalPTY[]
+  active: () => string | undefined
+  clear: () => void
+  new: () => void
+  update: (pty: TerminalUpdate) => void
+  trim: (id: string) => void
+  trimAll: () => void
+  clone: (id: string) => Promise<void>
+  bind: () => TerminalBoundSession
+  open: (id: string) => void
+  next: () => void
+  previous: () => void
+  close: (id: string) => Promise<void>
+  move: (id: string, to: number) => void
+}
 
 type TerminalCacheEntry = {
   value: TerminalSession
@@ -145,6 +168,21 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
       all: [],
     }),
   )
+
+  createEffect(() => {
+    const initialized = ready()
+    const all = store.all
+    if (!initialized) return
+    if (Array.isArray(all)) return
+    console.error("[terminal:invalid-store-all]", {
+      dir,
+      legacySessionID,
+      ready: initialized,
+      allType: typeof all,
+      allValue: all,
+      active: store.active,
+    })
+  })
 
   const pickNextTerminalNumber = () => {
     const existingTitleNumbers = new Set(
@@ -352,11 +390,61 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
   }
 }
 
+function createEmptyTerminalSession(): TerminalSessionLike {
+  const all = createMemo<LocalPTY[]>(() => [])
+  const active = createMemo<string | undefined>(() => undefined)
+  const bound: TerminalBoundSession = {
+    trim() {},
+    update() {},
+    async clone() {},
+  }
+
+  return {
+    ready: () => false,
+    all,
+    active,
+    clear() {},
+    new() {},
+    update() {},
+    trim() {},
+    trimAll() {},
+    async clone() {},
+    bind: () => bound,
+    open() {},
+    next() {},
+    previous() {},
+    async close() {},
+    move() {},
+  }
+}
+
+export function createTerminalBinding(workspace: Accessor<TerminalSessionLike | undefined>) {
+  const fallback = createEmptyTerminalSession()
+  const current = () => workspace() ?? fallback
+  return {
+    ready: () => current().ready(),
+    all: () => current().all(),
+    active: () => current().active(),
+    new: () => current().new(),
+    update: (pty: TerminalUpdate) => current().update(pty),
+    trim: (id: string) => current().trim(id),
+    trimAll: () => current().trimAll(),
+    clone: (id: string) => current().clone(id),
+    bind: () => current().bind(),
+    open: (id: string) => current().open(id),
+    close: (id: string) => current().close(id),
+    move: (id: string, to: number) => current().move(id, to),
+    next: () => current().next(),
+    previous: () => current().previous(),
+  }
+}
+
 export const { use: useTerminal, provider: TerminalProvider } = createSimpleContext({
   name: "Terminal",
   gate: false,
   init: () => {
     const sdk = useSDK()
+    const platform = usePlatform()
     const params = useParams()
     const cache = new Map<string, TerminalCacheEntry>()
 
@@ -402,7 +490,33 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       return entry.value
     }
 
-    const workspace = createMemo(() => loadWorkspace(params.dir!, params.id))
+    const workspace = createMemo(() => {
+      const dir = params.dir
+      if (!dir) return
+      return loadWorkspace(dir, params.id)
+    })
+
+    createEffect(() => {
+      const dir = params.dir
+      const current = workspace()
+      if (!dir || !current?.ready()) return
+      const all = current.all()
+      if (Array.isArray(all)) return
+      const target = Persist.workspace(dir, "terminal")
+      const payload = JSON.stringify({
+        dir,
+        active: current.active(),
+        allType: typeof all,
+        allValue: all,
+        storage: target.storage,
+        key: target.key,
+        legacy: getLegacyTerminalStorageKeys(dir, params.id),
+        at: new Date().toISOString(),
+      })
+      const store = platform.storage?.("opencode.global.dat")
+      if (!store) return
+      void Promise.resolve(store.setItem("debug:terminal-invalid-all", payload)).catch(() => undefined)
+    })
 
     createEffect(
       on(
@@ -417,21 +531,6 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       ),
     )
 
-    return {
-      ready: () => workspace().ready(),
-      all: () => workspace().all(),
-      active: () => workspace().active(),
-      new: () => workspace().new(),
-      update: (pty: Partial<LocalPTY> & { id: string }) => workspace().update(pty),
-      trim: (id: string) => workspace().trim(id),
-      trimAll: () => workspace().trimAll(),
-      clone: (id: string) => workspace().clone(id),
-      bind: () => workspace(),
-      open: (id: string) => workspace().open(id),
-      close: (id: string) => workspace().close(id),
-      move: (id: string, to: number) => workspace().move(id, to),
-      next: () => workspace().next(),
-      previous: () => workspace().previous(),
-    }
+    return createTerminalBinding(workspace)
   },
 })

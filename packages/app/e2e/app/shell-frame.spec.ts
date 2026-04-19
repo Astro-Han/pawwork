@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { closeDialog, openPalette, openSettings } from "../actions"
+import { closeDialog, openPalette, openSettings, withSession } from "../actions"
 import {
   desktopShellFrameSelector,
   desktopShellMainSelector,
@@ -19,7 +19,7 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
   await expect(page.locator(titlebarShellSelector)).toBeVisible()
   await expect(page.locator(desktopShellMainSelector)).toBeVisible()
   await expect(page.locator(titlebarLeftSelector)).toHaveCount(1)
-  await expect(page.locator(`${titlebarCenterSelector} button`).first()).toBeVisible()
+  await expect(page.locator(titlebarCenterSelector)).toContainText(/new session/i)
   await expect(page.locator(`${titlebarRightSelector} button`).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /toggle sidebar/i }).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /navigate back/i })).toBeVisible()
@@ -33,18 +33,32 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
   await closeDialog(page, palette)
 })
 
-test("session titlebar center keeps a project-directory affordance next to file search", async ({ page, gotoSession }) => {
+test("home titlebar center shows the current view title instead of the old file search affordance", async ({
+  page,
+  gotoSession,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await gotoSession()
 
   const center = page.locator(titlebarCenterSelector)
-  const buttons = center.getByRole("button")
-  const openProject = buttons.first()
-  const searchFiles = center.getByRole("button", { name: /search files/i })
+  await expect(center.getByText(/^new session$/i)).toBeVisible()
+  await expect(center.getByRole("button", { name: /search files/i })).toHaveCount(0)
+})
 
-  await expect(buttons).toHaveCount(2)
-  await expect(openProject).toBeVisible()
-  await expect(openProject).toHaveAttribute("title", /.+/)
-  await expect(openProject).toContainText(/.+/)
-  await expect(searchFiles).toBeVisible()
+test("session titlebar center shows a project and session breadcrumb", async ({ page, sdk, gotoSession }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const title = `e2e breadcrumb ${Date.now()}`
+
+  await withSession(sdk, title, async (session) => {
+    await gotoSession(session.id)
+
+    const center = page.locator(titlebarCenterSelector)
+    const buttons = center.getByRole("button")
+
+    await expect(buttons).toHaveCount(1)
+    await expect(buttons.first()).toContainText(/.+/)
+    await expect(center).toContainText(title)
+    await expect(center).toContainText("/")
+    await expect(center.getByRole("button", { name: /search files/i })).toHaveCount(0)
+  })
 })

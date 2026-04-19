@@ -64,17 +64,17 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
           <h1 class="text-24-medium text-text-strong">{language.t("session.new.title")}</h1>
           <p class="text-14-regular text-text-weak">{language.t("session.new.subtitle")}</p>
         </div>
-        <div class="grid w-full max-w-170 gap-3 md:grid-cols-3">
+        <div class="grid w-full max-w-[640px] gap-3 md:grid-cols-3">
           <For each={pawworkSkillCards}>
             {(card) => (
               <button
                 type="button"
                 data-skill-card={card.name}
-                class="rounded-2xl border border-border-weak-base bg-surface-raised-strong p-4 text-left transition-colors hover:bg-surface-raised-base-hover disabled:cursor-not-allowed disabled:opacity-70"
+                class="rounded-[10px] border border-border-weak-base bg-surface-raised-strong p-4 text-left transition-colors hover:bg-surface-raised-base-hover disabled:cursor-not-allowed disabled:opacity-70"
                 disabled={pending() === card.name}
                 onClick={() => void start(card.name)}
               >
-                <div class="text-24 leading-none">{card.emoji}</div>
+                <card.Icon class="text-text-weak" />
                 <div class="mt-3 text-16-medium text-text-strong">{language.t(card.titleKey)}</div>
                 <div class="mt-1 text-14-regular text-text-weak">{language.t(card.descriptionKey)}</div>
               </button>
@@ -82,7 +82,7 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
           </For>
         </div>
         <Show when={props.composer}>
-          <div class="w-full max-w-170">{props.composer}</div>
+          <div class="w-full max-w-[640px]">{props.composer}</div>
         </Show>
       </div>
     </div>

@@ -261,6 +261,7 @@ export function SessionComposerRegion(props: {
                   <Show when={!props.state.blocked()}>
                     <PromptInput
                       ref={props.inputRef}
+                      homeMode={home()}
                       newSessionWorktree={props.newSessionWorktree}
                       onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
                       edit={props.followup?.edit}

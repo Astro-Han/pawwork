@@ -367,12 +367,24 @@ export function persisted<T>(
     if (!isDesktop) {
       const current = currentStorage as SyncStorage
       const legacyStore = legacyStorage as SyncStorage
+      const debugTerminal = config.key === "workspace:terminal"
 
       const api: SyncStorage = {
         getItem: (key) => {
           const raw = current.getItem(key)
           if (raw !== null) {
             const next = normalize(defaults, raw, config.migrate)
+            if (debugTerminal) {
+              console.error("[persisted:workspace:terminal:sync]", {
+                storage: config.storage,
+                key,
+                source: "current",
+                rawPreview: raw.slice(0, 240),
+                rawLength: raw.length,
+                normalizedPreview: next?.slice(0, 240),
+                normalizedLength: next?.length,
+              })
+            }
             if (next === undefined) {
               current.removeItem(key)
               return null
@@ -386,6 +398,18 @@ export function persisted<T>(
             if (legacyRaw === null) continue
 
             const next = normalize(defaults, legacyRaw, config.migrate)
+            if (debugTerminal) {
+              console.error("[persisted:workspace:terminal:sync]", {
+                storage: config.storage,
+                key,
+                source: "legacy",
+                legacyKey,
+                rawPreview: legacyRaw.slice(0, 240),
+                rawLength: legacyRaw.length,
+                normalizedPreview: next?.slice(0, 240),
+                normalizedLength: next?.length,
+              })
+            }
             if (next === undefined) {
               legacyStore.removeItem(legacyKey)
               continue
@@ -410,12 +434,24 @@ export function persisted<T>(
 
     const current = currentStorage as AsyncStorage
     const legacyStore = legacyStorage as AsyncStorage | undefined
+    const debugTerminal = config.key === "workspace:terminal"
 
     const api: AsyncStorage = {
       getItem: async (key) => {
         const raw = await current.getItem(key)
         if (raw !== null) {
           const next = normalize(defaults, raw, config.migrate)
+          if (debugTerminal) {
+            console.error("[persisted:workspace:terminal:async]", {
+              storage: config.storage,
+              key,
+              source: "current",
+              rawPreview: raw.slice(0, 240),
+              rawLength: raw.length,
+              normalizedPreview: next?.slice(0, 240),
+              normalizedLength: next?.length,
+            })
+          }
           if (next === undefined) {
             await current.removeItem(key).catch(() => undefined)
             return null
@@ -431,6 +467,18 @@ export function persisted<T>(
           if (legacyRaw === null) continue
 
           const next = normalize(defaults, legacyRaw, config.migrate)
+          if (debugTerminal) {
+            console.error("[persisted:workspace:terminal:async]", {
+              storage: config.storage,
+              key,
+              source: "legacy",
+              legacyKey,
+              rawPreview: legacyRaw.slice(0, 240),
+              rawLength: legacyRaw.length,
+              normalizedPreview: next?.slice(0, 240),
+              normalizedLength: next?.length,
+            })
+          }
           if (next === undefined) {
             await legacyStore.removeItem(legacyKey).catch(() => undefined)
             continue

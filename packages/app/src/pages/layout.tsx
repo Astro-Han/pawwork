@@ -2444,7 +2444,7 @@ export default function Layout(props: ParentProps) {
                     "opacity-100 pointer-events-auto": layout.mobileSidebar.opened(),
                     "opacity-0 pointer-events-none": !layout.mobileSidebar.opened(),
                   }}
-                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.5rem))" }}
+                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.75rem))" }}
                   onClick={(e) => {
                     if (e.target === e.currentTarget) layout.mobileSidebar.hide()
                   }}
@@ -2457,7 +2457,7 @@ export default function Layout(props: ParentProps) {
                     "translate-x-0": layout.mobileSidebar.opened(),
                     "-translate-x-full": !layout.mobileSidebar.opened(),
                   }}
-                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.5rem))" }}
+                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.75rem))" }}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {sidebarContent(true)}

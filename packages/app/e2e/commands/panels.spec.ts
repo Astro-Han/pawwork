@@ -72,6 +72,17 @@ test("desktop session uses the design paneR icon for the right-panel toggle", as
   expect(iconMarkup).toContain('d="M8.5 2.5v9"')
 })
 
+test("desktop session uses the design paneL icon for the left sidebar toggle", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const leftToggleIcon = page.getByRole("button", { name: /toggle sidebar/i }).locator('[data-slot="icon-svg"]').first()
+  const iconMarkup = await leftToggleIcon.evaluate((el) => el.outerHTML)
+
+  expect(iconMarkup).toContain('data-slot="icon-svg"')
+  expect(iconMarkup).toContain('d="M5.5 2.5v9"')
+  expect(iconMarkup).not.toContain("sidebar-active")
+})
+
 test("desktop right-panel uses the design icon set for utility tabs", async ({ page, gotoSession }) => {
   await gotoSession()
 
