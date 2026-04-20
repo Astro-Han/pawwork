@@ -4,7 +4,7 @@ export interface Runner<A, E = never> {
   readonly state: State<A, E>
   readonly busy: boolean
   readonly ensureRunning: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
-  readonly startShell: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
+  readonly startShell: (work: Effect.Effect<A, E>, options?: { ready?: Deferred.Deferred<void> }) => Effect.Effect<A, E>
   readonly cancel: Effect.Effect<void>
 }
 
@@ -18,6 +18,7 @@ interface RunHandle<A, E> {
 
 interface ShellHandle<A, E> {
   id: number
+  ready: Deferred.Deferred<void>
   fiber: Fiber.Fiber<A, E>
 }
 
@@ -100,6 +101,9 @@ export const make = <A, E = never>(
 
   const stopShell = (shell: ShellHandle<A, E>) => Fiber.interrupt(shell.fiber)
 
+  const awaitShellReady = (shell: ShellHandle<A, E>) =>
+    Deferred.await(shell.ready).pipe(Effect.raceFirst(Fiber.await(shell.fiber).pipe(Effect.asVoid)), Effect.ignore)
+
   const ensureRunning = (work: Effect.Effect<A, E>) =>
     SynchronizedRef.modifyEffect(
       ref,
@@ -130,7 +134,7 @@ export const make = <A, E = never>(
       ),
     )
 
-  const startShell = (work: Effect.Effect<A, E>) =>
+  const startShell = (work: Effect.Effect<A, E>, options?: { ready?: Deferred.Deferred<void> }) =>
     SynchronizedRef.modifyEffect(
       ref,
       Effect.fnUntraced(function* (st) {
@@ -145,8 +149,13 @@ export const make = <A, E = never>(
         }
         yield* busy
         const id = next()
+        const ready =
+          options?.ready ??
+          (yield* Deferred.make<void>().pipe(
+            Effect.tap((ready) => Deferred.succeed(ready, undefined)),
+          ))
         const fiber = yield* work.pipe(Effect.ensuring(finishShell(id)), Effect.forkChild)
-        const shell = { id, fiber } satisfies ShellHandle<A, E>
+        const shell = { id, ready, fiber } satisfies ShellHandle<A, E>
         return [
           Effect.gen(function* () {
             const exit = yield* Fiber.await(fiber)
@@ -175,6 +184,7 @@ export const make = <A, E = never>(
       case "Shell":
         return [
           Effect.gen(function* () {
+            yield* awaitShellReady(st.shell)
             yield* stopShell(st.shell)
             yield* idleIfCurrent()
           }),
@@ -184,6 +194,7 @@ export const make = <A, E = never>(
         return [
           Effect.gen(function* () {
             yield* Deferred.fail(st.run.done, new Cancelled()).pipe(Effect.asVoid)
+            yield* awaitShellReady(st.shell)
             yield* stopShell(st.shell)
             yield* idleIfCurrent()
           }),

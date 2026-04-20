@@ -141,7 +141,7 @@ const lsp = Layer.succeed(
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
-function makeHttp() {
+function makeHttp(plugin = Plugin.defaultLayer) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -149,7 +149,7 @@ function makeHttp() {
     AgentSvc.defaultLayer,
     Command.defaultLayer,
     Permission.defaultLayer,
-    Plugin.defaultLayer,
+    plugin,
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
     lsp,
@@ -190,6 +190,21 @@ function makeHttp() {
 
 const it = testEffect(makeHttp())
 const unix = process.platform !== "win32" ? it.live : it.live.skip
+const unixWithPlugin = (plugin: typeof Plugin.defaultLayer) => {
+  const effect = testEffect(makeHttp(plugin))
+  return process.platform !== "win32" ? effect.live : effect.live.skip
+}
+
+function hangingShellEnvPlugin(ready: { promise: Promise<void>; resolve: (value: void | PromiseLike<void>) => void }) {
+  return Layer.mock(Plugin.Service)({
+    trigger: <Name extends string, Input, Output>(name: Name, _input: Input, output: Output) => {
+      if (name !== "shell.env") return Effect.succeed(output)
+      return Effect.sync(() => ready.resolve(undefined)).pipe(Effect.andThen(Effect.never), Effect.as(output))
+    },
+    list: () => Effect.succeed([]),
+    init: () => Effect.void,
+  })
+}
 
 // Config that registers a custom "test" provider with a "test-model" model
 // so Provider.getModel("test", "test-model") succeeds inside the loop.
@@ -1314,6 +1329,41 @@ unix(
 )
 
 unix(
+  "cancel immediately after shell start resolves cleanly",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (dir) =>
+          Effect.gen(function* () {
+            const { prompt, run, chat } = yield* boot()
+
+            const sh = yield* prompt
+              .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
+              .pipe(Effect.forkChild)
+            yield* Effect.yieldNow
+
+            yield* prompt.cancel(chat.id)
+
+            const busy = yield* run.assertNotBusy(chat.id).pipe(Effect.exit)
+            expect(Exit.isSuccess(busy)).toBe(true)
+
+            const exit = yield* Fiber.await(sh)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            if (Exit.isSuccess(exit)) {
+              expect(exit.value.info.role).toBe("assistant")
+              const tool = completedTool(exit.value.parts)
+              if (tool) {
+                expect(tool.state.output).toContain("User aborted the command")
+              }
+            }
+          }),
+        { git: true, config: cfg },
+      ),
+    ),
+  30_000,
+)
+
+unix(
   "cancel persists aborted shell result when shell ignores TERM",
   () =>
     withSh(() =>
@@ -1344,6 +1394,79 @@ unix(
     ),
   30_000,
 )
+
+unix(
+  "cancel preserves partial shell output when fallback finalizes the run",
+  () =>
+    withSh(() =>
+      provideTmpdirInstance(
+        (dir) =>
+          Effect.gen(function* () {
+            const { prompt, chat } = yield* boot()
+
+            const sh = yield* prompt
+              .shell({ sessionID: chat.id, agent: "build", command: "printf 'partial output'; trap '' TERM; sleep 30" })
+              .pipe(Effect.forkChild)
+            yield* Effect.sleep(50)
+
+            yield* prompt.cancel(chat.id)
+
+            const exit = yield* Fiber.await(sh)
+            expect(Exit.isSuccess(exit)).toBe(true)
+            if (Exit.isSuccess(exit)) {
+              expect(exit.value.info.role).toBe("assistant")
+              const tool = completedTool(exit.value.parts)
+              if (tool) {
+                expect(tool.state.output).toContain("partial output")
+                expect(tool.state.output).toContain("User aborted the command")
+              }
+            }
+          }),
+        { git: true, config: cfg },
+      ),
+    ),
+  30_000,
+)
+
+{
+  const ready = defer<void>()
+  unixWithPlugin(hangingShellEnvPlugin(ready))(
+    "cancel interrupts shell setup waiting on shell env hook",
+    () =>
+      withSh(() =>
+        provideTmpdirInstance(
+          (dir) =>
+            Effect.gen(function* () {
+              const { prompt, run, chat } = yield* boot()
+
+              const sh = yield* prompt
+                .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
+                .pipe(Effect.forkChild)
+              yield* Effect.promise(() => ready.promise)
+
+              const stop = yield* prompt.cancel(chat.id).pipe(Effect.forkChild)
+              const stopExit = yield* Fiber.await(stop).pipe(Effect.timeout("250 millis"))
+              expect(Exit.isSuccess(stopExit)).toBe(true)
+
+              const busy = yield* run.assertNotBusy(chat.id).pipe(Effect.exit)
+              expect(Exit.isSuccess(busy)).toBe(true)
+
+              const exit = yield* Fiber.await(sh).pipe(Effect.timeout("250 millis"))
+              expect(Exit.isSuccess(exit)).toBe(true)
+              if (Exit.isSuccess(exit)) {
+                expect(exit.value.info.role).toBe("assistant")
+                const tool = completedTool(exit.value.parts)
+                if (tool) {
+                  expect(tool.state.output).toContain("User aborted the command")
+                }
+              }
+            }),
+          { git: true, config: cfg },
+        ),
+      ),
+    30_000,
+  )
+}
 
 unix(
   "cancel finalizes interrupted bash tool output through normal truncation",
