@@ -399,56 +399,6 @@
     }
   }
 
-  &[data-variant="sidepanel"] {
-    [data-slot="tabs-list"] {
-      /* Override the base 48px so the consumer's h-11 (44px) is honored.
-         Tailwind class (0,1,0) would lose to the base nested selector (0,2,0)
-         without this explicit override. */
-      height: 44px;
-
-      &::after {
-        display: none;
-      }
-    }
-
-    /* Neutralize the base tabs-trigger-wrapper chrome (borders, bg, selected-state tint). */
-    [data-slot="tabs-trigger-wrapper"] {
-      border-bottom: none;
-      border-right: none;
-      background-color: transparent;
-      color: inherit;
-      font: inherit;
-      height: auto;
-      max-width: none;
-      gap: 0;
-
-      &:has([data-selected]),
-      &:hover:not(:disabled):not([data-selected]) {
-        color: inherit;
-        background-color: transparent;
-        border-bottom-color: transparent;
-      }
-    }
-
-    /* Sidepanel trigger visuals — geometry (height/padding/gap/border-radius) is set by the
-       consumer via Tailwind classes; this block only owns the color/bg/state contract. */
-    [data-slot="tabs-trigger"] {
-      border: 1px solid transparent;
-      color: var(--text-weak);
-      background-color: transparent;
-      transition: background-color 120ms ease;
-
-      &:hover {
-        background-color: var(--surface-base-hover);
-      }
-
-      &[data-selected] {
-        background-color: var(--surface-raised-base);
-        color: var(--text-base);
-      }
-    }
-  }
-
   &[data-variant="pill"][data-orientation="horizontal"][data-scope="filetree"] {
     [data-slot="tabs-list"] {
       height: 48px;
