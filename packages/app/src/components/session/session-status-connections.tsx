@@ -1,6 +1,8 @@
 import { For, Show, createEffect, createMemo, on, onCleanup, type Accessor, type JSX } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
+import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useServer, ServerConnection } from "@/context/server"
 import { useSync } from "@/context/sync"
@@ -57,6 +59,13 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
   const language = useLanguage()
   const server = useServer()
   const sync = useSync()
+  const dialog = useDialog()
+
+  const openServerPicker = () => {
+    void import("@/components/dialog-select-server").then((x) => {
+      dialog.show(() => <x.DialogSelectServer />)
+    })
+  }
 
   const checkServerHealth = useCheckServerHealth()
   const [health, setHealth] = createStore({} as Record<ServerConnection.Key, ServerHealth | undefined>)
@@ -288,6 +297,12 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
           </For>
         </Show>
       </SectionRow>
+
+      <div class="px-4 py-3">
+        <Button variant="secondary" class="h-8 px-3 py-1.5" onClick={openServerPicker}>
+          {language.t("status.popover.action.manageServers")}
+        </Button>
+      </div>
     </div>
   )
 }
