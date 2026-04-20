@@ -2,13 +2,40 @@ import { RGBA } from "@opentui/core"
 
 export type Colors = Awaited<ReturnType<typeof colors>>
 
+export type TerminalColorState = {
+  background: RGBA | null
+  foreground: RGBA | null
+  colors: RGBA[]
+}
+
+function parseHex(color: string): RGBA | null {
+  const value = color.slice(1)
+  if (value.length === 3) {
+    return RGBA.fromInts(
+      parseInt(value[0] + value[0], 16),
+      parseInt(value[1] + value[1], 16),
+      parseInt(value[2] + value[2], 16),
+      255,
+    )
+  }
+  if (value.length === 6) {
+    return RGBA.fromInts(
+      parseInt(value.slice(0, 2), 16),
+      parseInt(value.slice(2, 4), 16),
+      parseInt(value.slice(4, 6), 16),
+      255,
+    )
+  }
+  return null
+}
+
 function parse(color: string): RGBA | null {
   if (color.startsWith("rgb:")) {
     const parts = color.substring(4).split("/")
     return RGBA.fromInts(parseInt(parts[0], 16) >> 8, parseInt(parts[1], 16) >> 8, parseInt(parts[2], 16) >> 8, 255)
   }
   if (color.startsWith("#")) {
-    return RGBA.fromHex(color)
+    return parseHex(color)
   }
   if (color.startsWith("rgb(")) {
     const parts = color.substring(4, color.length - 1).split(",")
@@ -19,7 +46,7 @@ function parse(color: string): RGBA | null {
 
 function mode(bg: RGBA | null): "dark" | "light" {
   if (!bg) return "dark"
-  const luminance = (0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b) / 255
+  const luminance = 0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b
   return luminance > 0.5 ? "light" : "dark"
 }
 
@@ -27,6 +54,31 @@ export function backgroundModeFromResponse(buffer: string): "dark" | "light" | u
   const match = buffer.match(/\x1b]11;([^\x07\x1b]+)(?:\x07|\x1b\\)/)
   if (!match) return
   return mode(parse(match[1]))
+}
+
+const COLOR_RESPONSE = /\x1b](10|11|4);(?:(\d+);)?([^\x07\x1b]+)(?:\x07|\x1b\\)/g
+
+export function consumeColorResponseBuffer(buffer: string, state: TerminalColorState) {
+  let consumedUntil = 0
+
+  for (const match of buffer.matchAll(COLOR_RESPONSE)) {
+    const type = match[1]
+    const color = parse(match[3])
+    if (type === "10") {
+      state.foreground = color
+    }
+    if (type === "11") {
+      state.background = color
+    }
+    if (type === "4") {
+      const index = parseInt(match[2], 10)
+      if (color) state.colors[index] = color
+    }
+    const end = (match.index ?? 0) + match[0].length
+    if (end > consumedUntil) consumedUntil = end
+  }
+
+  return consumedUntil > 0 ? buffer.slice(consumedUntil) : buffer
 }
 
 /**
@@ -47,9 +99,12 @@ export async function colors(): Promise<{
   if (!process.stdin.isTTY) return { background: null, foreground: null, colors: [] }
 
   return new Promise((resolve) => {
-    let background: RGBA | null = null
-    let foreground: RGBA | null = null
-    const paletteColors: RGBA[] = []
+    const state: TerminalColorState = {
+      background: null,
+      foreground: null,
+      colors: [],
+    }
+    let buffer = ""
     let timeout: NodeJS.Timeout
 
     const cleanup = () => {
@@ -59,32 +114,13 @@ export async function colors(): Promise<{
     }
 
     const handler = (data: Buffer) => {
-      const str = data.toString()
-
-      // Match OSC 11 (background color)
-      const bgMatch = str.match(/\x1b]11;([^\x07\x1b]+)/)
-      if (bgMatch) {
-        background = parse(bgMatch[1])
-      }
-
-      // Match OSC 10 (foreground color)
-      const fgMatch = str.match(/\x1b]10;([^\x07\x1b]+)/)
-      if (fgMatch) {
-        foreground = parse(fgMatch[1])
-      }
-
-      // Match OSC 4 (palette colors)
-      const paletteMatches = str.matchAll(/\x1b]4;(\d+);([^\x07\x1b]+)/g)
-      for (const match of paletteMatches) {
-        const index = parseInt(match[1])
-        const color = parse(match[2])
-        if (color) paletteColors[index] = color
-      }
+      buffer += data.toString()
+      buffer = consumeColorResponseBuffer(buffer, state)
 
       // Return immediately if we have all 16 palette colors
-      if (paletteColors.filter((c) => c !== undefined).length === 16) {
+      if (state.colors.filter((c) => c !== undefined).length === 16) {
         cleanup()
-        resolve({ background, foreground, colors: paletteColors })
+        resolve({ background: state.background, foreground: state.foreground, colors: state.colors })
       }
     }
 
@@ -102,7 +138,7 @@ export async function colors(): Promise<{
 
     timeout = setTimeout(() => {
       cleanup()
-      resolve({ background, foreground, colors: paletteColors })
+      resolve({ background: state.background, foreground: state.foreground, colors: state.colors })
     }, 1000)
   })
 }
