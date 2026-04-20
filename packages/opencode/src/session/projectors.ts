@@ -1,9 +1,8 @@
 import { NotFoundError, eq, and } from "../storage/db"
 import { SyncEvent } from "@/sync"
-import { Session } from "./index"
+import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
-import { ProjectTable } from "../project/project.sql"
 import { Log } from "../util/log"
 
 const log = Log.create({ service: "session.projector" })
@@ -44,7 +43,6 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     slug: grab(info, "slug"),
     directory: grab(info, "directory"),
     title: grab(info, "title"),
-    skill: grab(info, "skill"),
     version: grab(info, "version"),
     share_url: grab(info, "share", (v) => grab(v, "url")),
     summary_additions: grab(info, "summary", (v) => grab(v, "additions")),

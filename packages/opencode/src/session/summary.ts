@@ -4,7 +4,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { Bus } from "@/bus"
 import { Snapshot } from "@/snapshot"
 import { Storage } from "@/storage/storage"
-import { Session } from "."
+import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
 
@@ -192,7 +192,7 @@ export namespace SessionSummary {
     }),
   )
 
-  export const defaultLayer = Layer.suspend(() =>
+  export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(() =>
     layer.pipe(
       Layer.provide(Session.defaultLayer),
       Layer.provide(Snapshot.defaultLayer),
