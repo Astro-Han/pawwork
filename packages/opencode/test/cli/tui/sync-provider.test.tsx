@@ -91,6 +91,7 @@ function createFetch(
   log: Hit[],
   options: {
     rejectPaths?: string[]
+    delays?: { path: string; workspace?: string; ms: number }[]
   } = {},
 ) {
   return Object.assign(
@@ -107,6 +108,11 @@ function createFetch(
         throw new Error(`forced fetch failure: ${url.pathname}`)
       }
 
+      const delay = options.delays?.find((item) => item.path === url.pathname && item.workspace === workspace)
+      if (delay) {
+        await Bun.sleep(delay.ms)
+      }
+
       if (url.pathname === "/config/providers") {
         return json({ providers: [], default: {} })
       }
@@ -120,7 +126,7 @@ function createFetch(
         return json([])
       }
       if (url.pathname === "/config") {
-        return json({})
+        return json({ workspaceTag: workspace ?? "root" })
       }
       if (url.pathname === "/project/current") {
         return json({ id: `proj-${workspace ?? "root"}` })
@@ -186,6 +192,7 @@ async function mount(
   log: Hit[],
   options: {
     rejectPaths?: string[]
+    delays?: { path: string; workspace?: string; ms: number }[]
   } = {},
 ) {
   let project!: ReturnType<typeof useProject>
@@ -312,14 +319,13 @@ describe("SyncProvider", () => {
     }
     process.on("unhandledRejection", onUnhandled)
 
-    const { app, project } = await mount(log)
+    const { app, project } = await mount(log, {
+      rejectPaths: ["/command"],
+    })
 
     try {
       await waitBoot(log)
       log.length = 0
-      project.workspace.sync = async () => {
-        throw new Error("workspace sync exploded")
-      }
       project.workspace.set("ws_a")
       await wait(() => log.some((item) => item.path === "/project/current" && item.workspace === "ws_a"))
       await Bun.sleep(50)
@@ -327,6 +333,30 @@ describe("SyncProvider", () => {
       expect(unhandled).toHaveLength(0)
     } finally {
       process.off("unhandledRejection", onUnhandled)
+      app.renderer.destroy()
+    }
+  })
+
+  test("ignores stale bootstrap responses after switching workspaces", async () => {
+    const log: Hit[] = []
+    const { app, project, sync } = await mount(log, {
+      delays: [{ path: "/config", workspace: "ws_a", ms: 150 }],
+    })
+
+    try {
+      await waitBoot(log)
+      log.length = 0
+
+      project.workspace.set("ws_a")
+      await wait(() => log.some((item) => item.path === "/project/current" && item.workspace === "ws_a"))
+      await Bun.sleep(20)
+
+      project.workspace.set("ws_b")
+      await wait(() => log.some((item) => item.path === "/project/current" && item.workspace === "ws_b"))
+      await Bun.sleep(220)
+
+      expect((sync.data.config as Record<string, unknown>).workspaceTag).toBe("ws_b")
+    } finally {
       app.renderer.destroy()
     }
   })

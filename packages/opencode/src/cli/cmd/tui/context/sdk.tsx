@@ -79,10 +79,27 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
         while (true) {
           if (abort.signal.aborted || ctrl.signal.aborted) break
 
-          const events = await sdk.global.event({
-            signal: ctrl.signal,
-            sseMaxRetryAttempts: 0,
-          })
+          let events: Awaited<ReturnType<typeof sdk.global.event>> | undefined
+          try {
+            events = await sdk.global.event({
+              signal: ctrl.signal,
+              sseMaxRetryAttempts: 0,
+            })
+          } catch {
+            attempt += 1
+            if (abort.signal.aborted || ctrl.signal.aborted) break
+            const backoff = Math.min(retryDelay * 2 ** (attempt - 1), maxRetryDelay)
+            await new Promise((resolve) => {
+              const timer = setTimeout(resolve, backoff)
+              const stop = () => {
+                clearTimeout(timer)
+                resolve(undefined)
+              }
+              abort.signal.addEventListener("abort", stop, { once: true })
+              ctrl.signal.addEventListener("abort", stop, { once: true })
+            })
+            continue
+          }
 
           for await (const event of events.stream) {
             if (ctrl.signal.aborted) break
@@ -96,7 +113,15 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
 
           // Exponential backoff
           const backoff = Math.min(retryDelay * 2 ** (attempt - 1), maxRetryDelay)
-          await new Promise((resolve) => setTimeout(resolve, backoff))
+          await new Promise((resolve) => {
+            const timer = setTimeout(resolve, backoff)
+            const stop = () => {
+              clearTimeout(timer)
+              resolve(undefined)
+            }
+            abort.signal.addEventListener("abort", stop, { once: true })
+            ctrl.signal.addEventListener("abort", stop, { once: true })
+          })
         }
       })().catch(() => {})
     }

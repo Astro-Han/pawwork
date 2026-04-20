@@ -353,8 +353,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
     const exit = useExit()
     const args = useArgs()
+    let bootstrapVersion = 0
 
     async function bootstrap(input: { fatal?: boolean } = {}) {
+      const version = ++bootstrapVersion
       const fatal = input.fatal ?? true
       const workspace = project.workspace.current()
       if (workspace !== syncedWorkspace) {
@@ -402,6 +404,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             configResponse,
             ...(sessionListResponse ? [sessionListResponse] : []),
           ]).then((responses) => {
+            if (version !== bootstrapVersion || workspace !== project.workspace.current()) return
             const providers = responses[0]
             const providerList = responses[1]
             const consoleState = responses[2]
@@ -421,6 +424,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           })
         })
         .then(() => {
+          if (version !== bootstrapVersion || workspace !== project.workspace.current()) return
           if (store.status !== "complete") setStore("status", "partial")
           // non-blocking
           void Promise.all([
@@ -440,6 +444,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             sdk.client.vcs.get({ workspace }).then((x) => setStore("vcs", reconcile(x.data))),
             project.workspace.sync(),
           ]).then(() => {
+            if (version !== bootstrapVersion || workspace !== project.workspace.current()) return
             setStore("status", "complete")
           }).catch((error) => {
             Log.Default.error("tui bootstrap non-blocking sync failed", {

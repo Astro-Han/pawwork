@@ -992,7 +992,6 @@ async function load(input: { api: Api; config: TuiConfig.Info }) {
     plugins_by_id: new Map(),
     pending: new Map(),
   }
-  runtime = next
   try {
     await Instance.provide({
       directory: cwd,
@@ -1030,6 +1029,7 @@ async function load(input: { api: Api; config: TuiConfig.Info }) {
         }
       },
     })
+    runtime = next
   } catch (error) {
     fail("failed to load tui plugins", { directory: cwd, error })
   }

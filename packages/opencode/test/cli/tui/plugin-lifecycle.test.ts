@@ -5,6 +5,7 @@ import { pathToFileURL } from "url"
 import { tmpdir } from "../../fixture/fixture"
 import { createTuiPluginApi } from "../../fixture/tui-plugin"
 import { mockTuiRuntime } from "./_mock-tui-runtime"
+import { Instance } from "../../../src/project/instance"
 
 const { TuiPluginRuntime } = await import("../../../src/cli/cmd/tui/plugin/runtime")
 
@@ -235,5 +236,22 @@ test("restores previous plugin meta env after mock runtime cleanup", () => {
   } finally {
     if (previous === undefined) delete process.env.OPENCODE_PLUGIN_META_FILE
     else process.env.OPENCODE_PLUGIN_META_FILE = previous
+  }
+})
+
+test("does not expose a partial runtime when init fails before load completes", async () => {
+  const provide = spyOn(Instance, "provide").mockRejectedValue(new Error("load exploded"))
+  const err = spyOn(console, "error").mockImplementation(() => {})
+  const cwd = spyOn(process, "cwd").mockImplementation(() => "/tmp/runtime")
+
+  try {
+    await expect(TuiPluginRuntime.init({ api: createTuiPluginApi(), config: {} as any })).resolves.toBeUndefined()
+    expect(TuiPluginRuntime.list()).toEqual([])
+    expect(err).toHaveBeenCalled()
+  } finally {
+    await TuiPluginRuntime.dispose().catch(() => {})
+    provide.mockRestore()
+    err.mockRestore()
+    cwd.mockRestore()
   }
 })
