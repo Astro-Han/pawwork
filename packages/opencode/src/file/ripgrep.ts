@@ -21,6 +21,17 @@ import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 import { Log } from "@/util/log"
 
 export namespace Ripgrep {
+  type SearchItems = z.infer<typeof Match.shape.data>[]
+  type SearchResultJson = {
+    items: SearchItems
+    partial: boolean
+  }
+  type SearchResult = SearchItems & {
+    items: SearchItems
+    partial: boolean
+    toJSON: () => SearchResultJson
+  }
+
   const log = Log.create({ service: "ripgrep" })
   const Stats = z.object({
     elapsed: z.object({
@@ -225,6 +236,17 @@ export namespace Ripgrep {
     } satisfies NodeJS.ProcessEnv
   }
 
+  function searchResult(items: SearchItems, partial: boolean): SearchResult {
+    return Object.assign(items, {
+      items,
+      partial,
+      toJSON: () => ({
+        items: [...items],
+        partial,
+      }),
+    })
+  }
+
   export async function* files(input: {
     cwd: string
     glob?: string[]
@@ -417,7 +439,7 @@ export namespace Ripgrep {
       nothrow: true,
     })
     if (result.code === 1) {
-      return []
+      return searchResult([], false)
     }
 
     if (result.code !== 0 && result.code !== 2) {
@@ -432,10 +454,13 @@ export namespace Ripgrep {
     const lines = result.text.trim().split(/\r?\n/).filter(Boolean)
     // Parse JSON lines from ripgrep output
 
-    return lines
-      .map((line) => JSON.parse(line))
-      .map((parsed) => Result.parse(parsed))
-      .filter((r) => r.type === "match")
-      .map((r) => r.data)
+    return searchResult(
+      lines
+        .map((line) => JSON.parse(line))
+        .map((parsed) => Result.parse(parsed))
+        .filter((r) => r.type === "match")
+        .map((r) => r.data),
+      result.code === 2,
+    )
   }
 }

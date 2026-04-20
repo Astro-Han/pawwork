@@ -64,12 +64,13 @@ describe("file.ripgrep", () => {
       },
     })
 
-    const hits = await Ripgrep.search({
+    const result = await Ripgrep.search({
       cwd: tmp.path,
       pattern: "needle",
     })
 
-    expect(hits).toEqual([])
+    expect(result.partial).toBe(false)
+    expect(result.items).toEqual([])
   })
 
   test("files throws when ripgrep exits with an invalid glob error", async () => {
@@ -105,13 +106,18 @@ describe("file.ripgrep", () => {
     await fs.chmod(blocked, 0o000)
 
     try {
-      const hits = await Ripgrep.search({
+      const result = await Ripgrep.search({
         cwd: tmp.path,
         pattern: "needle",
       })
 
-      expect(hits.length).toBeGreaterThan(0)
-      expect(hits.some((hit) => hit.path.text === "match.ts")).toBe(true)
+      expect(result.partial).toBe(true)
+      expect(result.items.length).toBeGreaterThan(0)
+      expect(result.items.some((hit) => hit.path.text === "match.ts")).toBe(true)
+      expect(JSON.parse(JSON.stringify(result))).toEqual({
+        items: result.items,
+        partial: true,
+      })
     } finally {
       await fs.chmod(blocked, 0o755)
     }
@@ -138,12 +144,13 @@ describe("file.ripgrep", () => {
     })
 
     await withRipgrepConfig("--glob=!*.ts\n", async () => {
-      const hits = await Ripgrep.search({
+      const result = await Ripgrep.search({
         cwd: tmp.path,
         pattern: "needle",
       })
 
-      expect(hits.some((hit) => hit.path.text === "match.ts")).toBe(true)
+      expect(result.partial).toBe(false)
+      expect(result.items.some((hit) => hit.path.text === "match.ts")).toBe(true)
     })
   })
 })

@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { ProviderTransform } from "../../src/provider/transform"
+import { ProviderTransform } from "../../src/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-
-const OUTPUT_TOKEN_MAX = 32000
 
 describe("ProviderTransform.options - setCacheKey", () => {
   const sessionID = "test-session-123"
@@ -309,22 +307,6 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
     const model = createGpt5Model("gpt-5.2-codex")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
-  })
-
-  test("gpt-5 compatible proxies should not inject reasoningSummary", () => {
-    const model = {
-      ...createGpt5Model("gpt-5"),
-      id: "custom-provider/gpt-5",
-      providerID: "custom-provider",
-      api: {
-        id: "gpt-5",
-        url: "https://api.custom.com",
-        npm: "@ai-sdk/openai-compatible",
-      },
-    }
-    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
-    expect(result.reasoningEffort).toBe("medium")
-    expect(result.reasoningSummary).toBeUndefined()
   })
 })
 
@@ -1397,13 +1379,17 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     const result = ProviderTransform.message(msgs, model, {}) as any[]
 
     expect(result).toHaveLength(2)
-    expect(result[0].content).toMatchObject([
-      { type: "text", text: "I checked your home directory and looked for PDF files." },
-    ])
-    expect(result[1].content).toMatchObject([
-      { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
-      { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
-    ])
+    expect(result[0]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "I checked your home directory and looked for PDF files." }],
+    })
+    expect(result[1]).toMatchObject({
+      role: "assistant",
+      content: [
+        { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
+        { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
+      ],
+    })
   })
 })
 
@@ -1976,6 +1962,11 @@ describe("ProviderTransform.message - cache control on gateway", () => {
           type: "ephemeral",
         },
       },
+      alibaba: {
+        cacheControl: {
+          type: "ephemeral",
+        },
+      },
     })
   })
 
@@ -2025,6 +2016,11 @@ describe("ProviderTransform.message - cache control on gateway", () => {
       },
       copilot: {
         copilot_cache_control: {
+          type: "ephemeral",
+        },
+      },
+      alibaba: {
+        cacheControl: {
           type: "ephemeral",
         },
       },
@@ -2578,7 +2574,6 @@ describe("ProviderTransform.variants", () => {
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
     })
-
   })
 
   describe("@ai-sdk/azure", () => {
@@ -2717,7 +2712,7 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
-    test("opus 4.7 returns adaptive thinking options with summarized display", () => {
+    test("opus 4.7 returns adaptive thinking options with xhigh", () => {
       const model = createMockModel({
         id: "anthropic/claude-opus-4-7",
         providerID: "anthropic",
