@@ -365,6 +365,65 @@ test("getModel returns model for valid provider/model", async () => {
   })
 })
 
+test("opencode e2e env routes getLanguage through the test llm url", async () => {
+  const e2eURL = "http://127.0.0.1:4010/v1"
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("OPENCODE_E2E_LLM_URL", e2eURL)
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.make("opencode"), ModelID.make("gpt-5-nano"))
+      const language = await getLanguage(model)
+
+      expect(language.modelId).toBe("gpt-5-nano")
+      expect((language as any).config.url({ modelId: language.modelId, path: "/chat/completions" })).toBe(
+        `${e2eURL}/chat/completions`,
+      )
+    },
+  })
+})
+
+test("non-opencode models ignore the opencode e2e llm url override", async () => {
+  const e2eURL = "http://127.0.0.1:4010/v1"
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-api-key")
+      set("OPENCODE_E2E_LLM_URL", e2eURL)
+    },
+    fn: async () => {
+      const model = await getModel(ProviderID.anthropic, ModelID.make("claude-sonnet-4-20250514"))
+      const language = await getLanguage(model)
+
+      expect(language.modelId).toBe("claude-sonnet-4-20250514")
+      expect(language.provider).toBe("anthropic")
+    },
+  })
+})
+
 test("getModel throws ModelNotFoundError for invalid model", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

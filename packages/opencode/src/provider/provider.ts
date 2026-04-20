@@ -39,6 +39,12 @@ function shouldUseCopilotResponsesApi(modelID: string): boolean {
   return Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")
 }
 
+function e2eLLMURL(envs: Record<string, string | undefined>) {
+  const url = envs.OPENCODE_E2E_LLM_URL
+  if (typeof url !== "string" || url === "") return
+  return url
+}
+
 function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   if (typeof ms !== "number" || ms <= 0) return res
   if (!res.body) return res
@@ -89,6 +95,7 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
 
 type BundledSDK = {
   languageModel(modelId: string): LanguageModelV3
+  chatModel?(modelId: string): LanguageModelV3
 }
 
 const BUNDLED_PROVIDERS: Record<string, () => Promise<(opts: any) => BundledSDK>> = {
@@ -1544,6 +1551,19 @@ const layer: Layer.Layer<
       if (s.models.has(key)) return s.models.get(key)!
 
       return yield* Effect.promise(async () => {
+        const e2eURL = e2eLLMURL(envs)
+        if (e2eURL && model.providerID === "opencode") {
+          const createOpenAICompatible = await BUNDLED_PROVIDERS["@ai-sdk/openai-compatible"]()
+          const sdk = createOpenAICompatible({
+            name: model.providerID,
+            apiKey: "test-key",
+            baseURL: e2eURL,
+          })
+          const language = sdk.chatModel ? sdk.chatModel(model.api.id) : sdk.languageModel(model.api.id)
+          s.models.set(key, language)
+          return language
+        }
+
         const provider = s.providers[model.providerID]
         const sdk = await resolveSDK(model, s, envs)
 
