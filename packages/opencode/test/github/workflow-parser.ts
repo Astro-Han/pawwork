@@ -19,6 +19,7 @@ export type WorkflowJob = {
   outputs?: Record<string, string>
   permissions?: Record<string, string>
   steps?: WorkflowStep[]
+  "timeout-minutes"?: number
 }
 
 export type Workflow = {
