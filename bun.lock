@@ -124,7 +124,7 @@
     },
     "packages/function": {
       "name": "@opencode-ai/function",
-      "version": "0.2.2",
+      "version": "1.4.11",
       "dependencies": {
         "@octokit/auth-app": "8.0.1",
         "@octokit/rest": "catalog:",
@@ -280,23 +280,23 @@
     },
     "packages/plugin": {
       "name": "@opencode-ai/plugin",
-      "version": "0.2.2",
+      "version": "1.4.11",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
         "effect": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@opentui/core": "0.1.97",
-        "@opentui/solid": "0.1.97",
+        "@opentui/core": "catalog:",
+        "@opentui/solid": "catalog:",
         "@tsconfig/node22": "catalog:",
         "@types/node": "catalog:",
         "@typescript/native-preview": "catalog:",
         "typescript": "catalog:",
       },
       "peerDependencies": {
-        "@opentui/core": ">=0.1.97",
-        "@opentui/solid": ">=0.1.97",
+        "@opentui/core": ">=0.1.100",
+        "@opentui/solid": ">=0.1.100",
       },
       "optionalPeers": [
         "@opentui/core",
@@ -315,7 +315,7 @@
     },
     "packages/sdk/js": {
       "name": "@opencode-ai/sdk",
-      "version": "0.2.2",
+      "version": "1.4.11",
       "dependencies": {
         "cross-spawn": "catalog:",
       },
@@ -426,6 +426,8 @@
     "@lydell/node-pty": "1.2.0-beta.10",
     "@octokit/rest": "22.0.0",
     "@openauthjs/openauth": "0.0.0-20250322224806",
+    "@opentui/core": "0.1.97",
+    "@opentui/solid": "0.1.97",
     "@pierre/diffs": "1.1.0-beta.18",
     "@playwright/test": "1.51.0",
     "@solid-primitives/storage": "4.3.3",
