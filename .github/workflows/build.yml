@@ -163,12 +163,12 @@ jobs:
           SOURCE_WORKFLOW_SHA: ${{ inputs.source_workflow_sha }}
           SUBMISSION_ID: ${{ inputs.submission_id }}
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         if: ${{ inputs.phase != 'finalize' }}
         with:
           persist-credentials: false
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         if: ${{ inputs.phase == 'finalize' }}
         with:
           persist-credentials: false
@@ -277,7 +277,7 @@ jobs:
 
       - name: Upload signed app artifact
         if: ${{ runner.os == 'macOS' && inputs.phase == 'submit' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: pawwork-signed-app-${{ inputs.channel || 'dev' }}-${{ matrix.arch_label }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -639,7 +639,7 @@ jobs:
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}
         with:
           name: pawwork-${{ runner.os }}-${{ matrix.arch_label }}
