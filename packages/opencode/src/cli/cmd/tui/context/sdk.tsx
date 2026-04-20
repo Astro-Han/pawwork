@@ -8,6 +8,23 @@ export type EventSource = {
   subscribe: (handler: (event: GlobalEvent) => void) => Promise<() => void>
 }
 
+export function sleepWithAbort(ms: number, signals: AbortSignal[]) {
+  return new Promise<void>((resolve) => {
+    let timer: ReturnType<typeof setTimeout>
+    const stop = () => {
+      clearTimeout(timer)
+      for (const signal of signals) {
+        signal.removeEventListener("abort", stop)
+      }
+      resolve()
+    }
+    timer = setTimeout(stop, ms)
+    for (const signal of signals) {
+      signal.addEventListener("abort", stop, { once: true })
+    }
+  })
+}
+
 export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
   name: "SDK",
   init: (props: {
@@ -85,19 +102,12 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
               signal: ctrl.signal,
               sseMaxRetryAttempts: 0,
             })
+            attempt = 0
           } catch {
             attempt += 1
             if (abort.signal.aborted || ctrl.signal.aborted) break
             const backoff = Math.min(retryDelay * 2 ** (attempt - 1), maxRetryDelay)
-            await new Promise((resolve) => {
-              const timer = setTimeout(resolve, backoff)
-              const stop = () => {
-                clearTimeout(timer)
-                resolve(undefined)
-              }
-              abort.signal.addEventListener("abort", stop, { once: true })
-              ctrl.signal.addEventListener("abort", stop, { once: true })
-            })
+            await sleepWithAbort(backoff, [abort.signal, ctrl.signal])
             continue
           }
 
@@ -113,15 +123,7 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
 
           // Exponential backoff
           const backoff = Math.min(retryDelay * 2 ** (attempt - 1), maxRetryDelay)
-          await new Promise((resolve) => {
-            const timer = setTimeout(resolve, backoff)
-            const stop = () => {
-              clearTimeout(timer)
-              resolve(undefined)
-            }
-            abort.signal.addEventListener("abort", stop, { once: true })
-            ctrl.signal.addEventListener("abort", stop, { once: true })
-          })
+          await sleepWithAbort(backoff, [abort.signal, ctrl.signal])
         }
       })().catch(() => {})
     }
