@@ -1,0 +1,31 @@
+# Advisory check: lint commit messages on the PR against Conventional
+# Commits. Pairs with pr-title-lint.yml -- catches intermediate commits
+# that the PR title check cannot see. Not required in the `dev`
+# ruleset. (#69)
+name: commit-lint
+
+on:
+  pull_request:
+    branches: [dev]
+
+concurrency:
+  group: commit-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint-commits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: wagoid/commitlint-github-action@6cf16efdf4da5277c791d335142c03a0bdf1766e # wagoid/commitlint-github-action@v6.2.1
+        with:
+          configFile: .commitlintrc.json

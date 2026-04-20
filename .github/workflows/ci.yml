@@ -96,6 +96,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # Load-bearing: `bun install` runs `trustedDependencies`
+      # postinstalls from the root package.json (electron, node-pty,
+      # esbuild, tree-sitter at time of writing), which call `node`
+      # explicitly. Do not drop without first patching those scripts.
+      # Source of truth: grep `trustedDependencies` in package.json. (#70)
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # actions/setup-node@v6.3.0
         with:
           node-version: "24"
@@ -137,6 +142,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # Load-bearing: `bun install` runs `trustedDependencies`
+      # postinstalls from the root package.json (electron, node-pty,
+      # esbuild, tree-sitter at time of writing), which call `node`
+      # explicitly. Do not drop without first patching those scripts.
+      # Source of truth: grep `trustedDependencies` in package.json. (#70)
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # actions/setup-node@v6.3.0
         with:
           node-version: "24"
