@@ -10,7 +10,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/app/home.spec.ts:@smoke root route renders seeded home entrypoints",
   "packages/app/e2e/app/navigation.spec.ts:@smoke project route redirects to /session",
   "packages/app/e2e/app/shell-frame.spec.ts:@smoke shell frame exposes stable desktop hooks",
-  "packages/app/e2e/files/file-tree.spec.ts:@smoke review keeps the persistent file-tree pane for review navigation",
+  "packages/app/e2e/files/file-tree.spec.ts:@smoke review tab no longer renders the legacy file-tree sub-panel",
   "packages/app/e2e/prompt/first-message-reply.spec.ts:@smoke first replied message in a new session renders without page errors",
   "packages/app/e2e/prompt/prompt.spec.ts:@smoke can send a prompt and receive a reply",
   "packages/app/e2e/settings/settings.spec.ts:@smoke PawWork settings opens as a full-pane surface, not a dialog",

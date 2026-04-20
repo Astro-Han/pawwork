@@ -30,7 +30,10 @@ test("@smoke review tab no longer renders the legacy file-tree sub-panel", async
     await expect(page.locator("#file-tree-panel")).toHaveCount(0)
 
     // The Review tab content area still renders (empty state is fine when no diffs).
-    const reviewContent = rightPanel.getByRole("tabpanel").first()
-    await expect(reviewContent).toBeVisible()
+    // The right panel has nested Tabs, so locate the panel via the tab's aria-controls
+    // rather than .first() ordering.
+    const reviewPanelId = await reviewTab.getAttribute("aria-controls")
+    expect(reviewPanelId).toBeTruthy()
+    await expect(page.locator(`#${reviewPanelId}`)).toBeVisible()
   })
 })
