@@ -27,7 +27,7 @@ export type ProviderContext = {
 export type WorkspaceInfo = {
   id: string
   type: string
-  name: string | null
+  name: string
   branch: string | null
   directory: string | null
   extra: unknown | null
@@ -303,6 +303,17 @@ export interface Hooks {
   "experimental.session.compacting"?: (
     input: { sessionID: string },
     output: { context: string[]; prompt?: string },
+  ) => Promise<void>
+  "experimental.compaction.autocontinue"?: (
+    input: {
+      sessionID: string
+      agent: string
+      model: Model
+      provider: ProviderContext
+      message: UserMessage
+      overflow: boolean
+    },
+    output: { enabled: boolean },
   ) => Promise<void>
   "experimental.text.complete"?: (
     input: { sessionID: string; messageID: string; partID: string },
