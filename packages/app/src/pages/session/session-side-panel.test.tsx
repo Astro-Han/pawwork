@@ -37,7 +37,7 @@ beforeAll(async () => {
     SortableTab: () => null,
     FileVisual: () => null,
   }))
-  mock.module("@/components/status-panel", () => ({ StatusPanel: () => null }))
+  mock.module("@/components/session/session-status-panel", () => ({ SessionStatusPanel: () => null }))
   mock.module("@/context/command", () => ({ useCommand: () => ({ keybind: () => "" }) }))
   mock.module("@/context/file", () => ({
     useFile: () => ({

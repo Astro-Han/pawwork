@@ -15,7 +15,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { SessionContextTab, SortableTab, FileVisual } from "@/components/session"
-import { StatusPanel } from "@/components/status-panel"
+import { SessionStatusPanel } from "@/components/session/session-status-panel"
 import { useCommand } from "@/context/command"
 import { useFile, type SelectedLineRange } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -269,7 +269,7 @@ export function SessionSidePanel(props: {
             </Tabs.List>
 
             <Tabs.Content value="status" class="min-h-0 flex-1 overflow-hidden">
-              <StatusPanel shown={open} />
+              <SessionStatusPanel shown={open} />
             </Tabs.Content>
 
             <Tabs.Content value="files" class="min-h-0 flex-1 overflow-hidden">
