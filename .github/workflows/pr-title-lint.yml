@@ -1,0 +1,48 @@
+# Advisory check: lint PR titles against Conventional Commits. Catches
+# drift early so PR titles read consistently in listings and serve as a
+# well-formed subject when a PR is squash-merged (this repo normally
+# uses merge commits, so the PR title is not the commit subject on
+# `dev`, but the convention still matters for review hygiene). Not
+# required in the `dev` ruleset -- failures flag the PR but do not
+# block merge. Draft PRs with `WIP:` prefix are skipped. (#68)
+name: pr-title-lint
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, ready_for_review]
+    branches: [dev]
+
+concurrency:
+  group: pr-title-lint-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint-pr-title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # amannn/action-semantic-pull-request@v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            refactor
+            docs
+            chore
+            ci
+            build
+            perf
+            test
+            style
+            revert
+          requireScope: false
+          subjectPattern: ^\S.{2,}$
+          subjectPatternError: |
+            The subject after `type:` must be at least 3 characters and start with a non-space character.
+          wip: true
