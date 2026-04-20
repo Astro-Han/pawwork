@@ -696,6 +696,9 @@ export const dict = {
   "sidebar.project.clearNotifications": "Clear notifications",
   "sidebar.empty.title": "No projects open",
   "sidebar.empty.description": "Open a project to get started",
+  "sidebar.pawwork.search": "Search sessions",
+  "sidebar.pawwork.empty.description": "Open a project to start using the session-first sidebar.",
+  "sidebar.pawwork.empty.sessions": "No sessions yet. Start a new one to begin.",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",

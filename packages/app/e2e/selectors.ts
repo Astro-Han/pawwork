@@ -31,6 +31,9 @@ export const titlebarLeftSelector = "#opencode-titlebar-left"
 export const titlebarCenterSelector = "#opencode-titlebar-center"
 
 const sidebarNavSelector = '[data-component="sidebar-nav-desktop"]'
+export const pawworkSidebarSelector = `${sidebarNavSelector} [data-component="pawwork-sidebar"]`
+export const pawworkSessionNewSelector = `${sidebarNavSelector} [data-action="pawwork-session-new"]`
+export const pawworkSessionSearchSelector = `${sidebarNavSelector} [data-action="pawwork-session-search"]`
 
 export const projectSwitchSelector = (slug: string) =>
   `${sidebarNavSelector} [data-action="project-switch"][data-project="${slug}"]`

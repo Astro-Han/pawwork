@@ -86,6 +86,7 @@ import {
   WorkspaceDragOverlay,
   type WorkspaceSidebarContext,
 } from "./layout/sidebar-workspace"
+import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
 
@@ -668,6 +669,31 @@ export default function Layout(props: ParentProps) {
       const dirSessions = sortedRootSessions(dirStore, now)
       result.push(...dirSessions)
     }
+    return result
+  })
+
+  const pawworkSessions = createMemo(() => {
+    const now = Date.now()
+    const seen = new Set<string>()
+    const result: PawworkSidebarSession[] = []
+
+    for (const project of layout.projects.list()) {
+      for (const directory of workspaceIds(project)) {
+        const key = workspaceKey(directory)
+        if (seen.has(key)) continue
+        seen.add(key)
+
+        const [dirStore] = globalSync.child(directory, { bootstrap: true })
+        for (const session of sortedRootSessions(dirStore, now)) {
+          result.push({
+            session,
+            slug: base64Encode(session.directory),
+            projectLabel: displayName(project),
+          })
+        }
+      }
+    }
+
     return result
   })
 
@@ -1363,6 +1389,15 @@ export default function Layout(props: ParentProps) {
   function navigateToSession(session: Session | undefined) {
     if (!session) return
     navigateWithSidebarReset(`/${base64Encode(session.directory)}/session/${session.id}`)
+  }
+
+  function openPawworkHome(directory?: string) {
+    const root = directory ? projectRoot(directory) : currentProject()?.worktree ?? projectRoot(currentDir())
+    if (!root) {
+      chooseProject()
+      return
+    }
+    navigateWithSidebarReset(`/${base64Encode(root)}/session`)
   }
 
   function openProject(directory: string, navigate = true) {
@@ -2338,6 +2373,20 @@ export default function Layout(props: ParentProps) {
 
   const projects = () => layout.projects.list()
   const projectOverlay = () => <ProjectDragOverlay projects={projects} activeProject={() => store.activeProject} />
+  const renderPawworkPanel = (mobile?: boolean, directory?: string) => (
+    <PawworkSidebar
+      mobile={mobile}
+      sessions={pawworkSessions}
+      showProjectEmptyState={projects().length === 0}
+      sidebarExpanded={sidebarExpanded}
+      clearHoverProjectSoon={clearHoverProjectSoon}
+      prefetchSession={prefetchSession}
+      archiveSession={archiveSession}
+      onNew={() => openPawworkHome(directory)}
+      onSearch={() => command.show()}
+      onOpenProject={chooseProject}
+    />
+  )
   const sidebarContent = (mobile?: boolean) => (
     <SidebarContent
       mobile={mobile}
@@ -2359,9 +2408,7 @@ export default function Layout(props: ParentProps) {
       onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
       onOpenHelp={() => platform.openLink("https://github.com/Astro-Han/pawwork/issues")}
-      renderPanel={() =>
-        mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
-      }
+      renderPanel={() => renderPawworkPanel(mobile, currentProject()?.worktree)}
     />
   )
 
@@ -2512,7 +2559,7 @@ export default function Layout(props: ParentProps) {
                 }}
               >
                 <Show when={peekProject()}>
-                  <SidebarPanel project={peekProject} merged={false} />
+                  {(project) => renderPawworkPanel(false, project().worktree)}
                 </Show>
               </div>
 
