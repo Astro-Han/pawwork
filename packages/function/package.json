@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
-    "@tsconfig/node22": "22.0.2",
+    "@tsconfig/node22": "22.0.5",
     "@types/node": "catalog:",
     "typescript": "catalog:"
   },
