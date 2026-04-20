@@ -6,6 +6,27 @@ import { Installation } from "@/installation"
 import { win32FlushInputBuffer } from "../win32"
 import { getScrollAcceleration } from "../util/scroll"
 
+export async function performFatalExit(input: {
+  renderer: {
+    setTerminalTitle: (title: string) => void
+    destroy: () => void
+  }
+  onBeforeExit?: () => Promise<void>
+  onExit: () => Promise<void>
+  flushInput?: () => void
+}) {
+  try {
+    await input.onBeforeExit?.()
+  } catch {}
+
+  try {
+    input.renderer.setTerminalTitle("")
+    input.renderer.destroy()
+    input.flushInput?.()
+    await input.onExit()
+  } catch {}
+}
+
 export function ErrorComponent(props: {
   error: Error
   reset: () => void
@@ -16,17 +37,18 @@ export function ErrorComponent(props: {
   const term = useTerminalDimensions()
   const renderer = useRenderer()
 
-  const handleExit = async () => {
-    await props.onBeforeExit?.()
-    renderer.setTerminalTitle("")
-    renderer.destroy()
-    win32FlushInputBuffer()
-    await props.onExit()
+  const handleExit = () => {
+    void performFatalExit({
+      renderer,
+      onBeforeExit: props.onBeforeExit,
+      onExit: props.onExit,
+      flushInput: win32FlushInputBuffer,
+    })
   }
 
   useKeyboard((evt) => {
     if (evt.ctrl && evt.name === "c") {
-      void handleExit()
+      handleExit()
     }
   })
   const [copied, setCopied] = createSignal(false)
