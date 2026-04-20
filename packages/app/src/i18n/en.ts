@@ -620,6 +620,17 @@ export const dict = {
   "status.popover.tab.plugins": "Plugins",
   "status.popover.action.manageServers": "Manage servers",
 
+  "status.summary.progress": "Progress",
+  "status.summary.progress.empty": "No todos yet.",
+  "status.summary.sources": "Sources",
+  "status.summary.sources.empty": "No sources used yet.",
+  "status.connections.title": "Connections",
+  "status.connections.empty": "None configured.",
+  "status.connections.state.disabled": "disabled",
+  "status.connections.state.failed": "failed",
+  "status.connections.state.needs_auth": "needs auth",
+  "status.connections.state.needs_client_registration": "needs registration",
+
   "session.share.popover.title": "Publish on web",
   "session.share.popover.description.shared":
     "This session is public on the web. It is accessible to anyone with the link.",

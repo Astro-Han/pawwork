@@ -11,7 +11,11 @@ import { useTerminal, type LocalPTY } from "@/context/terminal"
 import { useLanguage } from "@/context/language"
 import { focusTerminalById } from "@/pages/session/helpers"
 
-export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () => void }): JSX.Element {
+export function SortableTerminalTab(props: {
+  terminal: LocalPTY
+  onClose?: () => void
+  totalCount: number
+}): JSX.Element {
   const terminal = useTerminal()
   const language = useLanguage()
   const sortable = createSortable(props.terminal.id)
@@ -132,15 +136,17 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
             button: "border-0 outline-none focus:outline-none focus-visible:outline-none !shadow-none !ring-0",
           }}
           closeButton={
-            <IconButton
-              icon="close"
-              variant="ghost"
-              onClick={(e) => {
-                e.stopPropagation()
-                close()
-              }}
-              aria-label={language.t("terminal.close")}
-            />
+            props.totalCount > 1 ? (
+              <IconButton
+                icon="close"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  close()
+                }}
+                aria-label={language.t("terminal.close")}
+              />
+            ) : undefined
           }
         >
           <span onDblClick={edit} classList={{ invisible: store.editing }}>
@@ -180,10 +186,12 @@ export function SortableTerminalTab(props: { terminal: LocalPTY; onClose?: () =>
                 <Icon name="edit" class="w-4 h-4 mr-2" />
                 {language.t("common.rename")}
               </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={close}>
-                <Icon name="close" class="w-4 h-4 mr-2" />
-                {language.t("common.close")}
-              </DropdownMenu.Item>
+              <Show when={props.totalCount > 1}>
+                <DropdownMenu.Item onSelect={close}>
+                  <Icon name="close" class="w-4 h-4 mr-2" />
+                  {language.t("common.close")}
+                </DropdownMenu.Item>
+              </Show>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu>

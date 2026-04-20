@@ -31,14 +31,13 @@ beforeAll(async () => {
     getDraggableId: () => undefined,
   }))
   mock.module("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ show: () => undefined }) }))
-  mock.module("@/components/file-tree", () => ({ default: () => null }))
   mock.module("@/components/session-context-usage", () => ({ SessionContextUsage: () => null }))
   mock.module("@/components/session", () => ({
     SessionContextTab: () => null,
     SortableTab: () => null,
     FileVisual: () => null,
   }))
-  mock.module("@/components/status-panel", () => ({ StatusPanel: () => null }))
+  mock.module("@/components/session/session-status-panel", () => ({ SessionStatusPanel: () => null }))
   mock.module("@/context/command", () => ({ useCommand: () => ({ keybind: () => "" }) }))
   mock.module("@/context/file", () => ({
     useFile: () => ({

@@ -563,6 +563,17 @@ export const dict = {
   "status.popover.tab.plugins": "外掛程式",
   "status.popover.action.manageServers": "管理伺服器",
 
+  "status.summary.progress": "進度",
+  "status.summary.progress.empty": "尚無待辦事項。",
+  "status.summary.sources": "來源",
+  "status.summary.sources.empty": "尚未使用任何來源。",
+  "status.connections.title": "連線",
+  "status.connections.empty": "尚未設定。",
+  "status.connections.state.disabled": "已停用",
+  "status.connections.state.failed": "已失敗",
+  "status.connections.state.needs_auth": "需要授權",
+  "status.connections.state.needs_client_registration": "需要註冊",
+
   "session.share.popover.title": "發佈到網頁",
   "session.share.popover.description.shared": "此工作階段已在網頁上公開。任何擁有連結的人都可以存取。",
   "session.share.popover.description.unshared": "在網頁上公開分享此工作階段。任何擁有連結的人都可以存取。",
