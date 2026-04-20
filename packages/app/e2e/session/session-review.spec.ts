@@ -41,6 +41,10 @@ function edit(file: string, prev: string, next: string) {
   )
 }
 
+function remove(file: string) {
+  return ["*** Begin Patch", `*** Delete File: ${file}`, "*** End Patch"].join("\n")
+}
+
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
@@ -323,6 +327,35 @@ test("review keeps added files actionable in the review list", async ({ page, ll
     const row = page.locator(`[data-file="${file}"]`).first()
     await expect(row).toBeVisible()
     await expect(row.getByRole("button", { name: /^Open file$/i }).first()).toBeVisible()
+  })
+})
+
+test("review hides open-file actions for deleted files", async ({ page, llm, project }) => {
+  test.setTimeout(180_000)
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+
+  await project.open()
+  await withSession(project.sdk, `e2e review deleted file ${Date.now()}`, async (session) => {
+    project.trackSession(session.id)
+    await patchWithMock(llm, project.sdk, session.id, remove("README.md"))
+
+    await expect
+      .poll(
+        async () => {
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          return diff.length
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(1)
+
+    await project.gotoSession(session.id)
+    await show(page)
+
+    const row = page.locator('[data-file="README.md"]').first()
+    await expect(row).toBeVisible()
+    await expect(row.getByRole("button", { name: /^Open file$/i })).toHaveCount(0)
   })
 })
 
