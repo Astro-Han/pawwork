@@ -288,7 +288,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               const dir = typeof raw === "string" ? raw : ""
               return {
                 icon: "→",
-                title: `List ${normalizePath(dir)}`,
+                title: `List ${normalizePath(dir) || "/"}`,
                 body: (
                   <Show when={dir}>
                     <box paddingLeft={1}>
