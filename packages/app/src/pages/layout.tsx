@@ -80,6 +80,7 @@ import {
   drainPendingDeepLinks,
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
+import { resolvePawworkProjectLabels, sortPawworkSidebarSessions } from "./layout/pawwork-session-source"
 import {
   LocalWorkspace,
   SortableWorkspace,
@@ -676,6 +677,7 @@ export default function Layout(props: ParentProps) {
     const now = Date.now()
     const seen = new Set<string>()
     const result: PawworkSidebarSession[] = []
+    const labels = resolvePawworkProjectLabels(projects, globalSync.data.path.home)
 
     for (const project of projects) {
       for (const directory of workspaceIds(project)) {
@@ -688,14 +690,14 @@ export default function Layout(props: ParentProps) {
           result.push({
             session,
             slug: base64Encode(session.directory),
-            projectLabel: displayName(project),
+            projectLabel: labels.get(project.worktree) ?? displayName(project),
             updated: session.time?.updated ?? session.time?.created ?? 0,
           })
         }
       }
     }
 
-    return result.sort((a, b) => b.updated - a.updated || a.projectLabel.localeCompare(b.projectLabel) || a.session.id.localeCompare(b.session.id))
+    return sortPawworkSidebarSessions(result.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
   }
 
   const pawworkSessions = createMemo(() => collectPawworkSessions(layout.projects.list()))
