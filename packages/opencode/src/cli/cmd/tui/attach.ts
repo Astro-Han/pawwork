@@ -2,7 +2,7 @@ import { cmd } from "../cmd"
 import { UI } from "@/cli/ui"
 import { tui } from "./app"
 import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
-import { TuiConfig } from "@/cli/cmd/tui/config/tui"
+import { TuiConfig } from "@/config/tui"
 
 export const AttachCommand = cmd({
   command: "attach <url>",

@@ -22,13 +22,13 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useProject } from "@tui/context/project"
 import { useEvent } from "@tui/context/event"
 import { useSDK } from "@tui/context/sdk"
-import { Binary } from "@/util/binary"
+import { Binary } from "../util/binary"
 import { createSimpleContext } from "./helper"
 import type { Snapshot } from "@/snapshot"
 import { useExit } from "./exit"
 import { useArgs } from "./args"
 import { batch, createEffect, on } from "solid-js"
-import { Log } from "@/util"
+import { Log } from "@/util/log"
 import { emptyConsoleState, type ConsoleState } from "@/config/console-state"
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
@@ -473,7 +473,6 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         return store.status
       },
       get ready() {
-        return true
         if (process.env.OPENCODE_FAST_BOOT) return true
         return store.status !== "loading"
       },

@@ -3,12 +3,12 @@ import fs from "fs/promises"
 import path from "path"
 import { tmpdir } from "../../fixture/fixture"
 import * as App from "../../../src/cli/cmd/tui/app"
-import { Rpc } from "../../../src/util"
+import { Rpc } from "../../../src/util/rpc"
 import { UI } from "../../../src/cli/ui"
 import * as Timeout from "../../../src/util/timeout"
 import * as Network from "../../../src/cli/network"
 import * as Win32 from "../../../src/cli/cmd/tui/win32"
-import { TuiConfig } from "../../../src/cli/cmd/tui/config/tui"
+import { TuiConfig } from "../../../src/config/tui"
 
 const stop = new Error("stop")
 const seen = {
@@ -18,7 +18,7 @@ const seen = {
 function setup() {
   // Intentionally avoid mock.module() here: Bun keeps module overrides in cache
   // and mock.restore() does not reset mock.module values. If this switches back
-  // to module mocks, later suites can see mocked @/config/tui and fail (e.g.
+  // to module mocks, later suites can see mocked ../../../src/config/tui and fail (e.g.
   // plugin-loader tests expecting real TuiConfig.waitForDependencies). See:
   // https://github.com/oven-sh/bun/issues/7823 and #12823.
   spyOn(App, "tui").mockImplementation(async (input) => {
