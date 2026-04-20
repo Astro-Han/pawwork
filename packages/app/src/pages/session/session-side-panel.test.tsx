@@ -31,7 +31,6 @@ beforeAll(async () => {
     getDraggableId: () => undefined,
   }))
   mock.module("@opencode-ai/ui/context/dialog", () => ({ useDialog: () => ({ show: () => undefined }) }))
-  mock.module("@/components/file-tree", () => ({ default: () => null }))
   mock.module("@/components/session-context-usage", () => ({ SessionContextUsage: () => null }))
   mock.module("@/components/session", () => ({
     SessionContextTab: () => null,

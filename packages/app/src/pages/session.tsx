@@ -1330,12 +1330,6 @@ export default function Page() {
     return true
   }
 
-  const focusReviewDiff = (path: string) => {
-    openReviewPanel()
-    view().review.openPath(path)
-    setTree({ activeDiff: path, pendingDiff: path })
-  }
-
   createEffect(() => {
     const pending = tree.pendingDiff
     if (!pending) return
@@ -2055,15 +2049,11 @@ export default function Page() {
         <SessionSidePanel
           canReview={canReview}
           diffs={reviewDiffs}
-          diffsReady={reviewReady}
-          empty={reviewEmptyText}
           hasReview={hasReview}
           reviewCount={reviewCount}
           reviewPanel={reviewPanel}
           files={artifactFiles}
           terminalPanel={() => <TerminalPanel embedded />}
-          activeDiff={tree.activeDiff}
-          focusReviewDiff={focusReviewDiff}
           size={size}
         />
       </div>
