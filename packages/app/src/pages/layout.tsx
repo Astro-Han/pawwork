@@ -1919,11 +1919,11 @@ export default function Layout(props: ParentProps) {
   )
 
   createEffect(() => {
-    const sidebarWidth = layout.sidebar.opened() ? layout.sidebar.width() : 48
+    const sidebarWidth = layout.sidebar.opened() ? layout.sidebar.width() : 0
     document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
   })
 
-  const side = createMemo(() => Math.max(layout.sidebar.width(), 244))
+  const side = createMemo(() => Math.max(layout.sidebar.width(), 180))
   const panel = createMemo(() => Math.max(side() - 64, 0))
 
   const loadedSessionDirs = new Set<string>()
@@ -2467,6 +2467,9 @@ export default function Layout(props: ParentProps) {
       value={{
         pinnedIDs: () => store.pawworkPinnedSessions,
         workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
+        openProject: () => {
+          void chooseProject()
+        },
       }}
     >
       <ShellSurfaceContext.Provider value={{ settingsOpen, openSettings, closeSettings }}>
@@ -2497,7 +2500,8 @@ export default function Layout(props: ParentProps) {
                 aria-label={language.t("sidebar.nav.projectsAndSessions")}
                 data-component="sidebar-nav-desktop"
                 classList={{
-                  "hidden xl:block": true,
+                  "hidden": true,
+                  "xl:block": layout.sidebar.opened(),
                   "absolute inset-y-0 left-0": true,
                   "z-10": true,
                 }}
@@ -2527,7 +2531,7 @@ export default function Layout(props: ParentProps) {
                   <ResizeHandle
                     direction="horizontal"
                     size={layout.sidebar.width()}
-                    min={244}
+                    min={180}
                     max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
                     onResize={(w) => {
                       setState("sizing", true)
@@ -2580,7 +2584,7 @@ export default function Layout(props: ParentProps) {
                     !state.sizing,
                 }}
                 style={{
-                  "--main-left": layout.sidebar.opened() ? `${side()}px` : "4rem",
+                  "--main-left": layout.sidebar.opened() ? `${side()}px` : "0",
                 }}
               >
                 <main

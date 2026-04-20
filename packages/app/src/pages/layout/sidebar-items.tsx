@@ -77,6 +77,7 @@ export type SessionItemProps = {
   archiveSession: (session: Session) => Promise<void>
   titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
   actionSlot?: (session: Session) => JSX.Element
+  leadingSlot?: (session: Session) => JSX.Element
   hideDefaultArchiveAction?: boolean
   onDoubleClick?: (session: Session) => void
 }
@@ -242,7 +243,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <>
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-3 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
+        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-3 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active has-[.active]:shadow-[inset_2px_0_0_var(--color-accent-brand)]"
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
         onDblClick={(event) => {
           event.preventDefault()
@@ -251,6 +252,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         }}
       >
         <div class="flex min-w-0 items-center gap-1">
+          <Show when={props.leadingSlot && !props.level}>
+            <div class="shrink-0">{props.leadingSlot?.(props.session)}</div>
+          </Show>
           <div class="min-w-0 flex-1">
             <Show
               when={!tooltip()}

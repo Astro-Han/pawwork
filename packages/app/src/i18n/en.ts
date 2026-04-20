@@ -961,4 +961,5 @@ export const dict = {
   "workspace.chip.ariaLabel": "Switch workspace",
   "workspace.chip.empty": "No workspaces available",
   "workspace.chip.popover.title": "Workspaces",
+  "workspace.chip.add": "Add workspace",
 }

@@ -1,5 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
+import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -21,6 +22,20 @@ const FilterIcon = (props: { size?: number }) => {
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true">
       <path d="M1.5 3h9M3 6h6M4.5 9h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+    </svg>
+  )
+}
+
+const PinIcon = (props: { filled?: boolean; size?: number }) => {
+  const size = props.size ?? 12
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill={props.filled ? "currentColor" : "none"} aria-hidden="true">
+      <path
+        d="M7.5 1.5l3 3-2 .5-1.5 3-1.5-1.5-2.5 2.5L3.5 9 6 6.5 4.5 5l3-1.5.5-2z"
+        stroke="currentColor"
+        stroke-width="1.1"
+        stroke-linejoin="round"
+      />
     </svg>
   )
 }
@@ -89,83 +104,127 @@ export const PawworkSidebar = (props: {
     })),
   )
 
-  const renderSessionItem = (entry: { item: PawworkSidebarSession }) => (
-    <div class="flex flex-col gap-1">
-      <SessionItem
-        session={entry.item.session}
-        list={navList()}
-        navList={navList}
-        slug={entry.item.slug}
-        mobile={props.mobile}
-        showChild
-        sidebarExpanded={props.sidebarExpanded}
-        clearHoverProjectSoon={props.clearHoverProjectSoon}
-        prefetchSession={props.prefetchSession}
-        archiveSession={props.archiveSession}
-        hideDefaultArchiveAction
-        titleContent={({ session, title }) => (
-          <editor.InlineEditor
-            id={`pawwork-session:${session.id}`}
-            value={title}
-            onSave={(next) => {
-              void props.onRenameSession(session, next)
-            }}
-            class="text-14-regular text-text-strong min-w-0 flex-1 truncate"
-            displayClass="text-14-regular text-text-strong min-w-0 flex-1 truncate"
-          />
-        )}
-        onDoubleClick={(session) => {
-          editor.openEditor(`pawwork-session:${session.id}`, session.title ?? "")
-        }}
-        actionSlot={(session) => (
-          <DropdownMenu>
-            <DropdownMenu.Trigger
-              as={IconButton}
-              icon="dot-grid"
-              variant="ghost"
-              class="size-6 rounded-md"
-              data-action="session-row-menu"
-              aria-label={language.t("common.moreOptions")}
-              onClick={(event: MouseEvent) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-            />
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                onCloseAutoFocus={(event) => {
-                  if (pendingRenameID() !== session.id) return
+  const renderSessionItem = (entry: { item: PawworkSidebarSession }) => {
+    const session = entry.item.session
+    const isPinned = createMemo(() => props.pinnedIDs().includes(session.id))
+    const pinLabel = () =>
+      isPinned() ? language.t("sidebar.pawwork.unpinSession") : language.t("sidebar.pawwork.pinSession")
+
+    return (
+      <ContextMenu>
+        <ContextMenu.Trigger as="div" class="flex flex-col gap-1">
+          <SessionItem
+            session={session}
+            list={navList()}
+            navList={navList}
+            slug={entry.item.slug}
+            mobile={props.mobile}
+            showChild
+            sidebarExpanded={props.sidebarExpanded}
+            clearHoverProjectSoon={props.clearHoverProjectSoon}
+            prefetchSession={props.prefetchSession}
+            archiveSession={props.archiveSession}
+            hideDefaultArchiveAction
+            leadingSlot={() => (
+              <button
+                type="button"
+                data-action="pawwork-session-pin"
+                data-pinned={isPinned() ? "true" : "false"}
+                aria-label={pinLabel()}
+                title={pinLabel()}
+                onClick={(event) => {
                   event.preventDefault()
-                  setPendingRenameID(undefined)
-                  requestAnimationFrame(() => {
-                    editor.openEditor(`pawwork-session:${session.id}`, session.title ?? "")
-                  })
+                  event.stopPropagation()
+                  props.onTogglePinnedSession(session.id)
+                }}
+                classList={{
+                  "inline-flex size-6 items-center justify-center rounded transition-colors": true,
+                  "text-accent-brand opacity-100": isPinned(),
+                  "text-text-weak opacity-0 group-hover/session:opacity-100 group-focus-within/session:opacity-100 hover:text-text-base":
+                    !isPinned(),
                 }}
               >
-                <DropdownMenu.Item onSelect={() => props.onTogglePinnedSession(session.id)}>
-                  <DropdownMenu.ItemLabel>
-                    {props.pinnedIDs().includes(session.id)
-                      ? language.t("sidebar.pawwork.unpinSession")
-                      : language.t("sidebar.pawwork.pinSession")}
-                  </DropdownMenu.ItemLabel>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  onSelect={() => {
-                    setPendingRenameID(session.id)
+                <PinIcon filled={isPinned()} />
+              </button>
+            )}
+            titleContent={({ session: rowSession, title }) => (
+              <editor.InlineEditor
+                id={`pawwork-session:${rowSession.id}`}
+                value={title}
+                onSave={(next) => {
+                  void props.onRenameSession(rowSession, next)
+                }}
+                class="text-14-regular text-text-strong min-w-0 flex-1 truncate"
+                displayClass="text-14-regular text-text-strong min-w-0 flex-1 truncate"
+              />
+            )}
+            onDoubleClick={(rowSession) => {
+              editor.openEditor(`pawwork-session:${rowSession.id}`, rowSession.title ?? "")
+            }}
+            actionSlot={(rowSession) => (
+              <DropdownMenu>
+                <DropdownMenu.Trigger
+                  as={IconButton}
+                  icon="dot-grid"
+                  variant="ghost"
+                  class="size-6 rounded-md"
+                  data-action="session-row-menu"
+                  aria-label={language.t("common.moreOptions")}
+                  onClick={(event: MouseEvent) => {
+                    event.preventDefault()
+                    event.stopPropagation()
                   }}
-                >
-                  <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                </DropdownMenu.Item>
-                <DropdownMenu.Item onSelect={() => void props.archiveSession(session)}>
-                  <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu>
-        )}
-      />
-    </div>
-  )
+                />
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    onCloseAutoFocus={(event) => {
+                      if (pendingRenameID() !== rowSession.id) return
+                      event.preventDefault()
+                      setPendingRenameID(undefined)
+                      requestAnimationFrame(() => {
+                        editor.openEditor(`pawwork-session:${rowSession.id}`, rowSession.title ?? "")
+                      })
+                    }}
+                  >
+                    <DropdownMenu.Item onSelect={() => props.onTogglePinnedSession(rowSession.id)}>
+                      <DropdownMenu.ItemLabel>{pinLabel()}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        setPendingRenameID(rowSession.id)
+                      }}
+                    >
+                      <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item onSelect={() => void props.archiveSession(rowSession)}>
+                      <DropdownMenu.ItemLabel>{language.t("common.archive")}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu>
+            )}
+          />
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content>
+            <ContextMenu.Item onSelect={() => props.onTogglePinnedSession(session.id)}>
+              <ContextMenu.ItemLabel>{pinLabel()}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              onSelect={() => {
+                editor.openEditor(`pawwork-session:${session.id}`, session.title ?? "")
+              }}
+            >
+              <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
+            <ContextMenu.Item onSelect={() => void props.archiveSession(session)}>
+              <ContextMenu.ItemLabel>{language.t("common.archive")}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu>
+    )
+  }
 
   createEffect(() => {
     const activeSessionID = props.activeSessionID?.()
@@ -246,7 +305,7 @@ export const PawworkSidebar = (props: {
                   classList={{
                     "inline-flex items-center justify-center rounded-md p-1 transition-colors": true,
                     "hover:bg-surface-hovered-base": true,
-                    "text-text-accent-base": props.sortMode() === "project",
+                    "text-accent-brand": props.sortMode() === "project",
                     "text-text-weak": props.sortMode() !== "project",
                   }}
                 >
@@ -260,7 +319,7 @@ export const PawworkSidebar = (props: {
                 <For each={groupedRows()}>
                   {(group) => (
                     <section class="flex flex-col gap-1">
-                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-1 text-11-medium text-text-weak">
+                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-1 text-11-medium font-mono text-text-weak">
                         {group.label}
                       </div>
                       <For each={group.items}>{(item) => renderSessionItem({ item })}</For>

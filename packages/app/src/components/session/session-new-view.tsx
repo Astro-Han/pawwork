@@ -57,7 +57,8 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
   }
 
   return (
-    <div data-component="session-new-home" class="size-full overflow-y-auto px-6 py-8 md:px-8 md:py-10">
+    <div data-component="session-new-home" class="size-full overflow-y-auto">
+      <div class="flex min-h-full flex-col items-center justify-center px-6 py-8 md:px-8 md:py-10">
       <div class="mx-auto flex w-full max-w-200 flex-col items-center gap-6 text-center">
         <Mark class="w-10" />
         <div class="flex flex-col gap-2">
@@ -84,6 +85,7 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
         <Show when={props.composer}>
           <div class="w-full max-w-[640px]">{props.composer}</div>
         </Show>
+      </div>
       </div>
     </div>
   )

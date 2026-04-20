@@ -919,6 +919,7 @@ export const dict = {
   "workspace.chip.ariaLabel": "切换工作目录",
   "workspace.chip.empty": "暂无可用工作目录",
   "workspace.chip.popover.title": "工作目录",
+  "workspace.chip.add": "添加工作目录",
   "common.key.ctrl": "Ctrl",
   "common.key.alt": "Alt",
   "common.key.shift": "Shift",

@@ -6,6 +6,7 @@ import { createMemo, createResource, createSignal, For, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
+import { useLayoutPage } from "@/context/layout-page"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { findWorkspaceProject, workspaceChipChoices } from "./workspace-chip-helpers"
 import { decode64 } from "@/utils/base64"
@@ -14,6 +15,7 @@ export function WorkspaceChip() {
   const language = useLanguage()
   const globalSDK = useGlobalSDK()
   const layout = useLayout()
+  const layoutPage = useLayoutPage()
   const navigate = useNavigate()
   const { params } = useSessionLayout()
   const [open, setOpen] = createSignal(false)
@@ -81,7 +83,7 @@ export function WorkspaceChip() {
                   type="button"
                   role="option"
                   aria-selected={active()}
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-12 hover:bg-background-base-hover"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-12 outline-none hover:bg-background-base-hover focus-visible:bg-background-base-hover"
                   classList={{ "font-medium": active() }}
                   onClick={() => {
                     navigate(`/${base64Encode(workspace)}/session`)
@@ -95,6 +97,20 @@ export function WorkspaceChip() {
             }}
           </For>
         </Show>
+        <div class="mt-1 border-t border-border-weaker-base pt-1">
+          <button
+            type="button"
+            data-action="workspace-chip-add"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-12 text-text-base outline-none hover:bg-background-base-hover focus-visible:bg-background-base-hover"
+            onClick={() => {
+              setOpen(false)
+              layoutPage.openProject()
+            }}
+          >
+            <PlusIcon class="text-text-weak" />
+            <span class="min-w-0 flex-1 truncate">{language.t("workspace.chip.add")}</span>
+          </button>
+        </div>
       </div>
     </Popover>
   )
@@ -119,6 +135,16 @@ function ChevronIcon(props: { class?: string }) {
     <div data-component="icon" data-size="small" class={props.class}>
       <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path d="M3.5 5.5l3.5 3 3.5-3" stroke="currentColor" stroke-width="1.1" fill="none" />
+      </svg>
+    </div>
+  )
+}
+
+function PlusIcon(props: { class?: string }) {
+  return (
+    <div data-component="icon" data-size="small" class={props.class}>
+      <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M7 3.5v7M3.5 7h7" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
       </svg>
     </div>
   )
