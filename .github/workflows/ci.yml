@@ -118,11 +118,11 @@ jobs:
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
-          path: node_modules/.cache/turbo
-          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-typecheck-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
-            turbo-${{ runner.os }}-
+            turbo-${{ runner.os }}-typecheck-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-typecheck-
 
       - run: bun install --frozen-lockfile
 
@@ -164,11 +164,11 @@ jobs:
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
-          path: node_modules/.cache/turbo
-          key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-unit-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
-            turbo-${{ runner.os }}-
+            turbo-${{ runner.os }}-unit-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-unit-
 
       - run: bun install --frozen-lockfile
 
