@@ -5,6 +5,7 @@ import { TuiConfig } from "../../../src/config/tui"
 type PluginSpec = string | [string, Record<string, unknown>]
 
 export function mockTuiRuntime(dir: string, plugin: PluginSpec[]) {
+  const previousPluginMetaFile = process.env.OPENCODE_PLUGIN_META_FILE
   process.env.OPENCODE_PLUGIN_META_FILE = path.join(dir, "plugin-meta.json")
   const plugin_origins = plugin.map((spec) => ({
     spec,
@@ -27,7 +28,8 @@ export function mockTuiRuntime(dir: string, plugin: PluginSpec[]) {
       cwd.mockRestore()
       get.mockRestore()
       wait.mockRestore()
-      delete process.env.OPENCODE_PLUGIN_META_FILE
+      if (previousPluginMetaFile === undefined) delete process.env.OPENCODE_PLUGIN_META_FILE
+      else process.env.OPENCODE_PLUGIN_META_FILE = previousPluginMetaFile
     },
   }
 }

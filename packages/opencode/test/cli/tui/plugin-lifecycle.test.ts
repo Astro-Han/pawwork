@@ -222,3 +222,18 @@ test(
   },
   { timeout: 15000 },
 )
+
+test("restores previous plugin meta env after mock runtime cleanup", () => {
+  const previous = process.env.OPENCODE_PLUGIN_META_FILE
+  process.env.OPENCODE_PLUGIN_META_FILE = "/tmp/original-plugin-meta.json"
+
+  const { restore } = mockTuiRuntime("/tmp/runtime", [])
+
+  try {
+    restore()
+    expect(process.env.OPENCODE_PLUGIN_META_FILE).toBe("/tmp/original-plugin-meta.json")
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_PLUGIN_META_FILE
+    else process.env.OPENCODE_PLUGIN_META_FILE = previous
+  }
+})

@@ -7,7 +7,6 @@ import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import { useCommandDialog } from "@tui/component/dialog-command"
 import { useKeybind } from "../../context/keybind"
 import { Locale } from "@/util/locale"
-import { useTerminalDimensions } from "@opentui/solid"
 
 export function SubagentFooter() {
   const route = useRouteData("session")
@@ -59,7 +58,6 @@ export function SubagentFooter() {
   const keybind = useKeybind()
   const command = useCommandDialog()
   const [hover, setHover] = createSignal<"parent" | "prev" | "next" | null>(null)
-  useTerminalDimensions()
 
   return (
     <box flexShrink={0}>
