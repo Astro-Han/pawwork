@@ -1,4 +1,4 @@
-import { type Component, onMount } from "solid-js"
+import { type Component, onCleanup, onMount } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tabs } from "@opencode-ai/ui/tabs"
@@ -28,15 +28,34 @@ export const SettingsPage: Component<{
   const language = useLanguage()
   const platform = usePlatform()
   let root: HTMLElement | undefined
+  let returnFocus: HTMLElement | undefined
 
   onMount(() => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && !root?.contains(active)) returnFocus = active
     if (!root) return
     const [first] = focusablesIn(root)
     first?.focus()
   })
 
+  onCleanup(() => {
+    const target = returnFocus
+    returnFocus = undefined
+    if (!target || !target.isConnected) return
+    target.focus()
+  })
+
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== "Tab" || !root) return
+    if (event.defaultPrevented || !root) return
+
+    if (event.key === "Escape") {
+      event.preventDefault()
+      event.stopPropagation()
+      props.onClose()
+      return
+    }
+
+    if (event.key !== "Tab") return
     const focusables = focusablesIn(root)
     if (focusables.length === 0) return
     const first = focusables[0]

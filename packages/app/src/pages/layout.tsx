@@ -230,18 +230,11 @@ export default function Layout(props: ParentProps) {
       if (document.visibilityState !== "hidden") return
       reset()
     }
-    const keydown = (event: KeyboardEvent) => {
-      if (!settingsOpen()) return
-      if (event.key !== "Escape") return
-      event.preventDefault()
-      closeSettings()
-    }
     makeEventListener(window, "pointerup", stop)
     makeEventListener(window, "pointercancel", stop)
     makeEventListener(window, "blur", stop)
     makeEventListener(window, "blur", blur)
     makeEventListener(document, "visibilitychange", hide)
-    makeEventListener(window, "keydown", keydown)
   })
 
   const sidebarHovering = createMemo(() => !layout.sidebar.opened() && state.hoverProject !== undefined)
