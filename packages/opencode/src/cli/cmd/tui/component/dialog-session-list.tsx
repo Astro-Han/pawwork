@@ -13,12 +13,15 @@ import { DialogSessionRename } from "./dialog-session-rename"
 import { Keybind } from "@/util/keybind"
 import { createDebouncedSignal } from "../util/signal"
 import { useToast } from "../ui/toast"
-import { DialogWorkspaceCreate, openWorkspaceSession, restoreWorkspaceSession } from "./dialog-workspace-create"
+import { DialogWorkspaceCreate, openWorkspaceSession } from "./dialog-workspace-create"
 import { Spinner } from "./spinner"
 import { errorMessage } from "@/util/error"
-import { DialogSessionDeleteFailed } from "./dialog-session-delete-failed"
 
 type WorkspaceStatus = "connected" | "connecting" | "disconnected" | "error"
+
+export function shouldRecoverWorkspaceSessionDelete(status?: WorkspaceStatus) {
+  return false
+}
 
 export function DialogSessionList() {
   const dialog = useDialog()
@@ -58,66 +61,19 @@ export function DialogSessionList() {
     ))
   }
 
-  function recover(session: NonNullable<ReturnType<typeof sessions>[number]>) {
-    const workspace = project.workspace.get(session.workspaceID!)
-    const list = () => dialog.replace(() => <DialogSessionList />)
-    dialog.replace(() => (
-      <DialogSessionDeleteFailed
-        session={session.title}
-        workspace={workspace?.name ?? session.workspaceID!}
-        onDone={list}
-        onDelete={async () => {
-          const current = currentSessionID()
-          const info = current ? sync.data.session.find((item) => item.id === current) : undefined
-          const result = await sdk.client.experimental.workspace.remove({ id: session.workspaceID! })
-          if (result.error) {
-            toast.show({
-              variant: "error",
-              title: "Failed to delete workspace",
-              message: errorMessage(result.error),
-            })
-            return false
-          }
-          await project.workspace.sync()
-          await sync.session.refresh()
-          if (search()) await refetch()
-          if (info?.workspaceID === session.workspaceID) {
-            route.navigate({ type: "home" })
-          }
-          return true
-        }}
-        onRestore={() => {
-          dialog.replace(() => (
-            <DialogWorkspaceCreate
-              onSelect={(workspaceID) =>
-                restoreWorkspaceSession({
-                  dialog,
-                  sdk,
-                  sync,
-                  project,
-                  toast,
-                  workspaceID,
-                  sessionID: session.id,
-                  done: list,
-                })
-              }
-            />
-          ))
-          return false
-        }}
-      />
-    ))
+  function deleteError(error: unknown) {
+    toast.show({
+      variant: "error",
+      title: "Failed to delete session",
+      message: errorMessage(error),
+    })
   }
 
   const options = createMemo(() => {
     const today = new Date().toDateString()
     return sessions()
       .filter((x) => x.parentID === undefined)
-      .toSorted((a, b) => {
-        const updatedDay = new Date(b.time.updated).setHours(0, 0, 0, 0) - new Date(a.time.updated).setHours(0, 0, 0, 0)
-        if (updatedDay !== 0) return updatedDay
-        return b.time.created - a.time.created
-      })
+      .toSorted((a, b) => b.time.updated - a.time.updated)
       .map((x) => {
         const workspace = x.workspaceID ? project.workspace.get(x.workspaceID) : undefined
 
@@ -205,28 +161,12 @@ export function DialogSessionList() {
                   sessionID: option.value,
                 })
                 if (result.error) {
-                  if (session?.workspaceID) {
-                    recover(session)
-                  } else {
-                    toast.show({
-                      variant: "error",
-                      title: "Failed to delete session",
-                      message: errorMessage(result.error),
-                    })
-                  }
+                  deleteError(result.error)
                   setToDelete(undefined)
                   return
                 }
               } catch (err) {
-                if (session?.workspaceID) {
-                  recover(session)
-                } else {
-                  toast.show({
-                    variant: "error",
-                    title: "Failed to delete session",
-                    message: errorMessage(err),
-                  })
-                }
+                deleteError(err)
                 setToDelete(undefined)
                 return
               }
