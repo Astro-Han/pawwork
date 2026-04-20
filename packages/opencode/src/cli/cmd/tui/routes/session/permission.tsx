@@ -40,6 +40,11 @@ function normalizePath(input?: string) {
   return absolute
 }
 
+export function formatListPermissionTitle(input?: string) {
+  const normalized = normalizePath(input)
+  return normalized ? `List ${normalized}` : "List directory"
+}
+
 function filetype(input?: string) {
   if (!input) return "none"
   const ext = path.extname(input)
@@ -288,7 +293,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               const dir = typeof raw === "string" ? raw : ""
               return {
                 icon: "→",
-                title: `List ${normalizePath(dir) || "/"}`,
+                title: formatListPermissionTitle(dir),
                 body: (
                   <Show when={dir}>
                     <box paddingLeft={1}>
