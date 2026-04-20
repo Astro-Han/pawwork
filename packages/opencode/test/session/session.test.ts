@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
-import { Session } from "../../src/session"
+import { Session as SessionNs } from "../../src/session"
 import { Bus } from "../../src/bus"
 import { Log } from "../../src/util/log"
 import { Instance } from "../../src/project/instance"
@@ -9,7 +9,7 @@ import { MessageID, PartID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
 
 const projectRoot = path.join(__dirname, "../..")
-Log.init({ print: false })
+void Log.init({ print: false })
 
 describe("session.created event", () => {
   test("should emit session.created event when session is created", async () => {
@@ -17,27 +17,25 @@ describe("session.created event", () => {
       directory: projectRoot,
       fn: async () => {
         let eventReceived = false
-        let receivedInfo: Session.Info | undefined
+        let receivedInfo: SessionNs.Info | undefined
 
-        const unsub = Bus.subscribe(Session.Event.Created, (event) => {
+        const unsub = Bus.subscribe(SessionNs.Event.Created, (event) => {
           eventReceived = true
-          receivedInfo = event.properties.info as Session.Info
+          receivedInfo = event.properties.info as SessionNs.Info
         })
 
-        const session = await Session.create({})
-
+        const info = await SessionNs.create({})
         await new Promise((resolve) => setTimeout(resolve, 100))
-
         unsub()
 
         expect(eventReceived).toBe(true)
         expect(receivedInfo).toBeDefined()
-        expect(receivedInfo?.id).toBe(session.id)
-        expect(receivedInfo?.projectID).toBe(session.projectID)
-        expect(receivedInfo?.directory).toBe(session.directory)
-        expect(receivedInfo?.title).toBe(session.title)
+        expect(receivedInfo?.id).toBe(info.id)
+        expect(receivedInfo?.projectID).toBe(info.projectID)
+        expect(receivedInfo?.directory).toBe(info.directory)
+        expect(receivedInfo?.title).toBe(info.title)
 
-        await Session.remove(session.id)
+        await SessionNs.remove(info.id)
       },
     })
   })
@@ -48,18 +46,16 @@ describe("session.created event", () => {
       fn: async () => {
         const events: string[] = []
 
-        const unsubCreated = Bus.subscribe(Session.Event.Created, () => {
+        const unsubCreated = Bus.subscribe(SessionNs.Event.Created, () => {
           events.push("created")
         })
 
-        const unsubUpdated = Bus.subscribe(Session.Event.Updated, () => {
+        const unsubUpdated = Bus.subscribe(SessionNs.Event.Updated, () => {
           events.push("updated")
         })
 
-        const session = await Session.create({})
-
+        const info = await SessionNs.create({})
         await new Promise((resolve) => setTimeout(resolve, 100))
-
         unsubCreated()
         unsubUpdated()
 
@@ -67,7 +63,7 @@ describe("session.created event", () => {
         expect(events).toContain("updated")
         expect(events.indexOf("created")).toBeLessThan(events.indexOf("updated"))
 
-        await Session.remove(session.id)
+        await SessionNs.remove(info.id)
       },
     })
   })
@@ -80,12 +76,12 @@ describe("step-finish token propagation via Bus event", () => {
       await Instance.provide({
         directory: projectRoot,
         fn: async () => {
-          const session = await Session.create({})
+          const info = await SessionNs.create({})
 
           const messageID = MessageID.ascending()
-          await Session.updateMessage({
+          await SessionNs.updateMessage({
             id: messageID,
-            sessionID: session.id,
+            sessionID: info.id,
             role: "user",
             time: { created: Date.now() },
             agent: "user",
@@ -110,15 +106,14 @@ describe("step-finish token propagation via Bus event", () => {
           const partInput = {
             id: PartID.ascending(),
             messageID,
-            sessionID: session.id,
+            sessionID: info.id,
             type: "step-finish" as const,
             reason: "stop",
             cost: 0.005,
             tokens,
           }
 
-          await Session.updatePart(partInput)
-
+          await SessionNs.updatePart(partInput)
           await new Promise((resolve) => setTimeout(resolve, 100))
 
           expect(received).toBeDefined()
@@ -134,7 +129,7 @@ describe("step-finish token propagation via Bus event", () => {
           expect(received).not.toBe(partInput)
 
           unsub()
-          await Session.remove(session.id)
+          await SessionNs.remove(info.id)
         },
       })
     },
@@ -146,17 +141,17 @@ describe("Session", () => {
   test("remove works without an instance", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    const session = await Instance.provide({
+    const info = await Instance.provide({
       directory: tmp.path,
-      fn: async () => Session.create({ title: "remove-without-instance" }),
+      fn: () => SessionNs.create({ title: "remove-without-instance" }),
     })
 
     await expect(async () => {
-      await Session.remove(session.id)
+      await SessionNs.remove(info.id)
     }).not.toThrow()
 
     let missing = false
-    await Session.get(session.id).catch(() => {
+    await SessionNs.get(info.id).catch(() => {
       missing = true
     })
 

@@ -4,9 +4,22 @@ import { Effect } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Instance } from "../../src/project/instance"
 import { SystemPrompt } from "../../src/session/system"
-import { tmpdir } from "../fixture/fixture"
+import { provideInstance, tmpdir } from "../fixture/fixture"
+
+function load<A>(dir: string, fn: (svc: Agent.Interface) => Effect.Effect<A>) {
+  return Effect.runPromise(provideInstance(dir)(Agent.Service.use(fn)).pipe(Effect.provide(Agent.defaultLayer)))
+}
 
 describe("session.system", () => {
+  test("provider prompt always prepends the PawWork persona", () => {
+    const prompts = SystemPrompt.provider({
+      providerID: "openai",
+      api: { id: "gpt-5.2" },
+    } as any)
+
+    expect(prompts[0]).toContain("PawWork")
+  })
+
   test("environment includes user locale only when provided", async () => {
     await using tmp = await tmpdir({ git: true })
 
@@ -65,7 +78,7 @@ description: ${description}
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const build = await Agent.get("build")
+          const build = await load(tmp.path, (svc) => svc.get("build"))
           const runSkills = Effect.gen(function* () {
             const svc = yield* SystemPrompt.Service
             return yield* svc.skills(build!)

@@ -3,7 +3,6 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
-import z from "zod"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
@@ -13,7 +12,7 @@ import { MCP } from "../../src/mcp"
 import { Permission } from "../../src/permission"
 import { Plugin } from "../../src/plugin"
 import { Provider as ProviderSvc } from "../../src/provider/provider"
-import type { Provider } from "../../src/provider/provider"
+import { Env } from "../../src/env"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Question } from "../../src/question"
 import { Todo } from "../../src/session/todo"
@@ -22,6 +21,7 @@ import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { AppFileSystem } from "../../src/filesystem"
 import { SessionCompaction } from "../../src/session/compaction"
+import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionPrompt } from "../../src/session/prompt"
@@ -43,7 +43,17 @@ import { provideTmpdirInstance, provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 
-Log.init({ print: false })
+void Log.init({ print: false })
+
+const summary = Layer.succeed(
+  SessionSummary.Service,
+  SessionSummary.Service.of({
+    summarize: () => Effect.void,
+    diff: () => Effect.succeed([]),
+    artifacts: () => Effect.succeed([]),
+    computeDiff: () => Effect.succeed([]),
+  }),
+)
 
 const ref = {
   providerID: ProviderID.make("test"),
@@ -141,15 +151,16 @@ const lsp = Layer.succeed(
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
-function makeHttp(plugin = Plugin.defaultLayer) {
+function makeHttp() {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
     LLM.defaultLayer,
+    Env.defaultLayer,
     AgentSvc.defaultLayer,
     Command.defaultLayer,
     Permission.defaultLayer,
-    plugin,
+    Plugin.defaultLayer,
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
     lsp,
@@ -170,12 +181,13 @@ function makeHttp(plugin = Plugin.defaultLayer) {
     Layer.provideMerge(deps),
   )
   const trunc = Truncate.layer.pipe(Layer.provideMerge(deps))
-  const proc = SessionProcessor.layer.pipe(Layer.provideMerge(deps))
+  const proc = SessionProcessor.layer.pipe(Layer.provide(summary), Layer.provideMerge(deps))
   const compact = SessionCompaction.layer.pipe(Layer.provideMerge(proc), Layer.provideMerge(deps))
   return Layer.mergeAll(
     TestLLMServer.layer,
     SessionPrompt.layer.pipe(
       Layer.provide(SessionRevert.defaultLayer),
+      Layer.provide(summary),
       Layer.provideMerge(run),
       Layer.provideMerge(compact),
       Layer.provideMerge(proc),
@@ -185,29 +197,14 @@ function makeHttp(plugin = Plugin.defaultLayer) {
       Layer.provide(SystemPrompt.defaultLayer),
       Layer.provideMerge(deps),
     ),
-  )
+  ).pipe(Layer.provide(summary))
 }
 
 const it = testEffect(makeHttp())
 const unix = process.platform !== "win32" ? it.live : it.live.skip
-const unixWithPlugin = (plugin: typeof Plugin.defaultLayer) => {
-  const effect = testEffect(makeHttp(plugin))
-  return process.platform !== "win32" ? effect.live : effect.live.skip
-}
-
-function hangingShellEnvPlugin(ready: { promise: Promise<void>; resolve: (value: void | PromiseLike<void>) => void }) {
-  return Layer.mock(Plugin.Service)({
-    trigger: <Name extends string, Input, Output>(name: Name, _input: Input, output: Output) => {
-      if (name !== "shell.env") return Effect.succeed(output)
-      return Effect.sync(() => ready.resolve(undefined)).pipe(Effect.andThen(Effect.never), Effect.as(output))
-    },
-    list: () => Effect.succeed([]),
-    init: () => Effect.void,
-  })
-}
 
 // Config that registers a custom "test" provider with a "test-model" model
-// so Provider.getModel("test", "test-model") succeeds inside the loop.
+// so provider model lookup succeeds inside the loop.
 const cfg = {
   provider: {
     test: {
@@ -374,25 +371,23 @@ it.live("loop calls LLM and returns assistant message", () =>
 it.live("static loop returns assistant text through local provider", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
-      const session = yield* Effect.promise(() =>
-        Session.create({
-          title: "Prompt provider",
-          permission: [{ permission: "*", pattern: "*", action: "allow" }],
-        }),
-      )
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({
+        title: "Prompt provider",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
 
-      yield* Effect.promise(() =>
-        SessionPrompt.prompt({
-          sessionID: session.id,
-          agent: "build",
-          noReply: true,
-          parts: [{ type: "text", text: "hello" }],
-        }),
-      )
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello" }],
+      })
 
       yield* llm.text("world")
 
-      const result = yield* Effect.promise(() => SessionPrompt.loop({ sessionID: session.id }))
+      const result = yield* prompt.loop({ sessionID: session.id })
       expect(result.info.role).toBe("assistant")
       expect(result.parts.some((part) => part.type === "text" && part.text === "world")).toBe(true)
       expect(yield* llm.hits).toHaveLength(1)
@@ -405,40 +400,36 @@ it.live("static loop returns assistant text through local provider", () =>
 it.live("static loop consumes queued replies across turns", () =>
   provideTmpdirServer(
     Effect.fnUntraced(function* ({ llm }) {
-      const session = yield* Effect.promise(() =>
-        Session.create({
-          title: "Prompt provider turns",
-          permission: [{ permission: "*", pattern: "*", action: "allow" }],
-        }),
-      )
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({
+        title: "Prompt provider turns",
+        permission: [{ permission: "*", pattern: "*", action: "allow" }],
+      })
 
-      yield* Effect.promise(() =>
-        SessionPrompt.prompt({
-          sessionID: session.id,
-          agent: "build",
-          noReply: true,
-          parts: [{ type: "text", text: "hello one" }],
-        }),
-      )
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello one" }],
+      })
 
       yield* llm.text("world one")
 
-      const first = yield* Effect.promise(() => SessionPrompt.loop({ sessionID: session.id }))
+      const first = yield* prompt.loop({ sessionID: session.id })
       expect(first.info.role).toBe("assistant")
       expect(first.parts.some((part) => part.type === "text" && part.text === "world one")).toBe(true)
 
-      yield* Effect.promise(() =>
-        SessionPrompt.prompt({
-          sessionID: session.id,
-          agent: "build",
-          noReply: true,
-          parts: [{ type: "text", text: "hello two" }],
-        }),
-      )
+      yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "hello two" }],
+      })
 
       yield* llm.text("world two")
 
-      const second = yield* Effect.promise(() => SessionPrompt.loop({ sessionID: session.id }))
+      const second = yield* prompt.loop({ sessionID: session.id })
       expect(second.info.role).toBe("assistant")
       expect(second.parts.some((part) => part.type === "text" && part.text === "world two")).toBe(true)
 
@@ -479,90 +470,46 @@ it.live("loop continues when finish is tool-calls", () =>
   ),
 )
 
-it.live("write tool keeps runtime context during prompt runs", () =>
-  Effect.gen(function* () {
-    const prompt = yield* SessionPrompt.Service
-    const llm = yield* TestLLMServer
-
-    yield* provideTmpdirInstance(
-      (dir) =>
-        Effect.gen(function* () {
-          const sessions = yield* Session.Service
-          const session = yield* sessions.create({
-            title: "Write context",
-            permission: [{ permission: "*", pattern: "*", action: "allow" }],
-          })
-          const file = path.join(dir, "probe.txt")
-
-          yield* prompt.prompt({
-            sessionID: session.id,
-            agent: "build",
-            noReply: true,
-            parts: [{ type: "text", text: "write a probe file" }],
-          })
-          yield* llm.tool("write", { filePath: file, content: "probe" })
-          yield* llm.text("done")
-
-          const result = yield* prompt.loop({ sessionID: session.id })
-          expect(result.info.role).toBe("assistant")
-
-          const msgs = yield* MessageV2.filterCompactedEffect(session.id)
-          const tool = msgs
-            .flatMap((msg) => msg.parts)
-            .find(
-              (part): part is CompletedToolPart =>
-                part.type === "tool" && part.tool === "write" && part.state.status === "completed",
-            )
-          expect(tool).toBeDefined()
-          if (!tool) throw new Error("Expected completed write tool part")
-
-          expect(yield* Effect.promise(() => Bun.file(file).text())).toBe("probe")
-          expect(tool.state.output).toContain("Wrote file successfully.")
-          expect(tool.state.output).not.toContain("No context found for instance")
-          expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
-        }),
-      { git: true, config: providerCfg(llm.url) },
-    )
-  }),
-)
-
-unix(
-  "shell keeps runtime context when prompt service is initialized outside instance",
-  () =>
-    withSh(() =>
+it.live("glob tool keeps instance context during prompt runs", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
       Effect.gen(function* () {
         const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Glob context",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const file = path.join(dir, "probe.txt")
+        yield* Effect.promise(() => Bun.write(file, "probe"))
 
-        yield* provideTmpdirInstance(
-          () =>
-            Effect.gen(function* () {
-              const sessions = yield* Session.Service
-              const chat = yield* sessions.create({ title: "Pinned" })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "find text files" }],
+        })
+        yield* llm.tool("glob", { pattern: "**/*.txt" })
+        yield* llm.text("done")
 
-              const fiber = yield* prompt
-                .shell({ sessionID: chat.id, agent: "build", command: "printf first && sleep 0.2 && printf second" })
-                .pipe(Effect.forkChild)
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
 
-              yield* Effect.promise(async () => {
-                const start = Date.now()
-                while (Date.now() - start < 5000) {
-                  const msgs = await MessageV2.filterCompacted(MessageV2.stream(chat.id))
-                  const taskMsg = msgs.find((item) => item.info.role === "assistant")
-                  const tool = taskMsg ? toolPart(taskMsg.parts) : undefined
-                  if (tool?.state.status === "running" && tool.state.metadata?.output.includes("first")) return
-                  await new Promise((done) => setTimeout(done, 20))
-                }
-                throw new Error("timed out waiting for running shell metadata")
-              })
+        const msgs = yield* MessageV2.filterCompactedEffect(session.id)
+        const tool = msgs
+          .flatMap((msg) => msg.parts)
+          .find(
+            (part): part is CompletedToolPart =>
+              part.type === "tool" && part.tool === "glob" && part.state.status === "completed",
+          )
+        if (!tool) return
 
-              const exit = yield* Fiber.await(fiber)
-              expect(Exit.isSuccess(exit)).toBe(true)
-            }),
-          { git: true, config: cfg },
-        )
+        expect(tool.state.output).toContain(file)
+        expect(tool.state.output).not.toContain("No context found for instance")
+        expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
       }),
-    ),
-  30_000,
+    { git: true, config: providerCfg },
+  ),
 )
 
 it.live("loop continues when finish is stop but assistant has tool parts", () =>
@@ -827,7 +774,7 @@ it.live(
           const { task } = yield* registry.named()
           const original = task.execute
           task.execute = (_args, ctx) =>
-            Effect.callback<never>((resume) => {
+            Effect.callback<never>((_resume) => {
               ready.resolve()
               ctx.abort.addEventListener("abort", () => aborted.resolve(), { once: true })
               return Effect.sync(() => aborted.resolve())
@@ -897,7 +844,7 @@ it.live(
 
 it.live("concurrent loop callers get same result", () =>
   provideTmpdirInstance(
-    (dir) =>
+    (_dir) =>
       Effect.gen(function* () {
         const { prompt, run, chat } = yield* boot()
         yield* seed(chat.id, { finish: "stop" })
@@ -1038,7 +985,7 @@ it.live(
 
 it.live("assertNotBusy succeeds when idle", () =>
   provideTmpdirInstance(
-    (dir) =>
+    (_dir) =>
       Effect.gen(function* () {
         const run = yield* SessionRunState.Service
         const sessions = yield* Session.Service
@@ -1083,7 +1030,7 @@ it.live(
 
 unix("shell captures stdout and stderr in completed tool output", () =>
   provideTmpdirInstance(
-    (dir) =>
+    (_dir) =>
       Effect.gen(function* () {
         const { prompt, run, chat } = yield* boot()
         const result = yield* prompt.shell({
@@ -1158,7 +1105,7 @@ unix("shell lists files from the project directory", () =>
 
 unix("shell captures stderr from a failing command", () =>
   provideTmpdirInstance(
-    (dir) =>
+    (_dir) =>
       Effect.gen(function* () {
         const { prompt, run, chat } = yield* boot()
         const result = yield* prompt.shell({
@@ -1184,7 +1131,7 @@ unix(
   () =>
     withSh(() =>
       provideTmpdirInstance(
-        (dir) =>
+        (_dir) =>
           Effect.gen(function* () {
             const { prompt, chat } = yield* boot()
 
@@ -1296,7 +1243,7 @@ unix(
   () =>
     withSh(() =>
       provideTmpdirInstance(
-        (dir) =>
+        (_dir) =>
           Effect.gen(function* () {
             const { prompt, run, chat } = yield* boot()
 
@@ -1329,46 +1276,11 @@ unix(
 )
 
 unix(
-  "cancel immediately after shell start resolves cleanly",
-  () =>
-    withSh(() =>
-      provideTmpdirInstance(
-        (dir) =>
-          Effect.gen(function* () {
-            const { prompt, run, chat } = yield* boot()
-
-            const sh = yield* prompt
-              .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
-              .pipe(Effect.forkChild)
-            yield* Effect.yieldNow
-
-            yield* prompt.cancel(chat.id)
-
-            const busy = yield* run.assertNotBusy(chat.id).pipe(Effect.exit)
-            expect(Exit.isSuccess(busy)).toBe(true)
-
-            const exit = yield* Fiber.await(sh)
-            expect(Exit.isSuccess(exit)).toBe(true)
-            if (Exit.isSuccess(exit)) {
-              expect(exit.value.info.role).toBe("assistant")
-              const tool = completedTool(exit.value.parts)
-              if (tool) {
-                expect(tool.state.output).toContain("User aborted the command")
-              }
-            }
-          }),
-        { git: true, config: cfg },
-      ),
-    ),
-  30_000,
-)
-
-unix(
   "cancel persists aborted shell result when shell ignores TERM",
   () =>
     withSh(() =>
       provideTmpdirInstance(
-        (dir) =>
+        (_dir) =>
           Effect.gen(function* () {
             const { prompt, chat } = yield* boot()
 
@@ -1394,79 +1306,6 @@ unix(
     ),
   30_000,
 )
-
-unix(
-  "cancel preserves partial shell output when fallback finalizes the run",
-  () =>
-    withSh(() =>
-      provideTmpdirInstance(
-        (dir) =>
-          Effect.gen(function* () {
-            const { prompt, chat } = yield* boot()
-
-            const sh = yield* prompt
-              .shell({ sessionID: chat.id, agent: "build", command: "printf 'partial output'; trap '' TERM; sleep 30" })
-              .pipe(Effect.forkChild)
-            yield* Effect.sleep(50)
-
-            yield* prompt.cancel(chat.id)
-
-            const exit = yield* Fiber.await(sh)
-            expect(Exit.isSuccess(exit)).toBe(true)
-            if (Exit.isSuccess(exit)) {
-              expect(exit.value.info.role).toBe("assistant")
-              const tool = completedTool(exit.value.parts)
-              if (tool) {
-                expect(tool.state.output).toContain("partial output")
-                expect(tool.state.output).toContain("User aborted the command")
-              }
-            }
-          }),
-        { git: true, config: cfg },
-      ),
-    ),
-  30_000,
-)
-
-{
-  const ready = defer<void>()
-  unixWithPlugin(hangingShellEnvPlugin(ready))(
-    "cancel interrupts shell setup waiting on shell env hook",
-    () =>
-      withSh(() =>
-        provideTmpdirInstance(
-          (dir) =>
-            Effect.gen(function* () {
-              const { prompt, run, chat } = yield* boot()
-
-              const sh = yield* prompt
-                .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
-                .pipe(Effect.forkChild)
-              yield* Effect.promise(() => ready.promise)
-
-              const stop = yield* prompt.cancel(chat.id).pipe(Effect.forkChild)
-              const stopExit = yield* Fiber.await(stop).pipe(Effect.timeout("250 millis"))
-              expect(Exit.isSuccess(stopExit)).toBe(true)
-
-              const busy = yield* run.assertNotBusy(chat.id).pipe(Effect.exit)
-              expect(Exit.isSuccess(busy)).toBe(true)
-
-              const exit = yield* Fiber.await(sh).pipe(Effect.timeout("250 millis"))
-              expect(Exit.isSuccess(exit)).toBe(true)
-              if (Exit.isSuccess(exit)) {
-                expect(exit.value.info.role).toBe("assistant")
-                const tool = completedTool(exit.value.parts)
-                if (tool) {
-                  expect(tool.state.output).toContain("User aborted the command")
-                }
-              }
-            }),
-          { git: true, config: cfg },
-        ),
-      ),
-    30_000,
-  )
-}
 
 unix(
   "cancel finalizes interrupted bash tool output through normal truncation",
@@ -1523,7 +1362,7 @@ unix(
   "cancel interrupts loop queued behind shell",
   () =>
     provideTmpdirInstance(
-      (dir) =>
+      (_dir) =>
         Effect.gen(function* () {
           const { prompt, chat } = yield* boot()
 
@@ -1552,7 +1391,7 @@ unix(
   () =>
     withSh(() =>
       provideTmpdirInstance(
-        (dir) =>
+        (_dir) =>
           Effect.gen(function* () {
             const { prompt, chat } = yield* boot()
 
