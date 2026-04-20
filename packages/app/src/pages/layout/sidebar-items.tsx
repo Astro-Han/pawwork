@@ -79,7 +79,6 @@ export type SessionItemProps = {
   actionSlot?: (session: Session) => JSX.Element
   leadingSlot?: (session: Session) => JSX.Element
   hideDefaultArchiveAction?: boolean
-  onDoubleClick?: (session: Session) => void
 }
 
 const SessionRow = (props: {
@@ -142,18 +141,10 @@ const SessionRow = (props: {
           {(meta) => (
             <span
               data-session-skill={meta().name}
-              class="shrink-0 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-weak"
+              class="shrink-0 inline-flex items-center gap-1 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-weak"
             >
-              {(() => {
-                const SkillIcon = createMemo(() => meta().Icon)
-                const Icon = SkillIcon()
-                return (
-                  <>
-                    <Icon class="inline-block align-middle mr-1 text-text-weak" />
-                    {language.t(meta().titleKey)}
-                  </>
-                )
-              })()}
+              <Icon name={meta().iconName} size="small" class="text-text-weak" />
+              {language.t(meta().titleKey)}
             </span>
           )}
         </Show>
@@ -245,11 +236,6 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         data-session-id={props.session.id}
         class="group/session relative w-full min-w-0 rounded-md cursor-default pr-3 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active has-[.active]:shadow-[inset_2px_0_0_var(--color-accent-brand)]"
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
-        onDblClick={(event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          props.onDoubleClick?.(props.session)
-        }}
       >
         <div class="flex min-w-0 items-center gap-1">
           <Show when={props.leadingSlot && !props.level}>

@@ -25,7 +25,10 @@ export const SettingsPage: Component<{
         orientation="vertical"
         variant="settings"
         value={props.active}
-        onChange={(value) => value && props.onSelect(value as SettingsPageTab)}
+        onChange={(value) => {
+          if (value !== "general" && value !== "shortcuts" && value !== "providers" && value !== "models") return
+          props.onSelect(value)
+        }}
         class="h-full w-full"
       >
         <Tabs.List>
@@ -83,16 +86,24 @@ export const SettingsPage: Component<{
           </div>
         </Tabs.List>
         <Tabs.Content value="general" class="no-scrollbar">
-          <SettingsGeneral />
+          <div class="mx-auto w-full max-w-[760px]">
+            <SettingsGeneral />
+          </div>
         </Tabs.Content>
         <Tabs.Content value="shortcuts" class="no-scrollbar">
-          <SettingsKeybinds />
+          <div class="mx-auto w-full max-w-[760px]">
+            <SettingsKeybinds />
+          </div>
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">
-          <SettingsProviders />
+          <div class="mx-auto w-full max-w-[760px]">
+            <SettingsProviders />
+          </div>
         </Tabs.Content>
         <Tabs.Content value="models" class="no-scrollbar">
-          <SettingsModels />
+          <div class="mx-auto w-full max-w-[760px]">
+            <SettingsModels />
+          </div>
         </Tabs.Content>
       </Tabs>
     </section>

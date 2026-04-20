@@ -88,19 +88,21 @@ export const PawworkSidebar = (props: {
     }),
   )
   const rows = createMemo(() =>
-    sections().recent.map((item) => ({
-      item: byID().get(item.id)!,
-    })),
+    sections()
+      .recent.map((item) => ({ item: byID().get(item.id) }))
+      .filter((entry): entry is { item: PawworkSidebarSession } => !!entry.item),
   )
   const pinnedRows = createMemo(() =>
-    sections().pinned.map((item) => ({
-      item: byID().get(item.id)!,
-    })),
+    sections()
+      .pinned.map((item) => ({ item: byID().get(item.id) }))
+      .filter((entry): entry is { item: PawworkSidebarSession } => !!entry.item),
   )
   const groupedRows = createMemo(() =>
     sections().groups.map((group) => ({
       label: group.label,
-      items: group.items.map((item) => byID().get(item.id)!).filter(Boolean),
+      items: group.items
+        .map((item) => byID().get(item.id))
+        .filter((item): item is PawworkSidebarSession => !!item),
     })),
   )
 
@@ -132,15 +134,18 @@ export const PawworkSidebar = (props: {
                 data-pinned={isPinned() ? "true" : "false"}
                 aria-label={pinLabel()}
                 title={pinLabel()}
+                tabIndex={isPinned() ? 0 : -1}
+                aria-hidden={isPinned() ? undefined : "true"}
                 onClick={(event) => {
                   event.preventDefault()
                   event.stopPropagation()
+                  if (isPinned()) event.currentTarget.blur()
                   props.onTogglePinnedSession(session.id)
                 }}
                 classList={{
                   "inline-flex size-6 items-center justify-center rounded transition-colors": true,
-                  "text-accent-brand opacity-100": isPinned(),
-                  "text-text-weak opacity-0 group-hover/session:opacity-100 group-focus-within/session:opacity-100 hover:text-text-base":
+                  "text-accent-brand opacity-100 pointer-events-auto": isPinned(),
+                  "text-text-weak opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto hover:text-text-base":
                     !isPinned(),
                 }}
               >
@@ -158,9 +163,6 @@ export const PawworkSidebar = (props: {
                 displayClass="text-14-regular text-text-strong min-w-0 flex-1 truncate"
               />
             )}
-            onDoubleClick={(rowSession) => {
-              editor.openEditor(`pawwork-session:${rowSession.id}`, rowSession.title ?? "")
-            }}
             actionSlot={(rowSession) => (
               <DropdownMenu>
                 <DropdownMenu.Trigger
@@ -229,6 +231,8 @@ export const PawworkSidebar = (props: {
   createEffect(() => {
     const activeSessionID = props.activeSessionID?.()
     rows()
+    pinnedRows()
+    groupedRows()
     const el = scrollEl
     if (!activeSessionID || !el) return
 
@@ -254,7 +258,14 @@ export const PawworkSidebar = (props: {
           <Button data-action="pawwork-session-new" size="large" icon="new-session" class="w-full" onClick={props.onNew}>
             {language.t("command.session.new")}
           </Button>
-          <Button data-action="pawwork-session-search" size="large" variant="ghost" class="w-full" onClick={props.onSearch}>
+          <Button
+            data-action="pawwork-session-search"
+            size="large"
+            variant="ghost"
+            icon="magnifying-glass"
+            class="w-full [&>[data-component=icon]]:!size-5"
+            onClick={props.onSearch}
+          >
             {language.t("sidebar.pawwork.search")}
           </Button>
         </div>
