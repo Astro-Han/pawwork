@@ -294,6 +294,38 @@ test("review file comments submit on click without clipping actions", async ({ p
   })
 })
 
+test("review keeps added files actionable in the review list", async ({ page, llm, project }) => {
+  test.setTimeout(180_000)
+
+  const tag = `review-added-file-${Date.now()}`
+  const file = `review-added-file-${tag}.txt`
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+
+  await project.open()
+  await withSession(project.sdk, `e2e review added file ${tag}`, async (session) => {
+    project.trackSession(session.id)
+    await patchWithMock(llm, project.sdk, session.id, seed([{ file, mark: tag }]))
+
+    await expect
+      .poll(
+        async () => {
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          return diff.length
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(1)
+
+    await project.gotoSession(session.id)
+    await show(page)
+
+    const row = page.locator(`[data-file="${file}"]`).first()
+    await expect(row).toBeVisible()
+    await expect(row.getByRole("button", { name: /^Open file$/i }).first()).toBeVisible()
+  })
+})
+
 test.fixme("review keeps scroll position after a live diff update", async ({ page, llm, project }) => {
   test.setTimeout(180_000)
 

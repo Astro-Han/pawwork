@@ -51,7 +51,14 @@ beforeAll(async () => {
     }),
   }))
   mock.module("@/context/language", () => ({ useLanguage: () => ({ t: (key: string) => key }) }))
-  mock.module("@/context/layout", () => ({ useLayout: () => ({ session: { width: () => 720 } }) }))
+  mock.module("@/context/layout", () => ({
+    MIN_RIGHT_PANEL_WIDTH: 280,
+    MAX_RIGHT_PANEL_WIDTH: 520,
+    useLayout: () => ({
+      session: { width: () => 720 },
+      rightPanel: { width: () => 360, resize: () => undefined },
+    }),
+  }))
   mock.module("@/pages/session/file-tabs", () => ({ FileTabContent: () => null }))
   mock.module("@/pages/session/files-tab", () => ({ FilesTab: () => null }))
   mock.module("@/pages/session/handoff", () => ({ setSessionHandoff: () => undefined }))

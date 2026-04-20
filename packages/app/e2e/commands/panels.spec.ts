@@ -62,6 +62,31 @@ test("desktop session keeps a single right-panel toggle and icon-first utility t
   expect(new Set(widths).size).toBe(1)
 })
 
+test("desktop right-panel shell tabs keep the sidepanel chrome contract", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const rightPanel = page.locator("#right-panel")
+
+  await page.keyboard.press(`${modKey}+Shift+R`)
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+
+  const shellTabList = rightPanel.getByRole("tablist").first()
+  const statusWrapper = shellTabList.locator('[data-slot="tabs-trigger-wrapper"]').first()
+
+  const wrapperStyles = await statusWrapper.evaluate((el) => {
+    const style = window.getComputedStyle(el as HTMLElement)
+    return {
+      borderBottomWidth: style.borderBottomWidth,
+      borderRightWidth: style.borderRightWidth,
+      backgroundColor: style.backgroundColor,
+    }
+  })
+
+  expect(wrapperStyles.borderBottomWidth).toBe("0px")
+  expect(wrapperStyles.borderRightWidth).toBe("0px")
+  expect(wrapperStyles.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+})
+
 test("desktop session uses the design paneR icon for the right-panel toggle", async ({ page, gotoSession }) => {
   await gotoSession()
 

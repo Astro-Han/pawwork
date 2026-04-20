@@ -399,6 +399,51 @@
     }
   }
 
+  &[data-variant="sidepanel"] {
+    [data-slot="tabs-list"] {
+      /* Let the consumer-owned h-11 shell row define the final height. */
+      height: 44px;
+
+      &::after {
+        display: none;
+      }
+    }
+
+    [data-slot="tabs-trigger-wrapper"] {
+      border-bottom: none;
+      border-right: none;
+      background-color: transparent;
+      color: inherit;
+      font: inherit;
+      height: auto;
+      max-width: none;
+      gap: 0;
+
+      &:has([data-selected]),
+      &:hover:not(:disabled):not([data-selected]) {
+        color: inherit;
+        background-color: transparent;
+        border-bottom-color: transparent;
+      }
+    }
+
+    [data-slot="tabs-trigger"] {
+      border: 1px solid transparent;
+      color: var(--text-weak);
+      background-color: transparent;
+      transition: background-color 120ms ease;
+
+      &:hover {
+        background-color: var(--surface-base-hover);
+      }
+
+      &[data-selected] {
+        background-color: var(--surface-raised-base);
+        color: var(--text-base);
+      }
+    }
+  }
+
   &[data-variant="pill"][data-orientation="horizontal"][data-scope="filetree"] {
     [data-slot="tabs-list"] {
       height: 48px;
