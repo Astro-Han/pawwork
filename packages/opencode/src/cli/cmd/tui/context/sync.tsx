@@ -22,12 +22,12 @@ import { createStore, produce, reconcile } from "solid-js/store"
 import { useProject } from "@tui/context/project"
 import { useEvent } from "@tui/context/event"
 import { useSDK } from "@tui/context/sdk"
-import { Binary } from "@opencode-ai/shared/util/binary"
+import { Binary } from "@/util/binary"
 import { createSimpleContext } from "./helper"
 import type { Snapshot } from "@/snapshot"
 import { useExit } from "./exit"
 import { useArgs } from "./args"
-import { batch, onMount } from "solid-js"
+import { batch, createEffect, on } from "solid-js"
 import { Log } from "@/util"
 import { emptyConsoleState, type ConsoleState } from "@/config/console-state"
 
@@ -456,9 +456,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         })
     }
 
-    onMount(() => {
-      void bootstrap()
-    })
+    createEffect(
+      on(
+        () => project.workspace.current(),
+        () => {
+          fullSyncedSessions.clear()
+          void bootstrap()
+        },
+      ),
+    )
 
     const result = {
       data: store,
@@ -499,11 +505,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         },
         async sync(sessionID: string) {
           if (fullSyncedSessions.has(sessionID)) return
+          const workspace = project.workspace.current()
           const [session, messages, todo, diff] = await Promise.all([
-            sdk.client.session.get({ sessionID }, { throwOnError: true }),
-            sdk.client.session.messages({ sessionID, limit: 100 }),
-            sdk.client.session.todo({ sessionID }),
-            sdk.client.session.diff({ sessionID }),
+            sdk.client.session.get({ sessionID, workspace }, { throwOnError: true }),
+            sdk.client.session.messages({ sessionID, limit: 100, workspace }),
+            sdk.client.session.todo({ sessionID, workspace }),
+            sdk.client.session.diff({ sessionID, workspace }),
           ])
           setStore(
             produce((draft) => {
