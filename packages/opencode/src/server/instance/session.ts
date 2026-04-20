@@ -437,9 +437,12 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
-        await SessionShare.share(sessionID)
+        const share = await SessionShare.share(sessionID)
         const session = await Session.get(sessionID)
-        return c.json(session)
+        return c.json({
+          ...session,
+          share,
+        })
       },
     )
     .get(
@@ -540,7 +543,10 @@ export const SessionRoutes = lazy(() =>
         const sessionID = c.req.valid("param").sessionID
         await SessionShare.unshare(sessionID)
         const session = await Session.get(sessionID)
-        return c.json(session)
+        return c.json({
+          ...session,
+          share: undefined,
+        })
       },
     )
     .post(

@@ -61,7 +61,7 @@ export namespace SessionShare {
 
   const { runPromise } = makeRuntime(Service, defaultLayer)
 
-  export const create = fn(Session.create.schema, (input) => runPromise((svc) => svc.create(input)))
+  export const create = fn(Session.CreateInput, (input) => runPromise((svc) => svc.create(input)))
   export const share = fn(SessionID.zod, (sessionID) => runPromise((svc) => svc.share(sessionID)))
   export const unshare = fn(SessionID.zod, (sessionID) => runPromise((svc) => svc.unshare(sessionID)))
 }
