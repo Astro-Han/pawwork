@@ -268,7 +268,9 @@ export const SettingsKeybinds: Component = () => {
   const stop = () => {
     if (!store.active) return
     setStore("active", null)
-    command.keybinds(true)
+    // Resume global shortcuts after the current keydown finishes bubbling,
+    // otherwise the freshly recorded keybind can immediately trigger itself.
+    queueMicrotask(() => command.keybinds(true))
   }
 
   const start = (id: string) => {

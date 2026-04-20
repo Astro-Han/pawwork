@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   createResource,
+  createSignal,
   For,
   on,
   onCleanup,
@@ -35,6 +36,8 @@ import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
 import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { LayoutPageContext } from "@/context/layout-page"
+import { ShellSurfaceContext } from "@/context/shell-surface"
 import { clearWorkspaceTerminals } from "@/context/terminal"
 import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
 import {
@@ -81,13 +84,20 @@ import {
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
 import {
+  pawworkSessionDirectories,
+  resolvePawworkProjectLabels,
+  sortPawworkSidebarSessions,
+} from "./layout/pawwork-session-source"
+import {
   LocalWorkspace,
   SortableWorkspace,
   WorkspaceDragOverlay,
   type WorkspaceSidebarContext,
 } from "./layout/sidebar-workspace"
+import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
-import { SidebarContent } from "./layout/sidebar-shell"
+import { PawworkTitlebar } from "./layout/pawwork-titlebar"
+import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -101,6 +111,8 @@ export default function Layout(props: ParentProps) {
       workspaceBranchName: {} as Record<string, Record<string, string>>,
       workspaceExpanded: {} as Record<string, boolean>,
       gettingStartedDismissed: false,
+      pawworkPinnedSessions: [] as string[],
+      pawworkSortMode: "time" as "time" | "project",
     }),
   )
 
@@ -109,6 +121,8 @@ export default function Layout(props: ParentProps) {
   let scrollContainerRef: HTMLDivElement | undefined
   let dialogRun = 0
   let dialogDead = false
+  const [settingsOpen, setSettingsOpen] = createSignal(false)
+  const [settingsTab, setSettingsTab] = createSignal<SettingsPageTab>("general")
 
   const params = useParams()
   const globalSDK = useGlobalSDK()
@@ -669,6 +683,40 @@ export default function Layout(props: ParentProps) {
     return result
   })
 
+  const collectPawworkSessions = (projects: LocalProject[]) => {
+    const now = Date.now()
+    const seen = new Set<string>()
+    const result: PawworkSidebarSession[] = []
+    const labels = resolvePawworkProjectLabels(projects, globalSync.data.path.home)
+
+    for (const project of projects) {
+      for (const directory of workspaceIds(project)) {
+        const key = workspaceKey(directory)
+        if (seen.has(key)) continue
+        seen.add(key)
+
+        const [dirStore] = globalSync.child(directory, { bootstrap: true })
+        for (const session of sortedRootSessions(dirStore, now)) {
+          result.push({
+            session,
+            slug: base64Encode(session.directory),
+            projectLabel: labels.get(project.worktree) ?? displayName(project),
+            updated: session.time?.updated ?? session.time?.created ?? 0,
+          })
+        }
+      }
+    }
+
+    return sortPawworkSidebarSessions(result.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
+  }
+
+  const pawworkSessions = createMemo(() => collectPawworkSessions(layout.projects.list()))
+  const pawworkPeekSessions = createMemo(() => {
+    const project = peekProject()
+    if (!project) return [] as PawworkSidebarSession[]
+    return collectPawworkSessions([project])
+  })
+
   type PrefetchQueue = {
     inflight: Set<string>
     pending: string[]
@@ -1011,6 +1059,44 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  async function renamePawworkSession(session: Session, next: string) {
+    const title = next.trim()
+    if (!title || title === (session.title ?? "")) return
+
+    try {
+      await globalSDK.client.session.update({
+        directory: session.directory,
+        sessionID: session.id,
+        title,
+      })
+
+      const [, setStore] = globalSync.child(session.directory)
+      setStore(
+        produce((draft) => {
+          const match = Binary.search(draft.session, session.id, (item) => item.id)
+          if (match.found) draft.session[match.index].title = title
+        }),
+      )
+    } catch (error) {
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      })
+    }
+  }
+
+  function togglePinnedSession(sessionID: string) {
+    setStore("pawworkPinnedSessions", (current) => {
+      const next = current.filter((id) => id !== sessionID)
+      if (next.length !== current.length) return next
+      return [sessionID, ...current]
+    })
+  }
+
+  function setPawworkSortMode(mode: "time" | "project") {
+    setStore("pawworkSortMode", mode)
+  }
+
   command.register("layout", () => {
     const commands: CommandOption[] = [
       {
@@ -1223,11 +1309,17 @@ export default function Layout(props: ParentProps) {
   }
 
   function openSettings() {
-    const run = ++dialogRun
-    void import("@/components/dialog-settings").then((x) => {
-      if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogSettings />)
-    })
+    setSettingsTab("general")
+    setSettingsOpen(true)
+    layout.mobileSidebar.hide()
+  }
+
+  createEffect(() => {
+    command.setModalOpen(settingsOpen())
+  })
+
+  function closeSettings() {
+    setSettingsOpen(false)
   }
 
   function projectRoot(directory: string) {
@@ -1361,6 +1453,15 @@ export default function Layout(props: ParentProps) {
   function navigateToSession(session: Session | undefined) {
     if (!session) return
     navigateWithSidebarReset(`/${base64Encode(session.directory)}/session/${session.id}`)
+  }
+
+  function openPawworkHome(directory?: string) {
+    const root = directory ? projectRoot(directory) : currentProject()?.worktree ?? projectRoot(currentDir())
+    if (!root) {
+      chooseProject()
+      return
+    }
+    navigateWithSidebarReset(`/${base64Encode(root)}/session`)
   }
 
   function openProject(directory: string, navigate = true) {
@@ -1816,11 +1917,11 @@ export default function Layout(props: ParentProps) {
   )
 
   createEffect(() => {
-    const sidebarWidth = layout.sidebar.opened() ? layout.sidebar.width() : 48
+    const sidebarWidth = layout.sidebar.opened() ? layout.sidebar.width() : 0
     document.documentElement.style.setProperty("--dialog-left-margin", `${sidebarWidth}px`)
   })
 
-  const side = createMemo(() => Math.max(layout.sidebar.width(), 244))
+  const side = createMemo(() => Math.max(layout.sidebar.width(), 180))
   const panel = createMemo(() => Math.max(side() - 64, 0))
 
   const loadedSessionDirs = new Set<string>()
@@ -1873,24 +1974,12 @@ export default function Layout(props: ParentProps) {
   }
 
   function workspaceIds(project: LocalProject | undefined) {
-    if (!project) return []
-    const local = project.worktree
-    const dirs = [local, ...(project.sandboxes ?? [])]
-    const active = currentProject()
-    const directory = workspaceKey(active?.worktree ?? "") === workspaceKey(project.worktree) ? currentDir() : undefined
-    const extra =
-      directory &&
-      workspaceKey(directory) !== workspaceKey(local) &&
-      !dirs.some((item) => workspaceKey(item) === workspaceKey(directory))
-        ? directory
-        : undefined
-    const pending = extra ? WorktreeState.get(extra)?.status === "pending" : false
-
-    const ordered = effectiveWorkspaceOrder(local, dirs, store.workspaceOrder[project.worktree])
-    if (pending && extra) return [local, extra, ...ordered.filter((item) => item !== local)]
-    if (!extra) return ordered
-    if (pending) return ordered
-    return [...ordered, extra]
+    return pawworkSessionDirectories({
+      project,
+      activeProjectWorktree: currentProject()?.worktree,
+      currentDirectory: currentDir(),
+      workspaceOrder: project ? store.workspaceOrder[project.worktree] : undefined,
+    })
   }
 
   const sidebarProject = createMemo(() => {
@@ -2336,61 +2425,81 @@ export default function Layout(props: ParentProps) {
 
   const projects = () => layout.projects.list()
   const projectOverlay = () => <ProjectDragOverlay projects={projects} activeProject={() => store.activeProject} />
-  const sidebarContent = (mobile?: boolean) => (
-    <SidebarContent
-      mobile={mobile}
-      opened={() => layout.sidebar.opened()}
-      aimMove={aim.move}
-      projects={projects}
-      renderProject={(project) => (
-        <SortableProject ctx={projectSidebarCtx} project={project} sortNow={sortNow} mobile={mobile} />
-      )}
-      handleDragStart={handleDragStart}
-      handleDragEnd={handleDragEnd}
-      handleDragOver={handleDragOver}
-      openProjectLabel={language.t("command.project.open")}
-      openProjectKeybind={() => command.keybind("project.open")}
+  const renderPawworkPanel = (
+    sessions: Accessor<PawworkSidebarSession[]>,
+    options?: { mobile?: boolean; directory?: string; scope?: "main" | "peek" },
+  ) => (
+    <PawworkSidebar
+      scope={options?.scope}
+      mobile={options?.mobile}
+      sessions={sessions}
+      showProjectEmptyState={projects().length === 0}
+      activeSessionID={() => params.id}
+      pinnedIDs={() => store.pawworkPinnedSessions}
+      sortMode={() => store.pawworkSortMode}
+      sidebarExpanded={sidebarExpanded}
+      setScrollContainerRef={workspaceSidebarCtx.setScrollContainerRef}
+      clearHoverProjectSoon={clearHoverProjectSoon}
+      prefetchSession={prefetchSession}
+      archiveSession={archiveSession}
+      onRenameSession={renamePawworkSession}
+      onTogglePinnedSession={togglePinnedSession}
+      onSetSortMode={setPawworkSortMode}
+      onNew={() => openPawworkHome(options?.directory)}
+      onSearch={() => command.show()}
       onOpenProject={chooseProject}
-      renderProjectOverlay={projectOverlay}
+      onOpenSettings={openSettings}
+      onOpenHelp={() => platform.openLink("https://github.com/Astro-Han/pawwork/issues")}
+      openProjectLabel={() => language.t("command.project.open")}
+      openProjectKeybind={() => command.keybind("project.open")}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
-      onOpenSettings={openSettings}
       helpLabel={() => language.t("sidebar.help")}
-      onOpenHelp={() => platform.openLink("https://github.com/Astro-Han/pawwork/issues")}
-      renderPanel={() =>
-        mobile ? <SidebarPanel project={currentProject} mobile /> : <SidebarPanel project={currentProject} merged />
-      }
     />
   )
+  const sidebarContent = (mobile?: boolean) =>
+    renderPawworkPanel(pawworkSessions, { mobile, directory: currentProject()?.worktree, scope: "main" })
 
   return (
-    <div
-      data-component="desktop-shell"
-      data-platform={platform.platform}
-      data-os={platform.os}
-      class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
-      style={{
-        "--shell-titlebar-current-height":
-          platform.platform === "desktop" && platform.os === "macos"
-            ? `calc(var(--shell-titlebar-height, 40px) / ${platform.webviewZoom?.() ?? 1})`
-            : "var(--shell-titlebar-height, 40px)",
+    <LayoutPageContext.Provider
+      value={{
+        pinnedIDs: () => store.pawworkPinnedSessions,
+        workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
+        openProject: () => {
+          void chooseProject()
+        },
       }}
     >
+      <ShellSurfaceContext.Provider value={{ settingsOpen, openSettings, closeSettings }}>
       <div
-        data-component="desktop-shell-frame"
+        data-component="desktop-shell"
         data-platform={platform.platform}
         data-os={platform.os}
-        class="flex flex-1 min-h-0 min-w-0 flex-col"
+        class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
+        style={{
+          "--shell-titlebar-current-height":
+            platform.platform === "desktop" && platform.os === "macos"
+              ? `calc(var(--shell-titlebar-height, 40px) / ${platform.webviewZoom?.() ?? 1})`
+              : "var(--shell-titlebar-height, 40px)",
+        }}
       >
-        <Titlebar />
-        <div class="flex-1 min-h-0 min-w-0 flex">
+        <div
+          data-component="desktop-shell-frame"
+          data-platform={platform.platform}
+          data-os={platform.os}
+          class="flex flex-1 min-h-0 min-w-0 flex-col"
+        >
+          <Titlebar />
+          <PawworkTitlebar visible={settingsOpen} title={() => language.t("sidebar.settings")} />
+          <div class="flex-1 min-h-0 min-w-0 flex">
           <div class="flex-1 min-h-0 relative">
             <div class="size-full relative overflow-x-hidden">
               <nav
                 aria-label={language.t("sidebar.nav.projectsAndSessions")}
                 data-component="sidebar-nav-desktop"
                 classList={{
-                  "hidden xl:block": true,
+                  "hidden": true,
+                  "xl:block": layout.sidebar.opened(),
                   "absolute inset-y-0 left-0": true,
                   "z-10": true,
                 }}
@@ -2420,7 +2529,7 @@ export default function Layout(props: ParentProps) {
                   <ResizeHandle
                     direction="horizontal"
                     size={layout.sidebar.width()}
-                    min={244}
+                    min={180}
                     max={typeof window === "undefined" ? 1000 : window.innerWidth * 0.3 + 64}
                     onResize={(w) => {
                       setState("sizing", true)
@@ -2473,7 +2582,7 @@ export default function Layout(props: ParentProps) {
                     !state.sizing,
                 }}
                 style={{
-                  "--main-left": layout.sidebar.opened() ? `${side()}px` : "4rem",
+                  "--main-left": layout.sidebar.opened() ? `${side()}px` : "0",
                 }}
               >
                 <main
@@ -2484,9 +2593,22 @@ export default function Layout(props: ParentProps) {
                     "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
                   }}
                 >
-                  <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
-                    {props.children}
-                  </Show>
+                  <div class="relative size-full">
+                    <div
+                      inert={settingsOpen() ? true : undefined}
+                      aria-hidden={settingsOpen()}
+                      class="size-full"
+                    >
+                      <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
+                        {props.children}
+                      </Show>
+                    </div>
+                    <Show when={settingsOpen()}>
+                      <div class="absolute inset-0 z-40">
+                        <SettingsPage active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
+                      </div>
+                    </Show>
+                  </div>
                 </main>
               </div>
 
@@ -2510,7 +2632,13 @@ export default function Layout(props: ParentProps) {
                 }}
               >
                 <Show when={peekProject()}>
-                  <SidebarPanel project={peekProject} merged={false} />
+                  {(project) =>
+                    renderPawworkPanel(pawworkPeekSessions, {
+                      mobile: false,
+                      directory: project().worktree,
+                      scope: "peek",
+                    })
+                  }
                 </Show>
               </div>
 
@@ -2529,10 +2657,14 @@ export default function Layout(props: ParentProps) {
               </div>
             </div>
           </div>
-          {import.meta.env.DEV && <DebugBar />}
+          {import.meta.env.DEV &&
+            !((window as typeof window & { __opencode_e2e?: unknown }).__opencode_e2e) &&
+            <DebugBar />}
+          </div>
         </div>
+        <Toast.Region />
       </div>
-      <Toast.Region />
-    </div>
+      </ShellSurfaceContext.Provider>
+    </LayoutPageContext.Provider>
   )
 }

@@ -12,10 +12,10 @@ import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
+import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { decode64 } from "@/utils/base64"
-import { PaneR } from "@/components/design-icons"
 import { StatusPopover } from "../status-popover"
 
 export function SessionHeader() {
@@ -23,6 +23,7 @@ export function SessionHeader() {
   const language = useLanguage()
   const platform = usePlatform()
   const server = useServer()
+  const shellSurface = useShellSurface()
   const sync = useSync()
   const location = useLocation()
   const { params, view } = useSessionLayout()
@@ -76,7 +77,7 @@ export function SessionHeader() {
 
   return (
     <>
-      <Show when={centerMount()}>
+      <Show when={!shellSurface.settingsOpen() && centerMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <div class="hidden md:flex min-w-0 items-center gap-1.5 text-13-medium">
@@ -110,7 +111,7 @@ export function SessionHeader() {
           </Portal>
         )}
       </Show>
-      <Show when={rightMount()}>
+      <Show when={!shellSurface.settingsOpen() && rightMount()}>
         {(mount) => (
           <Portal mount={mount()}>
             <Show
@@ -130,7 +131,11 @@ export function SessionHeader() {
                   aria-expanded={rightPanelOpen()}
                   aria-controls="right-panel"
                 >
-                  <PaneR />
+                  <Icon
+                    size="small"
+                    name={rightPanelOpen() ? "sidebar-active" : "sidebar"}
+                    class="-scale-x-100"
+                  />
                 </Button>
               </Tooltip>
             </Show>

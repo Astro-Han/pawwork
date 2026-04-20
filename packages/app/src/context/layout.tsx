@@ -19,8 +19,8 @@ const DEFAULT_SIDEBAR_WIDTH = 344
 const DEFAULT_FILE_TREE_WIDTH = 200
 const DEFAULT_SESSION_WIDTH = 600
 const DEFAULT_TERMINAL_HEIGHT = 280
-export const DEFAULT_RIGHT_PANEL_WIDTH = 340
-export const MIN_RIGHT_PANEL_WIDTH = 300
+export const DEFAULT_RIGHT_PANEL_WIDTH = 380
+export const MIN_RIGHT_PANEL_WIDTH = 360
 export const MAX_RIGHT_PANEL_WIDTH = 520
 
 export function clampRightPanelWidth(raw: number | undefined): number {

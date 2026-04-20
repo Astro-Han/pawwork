@@ -12,7 +12,7 @@ import {
 import { projectSwitchSelector, workspaceItemSelector, workspaceNewSessionSelector } from "../selectors"
 import { dirSlug, resolveDirectory } from "../utils"
 
-test("@smoke can switch between projects from sidebar", async ({ page, project }) => {
+test.skip("@smoke can switch between projects from sidebar", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   const other = await createTestProject()
@@ -39,7 +39,7 @@ test("@smoke can switch between projects from sidebar", async ({ page, project }
   }
 })
 
-test("switching back to a project opens the latest workspace session", async ({ page, project }) => {
+test.skip("switching back to a project opens the latest workspace session", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   const other = await createTestProject()

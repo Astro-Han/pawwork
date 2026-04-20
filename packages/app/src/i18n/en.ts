@@ -696,6 +696,15 @@ export const dict = {
   "sidebar.project.clearNotifications": "Clear notifications",
   "sidebar.empty.title": "No projects open",
   "sidebar.empty.description": "Open a project to get started",
+  "sidebar.pawwork.search": "Search",
+  "sidebar.pawwork.empty.description": "Open a project to start using the session-first sidebar.",
+  "sidebar.pawwork.empty.sessions": "No sessions yet. Start a new one to begin.",
+  "sidebar.pawwork.pinned": "Pinned",
+  "sidebar.pawwork.all": "All sessions",
+  "sidebar.pawwork.pinSession": "Pin session",
+  "sidebar.pawwork.unpinSession": "Unpin session",
+  "sidebar.pawwork.sort.byProject": "Group by project",
+  "sidebar.pawwork.sort.byTime": "Sort by time",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",
@@ -952,4 +961,5 @@ export const dict = {
   "workspace.chip.ariaLabel": "Switch workspace",
   "workspace.chip.empty": "No workspaces available",
   "workspace.chip.popover.title": "Workspaces",
+  "workspace.chip.add": "Add workspace",
 }

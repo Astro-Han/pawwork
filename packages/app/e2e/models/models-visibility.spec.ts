@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
-import { closeDialog, openSettings, clickListItem } from "../actions"
+import { closeDialog, closeSettingsPanel, openSettings, clickListItem } from "../actions"
 
 test("hiding a model removes it from the model picker", async ({ page, gotoSession }) => {
   await gotoSession()
@@ -42,7 +42,7 @@ test("hiding a model removes it from the model picker", async ({ page, gotoSessi
   await toggle.locator('[data-slot="switch-control"]').click()
   await expect(input).toHaveAttribute("aria-checked", "false")
 
-  await closeDialog(page, settings)
+  await closeSettingsPanel(page, settings)
 
   await page.locator(promptSelector).click()
   await page.keyboard.type("/model")

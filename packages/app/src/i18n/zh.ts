@@ -620,6 +620,15 @@ export const dict = {
   "sidebar.project.clearNotifications": "清除通知",
   "sidebar.empty.title": "还没有打开项目",
   "sidebar.empty.description": "打开一个项目开始使用",
+  "sidebar.pawwork.search": "搜索",
+  "sidebar.pawwork.empty.description": "打开一个项目后，即可使用以会话为中心的侧边栏。",
+  "sidebar.pawwork.empty.sessions": "还没有会话，先新建一个开始。",
+  "sidebar.pawwork.pinned": "已置顶",
+  "sidebar.pawwork.all": "全部会话",
+  "sidebar.pawwork.pinSession": "置顶会话",
+  "sidebar.pawwork.unpinSession": "取消置顶",
+  "sidebar.pawwork.sort.byProject": "按项目分组",
+  "sidebar.pawwork.sort.byTime": "按时间排序",
 
   "app.name.desktop": "PawWork Desktop",
 
@@ -910,6 +919,7 @@ export const dict = {
   "workspace.chip.ariaLabel": "切换工作目录",
   "workspace.chip.empty": "暂无可用工作目录",
   "workspace.chip.popover.title": "工作目录",
+  "workspace.chip.add": "添加工作目录",
   "common.key.ctrl": "Ctrl",
   "common.key.alt": "Alt",
   "common.key.shift": "Shift",

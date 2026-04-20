@@ -75,6 +75,10 @@ export type SessionItemProps = {
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   archiveSession: (session: Session) => Promise<void>
+  titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
+  actionSlot?: (session: Session) => JSX.Element
+  leadingSlot?: (session: Session) => JSX.Element
+  hideDefaultArchiveAction?: boolean
 }
 
 const SessionRow = (props: {
@@ -91,6 +95,7 @@ const SessionRow = (props: {
   sidebarOpened: Accessor<boolean>
   warmPress: () => void
   warmFocus: () => void
+  titleContent?: JSX.Element
 }): JSX.Element => {
   const language = useLanguage()
   const title = () => sessionTitle(props.session.title)
@@ -129,23 +134,17 @@ const SessionRow = (props: {
         </div>
       </Show>
       <div class="min-w-0 flex-1 flex items-center gap-2">
-        <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>
+        <Show when={props.titleContent} fallback={<span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
+          {props.titleContent}
+        </Show>
         <Show when={skill()}>
           {(meta) => (
             <span
               data-session-skill={meta().name}
-              class="shrink-0 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-weak"
+              class="shrink-0 inline-flex items-center gap-1 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-weak"
             >
-              {(() => {
-                const SkillIcon = createMemo(() => meta().Icon)
-                const Icon = SkillIcon()
-                return (
-                  <>
-                    <Icon class="inline-block align-middle mr-1 text-text-weak" />
-                    {language.t(meta().titleKey)}
-                  </>
-                )
-              })()}
+              <Icon name={meta().iconName} size="small" class="text-text-weak" />
+              {language.t(meta().titleKey)}
             </span>
           )}
         </Show>
@@ -227,6 +226,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       sidebarOpened={layout.sidebar.opened}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
+      titleContent={props.titleContent?.({ session: props.session, title: () => sessionTitle(props.session.title) ?? "" })}
     />
   )
 
@@ -234,10 +234,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <>
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-3 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
+        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-3 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active has-[.active]:shadow-[inset_2px_0_0_var(--color-accent-brand)]"
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
       >
         <div class="flex min-w-0 items-center gap-1">
+          <Show when={props.leadingSlot && !props.level}>
+            <div class="shrink-0">{props.leadingSlot?.(props.session)}</div>
+          </Show>
           <div class="min-w-0 flex-1">
             <Show
               when={!tooltip()}
@@ -266,19 +269,28 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                 "group-focus-within/session:w-6 group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
               }}
             >
-              <Tooltip value={language.t("common.archive")} placement="top">
-                <IconButton
-                  icon="archive"
-                  variant="ghost"
-                  class="size-6 rounded-md"
-                  aria-label={language.t("common.archive")}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    void props.archiveSession(props.session)
-                  }}
-                />
-              </Tooltip>
+              <Show
+                when={props.actionSlot}
+                fallback={
+                  <Show when={!props.hideDefaultArchiveAction}>
+                    <Tooltip value={language.t("common.archive")} placement="top">
+                      <IconButton
+                        icon="archive"
+                        variant="ghost"
+                        class="size-6 rounded-md"
+                        aria-label={language.t("common.archive")}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          void props.archiveSession(props.session)
+                        }}
+                      />
+                    </Tooltip>
+                  </Show>
+                }
+              >
+                {props.actionSlot?.(props.session)}
+              </Show>
             </div>
           </Show>
         </div>

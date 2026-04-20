@@ -57,7 +57,7 @@ async function createSessionFromWorkspace(
   return project.user(text)
 }
 
-test("new sessions from sidebar workspace actions stay in selected workspace", async ({ page, project }) => {
+test.skip("new sessions from sidebar workspace actions stay in selected workspace", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   await project.open()

@@ -1,5 +1,5 @@
 import { test, expect, settingsKey } from "../fixtures"
-import { closeDialog, openSettings } from "../actions"
+import { closeDialog, closeSettingsPanel, openSettings } from "../actions"
 import {
   settingsCodeFontSelector,
   settingsLanguageSelectSelector,
@@ -35,7 +35,18 @@ test("@smoke settings dialog opens, switches tabs, closes", async ({ page, gotoS
   await expect(dialog.getByRole("button", { name: "Reset to defaults" })).toBeVisible()
   await expect(dialog.getByPlaceholder("Search shortcuts")).toBeVisible()
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
+})
+
+test('@smoke PawWork settings opens as a full-pane surface, not a dialog', async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  await openSettings(page)
+
+  await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
+  await expect(page.locator('[data-component="dialog-overlay"]')).toHaveCount(0)
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible()
+  await expect(page.locator("#opencode-titlebar-center")).toContainText("Settings")
 })
 
 test("changing language updates settings labels", async ({ page, gotoSession }) => {
@@ -376,7 +387,7 @@ test("code font and UI font rehydrate after reload", async ({ page, gotoSession 
   expect(updatedSettings?.appearance?.mono).toBe(mono)
   expect(updatedSettings?.appearance?.sans).toBe(sans)
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
   await page.reload()
 
   await expect

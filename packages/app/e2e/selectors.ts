@@ -1,6 +1,7 @@
 export const promptSelector = '[data-component="prompt-input"]'
-const terminalPanelSelector = '#terminal-panel:not([aria-hidden="true"])'
-export const terminalSelector = `${terminalPanelSelector} [data-component="terminal"]`
+const desktopTerminalSelector = '#right-panel[aria-hidden="false"] #terminal-panel [data-component="terminal"]'
+const mobileTerminalSelector = '#terminal-panel[aria-hidden="false"] [data-component="terminal"]'
+export const terminalSelector = `${desktopTerminalSelector}, ${mobileTerminalSelector}`
 export const sessionComposerDockSelector = '[data-component="session-prompt-dock"]'
 export const questionDockSelector = '[data-component="dock-prompt"][data-kind="question"]'
 export const permissionDockSelector = '[data-component="dock-prompt"][data-kind="permission"]'
@@ -31,6 +32,9 @@ export const titlebarLeftSelector = "#opencode-titlebar-left"
 export const titlebarCenterSelector = "#opencode-titlebar-center"
 
 const sidebarNavSelector = '[data-component="sidebar-nav-desktop"]'
+export const pawworkSidebarSelector = `${sidebarNavSelector} [data-component="pawwork-sidebar"]`
+export const pawworkSessionNewSelector = `${sidebarNavSelector} [data-action="pawwork-session-new"]`
+export const pawworkSessionSearchSelector = `${sidebarNavSelector} [data-action="pawwork-session-search"]`
 
 export const projectSwitchSelector = (slug: string) =>
   `${sidebarNavSelector} [data-action="project-switch"][data-project="${slug}"]`

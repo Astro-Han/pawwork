@@ -14,7 +14,7 @@ describe("pawwork skill cards", () => {
     const meta = getPawworkSkillMeta("document-processing")
     expect(meta).toBeDefined()
     expect(meta!.name).toBe("document-processing")
-    expect(typeof meta!.Icon).toBe("function")
+    expect(typeof meta!.iconName).toBe("string")
     expect(getPawworkSkillMeta("missing-skill")).toBeUndefined()
   })
 })

@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { closeDialog, openPalette, openSettings, withSession } from "../actions"
+import { closeDialog, closeSettingsPanel, openPalette, openSettings, withSession } from "../actions"
 import {
   desktopShellFrameSelector,
   desktopShellMainSelector,
@@ -27,7 +27,7 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
 
   const settings = await openSettings(page)
   await expect(settings.getByRole("heading", { level: 2 })).toBeVisible()
-  await closeDialog(page, settings)
+  await closeSettingsPanel(page, settings)
 
   const palette = await openPalette(page)
   await closeDialog(page, palette)

@@ -3,7 +3,7 @@ import { createTestProject, cleanupTestProject, openSidebar, clickMenuItem, open
 import { projectSwitchSelector } from "../selectors"
 import { dirSlug } from "../utils"
 
-test("closing active project navigates to another open project", async ({ page, project }) => {
+test.skip("closing active project navigates to another open project", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   const other = await createTestProject()

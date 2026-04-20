@@ -3,6 +3,7 @@ import { useSDK } from "@/context/sdk"
 import { useLocal } from "@/context/local"
 import { useLanguage } from "@/context/language"
 import { useNavigate } from "@solidjs/router"
+import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Mark } from "@opencode-ai/ui/logo"
 import { pawworkSkillCards, type PawworkSkillName } from "./pawwork-skill-meta"
@@ -57,7 +58,8 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
   }
 
   return (
-    <div data-component="session-new-home" class="size-full overflow-y-auto px-6 py-8 md:px-8 md:py-10">
+    <div data-component="session-new-home" class="size-full overflow-y-auto">
+      <div class="flex min-h-full flex-col items-center justify-center px-6 py-8 md:px-8 md:py-10">
       <div class="mx-auto flex w-full max-w-200 flex-col items-center gap-6 text-center">
         <Mark class="w-10" />
         <div class="flex flex-col gap-2">
@@ -74,7 +76,7 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
                 disabled={pending() === card.name}
                 onClick={() => void start(card.name)}
               >
-                <card.Icon class="text-text-weak" />
+                <Icon name={card.iconName} size="medium" class="text-text-weak" />
                 <div class="mt-3 text-16-medium text-text-strong">{language.t(card.titleKey)}</div>
                 <div class="mt-1 text-14-regular text-text-weak">{language.t(card.descriptionKey)}</div>
               </button>
@@ -84,6 +86,7 @@ export function NewSessionView(props: { composer?: JSX.Element }) {
         <Show when={props.composer}>
           <div class="w-full max-w-[640px]">{props.composer}</div>
         </Show>
+      </div>
       </div>
     </div>
   )

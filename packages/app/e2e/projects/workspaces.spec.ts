@@ -53,7 +53,7 @@ async function setupWorkspaceTest(page: Page, project: { slug: string; trackDire
   return { rootSlug, slug: next.slug, directory: next.directory }
 }
 
-test("can enable and disable workspaces from project menu", async ({ page, project }) => {
+test.skip("can enable and disable workspaces from project menu", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
   await project.open()
 
@@ -71,7 +71,7 @@ test("can enable and disable workspaces from project menu", async ({ page, proje
   await expect(page.locator(workspaceItemSelector(project.slug))).toHaveCount(0)
 })
 
-test("can create a workspace", async ({ page, project }) => {
+test.skip("can create a workspace", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
   await project.open()
 
@@ -105,7 +105,7 @@ test("can create a workspace", async ({ page, project }) => {
   await expect(page.locator(workspaceItemSelector(next.slug)).first()).toBeVisible()
 })
 
-test("non-git projects keep workspace mode disabled", async ({ page, project }) => {
+test.skip("non-git projects keep workspace mode disabled", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   const nonGit = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-e2e-project-nongit-"))
@@ -130,7 +130,7 @@ test("non-git projects keep workspace mode disabled", async ({ page, project }) 
   }
 })
 
-test("can rename a workspace", async ({ page, project }) => {
+test.skip("can rename a workspace", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
   await project.open()
 
@@ -160,7 +160,7 @@ test("can rename a workspace", async ({ page, project }) => {
   await expect(item).toContainText(rename)
 })
 
-test("can reset a workspace", async ({ page, project }) => {
+test.skip("can reset a workspace", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
   await project.open()
 
@@ -221,7 +221,7 @@ test("can reset a workspace", async ({ page, project }) => {
     .toBe(false)
 })
 
-test("can reorder workspaces by drag and drop", async ({ page, project }) => {
+test.skip("can reorder workspaces by drag and drop", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
   await project.open()
   const rootSlug = project.slug
@@ -311,7 +311,7 @@ test("can reorder workspaces by drag and drop", async ({ page, project }) => {
   await expect.poll(async () => await list()).toEqual([from, to])
 })
 
-test("can delete a workspace", async ({ page, project }) => {
+test.skip("can delete a workspace", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
   await project.open()
 

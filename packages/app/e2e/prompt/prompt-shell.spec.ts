@@ -1,6 +1,6 @@
 import type { ToolPart } from "@opencode-ai/sdk/v2/client"
 import { test, expect } from "../fixtures"
-import { closeDialog, openSettings, withSession } from "../actions"
+import { closeSettingsPanel, openSettings, withSession } from "../actions"
 import { promptModelSelector, promptSelector, promptVariantSelector } from "../selectors"
 
 const isBash = (part: unknown): part is ToolPart => {
@@ -27,7 +27,7 @@ test("shell mode runs a command in the project directory", async ({ page, projec
       await toggle.locator('[data-slot="switch-control"]').click()
       await expect(input).toHaveAttribute("aria-checked", "true")
     }
-    await closeDialog(page, dialog)
+    await closeSettingsPanel(page, dialog)
     await project.shell(cmd)
 
     await expect

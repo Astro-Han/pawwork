@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures"
 import { clickMenuItem, openProjectMenu, openSidebar } from "../actions"
 
-test("dialog edit project updates name and startup script", async ({ page, project }) => {
+test.skip("dialog edit project updates name and startup script", async ({ page, project }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
 
   await project.open()

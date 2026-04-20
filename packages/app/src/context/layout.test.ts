@@ -92,21 +92,21 @@ describe("defaultSidePanelTab", () => {
 })
 
 describe("layout.rightPanel clamping", () => {
-  test("DEFAULT_RIGHT_PANEL_WIDTH is 340", () => {
-    expect(DEFAULT_RIGHT_PANEL_WIDTH).toBe(340)
+  test("DEFAULT_RIGHT_PANEL_WIDTH is 380", () => {
+    expect(DEFAULT_RIGHT_PANEL_WIDTH).toBe(380)
   })
 
   test("clampRightPanelWidth(undefined) falls back to default", () => {
-    expect(clampRightPanelWidth(undefined)).toBe(340)
+    expect(clampRightPanelWidth(undefined)).toBe(380)
   })
 
   test("clampRightPanelWidth(400) returns 400", () => {
     expect(clampRightPanelWidth(400)).toBe(400)
   })
 
-  test("clampRightPanelWidth(250) clamps to min 300", () => {
-    expect(clampRightPanelWidth(250)).toBe(MIN_RIGHT_PANEL_WIDTH)
-    expect(MIN_RIGHT_PANEL_WIDTH).toBe(300)
+  test("clampRightPanelWidth(300) clamps to min 360", () => {
+    expect(clampRightPanelWidth(300)).toBe(MIN_RIGHT_PANEL_WIDTH)
+    expect(MIN_RIGHT_PANEL_WIDTH).toBe(360)
   })
 
   test("clampRightPanelWidth(600) clamps to max 520", () => {

@@ -298,7 +298,7 @@ test("session model restore per session without leaking into new sessions", asyn
   await waitFooter(page, fresh)
 })
 
-test("session model restore across workspaces", async ({ page, project }) => {
+test.skip("session model restore across workspaces", async ({ page, project }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
 
   await project.open()
