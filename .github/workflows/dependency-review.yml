@@ -10,7 +10,7 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 jobs:
   review:
@@ -21,21 +21,13 @@ jobs:
         with:
           persist-credentials: false
 
-      # Non-blocking during the initial rollout: `warn-only` makes policy
-      # findings (CVEs, license violations) surface as a comment without
-      # failing the job, while still failing loudly on action-level
-      # misconfiguration (auth, parser, network). GitHub supports bun.lock
-      # directly, but the `catalog:` field and workspace resolution are the
-      # real unknowns on this repo. Once a PR run shows the dep graph is
-      # parsed correctly, drop warn-only, set fail-on-severity: high, and
-      # add this job to the dev ruleset. Tracked in #54.
-      #
-      # Skipped on fork PRs: GITHUB_TOKEN is read-only, so the
-      # comment-summary-in-pr write would fail or silently no-op under
-      # warn-only. Mirrors the fork guard on the junit publisher in ci.yml.
-      - if: >
-          github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # actions/dependency-review-action@v4.9.0
+      # Advisory check: `warn-only: true` surfaces CVE/license findings
+      # in the Actions log but never fails the PR. Paired with `never`
+      # for comment-summary-in-pr so the action needs no write access
+      # and runs on fork PRs too (exactly where advisory coverage is
+      # most useful). Upgrading to fail-on-severity: high is a separate
+      # decision.
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # actions/dependency-review-action@v4.9.0
         with:
-          comment-summary-in-pr: always
+          comment-summary-in-pr: never
           warn-only: true
