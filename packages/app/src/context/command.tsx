@@ -1,6 +1,6 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { type Accessor, createEffect, createMemo, onCleanup, onMount } from "solid-js"
+import { type Accessor, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { useLanguage } from "@/context/language"
@@ -312,6 +312,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     })
 
     const suspended = () => store.suspendCount > 0
+    const [modalOpen, setModalOpen] = createSignal(false)
 
     const palette = createMemo(() => {
       const config = settings.keybinds.get(PALETTE_ID) ?? DEFAULT_PALETTE_KEYBIND
@@ -356,7 +357,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (suspended() || dialog.active) return
+      if (suspended() || dialog.active || modalOpen()) return
 
       const sig = signatureFromEvent(event)
       const isPalette = palette().has(sig)
@@ -423,6 +424,7 @@ export const { use: useCommand, provider: CommandProvider } = createSimpleContex
         setStore("suspendCount", (count) => Math.max(0, count + (enabled ? -1 : 1)))
       },
       suspended,
+      setModalOpen,
       get catalog() {
         return catalogOptions()
       },

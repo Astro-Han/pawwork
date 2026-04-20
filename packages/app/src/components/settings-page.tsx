@@ -1,9 +1,18 @@
-import type { Component } from "solid-js"
+import { type Component, onMount } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
+
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function focusablesIn(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => el.offsetParent !== null || el === document.activeElement,
+  )
+}
 import { SettingsGeneral } from "./settings-general"
 import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsModels } from "./settings-models"
@@ -18,9 +27,41 @@ export const SettingsPage: Component<{
 }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
+  let root: HTMLElement | undefined
+
+  onMount(() => {
+    if (!root) return
+    const [first] = focusablesIn(root)
+    first?.focus()
+  })
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Tab" || !root) return
+    const focusables = focusablesIn(root)
+    if (focusables.length === 0) return
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    const active = document.activeElement as HTMLElement | null
+    const inside = !!active && root.contains(active)
+
+    if (event.shiftKey) {
+      if (!inside || active === first) {
+        event.preventDefault()
+        last.focus()
+      }
+    } else if (!inside || active === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   return (
-    <section data-component="settings-page" class="flex size-full min-h-0 bg-background-base">
+    <section
+      ref={(el) => (root = el)}
+      data-component="settings-page"
+      class="flex size-full min-h-0 bg-background-base"
+      onKeyDown={handleKeyDown}
+    >
       <Tabs
         orientation="vertical"
         variant="settings"

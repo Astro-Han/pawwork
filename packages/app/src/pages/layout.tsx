@@ -1321,6 +1321,10 @@ export default function Layout(props: ParentProps) {
     layout.mobileSidebar.hide()
   }
 
+  createEffect(() => {
+    command.setModalOpen(settingsOpen())
+  })
+
   function closeSettings() {
     setSettingsOpen(false)
   }
