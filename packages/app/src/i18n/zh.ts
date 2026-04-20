@@ -568,6 +568,17 @@ export const dict = {
   "status.popover.tab.plugins": "插件",
   "status.popover.action.manageServers": "管理服务器",
 
+  "status.summary.progress": "进度",
+  "status.summary.progress.empty": "还没有待办事项。",
+  "status.summary.sources": "来源",
+  "status.summary.sources.empty": "还没有使用任何来源。",
+  "status.connections.title": "连接",
+  "status.connections.empty": "尚未配置。",
+  "status.connections.state.disabled": "已停用",
+  "status.connections.state.failed": "已失败",
+  "status.connections.state.needs_auth": "需要授权",
+  "status.connections.state.needs_client_registration": "需要注册",
+
   "session.share.popover.title": "发布到网页",
   "session.share.popover.description.shared": "此会话已在网页上公开。任何拥有链接的人都可以访问。",
   "session.share.popover.description.unshared": "在网页上公开分享此会话。任何拥有链接的人都可以访问。",
