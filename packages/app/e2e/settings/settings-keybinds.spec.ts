@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { openSettings, closeDialog, waitTerminalFocusIdle, withSession } from "../actions"
+import { openSettings, closeDialog, closeSettingsPanel, waitTerminalFocusIdle, withSession } from "../actions"
 import { keybindButtonSelector, terminalSelector } from "../selectors"
 import { modKey } from "../utils"
 
@@ -30,7 +30,7 @@ test("changing sidebar toggle keybind works", async ({ page, gotoSession }) => {
   })
   expect(stored?.keybinds?.["sidebar.toggle"]).toBe("mod+shift+h")
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 
   const button = page.getByRole("button", { name: /toggle sidebar/i }).first()
   const initiallyClosed = (await button.getAttribute("aria-expanded")) !== "true"
@@ -79,7 +79,7 @@ test("sidebar toggle keybind guards against shortcut conflicts", async ({ page, 
   })
   expect(stored?.keybinds?.["sidebar.toggle"]).toBeUndefined()
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 })
 
 test("resetting all keybinds to defaults works", async ({ page, gotoSession }) => {
@@ -113,7 +113,7 @@ test("resetting all keybinds to defaults works", async ({ page, gotoSession }) =
   })
   expect(stored?.keybinds?.["sidebar.toggle"]).toBeUndefined()
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 })
 
 test("clearing a keybind works", async ({ page, gotoSession }) => {
@@ -143,7 +143,7 @@ test("clearing a keybind works", async ({ page, gotoSession }) => {
   })
   expect(stored?.keybinds?.["sidebar.toggle"]).toBe("none")
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 
   await page.keyboard.press(`${modKey}+B`)
   await page.waitForTimeout(100)
@@ -179,17 +179,17 @@ test("changing settings open keybind works", async ({ page, gotoSession }) => {
   })
   expect(stored?.keybinds?.["settings.open"]).toBe("mod+/")
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 
-  const settingsDialog = page.getByRole("dialog")
-  await expect(settingsDialog).toHaveCount(0)
+  const settingsPage = page.locator('[data-component="settings-page"]')
+  await expect(settingsPage).toHaveCount(0)
 
   await page.keyboard.press(`${modKey}+Slash`)
   await page.waitForTimeout(100)
 
-  await expect(settingsDialog).toBeVisible()
+  await expect(settingsPage).toBeVisible()
 
-  await closeDialog(page, settingsDialog)
+  await closeSettingsPanel(page, settingsPage)
 })
 
 test("changing new session keybind works", async ({ page, sdk, gotoSession }) => {
@@ -220,7 +220,7 @@ test("changing new session keybind works", async ({ page, sdk, gotoSession }) =>
     })
     expect(stored?.keybinds?.["session.new"]).toBe("mod+shift+n")
 
-    await closeDialog(page, dialog)
+    await closeSettingsPanel(page, dialog)
 
     await page.keyboard.press(`${modKey}+Shift+N`)
     await page.waitForTimeout(200)
@@ -258,7 +258,7 @@ test("changing file open keybind works", async ({ page, gotoSession }) => {
   })
   expect(stored?.keybinds?.["file.open"]).toBe("mod+shift+f")
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 
   const filePickerDialog = page.getByRole("dialog").filter({ has: page.getByPlaceholder(/search files/i) })
   await expect(filePickerDialog).toHaveCount(0)
@@ -296,7 +296,7 @@ test("changing terminal toggle keybind works", async ({ page, gotoSession }) => 
   })
   expect(stored?.keybinds?.["terminal.toggle"]).toBe("mod+y")
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 
   const terminal = page.locator(terminalSelector)
   await expect(terminal).not.toBeVisible()
@@ -324,7 +324,7 @@ test("terminal toggle keybind persists after reload", async ({ page, gotoSession
   await page.waitForTimeout(100)
 
   await expect(keybindButton).toContainText("Y")
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 
   await page.reload()
 
@@ -343,7 +343,7 @@ test("terminal toggle keybind persists after reload", async ({ page, gotoSession
   await reloaded.getByRole("tab", { name: "Shortcuts" }).click()
   const reloadedKeybind = reloaded.locator(keybindButtonSelector("terminal.toggle")).first()
   await expect(reloadedKeybind).toContainText("Y")
-  await closeDialog(page, reloaded)
+  await closeSettingsPanel(page, reloaded)
 })
 
 test("changing command palette keybind works", async ({ page, gotoSession }) => {
@@ -373,7 +373,7 @@ test("changing command palette keybind works", async ({ page, gotoSession }) => 
   })
   expect(stored?.keybinds?.["command.palette"]).toBe("mod+shift+k")
 
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 
   const palette = page.getByRole("dialog").filter({ has: page.getByRole("textbox").first() })
   await expect(palette).toHaveCount(0)

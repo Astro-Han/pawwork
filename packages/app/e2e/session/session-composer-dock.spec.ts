@@ -5,7 +5,7 @@ import {
   type ComposerProbeState,
   type ComposerWindow,
 } from "../../src/testing/session-composer"
-import { cleanupSession, clearSessionDockSeed, closeDialog, openSettings, seedSessionQuestion } from "../actions"
+import { cleanupSession, clearSessionDockSeed, closeSettingsPanel, openSettings, seedSessionQuestion } from "../actions"
 import {
   permissionDockSelector,
   promptSelector,
@@ -72,7 +72,7 @@ async function setAutoAccept(page: any, enabled: boolean) {
   const checked = (await input.getAttribute("aria-checked")) === "true"
   if (checked !== enabled) await toggle.locator('[data-slot="switch-control"]').click()
   await expect(input).toHaveAttribute("aria-checked", enabled ? "true" : "false")
-  await closeDialog(page, dialog)
+  await closeSettingsPanel(page, dialog)
 }
 
 async function expectQuestionBlocked(page: any) {

@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { closeDialog, openSettings } from "../actions"
+import { closeSettingsPanel, openSettings } from "../actions"
 
 test("custom provider form can be filled and validates input", async ({ page, gotoSession }) => {
   await gotoSession()
@@ -34,7 +34,7 @@ test("custom provider form can be filled and validates input", async ({ page, go
   await page.keyboard.press("Escape")
   await expect(providerDialog).toHaveCount(0)
 
-  await closeDialog(page, settings)
+  await closeSettingsPanel(page, settings)
 })
 
 test("custom provider form shows validation errors", async ({ page, gotoSession }) => {
@@ -60,7 +60,7 @@ test("custom provider form shows validation errors", async ({ page, gotoSession 
   await page.keyboard.press("Escape")
   await expect(providerDialog).toHaveCount(0)
 
-  await closeDialog(page, settings)
+  await closeSettingsPanel(page, settings)
 })
 
 test("custom provider form can add and remove models", async ({ page, gotoSession }) => {
@@ -96,7 +96,7 @@ test("custom provider form can add and remove models", async ({ page, gotoSessio
   await page.keyboard.press("Escape")
   await expect(providerDialog).toHaveCount(0)
 
-  await closeDialog(page, settings)
+  await closeSettingsPanel(page, settings)
 })
 
 test("custom provider form can add and remove headers", async ({ page, gotoSession }) => {
@@ -132,5 +132,5 @@ test("custom provider form can add and remove headers", async ({ page, gotoSessi
   await page.keyboard.press("Escape")
   await expect(providerDialog).toHaveCount(0)
 
-  await closeDialog(page, settings)
+  await closeSettingsPanel(page, settings)
 })

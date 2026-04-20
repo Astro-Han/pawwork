@@ -3,6 +3,7 @@ import {
   createEffect,
   createMemo,
   createResource,
+  createSignal,
   For,
   on,
   onCleanup,
@@ -36,6 +37,7 @@ import { useProviders } from "@/hooks/use-providers"
 import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { LayoutPageContext } from "@/context/layout-page"
+import { ShellSurfaceContext } from "@/context/shell-surface"
 import { clearWorkspaceTerminals } from "@/context/terminal"
 import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
 import {
@@ -95,6 +97,8 @@ import {
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { ProjectDragOverlay, SortableProject, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { SidebarContent } from "./layout/sidebar-shell"
+import { PawworkTitlebar } from "./layout/pawwork-titlebar"
+import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -118,6 +122,8 @@ export default function Layout(props: ParentProps) {
   let scrollContainerRef: HTMLDivElement | undefined
   let dialogRun = 0
   let dialogDead = false
+  const [settingsOpen, setSettingsOpen] = createSignal(false)
+  const [settingsTab, setSettingsTab] = createSignal<SettingsPageTab>("general")
 
   const params = useParams()
   const globalSDK = useGlobalSDK()
@@ -225,11 +231,18 @@ export default function Layout(props: ParentProps) {
       if (document.visibilityState !== "hidden") return
       reset()
     }
+    const keydown = (event: KeyboardEvent) => {
+      if (!settingsOpen()) return
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      closeSettings()
+    }
     makeEventListener(window, "pointerup", stop)
     makeEventListener(window, "pointercancel", stop)
     makeEventListener(window, "blur", stop)
     makeEventListener(window, "blur", blur)
     makeEventListener(document, "visibilitychange", hide)
+    makeEventListener(window, "keydown", keydown)
   })
 
   const sidebarHovering = createMemo(() => !layout.sidebar.opened() && state.hoverProject !== undefined)
@@ -1304,11 +1317,12 @@ export default function Layout(props: ParentProps) {
   }
 
   function openSettings() {
-    const run = ++dialogRun
-    void import("@/components/dialog-settings").then((x) => {
-      if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogSettings />)
-    })
+    setSettingsTab("general")
+    setSettingsOpen(true)
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false)
   }
 
   function projectRoot(directory: string) {
@@ -2473,6 +2487,7 @@ export default function Layout(props: ParentProps) {
         workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
       }}
     >
+      <ShellSurfaceContext.Provider value={{ settingsOpen, openSettings, closeSettings }}>
       <div
         data-component="desktop-shell"
         data-platform={platform.platform}
@@ -2492,6 +2507,7 @@ export default function Layout(props: ParentProps) {
           class="flex flex-1 min-h-0 min-w-0 flex-col"
         >
           <Titlebar />
+          <PawworkTitlebar visible={settingsOpen} title={() => language.t("sidebar.settings")} />
           <div class="flex-1 min-h-0 min-w-0 flex">
           <div class="flex-1 min-h-0 relative">
             <div class="size-full relative overflow-x-hidden">
@@ -2593,9 +2609,22 @@ export default function Layout(props: ParentProps) {
                     "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
                   }}
                 >
-                  <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
-                    {props.children}
-                  </Show>
+                  <div class="relative size-full">
+                    <div
+                      inert={settingsOpen() ? true : undefined}
+                      aria-hidden={settingsOpen()}
+                      class="size-full"
+                    >
+                      <Show when={!autoselecting.loading} fallback={<div class="size-full" />}>
+                        {props.children}
+                      </Show>
+                    </div>
+                    <Show when={settingsOpen()}>
+                      <div class="absolute inset-0 z-40">
+                        <SettingsPage active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
+                      </div>
+                    </Show>
+                  </div>
                 </main>
               </div>
 
@@ -2644,11 +2673,14 @@ export default function Layout(props: ParentProps) {
               </div>
             </div>
           </div>
+          {import.meta.env.DEV &&
+            !((window as typeof window & { __opencode_e2e?: unknown }).__opencode_e2e) &&
+            <DebugBar />}
           </div>
-          {import.meta.env.DEV && <DebugBar />}
         </div>
+        <Toast.Region />
       </div>
-      <Toast.Region />
+      </ShellSurfaceContext.Provider>
     </LayoutPageContext.Provider>
   )
 }

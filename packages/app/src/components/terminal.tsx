@@ -6,7 +6,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import type { FitAddon, Ghostty, Terminal as Term } from "ghostty-web"
 import { type ComponentProps, createEffect, createMemo, onCleanup, onMount, splitProps } from "solid-js"
 import { SerializeAddon } from "@/addons/serialize"
-import { matchKeybind, parseKeybind } from "@/context/command"
+import { matchKeybind, parseKeybind, useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
@@ -162,6 +162,7 @@ const persistTerminal = (input: {
 }
 
 export const Terminal = (props: TerminalProps) => {
+  const command = useCommand()
   const platform = usePlatform()
   const sdk = useSDK()
   const settings = useSettings()
@@ -395,11 +396,17 @@ export const Terminal = (props: TerminalProps) => {
           return true
         }
 
-        // allow for toggle terminal keybinds in parent
+        // Dispatch terminal toggles ourselves because Ghostty focus can swallow
+        // the keydown before the app-level command listener receives it.
         const config = settings.keybinds.get(TOGGLE_TERMINAL_ID) ?? DEFAULT_TOGGLE_TERMINAL_KEYBIND
         const keybinds = parseKeybind(config)
 
-        return matchKeybind(keybinds, event)
+        if (!matchKeybind(keybinds, event)) return true
+
+        event.preventDefault()
+        event.stopPropagation()
+        queueMicrotask(() => command.trigger(TOGGLE_TERMINAL_ID, "keybind"))
+        return false
       })
 
       const fit = new mod.FitAddon()

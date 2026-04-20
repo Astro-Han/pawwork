@@ -185,24 +185,69 @@ export async function openPalette(page: Page, key = "K") {
 }
 
 export async function closeDialog(page: Page, dialog: Locator) {
+  const waitClosed = () =>
+    dialog
+      .waitFor({ state: "hidden", timeout: 1500 })
+      .then(() => true)
+      .catch(() =>
+        dialog
+          .waitFor({ state: "detached", timeout: 1500 })
+          .then(() => true)
+          .catch(() => false),
+      )
+
   await page.keyboard.press("Escape")
-  const closed = await dialog
-    .waitFor({ state: "detached", timeout: 1500 })
-    .then(() => true)
-    .catch(() => false)
+  const closed = await waitClosed()
 
   if (closed) return
 
   await page.keyboard.press("Escape")
-  const closedSecond = await dialog
-    .waitFor({ state: "detached", timeout: 1500 })
-    .then(() => true)
-    .catch(() => false)
+  const closedSecond = await waitClosed()
 
   if (closedSecond) return
 
-  await page.locator('[data-component="dialog-overlay"]').click({ position: { x: 5, y: 5 } })
-  await expect(dialog).toHaveCount(0)
+  const overlay = page.locator('[data-component="dialog-overlay"]')
+  if ((await overlay.count()) > 0) {
+    await overlay.click({ position: { x: 5, y: 5 } })
+  } else {
+    await page.getByRole("button", { name: /close/i }).first().click()
+  }
+  await expect(dialog).toBeHidden()
+}
+
+export async function closeSettingsPanel(page: Page, panel: Locator) {
+  const isSettingsPage = await panel
+    .evaluate((element) => element instanceof HTMLElement && element.dataset.component === "settings-page")
+    .catch(() => false)
+
+  if (!isSettingsPage) {
+    await closeDialog(page, panel)
+    return
+  }
+
+  const waitClosed = () =>
+    panel
+      .waitFor({ state: "hidden", timeout: 1500 })
+      .then(() => true)
+      .catch(() =>
+        panel
+          .waitFor({ state: "detached", timeout: 1500 })
+          .then(() => true)
+          .catch(() => false),
+      )
+
+  const closeButton = panel.getByRole("button", { name: /close/i }).first()
+  if ((await closeButton.count()) > 0) {
+    await closeButton.click()
+  } else {
+    await page.keyboard.press("Escape")
+  }
+
+  const closed = await waitClosed()
+  if (closed) return
+
+  await page.keyboard.press("Escape")
+  await expect(panel).toBeHidden()
 }
 
 async function isSidebarClosed(page: Page) {
@@ -295,7 +340,15 @@ export async function openSettings(page: Page) {
   await defocus(page)
 
   const dialog = page.getByRole("dialog")
+  const settingsPage = page.locator('[data-component="settings-page"]')
   await page.keyboard.press(`${modKey}+Comma`).catch(() => undefined)
+
+  const pageOpened = await settingsPage
+    .waitFor({ state: "visible", timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+
+  if (pageOpened) return settingsPage
 
   const opened = await dialog
     .waitFor({ state: "visible", timeout: 3000 })
@@ -307,6 +360,13 @@ export async function openSettings(page: Page) {
   await assertHealthy(page, "openSettings")
 
   await page.getByRole("button", { name: "Settings" }).first().click()
+  const pageOpenedFromClick = await settingsPage
+    .waitFor({ state: "visible", timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+
+  if (pageOpenedFromClick) return settingsPage
+
   await expect(dialog).toBeVisible()
   return dialog
 }
