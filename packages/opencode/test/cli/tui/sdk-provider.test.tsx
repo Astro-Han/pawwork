@@ -14,26 +14,24 @@ async function wait(fn: () => boolean, timeout = 2000) {
 describe("SDKProvider reconnect handling", () => {
   test("restarts reconnect delay from the base after a successful connection", async () => {
     const starts: number[] = []
+    const fetchFn = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      if (url.pathname !== "/global/event") {
+        throw new Error(`unexpected request: ${url.pathname}`)
+      }
+
+      starts.push(Date.now())
+      if (starts.length === 1) throw new Error("boom")
+      return new Response("", {
+        headers: {
+          "content-type": "text/event-stream",
+        },
+      })
+    }, { preconnect: globalThis.fetch.preconnect.bind(globalThis.fetch) }) satisfies typeof fetch
 
     const app = await testRender(() => (
-      <sdkContext.SDKProvider
-        url="http://test"
-        fetch={async (input: RequestInfo | URL, init?: RequestInit) => {
-          const request = new Request(input, init)
-          const url = new URL(request.url)
-          if (url.pathname !== "/global/event") {
-            throw new Error(`unexpected request: ${url.pathname}`)
-          }
-
-          starts.push(Date.now())
-          if (starts.length === 1) throw new Error("boom")
-          return new Response("", {
-            headers: {
-              "content-type": "text/event-stream",
-            },
-          })
-        }}
-      >
+      <sdkContext.SDKProvider url="http://test" fetch={fetchFn}>
         <box />
       </sdkContext.SDKProvider>
     ))
