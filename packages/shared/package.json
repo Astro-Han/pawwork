@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "version": "1.4.11",
+  "name": "@opencode-ai/shared",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:"
+  },
+  "dependencies": {
+    "@effect/platform-node": "catalog:",
+    "effect": "catalog:",
+    "glob": "13.0.5",
+    "mime-types": "3.0.2",
+    "minimatch": "10.2.5",
+    "xdg-basedir": "5.1.0",
+    "zod": "catalog:"
+  }
+}
