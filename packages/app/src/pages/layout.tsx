@@ -35,6 +35,7 @@ import type { DragEvent } from "@thisbeyond/solid-dnd"
 import { useProviders } from "@/hooks/use-providers"
 import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
+import { LayoutPageContext } from "@/context/layout-page"
 import { clearWorkspaceTerminals } from "@/context/terminal"
 import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
 import {
@@ -80,7 +81,11 @@ import {
   drainPendingDeepLinks,
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
-import { resolvePawworkProjectLabels, sortPawworkSidebarSessions } from "./layout/pawwork-session-source"
+import {
+  pawworkSessionDirectories,
+  resolvePawworkProjectLabels,
+  sortPawworkSidebarSessions,
+} from "./layout/pawwork-session-source"
 import {
   LocalWorkspace,
   SortableWorkspace,
@@ -1958,24 +1963,12 @@ export default function Layout(props: ParentProps) {
   }
 
   function workspaceIds(project: LocalProject | undefined) {
-    if (!project) return []
-    const local = project.worktree
-    const dirs = [local, ...(project.sandboxes ?? [])]
-    const active = currentProject()
-    const directory = workspaceKey(active?.worktree ?? "") === workspaceKey(project.worktree) ? currentDir() : undefined
-    const extra =
-      directory &&
-      workspaceKey(directory) !== workspaceKey(local) &&
-      !dirs.some((item) => workspaceKey(item) === workspaceKey(directory))
-        ? directory
-        : undefined
-    const pending = extra ? WorktreeState.get(extra)?.status === "pending" : false
-
-    const ordered = effectiveWorkspaceOrder(local, dirs, store.workspaceOrder[project.worktree])
-    if (pending && extra) return [local, extra, ...ordered.filter((item) => item !== local)]
-    if (!extra) return ordered
-    if (pending) return ordered
-    return [...ordered, extra]
+    return pawworkSessionDirectories({
+      project,
+      activeProjectWorktree: currentProject()?.worktree,
+      currentDirectory: currentDir(),
+      workspaceOrder: project ? store.workspaceOrder[project.worktree] : undefined,
+    })
   }
 
   const sidebarProject = createMemo(() => {
@@ -2474,26 +2467,32 @@ export default function Layout(props: ParentProps) {
   )
 
   return (
-    <div
-      data-component="desktop-shell"
-      data-platform={platform.platform}
-      data-os={platform.os}
-      class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
-      style={{
-        "--shell-titlebar-current-height":
-          platform.platform === "desktop" && platform.os === "macos"
-            ? `calc(var(--shell-titlebar-height, 40px) / ${platform.webviewZoom?.() ?? 1})`
-            : "var(--shell-titlebar-height, 40px)",
+    <LayoutPageContext.Provider
+      value={{
+        pinnedIDs: () => store.pawworkPinnedSessions,
+        workspaceOrderFor: (worktree: string) => store.workspaceOrder[worktree],
       }}
     >
       <div
-        data-component="desktop-shell-frame"
+        data-component="desktop-shell"
         data-platform={platform.platform}
         data-os={platform.os}
-        class="flex flex-1 min-h-0 min-w-0 flex-col"
+        class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
+        style={{
+          "--shell-titlebar-current-height":
+            platform.platform === "desktop" && platform.os === "macos"
+              ? `calc(var(--shell-titlebar-height, 40px) / ${platform.webviewZoom?.() ?? 1})`
+              : "var(--shell-titlebar-height, 40px)",
+        }}
       >
-        <Titlebar />
-        <div class="flex-1 min-h-0 min-w-0 flex">
+        <div
+          data-component="desktop-shell-frame"
+          data-platform={platform.platform}
+          data-os={platform.os}
+          class="flex flex-1 min-h-0 min-w-0 flex-col"
+        >
+          <Titlebar />
+          <div class="flex-1 min-h-0 min-w-0 flex">
           <div class="flex-1 min-h-0 relative">
             <div class="size-full relative overflow-x-hidden">
               <nav
@@ -2645,10 +2644,11 @@ export default function Layout(props: ParentProps) {
               </div>
             </div>
           </div>
+          </div>
           {import.meta.env.DEV && <DebugBar />}
         </div>
       </div>
       <Toast.Region />
-    </div>
+    </LayoutPageContext.Provider>
   )
 }

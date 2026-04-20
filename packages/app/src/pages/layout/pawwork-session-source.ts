@@ -1,4 +1,7 @@
+import type { LocalProject } from "@/context/layout"
 import { getFilename } from "@opencode-ai/util/path"
+import { Worktree as WorktreeState } from "@/utils/worktree"
+import { effectiveWorkspaceOrder, workspaceKey } from "./helpers"
 
 type ProjectLike = {
   name?: string
@@ -37,4 +40,34 @@ export function sortPawworkSidebarSessions<T extends SessionLike>(sessions: T[])
   return sessions
     .slice()
     .sort((a, b) => b.updated - a.updated || a.projectLabel.localeCompare(b.projectLabel) || a.id.localeCompare(b.id))
+}
+
+export function pawworkSessionDirectories(input: {
+  project: LocalProject | undefined
+  activeProjectWorktree?: string
+  currentDirectory?: string
+  workspaceOrder?: string[]
+}) {
+  const project = input.project
+  if (!project) return []
+
+  const local = project.worktree
+  const dirs = [local, ...(project.sandboxes ?? [])]
+  const directory =
+    input.activeProjectWorktree && workspaceKey(input.activeProjectWorktree) === workspaceKey(project.worktree)
+      ? input.currentDirectory
+      : undefined
+  const extra =
+    directory &&
+    workspaceKey(directory) !== workspaceKey(local) &&
+    !dirs.some((item) => workspaceKey(item) === workspaceKey(directory))
+      ? directory
+      : undefined
+  const pending = extra ? WorktreeState.get(extra)?.status === "pending" : false
+
+  const ordered = effectiveWorkspaceOrder(local, dirs, input.workspaceOrder)
+  if (pending && extra) return [local, extra, ...ordered.filter((item) => item !== local)]
+  if (!extra) return ordered
+  if (pending) return ordered
+  return [...ordered, extra]
 }

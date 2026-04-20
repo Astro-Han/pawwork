@@ -12,9 +12,11 @@ import { formatKeybind, useCommand, type CommandOption } from "@/context/command
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
+import { useLayoutPage } from "@/context/layout-page"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { pawworkSessionDirectories } from "@/pages/layout/pawwork-session-source"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { decode64 } from "@/utils/base64"
 import { getRelativeTime } from "@/utils/time"
@@ -176,13 +178,16 @@ function createSessionEntries(props: {
   label: (directory: string) => string
   globalSDK: ReturnType<typeof useGlobalSDK>
   language: ReturnType<typeof useLanguage>
+  pinnedIDs: () => string[]
 }) {
   const state: {
     token: number
+    cacheKey: string | undefined
     inflight: Promise<Entry[]> | undefined
     cached: Entry[] | undefined
   } = {
     token: 0,
+    cacheKey: undefined,
     inflight: undefined,
     cached: undefined,
   }
@@ -191,17 +196,26 @@ function createSessionEntries(props: {
     const query = text.trim()
     if (!query) {
       state.token += 1
+      state.cacheKey = undefined
       state.inflight = undefined
       state.cached = undefined
       return [] as Entry[]
     }
 
-    if (state.cached) return state.cached
-    if (state.inflight) return state.inflight
-
-    const current = state.token
     const dirs = props.workspaces()
     if (dirs.length === 0) return [] as Entry[]
+    const cacheKey = JSON.stringify({
+      query,
+      dirs,
+      pinned: props.pinnedIDs(),
+    })
+
+    if (state.cached && state.cacheKey === cacheKey) return state.cached
+    if (state.inflight && state.cacheKey === cacheKey) return state.inflight
+
+    const current = ++state.token
+    state.cacheKey = cacheKey
+    const pinned = new Set(props.pinnedIDs())
 
     state.inflight = Promise.all(
       dirs.map((directory) => {
@@ -245,12 +259,19 @@ function createSessionEntries(props: {
             seen.add(key)
             return true
           })
+          .sort((a, b) => {
+            const aPinned = pinned.has(a.id)
+            const bPinned = pinned.has(b.id)
+            if (aPinned !== bPinned) return aPinned ? -1 : 1
+            return (b.updated ?? 0) - (a.updated ?? 0) || a.title.localeCompare(b.title)
+          })
           .map((item) => createSessionEntry(item, category))
         state.cached = next
         return next
       })
       .catch(() => [] as Entry[])
       .finally(() => {
+        if (state.token !== current) return
         state.inflight = undefined
       })
 
@@ -269,13 +290,14 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   const navigate = useNavigate()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
+  const layoutPage = useLayoutPage()
   const { params, tabs, view } = useSessionLayout()
   const filesOnly = () => props.mode === "files"
   const state = { cleanup: undefined as (() => void) | void, committed: false }
   const [grouped, setGrouped] = createSignal(false)
   const commandEntries = createCommandEntries({ filesOnly, command, language })
   const fileEntries = createFileEntries({ file, tabs, language })
-
+  const pinnedSet = createMemo(() => new Set(layoutPage.pinnedIDs()))
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
   const project = createMemo(() => {
     const directory = projectDirectory()
@@ -286,10 +308,12 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
     const directory = projectDirectory()
     const current = project()
     if (!current) return directory ? [directory] : []
-
-    const dirs = [current.worktree, ...(current.sandboxes ?? [])]
-    if (directory && !dirs.includes(directory)) return [...dirs, directory]
-    return dirs
+    return pawworkSessionDirectories({
+      project: current,
+      activeProjectWorktree: current.worktree,
+      currentDirectory: directory,
+      workspaceOrder: layoutPage.workspaceOrderFor(current.worktree),
+    })
   })
   const homedir = createMemo(() => globalSync.data.path.home)
   const label = (directory: string) => {
@@ -305,7 +329,13 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
     return `${kind} : ${name || path}`
   }
 
-  const { sessions } = createSessionEntries({ workspaces, label, globalSDK, language })
+  const { sessions } = createSessionEntries({
+    workspaces,
+    label,
+    globalSDK,
+    language,
+    pinnedIDs: layoutPage.pinnedIDs,
+  })
 
   const items = async (text: string) => {
     const query = text.trim()
@@ -398,6 +428,13 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
         items={items}
         key={(item) => item.id}
         filterKeys={["title", "description", "category"]}
+        sortBy={(a, b) => {
+          if (a.type !== "session" || b.type !== "session") return 0
+          const aPinned = !!a.sessionID && pinnedSet().has(a.sessionID)
+          const bPinned = !!b.sessionID && pinnedSet().has(b.sessionID)
+          if (aPinned !== bPinned) return aPinned ? -1 : 1
+          return (b.updated ?? 0) - (a.updated ?? 0) || a.title.localeCompare(b.title)
+        }}
         groupBy={grouped() ? (item) => item.category : () => ""}
         onMove={handleMove}
         onSelect={handleSelect}
