@@ -128,6 +128,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       if (started) return run
       started = true
       run = (async () => {
+        // oxlint-disable-next-line no-unmodified-loop-condition -- `started` is set to false by stop() which also aborts; both flags are checked to allow graceful exit
         while (!abort.signal.aborted && started) {
           attempt = new AbortController()
           lastEventAt = Date.now()
@@ -155,7 +156,10 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
               resetHeartbeat()
               streamErrorLogged = false
               const directory = event.directory ?? "global"
-              const payload = event.payload
+              const payload = event.payload as Event | { type: "sync" }
+              if (payload.type === "sync") {
+                continue
+              }
               const k = key(directory, payload)
               if (k) {
                 const i = coalesced.get(k)
