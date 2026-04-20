@@ -1,0 +1,41 @@
+name: dependency-review
+
+on:
+  pull_request:
+    branches: [dev]
+
+concurrency:
+  group: dependency-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Non-blocking during the initial rollout: `warn-only` makes policy
+      # findings (CVEs, license violations) surface as a comment without
+      # failing the job, while still failing loudly on action-level
+      # misconfiguration (auth, parser, network). GitHub supports bun.lock
+      # directly, but the `catalog:` field and workspace resolution are the
+      # real unknowns on this repo. Once a PR run shows the dep graph is
+      # parsed correctly, drop warn-only, set fail-on-severity: high, and
+      # add this job to the dev ruleset. Tracked in #54.
+      #
+      # Skipped on fork PRs: GITHUB_TOKEN is read-only, so the
+      # comment-summary-in-pr write would fail or silently no-op under
+      # warn-only. Mirrors the fork guard on the junit publisher in ci.yml.
+      - if: >
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # actions/dependency-review-action@v4.9.0
+        with:
+          comment-summary-in-pr: always
+          warn-only: true
