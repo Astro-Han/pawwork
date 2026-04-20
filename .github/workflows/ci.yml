@@ -113,7 +113,7 @@ jobs:
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
-          path: node_modules/.cache/turbo
+          path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
           restore-keys: |
             turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
@@ -154,7 +154,7 @@ jobs:
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
-          path: node_modules/.cache/turbo
+          path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
           restore-keys: |
             turbo-${{ runner.os }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
