@@ -163,12 +163,12 @@ jobs:
           SOURCE_WORKFLOW_SHA: ${{ inputs.source_workflow_sha }}
           SUBMISSION_ID: ${{ inputs.submission_id }}
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         if: ${{ inputs.phase != 'finalize' }}
         with:
           persist-credentials: false
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         if: ${{ inputs.phase == 'finalize' }}
         with:
           persist-credentials: false
