@@ -23,9 +23,9 @@ describe("ci workflow", () => {
 
     expect(parsed.name).toBe("ci")
     expect(parsed.permissions).toEqual({ contents: "read" })
-    expect(changesCheckoutStep?.uses).toBe("actions/checkout@v6")
-    expect(typecheckCheckoutStep?.uses).toBe("actions/checkout@v6")
-    expect(unitCheckoutStep?.uses).toBe("actions/checkout@v6")
+    expect(changesCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(typecheckCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(unitCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
 
     expect(changesCheckoutStep?.with).toEqual({
       "fetch-depth": 0,
@@ -38,7 +38,7 @@ describe("ci workflow", () => {
     expect(unitCheckoutStep?.with).toEqual({ "persist-credentials": false })
     expect(unitBunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
     expect(junitStep?.uses).toBe("mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386")
-    expect(uploadArtifactsStep?.uses).toBe("actions/upload-artifact@v7")
+    expect(uploadArtifactsStep?.uses).toBe("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
 
     expect(workflow).not.toContain("pull_request_target")
     expect(workflow).not.toContain("persist-credentials: true")

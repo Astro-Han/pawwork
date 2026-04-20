@@ -20,7 +20,7 @@ jobs:
     outputs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -92,11 +92,11 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6.3.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # actions/setup-node@v6.3.0
         with:
           node-version: "24"
 
@@ -104,14 +104,14 @@ jobs:
         with:
           bun-version: "1.3.11"
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
           path: |
             ~/Library/Caches/electron
@@ -185,6 +185,9 @@ jobs:
           grep -q "Signature=adhoc" /tmp/pawwork-codesign.txt
         working-directory: packages/desktop-electron
 
+  # Aggregator for the `dev` branch ruleset. The required check on GitHub
+  # is `desktop-smoke / check`; every new job added above MUST be listed
+  # in `needs:` below, otherwise its failure will not block merge.
   check:
     if: always()
     needs:

@@ -28,8 +28,8 @@ describe("desktop smoke workflow", () => {
     expect(parsed.on?.workflow_dispatch).toEqual(null)
     expect(parsed.permissions).toEqual({ contents: "read" })
     expect(Object.keys(jobs).sort()).toEqual(["changes", "check", "smoke-macos-arm64"])
-    expect(changesCheckoutStep?.uses).toBe("actions/checkout@v6")
-    expect(smokeCheckoutStep?.uses).toBe("actions/checkout@v6")
+    expect(changesCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(smokeCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
 
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
     expect(changesCheckoutStep?.with).toEqual({

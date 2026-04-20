@@ -13,7 +13,6 @@
     "dev:storybook": "bun --cwd packages/storybook storybook",
     "typecheck": "bun turbo typecheck",
     "postinstall": "bun run --cwd packages/opencode fix-node-pty",
-    "prepare": "husky",
     "random": "echo 'Random script'",
     "hello": "echo 'Hello World!'",
     "test": "echo 'do not run tests from root' && exit 1"
@@ -81,7 +80,6 @@
     "@types/mime-types": "3.0.1",
     "@typescript/native-preview": "catalog:",
     "glob": "13.0.5",
-    "husky": "9.1.7",
     "prettier": "3.6.2",
     "semver": "^7.6.0",
     "sst": "3.18.10",

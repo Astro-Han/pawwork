@@ -1,3 +1,9 @@
+# This workflow is a required merge check on `dev`. The exact ruleset
+# entry to register is `codeql / analyze-js-ts`. PawWork runs user-
+# authored skills and accesses the OS keychain; solo-dev code review is
+# not a substitute for a JS/TS security scanner. Keep it in its own file
+# (not folded into ci.yml) so security failures are legible in isolation.
+# Decision recorded in issue #54 (D1).
 name: codeql
 
 on:
