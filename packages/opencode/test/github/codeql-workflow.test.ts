@@ -12,6 +12,9 @@ describe("codeql workflow", () => {
     const jobs = parsed.jobs ?? {}
     const job = jobs["analyze-js-ts"]
     const steps = job?.steps ?? []
+    const checkoutStep = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    const initStep = steps.find((step) => step.name === "Initialize CodeQL")
+    const analyzeStep = steps.find((step) => step.name === "Analyze with CodeQL")
 
     expect(parsed.name).toBe("codeql")
     expect(parsed.on?.push).toEqual({ branches: ["dev"] })
@@ -28,24 +31,13 @@ describe("codeql workflow", () => {
     expect(job?.["runs-on"]).toBe("ubuntu-latest")
     expect(job?.["timeout-minutes"]).toBe(30)
     expect(steps).toHaveLength(3)
-    expect(steps.map((step) => ({ name: step.name, uses: step.uses }))).toEqual([
-      {
-        name: undefined,
-        uses: "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
-      },
-      {
-        name: "Initialize CodeQL",
-        uses: "github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225",
-      },
-      {
-        name: "Analyze with CodeQL",
-        uses: "github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225",
-      },
-    ])
+    expect(checkoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(initStep?.uses).toBe("github/codeql-action/init@95e58e9a2cdfd71adc6e0353d5c52f41a045d225")
+    expect(analyzeStep?.uses).toBe("github/codeql-action/analyze@95e58e9a2cdfd71adc6e0353d5c52f41a045d225")
 
-    expect(steps[0]?.with).toEqual({ "persist-credentials": false })
-    expect(steps[1]?.with).toEqual({ languages: "javascript-typescript" })
-    expect(steps[2]?.with).toEqual({ category: "/language:javascript-typescript" })
+    expect(checkoutStep?.with).toEqual({ "persist-credentials": false })
+    expect(initStep?.with).toEqual({ languages: "javascript-typescript" })
+    expect(analyzeStep?.with).toEqual({ category: "/language:javascript-typescript" })
     expect(steps.every((step) => step.run === undefined && step.env === undefined)).toBe(true)
 
     expect(workflow).toContain("group: codeql-${{ github.ref }}")

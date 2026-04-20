@@ -15,8 +15,8 @@ describe("desktop smoke workflow", () => {
     const check = jobs.check
     const changesSteps = changes?.steps ?? []
     const smokeSteps = smoke?.steps ?? []
-    const changesCheckoutStep = changesSteps.find((step) => step.uses === "actions/checkout@v4")
-    const smokeCheckoutStep = smokeSteps.find((step) => step.uses === "actions/checkout@v4")
+    const changesCheckoutStep = changesSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    const smokeCheckoutStep = smokeSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const smokeBunStep = smokeSteps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
     const appSmokeStep = smokeSteps.find((step) => step.name === "Launch desktop smoke app")
     const packageStep = smokeSteps.find((step) => step.name === "Package desktop app")
@@ -28,6 +28,8 @@ describe("desktop smoke workflow", () => {
     expect(parsed.on?.workflow_dispatch).toEqual(null)
     expect(parsed.permissions).toEqual({ contents: "read" })
     expect(Object.keys(jobs).sort()).toEqual(["changes", "check", "smoke-macos-arm64"])
+    expect(changesCheckoutStep?.uses).toBe("actions/checkout@v6")
+    expect(smokeCheckoutStep?.uses).toBe("actions/checkout@v6")
 
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
     expect(changesCheckoutStep?.with).toEqual({
