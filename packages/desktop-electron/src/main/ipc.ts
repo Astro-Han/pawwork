@@ -30,6 +30,7 @@ type Deps = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
+  reportCiSmokeReady: () => Promise<void> | void
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -82,6 +83,7 @@ export function registerIpcHandlers(deps: Deps) {
     const store = getStore(name)
     return Object.keys(store.store).length
   })
+  ipcMain.handle("report-ci-smoke-ready", () => deps.reportCiSmokeReady())
 
   ipcMain.handle(
     "open-directory-picker",

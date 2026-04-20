@@ -12,6 +12,7 @@
     "typecheck": "tsgo -b",
     "test": "bun test",
     "test:ci": "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
+    "smoke:ci": "bun ./scripts/ci-smoke.ts",
     "predev": "bun ./scripts/predev.ts",
     "dev": "electron-vite dev",
     "prebuild": "bun ./scripts/prebuild.ts",

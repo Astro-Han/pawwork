@@ -19,6 +19,7 @@ import { MemoryRouter } from "@solidjs/router"
 import { createEffect, createResource, onCleanup, onMount, Show } from "solid-js"
 import { render } from "solid-js/web"
 import pkg from "../../package.json"
+import { desktopShellMainSelector, titlebarShellSelector } from "./ci-smoke-selectors"
 import { initI18n, t } from "./i18n"
 import { UPDATER_ENABLED } from "./updater"
 import { webviewZoom } from "./webview-zoom"
@@ -33,13 +34,32 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 void initI18n()
 
 const deepLinkEvent = "opencode:deep-link"
-
 const emitDeepLinks = (urls: string[]) => {
   if (urls.length === 0) return
   window.__OPENCODE__ ??= {}
   const pending = window.__OPENCODE__.deepLinks ?? []
   window.__OPENCODE__.deepLinks = [...pending, ...urls]
   window.dispatchEvent(new CustomEvent(deepLinkEvent, { detail: { urls } }))
+}
+
+async function reportCiSmokeReady(sidecar: { url: string; username?: string | null; password?: string | null }) {
+  if (document.title !== "PawWork") return false
+  if (!document.querySelector(titlebarShellSelector)) return false
+  if (!document.querySelector(desktopShellMainSelector)) return false
+
+  const windowCount = await window.api.getWindowCount().catch(() => 0)
+  if (windowCount !== 1) return false
+
+  const auth = btoa(`${sidecar.username ?? "opencode"}:${sidecar.password ?? ""}`)
+  const res = await fetch(new URL("/global/health", sidecar.url), {
+    headers: {
+      authorization: `Basic ${auth}`,
+    },
+  }).catch(() => null)
+  if (!res?.ok) return false
+
+  await window.api.reportCiSmokeReady()
+  return true
 }
 
 const listenForDeepLinks = () => {
@@ -296,6 +316,7 @@ render(() => {
     }),
   )
   const [locale] = createResource(loadLocale)
+  let ciSmokeTaskStarted = false
 
   const servers = () => {
     const data = sidecar()
@@ -338,6 +359,24 @@ render(() => {
 
     return null
   }
+
+  createEffect(() => {
+    if (!window.api.ciSmokeEnabled) return
+    if (ciSmokeTaskStarted) return
+    if (defaultServer.loading || sidecar.loading || windowCount.loading || locale.loading) return
+
+    const readySidecar = sidecar.latest
+    if (!readySidecar) return
+
+    ciSmokeTaskStarted = true
+    void (async () => {
+      const timeoutAt = Date.now() + 15_000
+      while (Date.now() < timeoutAt) {
+        if (await reportCiSmokeReady(readySidecar)) return
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    })()
+  })
 
   onMount(() => {
     document.addEventListener("click", handleClick)

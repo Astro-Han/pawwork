@@ -23,6 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - id: filter
         env:
@@ -92,12 +93,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.11"
 
@@ -125,6 +128,10 @@ jobs:
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: dev
+
+      - name: Launch desktop smoke app
+        run: bun run smoke:ci
+        working-directory: packages/desktop-electron
 
       - name: Package desktop app
         run: npx electron-builder --mac dir --arm64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false

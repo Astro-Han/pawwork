@@ -16,6 +16,7 @@ export type TitlebarTheme = {
 }
 
 export type ElectronAPI = {
+  ciSmokeEnabled: boolean
   killSidecar: () => Promise<void>
   installCli: () => Promise<string>
   awaitInitialization: (onStep: (step: InitStep) => void) => Promise<ServerReadyData>
@@ -35,6 +36,7 @@ export type ElectronAPI = {
   storeClear: (name: string) => Promise<void>
   storeKeys: (name: string) => Promise<string[]>
   storeLength: (name: string) => Promise<number>
+  reportCiSmokeReady: () => Promise<void>
 
   getWindowCount: () => Promise<number>
   onSqliteMigrationProgress: (cb: (progress: SqliteMigrationProgress) => void) => () => void

@@ -1,7 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron"
 import type { ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
+import { getRuntimeFlags } from "./runtime-flags"
+
+const runtimeFlags = getRuntimeFlags(process.env)
 
 const api: ElectronAPI = {
+  ciSmokeEnabled: runtimeFlags.ciSmokeEnabled,
   killSidecar: () => ipcRenderer.invoke("kill-sidecar"),
   installCli: () => ipcRenderer.invoke("install-cli"),
   awaitInitialization: (onStep) => {
@@ -27,6 +31,7 @@ const api: ElectronAPI = {
   storeClear: (name) => ipcRenderer.invoke("store-clear", name),
   storeKeys: (name) => ipcRenderer.invoke("store-keys", name),
   storeLength: (name) => ipcRenderer.invoke("store-length", name),
+  reportCiSmokeReady: () => ipcRenderer.invoke("report-ci-smoke-ready"),
 
   getWindowCount: () => ipcRenderer.invoke("get-window-count"),
   onSqliteMigrationProgress: (cb) => {

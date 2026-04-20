@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog } from "electron"
 import pkg from "electron-updater"
@@ -30,8 +30,16 @@ const APP_IDS: Record<string, string> = {
   beta: "ai.pawwork.desktop.beta",
   prod: "ai.pawwork.desktop",
 }
+const CI_SMOKE_HOME = process.env.PAWWORK_CI_SMOKE_HOME
+const CI_SMOKE_ENABLED = process.env.PAWWORK_CI_SMOKE === "true"
+const userDataRoot = CI_SMOKE_HOME ?? app.getPath("appData")
+
 app.setName(app.isPackaged ? APP_NAMES[CHANNEL] : "PawWork Dev")
-app.setPath("userData", join(app.getPath("appData"), app.isPackaged ? APP_IDS[CHANNEL] : "ai.pawwork.desktop.dev"))
+if (CI_SMOKE_HOME) {
+  app.setPath("appData", CI_SMOKE_HOME)
+}
+app.setPath("userData", join(userDataRoot, app.isPackaged ? APP_IDS[CHANNEL] : "ai.pawwork.desktop.dev"))
+const CI_SMOKE_READY_FILE = join(app.getPath("userData"), "ci-smoke-ready.json")
 const { autoUpdater } = pkg
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
@@ -68,7 +76,9 @@ function setupApp() {
   ensureLoopbackNoProxy()
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
 
-  if (!app.requestSingleInstanceLock()) {
+  // CI smoke should not fail just because a local desktop instance already holds
+  // the singleton lock on the runner or developer machine.
+  if (!CI_SMOKE_ENABLED && !app.requestSingleInstanceLock()) {
     app.quit()
     return
   }
@@ -130,7 +140,9 @@ function setInitStep(step: InitStep) {
 }
 
 async function initialize() {
-  const needsMigration = !sqliteFileExists()
+  // CI smoke only verifies that the desktop shell boots and the embedded
+  // sidecar is healthy; sqlite migration coverage stays outside this gate.
+  const needsMigration = !CI_SMOKE_ENABLED && !sqliteFileExists()
   const sqliteDone = needsMigration ? defer<void>() : undefined
   let overlay: BrowserWindow | null = null
 
@@ -246,12 +258,19 @@ registerIpcHandlers({
   checkUpdate: async () => checkUpdate(),
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
+  reportCiSmokeReady: () => reportCiSmokeReady(),
 })
 
 function killSidecar() {
   if (!server) return
   server.stop()
   server = null
+}
+
+function reportCiSmokeReady() {
+  if (!CI_SMOKE_ENABLED) return
+  mkdirSync(dirname(CI_SMOKE_READY_FILE), { recursive: true })
+  writeFileSync(CI_SMOKE_READY_FILE, JSON.stringify({ readyAt: new Date().toISOString() }), "utf8")
 }
 
 function ensureLoopbackNoProxy() {

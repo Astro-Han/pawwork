@@ -1,69 +1,24 @@
 import { describe, expect, test } from "bun:test"
-import { execFileSync } from "node:child_process"
-import fs from "node:fs"
 import path from "node:path"
+import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "desktop-smoke.yml")
 
-function readWorkflow() {
-  expect(fs.existsSync(workflowPath)).toBe(true)
-  return fs.readFileSync(workflowPath, "utf8")
-}
-
-type WorkflowStep = {
-  name?: string
-  run?: string
-  uses?: string
-  with?: Record<string, unknown>
-  env?: Record<string, string>
-}
-
-type WorkflowJob = {
-  if?: string
-  needs?: string | string[]
-  "runs-on"?: string
-  outputs?: Record<string, string>
-  steps?: WorkflowStep[]
-}
-
-type Workflow = {
-  name?: string
-  on?: Record<string, unknown>
-  permissions?: Record<string, string>
-  jobs?: Record<string, WorkflowJob>
-}
-
-function parseWorkflow() {
-  const parsed = execFileSync(
-    "ruby",
-    [
-      "-e",
-      `
-        require "json"
-        require "yaml"
-
-        data = YAML.load_file(ARGV[0])
-        data["on"] = data.delete(true) if data.key?(true)
-        puts JSON.generate(data)
-      `,
-      workflowPath,
-    ],
-    { encoding: "utf8" },
-  )
-
-  return JSON.parse(parsed) as Workflow
-}
-
 describe("desktop smoke workflow", () => {
   test("defines a PR-safe macOS arm64 smoke build", () => {
-    const workflow = readWorkflow()
-    const parsed = parseWorkflow()
+    const workflow = readWorkflow(workflowPath)
+    const parsed = parseWorkflow(workflowPath)
     const jobs = parsed.jobs ?? {}
     const changes = jobs.changes
     const smoke = jobs["smoke-macos-arm64"]
     const check = jobs.check
+    const changesSteps = changes?.steps ?? []
     const smokeSteps = smoke?.steps ?? []
+    const changesCheckoutStep = changesSteps.find((step) => step.uses === "actions/checkout@v4")
+    const smokeCheckoutStep = smokeSteps.find((step) => step.uses === "actions/checkout@v4")
+    const smokeBunStep = smokeSteps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
+    const appSmokeStep = smokeSteps.find((step) => step.name === "Launch desktop smoke app")
     const packageStep = smokeSteps.find((step) => step.name === "Package desktop app")
     const smokeStep = smokeSteps.find((step) => step.name === "Smoke check app bundle")
 
@@ -75,6 +30,10 @@ describe("desktop smoke workflow", () => {
     expect(Object.keys(jobs).sort()).toEqual(["changes", "check", "smoke-macos-arm64"])
 
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
+    expect(changesCheckoutStep?.with).toEqual({
+      "fetch-depth": 0,
+      "persist-credentials": false,
+    })
     expect(smoke?.needs).toBe("changes")
     expect(smoke?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(smoke?.["runs-on"]).toBe("macos-14")
@@ -84,8 +43,13 @@ describe("desktop smoke workflow", () => {
     expect(workflow).not.toContain("strategy:")
     expect(workflow).not.toContain("matrix:")
 
+    expect(smokeCheckoutStep?.with).toEqual({ "persist-credentials": false })
+    expect(smokeBunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
     expect(workflow).toContain("bun install --frozen-lockfile")
     expect(workflow).toContain("bun run build")
+    expect(appSmokeStep?.run).toBe("bun run smoke:ci")
+    expect(workflow).toContain("Launch desktop smoke app")
+    expect(workflow).toContain("bun run smoke:ci")
     expect(packageStep?.run).toContain(
       "npx electron-builder --mac dir --arm64 --publish never --config electron-builder.config.ts",
     )
