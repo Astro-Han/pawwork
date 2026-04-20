@@ -3,7 +3,6 @@ import { useDialog } from "@tui/ui/dialog"
 import { DialogSelect } from "@tui/ui/dialog-select"
 import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
-import { useProject } from "@tui/context/project"
 import { createMemo, createSignal, onMount } from "solid-js"
 import { setTimeout as sleep } from "node:timers/promises"
 import { errorData, errorMessage } from "@/util/error"
@@ -94,85 +93,9 @@ export async function openWorkspaceSession(input: {
   }
 }
 
-export async function restoreWorkspaceSession(input: {
-  dialog: ReturnType<typeof useDialog>
-  sdk: ReturnType<typeof useSDK>
-  sync: ReturnType<typeof useSync>
-  project: ReturnType<typeof useProject>
-  toast: ReturnType<typeof useToast>
-  workspaceID: string
-  sessionID: string
-  done?: () => void
-}) {
-  log.info("session restore requested", {
-    workspaceID: input.workspaceID,
-    sessionID: input.sessionID,
-  })
-  const result = await input.sdk.client.experimental.workspace
-    .sessionRestore({ id: input.workspaceID, sessionID: input.sessionID })
-    .catch((err) => {
-      log.error("session restore request failed", {
-        workspaceID: input.workspaceID,
-        sessionID: input.sessionID,
-        error: errorData(err),
-      })
-      return undefined
-    })
-  if (!result?.data) {
-    log.error("session restore failed", {
-      workspaceID: input.workspaceID,
-      sessionID: input.sessionID,
-      status: result?.response?.status,
-      error: result?.error ? errorData(result.error) : undefined,
-    })
-    input.toast.show({
-      message: `Failed to restore session: ${errorMessage(result?.error ?? "no response")}`,
-      variant: "error",
-    })
-    return
-  }
-
-  log.info("session restore response", {
-    workspaceID: input.workspaceID,
-    sessionID: input.sessionID,
-    status: result.response?.status,
-    total: result.data.total,
-  })
-
-  input.project.workspace.set(input.workspaceID)
-
-  try {
-    await input.sync.bootstrap({ fatal: false })
-  } catch (e) {}
-
-  await Promise.all([input.project.workspace.sync(), input.sync.session.sync(input.sessionID)]).catch((err) => {
-    log.error("session restore refresh failed", {
-      workspaceID: input.workspaceID,
-      sessionID: input.sessionID,
-      error: errorData(err),
-    })
-    throw err
-  })
-
-  log.info("session restore complete", {
-    workspaceID: input.workspaceID,
-    sessionID: input.sessionID,
-    total: result.data.total,
-  })
-
-  input.toast.show({
-    message: "Session restored into the new workspace",
-    variant: "success",
-  })
-  input.done?.()
-  if (input.done) return
-  input.dialog.clear()
-}
-
 export function DialogWorkspaceCreate(props: { onSelect: (workspaceID: string) => Promise<void> | void }) {
   const dialog = useDialog()
   const sync = useSync()
-  const project = useProject()
   const sdk = useSDK()
   const toast = useToast()
   const [creating, setCreating] = createSignal<string>()
@@ -266,11 +189,6 @@ export function DialogWorkspaceCreate(props: { onSelect: (workspaceID: string) =
       status: result.response?.status,
     })
 
-    await project.workspace.sync()
-    log.info("workspace create synced", {
-      type,
-      workspaceID: workspace.id,
-    })
     await props.onSelect(workspace.id)
     setCreating(undefined)
   }

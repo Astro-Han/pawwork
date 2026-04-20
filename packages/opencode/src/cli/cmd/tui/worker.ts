@@ -5,15 +5,11 @@ import { Instance } from "@/project/instance"
 import { InstanceBootstrap } from "@/project/bootstrap"
 import { Rpc } from "@/util/rpc"
 import { upgrade } from "@/cli/upgrade"
-import { Config } from "@/config"
+import { Config } from "@/config/config"
 import { GlobalBus } from "@/bus/global"
 import { Flag } from "@/flag/flag"
 import { writeHeapSnapshot } from "node:v8"
 import { Heap } from "@/cli/heap"
-import { AppRuntime } from "@/effect/app-runtime"
-import { ensureProcessMetadata } from "@/util/opencode-process"
-
-ensureProcessMetadata("worker")
 
 await Log.init({
   print: process.argv.includes("--print-logs"),
@@ -77,14 +73,14 @@ export const rpc = {
   async checkUpgrade(input: { directory: string }) {
     await Instance.provide({
       directory: input.directory,
-      init: () => AppRuntime.runPromise(InstanceBootstrap),
+      init: InstanceBootstrap,
       fn: async () => {
         await upgrade().catch(() => {})
       },
     })
   },
   async reload() {
-    await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.invalidate(true)))
+    await Config.invalidate(true)
   },
   async shutdown() {
     Log.Default.info("worker shutting down")
