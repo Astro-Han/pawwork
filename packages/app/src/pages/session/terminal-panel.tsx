@@ -276,7 +276,9 @@ export function TerminalPanel(props: { embedded?: boolean }) {
               >
                 <Tabs.List class="h-10 border-b border-border-weaker-base">
                   <SortableProvider ids={ids()}>
-                    <For each={all()}>{(pty) => <SortableTerminalTab terminal={pty} onClose={close} />}</For>
+                    <For each={all()}>
+                      {(pty) => <SortableTerminalTab terminal={pty} totalCount={all().length} onClose={close} />}
+                    </For>
                   </SortableProvider>
                   <div class="h-full flex items-center justify-center">
                     <TooltipKeybind
