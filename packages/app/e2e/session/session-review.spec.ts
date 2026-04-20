@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import { waitSessionIdle, withSession } from "../actions"
 import { test, expect } from "../fixtures"
 import { bodyText } from "../prompt/mock"
@@ -43,6 +44,13 @@ function edit(file: string, prev: string, next: string) {
 
 function remove(file: string) {
   return ["*** Begin Patch", `*** Delete File: ${file}`, "*** End Patch"].join("\n")
+}
+
+function clear(file: string, content: string) {
+  const lines = content.replace(/\n$/, "").split("\n")
+  return ["*** Begin Patch", `*** Update File: ${file}`, "@@", ...lines.map((line) => `-${line}`), "*** End Patch"].join(
+    "\n",
+  )
 }
 
 function escapeRegex(value: string) {
@@ -356,6 +364,37 @@ test("review hides open-file actions for deleted files", async ({ page, llm, pro
     const row = page.locator('[data-file="README.md"]').first()
     await expect(row).toBeVisible()
     await expect(row.getByRole("button", { name: /^Open file$/i })).toHaveCount(0)
+  })
+})
+
+test("review keeps open-file actions for modified files emptied to blank", async ({ page, llm, project }) => {
+  test.setTimeout(180_000)
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+
+  await project.open()
+  const readme = await readFile(`${project.directory}/README.md`, "utf8")
+
+  await withSession(project.sdk, `e2e review emptied file ${Date.now()}`, async (session) => {
+    project.trackSession(session.id)
+    await patchWithMock(llm, project.sdk, session.id, clear("README.md", readme))
+
+    await expect
+      .poll(
+        async () => {
+          const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+          return diff.length
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(1)
+
+    await project.gotoSession(session.id)
+    await show(page)
+
+    const row = page.locator('[data-file="README.md"]').first()
+    await expect(row).toBeVisible()
+    await expect(row.getByRole("button", { name: /^Open file$/i }).first()).toBeVisible()
   })
 })
 
