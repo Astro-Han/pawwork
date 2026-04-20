@@ -101,6 +101,8 @@ export default function Layout(props: ParentProps) {
       workspaceBranchName: {} as Record<string, Record<string, string>>,
       workspaceExpanded: {} as Record<string, boolean>,
       gettingStartedDismissed: false,
+      pawworkPinnedSessions: [] as string[],
+      pawworkSortMode: "time" as const,
     }),
   )
 
