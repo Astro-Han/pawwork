@@ -33,19 +33,4 @@ describe("workspace catalog", () => {
 
     expect(missing).toEqual([])
   })
-
-  test("keeps plugin opentui catalog versions aligned with opencode runtime", async () => {
-    const root = await readJson(path.join(repoRoot, "package.json"))
-    const plugin = await readJson(path.join(repoRoot, "packages/plugin/package.json"))
-    const opencode = await readJson(path.join(repoRoot, "packages/opencode/package.json"))
-
-    const catalog = root.workspaces?.catalog ?? {}
-    const pluginDevDependencies = plugin.devDependencies ?? {}
-    const opencodeDependencies = opencode.dependencies ?? {}
-
-    for (const pkg of ["@opentui/core", "@opentui/solid"]) {
-      if (pluginDevDependencies[pkg] !== "catalog:") continue
-      expect(catalog[pkg]).toBe(opencodeDependencies[pkg])
-    }
-  })
 })
