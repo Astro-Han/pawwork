@@ -1,5 +1,6 @@
 import { app } from "electron"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
+export { FEEDBACK_FORM_URL } from "./support-links"
 
 type Channel = "dev" | "beta" | "prod"
 const raw = import.meta.env.OPENCODE_CHANNEL
