@@ -29,10 +29,12 @@ import { setSessionHandoff } from "@/pages/session/handoff"
 import type { RightPanelTab } from "@/pages/session/right-panel-tabs"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
+/** Converts right-panel state into the CSS width applied to the shell. */
 export function formatRightPanelWidth(open: boolean, width: number): string {
   return open ? `${width}px` : "0px"
 }
 
+/** Creates a resize callback that marks user sizing before delegating width storage to layout state. */
 export function makeRightPanelResizeHandler(
   size: { touch: () => void },
   layout: { rightPanel: { resize: (width: number) => void } },
@@ -50,6 +52,7 @@ export function shouldShowReviewFileOpenButton(activeTab: string | undefined, ha
 
 type RightPanelShellIconName = "status" | "folder" | "review" | "terminal"
 
+/** Maps right-panel tab names to their shell icon components. */
 function RightPanelShellIcon(props: { icon: RightPanelShellIconName }) {
   return (
     <Switch>
@@ -69,6 +72,7 @@ function RightPanelShellIcon(props: { icon: RightPanelShellIconName }) {
   )
 }
 
+/** Hosts the session right panel tabs, resize behavior, and active panel content. */
 export function SessionSidePanel(props: {
   canReview: () => boolean
   diffs: () => (SnapshotFileDiff | VcsFileDiff)[]

@@ -39,6 +39,7 @@ export interface SessionReviewTabProps {
   }
 }
 
+/** Renders the session Review panel with a unified diff view and persisted scroll position. */
 export function SessionReviewTab(props: SessionReviewTabProps) {
   let scroll: HTMLDivElement | undefined
   let restoreFrame: number | undefined

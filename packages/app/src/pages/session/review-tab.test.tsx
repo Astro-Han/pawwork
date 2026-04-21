@@ -76,10 +76,12 @@ describe("SessionReviewTab", () => {
       return dispose
     })
 
-    expect(capturedProps).toHaveLength(1)
-    expect(capturedProps[0].diffStyle).toBe("unified")
-    expect(capturedProps[0].onDiffStyleChange).toBeUndefined()
-
-    dispose()
+    try {
+      expect(capturedProps).toHaveLength(1)
+      expect(capturedProps[0].diffStyle).toBe("unified")
+      expect(capturedProps[0].onDiffStyleChange).toBeUndefined()
+    } finally {
+      dispose()
+    }
   })
 })
