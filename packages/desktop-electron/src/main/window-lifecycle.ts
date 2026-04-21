@@ -37,6 +37,11 @@ export function shouldQueueDeepLinks(hasWindow: boolean, windowReady: boolean) {
   return !hasWindow || !windowReady
 }
 
+export function takeQueuedDeepLinksForReadyWindow(pending: string[], windowReady: boolean) {
+  if (!windowReady || pending.length === 0) return []
+  return pending.splice(0)
+}
+
 export function shouldOpenWindowForExternalEvent(hasWindow: boolean, initialized: boolean) {
   return !hasWindow && initialized
 }

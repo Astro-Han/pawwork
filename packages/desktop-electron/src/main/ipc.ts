@@ -30,6 +30,7 @@ type Deps = {
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
   installUpdate: () => Promise<void> | void
   setBackgroundColor: (color: string) => void
+  reportDeepLinkReady: (win: BrowserWindow | null) => void
   reportCiSmokeReady: () => Promise<void> | void
 }
 
@@ -60,6 +61,9 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("check-update", () => deps.checkUpdate())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
+  ipcMain.handle("report-deep-link-ready", (event: IpcMainInvokeEvent) =>
+    deps.reportDeepLinkReady(BrowserWindow.fromWebContents(event.sender)),
+  )
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
     const store = getStore(name)
     const value = store.get(key)

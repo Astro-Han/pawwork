@@ -65,7 +65,9 @@ async function reportCiSmokeReady(sidecar: { url: string; username?: string | nu
 const listenForDeepLinks = () => {
   const startUrls = window.__OPENCODE__?.deepLinks ?? []
   if (startUrls.length) emitDeepLinks(startUrls)
-  return window.api.onDeepLink((urls) => emitDeepLinks(urls))
+  const dispose = window.api.onDeepLink((urls) => emitDeepLinks(urls))
+  void window.api.reportDeepLinkReady()
+  return dispose
 }
 
 const createPlatform = (): Platform => {

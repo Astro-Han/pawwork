@@ -57,6 +57,7 @@ import {
   selectNextMainWindow,
   shouldOpenWindowForExternalEvent,
   shouldQueueDeepLinks,
+  takeQueuedDeepLinksForReadyWindow,
 } from "./window-lifecycle"
 import type { Server } from "virtual:opencode-server"
 
@@ -66,6 +67,7 @@ let initStep: InitStep = { phase: "server_waiting" }
 let mainWindow: BrowserWindow | null = null
 let server: Server.Listener | null = null
 const loadingComplete = defer<void>()
+const deepLinkReadyWindows = new WeakSet<BrowserWindow>()
 
 const pendingDeepLinks: string[] = []
 
@@ -142,9 +144,22 @@ function setupApp() {
 
 function emitDeepLinks(urls: string[]) {
   if (urls.length === 0) return
-  const windowReady = mainWindow ? !mainWindow.webContents.isLoading() : false
+  const windowReady = mainWindow ? deepLinkReadyWindows.has(mainWindow) : false
   if (shouldQueueDeepLinks(Boolean(mainWindow), windowReady)) pendingDeepLinks.push(...urls)
-  if (mainWindow) sendDeepLinks(mainWindow, urls)
+  if (mainWindow && windowReady) sendDeepLinks(mainWindow, urls)
+}
+
+function flushPendingDeepLinksForReadyWindow(win: BrowserWindow | null) {
+  if (!win || !deepLinkReadyWindows.has(win)) return
+  const urls = takeQueuedDeepLinksForReadyWindow(pendingDeepLinks, true)
+  if (urls.length) sendDeepLinks(win, urls)
+}
+
+function reportDeepLinkReady(win: BrowserWindow | null) {
+  if (!win) return
+  deepLinkReadyWindows.add(win)
+  if (win !== mainWindow) return
+  flushPendingDeepLinksForReadyWindow(win)
 }
 
 function isInitialized() {
@@ -169,7 +184,9 @@ function openMainWindow() {
   const win = createMainWindow(mainWindowGlobals())
   mainWindow = win
   win.on("closed", () => {
-    if (mainWindow === win) mainWindow = selectNextMainWindow(win, BrowserWindow.getAllWindows())
+    if (mainWindow !== win) return
+    mainWindow = selectNextMainWindow(win, BrowserWindow.getAllWindows())
+    flushPendingDeepLinksForReadyWindow(mainWindow)
   })
   wireMenu()
   return win
@@ -301,6 +318,7 @@ registerIpcHandlers({
   checkUpdate: async () => checkUpdate(),
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
+  reportDeepLinkReady: (win) => reportDeepLinkReady(win),
   reportCiSmokeReady: () => reportCiSmokeReady(),
 })
 

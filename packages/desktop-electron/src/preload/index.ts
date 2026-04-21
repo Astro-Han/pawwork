@@ -32,6 +32,7 @@ const api: ElectronAPI = {
   storeKeys: (name) => ipcRenderer.invoke("store-keys", name),
   storeLength: (name) => ipcRenderer.invoke("store-length", name),
   reportCiSmokeReady: () => ipcRenderer.invoke("report-ci-smoke-ready"),
+  reportDeepLinkReady: () => ipcRenderer.invoke("report-deep-link-ready"),
 
   getWindowCount: () => ipcRenderer.invoke("get-window-count"),
   onSqliteMigrationProgress: (cb) => {

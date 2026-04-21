@@ -8,6 +8,7 @@ import {
   shouldOpenWindowForExternalEvent,
   shouldQueueDeepLinks,
   shouldQuitWhenAllWindowsClosed,
+  takeQueuedDeepLinksForReadyWindow,
 } from "./window-lifecycle"
 
 function createFakeApp() {
@@ -107,10 +108,23 @@ test("main window fallback ignores destroyed windows", () => {
   expect(selectNextMainWindow(closingWindow, [destroyedWindow])).toBeNull()
 })
 
-test("deep links are queued until a current window is ready to receive them", () => {
+test("deep links are queued until the current window reports it is ready to receive them", () => {
   expect(shouldQueueDeepLinks(false, false)).toBe(true)
   expect(shouldQueueDeepLinks(true, false)).toBe(true)
   expect(shouldQueueDeepLinks(true, true)).toBe(false)
+})
+
+test("queued deep links flush once when the current window becomes ready", () => {
+  const pending = ["opencode://open-project?directory=/a", "opencode://new-session?directory=/b"]
+
+  expect(takeQueuedDeepLinksForReadyWindow(pending, false)).toEqual([])
+  expect(pending).toEqual(["opencode://open-project?directory=/a", "opencode://new-session?directory=/b"])
+  expect(takeQueuedDeepLinksForReadyWindow(pending, true)).toEqual([
+    "opencode://open-project?directory=/a",
+    "opencode://new-session?directory=/b",
+  ])
+  expect(pending).toEqual([])
+  expect(takeQueuedDeepLinksForReadyWindow(pending, true)).toEqual([])
 })
 
 test("headless external events reopen a window only after initialization is done", () => {
