@@ -13,7 +13,7 @@ export type Platform = {
   /** Platform discriminator */
   platform: "web" | "desktop"
 
-  /** Desktop OS (Tauri only) */
+  /** Desktop OS (desktop only) */
   os?: "macos" | "windows" | "linux"
 
   /** App version */
@@ -43,22 +43,22 @@ export type Platform = {
   /** Send a system notification (optional deep link) */
   notify(title: string, description?: string, href?: string): Promise<void>
 
-  /** Open directory picker dialog (native on Tauri, server-backed on web) */
+  /** Open directory picker dialog (native on desktop, server-backed on web) */
   openDirectoryPickerDialog?(opts?: OpenDirectoryPickerOptions): Promise<PickerPaths>
 
-  /** Open native file picker dialog (Tauri only) */
+  /** Open native file picker dialog (desktop only) */
   openFilePickerDialog?(opts?: OpenFilePickerOptions): Promise<PickerPaths>
 
-  /** Save file picker dialog (Tauri only) */
+  /** Save file picker dialog (desktop only) */
   saveFilePickerDialog?(opts?: SaveFilePickerOptions): Promise<string | null>
 
   /** Storage mechanism, defaults to localStorage */
   storage?: (name?: string) => SyncStorage | AsyncStorage
 
-  /** Check for updates (Tauri only) */
+  /** Check for updates (desktop only) */
   checkUpdate?(): Promise<UpdateInfo>
 
-  /** Install updates (Tauri only) */
+  /** Install updates (desktop only) */
   update?(): Promise<void>
 
   /** Fetch override */
