@@ -43,6 +43,7 @@ export function makeRightPanelResizeHandler(
   }
 }
 
+/** Returns whether the Review inner tab row should expose the file-open shortcut. */
 export function shouldShowReviewFileOpenButton(activeTab: string | undefined, hasSecondaryTabs: boolean): boolean {
   return hasSecondaryTabs || activeTab !== "review"
 }

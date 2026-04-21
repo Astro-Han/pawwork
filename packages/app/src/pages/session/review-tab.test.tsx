@@ -3,6 +3,7 @@ import { createRoot } from "solid-js"
 
 let SessionReviewTab: typeof import("./review-tab").SessionReviewTab
 const capturedProps: any[] = []
+const originalReact = (globalThis as any).React
 
 beforeAll(async () => {
   mock.module("@opencode-ai/ui/session-review", () => ({
@@ -34,6 +35,7 @@ beforeAll(async () => {
 beforeEach(() => {
   capturedProps.length = 0
   document.body.innerHTML = ""
+  // Bun compiles the imported TSX through React.createElement in this direct component-call test.
   ;(globalThis as any).React = {
     createElement: (component: unknown, props: Record<string, unknown> | null, ...children: unknown[]) => {
       if (typeof component === "function") return component({ ...(props ?? {}), children })
@@ -44,13 +46,12 @@ beforeEach(() => {
 
 afterAll(() => {
   mock.restore()
+  if (originalReact === undefined) delete (globalThis as any).React
+  else (globalThis as any).React = originalReact
 })
 
 describe("SessionReviewTab", () => {
   test("keeps PawWork review diffs in unified mode without exposing style switching", () => {
-    const root = document.createElement("div")
-    document.body.append(root)
-
     const dispose = createRoot((dispose) => {
       SessionReviewTab({
         diffs: () => [
