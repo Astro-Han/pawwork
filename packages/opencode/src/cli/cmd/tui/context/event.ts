@@ -10,19 +10,19 @@ export function useEvent() {
     return sdk.event.on("event", (event) => {
       // Special hack for truly global events
       if (event.directory === "global") {
-        handler(event.payload)
+        handler(event.payload as Event)
       }
 
       if (project.workspace.current()) {
         if (event.workspace === project.workspace.current()) {
-          handler(event.payload)
+          handler(event.payload as Event)
         }
 
         return
       }
 
       if (event.directory === project.instance.directory()) {
-        handler(event.payload)
+        handler(event.payload as Event)
       }
     })
   }
