@@ -4,6 +4,7 @@ import { normalizeLocale } from "./language"
 describe("normalizeLocale", () => {
   test("keeps supported product locales", () => {
     expect(normalizeLocale("en")).toBe("en")
+    expect(normalizeLocale("EN")).toBe("en")
     expect(normalizeLocale("zh")).toBe("zh")
   })
 
@@ -24,5 +25,6 @@ describe("normalizeLocale", () => {
   test("falls back to English for unsupported locales", () => {
     expect(normalizeLocale("fr")).toBe("en")
     expect(normalizeLocale("en-TW")).toBe("en")
+    expect(normalizeLocale(42 as never)).toBe("en")
   })
 })

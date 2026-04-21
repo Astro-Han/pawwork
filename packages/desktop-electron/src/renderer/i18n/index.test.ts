@@ -51,4 +51,16 @@ describe("desktop renderer i18n locale normalization", () => {
 
     expect(await i18n.initI18n()).toBe("zh")
   })
+
+  test("normalizes stored uppercase English before falling back to browser language", async () => {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { language: "zh-Hant", languages: ["zh-Hant"] },
+    })
+    nextStoreValue = JSON.stringify({ locale: "EN" })
+
+    const i18n = await loadI18n()
+
+    expect(await i18n.initI18n()).toBe("en")
+  })
 })

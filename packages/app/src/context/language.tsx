@@ -72,10 +72,11 @@ function detectLocale(): Locale {
   return "en"
 }
 
-export function normalizeLocale(value: string): Locale {
+export function normalizeLocale(value: unknown): Locale {
+  if (typeof value !== "string") return "en"
   const normalized = value.toLowerCase()
-  if (value === "zht" || normalized.startsWith("zh")) return "zh"
-  return LOCALES.includes(value as Locale) ? (value as Locale) : "en"
+  if (normalized.startsWith("zh")) return "zh"
+  return (LOCALES as readonly string[]).includes(normalized) ? (normalized as Locale) : "en"
 }
 
 function readStoredLocale() {

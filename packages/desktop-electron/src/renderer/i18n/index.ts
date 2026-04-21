@@ -28,11 +28,10 @@ function detectLocale(): Locale {
 }
 
 function parseLocale(value: unknown): Locale | null {
-  if (!value) return null
   if (typeof value !== "string") return null
-  if (value === "zht") return "zh"
-  if (value.toLowerCase().startsWith("zh")) return "zh"
-  if ((LOCALES as readonly string[]).includes(value)) return value as Locale
+  const normalized = value.toLowerCase()
+  if (normalized.startsWith("zh")) return "zh"
+  if ((LOCALES as readonly string[]).includes(normalized)) return normalized as Locale
   return null
 }
 
