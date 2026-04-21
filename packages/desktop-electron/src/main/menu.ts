@@ -1,13 +1,13 @@
 import { Menu, shell } from "electron"
 
 import { UPDATER_ENABLED } from "./constants"
-import { createMainWindow } from "./windows"
 
 type Deps = {
   trigger: (id: string) => void
   checkForUpdates: () => void
   reload: () => void
   relaunch: () => void
+  newWindow: () => void
 }
 
 export function createMenu(deps: Deps) {
@@ -47,7 +47,7 @@ export function createMenu(deps: Deps) {
         {
           label: "New Window",
           accelerator: "Cmd+Shift+N",
-          click: () => createMainWindow({ updaterEnabled: UPDATER_ENABLED }),
+          click: () => deps.newWindow(),
         },
         { type: "separator" },
         { role: "close" },
