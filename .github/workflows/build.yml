@@ -66,9 +66,11 @@ on:
         required: false
         type: string
 
+# Release metadata is a read-modify-write upload to the same latest*.yml asset.
+# Queue same target/phase runs across arch to avoid release asset clobbering.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.phase || 'submit' }}-${{ inputs.channel || 'dev' }}-${{ inputs.target || 'macos' }}-${{ inputs.arch || 'arm64' }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ inputs.source_ref || github.ref_name }}-${{ inputs.phase || 'submit' }}-${{ inputs.channel || 'dev' }}-${{ inputs.target || 'macos' }}
+  cancel-in-progress: false
 
 permissions:
   actions: read
@@ -297,6 +299,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Read desktop package version
+        id: package_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./packages/desktop-electron/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Build Electron app
         if: ${{ inputs.phase != 'finalize' }}
         run: bun run build
@@ -310,6 +320,40 @@ jobs:
         run: printenv APPLE_API_KEY_CONTENT > $RUNNER_TEMP/apple-api-key.p8
         env:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+
+      - name: Download existing updater metadata
+        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          existing_dir="$RUNNER_TEMP/existing-latest-yml"
+          mkdir -p "$existing_dir"
+          tag="v${{ steps.package_version.outputs.version }}"
+
+          download_or_warn() {
+            local pattern="$1"
+            local err="$RUNNER_TEMP/${pattern}.err"
+            if gh release download "$tag" --pattern "$pattern" --dir "$existing_dir" --repo "$GITHUB_REPOSITORY" 2>"$err"; then
+              return 0
+            fi
+            if grep -qiE 'not found|no assets match|could not find|resource not found' "$err"; then
+              echo "No existing $pattern found; expected for first release."
+              return 0
+            fi
+            cat "$err" >&2
+            return 1
+          }
+
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            download_or_warn latest-mac.yml
+          fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            download_or_warn latest.yml
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Package signed app
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'submit' || inputs.phase == 'full') }}
@@ -746,6 +790,46 @@ jobs:
             packages/desktop-electron/dist/*.exe
             packages/desktop-electron/dist/*.exe.blockmap
             packages/desktop-electron/dist/latest*.yml
+
+      - name: Collect updater metadata
+        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${{ matrix.target }}-${{ matrix.arch_label }}" in
+            macos-arm64)
+              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-aarch64-apple-darwin"
+              metadata_file="latest-mac.yml"
+              ;;
+            macos-x64)
+              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-x86_64-apple-darwin"
+              metadata_file="latest-mac.yml"
+              ;;
+            windows-x64)
+              metadata_dir="$RUNNER_TEMP/latest-yml/latest-yml-x86_64-pc-windows-msvc"
+              metadata_file="latest.yml"
+              ;;
+            *)
+              echo "Unsupported updater metadata target: ${{ matrix.target }}-${{ matrix.arch_label }}"
+              exit 1
+              ;;
+          esac
+
+          mkdir -p "$metadata_dir"
+          cp "dist/$metadata_file" "$metadata_dir/$metadata_file"
+        working-directory: packages/desktop-electron
+
+      - name: Finalize updater metadata
+        if: ${{ (runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label) || (runner.os == 'Windows' && inputs.phase == 'full') }}
+        run: bun ./scripts/finalize-latest-yml.ts
+        working-directory: packages/desktop-electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          EXISTING_LATEST_YML_DIR: ${{ runner.temp }}/existing-latest-yml
+          LATEST_YML_DIR: ${{ runner.temp }}/latest-yml
+          OPENCODE_VERSION: ${{ steps.package_version.outputs.version }}
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}

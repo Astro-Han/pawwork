@@ -85,6 +85,11 @@ describe("release workflow", () => {
       const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
       const buildElectronAppStep = steps.find((step) => step.name === "Build Electron app")
       const packageAppStep = steps.find((step) => step.name === "Package app")
+      const packageVersionStep = steps.find((step) => step.id === "package_version")
+      const downloadExistingMetadataStep = steps.find((step) => step.name === "Download existing updater metadata")
+      const collectLatestYmlStep = steps.find((step) => step.name === "Collect updater metadata")
+      const finalizeLatestYmlStep = steps.find((step) => step.name === "Finalize updater metadata")
+      const packageNotarizedStep = steps.find((step) => step.name === "Package notarized artifacts")
       const validateSelectedTargetStep = steps.find((step) => step.name === "Validate selected target")
 
       expect(parsed.name).toBe("release")
@@ -93,8 +98,9 @@ describe("release workflow", () => {
         contents: "write",
       })
       expect(parsed.concurrency?.group).toBe(
-        "${{ github.workflow }}-${{ github.ref }}-${{ inputs.phase || 'submit' }}-${{ inputs.channel || 'dev' }}-${{ inputs.target || 'macos' }}-${{ inputs.arch || 'arm64' }}",
+        "${{ github.workflow }}-${{ inputs.source_ref || github.ref_name }}-${{ inputs.phase || 'submit' }}-${{ inputs.channel || 'dev' }}-${{ inputs.target || 'macos' }}",
       )
+      expect(parsed.concurrency?.["cancel-in-progress"]).toBe(false)
       expect(parsed.on?.workflow_dispatch).toBeDefined()
       expect(workflow).toContain("target:")
       expect(workflow).toContain("- macos")
@@ -145,6 +151,30 @@ describe("release workflow", () => {
       expect(packageAppStep?.run).toContain('publish_flag="never"')
       expect(packageAppStep?.run).toContain('if [ "${{ inputs.phase || \'submit\' }}" = "full" ]; then')
       expect(packageAppStep?.run).toContain('publish_flag="always"')
+      expect(packageVersionStep?.run).toContain("version=$(node -p")
+      expect(downloadExistingMetadataStep).toBeDefined()
+      expect(downloadExistingMetadataStep?.run).toContain("gh release download")
+      expect(downloadExistingMetadataStep?.run).toContain("latest-mac.yml")
+      expect(downloadExistingMetadataStep?.run).toContain("latest.yml")
+      expect(steps.indexOf(downloadExistingMetadataStep!)).toBeLessThan(steps.indexOf(packageNotarizedStep!))
+      expect(steps.indexOf(downloadExistingMetadataStep!)).toBeLessThan(steps.indexOf(packageAppStep!))
+      expect(packageNotarizedStep?.env).toEqual({
+        OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
+        PAWWORK_FEEDBACK_FORM_URL: "${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}",
+        GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
+      })
+      expect(collectLatestYmlStep?.run).toContain("latest-yml-x86_64-apple-darwin")
+      expect(collectLatestYmlStep?.run).toContain("latest-yml-aarch64-apple-darwin")
+      expect(collectLatestYmlStep?.run).toContain("latest-yml-x86_64-pc-windows-msvc")
+      expect(finalizeLatestYmlStep).toBeDefined()
+      expect(finalizeLatestYmlStep!.run).toContain("bun ./scripts/finalize-latest-yml.ts")
+      expect(finalizeLatestYmlStep?.env).toEqual({
+        GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
+        GH_REPO: "${{ github.repository }}",
+        EXISTING_LATEST_YML_DIR: "${{ runner.temp }}/existing-latest-yml",
+        LATEST_YML_DIR: "${{ runner.temp }}/latest-yml",
+        OPENCODE_VERSION: "${{ steps.package_version.outputs.version }}",
+      })
 
       expect(workflow).not.toContain("persist-credentials: true")
       expect(workflow).not.toContain("pull_request_target")

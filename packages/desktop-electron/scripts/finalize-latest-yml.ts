@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
+import { mkdir } from "node:fs/promises"
 import path from "path"
 
 const dir = process.env.LATEST_YML_DIR!
@@ -76,18 +77,77 @@ async function read(subdir: string, filename: string): Promise<LatestYml | undef
   return parse(await file.text())
 }
 
+async function readFile(filepath: string): Promise<LatestYml | undefined> {
+  const file = Bun.file(filepath)
+  if (!(await file.exists())) return undefined
+  return parse(await file.text())
+}
+
+function mergeLatest(...items: Array<LatestYml | undefined>): LatestYml | undefined {
+  const present = items.filter((item): item is LatestYml => Boolean(item))
+  if (present.length === 0) return undefined
+
+  const files = new Map<string, FileEntry>()
+  for (const item of present) {
+    for (const file of item.files) files.set(file.url, file)
+  }
+
+  // Use the last item as metadata base; live data wins over cached snapshots.
+  const base = present.at(-1)!
+  return {
+    version: base.version,
+    files: [...files.values()],
+    releaseDate: base.releaseDate,
+  }
+}
+
+function shellErrorText(error: unknown) {
+  const parts: string[] = []
+  if (error instanceof Error) parts.push(error.message)
+  else parts.push(String(error))
+  const maybe = error as { stdout?: unknown; stderr?: unknown }
+  if (maybe.stderr) parts.push(String(maybe.stderr))
+  if (maybe.stdout) parts.push(String(maybe.stdout))
+  return parts.join("\n")
+}
+
+function isMissingAssetError(message: string) {
+  return /no assets to download|no matches found|could not find any assets/i.test(message)
+}
+
+async function downloadExisting(tag: string, filename: string) {
+  const configured = process.env.EXISTING_LATEST_YML_DIR
+  const cached = configured ? await readFile(path.join(configured, filename)) : undefined
+
+  const existingDir = path.join(tmp, "existing-latest-yml")
+  await mkdir(existingDir, { recursive: true })
+  try {
+    await $`gh release download ${tag} --pattern ${filename} --dir ${existingDir} --repo ${repo}`.quiet()
+  } catch (error) {
+    const message = shellErrorText(error)
+    if (isMissingAssetError(message)) return cached
+    throw new Error(`Failed to download existing ${filename}: ${message}`)
+  }
+  const live = await readFile(path.join(existingDir, filename))
+  return mergeLatest(cached, live)
+}
+
 const output: Record<string, string> = {}
+const tag = `v${version}`
+const tmp = process.env.RUNNER_TEMP ?? "/tmp"
 
 // Windows: merge arm64 + x64 into single file
 const winX64 = await read("latest-yml-x86_64-pc-windows-msvc", "latest.yml")
 const winArm64 = await read("latest-yml-aarch64-pc-windows-msvc", "latest.yml")
 if (winX64 || winArm64) {
   const base = winArm64 ?? winX64!
-  output["latest.yml"] = serialize({
-    version: base.version,
-    files: [...(winArm64?.files ?? []), ...(winX64?.files ?? [])],
-    releaseDate: base.releaseDate,
-  })
+  output["latest.yml"] = serialize(
+    mergeLatest(await downloadExisting(tag, "latest.yml"), {
+      version: base.version,
+      files: [...(winArm64?.files ?? []), ...(winX64?.files ?? [])],
+      releaseDate: base.releaseDate,
+    })!,
+  )
 }
 
 // Linux x64: pass through
@@ -103,17 +163,16 @@ const macX64 = await read("latest-yml-x86_64-apple-darwin", "latest-mac.yml")
 const macArm64 = await read("latest-yml-aarch64-apple-darwin", "latest-mac.yml")
 if (macX64 || macArm64) {
   const base = macArm64 ?? macX64!
-  output["latest-mac.yml"] = serialize({
-    version: base.version,
-    files: [...(macArm64?.files ?? []), ...(macX64?.files ?? [])],
-    releaseDate: base.releaseDate,
-  })
+  output["latest-mac.yml"] = serialize(
+    mergeLatest(await downloadExisting(tag, "latest-mac.yml"), {
+      version: base.version,
+      files: [...(macArm64?.files ?? []), ...(macX64?.files ?? [])],
+      releaseDate: base.releaseDate,
+    })!,
+  )
 }
 
 // Upload to release
-const tag = `v${version}`
-const tmp = process.env.RUNNER_TEMP ?? "/tmp"
-
 for (const [filename, content] of Object.entries(output)) {
   const filepath = path.join(tmp, filename)
   await Bun.write(filepath, content)
