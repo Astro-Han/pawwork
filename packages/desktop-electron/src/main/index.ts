@@ -5,7 +5,7 @@ import { createServer } from "node:net"
 import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Event } from "electron"
-import { app, BrowserWindow, dialog } from "electron"
+import { app, BrowserWindow, clipboard, dialog, shell } from "electron"
 import pkg from "electron-updater"
 
 import contextMenu from "electron-context-menu"
@@ -44,10 +44,12 @@ const { autoUpdater } = pkg
 
 import type { DesktopContext, InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
-import { CHANNEL, UPDATER_ENABLED } from "./constants"
+import { CHANNEL, FEEDBACK_FORM_URL, UPDATER_ENABLED } from "./constants"
 import { createDesktopContextStore } from "./desktop-context-store"
+import { errorMessage } from "./error"
+import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
-import { filePath, initLogging } from "./logging"
+import { filePath, initLogging, tail } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import { type MenuLocale } from "./menu-labels"
@@ -108,7 +110,8 @@ function diagnostics(context = currentDesktopContext()) {
 async function sessionExport(context = currentDesktopContext()) {
   if (!context.sessionID) return { status: "none" as const }
   const ready = await serverReady.promise
-  const url = new URL(`/session/${context.sessionID}/message`, ready.url)
+  const sessionID = encodeURIComponent(context.sessionID)
+  const url = new URL(`/session/${sessionID}/message`, ready.url)
   const headers: Record<string, string> = {}
   if (ready.username || ready.password) {
     headers.authorization = `Basic ${Buffer.from(`${ready.username ?? "opencode"}:${ready.password ?? ""}`).toString("base64")}`
@@ -142,6 +145,44 @@ function normalizeDesktopContext(context: unknown): DesktopContext {
     locale: value.locale === "zh" ? "zh" : "en",
   }
 }
+
+function feedbackContext(context: unknown): DesktopContext {
+  return context === undefined ? currentDesktopContext() : normalizeDesktopContext(context)
+}
+
+const reportProblem = createFeedbackHandler({
+  feedbackUrl: FEEDBACK_FORM_URL,
+  context: currentDesktopContext,
+  confirm: async (context) => {
+    const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale)
+    const response = await dialog.showMessageBox({
+      type: "warning",
+      title: labels.title,
+      message: labels.message,
+      buttons: [labels.confirm, labels.cancel],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    return response.response === 0
+  },
+  copy: (value) => clipboard.writeText(value),
+  openExternal: (url) => {
+    return shell.openExternal(url).then(() => undefined)
+  },
+  diagnostics: (context) => diagnostics(feedbackContext(context)),
+  logTail: tail,
+  sessionExport: (context) => sessionExport(feedbackContext(context)),
+  onError: async (error) => {
+    logger.error("problem report failed", error)
+    const labels = feedbackDialogLabels(currentDesktopContext().locale)
+    await dialog.showMessageBox({
+      type: "error",
+      title: labels.failedTitle,
+      message: labels.failedMessage,
+      detail: errorMessage(error),
+    })
+  },
+})
 
 logger.log("app starting", {
   version: app.getVersion(),
