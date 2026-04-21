@@ -227,7 +227,6 @@ export function Titlebar() {
           "flex items-center min-w-0 justify-end": true,
           "pr-2": !windows(),
         }}
-        data-shell-drag-region
       >
         <div
           id="opencode-titlebar-right"
