@@ -1,50 +1,194 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect } from "bun:test"
+import { execFileSync, spawnSync } from "node:child_process"
+import fs from "node:fs"
 import path from "node:path"
+import { Effect } from "effect"
+import { tmpdir } from "../fixture/fixture"
+import { it } from "../lib/effect"
 import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "build.yml")
 
 describe("release workflow", () => {
-  test("validates the release workflow configuration", () => {
-    const workflow = readWorkflow(workflowPath)
-    const parsed = parseWorkflow(workflowPath)
-    const buildElectron = parsed.jobs?.["build-electron"]
-    const cleanupSnapshotTag = parsed.jobs?.["cleanup-snapshot-tag"]
-    const steps = buildElectron?.steps ?? []
-    const checkoutSteps = steps.filter(
-      (step) => step.uses === "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
-    )
-    const setupNodeStep = steps.find(
-      (step) => step.uses === "actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f",
-    )
-    const uploadArtifactSteps = steps.filter(
-      (step) => step.uses === "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-    )
-    const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
+  it.live("selects the macOS x64 release matrix", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.promise(() =>
+        runSelectBuildTarget({ target: "macos", arch: "x64", phase: "submit" }),
+      )
 
-    expect(parsed.name).toBe("release")
-    expect(parsed.permissions).toEqual({
-      actions: "read",
-      contents: "write",
-    })
-    expect(parsed.on?.workflow_dispatch).toBeDefined()
-    expect(buildElectron?.["runs-on"]).toBe("${{ matrix.host }}")
-    expect(cleanupSnapshotTag?.needs).toContain("build-electron")
-    expect(cleanupSnapshotTag?.if).toBe(
-      "${{ always() && inputs.phase == 'finalize' && needs.build-electron.result == 'success' }}",
-    )
-    expect(checkoutSteps).toHaveLength(2)
-    expect(checkoutSteps[0]?.with).toEqual({ "persist-credentials": false })
-    expect(checkoutSteps[1]?.with).toEqual({
-      "persist-credentials": false,
-      ref: "${{ inputs.source_sha }}",
-    })
-    expect(setupNodeStep?.with).toEqual({ "node-version": "24" })
-    expect(uploadArtifactSteps).toHaveLength(2)
-    expect(signedArtifactStep?.uses).toBe("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+      expect(result.status).toBe(0)
+      expect(result.outputs.target).toBe("macos")
+      expect(result.outputs.arch).toBe("x64")
+      expect(JSON.parse(result.outputs.matrix ?? "")).toEqual({
+        include: [{ host: "macos-15-intel", target: "macos", platform_flag: "--mac --x64", arch_label: "x64" }],
+      })
+    }),
+  )
 
-    expect(workflow).not.toContain("persist-credentials: true")
-    expect(workflow).not.toContain("pull_request_target")
-  })
+  it.live("selects the Windows x64 release matrix", () =>
+    Effect.gen(function* () {
+      const result = yield* Effect.promise(() =>
+        runSelectBuildTarget({ target: "windows", arch: "x64", phase: "submit" }),
+      )
+
+      expect(result.status).toBe(0)
+      expect(result.outputs.target).toBe("windows")
+      expect(result.outputs.arch).toBe("x64")
+      expect(JSON.parse(result.outputs.matrix ?? "")).toEqual({
+        include: [{ host: "windows-latest", target: "windows", platform_flag: "--win", arch_label: "x64" }],
+      })
+    }),
+  )
+
+  it.live("rejects unsupported Windows release combinations", () =>
+    Effect.gen(function* () {
+      const arm64 = yield* Effect.promise(() =>
+        runSelectBuildTarget({ target: "windows", arch: "arm64", phase: "submit" }),
+      )
+      const finalize = yield* Effect.promise(() =>
+        runSelectBuildTarget({ target: "windows", arch: "x64", phase: "finalize" }),
+      )
+
+      expect(arm64.status).toBe(1)
+      expect(arm64.output).toContain("Unsupported Windows arch: arm64")
+      expect(finalize.status).toBe(1)
+      expect(finalize.output).toContain("Windows releases do not use the macOS notarization finalize phase")
+    }),
+  )
+
+  it.live("ignores malformed GitHub output lines", () =>
+    Effect.gen(function* () {
+      expect(parseGithubOutput("target=windows\nnot-an-output-line\narch=x64\n")).toEqual({
+        target: "windows",
+        arch: "x64",
+      })
+    }),
+  )
+
+  it.live("validates the release workflow configuration", () =>
+    Effect.gen(function* () {
+      const workflow = readWorkflow(workflowPath)
+      const parsed = parseWorkflow(workflowPath)
+      const selectBuildTarget = parsed.jobs?.["select-build-target"]
+      const createSnapshotTag = parsed.jobs?.["create-snapshot-tag"]
+      const buildElectron = parsed.jobs?.["build-electron"]
+      const cleanupSnapshotTag = parsed.jobs?.["cleanup-snapshot-tag"]
+      const steps = buildElectron?.steps ?? []
+      const checkoutSteps = steps.filter(
+        (step) => step.uses === "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+      )
+      const setupNodeStep = steps.find(
+        (step) => step.uses === "actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f",
+      )
+      const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
+      const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
+      const packageAppStep = steps.find((step) => step.name === "Package app")
+      const validateSelectedTargetStep = steps.find((step) => step.name === "Validate selected target")
+
+      expect(parsed.name).toBe("release")
+      expect(parsed.permissions).toEqual({
+        actions: "read",
+        contents: "write",
+      })
+      expect(parsed.concurrency?.group).toBe(
+        "${{ github.workflow }}-${{ github.ref }}-${{ inputs.phase || 'submit' }}-${{ inputs.channel || 'dev' }}-${{ inputs.target || 'macos' }}-${{ inputs.arch || 'arm64' }}",
+      )
+      expect(parsed.on?.workflow_dispatch).toBeDefined()
+      expect(workflow).toContain("target:")
+      expect(workflow).toContain("- macos")
+      expect(workflow).toContain("- windows")
+      expect(workflow).toContain("- x64")
+      expect(selectBuildTarget?.["runs-on"]).toBe("ubuntu-latest")
+      expect(selectBuildTarget?.outputs).toEqual({
+        arch: "${{ steps.select.outputs.arch }}",
+        matrix: "${{ steps.select.outputs.matrix }}",
+        target: "${{ steps.select.outputs.target }}",
+      })
+      expect(createSnapshotTag?.needs).toContain("select-build-target")
+      expect(buildElectron?.["runs-on"]).toBe("${{ matrix.host }}")
+      expect(buildElectron?.needs).toEqual(["select-build-target", "create-snapshot-tag"])
+      expect(buildElectron?.if).toContain("needs.select-build-target.result == 'success'")
+      expect(cleanupSnapshotTag?.needs).toContain("build-electron")
+      expect(cleanupSnapshotTag?.if).toBe(
+        "${{ always() && inputs.phase == 'finalize' && needs.build-electron.result == 'success' }}",
+      )
+      expect(checkoutSteps).toHaveLength(2)
+      expect(checkoutSteps[0]?.with).toEqual({ "persist-credentials": false })
+      expect(checkoutSteps[1]?.with).toEqual({
+        "persist-credentials": false,
+        ref: "${{ inputs.source_sha }}",
+      })
+      expect(setupNodeStep?.with).toEqual({ "node-version": "24" })
+      expect(signedArtifactStep?.uses).toBe("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+      expect(nonMacArtifactStep?.uses).toBe("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+      expect(nonMacArtifactStep?.if).toBe("${{ runner.os == 'Windows' && inputs.phase != 'finalize' }}")
+      expect(nonMacArtifactStep?.with?.["if-no-files-found"]).toBe("error")
+      expect(nonMacArtifactStep?.with?.path).toContain("packages/desktop-electron/dist/*.exe")
+      expect(nonMacArtifactStep?.with?.path).toContain("packages/desktop-electron/dist/latest*.yml")
+      expect(validateSelectedTargetStep?.shell).toBe("bash")
+      expect(validateSelectedTargetStep?.env).toEqual({
+        SELECTED_TARGET: "${{ needs.select-build-target.outputs.target }}",
+        SELECTED_ARCH: "${{ needs.select-build-target.outputs.arch }}",
+      })
+      expect(packageAppStep?.shell).toBe("bash")
+      expect(packageAppStep?.env).toEqual({
+        OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
+        GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
+      })
+      expect(packageAppStep?.run).toContain('publish_flag="never"')
+      expect(packageAppStep?.run).toContain('if [ "${{ inputs.phase || \'submit\' }}" = "full" ]; then')
+      expect(packageAppStep?.run).toContain('publish_flag="always"')
+
+      expect(workflow).not.toContain("persist-credentials: true")
+      expect(workflow).not.toContain("pull_request_target")
+    }),
+  )
 })
+
+/** Runs the workflow selector step and returns the status plus GITHUB_OUTPUT entries. */
+async function runSelectBuildTarget(input: { target: string; arch: string; phase: string }) {
+  const ruby = String.raw`
+    require "yaml"
+
+    data = YAML.load_file(ARGV[0])
+    step = data["jobs"]["select-build-target"]["steps"].find { |entry| entry["id"] == "select" }
+    raise "Missing select-build-target step with id=select" unless step
+    puts step["run"]
+  `
+  const script = execFileSync("ruby", ["-e", ruby, workflowPath], { encoding: "utf8" })
+  await using tmp = await tmpdir()
+  const outputPath = path.join(tmp.path, "github-output")
+  const result = spawnSync("bash", ["-ec", script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      INPUT_TARGET: input.target,
+      INPUT_ARCH: input.arch,
+      INPUT_PHASE: input.phase,
+      GITHUB_OUTPUT: outputPath,
+    },
+  })
+
+  const outputs = fs.existsSync(outputPath) ? parseGithubOutput(fs.readFileSync(outputPath, "utf8")) : {}
+
+  return {
+    status: result.status ?? 1,
+    output: `${result.stdout}${result.stderr}`,
+    outputs,
+  }
+}
+
+/** Parses the simple key=value records emitted to GITHUB_OUTPUT by this workflow step. */
+function parseGithubOutput(output: string) {
+  return Object.fromEntries(
+    output
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .flatMap((line) => {
+        const index = line.indexOf("=")
+        return index === -1 ? [] : ([[line.slice(0, index), line.slice(index + 1)]] as const)
+      }),
+  )
+}

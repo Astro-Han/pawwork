@@ -1,16 +1,19 @@
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 
+/** Parsed subset of a workflow step used by workflow contract tests. */
 export type WorkflowStep = {
   id?: string
   if?: string
   name?: string
   run?: string
+  shell?: string
   uses?: string
   with?: Record<string, unknown>
   env?: Record<string, string>
 }
 
+/** Parsed subset of a workflow job used by workflow contract tests. */
 export type WorkflowJob = {
   "continue-on-error"?: boolean
   if?: string
@@ -22,13 +25,19 @@ export type WorkflowJob = {
   "timeout-minutes"?: number
 }
 
+/** Parsed subset of a GitHub Actions workflow used by workflow contract tests. */
 export type Workflow = {
   name?: string
+  concurrency?: {
+    group?: string
+    "cancel-in-progress"?: boolean
+  }
   on?: Record<string, unknown>
   permissions?: Record<string, string>
   jobs?: Record<string, WorkflowJob>
 }
 
+/** Reads a workflow file as UTF-8 and fails clearly when it is missing. */
 export function readWorkflow(workflowPath: string) {
   if (!fs.existsSync(workflowPath)) {
     throw new Error(`Missing workflow: ${workflowPath}`)
@@ -36,6 +45,7 @@ export function readWorkflow(workflowPath: string) {
   return fs.readFileSync(workflowPath, "utf8")
 }
 
+/** Parses workflow YAML with Ruby, preserving GitHub's `on` key for assertions. */
 export function parseWorkflow(workflowPath: string) {
   const parsed = execFileSync(
     "ruby",

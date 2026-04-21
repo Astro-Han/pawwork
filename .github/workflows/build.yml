@@ -21,12 +21,21 @@ on:
           - beta
           - prod
         default: dev
+      target:
+        description: "Release target"
+        required: false
+        type: choice
+        options:
+          - macos
+          - windows
+        default: macos
       arch:
         description: "Target architecture"
         required: false
         type: choice
         options:
           - arm64
+          - x64
         default: arm64
       source_run_id:
         description: "Run ID from the submit phase"
@@ -58,7 +67,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.phase || 'submit' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.phase || 'submit' }}-${{ inputs.channel || 'dev' }}-${{ inputs.target || 'macos' }}-${{ inputs.arch || 'arm64' }}
   cancel-in-progress: true
 
 permissions:
@@ -66,8 +75,83 @@ permissions:
   contents: write
 
 jobs:
+  select-build-target:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      target: ${{ steps.select.outputs.target }}
+      arch: ${{ steps.select.outputs.arch }}
+    steps:
+      - id: select
+        run: |
+          set -euo pipefail
+
+          target="${INPUT_TARGET:-macos}"
+          arch="${INPUT_ARCH:-arm64}"
+          phase="${INPUT_PHASE:-submit}"
+
+          case "$target" in
+            macos)
+              case "$arch" in
+                arm64)
+                  host="macos-latest"
+                  platform_flag="--mac --arm64"
+                  ;;
+                x64)
+                  host="macos-15-intel"
+                  platform_flag="--mac --x64"
+                  ;;
+                *)
+                  echo "Unsupported macOS arch: $arch"
+                  exit 1
+                  ;;
+              esac
+              ;;
+            windows)
+              if [ "$phase" = "finalize" ]; then
+                echo "Windows releases do not use the macOS notarization finalize phase"
+                exit 1
+              fi
+              if [ "$arch" != "x64" ]; then
+                echo "Unsupported Windows arch: $arch"
+                exit 1
+              fi
+              host="windows-latest"
+              platform_flag="--win"
+              ;;
+            *)
+              echo "Unsupported release target: $target"
+              exit 1
+              ;;
+          esac
+
+          matrix=$(python3 - <<PY
+          import json
+          print(json.dumps({
+              "include": [{
+                  "host": "$host",
+                  "target": "$target",
+                  "platform_flag": "$platform_flag",
+                  "arch_label": "$arch",
+              }]
+          }))
+          PY
+          )
+
+          {
+            echo "target=$target"
+            echo "arch=$arch"
+            echo "matrix=$matrix"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_TARGET: ${{ inputs.target || 'macos' }}
+          INPUT_ARCH: ${{ inputs.arch || 'arm64' }}
+          INPUT_PHASE: ${{ inputs.phase || 'submit' }}
+
   create-snapshot-tag:
-    if: ${{ inputs.phase == 'submit' }}
+    needs:
+      - select-build-target
+    if: ${{ inputs.phase == 'submit' && needs.select-build-target.outputs.target == 'macos' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,7 +163,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          workflow_ref="workflow-snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ inputs.arch || 'arm64' }}"
+          workflow_ref="workflow-snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ needs.select-build-target.outputs.target }}-${{ needs.select-build-target.outputs.arch }}"
           gh api \
             --method POST \
             -H "Accept: application/vnd.github+json" \
@@ -93,39 +177,33 @@ jobs:
 
   build-electron:
     needs:
+      - select-build-target
       - create-snapshot-tag
-    if: ${{ always() && (needs.create-snapshot-tag.result == 'success' || needs.create-snapshot-tag.result == 'skipped') }}
+    if: ${{ always() && needs.select-build-target.result == 'success' && (needs.create-snapshot-tag.result == 'success' || needs.create-snapshot-tag.result == 'skipped') }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - host: macos-latest
-            platform_flag: --mac --arm64
-            arch_label: arm64
-          # Uncomment after signing is verified:
-          # - host: macos-latest
-          #   platform_flag: --mac --x64
-          #   arch_label: x64
-          # - host: ubuntu-latest
-          #   platform_flag: --linux
-          #   arch_label: x64
-          # - host: windows-latest
-          #   platform_flag: --win
-          #   arch_label: x64
+      matrix: ${{ fromJSON(needs.select-build-target.outputs.matrix) }}
 
     runs-on: ${{ matrix.host }}
 
     steps:
-      - name: Validate Selected Arch
+      - name: Validate selected target
+        shell: bash
         run: |
           set -euo pipefail
 
-          if [ "$SELECTED_ARCH" != "arm64" ]; then
-            echo "Unsupported arch: $SELECTED_ARCH"
+          if [ "$SELECTED_TARGET" != "${{ matrix.target }}" ]; then
+            echo "Target mismatch: expected $SELECTED_TARGET, got ${{ matrix.target }}"
+            exit 1
+          fi
+
+          if [ "$SELECTED_ARCH" != "${{ matrix.arch_label }}" ]; then
+            echo "Arch mismatch: expected $SELECTED_ARCH, got ${{ matrix.arch_label }}"
             exit 1
           fi
         env:
-          SELECTED_ARCH: ${{ inputs.arch || 'arm64' }}
+          SELECTED_TARGET: ${{ needs.select-build-target.outputs.target }}
+          SELECTED_ARCH: ${{ needs.select-build-target.outputs.arch }}
 
       - name: Validate finalize inputs
         if: ${{ inputs.phase == 'finalize' }}
@@ -639,11 +717,32 @@ jobs:
 
       - name: Package app
         if: ${{ runner.os != 'macOS' && inputs.phase != 'finalize' }}
-        run: npx electron-builder ${{ matrix.platform_flag }} --publish never --config electron-builder.config.ts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          publish_flag="never"
+          if [ "${{ inputs.phase || 'submit' }}" = "full" ]; then
+            publish_flag="always"
+          fi
+
+          npx electron-builder ${{ matrix.platform_flag }} --publish "$publish_flag" --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 60
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload packaged app artifact
+        if: ${{ runner.os == 'Windows' && inputs.phase != 'finalize' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pawwork-${{ runner.os }}-${{ matrix.arch_label }}
+          if-no-files-found: error
+          path: |
+            packages/desktop-electron/dist/*.exe
+            packages/desktop-electron/dist/*.exe.blockmap
+            packages/desktop-electron/dist/latest*.yml
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ runner.os == 'macOS' && (inputs.phase == 'finalize' || inputs.phase == 'full') && inputs.arch == matrix.arch_label }}
