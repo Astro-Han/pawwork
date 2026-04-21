@@ -1,24 +1,30 @@
 import { describe, expect, test } from "bun:test"
-import { isTraditionalChinese } from "./language"
+import { normalizeLocale } from "./language"
 
-describe("isTraditionalChinese", () => {
-  test("returns true for BCP-47 Hant tag", () => {
-    expect(isTraditionalChinese("zh-hant")).toBe(true)
-    expect(isTraditionalChinese("zh-hant-tw")).toBe(true)
+describe("normalizeLocale", () => {
+  test("keeps supported product locales", () => {
+    expect(normalizeLocale("en")).toBe("en")
+    expect(normalizeLocale("EN")).toBe("en")
+    expect(normalizeLocale("zh")).toBe("zh")
   })
 
-  test("returns true for Traditional Chinese region tags", () => {
-    expect(isTraditionalChinese("zh-tw")).toBe(true)
-    expect(isTraditionalChinese("zh-hk")).toBe(true)
-    expect(isTraditionalChinese("zh-mo")).toBe(true)
-    expect(isTraditionalChinese("zh_tw")).toBe(true)
+  test("maps legacy Traditional Chinese locale to Simplified Chinese", () => {
+    expect(normalizeLocale("zht")).toBe("zh")
   })
 
-  test("returns false for Simplified Chinese and other locales", () => {
-    expect(isTraditionalChinese("zh")).toBe(false)
-    expect(isTraditionalChinese("zh-cn")).toBe(false)
-    expect(isTraditionalChinese("zh-hans")).toBe(false)
-    expect(isTraditionalChinese("en")).toBe(false)
-    expect(isTraditionalChinese("en-tw")).toBe(false)
+  test("maps Chinese language tags to Simplified Chinese", () => {
+    expect(normalizeLocale("zh-CN")).toBe("zh")
+    expect(normalizeLocale("zh-Hans")).toBe("zh")
+    expect(normalizeLocale("zh-Hant")).toBe("zh")
+    expect(normalizeLocale("zh-TW")).toBe("zh")
+    expect(normalizeLocale("zh-HK")).toBe("zh")
+    expect(normalizeLocale("zh-MO")).toBe("zh")
+    expect(normalizeLocale("zh_tw")).toBe("zh")
+  })
+
+  test("falls back to English for unsupported locales", () => {
+    expect(normalizeLocale("fr")).toBe("en")
+    expect(normalizeLocale("en-TW")).toBe("en")
+    expect(normalizeLocale(42 as never)).toBe("en")
   })
 })

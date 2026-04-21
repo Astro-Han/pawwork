@@ -6,7 +6,7 @@ import { Persist, persisted } from "@/utils/persist"
 import { dict as en } from "@/i18n/en"
 import { dict as uiEn } from "@opencode-ai/ui/i18n/en"
 
-export type Locale = "en" | "zh" | "zht"
+export type Locale = "en" | "zh"
 
 type RawDictionary = typeof en & typeof uiEn
 type Dictionary = i18n.Flatten<RawDictionary>
@@ -16,18 +16,16 @@ function cookie(locale: Locale) {
   return `oc_locale=${encodeURIComponent(locale)}; Path=/; Max-Age=31536000; SameSite=Lax`
 }
 
-const LOCALES: readonly Locale[] = ["en", "zh", "zht"]
+const LOCALES: readonly Locale[] = ["en", "zh"]
 
 const INTL: Record<Locale, string> = {
   en: "en",
   zh: "zh-Hans",
-  zht: "zh-Hant",
 }
 
 const LABEL_KEY: Record<Locale, keyof Dictionary> = {
   en: "language.en",
   zh: "language.zh",
-  zht: "language.zht",
 }
 
 const base = i18n.flatten({ ...en, ...uiEn })
@@ -38,7 +36,6 @@ const merge = (app: Promise<Source>, ui: Promise<Source>) =>
 
 const loaders: Record<Exclude<Locale, "en">, () => Promise<Dictionary>> = {
   zh: () => merge(import("@/i18n/zh"), import("@opencode-ai/ui/i18n/zh")),
-  zht: () => merge(import("@/i18n/zht"), import("@opencode-ai/ui/i18n/zht")),
 }
 
 function loadDict(locale: Locale) {
@@ -56,17 +53,8 @@ export function loadLocaleDict(locale: Locale) {
   return loadDict(locale).then(() => undefined)
 }
 
-const ZHT_REGIONS = ["tw", "hk", "mo"]
-export const isTraditionalChinese = (language: string) => {
-  if (!language.startsWith("zh")) return false
-  if (language.includes("hant")) return true
-  const region = language.split(/[-_]/, 2)[1]
-  return region !== undefined && ZHT_REGIONS.includes(region)
-}
-
 const localeMatchers: Array<{ locale: Locale; match: (language: string) => boolean }> = [
   { locale: "en", match: (language) => language.startsWith("en") },
-  { locale: "zht", match: isTraditionalChinese },
   { locale: "zh", match: (language) => language.startsWith("zh") },
 ]
 
@@ -84,8 +72,11 @@ function detectLocale(): Locale {
   return "en"
 }
 
-export function normalizeLocale(value: string): Locale {
-  return LOCALES.includes(value as Locale) ? (value as Locale) : "en"
+export function normalizeLocale(value: unknown): Locale {
+  if (typeof value !== "string") return "en"
+  const normalized = value.toLowerCase()
+  if (normalized.startsWith("zh")) return "zh"
+  return (LOCALES as readonly string[]).includes(normalized) ? (normalized as Locale) : "en"
 }
 
 function readStoredLocale() {

@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { dict as en } from "./en"
 import { dict as zh } from "./zh"
-import { dict as zht } from "./zht"
 
-const locales = [zh, zht]
+const locales = [zh]
 const keys = [
   "command.session.previous.unseen",
   "command.session.next.unseen",

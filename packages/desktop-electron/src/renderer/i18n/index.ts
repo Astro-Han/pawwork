@@ -2,26 +2,16 @@ import * as i18n from "@solid-primitives/i18n"
 
 import { dict as desktopEn } from "./en"
 import { dict as desktopZh } from "./zh"
-import { dict as desktopZht } from "./zht"
 
 import { dict as appEn } from "../../../../app/src/i18n/en"
 import { dict as appZh } from "../../../../app/src/i18n/zh"
-import { dict as appZht } from "../../../../app/src/i18n/zht"
 
-export type Locale = "en" | "zh" | "zht"
+export type Locale = "en" | "zh"
 
 type RawDictionary = typeof appEn & typeof desktopEn
 type Dictionary = i18n.Flatten<RawDictionary>
 
-const LOCALES: readonly Locale[] = ["en", "zh", "zht"]
-
-const ZHT_REGIONS = ["tw", "hk", "mo"]
-
-export function isTraditionalChinese(language: string) {
-  if (language.includes("hant")) return true
-  const region = language.split(/[-_]/, 2)[1]
-  return region !== undefined && ZHT_REGIONS.includes(region)
-}
+const LOCALES: readonly Locale[] = ["en", "zh"]
 
 function detectLocale(): Locale {
   if (typeof navigator !== "object") return "en"
@@ -30,9 +20,7 @@ function detectLocale(): Locale {
   for (const language of languages) {
     if (!language) continue
     const normalized = language.toLowerCase()
-    if (normalized.startsWith("zh")) {
-      return isTraditionalChinese(normalized) ? "zht" : "zh"
-    }
+    if (normalized.startsWith("zh")) return "zh"
     if (normalized.startsWith("en")) return "en"
   }
 
@@ -40,9 +28,10 @@ function detectLocale(): Locale {
 }
 
 function parseLocale(value: unknown): Locale | null {
-  if (!value) return null
   if (typeof value !== "string") return null
-  if ((LOCALES as readonly string[]).includes(value)) return value as Locale
+  const normalized = value.toLowerCase()
+  if (normalized.startsWith("zh")) return "zh"
+  if ((LOCALES as readonly string[]).includes(normalized)) return normalized as Locale
   return null
 }
 
@@ -75,8 +64,7 @@ const base = i18n.flatten({ ...appEn, ...desktopEn })
 
 function build(locale: Locale): Dictionary {
   if (locale === "en") return base
-  if (locale === "zh") return { ...base, ...i18n.flatten(appZh), ...i18n.flatten(desktopZh) }
-  return { ...base, ...i18n.flatten(appZht), ...i18n.flatten(desktopZht) }
+  return { ...base, ...i18n.flatten(appZh), ...i18n.flatten(desktopZh) }
 }
 
 const state = {

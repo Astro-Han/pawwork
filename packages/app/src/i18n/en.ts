@@ -407,7 +407,6 @@ export const dict = {
 
   "language.en": "English",
   "language.zh": "简体中文",
-  "language.zht": "繁體中文",
   "language.ko": "한국어",
   "language.de": "Deutsch",
   "language.es": "Español",
