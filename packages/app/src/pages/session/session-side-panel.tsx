@@ -29,10 +29,12 @@ import { setSessionHandoff } from "@/pages/session/handoff"
 import type { RightPanelTab } from "@/pages/session/right-panel-tabs"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
+/** Converts right-panel state into the CSS width applied to the shell. */
 export function formatRightPanelWidth(open: boolean, width: number): string {
   return open ? `${width}px` : "0px"
 }
 
+/** Creates a resize callback that marks user sizing before delegating width storage to layout state. */
 export function makeRightPanelResizeHandler(
   size: { touch: () => void },
   layout: { rightPanel: { resize: (width: number) => void } },
@@ -43,8 +45,14 @@ export function makeRightPanelResizeHandler(
   }
 }
 
+/** Returns whether the Review inner tab row should expose the file-open shortcut. */
+export function shouldShowReviewFileOpenButton(activeTab: string | undefined, hasSecondaryTabs: boolean): boolean {
+  return hasSecondaryTabs || activeTab !== "review"
+}
+
 type RightPanelShellIconName = "status" | "folder" | "review" | "terminal"
 
+/** Maps right-panel tab names to their shell icon components. */
 function RightPanelShellIcon(props: { icon: RightPanelShellIconName }) {
   return (
     <Switch>
@@ -64,6 +72,7 @@ function RightPanelShellIcon(props: { icon: RightPanelShellIconName }) {
   )
 }
 
+/** Hosts the session right panel tabs, resize behavior, and active panel content. */
 export function SessionSidePanel(props: {
   canReview: () => boolean
   diffs: () => (SnapshotFileDiff | VcsFileDiff)[]
@@ -292,22 +301,24 @@ export function SessionSidePanel(props: {
                           <Show
                             when={showSecondaryReviewTabs()}
                             fallback={
-                              <div class="w-full bg-background-stronger flex items-center justify-end px-3 py-1.5">
-                                <TooltipKeybind
-                                  title={language.t("command.file.open")}
-                                  keybind={command.keybind("file.open")}
-                                  class="flex items-center"
-                                >
-                                  <IconButton
-                                    icon="plus-small"
-                                    variant="ghost"
-                                    iconSize="large"
-                                    class="!rounded-md"
-                                    onClick={() => openFilePicker(showAllFiles)}
-                                    aria-label={language.t("command.file.open")}
-                                  />
-                                </TooltipKeybind>
-                              </div>
+                              <Show when={shouldShowReviewFileOpenButton(activeTab(), false)}>
+                                <div class="w-full bg-background-stronger flex items-center justify-end px-3 py-1.5">
+                                  <TooltipKeybind
+                                    title={language.t("command.file.open")}
+                                    keybind={command.keybind("file.open")}
+                                    class="flex items-center"
+                                  >
+                                    <IconButton
+                                      icon="plus-small"
+                                      variant="ghost"
+                                      iconSize="large"
+                                      class="!rounded-md"
+                                      onClick={() => openFilePicker(showAllFiles)}
+                                      aria-label={language.t("command.file.open")}
+                                    />
+                                  </TooltipKeybind>
+                                </div>
+                              </Show>
                             }
                           >
                             <Tabs.List

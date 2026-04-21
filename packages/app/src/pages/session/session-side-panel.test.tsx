@@ -121,6 +121,16 @@ describe("formatRightPanelWidth", () => {
   })
 })
 
+describe("shouldShowReviewFileOpenButton", () => {
+  test("hides the standalone file-open button on the main review view", async () => {
+    const { shouldShowReviewFileOpenButton } = await import("./session-side-panel")
+
+    expect(shouldShowReviewFileOpenButton("review", false)).toBe(false)
+    expect(shouldShowReviewFileOpenButton("context", false)).toBe(true)
+    expect(shouldShowReviewFileOpenButton("review", true)).toBe(true)
+  })
+})
+
 describe("makeRightPanelResizeHandler", () => {
   test("calls size.touch() then layout.rightPanel.resize(width) in order", async () => {
     const { makeRightPanelResizeHandler } = await import("./session-side-panel")

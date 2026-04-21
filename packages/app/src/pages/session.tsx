@@ -51,7 +51,7 @@ import {
   shouldFocusTerminalOnKeyDown,
 } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
-import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
+import { SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
@@ -1239,8 +1239,6 @@ export default function Page() {
   }
 
   const reviewContent = (input: {
-    diffStyle: DiffStyle
-    onDiffStyleChange?: (style: DiffStyle) => void
     classes?: SessionReviewTabProps["classes"]
     loadingClass: string
     emptyClass: string
@@ -1251,8 +1249,6 @@ export default function Page() {
         empty={reviewEmpty(input)}
         diffs={reviewDiffs}
         view={view}
-        diffStyle={input.diffStyle}
-        onDiffStyleChange={input.onDiffStyleChange}
         onScrollRef={(el) => setTree("reviewScroll", el)}
         focusedFile={tree.activeDiff}
         onLineComment={(comment) => addCommentToContext({ ...comment, origin: "review" })}
@@ -1275,8 +1271,6 @@ export default function Page() {
     <div class="flex flex-col h-full overflow-hidden bg-background-stronger contain-strict">
       <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
         {reviewContent({
-          diffStyle: layout.review.diffStyle(),
-          onDiffStyleChange: layout.review.setDiffStyle,
           loadingClass: "px-6 py-4 text-text-weak",
           emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
         })}
@@ -1998,7 +1992,6 @@ export default function Page() {
                   <MessageTimeline
                     mobileChanges={mobileChanges()}
                     mobileFallback={reviewContent({
-                      diffStyle: "unified",
                       classes: {
                         root: "pb-8",
                         header: "px-4",

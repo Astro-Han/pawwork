@@ -12,8 +12,6 @@ import { useSDK } from "@/context/sdk"
 import { useLayout } from "@/context/layout"
 import type { LineComment } from "@/context/comments"
 
-export type DiffStyle = "unified" | "split"
-
 type ReviewDiff = SnapshotFileDiff | VcsFileDiff
 
 export interface SessionReviewTabProps {
@@ -21,8 +19,6 @@ export interface SessionReviewTabProps {
   empty?: JSX.Element
   diffs: () => ReviewDiff[]
   view: () => ReturnType<ReturnType<typeof useLayout>["view"]>
-  diffStyle: DiffStyle
-  onDiffStyleChange?: (style: DiffStyle) => void
   onViewFile?: (file: string) => void
   onLineComment?: (comment: { file: string; selection: SelectedLineRange; comment: string; preview?: string }) => void
   onLineCommentUpdate?: (comment: SessionReviewCommentUpdate) => void
@@ -43,6 +39,7 @@ export interface SessionReviewTabProps {
   }
 }
 
+/** Renders the session Review panel with a unified diff view and persisted scroll position. */
 export function SessionReviewTab(props: SessionReviewTabProps) {
   let scroll: HTMLDivElement | undefined
   let restoreFrame: number | undefined
@@ -119,7 +116,6 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
 
   createEffect(() => {
     props.diffs().length
-    props.diffStyle
     if (!layout.ready()) return
     queueRestore()
   })
@@ -152,8 +148,7 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
         container: props.classes?.container ?? "pl-3",
       }}
       diffs={props.diffs()}
-      diffStyle={props.diffStyle}
-      onDiffStyleChange={props.onDiffStyleChange}
+      diffStyle="unified"
       onViewFile={props.onViewFile}
       focusedFile={props.focusedFile}
       readFile={readFile}
