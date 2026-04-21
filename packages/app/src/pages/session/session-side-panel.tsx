@@ -43,6 +43,10 @@ export function makeRightPanelResizeHandler(
   }
 }
 
+export function shouldShowReviewFileOpenButton(activeTab: string | undefined, hasSecondaryTabs: boolean): boolean {
+  return hasSecondaryTabs || activeTab !== "review"
+}
+
 type RightPanelShellIconName = "status" | "folder" | "review" | "terminal"
 
 function RightPanelShellIcon(props: { icon: RightPanelShellIconName }) {
@@ -292,22 +296,24 @@ export function SessionSidePanel(props: {
                           <Show
                             when={showSecondaryReviewTabs()}
                             fallback={
-                              <div class="w-full bg-background-stronger flex items-center justify-end px-3 py-1.5">
-                                <TooltipKeybind
-                                  title={language.t("command.file.open")}
-                                  keybind={command.keybind("file.open")}
-                                  class="flex items-center"
-                                >
-                                  <IconButton
-                                    icon="plus-small"
-                                    variant="ghost"
-                                    iconSize="large"
-                                    class="!rounded-md"
-                                    onClick={() => openFilePicker(showAllFiles)}
-                                    aria-label={language.t("command.file.open")}
-                                  />
-                                </TooltipKeybind>
-                              </div>
+                              <Show when={shouldShowReviewFileOpenButton(activeTab(), false)}>
+                                <div class="w-full bg-background-stronger flex items-center justify-end px-3 py-1.5">
+                                  <TooltipKeybind
+                                    title={language.t("command.file.open")}
+                                    keybind={command.keybind("file.open")}
+                                    class="flex items-center"
+                                  >
+                                    <IconButton
+                                      icon="plus-small"
+                                      variant="ghost"
+                                      iconSize="large"
+                                      class="!rounded-md"
+                                      onClick={() => openFilePicker(showAllFiles)}
+                                      aria-label={language.t("command.file.open")}
+                                    />
+                                  </TooltipKeybind>
+                                </div>
+                              </Show>
                             }
                           >
                             <Tabs.List
