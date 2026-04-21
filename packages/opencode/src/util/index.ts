@@ -1,7 +1,6 @@
 export { Archive } from "./archive"
 export { Color } from "./color"
 export { Filesystem } from "./filesystem"
-export { Keybind } from "./keybind"
 export { LocalContext } from "./local-context"
 export { Locale } from "./locale"
 export { Lock } from "./lock"
