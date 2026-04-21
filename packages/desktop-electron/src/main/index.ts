@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
-import { homedir } from "node:os"
+import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import type { Event } from "electron"
 import { app, BrowserWindow, dialog } from "electron"
@@ -47,7 +47,7 @@ import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
 import { createDesktopContextStore } from "./desktop-context-store"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
-import { initLogging } from "./logging"
+import { filePath, initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import { type MenuLocale } from "./menu-labels"
@@ -85,6 +85,48 @@ const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
 const logger = initLogging()
+
+function diagnostics(context = currentDesktopContext()) {
+  return {
+    appVersion: app.getVersion(),
+    channel: CHANNEL,
+    packaged: app.isPackaged,
+    updaterEnabled: UPDATER_ENABLED,
+    platform: process.platform,
+    osVersion: `${os.type()} ${os.release()}`,
+    arch: process.arch,
+    electronVersion: process.versions.electron,
+    locale: context.locale,
+    route: context.route,
+    directory: context.directory,
+    sessionID: context.sessionID,
+    logPath: filePath(),
+  }
+}
+
+async function sessionExport(context = currentDesktopContext()) {
+  if (!context.sessionID) return { status: "none" as const }
+  const ready = await serverReady.promise
+  const url = new URL(`/session/${context.sessionID}/message`, ready.url)
+  const headers: Record<string, string> = {}
+  if (ready.username || ready.password) {
+    headers.authorization = `Basic ${Buffer.from(`${ready.username ?? "opencode"}:${ready.password ?? ""}`).toString("base64")}`
+  }
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+  let res: Response
+  try {
+    res = await fetch(url, { headers, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
+  if (!res.ok) throw new Error(`session export failed: ${res.status}`)
+  return {
+    status: "ok" as const,
+    info: context,
+    messages: (await res.json()) as unknown[],
+  }
+}
 
 function currentDesktopContext() {
   return desktopContexts.current(BrowserWindow.getFocusedWindow()?.id)

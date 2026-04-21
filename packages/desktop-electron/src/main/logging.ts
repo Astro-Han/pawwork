@@ -13,13 +13,16 @@ export function initLogging() {
 
 export function tail(): string {
   try {
-    const path = log.transports.file.getFile().path
-    const contents = readFileSync(path, "utf8")
+    const contents = readFileSync(filePath(), "utf8")
     const lines = contents.split("\n")
     return lines.slice(Math.max(0, lines.length - TAIL_LINES)).join("\n")
   } catch {
     return ""
   }
+}
+
+export function filePath() {
+  return log.transports.file.getFile().path
 }
 
 function cleanup() {
