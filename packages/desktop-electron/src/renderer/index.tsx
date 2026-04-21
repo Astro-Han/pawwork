@@ -32,6 +32,10 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
 }
 
 void initI18n()
+  .then((locale) => {
+    return window.api.initializeDesktopContext(locale)
+  })
+  .catch(() => undefined)
 
 const deepLinkEvent = "opencode:deep-link"
 const emitDeepLinks = (urls: string[]) => {

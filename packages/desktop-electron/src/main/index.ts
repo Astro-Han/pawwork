@@ -42,13 +42,16 @@ app.setPath("userData", join(userDataRoot, app.isPackaged ? APP_IDS[CHANNEL] : "
 const CI_SMOKE_READY_FILE = join(app.getPath("userData"), "ci-smoke-ready.json")
 const { autoUpdater } = pkg
 
-import type { InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
+import type { DesktopContext, InitStep, ServerReadyData, SqliteMigrationProgress, WslConfig } from "../preload/types"
 import { checkAppExists, resolveAppPath, wslPath } from "./apps"
 import { CHANNEL, UPDATER_ENABLED } from "./constants"
+import { createDesktopContextStore } from "./desktop-context-store"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
 import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
+import { type MenuLocale } from "./menu-labels"
+import { readStoredMenuLocale, writeStoredMenuLocale } from "./menu-i18n"
 import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
 import { createLoadingWindow, createMainWindow, setBackgroundColor, setDockIcon } from "./windows"
 import {
@@ -68,11 +71,34 @@ let mainWindow: BrowserWindow | null = null
 let server: Server.Listener | null = null
 const loadingComplete = defer<void>()
 const deepLinkReadyWindows = new WeakSet<BrowserWindow>()
+let menuLocale: MenuLocale = readStoredMenuLocale(app.getLocale())
+const defaultDesktopContext = (): DesktopContext => ({
+  directory: null,
+  sessionID: null,
+  route: "/",
+  locale: menuLocale,
+})
+const desktopContexts = createDesktopContextStore(defaultDesktopContext)
+const contextWindowCleanup = new Set<number>()
 
 const pendingDeepLinks: string[] = []
 
 const serverReady = defer<ServerReadyData>()
 const logger = initLogging()
+
+function currentDesktopContext() {
+  return desktopContexts.current(BrowserWindow.getFocusedWindow()?.id)
+}
+
+function normalizeDesktopContext(context: unknown): DesktopContext {
+  const value = context && typeof context === "object" ? (context as Record<string, unknown>) : {}
+  return {
+    directory: typeof value.directory === "string" ? value.directory : null,
+    sessionID: typeof value.sessionID === "string" ? value.sessionID : null,
+    route: typeof value.route === "string" && value.route.length > 0 ? value.route : "/",
+    locale: value.locale === "zh" ? "zh" : "en",
+  }
+}
 
 logger.log("app starting", {
   version: app.getVersion(),
@@ -183,10 +209,12 @@ function mainWindowGlobals() {
 function openMainWindow() {
   const win = createMainWindow(mainWindowGlobals())
   mainWindow = win
+  win.on("focus", () => syncMenuLocaleForWindow(win))
   win.on("closed", () => {
     if (mainWindow !== win) return
     mainWindow = selectNextMainWindow(win, BrowserWindow.getAllWindows())
     flushPendingDeepLinksForReadyWindow(mainWindow)
+    syncMenuLocaleForWindow(mainWindow)
   })
   wireMenu()
   return win
@@ -267,6 +295,21 @@ async function initialize() {
   overlay?.close()
 }
 
+function focusedMenuLocale() {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (!focused) return menuLocale
+  return desktopContexts.current(focused.id).locale
+}
+
+function syncMenuLocaleForWindow(win: BrowserWindow | null) {
+  if (!win) return
+  const next = desktopContexts.current(win.id).locale
+  if (next === menuLocale) return
+  menuLocale = next
+  writeStoredMenuLocale(next)
+  wireMenu()
+}
+
 function wireMenu() {
   if (!mainWindow) return
   const commandWindow = () => selectCommandWindow(BrowserWindow.getFocusedWindow(), mainWindow)
@@ -285,7 +328,10 @@ function wireMenu() {
       app.exit(0)
     },
     newWindow: () => openMainWindow(),
-  })
+    reportProblem: () => {
+      void reportProblem()
+    },
+  }, focusedMenuLocale())
 }
 
 registerIpcHandlers({
@@ -320,6 +366,18 @@ registerIpcHandlers({
   setBackgroundColor: (color) => setBackgroundColor(color),
   reportDeepLinkReady: (win) => reportDeepLinkReady(win),
   reportCiSmokeReady: () => reportCiSmokeReady(),
+  setDesktopContext: (context, win) => {
+    const next = normalizeDesktopContext(context)
+    desktopContexts.set(win.id, next)
+    if (!contextWindowCleanup.has(win.id)) {
+      contextWindowCleanup.add(win.id)
+      win.once("closed", () => {
+        desktopContexts.delete(win.id)
+        contextWindowCleanup.delete(win.id)
+      })
+    }
+    if (BrowserWindow.getFocusedWindow()?.id === win.id) syncMenuLocaleForWindow(win)
+  },
 })
 
 function killSidecar() {

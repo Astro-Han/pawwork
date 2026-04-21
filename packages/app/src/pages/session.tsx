@@ -29,7 +29,7 @@ import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { checksum } from "@opencode-ai/util/encode"
-import { useSearchParams } from "@solidjs/router"
+import { useLocation, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
@@ -41,6 +41,7 @@ import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
+import { buildDesktopContext, type DesktopContext } from "@/utils/desktop-context"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
@@ -333,8 +334,54 @@ export default function Page() {
   const prompt = usePrompt()
   const comments = useComments()
   const terminal = useTerminal()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
   const { params, sessionKey, tabs, view } = useSessionLayout()
+  let lastDesktopContext = ""
+  let pendingDesktopContext = ""
+  let desktopContextRetryTimer: number | undefined
+  let disposed = false
+
+  const syncDesktopContext = (context: DesktopContext, serialized: string) => {
+    if (disposed) return
+    const setDesktopContext = window.api?.setDesktopContext
+    if (!setDesktopContext) return
+    void setDesktopContext(context)
+      .then(() => {
+        if (disposed) return
+        if (pendingDesktopContext !== serialized) return
+        lastDesktopContext = serialized
+        pendingDesktopContext = ""
+        if (desktopContextRetryTimer !== undefined) {
+          window.clearTimeout(desktopContextRetryTimer)
+          desktopContextRetryTimer = undefined
+        }
+      })
+      .catch(() => {
+        if (disposed) return
+        if (pendingDesktopContext !== serialized || lastDesktopContext === serialized) return
+        if (desktopContextRetryTimer !== undefined) window.clearTimeout(desktopContextRetryTimer)
+        desktopContextRetryTimer = window.setTimeout(() => {
+          desktopContextRetryTimer = undefined
+          if (disposed || pendingDesktopContext !== serialized || lastDesktopContext === serialized) return
+          syncDesktopContext(context, serialized)
+        }, 250)
+      })
+  }
+
+  createEffect(() => {
+    if (!window.api?.setDesktopContext) return
+    const context = buildDesktopContext({
+      directory: sdk.directory,
+      sessionID: params.id ?? null,
+      route: `${location.pathname}${location.search}${location.hash}`,
+      locale: language.locale(),
+    })
+    const serialized = JSON.stringify(context)
+    if (serialized === lastDesktopContext || serialized === pendingDesktopContext) return
+    pendingDesktopContext = serialized
+    syncDesktopContext(context, serialized)
+  })
 
   createEffect(() => {
     if (!prompt.ready()) return
@@ -1887,6 +1934,8 @@ export default function Page() {
   })
 
   onCleanup(() => {
+    disposed = true
+    if (desktopContextRetryTimer !== undefined) window.clearTimeout(desktopContextRetryTimer)
     if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
     if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)

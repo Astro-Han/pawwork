@@ -8,11 +8,12 @@ import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
-import { type BaseRouterProps, Navigate, Route, Router } from "@solidjs/router"
+import { type BaseRouterProps, Navigate, Route, Router, useLocation } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { type Duration, Effect } from "effect"
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -44,6 +45,7 @@ import { TerminalProvider } from "@/context/terminal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
+import { buildDesktopContext, type DesktopContext } from "./utils/desktop-context"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
@@ -77,6 +79,7 @@ declare global {
     }
     api?: {
       setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
+      setDesktopContext?: (context: DesktopContext) => Promise<void>
     }
   }
 }
@@ -122,11 +125,37 @@ function RouterRoot(props: ParentProps<{ appChildren?: JSX.Element }>) {
   return (
     <AppShellProviders>
       <Suspense fallback={<Loading />}>
+        <DesktopContextRouteBridge />
         {props.appChildren}
         {props.children}
       </Suspense>
     </AppShellProviders>
   )
+}
+
+function DesktopContextRouteBridge() {
+  const language = useLanguage()
+  const location = useLocation()
+
+  createEffect(() => {
+    if (!window.api?.setDesktopContext) return
+    if (isSessionRoute(location.pathname)) return
+    void window.api
+      .setDesktopContext(
+        buildDesktopContext({
+          route: `${location.pathname}${location.search}${location.hash}`,
+          locale: language.locale(),
+        }),
+      )
+      .catch(() => undefined)
+  })
+
+  return null
+}
+
+function isSessionRoute(pathname: string) {
+  const parts = pathname.split("/").filter(Boolean)
+  return parts.length >= 2 && parts.length <= 3 && parts[1] === "session"
 }
 
 export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {

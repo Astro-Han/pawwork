@@ -67,6 +67,14 @@ const api: ElectronAPI = {
   getZoomFactor: () => ipcRenderer.invoke("get-zoom-factor"),
   setZoomFactor: (factor) => ipcRenderer.invoke("set-zoom-factor", factor),
   setTitlebar: (theme) => ipcRenderer.invoke("set-titlebar", theme),
+  setDesktopContext: (context) => ipcRenderer.invoke("set-desktop-context", context),
+  initializeDesktopContext: (locale) =>
+    ipcRenderer.invoke("set-desktop-context", {
+      directory: null,
+      sessionID: null,
+      route: "/",
+      locale,
+    }),
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),

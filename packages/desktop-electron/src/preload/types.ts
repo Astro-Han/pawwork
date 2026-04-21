@@ -1,3 +1,7 @@
+import type { DesktopContext } from "../../../app/src/utils/desktop-context"
+
+export type { DesktopContext }
+
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
 
 export type ServerReadyData = {
@@ -70,6 +74,8 @@ export type ElectronAPI = {
   getZoomFactor: () => Promise<number>
   setZoomFactor: (factor: number) => Promise<void>
   setTitlebar: (theme: TitlebarTheme) => Promise<void>
+  setDesktopContext: (context: DesktopContext) => Promise<void>
+  initializeDesktopContext: (locale: DesktopContext["locale"]) => Promise<void>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
   checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
