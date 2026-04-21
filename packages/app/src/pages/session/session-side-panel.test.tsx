@@ -144,3 +144,19 @@ describe("makeRightPanelResizeHandler", () => {
     expect(received).toBe(280)
   })
 })
+
+describe("shouldShowReviewFileOpenButton", () => {
+  test("hides the file-open button while the Review tab is active", async () => {
+    const { shouldShowReviewFileOpenButton } = await import("./session-side-panel")
+
+    expect(shouldShowReviewFileOpenButton("review")).toBe(false)
+  })
+
+  test("keeps the file-open button for non-review tabs in the same panel", async () => {
+    const { shouldShowReviewFileOpenButton } = await import("./session-side-panel")
+
+    expect(shouldShowReviewFileOpenButton("empty")).toBe(true)
+    expect(shouldShowReviewFileOpenButton("context")).toBe(true)
+    expect(shouldShowReviewFileOpenButton("file:///tmp/example.ts")).toBe(true)
+  })
+})

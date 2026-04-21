@@ -43,6 +43,10 @@ export function makeRightPanelResizeHandler(
   }
 }
 
+export function shouldShowReviewFileOpenButton(activeTab: string | undefined): boolean {
+  return activeTab !== "review"
+}
+
 type RightPanelShellIconName = "status" | "folder" | "review" | "terminal"
 
 function RightPanelShellIcon(props: { icon: RightPanelShellIconName }) {
@@ -188,6 +192,27 @@ export function SessionSidePanel(props: {
     })
   }
 
+  const fileOpenButton = (className: string) => (
+    <Show when={shouldShowReviewFileOpenButton(activeTab())}>
+      <div class={className}>
+        <TooltipKeybind
+          title={language.t("command.file.open")}
+          keybind={command.keybind("file.open")}
+          class="flex items-center"
+        >
+          <IconButton
+            icon="plus-small"
+            variant="ghost"
+            iconSize="large"
+            class="!rounded-md"
+            onClick={() => openFilePicker(showAllFiles)}
+            aria-label={language.t("command.file.open")}
+          />
+        </TooltipKeybind>
+      </div>
+    </Show>
+  )
+
   createEffect(() => {
     if (!file.ready()) return
 
@@ -292,22 +317,7 @@ export function SessionSidePanel(props: {
                           <Show
                             when={showSecondaryReviewTabs()}
                             fallback={
-                              <div class="w-full bg-background-stronger flex items-center justify-end px-3 py-1.5">
-                                <TooltipKeybind
-                                  title={language.t("command.file.open")}
-                                  keybind={command.keybind("file.open")}
-                                  class="flex items-center"
-                                >
-                                  <IconButton
-                                    icon="plus-small"
-                                    variant="ghost"
-                                    iconSize="large"
-                                    class="!rounded-md"
-                                    onClick={() => openFilePicker(showAllFiles)}
-                                    aria-label={language.t("command.file.open")}
-                                  />
-                                </TooltipKeybind>
-                              </div>
+                              fileOpenButton("w-full bg-background-stronger flex items-center justify-end px-3 py-1.5")
                             }
                           >
                             <Tabs.List
@@ -357,22 +367,9 @@ export function SessionSidePanel(props: {
                               <SortableProvider ids={openedTabs()}>
                                 <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                               </SortableProvider>
-                              <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
-                                <TooltipKeybind
-                                  title={language.t("command.file.open")}
-                                  keybind={command.keybind("file.open")}
-                                  class="flex items-center"
-                                >
-                                  <IconButton
-                                    icon="plus-small"
-                                    variant="ghost"
-                                    iconSize="large"
-                                    class="!rounded-md"
-                                    onClick={() => openFilePicker(showAllFiles)}
-                                    aria-label={language.t("command.file.open")}
-                                  />
-                                </TooltipKeybind>
-                              </div>
+                              {fileOpenButton(
+                                "bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3",
+                              )}
                             </Tabs.List>
                           </Show>
                         </div>
