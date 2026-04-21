@@ -23,7 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 out/
+.artifacts/
 
 resources/opencode-cli*
 resources/tools/*
 !resources/tools/.gitignore
+resources/icons/
+icons/prod/
+icons/dev/
+icons/beta/

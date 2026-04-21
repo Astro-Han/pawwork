@@ -541,6 +541,7 @@ jobs:
 
           APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
 
+          bun ./scripts/generate-icons.ts "$OPENCODE_CHANNEL"
           npx electron-builder --mac dmg zip --${{ matrix.arch_label }} --prepackaged "$APP_PATH" --publish always --config.mac.sign=./script/skip-mac-sign.cjs --config.mac.notarize=false --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
