@@ -5,7 +5,7 @@ import { parseWorkflow, readWorkflow } from "./workflow-parser"
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "build.yml")
 
-describe("build workflow", () => {
+describe("release workflow", () => {
   test("pins upgraded checkout and upload-artifact refs in the release workflow", () => {
     const workflow = readWorkflow(workflowPath)
     const parsed = parseWorkflow(workflowPath)
@@ -23,7 +23,7 @@ describe("build workflow", () => {
     )
     const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
 
-    expect(parsed.name).toBe("build")
+    expect(parsed.name).toBe("release")
     expect(parsed.permissions).toEqual({
       actions: "read",
       contents: "write",
