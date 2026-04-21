@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Hono } from "hono"
-import { JsonError } from "../../src/config/error"
+import { InvalidError, JsonError } from "../../src/config/error"
 import { ErrorMiddleware } from "../../src/server/middleware"
 
 describe("server error middleware", () => {
@@ -17,5 +17,23 @@ describe("server error middleware", () => {
     expect(body.name).toBe("ConfigJsonError")
     expect(body.data.path).toBe("opencode.json")
     expect(body.data.message).toBe("bad json")
+  })
+
+  test("serializes config invalid errors with issues", async () => {
+    const app = new Hono().get("/boom", () => {
+      throw new InvalidError({
+        path: "opencode.json",
+        issues: [{ code: "custom", message: "bad field", path: ["server", "hostname"] }],
+      })
+    })
+    app.onError(ErrorMiddleware)
+
+    const response = await app.request("/boom")
+    const body = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(body.name).toBe("ConfigInvalidError")
+    expect(body.data.path).toBe("opencode.json")
+    expect(body.data.issues).toEqual([{ code: "custom", message: "bad field", path: ["server", "hostname"] }])
   })
 })
