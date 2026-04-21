@@ -26,7 +26,7 @@ export function filePath() {
 }
 
 function cleanup() {
-  const path = log.transports.file.getFile().path
+  const path = filePath()
   const dir = dirname(path)
   const cutoff = Date.now() - MAX_LOG_AGE_DAYS * 24 * 60 * 60 * 1000
 

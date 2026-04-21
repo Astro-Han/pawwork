@@ -11,6 +11,7 @@ import type {
   ServerReadyData,
   SqliteMigrationProgress,
   TitlebarTheme,
+  UpdateInfo,
   WslConfig,
 } from "../preload/types"
 import { getStore } from "./store"
@@ -54,8 +55,8 @@ type Deps = {
   resolveAppPath: (appName: string) => Promise<string | null>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
-  installUpdate: () => Promise<void> | void
+  checkUpdate: () => Promise<UpdateInfo>
+  installUpdate: () => Promise<boolean> | boolean
   setBackgroundColor: (color: string) => void
   reportDeepLinkReady: (win: BrowserWindow | null) => void
   reportCiSmokeReady: () => Promise<void> | void

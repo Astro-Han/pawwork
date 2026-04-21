@@ -114,6 +114,30 @@ export const SettingsGeneral: Component = () => {
     void platform
       .checkUpdate()
       .then((result) => {
+        if (result.status === "busy") {
+          showToast({
+            title: language.t("settings.updates.toast.busy.title"),
+            description: language.t("settings.updates.toast.busy.description"),
+          })
+          return
+        }
+
+        if (result.status === "disabled") {
+          showToast({
+            title: language.t("settings.updates.toast.disabled.title"),
+            description: language.t("settings.updates.toast.disabled.description"),
+          })
+          return
+        }
+
+        if (result.status === "failed") {
+          showToast({
+            title: language.t("common.requestFailed"),
+            description: result.message || language.t("settings.updates.toast.failed.description"),
+          })
+          return
+        }
+
         if (!result.updateAvailable) {
           showToast({
             variant: "success",

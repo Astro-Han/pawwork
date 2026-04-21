@@ -1,6 +1,8 @@
+import type { UpdateInfo } from "../../../app/src/context/platform"
 import type { DesktopContext } from "../../../app/src/utils/desktop-context"
 
 export type { DesktopContext }
+export type { UpdateInfo }
 
 export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
 
@@ -79,7 +81,7 @@ export type ElectronAPI = {
   initializeDesktopContext: (locale: DesktopContext["locale"]) => Promise<void>
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void>
-  checkUpdate: () => Promise<{ updateAvailable: boolean; version?: string }>
+  checkUpdate: () => Promise<UpdateInfo>
   installUpdate: () => Promise<void>
   setBackgroundColor: (color: string) => Promise<void>
 }

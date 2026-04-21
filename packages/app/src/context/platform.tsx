@@ -7,7 +7,11 @@ type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
-type UpdateInfo = { updateAvailable: boolean; version?: string }
+type UpdateFailureReason = "check" | "download" | "metadata"
+export type UpdateInfo =
+  | { updateAvailable: false; status: "disabled" | "none" | "busy"; version?: undefined }
+  | { updateAvailable: true; status: "ready"; version: string }
+  | { updateAvailable: false; status: "failed"; reason: UpdateFailureReason; message: string; version?: undefined }
 
 export type Platform = {
   /** Platform discriminator */
