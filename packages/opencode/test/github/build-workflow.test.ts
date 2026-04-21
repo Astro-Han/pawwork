@@ -5,11 +5,12 @@ import { parseWorkflow, readWorkflow } from "./workflow-parser"
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "build.yml")
 
-describe("build workflow", () => {
-  test("pins upgraded checkout and upload-artifact refs in the release workflow", () => {
+describe("release workflow", () => {
+  test("validates the release workflow configuration", () => {
     const workflow = readWorkflow(workflowPath)
     const parsed = parseWorkflow(workflowPath)
     const buildElectron = parsed.jobs?.["build-electron"]
+    const cleanupSnapshotTag = parsed.jobs?.["cleanup-snapshot-tag"]
     const steps = buildElectron?.steps ?? []
     const checkoutSteps = steps.filter(
       (step) => step.uses === "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
@@ -22,13 +23,17 @@ describe("build workflow", () => {
     )
     const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
 
-    expect(parsed.name).toBe("build")
+    expect(parsed.name).toBe("release")
     expect(parsed.permissions).toEqual({
       actions: "read",
       contents: "write",
     })
     expect(parsed.on?.workflow_dispatch).toBeDefined()
     expect(buildElectron?.["runs-on"]).toBe("${{ matrix.host }}")
+    expect(cleanupSnapshotTag?.needs).toContain("build-electron")
+    expect(cleanupSnapshotTag?.if).toBe(
+      "${{ always() && inputs.phase == 'finalize' && needs.build-electron.result == 'success' }}",
+    )
     expect(checkoutSteps).toHaveLength(2)
     expect(checkoutSteps[0]?.with).toEqual({ "persist-credentials": false })
     expect(checkoutSteps[1]?.with).toEqual({
