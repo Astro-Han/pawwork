@@ -1,7 +1,20 @@
 import { describe, expect, test } from "bun:test"
 
-const titlebarSource = await Bun.file(new URL("./titlebar.tsx", import.meta.url)).text()
-const baseCssSource = await Bun.file(new URL("../../../ui/src/styles/base.css", import.meta.url)).text()
+async function readSource(path: string, description: string) {
+  const url = new URL(path, import.meta.url)
+
+  try {
+    return await Bun.file(url).text()
+  } catch (err) {
+    throw new Error(`Expected ${description} at ${url.pathname}. Update this test if the monorepo layout changes.`, {
+      cause: err,
+    })
+  }
+}
+
+const titlebarSource = await readSource("./titlebar.tsx", "titlebar component source")
+// Monorepo layout: packages/app/src/components -> packages/ui/src/styles.
+const baseCssSource = await readSource("../../../ui/src/styles/base.css", "shared UI base CSS")
 
 describe("titlebar Tauri compatibility cleanup", () => {
   test("titlebar no longer references Tauri globals or Tauri DOM attributes", () => {

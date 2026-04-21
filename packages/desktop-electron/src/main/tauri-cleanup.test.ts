@@ -16,6 +16,5 @@ describe("Tauri cleanup", () => {
     expect(readme).toContain("bun run --cwd packages/desktop-electron dev")
     expect(readme).toContain("bun run --cwd packages/desktop-electron package")
     expect(readme).not.toMatch(/tauri/i)
-    expect(readme).not.toMatch(/packages\/desktop\s+tauri/)
   })
 })
