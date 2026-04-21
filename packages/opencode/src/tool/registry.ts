@@ -162,7 +162,8 @@ export namespace ToolRegistry {
           )
           const cfg = yield* config.get()
           const rules = Permission.fromConfig(cfg.permission ?? {})
-          let depsReady = false
+          const depsReady = new Set<string>()
+          const depsFailed = new Set<string>()
           for (const match of matches) {
             const namespace = path.basename(match, path.extname(match))
             const text = yield* Effect.promise(() => Bun.file(match).text())
@@ -179,12 +180,27 @@ export namespace ToolRegistry {
             const spec = process.platform === "win32" ? match : pathToFileURL(match).href
             const configDir = path.dirname(path.dirname(match))
             const usesDeps = yield* Effect.promise(() => usesConfigDependencies(match))
-            if (!depsReady && usesDeps) {
-              depsReady = true
+            if (usesDeps && depsFailed.has(configDir)) continue
+            if (usesDeps && !depsReady.has(configDir)) {
+              depsReady.add(configDir)
               const needsDeps = yield* Effect.promise(() => needsConfigDependencies(match, configDir))
               yield* config.waitForDependencies()
               if (needsDeps) {
-                yield* Effect.tryPromise(() => Config.installDependencies(configDir)).pipe(Effect.orDie)
+                const installed = yield* Effect.promise(async () => {
+                  try {
+                    return await Config.installDependencies(configDir)
+                  } catch (error) {
+                    log.warn("failed to install config dependencies for local tool", {
+                      dir: configDir,
+                      error: String(error),
+                    })
+                    return false
+                  }
+                })
+                if (!installed) {
+                  depsFailed.add(configDir)
+                  continue
+                }
               }
             }
             const mod = yield* Effect.promise(() => import(spec))

@@ -53,7 +53,7 @@ export namespace TuiConfig {
   }
 
   function installDeps(dir: string): Promise<void> {
-    return Config.installDependencies(dir)
+    return Config.installDependencies(dir).then(() => {})
   }
 
   async function mergeFile(acc: Acc, file: string) {

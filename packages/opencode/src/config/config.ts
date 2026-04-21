@@ -21,7 +21,7 @@ import type { ConsoleState } from "./console-state"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { InstanceState } from "@/effect"
 import { makeRuntime } from "@/effect/run-service"
-import { Context, Duration, Effect, Exit, Fiber, Layer, Option, Schema } from "effect"
+import { Context, Duration, Effect, Fiber, Layer, Option, Schema } from "effect"
 import { EffectFlock } from "@opencode-ai/shared/util/effect-flock"
 import { InstanceRef } from "@/effect/instance-ref"
 import { zod, ZodOverride } from "@/util/effect-zod"
@@ -559,19 +559,13 @@ const rawLayer = Layer.effect(
 
           yield* ensureGitignore(dir).pipe(Effect.orDie)
 
-          const dep = yield* Effect.tryPromise(() => installDependencies(dir))
-            .pipe(
-              Effect.exit,
-              Effect.tap((exit) =>
-                Exit.isFailure(exit)
-                  ? Effect.sync(() => {
-                      log.warn("background dependency install failed", { dir, error: String(exit.cause) })
-                    })
-                  : Effect.void,
-              ),
-              Effect.asVoid,
-              Effect.forkDetach,
-            )
+          const dep = yield* Effect.promise(async () => {
+            try {
+              await installDependencies(dir)
+            } catch (error) {
+              log.warn("background dependency install failed", { dir, error: String(error) })
+            }
+          }).pipe(Effect.forkDetach)
           deps.push(dep)
 
           result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => ConfigCommand.load(dir)))
@@ -837,7 +831,7 @@ export async function waitForDependencies() {
 }
 
 export async function installDependencies(dir: string) {
-  if (!(await isWritable(dir))) return
+  if (!(await isWritable(dir))) return false
   const key = process.platform === "win32" ? "config-install:win32" : `config-install:${Filesystem.resolve(dir)}`
   await using _ = await Flock.acquire(key)
 
@@ -870,8 +864,14 @@ export async function installDependencies(dir: string) {
   if (!ignore) {
     await Filesystem.write(gitignore, ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"))
   }
-  if (hasDep && ignore && installed.every(Boolean)) return
-  return Npm.install(dir)
+  if (hasDep && ignore && installed.every(Boolean)) return true
+  try {
+    await Npm.install(dir)
+    return true
+  } catch (error) {
+    log.warn("dependency install failed", { dir, error: String(error) })
+    return false
+  }
 }
 
 const ConfigInfo = Info

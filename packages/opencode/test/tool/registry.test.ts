@@ -176,6 +176,16 @@ describe("tool.registry", () => {
         init: async (dir) => {
           const toolsDir = path.join(dir, ".opencode", "tools")
           await fs.mkdir(toolsDir, { recursive: true })
+          await Bun.write(
+            path.join(dir, ".opencode", "package.json"),
+            JSON.stringify({
+              name: "custom-tools",
+              dependencies: {
+                "@opencode-ai/plugin": "*",
+                "late-dep": "^1.0.0",
+              },
+            }),
+          )
 
           await Bun.write(
             path.join(toolsDir, "late.ts"),
@@ -208,6 +218,59 @@ describe("tool.registry", () => {
         expect(
           install.mock.calls.some(([dir]) => path.normalize(dir) === path.normalize(path.join(tmp.path, ".opencode"))),
         ).toBe(true)
+      } finally {
+        install.mockRestore()
+      }
+    })
+  })
+
+  test("skips tools when config dependency install fails", async () => {
+    await withConfigDepsLock(async () => {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          const toolsDir = path.join(dir, ".opencode", "tools")
+          await fs.mkdir(toolsDir, { recursive: true })
+
+          await Bun.write(
+            path.join(toolsDir, "late.ts"),
+            [
+              "import { ready } from 'late-dep'",
+              "export default {",
+              "  description: 'tool with a missing dependency',",
+              "  args: {},",
+              "  execute: async () => ready,",
+              "}",
+              "",
+            ].join("\n"),
+          )
+
+          await Bun.write(
+            path.join(toolsDir, "local.ts"),
+            [
+              "export default {",
+              "  description: 'tool without external dependencies',",
+              "  args: {},",
+              "  execute: async () => 'ok',",
+              "}",
+              "",
+            ].join("\n"),
+          )
+        },
+      })
+
+      const install = spyOn(Npm, "install").mockImplementation(async () => {
+        throw new Error("install failed")
+      })
+
+      try {
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            const ids = await ToolRegistry.ids()
+            expect(ids).not.toContain("late")
+            expect(ids).toContain("local")
+          },
+        })
       } finally {
         install.mockRestore()
       }
