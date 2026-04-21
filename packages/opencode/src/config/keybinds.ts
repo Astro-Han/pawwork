@@ -7,8 +7,10 @@ import { zod } from "@/util/effect-zod"
 // Every keybind field has the same shape: an optional string with a default
 // binding and a human description.  `keybind()` keeps the declaration list
 // below dense and readable.
+const KeybindString = Schema.String.pipe(Schema.brand("KeybindString"))
+
 const keybind = (value: string, description: string) =>
-  Schema.String.pipe(Schema.optional, Schema.withDecodingDefault(Effect.succeed(value))).annotate({ description })
+  KeybindString.pipe(Schema.optional, Schema.withDecodingDefault(Effect.succeed(value))).annotate({ description })
 
 // Windows prepends ctrl+z to the undo binding because `terminal_suspend`
 // cannot consume ctrl+z on native Windows terminals (no POSIX suspend).

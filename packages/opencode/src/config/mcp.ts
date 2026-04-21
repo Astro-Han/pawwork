@@ -1,3 +1,5 @@
+export * as ConfigMCP from "./mcp"
+
 import { Schema } from "effect"
 import { zod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
@@ -60,5 +62,3 @@ export const Info = Schema.Union([Local, Remote])
   .annotate({ discriminator: "type" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
 export type Info = Schema.Schema.Type<typeof Info>
-
-export * as ConfigMCP from "./mcp"

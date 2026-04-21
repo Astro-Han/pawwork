@@ -115,7 +115,11 @@ function decode(transformation: SchemaAST.Link["transformation"], value: unknown
       Option.Option<unknown>
     >,
   )
-  if (exit._tag === "Failure") throw new Error(`effect-zod: transform failed: ${String(exit.cause)}`)
+  if (exit._tag === "Failure") {
+    throw new Error(
+      `effect-zod: transform failed; async or service-dependent transforms are not supported here: ${String(exit.cause)}`,
+    )
+  }
   return Option.getOrElse(exit.value, () => value)
 }
 
