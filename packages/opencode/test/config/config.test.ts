@@ -1,8 +1,9 @@
-import { test, expect, describe, mock, afterEach, beforeEach } from "bun:test"
+import { test, expect, describe, mock, afterEach, beforeEach, spyOn } from "bun:test"
 import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Config, ConfigManaged } from "../../src/config"
 import { ConfigParse } from "../../src/config/parse"
+import { ConsoleState } from "../../src/config/console-state"
 
 import { Instance } from "../../src/project/instance"
 import { Auth } from "../../src/auth"
@@ -26,6 +27,8 @@ import { ProjectID } from "../../src/project/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { ConfigPlugin } from "@/config/plugin"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
+import { Npm } from "../../src/npm"
+import { Installation } from "../../src/installation"
 
 const emptyAccount = Layer.mock(Account.Service)({
   active: () => Effect.succeed(Option.none()),
@@ -123,6 +126,27 @@ test("loads config with defaults when no files exist", async () => {
   })
 })
 
+test("console state keeps switchableOrgCount as a nonnegative integer", () => {
+  expect(
+    ConsoleState.zod.safeParse({
+      consoleManagedProviders: [],
+      switchableOrgCount: 1,
+    }).success,
+  ).toBe(true)
+  expect(
+    ConsoleState.zod.safeParse({
+      consoleManagedProviders: [],
+      switchableOrgCount: 1.5,
+    }).success,
+  ).toBe(false)
+  expect(
+    ConsoleState.zod.safeParse({
+      consoleManagedProviders: [],
+      switchableOrgCount: -1,
+    }).success,
+  ).toBe(false)
+})
+
 test("loads JSON config file", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -139,6 +163,155 @@ test("loads JSON config file", async () => {
       const config = await load()
       expect(config.model).toBe("test/model")
       expect(config.username).toBe("testuser")
+    },
+  })
+})
+
+test("loads PawWork project config aliases", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(
+        dir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-root",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-root")
+    },
+  })
+})
+
+test("loads PawWork configs from .opencode directories", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const configDir = path.join(dir, ".opencode")
+      await fs.mkdir(configDir, { recursive: true })
+      await writeConfig(
+        configDir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-dir",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-dir")
+    },
+  })
+})
+
+test("loads and updates global PawWork config aliases", async () => {
+  await using globalTmp = await tmpdir()
+  await using tmp = await tmpdir()
+  const prev = Global.Path.config
+  ;(Global.Path as { config: string }).config = globalTmp.path
+  await clear()
+  try {
+    await writeConfig(
+      globalTmp.path,
+      {
+        $schema: "https://opencode.ai/config.json",
+        username: "global-pawwork",
+      },
+      "pawwork.json",
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.username).toBe("global-pawwork")
+
+        const updated = await Effect.runPromise(
+          Config.Service.use((svc) => svc.updateGlobal({ ...config, username: "updated-pawwork" })).pipe(
+            Effect.scoped,
+            Effect.provide(layer),
+          ),
+        )
+        expect(updated.username).toBe("updated-pawwork")
+      },
+    })
+
+    const content = await Filesystem.readJson<{ username?: string }>(path.join(globalTmp.path, "pawwork.json"))
+    expect(content.username).toBe("updated-pawwork")
+    expect(await Filesystem.exists(path.join(globalTmp.path, "opencode.jsonc"))).toBe(false)
+  } finally {
+    ;(Global.Path as { config: string }).config = prev
+    await clear()
+  }
+})
+
+test("PawWork config aliases win consistently when OpenCode aliases coexist", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(
+        dir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/opencode-root",
+        },
+        "opencode.json",
+      )
+      await writeConfig(
+        dir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-root",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-root")
+    },
+  })
+})
+
+test("PawWork .opencode aliases win consistently when OpenCode aliases coexist", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const configDir = path.join(dir, ".opencode")
+      await fs.mkdir(configDir, { recursive: true })
+      await writeConfig(
+        configDir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/opencode-dir",
+        },
+        "opencode.json",
+      )
+      await writeConfig(
+        configDir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-dir",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-dir")
     },
   })
 })
@@ -387,6 +560,8 @@ test("resolves env templates in account config with account token", async () => 
         Effect.gen(function* () {
           const config = yield* svc.get()
           expect(config.provider?.["opencode"]?.options?.apiKey).toBe("st_test_token")
+          const consoleState = yield* svc.getConsoleState()
+          expect(consoleState.activeOrgName).toBe("Example Org")
         }),
       ),
     ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
@@ -896,6 +1071,59 @@ it.live(
 
 // Note: npm install deduplication is covered in the current Npm implementation,
 // not in this config suite.
+
+test("installDependencies bootstraps the config plugin package metadata", async () => {
+  await using tmp = await tmpdir()
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await Config.installDependencies(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(await Filesystem.readText(path.join(tmp.path, ".gitignore"))).toContain("package-lock.json")
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service dependency loading uses config plugin package metadata", async () => {
+  await using tmp = await tmpdir<string>({
+    init: async (dir) => {
+      const cfg = path.join(dir, "configdir")
+      await fs.mkdir(cfg, { recursive: true })
+      return cfg
+    },
+  })
+  const prev = process.env.OPENCODE_CONFIG_DIR
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  await withConfigDepsLock(async () => {
+    process.env.OPENCODE_CONFIG_DIR = tmp.extra
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await load()
+          await ready()
+        },
+      })
+
+      const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.extra, "package.json"))
+      const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+      expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+      expect(install).toHaveBeenCalledWith(tmp.extra)
+    } finally {
+      if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = prev
+      install.mockRestore()
+    }
+  })
+})
 
 test("resolves scoped npm plugins in config", async () => {
   await using tmp = await tmpdir({
