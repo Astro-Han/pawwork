@@ -40,7 +40,7 @@ export function parseManagedPlist(json: string): string {
     raw = JSON.parse(json)
   } catch (error) {
     log.warn("failed to parse managed preferences JSON", { error })
-    return "{}"
+    throw new Error("failed to parse managed preferences JSON", { cause: error })
   }
   for (const key of Object.keys(raw)) {
     if (PLIST_META.has(key)) delete raw[key]

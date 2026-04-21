@@ -114,6 +114,7 @@ const normalize = (agent: AgentInput): AgentInfo => {
     }
     permission[tool] = action
   }
+  // The new permission config wins when it conflicts with deprecated tools.
   Object.assign(permission, configuredPermission)
 
   return { ...rest, options, permission, steps: steps ?? maxSteps }

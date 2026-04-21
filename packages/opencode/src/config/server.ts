@@ -15,7 +15,12 @@ export class Server extends Schema.Class<Server>("ServerConfig")({
     description: "Additional domains to allow for CORS",
   }),
 }) {
-  static readonly zod = (zod(this) as unknown as z.ZodObject<any>).strict()
+  static readonly zod = (() => {
+    const schema = zod(this)
+    if (!(schema instanceof z.ZodObject)) throw new Error("ServerConfig must bridge to a ZodObject")
+    const meta = schema.meta()
+    return meta ? schema.strict().meta(meta) : schema.strict()
+  })()
 }
 
 export * as ConfigServer from "./server"

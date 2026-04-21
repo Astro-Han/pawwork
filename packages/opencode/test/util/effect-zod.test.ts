@@ -104,6 +104,17 @@ describe("util.effect-zod", () => {
     expect(bridged.enum).toEqual(["allow", "deny", "ask"])
   })
 
+  test("single string literal unions produce z.enum with enum in JSON Schema", () => {
+    const out = zod(Schema.Union([Schema.Literal("foo")]))
+    const bridged = json(out)
+    const native = json(z.enum(["foo"]))
+
+    expect(out.parse("foo")).toBe("foo")
+    expect(() => out.parse("bar")).toThrow()
+    expect(bridged).toEqual(native)
+    expect(bridged.enum).toEqual(["foo"])
+  })
+
   test("ZodOverride annotation provides the Zod schema for branded IDs", () => {
     const override = z.string().startsWith("per")
     const ID = Schema.String.annotate({ [ZodOverride]: override }).pipe(Schema.brand("TestID"))

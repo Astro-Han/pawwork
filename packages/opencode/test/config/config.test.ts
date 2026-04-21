@@ -1,7 +1,7 @@
 import { test, expect, describe, mock, afterEach, beforeEach, spyOn } from "bun:test"
 import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
-import { Config, ConfigManaged } from "../../src/config"
+import { Config, ConfigManaged, ConfigVariable } from "../../src/config"
 import { ConfigParse } from "../../src/config/parse"
 import { ConsoleState } from "../../src/config/console-state"
 import { configEntryNameFromPath } from "../../src/config/entry-name"
@@ -186,9 +186,12 @@ test("config model IDs require provider and model parts", () => {
 })
 
 test("config entry names tolerate unnormalized roots", () => {
-  expect(configEntryNameFromPath("C:\\repo\\.opencode\\commands\\nested\\run.md", ["C:\\repo\\.opencode\\commands"])).toBe(
-    "nested/run",
-  )
+  expect(
+    configEntryNameFromPath("C:\\repo\\.opencode\\commands\\nested\\run.md", ["C:\\repo\\.opencode\\commands"]),
+  ).toBe("nested/run")
+  expect(
+    configEntryNameFromPath("C:\\Repo\\.opencode\\commands\\nested\\run.md", ["c:\\repo\\.opencode\\commands"]),
+  ).toBe("nested/run")
   expect(configEntryNameFromPath("/repo/.opencode/commands/nested/run.md", ["/repo/.opencode/commands"])).toBe(
     "nested/run",
   )
@@ -495,6 +498,53 @@ test("handles environment variable substitution", async () => {
       process.env["TEST_VAR"] = originalEnv
     } else {
       delete process.env["TEST_VAR"]
+    }
+  }
+})
+
+test("rejects missing environment variable substitution by default", async () => {
+  const originalEnv = process.env["TEST_MISSING_VAR"]
+  delete process.env["TEST_MISSING_VAR"]
+
+  try {
+    await using tmp = await tmpdir()
+    let caught = false
+    try {
+      await ConfigVariable.substitute({
+        type: "virtual",
+        source: "test:env",
+        dir: tmp.path,
+        text: `{"username":"{env:TEST_MISSING_VAR}"}`,
+      })
+    } catch (error: any) {
+      caught = true
+      expect(error.name).toBe("ConfigInvalidError")
+      expect(error.data.message).toContain("missing environment variable")
+    }
+    expect(caught).toBe(true)
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env["TEST_MISSING_VAR"] = originalEnv
+    }
+  }
+})
+
+test("allows optional missing environment variable substitution", async () => {
+  const originalEnv = process.env["TEST_OPTIONAL_VAR"]
+  delete process.env["TEST_OPTIONAL_VAR"]
+
+  try {
+    await using tmp = await tmpdir()
+    const text = await ConfigVariable.substitute({
+      type: "virtual",
+      source: "test:env",
+      dir: tmp.path,
+      text: `{"username":"{env:TEST_OPTIONAL_VAR?}"}`,
+    })
+    expect(text).toBe(`{"username":""}`)
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env["TEST_OPTIONAL_VAR"] = originalEnv
     }
   }
 })
@@ -1992,6 +2042,38 @@ test("merges legacy tools with existing permission config", async () => {
   })
 })
 
+test("permission config wins over legacy tools on conflicts", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          agent: {
+            test: {
+              permission: {
+                edit: "allow",
+              },
+              tools: {
+                edit: false,
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.agent?.["test"]?.permission).toEqual({
+        edit: "allow",
+      })
+    },
+  })
+})
+
 test("permission config preserves key order", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -2862,8 +2944,8 @@ test("parseManagedPlist strips MDM metadata keys", async () => {
   expect((config as any)._manualProfile).toBeUndefined()
 })
 
-test("parseManagedPlist falls back to empty config for malformed JSON", () => {
-  expect(ConfigManaged.parseManagedPlist("{")).toBe("{}")
+test("parseManagedPlist rejects malformed JSON", () => {
+  expect(() => ConfigManaged.parseManagedPlist("{")).toThrow("failed to parse managed preferences JSON")
 })
 
 test("parseManagedPlist parses server settings", async () => {

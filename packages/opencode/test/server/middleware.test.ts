@@ -36,4 +36,23 @@ describe("server error middleware", () => {
     expect(body.data.path).toBe("opencode.json")
     expect(body.data.issues).toEqual([{ code: "custom", message: "bad field", path: ["server", "hostname"] }])
   })
+
+  test("serializes config invalid errors without issues", async () => {
+    const app = new Hono().get("/boom", () => {
+      throw new InvalidError({
+        path: "opencode.json",
+        message: "bad config",
+      })
+    })
+    app.onError(ErrorMiddleware)
+
+    const response = await app.request("/boom")
+    const body = await response.json()
+
+    expect(response.status).toBe(500)
+    expect(body.name).toBe("ConfigInvalidError")
+    expect(body.data.path).toBe("opencode.json")
+    expect(body.data.message).toBe("bad config")
+    expect(body.data.issues).toBeUndefined()
+  })
 })

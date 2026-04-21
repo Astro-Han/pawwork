@@ -29,11 +29,19 @@ function dir(input: ParseSource) {
   return input.type === "path" ? path.dirname(input.path) : input.dir
 }
 
-/** Apply {env:VAR} and {file:path} substitutions to config text. */
+/** Apply {env:VAR}, {env:VAR?}, and {file:path} substitutions to config text. */
 export async function substitute(input: SubstituteInput) {
   const missing = input.missing ?? "error"
-  let text = input.text.replace(/\{env:([^}]+)\}/g, (_, varName) => {
-    return process.env[varName] || ""
+  let text = input.text.replace(/\{env:([^}]+)\}/g, (token, rawName) => {
+    const optional = rawName.endsWith("?")
+    const varName = optional ? rawName.slice(0, -1) : rawName
+    const value = process.env[varName]
+    if (value !== undefined) return value
+    if (optional || missing === "empty") return ""
+    throw new InvalidError({
+      path: source(input),
+      message: `missing environment variable: "${token}"`,
+    })
   })
 
   const fileMatches = Array.from(text.matchAll(/\{file:[^}]+\}/g))

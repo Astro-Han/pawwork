@@ -1,7 +1,7 @@
 export * as ConfigKeybinds from "./keybinds"
 
 import { Effect, Schema } from "effect"
-import type z from "zod"
+import z from "zod"
 import { zod } from "@/util/effect-zod"
 
 // Every keybind field has the same shape: an optional string with a default
@@ -122,6 +122,6 @@ export type Keybinds = Schema.Schema.Type<typeof KeybindsSchema>
 // Consumers access `Keybinds.shape` and `Keybinds.shape.X.parse(undefined)`,
 // which requires the runtime type to be a ZodObject, not just ZodType.  Every
 // field is `string().optional().default(...)` at runtime, so widen to that.
-export const Keybinds = zod(KeybindsSchema) as unknown as z.ZodObject<
-  Record<keyof Keybinds, z.ZodDefault<z.ZodOptional<z.ZodString>>>
->
+const KeybindsZod = zod(KeybindsSchema)
+if (!(KeybindsZod instanceof z.ZodObject)) throw new Error("Keybinds schema must bridge to a ZodObject")
+export const Keybinds = KeybindsZod as z.ZodObject<Record<keyof Keybinds, z.ZodDefault<z.ZodOptional<z.ZodString>>>>

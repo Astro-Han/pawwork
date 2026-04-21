@@ -1160,6 +1160,20 @@ export type ServerConfig = {
   cors?: Array<string>
 }
 
+/**
+ * Additional skill folder paths
+ */
+export type SkillsConfig = {
+  /**
+   * Additional paths to skill folders
+   */
+  paths?: Array<string>
+  /**
+   * URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)
+   */
+  urls?: Array<string>
+}
+
 export type PermissionActionConfig = "ask" | "allow" | "deny"
 
 export type PermissionObjectConfig = {
@@ -1234,6 +1248,7 @@ export type AgentConfig = {
   permission?: PermissionConfig
   [key: string]:
     | unknown
+    | string
     | string
     | number
     | {
@@ -1449,19 +1464,7 @@ export type Config = {
       subtask?: boolean
     }
   }
-  /**
-   * Additional skill folder paths
-   */
-  skills?: {
-    /**
-     * Additional paths to skill folders
-     */
-    paths?: Array<string>
-    /**
-     * URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)
-     */
-    urls?: Array<string>
-  }
+  skills?: SkillsConfig
   watcher?: {
     ignore?: Array<string>
   }

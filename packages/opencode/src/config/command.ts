@@ -14,6 +14,12 @@ import { ConfigModelID } from "./model-id"
 
 const log = Log.create({ service: "config" })
 
+function commandSourceRank(filePath: string) {
+  const normalized = filePath.replaceAll("\\", "/")
+  if (normalized.includes("/.opencode/command/") || normalized.includes("/command/")) return 0
+  return 1
+}
+
 async function reportLoadError(error: { toObject(): any }, item: string, cause: unknown) {
   const { Session } = await import("@/session")
   void Bus.publish(Session.Event.Error, { error: error.toObject() })
@@ -33,12 +39,14 @@ export type Info = Schema.Schema.Type<typeof Info>
 export async function load(dir: string) {
   const result: Record<string, Info> = {}
   const sources: Record<string, string> = {}
-  for (const item of await Glob.scan("{command,commands}/**/*.md", {
+  const items = await Glob.scan("{command,commands}/**/*.md", {
     cwd: dir,
     absolute: true,
     dot: true,
     symlink: true,
-  })) {
+  })
+  items.sort((a, b) => commandSourceRank(a) - commandSourceRank(b) || a.localeCompare(b))
+  for (const item of items) {
     const md = await ConfigMarkdown.parse(item).catch(async (err) => {
       const message = ConfigMarkdown.FrontmatterError.isInstance(err)
         ? err.data.message
@@ -72,7 +80,11 @@ export async function load(dir: string) {
       sources[config.name] = item
       continue
     }
-    await reportLoadError(new InvalidError({ path: item, issues: parsed.error.issues }, { cause: parsed.error }), item, parsed.error)
+    await reportLoadError(
+      new InvalidError({ path: item, issues: parsed.error.issues }, { cause: parsed.error }),
+      item,
+      parsed.error,
+    )
   }
   return result
 }

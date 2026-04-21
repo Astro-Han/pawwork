@@ -20,9 +20,9 @@ export type Rule = Schema.Schema.Type<typeof Rule>
 
 // Captures the user's original property insertion order before Schema.Struct
 // canonicalises the object.  See the `ZodPreprocess` comment in
-// `util/effect-zod.ts` for the full rationale — in short: rule precedence is
+// `util/effect-zod.ts` for the full rationale, in short: rule precedence is
 // encoded in JSON key order (`evaluate.ts` uses `findLast`, so later keys win)
-// and `Schema.StructWithRest` would otherwise drop that order.
+// and `Schema.StructWithRest` would otherwise drop that order. Tracked in #113.
 const permissionPreprocess = (val: unknown) => {
   if (typeof val === "object" && val !== null && !Array.isArray(val)) {
     return { __originalKeys: globalThis.Object.keys(val), ...val }

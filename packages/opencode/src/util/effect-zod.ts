@@ -307,7 +307,7 @@ function extractDefault(ast: SchemaAST.AST): { value: unknown } | undefined {
 function union(ast: SchemaAST.Union): z.ZodTypeAny {
   // When every member is a string literal, emit z.enum() so that
   // JSON Schema produces { "enum": [...] } instead of { "anyOf": [{ "const": ... }] }.
-  if (ast.types.length >= 2 && ast.types.every((t) => t._tag === "Literal" && typeof t.literal === "string")) {
+  if (ast.types.length >= 1 && ast.types.every((t) => t._tag === "Literal" && typeof t.literal === "string")) {
     return z.enum(ast.types.map((t) => (t as SchemaAST.Literal).literal as string) as [string, ...string[]])
   }
 
