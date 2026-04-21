@@ -151,8 +151,8 @@ export async function load(dir: string) {
     const name = configEntryNameFromPath(item, patterns)
 
     const config = {
-      name,
       ...md.data,
+      name,
       prompt: md.content.trim(),
     }
     const parsed = Info.safeParse(config)
@@ -186,8 +186,8 @@ export async function loadMode(dir: string) {
     if (!md) continue
 
     const config = {
-      name: configEntryNameFromPath(item, []),
       ...md.data,
+      name: configEntryNameFromPath(item, []),
       prompt: md.content.trim(),
     }
     const parsed = Info.safeParse(config)

@@ -76,7 +76,7 @@ export function deduplicatePluginOrigins(plugins: Origin[]): Origin[] {
 
   for (const plugin of plugins.toReversed()) {
     const spec = pluginSpecifier(plugin.spec)
-    const name = spec.startsWith("file://") ? spec : parsePluginSpecifier(spec).pkg
+    const name = isPathPluginSpec(spec) ? spec : parsePluginSpecifier(spec).pkg
     if (seen.has(name)) continue
     seen.add(name)
     list.push(plugin)

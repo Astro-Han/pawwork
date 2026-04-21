@@ -15,6 +15,7 @@ const keybind = (value: string, description: string) =>
 // Windows prepends ctrl+z to the undo binding because `terminal_suspend`
 // cannot consume ctrl+z on native Windows terminals (no POSIX suspend).
 const inputUndoDefault = process.platform === "win32" ? "ctrl+z,ctrl+-,super+z" : "ctrl+-,super+z"
+const terminalSuspendDefault = process.platform === "win32" ? "none" : "ctrl+z"
 
 const KeybindsSchema = Schema.Struct({
   leader: keybind("ctrl+x", "Leader key for keybind combinations"),
@@ -109,10 +110,7 @@ const KeybindsSchema = Schema.Struct({
   session_child_cycle: keybind("right", "Go to next child session"),
   session_child_cycle_reverse: keybind("left", "Go to previous child session"),
   session_parent: keybind("up", "Go to parent session"),
-  // `terminal_suspend` was formerly `.default("ctrl+z").transform((v) => win32 ? "none" : v)`,
-  // but `tui.ts` already forces the binding to "none" on win32 before calling
-  // `Keybinds.parse(...)`, so the schema-level transform was redundant.
-  terminal_suspend: keybind("ctrl+z", "Suspend terminal"),
+  terminal_suspend: keybind(terminalSuspendDefault, "Suspend terminal"),
   terminal_title_toggle: keybind("none", "Toggle terminal title"),
   tips_toggle: keybind("<leader>h", "Toggle tips on home screen"),
   plugin_manager: keybind("none", "Open plugin manager dialog"),

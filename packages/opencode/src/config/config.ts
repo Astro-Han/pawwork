@@ -97,6 +97,11 @@ async function resolveLoadedPlugins<T extends { plugin?: ConfigPlugin.Spec[] }>(
   return config
 }
 
+function virtualConfigFilepath(options: { dir: string; source: string }) {
+  if (options.source.startsWith("mobileconfig:")) return options.source.slice("mobileconfig:".length)
+  if (path.isAbsolute(options.dir) || /^[A-Za-z]:[\\/]/.test(options.dir)) return path.join(options.dir, options.source)
+}
+
 export const Server = ConfigServer.Server.zod
 export const Layout = ConfigLayout.Layout.zod
 export type Layout = ConfigLayout.Layout
@@ -381,9 +386,12 @@ const rawLayer = Layer.effect(
       )
       const parsed = ConfigParse.jsonc(expanded, source)
       const data = ConfigParse.schema(Info, normalizeLoadedConfig(parsed, source), source)
+      const pluginContextPath = "path" in options ? options.path : virtualConfigFilepath(options)
+      if (pluginContextPath) {
+        yield* Effect.promise(() => resolveLoadedPlugins(data, pluginContextPath))
+      }
       if (!("path" in options)) return data
 
-      yield* Effect.promise(() => resolveLoadedPlugins(data, options.path))
       if (!data.$schema) {
         data.$schema = "https://opencode.ai/config.json"
         const updated = text.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')

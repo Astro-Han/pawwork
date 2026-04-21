@@ -795,6 +795,35 @@ Run the invalid command`,
   })
 })
 
+test("command markdown frontmatter cannot override derived names", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const commandsDir = path.join(dir, ".opencode", "commands")
+      await fs.mkdir(commandsDir, { recursive: true })
+
+      await Filesystem.write(
+        path.join(commandsDir, "derived.md"),
+        `---
+name: injected
+description: Derived command
+---
+Run the derived command`,
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.command?.["derived"]).toMatchObject({
+        description: "Derived command",
+        template: "Run the derived command",
+      })
+      expect(config.command?.["injected"]).toBeUndefined()
+    },
+  })
+})
+
 test("migrates autoshare to share field", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -966,6 +995,51 @@ Invalid agent prompt`,
         steps: 1,
       })
       expect(config.agent?.["invalid"]).toBeUndefined()
+    },
+  })
+})
+
+test("agent markdown frontmatter cannot override derived names", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const agentsDir = path.join(dir, ".opencode", "agents")
+      const modesDir = path.join(dir, ".opencode", "modes")
+      await fs.mkdir(agentsDir, { recursive: true })
+      await fs.mkdir(modesDir, { recursive: true })
+
+      await Filesystem.write(
+        path.join(agentsDir, "helper.md"),
+        `---
+name: injected-agent
+mode: subagent
+---
+Helper agent prompt`,
+      )
+      await Filesystem.write(
+        path.join(modesDir, "primary.md"),
+        `---
+name: injected-mode
+---
+Primary mode prompt`,
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.agent?.["helper"]).toMatchObject({
+        name: "helper",
+        mode: "subagent",
+        prompt: "Helper agent prompt",
+      })
+      expect(config.agent?.["primary"]).toMatchObject({
+        name: "primary",
+        mode: "primary",
+        prompt: "Primary mode prompt",
+      })
+      expect(config.agent?.["injected-agent"]).toBeUndefined()
+      expect(config.agent?.["injected-mode"]).toBeUndefined()
     },
   })
 })
@@ -2070,6 +2144,31 @@ test("rejects invalid MCP timeout values", async () => {
   }
 })
 
+test("rejects empty local MCP command arrays", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          mcp: {
+            local: {
+              type: "local",
+              command: [],
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      await expect(load()).rejects.toThrow()
+    },
+  })
+})
+
 test("rejects unknown nested server keys", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -2654,6 +2753,37 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
         fn: async () => {
           const config = await load()
           expect(config.username).toBe("secret_key_from_file")
+        },
+      })
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env["OPENCODE_CONFIG_CONTENT"] = originalEnv
+      } else {
+        delete process.env["OPENCODE_CONFIG_CONTENT"]
+      }
+    }
+  })
+
+  test("resolves relative plugin paths in OPENCODE_CONFIG_CONTENT", async () => {
+    const originalEnv = process.env["OPENCODE_CONFIG_CONTENT"]
+
+    try {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          await Filesystem.write(path.join(dir, "plugin.ts"), "export default {}")
+          process.env["OPENCODE_CONFIG_CONTENT"] = JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            plugin: ["./plugin.ts"],
+          })
+        },
+      })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.plugin?.map(ConfigPlugin.pluginSpecifier)).toContain(
+            pathToFileURL(path.join(tmp.path, "plugin.ts")).href,
+          )
         },
       })
     } finally {

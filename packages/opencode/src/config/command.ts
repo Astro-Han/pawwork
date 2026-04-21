@@ -51,8 +51,8 @@ export async function load(dir: string) {
     const name = configEntryNameFromPath(item, patterns)
 
     const config = {
-      name,
       ...md.data,
+      name,
       template: md.content.trim(),
     }
     const parsed = Info.zod.safeParse(config)

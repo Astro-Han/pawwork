@@ -8,7 +8,7 @@ const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterTh
 
 export class Local extends Schema.Class<Local>("McpLocalConfig")({
   type: Schema.Literal("local").annotate({ description: "Type of MCP server connection" }),
-  command: Schema.mutable(Schema.Array(Schema.String)).annotate({
+  command: Schema.mutable(Schema.Array(Schema.String)).check(Schema.isMinLength(1)).annotate({
     description: "Command and arguments to run the MCP server",
   }),
   environment: Schema.optional(Schema.Record(Schema.String, Schema.String)).annotate({
