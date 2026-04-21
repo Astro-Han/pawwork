@@ -207,7 +207,7 @@ const createPlatform = (): Platform => {
     storage,
 
     checkUpdate: async () => {
-      if (!UPDATER_ENABLED()) return { updateAvailable: false }
+      if (!UPDATER_ENABLED()) return { updateAvailable: false, status: "disabled" }
       return window.api.checkUpdate()
     },
 

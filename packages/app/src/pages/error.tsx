@@ -7,6 +7,7 @@ import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
 import { Icon } from "@opencode-ai/ui/icon"
 import type { E2EWindow } from "@/testing/terminal"
+import { updateErrorPageState } from "./error-update"
 
 export type InitError = {
   name: string
@@ -225,6 +226,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     checking: false,
     version: undefined as string | undefined,
     actionError: undefined as string | undefined,
+    actionMessage: undefined as string | undefined,
   })
 
   onMount(() => {
@@ -240,11 +242,14 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     await platform
       .checkUpdate()
       .then((result) => {
-        setStore("actionError", undefined)
-        if (result.updateAvailable && result.version) setStore("version", result.version)
+        setStore(updateErrorPageState(result, language.t))
       })
       .catch((err) => {
-        setStore("actionError", formatError(err, language.t))
+        setStore({
+          version: undefined,
+          actionError: formatError(err, language.t),
+          actionMessage: undefined,
+        })
       })
       .finally(() => {
         setStore("checking", false)
@@ -256,9 +261,9 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     await platform
       .update()
       .then(() => platform.restart!())
-      .then(() => setStore("actionError", undefined))
+      .then(() => setStore({ actionError: undefined, actionMessage: undefined }))
       .catch((err) => {
-        setStore("actionError", formatError(err, language.t))
+        setStore({ actionError: formatError(err, language.t), actionMessage: undefined })
       })
   }
 
@@ -302,6 +307,9 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         </div>
         <Show when={store.actionError}>
           {(message) => <p class="text-xs text-text-danger-base text-center max-w-2xl">{message()}</p>}
+        </Show>
+        <Show when={store.actionMessage}>
+          {(message) => <p class="text-xs text-text-weak text-center max-w-2xl">{message()}</p>}
         </Show>
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center justify-center gap-1">

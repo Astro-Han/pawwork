@@ -6,6 +6,7 @@ export function createDesktopContextStore(fallback: () => DesktopContext) {
 
   return {
     set(windowID: number, context: DesktopContext) {
+      contexts.delete(windowID)
       contexts.set(windowID, context)
       mostRecent = context
     },
