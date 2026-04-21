@@ -30,6 +30,16 @@ const assistant = (
   }) as Message
 
 describe("isSessionRunning", () => {
+  test("treats undefined status as idle and handles missing messages", () => {
+    expect(isSessionRunning(undefined, undefined)).toBe(false)
+    expect(isSessionRunning(undefined, [])).toBe(false)
+  })
+
+  test("uses latest-message fallback when status is undefined", () => {
+    expect(isSessionRunning(undefined, [user("msg_user", 1)])).toBe(false)
+    expect(isSessionRunning(undefined, [user("msg_user", 1), assistant("msg_pending", 2)])).toBe(true)
+  })
+
   test("ignores a stale incomplete assistant message when a later assistant completed", () => {
     const messages = [
       user("msg_user_1", 1),
@@ -59,6 +69,10 @@ describe("isSessionRunning", () => {
     const messages = [user("msg_user", 1), assistant("msg_pending", 2)]
 
     expect(isSessionRunning(idle, messages)).toBe(true)
+  })
+
+  test("returns false when there are no messages and status is idle", () => {
+    expect(isSessionRunning(idle, [])).toBe(false)
   })
 
   test("returns false when there are no assistant messages and status is idle", () => {
