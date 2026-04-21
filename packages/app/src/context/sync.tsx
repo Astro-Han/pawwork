@@ -62,6 +62,10 @@ type OptimisticItem = {
   parts: Part[]
 }
 
+export function createCurrentSyncChild<Child>(input: { directory: () => string; child: (directory: string) => Child }) {
+  return () => input.child(input.directory())
+}
+
 type MessagePage = {
   session: Message[]
   part: { id: string; part: Part[] }[]
@@ -175,7 +179,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     type Child = ReturnType<(typeof globalSync)["child"]>
     type Setter = Child[1]
 
-    const current = createMemo(() => globalSync.child(sdk.directory))
+    const current = createCurrentSyncChild({
+      directory: () => sdk.directory,
+      child: globalSync.child,
+    })
     const target = (directory?: string) => {
       if (!directory || directory === sdk.directory) return current()
       return globalSync.child(directory)
