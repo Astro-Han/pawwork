@@ -83,6 +83,7 @@ describe("release workflow", () => {
       )
       const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
       const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
+      const buildElectronAppStep = steps.find((step) => step.name === "Build Electron app")
       const packageAppStep = steps.find((step) => step.name === "Package app")
       const validateSelectedTargetStep = steps.find((step) => step.name === "Validate selected target")
 
@@ -131,9 +132,14 @@ describe("release workflow", () => {
         SELECTED_TARGET: "${{ needs.select-build-target.outputs.target }}",
         SELECTED_ARCH: "${{ needs.select-build-target.outputs.arch }}",
       })
+      expect(buildElectronAppStep?.env).toEqual({
+        OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
+        PAWWORK_FEEDBACK_FORM_URL: "${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}",
+      })
       expect(packageAppStep?.shell).toBe("bash")
       expect(packageAppStep?.env).toEqual({
         OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
+        PAWWORK_FEEDBACK_FORM_URL: "${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}",
         GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}",
       })
       expect(packageAppStep?.run).toContain('publish_flag="never"')

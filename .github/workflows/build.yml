@@ -303,6 +303,7 @@ jobs:
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+          PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
 
       - name: Setup Apple API Key
         if: runner.os == 'macOS'
@@ -625,6 +626,7 @@ jobs:
         timeout-minutes: 30
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+          PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify notarized artifacts
@@ -731,6 +733,7 @@ jobs:
         timeout-minutes: 60
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+          PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload packaged app artifact
