@@ -593,7 +593,7 @@ describe("session.compaction.create", () => {
 
 describe("session.compaction.prune", () => {
   it.live(
-    "compacts old completed tool output",
+    "keeps old completed tool output by default",
     provideTmpdirInstance((dir) =>
       Effect.gen(function* () {
         const compact = yield* SessionCompaction.Service
@@ -676,9 +676,97 @@ describe("session.compaction.prune", () => {
         expect(part?.type).toBe("tool")
         expect(part?.state.status).toBe("completed")
         if (part?.type === "tool" && part.state.status === "completed") {
-          expect(part.state.time.compacted).toBeNumber()
+          expect(part.state.time.compacted).toBeUndefined()
         }
       }),
+    ),
+  )
+
+  it.live(
+    "compacts old completed tool output when prune is explicitly enabled",
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const ssn = yield* SessionNs.Service
+        const session = yield* ssn.create({})
+        const first = yield* ssn.updateMessage({
+          id: MessageID.ascending(),
+          role: "user",
+          sessionID: session.id,
+          agent: "build",
+          model: ref,
+          time: { created: Date.now() },
+        })
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: first.id,
+          sessionID: session.id,
+          type: "text",
+          text: "run a large tool",
+        })
+        const response = yield* ssn.updateMessage({
+          id: MessageID.ascending(),
+          role: "assistant",
+          sessionID: session.id,
+          mode: "build",
+          agent: "build",
+          path: { cwd: dir, root: dir },
+          cost: 0,
+          tokens: {
+            output: 0,
+            input: 0,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          },
+          modelID: ref.modelID,
+          providerID: ref.providerID,
+          parentID: first.id,
+          time: { created: Date.now() },
+          finish: "end_turn",
+        })
+        const part = yield* ssn.updatePart({
+          id: PartID.ascending(),
+          messageID: response.id,
+          sessionID: session.id,
+          type: "tool",
+          callID: crypto.randomUUID(),
+          tool: "bash",
+          state: {
+            status: "completed",
+            input: {},
+            output: "x".repeat(200_000),
+            title: "done",
+            metadata: {},
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+        for (const text of ["second", "third"]) {
+          const msg = yield* ssn.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: session.id,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          })
+          yield* ssn.updatePart({
+            id: PartID.ascending(),
+            messageID: msg.id,
+            sessionID: session.id,
+            type: "text",
+            text,
+          })
+        }
+
+        yield* compact.prune({ sessionID: session.id })
+
+        const messages = yield* ssn.messages({ sessionID: session.id })
+        const updated = messages.flatMap((message) => message.parts).find((candidate) => candidate.id === part.id)
+        expect(updated?.type).toBe("tool")
+        if (updated?.type !== "tool" || updated.state.status !== "completed") return
+        expect(updated.state.time.compacted).toBeNumber()
+      }),
+      { config: { compaction: { prune: true } } },
     ),
   )
 

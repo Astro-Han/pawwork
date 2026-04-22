@@ -633,6 +633,10 @@ export type CompactionPart = {
   type: "compaction"
   auto: boolean
   overflow?: boolean
+  /**
+   * Message ID of the first retained message kept verbatim after compaction.
+   */
+  tail_start_id?: string
 }
 
 export type Part =
@@ -1549,7 +1553,7 @@ export type Config = {
      */
     auto?: boolean
     /**
-     * Enable pruning of old tool outputs (default: true)
+     * Prune old tool outputs (default: `false`). Set `true` to enable.
      */
     prune?: boolean
     /**

@@ -8914,6 +8914,11 @@
           },
           "overflow": {
             "type": "boolean"
+          },
+          "tail_start_id": {
+            "description": "Message ID of the first retained message kept verbatim after compaction.",
+            "type": "string",
+            "pattern": "^msg.*"
           }
         },
         "required": [
@@ -11538,7 +11543,7 @@
                 "type": "boolean"
               },
               "prune": {
-                "description": "Enable pruning of old tool outputs (default: true)",
+                "description": "Prune old tool outputs (default: `false`). Set `true` to enable.",
                 "type": "boolean"
               },
               "tail_turns": {
