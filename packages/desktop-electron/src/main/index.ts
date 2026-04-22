@@ -62,7 +62,14 @@ import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, s
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController } from "./updater"
 import { updaterDialogLabels } from "./updater-dialog-labels"
-import { createLoadingWindow, createMainWindow, setBackgroundColor, setDockIcon } from "./windows"
+import {
+  createLoadingWindow,
+  createMainWindow,
+  registerRendererProtocol,
+  registerRendererScheme,
+  setBackgroundColor,
+  setDockIcon,
+} from "./windows"
 import {
   registerWindowLifecycle,
   selectCommandWindow,
@@ -218,6 +225,7 @@ setupApp()
 function setupApp() {
   ensureLoopbackNoProxy()
   app.commandLine.appendSwitch("proxy-bypass-list", "<-loopback>")
+  registerRendererScheme()
 
   // CI smoke should not fail just because a local desktop instance already holds
   // the singleton lock on the runner or developer machine.
@@ -270,6 +278,7 @@ function setupApp() {
 
   void app.whenReady().then(async () => {
     app.setAsDefaultProtocolClient("opencode")
+    registerRendererProtocol()
     setDockIcon()
     setupAutoUpdater()
     await initialize()

@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test"
 import path from "node:path"
+import { rendererOrigin } from "./renderer-protocol"
 
 const userData = "/tmp/pawwork-user-data"
 const serverRoots = {
@@ -110,6 +111,7 @@ describe("desktop server runtime namespace", () => {
 
   test("spawnLocalServer prepares env before importing the embedded server", async () => {
     let captured: Record<string, string | undefined> | undefined
+    let listenOptions: unknown
 
     mock.module("virtual:opencode-server", () => {
       captured = {
@@ -124,7 +126,10 @@ describe("desktop server runtime namespace", () => {
       return {
         Log: { init: async () => undefined },
         Server: {
-          listen: async () => ({ stop: async () => undefined }),
+          listen: async (opts: unknown) => {
+            listenOptions = opts
+            return { stop: async () => undefined }
+          },
         },
       }
     })
@@ -143,6 +148,9 @@ describe("desktop server runtime namespace", () => {
         PAWWORK_RUNTIME_NAMESPACE: "pawwork",
         OPENCODE_CLIENT: "desktop",
         OPENCODE_SERVER_USERNAME: "PawWork",
+      })
+      expect(listenOptions).toMatchObject({
+        cors: [rendererOrigin],
       })
     } finally {
       globalThis.fetch = previousFetch

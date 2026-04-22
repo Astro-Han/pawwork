@@ -1,5 +1,6 @@
 import { app } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
+import { rendererOrigin } from "./renderer-protocol"
 import { PAWWORK_RUNTIME, runtimeRoots } from "./runtime-namespace"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
@@ -38,6 +39,7 @@ export async function spawnLocalServer(hostname: string, port: number, password:
   const listener = await Server.listen({
     port,
     hostname,
+    cors: [rendererOrigin],
   })
 
   const wait = (async () => {

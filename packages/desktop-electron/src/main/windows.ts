@@ -1,11 +1,15 @@
 import windowState from "electron-window-state"
-import { app, BrowserWindow, nativeImage, nativeTheme } from "electron"
+import { app, BrowserWindow, nativeImage, nativeTheme, net, protocol } from "electron"
 import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import type { TitlebarTheme } from "../preload/types"
+import { rendererProtocol, rendererUrl, resolveRendererFile } from "./renderer-protocol"
 import { WINDOWS_TITLEBAR_OVERLAY_HEIGHT, macTrafficLightPosition } from "./window-chrome"
+import { rendererWebPreferences } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
+const rendererRoot = join(root, "../renderer")
+let rendererSchemeRegistered = false
 
 let backgroundColor: string | undefined
 
@@ -50,6 +54,31 @@ export function setDockIcon() {
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
+export function registerRendererScheme() {
+  // Must run once before app.whenReady(); the guard only avoids duplicate pre-ready registration attempts.
+  if (rendererSchemeRegistered) return
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: rendererProtocol,
+      privileges: {
+        secure: true,
+        standard: true,
+        corsEnabled: true,
+        supportFetchAPI: true,
+      },
+    },
+  ])
+  rendererSchemeRegistered = true
+}
+
+export function registerRendererProtocol() {
+  protocol.handle(rendererProtocol, (request) => {
+    const file = resolveRendererFile(rendererRoot, request.url)
+    if (!file) return new Response(null, { status: 404 })
+    return net.fetch(pathToFileURL(file).toString())
+  })
+}
+
 export function createMainWindow() {
   const state = windowState({
     defaultWidth: 1280,
@@ -79,12 +108,7 @@ export function createMainWindow() {
           titleBarOverlay: overlay({ mode }),
         }
       : {}),
-    webPreferences: {
-      preload: join(root, "../preload/index.js"),
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: rendererWebPreferences(root),
   })
 
   state.manage(win)
@@ -116,12 +140,7 @@ export function createLoadingWindow() {
           titleBarOverlay: overlay({ mode }),
         }
       : {}),
-    webPreferences: {
-      preload: join(root, "../preload/index.js"),
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
+    webPreferences: rendererWebPreferences(root),
   })
 
   loadWindow(win, "loading.html")
@@ -137,7 +156,7 @@ function loadWindow(win: BrowserWindow, html: string) {
     return
   }
 
-  void win.loadFile(join(root, `../renderer/${html}`))
+  void win.loadURL(rendererUrl(html))
 }
 
 function wireZoom(win: BrowserWindow) {

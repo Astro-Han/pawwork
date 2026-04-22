@@ -9,9 +9,9 @@ const root = resolve(dir, "../..")
 const html = async (name: string) => Bun.file(join(dir, name)).text()
 
 /**
- * Electron loads renderer HTML via `win.loadFile()` which uses the `file://`
- * protocol. Absolute paths like `src="/foo.js"` resolve to the filesystem root
- * (e.g. `file:///C:/foo.js` on Windows) instead of relative to the app bundle.
+ * Electron loads packaged renderer HTML via the privileged `pawwork-renderer:`
+ * protocol. Absolute paths like `src="/foo.js"` resolve to that origin root
+ * instead of the nested renderer output directory.
  *
  * All local resource references must use relative paths (`./`).
  */
