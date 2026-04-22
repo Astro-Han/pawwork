@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
-import { mkdir } from "node:fs/promises"
+import { mkdtemp } from "node:fs/promises"
 import path from "path"
 
 const dir = process.env.LATEST_YML_DIR!
@@ -133,16 +133,15 @@ async function downloadExisting(tag: string, filename: string) {
     configured ? await readFile(path.join(configured, filename)) : undefined,
   )
 
-  const existingDir = path.join(tmp, "existing-latest-yml")
-  await mkdir(existingDir, { recursive: true })
+  const liveDir = await mkdtemp(path.join(tmp, "live-latest-yml-"))
   try {
-    await $`gh release download ${tag} --pattern ${filename} --dir ${existingDir} --repo ${repo}`.quiet()
+    await $`gh release download ${tag} --pattern ${filename} --dir ${liveDir} --repo ${repo} --clobber`.quiet()
   } catch (error) {
     const message = shellErrorText(error)
     if (isMissingAssetError(message)) return cached
     throw new Error(`Failed to download existing ${filename}: ${message}`)
   }
-  const live = assertSameVersion("GitHub release", filename, await readFile(path.join(existingDir, filename)))
+  const live = assertSameVersion("GitHub release", filename, await readFile(path.join(liveDir, filename)))
   return mergeLatest(cached, live)
 }
 

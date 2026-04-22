@@ -114,6 +114,32 @@ describe("release metadata finalizer", () => {
     expect(latestMac).toContain("PawWork-stale-x64.zip")
   })
 
+  test("does not collide when EXISTING_LATEST_YML_DIR is RUNNER_TEMP/existing-latest-yml", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pawwork-release-metadata-"))
+    roots.push(root)
+    const latestDir = join(root, "latest-yml")
+    const runnerTemp = join(root, "runner")
+    const binDir = join(root, "bin")
+    const snapshotDir = join(runnerTemp, "existing-latest-yml")
+    mkdirSync(runnerTemp, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    mkdirSync(snapshotDir, { recursive: true })
+    writeFakeGh(binDir, {
+      "latest-mac.yml": "PawWork-live-x64.zip",
+    })
+    writeLatest(snapshotDir, "latest-mac.yml", "PawWork-snapshot-x64.zip")
+
+    writeLatest(join(latestDir, "latest-yml-aarch64-apple-darwin"), "latest-mac.yml", "PawWork-new-arm64.zip")
+
+    const proc = spawnFinalizer(binDir, latestDir, runnerTemp, { EXISTING_LATEST_YML_DIR: snapshotDir })
+
+    expect(await proc.exited).toBe(0)
+    const latestMac = readFileSync(join(runnerTemp, "latest-mac.yml"), "utf8")
+    expect(latestMac).toContain("PawWork-new-arm64.zip")
+    expect(latestMac).toContain("PawWork-live-x64.zip")
+    expect(latestMac).toContain("PawWork-snapshot-x64.zip")
+  })
+
   test("uses live integrity metadata when live and snapshot urls collide", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-release-metadata-"))
     roots.push(root)
@@ -269,7 +295,7 @@ function writeFakeGh(binDir: string, downloads: Record<string, string | FixtureF
   writeFileSync(
     helper,
     [
-      "const { appendFileSync, mkdirSync, writeFileSync } = require('node:fs')",
+      "const { appendFileSync, existsSync, mkdirSync, writeFileSync } = require('node:fs')",
       "const { join } = require('node:path')",
       `const downloads = ${JSON.stringify(downloads)}`,
       `const downloadFailure = ${JSON.stringify(downloadFailure ?? null)}`,
@@ -291,7 +317,12 @@ function writeFakeGh(binDir: string, downloads: Record<string, string | FixtureF
       "    console.error(`no matches found for ${pattern}`)",
       "    process.exit(1)",
       "  }",
-      "  writeFileSync(join(dir, pattern), latestYml(downloads[pattern]), 'utf8')",
+      "  const target = join(dir, pattern)",
+      "  if (existsSync(target) && !args.includes('--clobber') && !args.includes('-c')) {",
+      "    console.error(`${target} already exists (use clobber to overwrite file or skip-existing to skip file)`)",
+      "    process.exit(1)",
+      "  }",
+      "  writeFileSync(target, latestYml(downloads[pattern]), 'utf8')",
       "  process.exit(0)",
       "}",
       "appendFileSync(uploadLog, `${args.join(' ')}\\n`, 'utf8')",
