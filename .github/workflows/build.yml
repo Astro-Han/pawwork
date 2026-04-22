@@ -686,6 +686,31 @@ jobs:
             *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
           esac
 
+          case "$OPENCODE_CHANNEL" in
+            dev) expected_repo="" ;;
+            beta) expected_repo="pawwork-beta" ;;
+            prod) expected_repo="pawwork" ;;
+            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
+          esac
+
+          verify_app_update_config() {
+            local config_path="$1"
+
+            if [ -z "$expected_repo" ]; then
+              return 0
+            fi
+
+            if [ ! -f "$config_path" ]; then
+              echo "Expected app-update.yml at $config_path"
+              exit 1
+            fi
+
+            grep -qx "provider: github" "$config_path"
+            grep -qx "owner: Astro-Han" "$config_path"
+            grep -qx "repo: $expected_repo" "$config_path"
+            grep -qx "channel: latest" "$config_path"
+          }
+
           verify_dir="$RUNNER_TEMP/verify-notarized-artifacts"
           rm -rf "$verify_dir"
           mkdir -p "$verify_dir"
@@ -708,6 +733,8 @@ jobs:
 
           ditto -x -k "$zip_path" "$verify_dir"
           xcrun stapler validate -v "$verify_dir/$APP_NAME.app"
+          codesign --verify --deep --strict --verbose=2 "$verify_dir/$APP_NAME.app"
+          verify_app_update_config "$verify_dir/$APP_NAME.app/Contents/Resources/app-update.yml"
 
           mount_base="$RUNNER_TEMP/verify-dmg-mounts"
           rm -rf "$mount_base"
@@ -729,6 +756,7 @@ jobs:
 
             xcrun stapler validate -v "$mounted_app"
             codesign --verify --deep --strict --verbose=2 "$mounted_app"
+            verify_app_update_config "$mounted_app/Contents/Resources/app-update.yml"
 
             hdiutil detach "$mount_dir" -quiet
             rm -f "$attach_plist"
