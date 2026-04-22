@@ -3,7 +3,6 @@ import path from "node:path"
 import { execFile } from "node:child_process"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
-import { IMAGE_EXTS } from "@opencode-ai/util/file-extensions"
 
 import type {
   DesktopContext,
@@ -14,6 +13,7 @@ import type {
   UpdateInfo,
   WslConfig,
 } from "../preload/types"
+import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
 import { setTitlebar } from "./windows"
 
@@ -32,12 +32,6 @@ function normalizeAttachmentPath(filepath: unknown) {
   if (typeof filepath !== "string" || filepath.length === 0) return
   if (/^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(filepath)) return filepath
   return path.resolve(filepath)
-}
-
-function attachmentPathMime(filepath: string) {
-  const suffix = path.extname(filepath).slice(1).toLowerCase()
-  if (suffix === "pdf") return "application/pdf"
-  return IMAGE_EXTS.get(suffix)
 }
 
 type Deps = {
