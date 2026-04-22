@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import { existsSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
 import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml")
+const opencodeTestRoot = path.join(repoRoot, "packages", "opencode", "test")
 
 const pinned = {
   checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
@@ -104,6 +106,47 @@ function checkoutStep(job: string) {
 
 function stepByName(job: string, name: string) {
   return steps(job).find((step) => step.name === name)
+}
+
+function toPosix(relativePath: string) {
+  return relativePath.split(path.sep).join("/")
+}
+
+function isTestFile(filePath: string) {
+  return /\.(test|spec)\.(ts|tsx|js|mjs|cjs)$/.test(filePath)
+}
+
+function listOpencodeTestFiles(dir = opencodeTestRoot): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) return listOpencodeTestFiles(fullPath)
+    if (!entry.isFile() || !isTestFile(entry.name)) return []
+
+    return [`test/${toPosix(path.relative(opencodeTestRoot, fullPath))}`]
+  })
+}
+
+function expandOpencodeTestPath(testPath: string): string[] {
+  const fullPath = path.join(repoRoot, "packages", "opencode", testPath)
+  if (!existsSync(fullPath)) {
+    throw new Error(`Windows opencode shard path does not exist: ${testPath}`)
+  }
+  if (statSync(fullPath).isDirectory()) {
+    return listOpencodeTestFiles(fullPath)
+  }
+  return [testPath]
+}
+
+function testPathArgs(command: string) {
+  const testArgs = command.split(" bun test ")[1]
+  if (!testArgs) {
+    throw new Error(`Windows opencode shard command does not invoke bun test: ${command}`)
+  }
+  return testArgs.split(/\s+/).filter((arg) => arg.startsWith("test/"))
+}
+
+function isWindowsOpencodeShard(item: Record<string, unknown>): item is { command: string; package: string } {
+  return item.uses_turbo === false && typeof item.package === "string" && typeof item.command === "string"
 }
 
 describe("ci workflow", () => {
@@ -250,6 +293,68 @@ describe("ci workflow", () => {
       expect(parsed.jobs?.[jobName]).toBeUndefined()
       expect(artifactName).toBe(`unit-windows-${jobName.replace("unit-windows-", "")}-${runAttempt}`)
     }
+  })
+
+  test("covers each opencode test file exactly once across Windows opencode shards", () => {
+    const parsed = parseWorkflow(workflowPath)
+    const matrixIncludes = parsed.jobs?.[windowsUnitJobName]?.strategy?.matrix?.include ?? []
+    const opencodeShards = matrixIncludes.filter(isWindowsOpencodeShard)
+    const allTestFiles = listOpencodeTestFiles().sort()
+    const allTestFilesSet = new Set(allTestFiles)
+    const coverage = new Map<string, string[]>()
+    const extra: string[] = []
+    const shardFileCounts = new Map<string, number>()
+
+    // This repeats names instead of deriving from windowsOpencodeShards so the
+    // coverage test pins the public advisory check names explicitly.
+    expect(opencodeShards.map((item) => item.package)).toEqual([
+      "opencode-session",
+      "opencode-config-project",
+      "opencode-server-tools",
+    ])
+
+    for (const item of opencodeShards) {
+      const testPaths = testPathArgs(item.command)
+      let fileCount = 0
+      for (const testPath of testPaths) {
+        const expanded = expandOpencodeTestPath(testPath)
+        fileCount += expanded.length
+        for (const file of expanded) {
+          if (!allTestFilesSet.has(file)) {
+            extra.push(file)
+            continue
+          }
+          coverage.set(file, [...(coverage.get(file) ?? []), item.package])
+        }
+      }
+      shardFileCounts.set(item.package, fileCount)
+    }
+
+    const missing = allTestFiles.filter((file) => !coverage.has(file))
+    const duplicates = [...coverage.entries()]
+      .filter(([, shardNames]) => shardNames.length > 1)
+      .map(([file, shardNames]) => ({ file, shards: shardNames }))
+
+    if (missing.length > 0 || extra.length > 0 || duplicates.length > 0) {
+      const shardNames = opencodeShards.map((item) => item.package)
+      const smallestShard = [...shardFileCounts.entries()].sort(([, left], [, right]) => left - right)[0]?.[0]
+      const details = [
+        "Windows opencode shard coverage drift.",
+        missing.length > 0 ? `Uncovered files: ${missing.join(", ")}` : undefined,
+        extra.length > 0 ? `Unknown shard paths: ${extra.sort().join(", ")}` : undefined,
+        duplicates.length > 0 ? `Duplicate coverage: ${JSON.stringify(duplicates)}` : undefined,
+        `Shard choices: ${shardNames.join(" | ")}`,
+        smallestShard ? `Suggested starting shard for uncovered files: ${smallestShard}` : undefined,
+      ].filter((line): line is string => typeof line === "string")
+
+      throw new Error(details.join("\n"))
+    }
+
+    expect({ duplicates, extra: extra.sort(), missing }).toEqual({
+      duplicates: [],
+      extra: [],
+      missing: [],
+    })
   })
 
   test("keeps docs-only behavior and excludes Windows from the blocking aggregate", () => {
