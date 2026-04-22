@@ -19,6 +19,7 @@ import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { AppFileSystem } from "../filesystem"
+import { Lock } from "../util/lock"
 
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")
@@ -69,76 +70,81 @@ export const EditTool = Tool.define(
           let diff = ""
           let contentOld = ""
           let contentNew = ""
-          yield* Effect.gen(function* () {
-            if (params.oldString === "") {
-              const existed = yield* afs.existsSafe(filePath)
-              contentNew = params.newString
-              diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-              yield* ctx.ask({
-                permission: "edit",
-                patterns: [path.relative(Instance.worktree, filePath)],
-                always: ["*"],
-                metadata: {
-                  filepath: filePath,
-                  diff,
-                },
-              })
-              yield* afs.writeWithDirs(filePath, params.newString)
-              yield* format.file(filePath)
-              yield* bus.publish(File.Event.Edited, { file: filePath })
-              yield* bus.publish(FileWatcher.Event.Updated, {
-                file: filePath,
-                event: existed ? "change" : "add",
-              })
-              return
-            }
+          yield* Effect.acquireUseRelease(
+            Effect.promise(() => Lock.write(filePath)),
+            () =>
+              Effect.gen(function* () {
+                if (params.oldString === "") {
+                  const existed = yield* afs.existsSafe(filePath)
+                  contentNew = params.newString
+                  diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
+                  yield* ctx.ask({
+                    permission: "edit",
+                    patterns: [path.relative(Instance.worktree, filePath)],
+                    always: ["*"],
+                    metadata: {
+                      filepath: filePath,
+                      diff,
+                    },
+                  })
+                  yield* afs.writeWithDirs(filePath, params.newString)
+                  yield* format.file(filePath)
+                  yield* bus.publish(File.Event.Edited, { file: filePath })
+                  yield* bus.publish(FileWatcher.Event.Updated, {
+                    file: filePath,
+                    event: existed ? "change" : "add",
+                  })
+                  return
+                }
 
-            const info = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
-            if (!info) throw new Error(`File ${filePath} not found`)
-            if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
-            contentOld = yield* afs.readFileString(filePath)
+                const info = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+                if (!info) throw new Error(`File ${filePath} not found`)
+                if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
+                contentOld = yield* afs.readFileString(filePath)
 
-            const ending = detectLineEnding(contentOld)
-            const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
-            const next = convertToLineEnding(normalizeLineEndings(params.newString), ending)
+                const ending = detectLineEnding(contentOld)
+                const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
+                const next = convertToLineEnding(normalizeLineEndings(params.newString), ending)
 
-            contentNew = replace(contentOld, old, next, params.replaceAll)
+                contentNew = replace(contentOld, old, next, params.replaceAll)
 
-            diff = trimDiff(
-              createTwoFilesPatch(
-                filePath,
-                filePath,
-                normalizeLineEndings(contentOld),
-                normalizeLineEndings(contentNew),
-              ),
-            )
-            yield* ctx.ask({
-              permission: "edit",
-              patterns: [path.relative(Instance.worktree, filePath)],
-              always: ["*"],
-              metadata: {
-                filepath: filePath,
-                diff,
-              },
-            })
+                diff = trimDiff(
+                  createTwoFilesPatch(
+                    filePath,
+                    filePath,
+                    normalizeLineEndings(contentOld),
+                    normalizeLineEndings(contentNew),
+                  ),
+                )
+                yield* ctx.ask({
+                  permission: "edit",
+                  patterns: [path.relative(Instance.worktree, filePath)],
+                  always: ["*"],
+                  metadata: {
+                    filepath: filePath,
+                    diff,
+                  },
+                })
 
-            yield* afs.writeWithDirs(filePath, contentNew)
-            yield* format.file(filePath)
-            yield* bus.publish(File.Event.Edited, { file: filePath })
-            yield* bus.publish(FileWatcher.Event.Updated, {
-              file: filePath,
-              event: "change",
-            })
-            contentNew = yield* afs.readFileString(filePath)
-            diff = trimDiff(
-              createTwoFilesPatch(
-                filePath,
-                filePath,
-                normalizeLineEndings(contentOld),
-                normalizeLineEndings(contentNew),
-              ),
-            )
-          }).pipe(Effect.orDie)
+                yield* afs.writeWithDirs(filePath, contentNew)
+                yield* format.file(filePath)
+                yield* bus.publish(File.Event.Edited, { file: filePath })
+                yield* bus.publish(FileWatcher.Event.Updated, {
+                  file: filePath,
+                  event: "change",
+                })
+                contentNew = yield* afs.readFileString(filePath)
+                diff = trimDiff(
+                  createTwoFilesPatch(
+                    filePath,
+                    filePath,
+                    normalizeLineEndings(contentOld),
+                    normalizeLineEndings(contentNew),
+                  ),
+                )
+              }),
+            (lock) => Effect.sync(() => lock[Symbol.dispose]()),
+          ).pipe(Effect.orDie)
 
           const filediff: Snapshot.FileDiff = {
             file: filePath,

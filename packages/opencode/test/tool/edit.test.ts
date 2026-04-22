@@ -591,7 +591,11 @@ describe("tool.edit", () => {
             { concurrency: 2 },
           )
 
-          expect(results.some((result) => Exit.isSuccess(result))).toBe(true)
+          expect(results.filter((result) => Exit.isSuccess(result))).toHaveLength(1)
+          expect(results.filter((result) => Exit.isFailure(result))).toHaveLength(1)
+
+          const content = yield* Effect.promise(() => fs.readFile(filepath, "utf-8"))
+          expect(["1", "2"]).toContain(content)
         }),
       ),
     )
