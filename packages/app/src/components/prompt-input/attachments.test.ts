@@ -18,6 +18,11 @@ describe("attachmentMime", () => {
     expect(await attachmentMime(file)).toBe("text/plain")
   })
 
+  test("uses image suffix fallback when the browser reports octet-stream", async () => {
+    const file = new File([Uint8Array.of(1, 2, 3)], "photo.png", { type: "application/octet-stream" })
+    expect(await attachmentMime(file)).toBe("image/png")
+  })
+
   test("rejects binary files", async () => {
     const file = new File([Uint8Array.of(0, 255, 1, 2)], "blob.bin", { type: "application/octet-stream" })
     expect(await attachmentMime(file)).toBeUndefined()
