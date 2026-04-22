@@ -16,9 +16,7 @@ import {
 
 describe("ci smoke helpers", () => {
   test("resolveMainEntry points at the built Electron main process bundle", () => {
-    expect(resolveMainEntry().endsWith(path.join("packages", "desktop-electron", "out", "main", "index.js"))).toBe(
-      true,
-    )
+    expect(resolveMainEntry().endsWith(path.join("packages", "desktop-electron", "out", "main", "index.js"))).toBe(true)
   })
 
   test("buildSmokeEnv isolates the app state in a temporary home", () => {

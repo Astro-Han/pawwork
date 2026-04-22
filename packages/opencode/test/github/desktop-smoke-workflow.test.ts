@@ -67,7 +67,9 @@ describe("desktop smoke workflow", () => {
 
     expect(runtimeGuardStep?.run).toBe("bun ./scripts/runtime-import-guard.ts")
     expect(runtimeGuardStep?.["working-directory"]).toBe("packages/desktop-electron")
-    expect(packagedSmokeStep?.run).toContain('EXECUTABLE_PATH="dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"')
+    expect(packagedSmokeStep?.run).toContain(
+      'EXECUTABLE_PATH="dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"',
+    )
     expect(packagedSmokeStep?.run).toContain('bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"')
     expect(packagedSmokeStep?.["working-directory"]).toBe("packages/desktop-electron")
     expect(buildStep).toBeDefined()

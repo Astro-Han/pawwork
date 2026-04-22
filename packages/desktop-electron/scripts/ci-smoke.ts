@@ -72,10 +72,7 @@ export function buildSmokeEnv(homeDir: string, channel: SmokeChannel = "dev") {
   }
 }
 
-export function resolveCiSmokeReadyFile(
-  homeDir: string,
-  options: { channel?: SmokeChannel; mode?: SmokeMode } = {},
-) {
+export function resolveCiSmokeReadyFile(homeDir: string, options: { channel?: SmokeChannel; mode?: SmokeMode } = {}) {
   const channel = options.channel ?? "dev"
   const mode = options.mode ?? "raw"
   return join(homeDir, appIdForSmoke(channel, mode), "ci-smoke-ready.json")
