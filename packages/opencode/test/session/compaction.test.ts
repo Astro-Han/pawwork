@@ -168,7 +168,19 @@ function layer(result: "continue" | "compact") {
   )
 }
 
-function runtime(result: "continue" | "compact", plugin = Plugin.defaultLayer, provider = ProviderTest.fake()) {
+function cfg(compaction?: Config.Info["compaction"]) {
+  const base = Config.Info.parse({})
+  return Layer.mock(Config.Service)({
+    get: () => Effect.succeed({ ...base, compaction }),
+  })
+}
+
+function runtime(
+  result: "continue" | "compact",
+  plugin = Plugin.defaultLayer,
+  provider = ProviderTest.fake(),
+  config = Config.defaultLayer,
+) {
   const bus = Bus.layer
   return ManagedRuntime.make(
     Layer.mergeAll(SessionCompaction.layer, bus).pipe(
@@ -178,7 +190,7 @@ function runtime(result: "continue" | "compact", plugin = Plugin.defaultLayer, p
       Layer.provide(Agent.defaultLayer),
       Layer.provide(plugin),
       Layer.provide(bus),
-      Layer.provide(Config.defaultLayer),
+      Layer.provide(config),
     ),
   )
 }
@@ -222,7 +234,73 @@ function llm() {
   }
 }
 
-function liveRuntime(layer: Layer.Layer<LLM.Service>, provider = ProviderTest.fake()) {
+function reply(
+  text: string,
+  capture?: (input: LLM.StreamInput) => void,
+): (input: LLM.StreamInput) => Stream.Stream<LLM.Event, unknown> {
+  return (input) => {
+    capture?.(input)
+    return Stream.make(
+      { type: "start" } satisfies LLM.Event,
+      { type: "text-start", id: "txt-0" } satisfies LLM.Event,
+      { type: "text-delta", id: "txt-0", delta: text, text } as LLM.Event,
+      { type: "text-end", id: "txt-0" } satisfies LLM.Event,
+      {
+        type: "finish-step",
+        finishReason: "stop",
+        rawFinishReason: "stop",
+        response: { id: "res", modelId: "test-model", timestamp: new Date() },
+        providerMetadata: undefined,
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          inputTokenDetails: {
+            noCacheTokens: undefined,
+            cacheReadTokens: undefined,
+            cacheWriteTokens: undefined,
+          },
+          outputTokenDetails: {
+            textTokens: undefined,
+            reasoningTokens: undefined,
+          },
+        },
+      } satisfies LLM.Event,
+      {
+        type: "finish",
+        finishReason: "stop",
+        rawFinishReason: "stop",
+        totalUsage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          inputTokenDetails: {
+            noCacheTokens: undefined,
+            cacheReadTokens: undefined,
+            cacheWriteTokens: undefined,
+          },
+          outputTokenDetails: {
+            textTokens: undefined,
+            reasoningTokens: undefined,
+          },
+        },
+      } satisfies LLM.Event,
+    )
+  }
+}
+
+function inputText(messages: LLM.StreamInput["messages"] | undefined) {
+  return (messages ?? []).flatMap((message) => {
+    const content = message.content
+    if (typeof content === "string") return [content]
+    if (!Array.isArray(content)) return []
+    return content.flatMap((part) =>
+      typeof part === "object" && part !== null && "text" in part && typeof part.text === "string" ? [part.text] : [],
+    )
+  })
+}
+
+function liveRuntime(layer: Layer.Layer<LLM.Service>, provider = ProviderTest.fake(), config = Config.defaultLayer) {
   const bus = Bus.layer
   const status = SessionStatus.layer.pipe(Layer.provide(bus))
   const processor = SessionProcessorModule.SessionProcessor.layer.pipe(Layer.provide(summary))
@@ -237,7 +315,7 @@ function liveRuntime(layer: Layer.Layer<LLM.Service>, provider = ProviderTest.fa
       Layer.provide(Plugin.defaultLayer),
       Layer.provide(status),
       Layer.provide(bus),
-      Layer.provide(Config.defaultLayer),
+      Layer.provide(config),
     ),
   )
 }
@@ -461,6 +539,7 @@ describe("session.compaction.isOverflow", () => {
       },
     ),
   )
+
 })
 
 describe("session.compaction.create", () => {
@@ -677,6 +756,128 @@ describe("session.compaction.prune", () => {
 })
 
 describe("session.compaction.process", () => {
+  test("summarizes older history and records the first retained recent turn", async () => {
+    let captured: LLM.StreamInput | undefined
+    await using tmp = await tmpdir()
+    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create()
+        const first = await user(session.id, "first request")
+        await assistant(session.id, first.id, tmp.path)
+        const second = await user(session.id, "second request")
+        await assistant(session.id, second.id, tmp.path)
+        const compact = await user(session.id, "compact now")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: compact.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+        })
+
+        const fakeLLM = llm()
+        fakeLLM.push(
+          reply("older summary", (input) => {
+            captured = input
+          }),
+        )
+        const live = liveRuntime(
+          fakeLLM.layer,
+          ProviderTest.fake({ model }),
+          cfg({ tail_turns: 1, preserve_recent_tokens: 6_000 }),
+        )
+        try {
+          const beforeCompaction = await svc.messages({ sessionID: session.id })
+          await live.runPromise(
+            SessionCompaction.Service.use((compaction) =>
+              compaction.process({
+                parentID: compact.id,
+                messages: beforeCompaction,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+        } finally {
+          await live.dispose()
+        }
+
+        const messages = await svc.messages({ sessionID: session.id })
+        const compactPart = messages
+          .flatMap((message) => message.parts)
+          .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+
+        expect(compactPart?.tail_start_id).toBe(second.id)
+        expect(inputText(captured?.messages)).toContain("first request")
+        expect(inputText(captured?.messages)).not.toContain("second request")
+      },
+    })
+  })
+
+  test("summarizes all history when the latest turn exceeds the retained-tail budget", async () => {
+    let captured: LLM.StreamInput | undefined
+    await using tmp = await tmpdir()
+    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create()
+        const first = await user(session.id, "first request")
+        await assistant(session.id, first.id, tmp.path)
+        const oversizedText = "recent oversized turn " + "x".repeat(20_000)
+        const oversized = await user(session.id, oversizedText)
+        await assistant(session.id, oversized.id, tmp.path)
+        const compact = await user(session.id, "compact now")
+        await svc.updatePart({
+          id: PartID.ascending(),
+          messageID: compact.id,
+          sessionID: session.id,
+          type: "compaction",
+          auto: true,
+          tail_start_id: first.id,
+        })
+
+        const fakeLLM = llm()
+        fakeLLM.push(
+          reply("summary", (input) => {
+            captured = input
+          }),
+        )
+        const live = liveRuntime(
+          fakeLLM.layer,
+          ProviderTest.fake({ model }),
+          cfg({ tail_turns: 1, preserve_recent_tokens: 50 }),
+        )
+        try {
+          const beforeCompaction = await svc.messages({ sessionID: session.id })
+          await live.runPromise(
+            SessionCompaction.Service.use((compaction) =>
+              compaction.process({
+                parentID: compact.id,
+                messages: beforeCompaction,
+                sessionID: session.id,
+                auto: true,
+              }),
+            ),
+          )
+        } finally {
+          await live.dispose()
+        }
+
+        const messages = await svc.messages({ sessionID: session.id })
+        const compactPart = messages
+          .flatMap((message) => message.parts)
+          .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+
+        expect(compactPart?.tail_start_id).toBeUndefined()
+        expect(inputText(captured?.messages)).toContain("first request")
+        expect(inputText(captured?.messages)).toContain(oversizedText)
+      },
+    })
+  })
+
   test("throws when parent is not a user message", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
