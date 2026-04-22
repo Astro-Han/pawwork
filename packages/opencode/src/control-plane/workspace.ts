@@ -11,6 +11,8 @@ import { Filesystem } from "@/util/filesystem"
 import { ProjectID } from "@/project/schema"
 import { Instance } from "@/project/instance"
 import { Plugin } from "@/plugin"
+import { Auth } from "@/auth"
+import { AppRuntime } from "@/effect/app-runtime"
 import { WorkspaceTable } from "./workspace.sql"
 import { getAdaptor, getBuiltinAdaptor, ownerKey } from "./adaptors"
 import { WorkspaceInfo } from "./types"
@@ -92,8 +94,8 @@ export namespace Workspace {
 
     const candidates = [
       ...new Set(
-        [input.hint, input.owner, projectWorktree, ...project.sandboxes].filter(
-          (value): value is string => Boolean(value),
+        [input.hint, input.owner, projectWorktree, ...project.sandboxes].filter((value): value is string =>
+          Boolean(value),
         ),
       ),
     ]
@@ -137,7 +139,9 @@ export namespace Workspace {
     throw lastError
   }
 
-  export async function resolveAdaptor(input: Pick<StoredInfo, "projectID" | "type" | "owner"> & { hint?: string | null }) {
+  export async function resolveAdaptor(
+    input: Pick<StoredInfo, "projectID" | "type" | "owner"> & { hint?: string | null },
+  ) {
     const hint =
       input.hint ??
       (() => {
@@ -200,7 +204,17 @@ export namespace Workspace {
         .run()
     })
 
-    await adaptor.create(config)
+    const env = Object.fromEntries(
+      Object.entries({
+        OPENCODE_AUTH_CONTENT: JSON.stringify(await AppRuntime.runPromise(Auth.Service.use((auth) => auth.all()))),
+        OPENCODE_WORKSPACE_ID: info.id,
+        OPENCODE_EXPERIMENTAL_WORKSPACES: "true",
+        OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,
+        OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+        OTEL_RESOURCE_ATTRIBUTES: process.env.OTEL_RESOURCE_ATTRIBUTES,
+      }).filter(([, value]) => value !== undefined),
+    ) as Record<string, string>
+    await adaptor.create(config, env)
 
     startSync({ space: info })
 

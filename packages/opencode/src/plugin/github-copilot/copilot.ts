@@ -10,6 +10,7 @@ import { MessageV2 } from "@/session/message-v2"
 const log = Log.create({ service: "plugin.copilot" })
 
 const CLIENT_ID = "Ov23li8tweQw6odWQebz"
+const COPILOT_ANTHROPIC_NPM = "@ai-sdk/anthropic"
 // Add a small safety buffer when polling to avoid hitting the server
 // slightly too early due to clock skew / timer drift.
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000 // 3 seconds
@@ -329,16 +330,23 @@ export async function CopilotAuthPlugin(input: PluginInput): Promise<Hooks> {
     },
     "chat.params": async (incoming, output) => {
       if (!incoming.model.providerID.includes("github-copilot")) return
+      const isCopilotAnthropic = incoming.model.api.npm === COPILOT_ANTHROPIC_NPM
 
       // Match github copilot cli, omit maxOutputTokens for gpt models
       if (incoming.model.api.id.includes("gpt")) {
         output.maxOutputTokens = undefined
       }
+
+      // Copilot's /v1/messages shim rejects the eager_input_streaming field.
+      if (isCopilotAnthropic) {
+        output.options.toolStreaming = false
+      }
     },
     "chat.headers": async (incoming, output) => {
       if (!incoming.model.providerID.includes("github-copilot")) return
+      const isCopilotAnthropic = incoming.model.api.npm === COPILOT_ANTHROPIC_NPM
 
-      if (incoming.model.api.npm === "@ai-sdk/anthropic") {
+      if (isCopilotAnthropic) {
         output.headers["anthropic-beta"] = "interleaved-thinking-2025-05-14"
       }
 
