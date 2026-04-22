@@ -1,7 +1,12 @@
 import { createRoot, getOwner, onCleanup, runWithOwner, type Owner } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
-import { Persist, persisted } from "@/utils/persist"
+import { Persist } from "@/utils/persist"
 import type { VcsInfo } from "@opencode-ai/sdk/v2/client"
+import {
+  createPersistedChildCache,
+  validateChildStoreDirectory,
+  type ChildStorePersistedFactory,
+} from "./child-store-error"
 import {
   DIR_IDLE_TTL_MS,
   MAX_DIR_STORES,
@@ -17,6 +22,7 @@ import { canDisposeDirectory, pickDirectoriesToEvict } from "./eviction"
 
 export function createChildStoreManager(input: {
   owner: Owner
+  persist?: ChildStorePersistedFactory
   isBooting: (directory: string) => boolean
   isLoadingSessions: (directory: string) => boolean
   onBootstrap: (directory: string) => void
@@ -122,34 +128,43 @@ export function createChildStoreManager(input: {
   }
 
   function ensureChild(directory: string) {
-    if (!directory) console.error("No directory provided")
+    validateChildStoreDirectory(directory)
     if (!children[directory]) {
-      const vcs = runWithOwner(input.owner, () =>
-        persisted(
-          Persist.workspace(directory, "vcs", ["vcs.v1"]),
-          createStore({ value: undefined as VcsInfo | undefined }),
-        ),
-      )
-      if (!vcs) throw new Error(input.translate("error.childStore.persistedCacheCreateFailed"))
+      const vcs = createPersistedChildCache({
+        owner: input.owner,
+        directory,
+        kind: "vcs",
+        messageKey: "error.childStore.persistedCacheCreateFailed",
+        target: Persist.workspace(directory, "vcs", ["vcs.v1"]),
+        store: createStore({ value: undefined as VcsInfo | undefined }),
+        translate: input.translate,
+        persist: input.persist,
+      })
+
+      const meta = createPersistedChildCache({
+        owner: input.owner,
+        directory,
+        kind: "project",
+        messageKey: "error.childStore.persistedProjectMetadataCreateFailed",
+        target: Persist.workspace(directory, "project", ["project.v1"]),
+        store: createStore({ value: undefined as ProjectMeta | undefined }),
+        translate: input.translate,
+        persist: input.persist,
+      })
+
+      const icon = createPersistedChildCache({
+        owner: input.owner,
+        directory,
+        kind: "icon",
+        messageKey: "error.childStore.persistedProjectIconCreateFailed",
+        target: Persist.workspace(directory, "icon", ["icon.v1"]),
+        store: createStore({ value: undefined as string | undefined }),
+        translate: input.translate,
+        persist: input.persist,
+      })
       const vcsStore = vcs[0]
       vcsCache.set(directory, { store: vcsStore, setStore: vcs[1], ready: vcs[3] })
-
-      const meta = runWithOwner(input.owner, () =>
-        persisted(
-          Persist.workspace(directory, "project", ["project.v1"]),
-          createStore({ value: undefined as ProjectMeta | undefined }),
-        ),
-      )
-      if (!meta) throw new Error(input.translate("error.childStore.persistedProjectMetadataCreateFailed"))
       metaCache.set(directory, { store: meta[0], setStore: meta[1], ready: meta[3] })
-
-      const icon = runWithOwner(input.owner, () =>
-        persisted(
-          Persist.workspace(directory, "icon", ["icon.v1"]),
-          createStore({ value: undefined as string | undefined }),
-        ),
-      )
-      if (!icon) throw new Error(input.translate("error.childStore.persistedProjectIconCreateFailed"))
       iconCache.set(directory, { store: icon[0], setStore: icon[1], ready: icon[3] })
 
       const init = () =>
