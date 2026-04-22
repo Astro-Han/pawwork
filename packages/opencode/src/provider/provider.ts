@@ -21,6 +21,7 @@ import { zod } from "@/util/effect-zod"
 import { iife } from "@/util/iife"
 import { Global } from "../global"
 import path from "path"
+import { pathToFileURL } from "url"
 import { Effect, Layer, Context, Schema, Types } from "effect"
 import { EffectBridge } from "@/effect"
 import { InstanceState } from "@/effect"
@@ -124,6 +125,10 @@ const BUNDLED_PROVIDERS: Record<string, () => Promise<(opts: any) => BundledSDK>
   "gitlab-ai-provider": () => import("gitlab-ai-provider").then((m) => m.createGitLab),
   "@ai-sdk/github-copilot": () => import("./sdk/copilot").then((m) => m.createOpenaiCompatible),
   "venice-ai-sdk-provider": () => import("venice-ai-sdk-provider").then((m) => m.createVenice),
+}
+
+export function localProviderImportSpec(input: string) {
+  return input.startsWith("file://") ? input : pathToFileURL(input).href
 }
 
 type CustomModelLoader = (sdk: any, modelID: string, options?: Record<string, any>) => Promise<any>
@@ -1526,7 +1531,7 @@ const layer: Layer.Layer<
           installedPath = model.api.npm
         }
 
-        const mod = await import(installedPath)
+        const mod = await import(localProviderImportSpec(installedPath))
 
         const fn = mod[Object.keys(mod).find((key) => key.startsWith("create"))!]
         const loaded = fn({

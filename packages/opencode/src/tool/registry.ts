@@ -50,6 +50,10 @@ import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
 import { needsConfigDependencies, usesConfigDependencies } from "../config/dependency"
 
+export function localToolImportSpec(input: string) {
+  return input.startsWith("file://") ? input : pathToFileURL(input).href
+}
+
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
 
@@ -177,7 +181,7 @@ export namespace ToolRegistry {
               ...Permission.disabled(ids, rules),
             ])
             if (ids.length && ids.every((id) => disabled.has(id))) continue
-            const spec = process.platform === "win32" ? match : pathToFileURL(match).href
+            const spec = localToolImportSpec(match)
             const configDir = path.dirname(path.dirname(match))
             const usesDeps = yield* Effect.promise(() => usesConfigDependencies(match))
             if (usesDeps && depsFailed.has(configDir)) continue

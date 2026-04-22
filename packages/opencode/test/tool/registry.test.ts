@@ -5,7 +5,7 @@ import { tmpdir } from "../fixture/fixture"
 import { writeMockConfigInstall } from "../shared/mock-npm-install"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { Instance } from "../../src/project/instance"
-import { ToolRegistry } from "../../src/tool/registry"
+import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Npm } from "../../src/npm"
 
 afterEach(async () => {
@@ -91,6 +91,15 @@ describe("tool.registry", () => {
         expect(ids).toContain("hello")
       },
     })
+  })
+
+  test("local tool import spec normalizes filesystem paths to file URLs", () => {
+    const toolPath = path.resolve("pawwork-tools", "marked.ts")
+    expect(localToolImportSpec(toolPath)).toStartWith("file://")
+    expect(localToolImportSpec(toolPath)).not.toBe(toolPath)
+    expect(localToolImportSpec("C:\\Users\\test\\tool.ts")).toStartWith("file://")
+    expect(localToolImportSpec("C:\\Users\\test\\tool.ts")).not.toBe("C:\\Users\\test\\tool.ts")
+    expect(localToolImportSpec("file:///tmp/tool.ts")).toBe("file:///tmp/tool.ts")
   })
 
   test("loads tools with external dependencies without crashing", async () => {

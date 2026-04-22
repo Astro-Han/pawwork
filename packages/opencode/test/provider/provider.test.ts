@@ -8,6 +8,7 @@ import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin/index"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
+import { localProviderImportSpec } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
@@ -1256,6 +1257,17 @@ test("provider with custom npm package", async () => {
       expect(providers[ProviderID.make("local-llm")].options.baseURL).toBe("http://localhost:11434/v1")
     },
   })
+})
+
+test("local provider import spec normalizes filesystem paths to file URLs", () => {
+  const providerPath = path.resolve("pawwork-provider", "index.js")
+  expect(localProviderImportSpec(providerPath)).toStartWith("file://")
+  expect(localProviderImportSpec(providerPath)).not.toBe(providerPath)
+  expect(localProviderImportSpec("file:///tmp/pawwork-provider/index.js")).toBe(
+    "file:///tmp/pawwork-provider/index.js",
+  )
+  expect(localProviderImportSpec("C:\\Users\\test\\provider.js")).toStartWith("file://")
+  expect(localProviderImportSpec("C:\\Users\\test\\provider.js")).not.toBe("C:\\Users\\test\\provider.js")
 })
 
 // Edge cases for model configuration
