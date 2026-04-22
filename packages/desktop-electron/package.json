@@ -10,6 +10,7 @@
   },
   "scripts": {
     "typecheck": "tsgo -b",
+    "typecheck:release": "tsgo -p tsconfig.release.json",
     "test": "bun test",
     "test:ci": "mkdir -p .artifacts/unit && bun test --reporter=junit --reporter-outfile=.artifacts/unit/junit.xml",
     "smoke:ci": "bun ./scripts/ci-smoke.ts",
