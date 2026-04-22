@@ -84,6 +84,8 @@ describe("release workflow", () => {
       const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
       const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
       const buildElectronAppStep = steps.find((step) => step.name === "Build Electron app")
+      const runtimeImportGuardStep = steps.find((step) => step.name === "Check desktop runtime imports")
+      const setupAppleApiKeyStep = steps.find((step) => step.name === "Setup Apple API Key")
       const packageAppStep = steps.find((step) => step.name === "Package app")
       const packageVersionStep = steps.find((step) => step.id === "package_version")
       const downloadExistingMetadataStep = steps.find((step) => step.name === "Download existing updater metadata")
@@ -91,6 +93,8 @@ describe("release workflow", () => {
       const finalizeLatestYmlStep = steps.find((step) => step.name === "Finalize updater metadata")
       const packageNotarizedStep = steps.find((step) => step.name === "Package notarized artifacts")
       const validateSelectedTargetStep = steps.find((step) => step.name === "Validate selected target")
+      const smokeSignedAppStep = steps.find((step) => step.name === "Smoke signed macOS app")
+      const packageSignedAppStep = steps.find((step) => step.name === "Package signed app")
 
       expect(parsed.name).toBe("release")
       expect(parsed.permissions).toEqual({
@@ -142,6 +146,11 @@ describe("release workflow", () => {
         OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
         PAWWORK_FEEDBACK_FORM_URL: "${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}",
       })
+      expect(runtimeImportGuardStep?.if).toBe("${{ inputs.phase != 'finalize' }}")
+      expect(runtimeImportGuardStep?.run).toBe("bun ./scripts/runtime-import-guard.ts")
+      expect(runtimeImportGuardStep?.["working-directory"]).toBe("packages/desktop-electron")
+      expect(steps.indexOf(runtimeImportGuardStep!)).toBeGreaterThan(steps.indexOf(buildElectronAppStep!))
+      expect(steps.indexOf(runtimeImportGuardStep!)).toBeLessThan(steps.indexOf(setupAppleApiKeyStep!))
       expect(packageAppStep?.shell).toBe("bash")
       expect(packageAppStep?.env).toEqual({
         OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
@@ -151,6 +160,21 @@ describe("release workflow", () => {
       expect(packageAppStep?.run).toContain('publish_flag="never"')
       expect(packageAppStep?.run).toContain('if [ "${{ inputs.phase || \'submit\' }}" = "full" ]; then')
       expect(packageAppStep?.run).toContain('publish_flag="always"')
+      expect(smokeSignedAppStep?.if).toBe(
+        "${{ runner.os == 'macOS' && (inputs.phase == 'submit' || inputs.phase == 'full') }}",
+      )
+      expect(smokeSignedAppStep?.["working-directory"]).toBe("packages/desktop-electron")
+      expect(smokeSignedAppStep?.env).toEqual({
+        OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
+      })
+      expect(smokeSignedAppStep?.run).toContain('case "$OPENCODE_CHANNEL" in')
+      expect(smokeSignedAppStep?.run).toContain('EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$APP_NAME"')
+      expect(smokeSignedAppStep?.run).toContain(
+        'bun ./scripts/ci-smoke.ts packaged "$OPENCODE_CHANNEL" "$EXECUTABLE_PATH"',
+      )
+      expect(packageSignedAppStep).toBeDefined()
+      expect(steps.indexOf(smokeSignedAppStep!)).toBeGreaterThan(steps.indexOf(packageSignedAppStep!))
+      expect(steps.indexOf(smokeSignedAppStep!)).toBeLessThan(steps.indexOf(signedArtifactStep!))
       expect(packageVersionStep?.run).toContain("version=$(node -p")
       expect(downloadExistingMetadataStep).toBeDefined()
       expect(downloadExistingMetadataStep?.run).toContain("gh release download")

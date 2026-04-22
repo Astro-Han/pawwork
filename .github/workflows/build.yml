@@ -315,6 +315,11 @@ jobs:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
           PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
 
+      - name: Check desktop runtime imports
+        if: ${{ inputs.phase != 'finalize' }}
+        run: bun ./scripts/runtime-import-guard.ts
+        working-directory: packages/desktop-electron
+
       - name: Setup Apple API Key
         if: runner.os == 'macOS'
         run: printenv APPLE_API_KEY_CONTENT > $RUNNER_TEMP/apple-api-key.p8
@@ -361,6 +366,32 @@ jobs:
         run: npx electron-builder --mac dir --${{ matrix.arch_label }} --publish never --config electron-builder.config.ts
         working-directory: packages/desktop-electron
         timeout-minutes: 30
+        env:
+          OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
+
+      - name: Smoke signed macOS app
+        if: ${{ runner.os == 'macOS' && (inputs.phase == 'submit' || inputs.phase == 'full') }}
+        run: |
+          set -euo pipefail
+
+          case "$OPENCODE_CHANNEL" in
+            dev) APP_NAME="PawWork Dev" ;;
+            beta) APP_NAME="PawWork Beta" ;;
+            prod) APP_NAME="PawWork" ;;
+            *) echo "Unsupported channel: $OPENCODE_CHANNEL"; exit 1 ;;
+          esac
+
+          case "${{ matrix.arch_label }}" in
+            arm64) APP_OUT_DIR="dist/mac-arm64" ;;
+            x64) APP_OUT_DIR="dist/mac" ;;
+            *) echo "Unsupported arch: ${{ matrix.arch_label }}"; exit 1 ;;
+          esac
+
+          APP_PATH="$APP_OUT_DIR/$APP_NAME.app"
+          EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$APP_NAME"
+          bun ./scripts/ci-smoke.ts packaged "$OPENCODE_CHANNEL" "$EXECUTABLE_PATH"
+        working-directory: packages/desktop-electron
+        timeout-minutes: 2
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
 
