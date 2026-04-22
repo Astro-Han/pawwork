@@ -134,6 +134,10 @@ jobs:
         env:
           OPENCODE_CHANNEL: dev
 
+      - name: Check desktop runtime imports
+        run: bun ./scripts/runtime-import-guard.ts
+        working-directory: packages/desktop-electron
+
       - name: Launch desktop smoke app
         run: bun run smoke:ci
         working-directory: packages/desktop-electron
@@ -188,6 +192,14 @@ jobs:
 
           codesign -dv --verbose=2 "$APP_PATH" 2>&1 | tee /tmp/pawwork-codesign.txt
           grep -q "Signature=adhoc" /tmp/pawwork-codesign.txt
+        working-directory: packages/desktop-electron
+
+      - name: Launch packaged desktop smoke app
+        run: |
+          set -euo pipefail
+
+          EXECUTABLE_PATH="dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"
+          bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"
         working-directory: packages/desktop-electron
 
   # Aggregator for the `dev` branch ruleset. The required check on GitHub

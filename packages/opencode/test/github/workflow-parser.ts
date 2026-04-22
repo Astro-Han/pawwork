@@ -4,6 +4,7 @@ import fs from "node:fs"
 /** Parsed subset of a workflow step used by workflow contract tests. */
 export type WorkflowStep = {
   "continue-on-error"?: boolean
+  "working-directory"?: string
   id?: string
   if?: string
   name?: string

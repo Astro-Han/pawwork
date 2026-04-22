@@ -21,6 +21,9 @@ describe("desktop smoke workflow", () => {
     const appSmokeStep = smokeSteps.find((step) => step.name === "Launch desktop smoke app")
     const packageStep = smokeSteps.find((step) => step.name === "Package desktop app")
     const smokeStep = smokeSteps.find((step) => step.name === "Smoke check app bundle")
+    const runtimeGuardStep = smokeSteps.find((step) => step.name === "Check desktop runtime imports")
+    const packagedSmokeStep = smokeSteps.find((step) => step.name === "Launch packaged desktop smoke app")
+    const buildStep = smokeSteps.find((step) => step.name === "Build desktop app")
 
     expect(parsed.name).toBe("desktop-smoke")
     expect(parsed.on?.push).toEqual({ branches: ["dev"] })
@@ -61,6 +64,16 @@ describe("desktop smoke workflow", () => {
       CSC_IDENTITY_AUTO_DISCOVERY: "false",
       OPENCODE_CHANNEL: "dev",
     })
+
+    expect(runtimeGuardStep?.run).toBe("bun ./scripts/runtime-import-guard.ts")
+    expect(runtimeGuardStep?.["working-directory"]).toBe("packages/desktop-electron")
+    expect(packagedSmokeStep?.run).toContain('EXECUTABLE_PATH="dist/mac-arm64/PawWork Dev.app/Contents/MacOS/PawWork Dev"')
+    expect(packagedSmokeStep?.run).toContain('bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"')
+    expect(packagedSmokeStep?.["working-directory"]).toBe("packages/desktop-electron")
+    expect(buildStep).toBeDefined()
+    expect(smokeSteps.indexOf(runtimeGuardStep!)).toBeGreaterThan(smokeSteps.indexOf(buildStep!))
+    expect(smokeSteps.indexOf(runtimeGuardStep!)).toBeLessThan(smokeSteps.indexOf(appSmokeStep!))
+    expect(smokeSteps.indexOf(packagedSmokeStep!)).toBeGreaterThan(smokeSteps.indexOf(smokeStep!))
 
     expect(smokeStep?.run).toContain("Expected app bundle at")
     expect(smokeStep?.run).toContain("Expected executable at")
