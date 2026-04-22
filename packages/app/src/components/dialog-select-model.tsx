@@ -12,6 +12,7 @@ import { List } from "@opencode-ai/ui/list"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
+import { compareModelsForDisplay } from "@/utils/model-order"
 
 const isFree = (provider: string, cost: { input: number } | undefined) =>
   provider === "opencode" && (!cost || cost.input === 0)
@@ -44,7 +45,7 @@ const ModelList: Component<{
       items={models}
       current={model.current()}
       filterKeys={["provider.name", "name", "id"]}
-      sortBy={(a, b) => a.name.localeCompare(b.name)}
+      sortBy={compareModelsForDisplay}
       groupBy={(x) => x.provider.name}
       sortGroupsBy={(a, b) => {
         const aProvider = a.items[0].provider.id

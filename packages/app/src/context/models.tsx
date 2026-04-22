@@ -5,6 +5,7 @@ import { filter, firstBy, flat, groupBy, mapValues, pipe, uniqueBy, values } fro
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { useProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
+import { filterSystemHiddenModels } from "@/utils/hidden-models"
 
 export type ModelKey = { providerID: string; modelID: string }
 
@@ -20,6 +21,29 @@ const RECENT_LIMIT = 5
 
 function modelKey(model: ModelKey) {
   return `${model.providerID}:${model.modelID}`
+}
+
+export function listAvailableProviderModels<T extends { id: string }>(provider: {
+  id: string
+  models: Record<string, T>
+}) {
+  return filterSystemHiddenModels(provider.id, Object.values(provider.models))
+}
+
+export function listProviderModels<T extends { id: string }>(provider: {
+  id: string
+  models: Record<string, T>
+}) {
+  return Object.values(provider.models)
+}
+
+export function findProviderModel<T extends { id: string }>(
+  providers: Array<{ id: string; models: Record<string, T> }>,
+  key: ModelKey,
+) {
+  const provider = providers.find((item) => item.id === key.providerID)
+  if (!provider) return
+  return listProviderModels(provider).find((model) => model.id === key.modelID)
 }
 
 export const { use: useModels, provider: ModelsProvider } = createSimpleContext({
@@ -38,7 +62,7 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
 
     const available = createMemo(() =>
       providers.connected().flatMap((p) =>
-        Object.values(p.models).map((m) => ({
+        listAvailableProviderModels(p).map((m) => ({
           ...m,
           provider: p,
         })),
@@ -92,15 +116,24 @@ export const { use: useModels, provider: ModelsProvider } = createSimpleContext(
       return map
     })
 
-    const list = createMemo(() =>
-      available().map((m) => ({
-        ...m,
-        name: m.name.replace("(latest)", "").trim(),
-        latest: m.name.includes("(latest)"),
-      })),
-    )
+    const decorateModel = (model: ReturnType<typeof available>[number]) => ({
+      ...model,
+      name: model.name.replace("(latest)", "").trim(),
+      latest: model.name.includes("(latest)"),
+    })
 
-    const find = (key: ModelKey) => list().find((m) => m.id === key.modelID && m.provider.id === key.providerID)
+    const list = createMemo(() => available().map(decorateModel))
+
+    const find = (key: ModelKey) => {
+      const visible = list().find((m) => m.id === key.modelID && m.provider.id === key.providerID)
+      if (visible) return visible
+
+      const hit = findProviderModel(providers.connected(), key)
+      if (!hit) return
+      const provider = providers.connected().find((item) => item.id === key.providerID)
+      if (!provider) return
+      return decorateModel({ ...hit, provider })
+    }
 
     function update(model: ModelKey, state: Visibility) {
       const index = store.user.findIndex((x) => x.modelID === model.modelID && x.providerID === model.providerID)
