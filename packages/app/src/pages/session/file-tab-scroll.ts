@@ -2,32 +2,25 @@ type Input = {
   prevScrollWidth: number
   scrollWidth: number
   clientWidth: number
-  prevContextOpen: boolean
-  contextOpen: boolean
 }
 
 export const nextTabListScrollLeft = (input: Input) => {
   if (input.scrollWidth <= input.prevScrollWidth) return
-  if (!input.prevContextOpen && input.contextOpen) return 0
   if (input.scrollWidth <= input.clientWidth) return
   return input.scrollWidth - input.clientWidth
 }
 
-export const createFileTabListSync = (input: { el: HTMLDivElement; contextOpen: () => boolean }) => {
+export const createFileTabListSync = (input: { el: HTMLDivElement }) => {
   let frame: number | undefined
   let prevScrollWidth = input.el.scrollWidth
-  let prevContextOpen = input.contextOpen()
 
   const update = () => {
     const scrollWidth = input.el.scrollWidth
     const clientWidth = input.el.clientWidth
-    const contextOpen = input.contextOpen()
     const left = nextTabListScrollLeft({
       prevScrollWidth,
       scrollWidth,
       clientWidth,
-      prevContextOpen,
-      contextOpen,
     })
 
     if (left !== undefined) {
@@ -38,7 +31,6 @@ export const createFileTabListSync = (input: { el: HTMLDivElement; contextOpen: 
     }
 
     prevScrollWidth = scrollWidth
-    prevContextOpen = contextOpen
   }
 
   const schedule = () => {

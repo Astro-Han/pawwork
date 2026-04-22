@@ -421,8 +421,7 @@ export default function Page() {
   }
 
   const openReviewPanel = () => {
-    if (!view().sidePanel.opened()) view().sidePanel.open()
-    if (view().sidePanel.tab() !== "review") view().sidePanel.setTab("review")
+    view().sidePanel.openTab("review")
   }
 
   const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
@@ -439,7 +438,6 @@ export default function Page() {
     review: reviewTab,
     hasReview: canReview,
   })
-  const contextOpen = tabState.contextOpen
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab

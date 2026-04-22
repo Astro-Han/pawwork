@@ -14,7 +14,9 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { showToast } from "@opencode-ai/ui/toast"
 import { findLast } from "@opencode-ai/util/array"
+import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -221,9 +223,13 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const closeTab = () => {
-    const tab = closableTab()
-    if (!tab) return
-    tabs().close(tab)
+    closeSessionTab({
+      closableTab,
+      closeFileTab: tabs().close,
+      sidePanelOpened: view().sidePanel.opened,
+      sidePanelTab: view().sidePanel.tab,
+      closeShellTab: view().sidePanel.closeTab,
+    })
   }
 
   const addSelection = () => {
@@ -251,8 +257,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       view().terminal.open()
       return
     }
-    view().sidePanel.open()
-    view().sidePanel.setTab("terminal")
+    view().sidePanel.openTab("terminal")
     view().terminal.open()
   }
 
@@ -261,15 +266,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       view().terminal.toggle()
       return
     }
-    const open = view().sidePanel.opened() && view().sidePanel.tab() === "terminal"
-    if (open) {
-      view().sidePanel.close()
-      view().terminal.close()
-      return
-    }
-    view().sidePanel.open()
-    view().sidePanel.setTab("terminal")
-    view().terminal.open()
+    toggleDesktopTerminal(view(), view().terminal)
   }
 
   const chooseModel = () => {
@@ -451,7 +448,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       id: "tab.close",
       title: language.t("command.tab.close"),
       keybind: "mod+w",
-      disabled: !closableTab(),
+      disabled: !canCloseSessionTab(closableTab, view().sidePanel.opened, view().sidePanel.tab),
       onSelect: closeTab,
     }),
   ]

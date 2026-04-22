@@ -3,45 +3,24 @@ import { Tooltip, type TooltipProps } from "@opencode-ai/ui/tooltip"
 import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
 import { Button } from "@opencode-ai/ui/button"
 
-import { useFile } from "@/context/file"
-import { useLayout } from "@/context/layout"
 import { useSync } from "@/context/sync"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { createSessionTabs } from "@/pages/session/helpers"
 
 interface SessionContextUsageProps {
   variant?: "button" | "indicator"
   placement?: TooltipProps["placement"]
 }
 
-function openSessionContext(args: {
-  view: ReturnType<ReturnType<typeof useLayout>["view"]>
-  tabs: ReturnType<ReturnType<typeof useLayout>["tabs"]>
-}) {
-  if (!args.view.sidePanel.opened()) args.view.sidePanel.open()
-  args.view.sidePanel.setTab("changes")
-  if (args.view.sidePanel.explorer.tab() !== "all") args.view.sidePanel.explorer.setTab("all")
-  args.tabs.open("context")
-  args.tabs.setActive("context")
-}
-
 export function SessionContextUsage(props: SessionContextUsageProps) {
   const sync = useSync()
-  const file = useFile()
-  const layout = useLayout()
   const language = useLanguage()
   const providers = useProviders()
-  const { params, tabs, view } = useSessionLayout()
+  const { params, view } = useSessionLayout()
 
   const variant = createMemo(() => props.variant ?? "button")
-  const tabState = createSessionTabs({
-    tabs,
-    pathFromTab: file.pathFromTab,
-    normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
-  })
   const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
 
   const metrics = createMemo(() => getSessionContextMetrics(messages(), providers.all()))
@@ -55,15 +34,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const openContext = () => {
     if (!params.id) return
-
-    if (tabState.activeTab() === "context") {
-      tabs().close("context")
-      return
-    }
-    openSessionContext({
-      view: view(),
-      tabs: tabs(),
-    })
+    view().sidePanel.toggleTab("context")
   }
 
   const circle = () => (

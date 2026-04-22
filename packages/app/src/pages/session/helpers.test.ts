@@ -138,7 +138,26 @@ describe("createSessionTabs", () => {
     })
   })
 
-  test("prefers context and review fallbacks when no file tab is active", () => {
+  test("does not expose a stale active file tab as closable", () => {
+    createRoot((dispose) => {
+      const [state] = createStore({
+        active: "file://src/missing.ts" as string | undefined,
+        all: ["file://src/a.ts"],
+      })
+      const tabs = createMemo(() => ({ active: () => state.active, all: () => state.all }))
+      const result = createSessionTabs({
+        tabs,
+        pathFromTab: (tab) => (tab.startsWith("file://") ? tab.slice("file://".length) : undefined),
+        normalizeTab: (tab) => (tab.startsWith("file://") ? `norm:${tab.slice("file://".length)}` : tab),
+      })
+
+      expect(result.activeTab()).toBe("norm:src/a.ts")
+      expect(result.closableTab()).toBe("norm:src/a.ts")
+      dispose()
+    })
+  })
+
+  test("ignores legacy context entries and falls back to review when no file tab is active", () => {
     createRoot((dispose) => {
       const [state] = createStore({
         active: undefined as string | undefined,
@@ -153,8 +172,8 @@ describe("createSessionTabs", () => {
         hasReview: () => true,
       })
 
-      expect(result.activeTab()).toBe("context")
-      expect(result.closableTab()).toBe("context")
+      expect(result.activeTab()).toBe("review")
+      expect(result.closableTab()).toBeUndefined()
       dispose()
     })
 
