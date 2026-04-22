@@ -12,6 +12,14 @@ const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
 
 describe("PawWork runtime namespace", () => {
+  test("session error event schema can be imported without eager assistant shape access", () => {
+    expect(SessionNs.Event.Error.properties.shape.error).toBeDefined()
+    const result = SessionNs.Event.Error.properties.safeParse({
+      error: new MessageV2.ContextOverflowError({ message: "context exceeded" }).toObject(),
+    })
+    expect(result.success).toBe(true)
+  })
+
   test("plan files use .pawwork in git projects", async () => {
     await using tmp = await tmpdir({ git: true })
     const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
