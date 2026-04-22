@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { loadReleaseHighlights } from "./highlights"
 
 describe("loadReleaseHighlights (GitHub Releases API)", () => {
-  test("synthesizes a single PawWork highlight from the release body", () => {
+  test("reads the app-facing update notice section from the release body", () => {
     const payload = [
       {
         tag_name: "v0.2.3",
         name: "v0.2.3",
-        body: "Fixed first-message crash\n- bumped Minimax-M2.5\n",
+        body: "## Downloads\n\n- [macOS](https://example.com/app.dmg)\n\n## App Update Notice\n\nFixed first-message crash\n",
       },
     ]
     const highlights = loadReleaseHighlights(payload, "0.2.3", "0.2.2")
@@ -18,11 +18,11 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     })
   })
 
-  test("skips markdown headings and strips bullet markers on the first summary line", () => {
+  test("skips markdown headings and strips bullet markers inside the app update notice section", () => {
     const payload = [
       {
         tag_name: "v0.3.0",
-        body: "## Desktop\n\n- Added dark theme\n- Fixed dock icon\n",
+        body: "## Downloads\n\n- [macOS](https://example.com/app.dmg)\n\n## App Update Notice\n\n### Desktop\n\n- Added dark theme\n- Fixed dock icon\n\n## Verification\n\n- CI passed\n",
       },
     ]
     const highlights = loadReleaseHighlights(payload, "0.3.0", "0.2.3")
@@ -31,10 +31,32 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
 
   test("truncates long summaries with an ellipsis", () => {
     const long = "a".repeat(300)
-    const payload = [{ tag_name: "v1.0.0", body: long }]
+    const payload = [{ tag_name: "v1.0.0", body: `## App Update Notice\n\n${long}` }]
     const highlights = loadReleaseHighlights(payload, "1.0.0", "0.9.0")
     expect(highlights[0].description.endsWith("…")).toBe(true)
     expect(highlights[0].description.length).toBe(201)
+  })
+
+  test("does not guess from downloads when the app update notice section is missing", () => {
+    const payload = [
+      {
+        tag_name: "v0.2.6",
+        body: "## Downloads\n\n- [macOS Apple Silicon](https://github.com/Astro-Han/pawwork/releases/download/v0.2.6/pawwork-mac-arm64.dmg)\n\n## Highlights\n\n- Maintenance fixes\n",
+      },
+    ]
+    expect(loadReleaseHighlights(payload, "0.2.6", "0.2.5")).toHaveLength(0)
+  })
+
+  test("stops app update notice parsing at empty same-level headings", () => {
+    const payload = [
+      {
+        tag_name: "v0.2.6",
+        body: "## App Update Notice\n\n- Fixed update notices\n\n##\n\n- [macOS](https://example.com/app.dmg)\n",
+      },
+    ]
+    const highlights = loadReleaseHighlights(payload, "0.2.6", "0.2.5")
+    expect(highlights).toHaveLength(1)
+    expect(highlights[0].description).toBe("Fixed update notices")
   })
 
   test("returns no highlights when the body is empty or only headings", () => {
