@@ -14,7 +14,7 @@ export type PawworkSidebarSession = {
   session: Session
   slug: string
   projectLabel: string
-  updated: number
+  created: number
 }
 
 const FilterIcon = (props: { size?: number }) => {
@@ -80,7 +80,7 @@ export const PawworkSidebar = (props: {
         title: item.session.title ?? "",
         directory: item.session.directory,
         projectLabel: item.projectLabel,
-        updated: item.updated,
+        created: item.created,
       })),
       pinnedIDs: props.pinnedIDs(),
       sortMode: props.sortMode(),

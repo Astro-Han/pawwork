@@ -5,7 +5,13 @@ export type PawworkSessionItem = {
   title: string
   directory: string
   projectLabel: string
-  updated: number
+  created: number
+}
+
+function comparePawworkSessionsByCreated(a: PawworkSessionItem, b: PawworkSessionItem) {
+  const created = b.created - a.created
+  if (created !== 0) return created
+  return a.id.localeCompare(b.id)
 }
 
 export function buildPawworkSessionSections(input: {
@@ -24,13 +30,13 @@ export function buildPawworkSessionSections(input: {
   if (input.sortMode === "time") {
     return {
       pinned,
-      recent: unpinned.sort((a, b) => b.updated - a.updated),
+      recent: unpinned.sort(comparePawworkSessionsByCreated),
       groups: [] as { label: string; items: PawworkSessionItem[] }[],
     }
   }
 
   const groups = new Map<string, PawworkSessionItem[]>()
-  for (const item of unpinned.sort((a, b) => b.updated - a.updated)) {
+  for (const item of unpinned.sort(comparePawworkSessionsByCreated)) {
     const key = item.projectLabel || "other"
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(item)

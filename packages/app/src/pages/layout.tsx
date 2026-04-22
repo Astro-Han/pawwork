@@ -169,7 +169,6 @@ export default function Layout(props: ParentProps) {
     hoverProject: undefined as string | undefined,
     scrollSessionKey: undefined as string | undefined,
     nav: undefined as HTMLElement | undefined,
-    sortNow: Date.now(),
     sizing: false,
     peek: undefined as string | undefined,
     peeked: false,
@@ -191,16 +190,7 @@ export default function Layout(props: ParentProps) {
   }
   const isBusy = (directory: string) => !!state.busyWorkspaces[workspaceKey(directory)]
   const navLeave = { current: undefined as number | undefined }
-  const sortNow = () => state.sortNow
   let sizet: number | undefined
-  let sortNowInterval: ReturnType<typeof setInterval> | undefined
-  const sortNowTimeout = setTimeout(
-    () => {
-      setState("sortNow", Date.now())
-      sortNowInterval = setInterval(() => setState("sortNow", Date.now()), 60_000)
-    },
-    60_000 - (Date.now() % 60_000),
-  )
 
   const aim = createAim({
     enabled: () => !layout.sidebar.opened(),
@@ -216,8 +206,6 @@ export default function Layout(props: ParentProps) {
     dialogDead = true
     dialogRun += 1
     if (navLeave.current !== undefined) clearTimeout(navLeave.current)
-    clearTimeout(sortNowTimeout)
-    if (sortNowInterval) clearInterval(sortNowInterval)
     if (sizet !== undefined) clearTimeout(sizet)
     if (peekt !== undefined) clearTimeout(peekt)
     aim.reset()
@@ -670,21 +658,19 @@ export default function Layout(props: ParentProps) {
   })
 
   const currentSessions = createMemo(() => {
-    const now = Date.now()
     const dirs = visibleSessionDirs()
     if (dirs.length === 0) return [] as Session[]
 
     const result: Session[] = []
     for (const dir of dirs) {
       const [dirStore] = globalSync.child(dir, { bootstrap: true })
-      const dirSessions = sortedRootSessions(dirStore, now)
+      const dirSessions = sortedRootSessions(dirStore)
       result.push(...dirSessions)
     }
     return result
   })
 
   const collectPawworkSessions = (projects: LocalProject[]) => {
-    const now = Date.now()
     const seen = new Set<string>()
     const result: PawworkSidebarSession[] = []
     const labels = resolvePawworkProjectLabels(projects, globalSync.data.path.home)
@@ -696,12 +682,12 @@ export default function Layout(props: ParentProps) {
         seen.add(key)
 
         const [dirStore] = globalSync.child(directory, { bootstrap: true })
-        for (const session of sortedRootSessions(dirStore, now)) {
+        for (const session of sortedRootSessions(dirStore)) {
           result.push({
             session,
             slug: base64Encode(session.directory),
             projectLabel: labels.get(project.worktree) ?? displayName(project),
-            updated: session.time?.updated ?? session.time?.created ?? 0,
+            created: session.time?.created ?? session.time?.updated ?? 0,
           })
         }
       }
@@ -1423,10 +1409,7 @@ export default function Layout(props: ParentProps) {
       clearLastProjectSession(root)
     }
 
-    const latest = latestRootSession(
-      dirs.map((item) => globalSync.child(item, { bootstrap: false })[0]),
-      Date.now(),
-    )
+    const latest = latestRootSession(dirs.map((item) => globalSync.child(item, { bootstrap: false })[0]))
     if (latest && (await openSession(latest))) {
       return
     }
@@ -1436,12 +1419,11 @@ export default function Layout(props: ParentProps) {
         dirs.map(async (item) => ({
           path: { directory: item },
           session: await globalSDK.client.session
-            .list({ directory: item })
+            .list({ directory: item, sort: "created" })
             .then((x) => x.data ?? [])
             .catch(() => []),
         })),
       ),
-      Date.now(),
     )
     if (fetched && (await openSession(fetched))) {
       return
@@ -2323,12 +2305,7 @@ export default function Layout(props: ParentProps) {
                   </Button>
                 </div>
                 <div class="flex-1 min-h-0">
-                  <LocalWorkspace
-                    ctx={workspaceSidebarCtx}
-                    project={project()!}
-                    sortNow={sortNow}
-                    mobile={panelProps.mobile}
-                  />
+                  <LocalWorkspace ctx={workspaceSidebarCtx} project={project()!} mobile={panelProps.mobile} />
                 </div>
               </Show>
               <Show when={!pawworkSidebar() && workspacesEnabled()}>
@@ -2369,7 +2346,6 @@ export default function Layout(props: ParentProps) {
                                 ctx={workspaceSidebarCtx}
                                 directory={directory}
                                 project={project()!}
-                                sortNow={sortNow}
                                 mobile={panelProps.mobile}
                               />
                             )}

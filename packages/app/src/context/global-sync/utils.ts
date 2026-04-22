@@ -1,6 +1,12 @@
-import type { Agent, Project, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Agent, Project, ProviderListResponse, Session } from "@opencode-ai/sdk/v2/client"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+export function compareSessionsByCreated(a: Session, b: Session) {
+  const created = b.time.created - a.time.created
+  if (created !== 0) return created
+  return a.id.localeCompare(b.id)
+}
 
 function isAgent(input: unknown): input is Agent {
   if (!input || typeof input !== "object") return false

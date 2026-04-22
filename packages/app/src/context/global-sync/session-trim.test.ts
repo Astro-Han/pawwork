@@ -14,6 +14,28 @@ const session = (input: { id: string; parentID?: string; created: number; update
   }) as Session
 
 describe("trimSessions", () => {
+  test("selects base roots by creation time before returning id-sorted store order", () => {
+    const now = 1_000_000
+    const list = [
+      session({ id: "a-old", created: now - 30_000_000 }),
+      session({ id: "m-new", created: now - 100_000 }),
+      session({ id: "z-middle", created: now - 200_000 }),
+    ]
+
+    const result = trimSessions(list, { limit: 2, permission: {}, now })
+
+    expect(result.map((x) => x.id)).toEqual(["m-new", "z-middle"])
+  })
+
+  test("uses id ascending when selecting roots with identical creation time", () => {
+    const now = 40_000_000
+    const list = [session({ id: "z-root", created: 1 }), session({ id: "a-root", created: 1 })]
+
+    const result = trimSessions(list, { limit: 1, permission: {}, now })
+
+    expect(result.map((x) => x.id)).toEqual(["a-root"])
+  })
+
   test("keeps base roots and recent roots beyond the limit", () => {
     const now = 1_000_000
     const list = [

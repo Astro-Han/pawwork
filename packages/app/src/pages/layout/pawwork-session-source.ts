@@ -10,7 +10,7 @@ type ProjectLike = {
 
 type SessionLike = {
   id: string
-  updated: number
+  created: number
   projectLabel: string
 }
 
@@ -37,9 +37,13 @@ export function resolvePawworkProjectLabels<T extends ProjectLike>(projects: T[]
 }
 
 export function sortPawworkSidebarSessions<T extends SessionLike>(sessions: T[]) {
-  return sessions
-    .slice()
-    .sort((a, b) => b.updated - a.updated || a.projectLabel.localeCompare(b.projectLabel) || a.id.localeCompare(b.id))
+  return sessions.slice().sort((a, b) => {
+    const created = b.created - a.created
+    if (created !== 0) return created
+    const project = a.projectLabel.localeCompare(b.projectLabel)
+    if (project !== 0) return project
+    return a.id.localeCompare(b.id)
+  })
 }
 
 export function pawworkSessionDirectories(input: {

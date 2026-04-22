@@ -14,6 +14,7 @@ import {
   errorMessage,
   hasProjectPermissions,
   latestRootSession,
+  sortedRootSessions,
   startupAutoselectDirectory,
   workspaceKey,
 } from "./helpers"
@@ -133,27 +134,86 @@ describe("layout workspace helpers", () => {
   })
 
   test("finds the latest root session across workspaces", () => {
-    const result = latestRootSession(
-      [
-        {
-          path: { directory: "/root" },
-          session: [session({ id: "root", directory: "/root", time: { created: 1, updated: 1, archived: undefined } })],
-        },
-        {
-          path: { directory: "/workspace" },
-          session: [
-            session({
-              id: "workspace",
-              directory: "/workspace",
-              time: { created: 2, updated: 2, archived: undefined },
-            }),
-          ],
-        },
-      ],
-      120_000,
-    )
+    const result = latestRootSession([
+      {
+        path: { directory: "/root" },
+        session: [session({ id: "root", directory: "/root", time: { created: 1, updated: 1, archived: undefined } })],
+      },
+      {
+        path: { directory: "/workspace" },
+        session: [
+          session({
+            id: "workspace",
+            directory: "/workspace",
+            time: { created: 2, updated: 2, archived: undefined },
+          }),
+        ],
+      },
+    ])
 
     expect(result?.id).toBe("workspace")
+  })
+
+  test("finds latest root session by creation time instead of last update", () => {
+    const result = latestRootSession([
+      {
+        path: { directory: "/workspace" },
+        session: [
+          session({
+            id: "older-active",
+            directory: "/workspace",
+            time: { created: 10, updated: 100, archived: undefined },
+          }),
+          session({
+            id: "newer-quiet",
+            directory: "/workspace",
+            time: { created: 20, updated: 20, archived: undefined },
+          }),
+        ],
+      },
+    ])
+
+    expect(result?.id).toBe("newer-quiet")
+  })
+
+  test("sorts visible root sessions by creation time", () => {
+    const result = sortedRootSessions({
+      path: { directory: "/workspace" },
+      session: [
+        session({
+          id: "older-active",
+          directory: "/workspace",
+          time: { created: 10, updated: 100, archived: undefined },
+        }),
+        session({
+          id: "newer-quiet",
+          directory: "/workspace",
+          time: { created: 20, updated: 20, archived: undefined },
+        }),
+      ],
+    })
+
+    expect(result.map((item) => item.id)).toEqual(["newer-quiet", "older-active"])
+  })
+
+  test("sorts root sessions with identical creation time by id ascending", () => {
+    const result = sortedRootSessions({
+      path: { directory: "/workspace" },
+      session: [
+        session({
+          id: "z-session",
+          directory: "/workspace",
+          time: { created: 20, updated: 50, archived: undefined },
+        }),
+        session({
+          id: "a-session",
+          directory: "/workspace",
+          time: { created: 20, updated: 10, archived: undefined },
+        }),
+      ],
+    })
+
+    expect(result.map((item) => item.id)).toEqual(["a-session", "z-session"])
   })
 
   test("detects project permissions with a filter", () => {
@@ -180,32 +240,29 @@ describe("layout workspace helpers", () => {
   })
 
   test("ignores archived and child sessions when finding latest root session", () => {
-    const result = latestRootSession(
-      [
-        {
-          path: { directory: "/workspace" },
-          session: [
-            session({
-              id: "archived",
-              directory: "/workspace",
-              time: { created: 10, updated: 10, archived: 10 },
-            }),
-            session({
-              id: "child",
-              directory: "/workspace",
-              parentID: "parent",
-              time: { created: 20, updated: 20, archived: undefined },
-            }),
-            session({
-              id: "root",
-              directory: "/workspace",
-              time: { created: 30, updated: 30, archived: undefined },
-            }),
-          ],
-        },
-      ],
-      120_000,
-    )
+    const result = latestRootSession([
+      {
+        path: { directory: "/workspace" },
+        session: [
+          session({
+            id: "archived",
+            directory: "/workspace",
+            time: { created: 10, updated: 10, archived: 10 },
+          }),
+          session({
+            id: "child",
+            directory: "/workspace",
+            parentID: "parent",
+            time: { created: 20, updated: 20, archived: undefined },
+          }),
+          session({
+            id: "root",
+            directory: "/workspace",
+            time: { created: 30, updated: 30, archived: undefined },
+          }),
+        ],
+      },
+    ])
 
     expect(result?.id).toBe("root")
   })

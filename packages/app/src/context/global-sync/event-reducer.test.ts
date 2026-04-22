@@ -4,13 +4,13 @@ import { createStore } from "solid-js/store"
 import type { State } from "./types"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
 
-const rootSession = (input: { id: string; parentID?: string; archived?: number }) =>
+const rootSession = (input: { id: string; parentID?: string; archived?: number; created?: number; updated?: number }) =>
   ({
     id: input.id,
     parentID: input.parentID,
     time: {
-      created: 1,
-      updated: 1,
+      created: input.created ?? 1,
+      updated: input.updated ?? input.created ?? 1,
       archived: input.archived,
     },
   }) as Session
@@ -249,8 +249,8 @@ describe("applyDirectoryEvent", () => {
   })
 
   test("cleans caches for trimmed sessions on session.created", () => {
-    const dropped = rootSession({ id: "ses_b" })
-    const kept = rootSession({ id: "ses_a" })
+    const dropped = rootSession({ id: "ses_b", created: 1 })
+    const kept = rootSession({ id: "ses_a", created: 2 })
     const message = userMessage("msg_1", dropped.id)
     const todos: string[] = []
     const [store, setStore] = createStore(

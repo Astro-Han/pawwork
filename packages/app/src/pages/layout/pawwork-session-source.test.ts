@@ -30,13 +30,23 @@ describe("resolvePawworkProjectLabels", () => {
 })
 
 describe("sortPawworkSidebarSessions", () => {
-  test("sorts sessions globally by most recent update before project label", () => {
+  test("sorts sessions globally by creation time before project label", () => {
     const result = sortPawworkSidebarSessions([
-      { id: "older-a", updated: 100, projectLabel: "alpha" },
-      { id: "newer-b", updated: 300, projectLabel: "beta" },
-      { id: "middle-a", updated: 200, projectLabel: "alpha" },
+      { id: "older-a", created: 100, projectLabel: "alpha" },
+      { id: "newer-b", created: 300, projectLabel: "beta" },
+      { id: "middle-a", created: 200, projectLabel: "alpha" },
     ])
 
     expect(result.map((item) => item.id)).toEqual(["newer-b", "middle-a", "older-a"])
+  })
+
+  test("uses project label then id ascending when creation times match", () => {
+    const result = sortPawworkSidebarSessions([
+      { id: "zeta", created: 100, projectLabel: "beta" },
+      { id: "zebra", created: 100, projectLabel: "alpha" },
+      { id: "alpha", created: 100, projectLabel: "alpha" },
+    ])
+
+    expect(result.map((item) => item.id)).toEqual(["alpha", "zebra", "zeta"])
   })
 })

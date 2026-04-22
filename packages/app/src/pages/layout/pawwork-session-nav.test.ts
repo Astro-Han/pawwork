@@ -7,25 +7,25 @@ import {
 
 const sessions: PawworkSessionItem[] = [
   {
-    id: "alpha",
-    title: "Q2 narrative",
-    directory: "/repo",
-    projectLabel: "pawwork",
-    updated: 300,
-  },
-  {
     id: "beta",
     title: "Release notes",
     directory: "/repo",
     projectLabel: "pawwork",
-    updated: 200,
+    created: 200,
   },
   {
     id: "gamma",
     title: "OpenCLI comparison",
     directory: "/repo",
     projectLabel: "research",
-    updated: 100,
+    created: 100,
+  },
+  {
+    id: "alpha",
+    title: "Q2 narrative",
+    directory: "/repo",
+    projectLabel: "pawwork",
+    created: 300,
   },
 ]
 
@@ -52,6 +52,32 @@ describe("buildPawworkSessionSections", () => {
 
     expect(result.groups.map((group) => group.label)).toEqual(["pawwork", "research"])
     expect(result.groups[0].items.map((item) => item.id)).toEqual(["alpha", "beta"])
+  })
+
+  test("uses id ascending as the creation-time tiebreaker", () => {
+    const tied = [
+      { ...sessions[0], id: "zeta", created: 400 },
+      { ...sessions[1], id: "alpha", created: 400 },
+      { ...sessions[2], id: "middle", created: 300 },
+    ]
+
+    const byTime = buildPawworkSessionSections({
+      sessions: tied,
+      pinnedIDs: [],
+      sortMode: "time",
+    })
+    expect(byTime.recent.map((item) => item.id)).toEqual(["alpha", "zeta", "middle"])
+
+    const byProject = buildPawworkSessionSections({
+      sessions: tied,
+      pinnedIDs: [],
+      sortMode: "project",
+    })
+    expect(byProject.groups.flatMap((group) => group.items.map((item) => item.id))).toEqual([
+      "alpha",
+      "zeta",
+      "middle",
+    ])
   })
 })
 

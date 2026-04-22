@@ -271,7 +271,6 @@ export const SortableProject = (props: {
   project: LocalProject
   mobile?: boolean
   ctx: ProjectSidebarContext
-  sortNow: Accessor<number>
 }): JSX.Element => {
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -301,10 +300,10 @@ export const SortableProject = (props: {
   }
 
   const projectStore = createMemo(() => globalSync.child(props.project.worktree, { bootstrap: false })[0])
-  const projectSessions = createMemo(() => sortedRootSessions(projectStore(), props.sortNow()))
+  const projectSessions = createMemo(() => sortedRootSessions(projectStore()))
   const workspaceSessions = (directory: string) => {
     const [data] = globalSync.child(directory, { bootstrap: false })
-    return sortedRootSessions(data, props.sortNow())
+    return sortedRootSessions(data)
   }
   const tile = () => (
     <ProjectTile
