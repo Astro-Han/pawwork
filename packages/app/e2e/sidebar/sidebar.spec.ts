@@ -33,7 +33,7 @@ test("sidebar collapsed state persists across navigation and reload", async ({ p
       await expect(button).toHaveAttribute("aria-expanded", "false")
 
       const opened = await page.evaluate(
-        () => JSON.parse(localStorage.getItem("opencode.global.dat:layout") ?? "{}").sidebar?.opened,
+        () => JSON.parse(localStorage.getItem("pawwork.global.dat:layout") ?? "{}").sidebar?.opened,
       )
       await expect(opened).toBe(false)
     })

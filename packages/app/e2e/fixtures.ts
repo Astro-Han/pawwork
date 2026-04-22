@@ -548,7 +548,7 @@ async function seedStorage(
       extra: string[]
       model: { providerID: string; modelID: string }
     }) => {
-      const key = "opencode.global.dat:server"
+      const key = "pawwork.global.dat:server"
       const raw = localStorage.getItem(key)
       const parsed = (() => {
         if (!raw) return undefined
@@ -586,7 +586,7 @@ async function seedStorage(
       }
 
       localStorage.setItem(key, JSON.stringify({ list: nextList, projects: next, lastProject }))
-      localStorage.setItem("opencode.settings.dat:defaultServerUrl", args.serverUrl)
+      localStorage.setItem("pawwork.settings.dat:defaultServerUrl", args.serverUrl)
 
       const win = window as E2EWindow
       win.__opencode_e2e = {
@@ -595,7 +595,7 @@ async function seedStorage(
         prompt: { enabled: true },
         terminal: { enabled: true, terminals: {} },
       }
-      localStorage.setItem("opencode.global.dat:model", JSON.stringify({ recent: [args.model], user: [], variant: {} }))
+      localStorage.setItem("pawwork.global.dat:model", JSON.stringify({ recent: [args.model], user: [], variant: {} }))
     },
     { directory: input.directory, serverUrl: origin, extra: input.extra ?? [], model: input.model ?? seedModel },
   )

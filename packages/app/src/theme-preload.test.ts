@@ -26,32 +26,32 @@ describe("theme preload", () => {
   })
 
   test("locks PawWork to light and rewrites stored color scheme", () => {
-    localStorage.setItem("opencode-theme-id", "pawwork")
-    localStorage.setItem("opencode-color-scheme", "dark")
+    localStorage.setItem("pawwork-theme-id", "pawwork")
+    localStorage.setItem("pawwork-color-scheme", "dark")
 
     run()
 
     expect(document.documentElement.dataset.theme).toBe("pawwork")
     expect(document.documentElement.dataset.colorScheme).toBe("light")
-    expect(localStorage.getItem("opencode-theme-id")).toBe("pawwork")
-    expect(localStorage.getItem("opencode-color-scheme")).toBe("light")
+    expect(localStorage.getItem("pawwork-theme-id")).toBe("pawwork")
+    expect(localStorage.getItem("pawwork-color-scheme")).toBe("light")
   })
 
   for (const legacy of ["oc-1", "oc-2", "dracula", "nightowl", "amoled"]) {
     test(`migrates legacy "${legacy}" theme to pawwork and clears cached css`, () => {
-      localStorage.setItem("opencode-theme-id", legacy)
-      localStorage.setItem("opencode-color-scheme", "dark")
-      localStorage.setItem("opencode-theme-css-light", "--background-base:#ffffff;")
-      localStorage.setItem("opencode-theme-css-dark", "--background-base:#000000;")
+      localStorage.setItem("pawwork-theme-id", legacy)
+      localStorage.setItem("pawwork-color-scheme", "dark")
+      localStorage.setItem("pawwork-theme-css-light", "--background-base:#ffffff;")
+      localStorage.setItem("pawwork-theme-css-dark", "--background-base:#000000;")
 
       run()
 
       expect(document.documentElement.dataset.theme).toBe("pawwork")
       expect(document.documentElement.dataset.colorScheme).toBe("light")
-      expect(localStorage.getItem("opencode-theme-id")).toBe("pawwork")
-      expect(localStorage.getItem("opencode-color-scheme")).toBe("light")
-      expect(localStorage.getItem("opencode-theme-css-light")).toBeNull()
-      expect(localStorage.getItem("opencode-theme-css-dark")).toBeNull()
+      expect(localStorage.getItem("pawwork-theme-id")).toBe("pawwork")
+      expect(localStorage.getItem("pawwork-color-scheme")).toBe("light")
+      expect(localStorage.getItem("pawwork-theme-css-light")).toBeNull()
+      expect(localStorage.getItem("pawwork-theme-css-dark")).toBeNull()
     })
   }
 })

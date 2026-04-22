@@ -82,7 +82,7 @@ export function normalizeLocale(value: unknown): Locale {
 function readStoredLocale() {
   if (typeof localStorage !== "object") return
   try {
-    const raw = localStorage.getItem("opencode.global.dat:language")
+    const raw = localStorage.getItem("pawwork.global.dat:language")
     if (!raw) return
     const next = JSON.parse(raw) as { locale?: string }
     if (typeof next?.locale !== "string") return

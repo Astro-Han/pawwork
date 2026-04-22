@@ -16,8 +16,8 @@ import {
 
 test("@smoke new installs start with the PawWork theme", async ({ page, gotoSession }) => {
   await page.addInitScript(() => {
-    localStorage.removeItem("opencode-theme-id")
-    localStorage.removeItem("opencode-color-scheme")
+    localStorage.removeItem("pawwork-theme-id")
+    localStorage.removeItem("pawwork-color-scheme")
   })
 
   await gotoSession()
@@ -51,7 +51,7 @@ test('@smoke PawWork settings opens as a full-pane surface, not a dialog', async
 
 test("changing language updates settings labels", async ({ page, gotoSession }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("opencode.global.dat:language", JSON.stringify({ locale: "en" }))
+    localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "en" }))
   })
 
   await gotoSession()
@@ -85,11 +85,11 @@ test.skip("changing theme persists in localStorage", async () => {
   // and cannot exercise switching. Revisit once a second theme is added.
 })
 
-test("legacy theme ids migrate to pawwork and clear cached CSS", async ({ page, gotoSession }) => {
+test("unknown theme ids migrate to pawwork and clear cached CSS", async ({ page, gotoSession }) => {
   await page.addInitScript(() => {
-    localStorage.setItem("opencode-theme-id", "dracula")
-    localStorage.setItem("opencode-theme-css-light", "--background-base:#fff;")
-    localStorage.setItem("opencode-theme-css-dark", "--background-base:#000;")
+    localStorage.setItem("pawwork-theme-id", "dracula")
+    localStorage.setItem("pawwork-theme-css-light", "--background-base:#fff;")
+    localStorage.setItem("pawwork-theme-css-dark", "--background-base:#000;")
   })
 
   await gotoSession()
@@ -99,7 +99,7 @@ test("legacy theme ids migrate to pawwork and clear cached CSS", async ({ page, 
   await expect
     .poll(async () => {
       return await page.evaluate(() => {
-        return localStorage.getItem("opencode-theme-id")
+        return localStorage.getItem("pawwork-theme-id")
       })
     })
     .toBe("pawwork")
@@ -107,7 +107,7 @@ test("legacy theme ids migrate to pawwork and clear cached CSS", async ({ page, 
   await expect
     .poll(async () => {
       return await page.evaluate(() => {
-        return localStorage.getItem("opencode-theme-css-light")
+        return localStorage.getItem("pawwork-theme-css-light")
       })
     })
     .toBeNull()
@@ -115,7 +115,7 @@ test("legacy theme ids migrate to pawwork and clear cached CSS", async ({ page, 
   await expect
     .poll(async () => {
       return await page.evaluate(() => {
-        return localStorage.getItem("opencode-theme-css-dark")
+        return localStorage.getItem("pawwork-theme-css-dark")
       })
     })
     .toBeNull()
@@ -316,8 +316,8 @@ test("clearing the UI font field restores the default placeholder and stack", as
 test("code font and UI font rehydrate after reload", async ({ page, gotoSession }) => {
   await page.addInitScript(() => {
     if (sessionStorage.getItem("settings-rehydrate-init")) return
-    localStorage.setItem("opencode-theme-id", "pawwork")
-    localStorage.setItem("opencode-color-scheme", "light")
+    localStorage.setItem("pawwork-theme-id", "pawwork")
+    localStorage.setItem("pawwork-color-scheme", "light")
     sessionStorage.setItem("settings-rehydrate-init", "1")
   })
 
