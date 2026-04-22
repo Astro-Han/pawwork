@@ -7,7 +7,6 @@ import path from "path"
 import { readdir, rm } from "fs/promises"
 import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
-import { Arborist } from "@npmcli/arborist"
 
 export namespace Npm {
   const log = Log.create({ service: "npm" })
@@ -27,6 +26,16 @@ export namespace Npm {
 
   function directory(pkg: string) {
     return path.join(Global.Path.cache, "packages", sanitize(pkg))
+  }
+
+  async function loadArborist() {
+    if (process.platform === "win32") {
+      // Bun on Windows does not support the UV_FS_O_FILEMAP flag used by tar
+      // for small files. tar snapshots this env var during module init, so set
+      // it immediately before Arborist can import tar.
+      process.env.__FAKE_PLATFORM__ = "linux"
+    }
+    return import("@npmcli/arborist")
   }
 
   function resolveEntryPoint(name: string, dir: string) {
@@ -68,6 +77,7 @@ export namespace Npm {
       pkg,
     })
 
+    const { Arborist } = await loadArborist()
     const arborist = new Arborist({
       path: dir,
       binLinks: true,
@@ -108,6 +118,7 @@ export namespace Npm {
     log.info("checking dependencies", { dir })
 
     const reify = async () => {
+      const { Arborist } = await loadArborist()
       const arb = new Arborist({
         path: dir,
         binLinks: true,
