@@ -15,6 +15,7 @@ type VerificationInput = {
   release: GithubRelease
   latestYml?: string
   latestMacYml?: string
+  startupLog?: string
 }
 
 const DEFAULT_REPO = "Astro-Han/pawwork"
@@ -103,6 +104,69 @@ function verifyReferencedAssets(sourceName: string, urls: string[], assetNames: 
   }
 }
 
+function latestStartupAttempt(source: string) {
+  const marker = "app starting"
+  const index = source.lastIndexOf(marker)
+  if (index === -1) return undefined
+  return source.slice(index)
+}
+
+function firstLine(source: string) {
+  return source.split(/\r?\n/, 1)[0] ?? ""
+}
+
+function hasInitDone(source: string) {
+  return source.split(/\r?\n/).some((line) => line.trim().endsWith("init done"))
+}
+
+function hasServerReady(source: string) {
+  return source.split(/\r?\n/).some((line) => /\bserver ready\b/.test(line) && /\{\s*url:\s*['"]/.test(line))
+}
+
+function releaseVersion(tag: string) {
+  return normalizeTag(tag).slice(1)
+}
+
+export function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function hasStartupVersion(startupLine: string, expectedVersion: string) {
+  return new RegExp(`version:\\s*['"]${escapeRegExp(expectedVersion)}['"]`).test(startupLine)
+}
+
+function hasPackagedStartup(startupLine: string) {
+  return /packaged:\s*true/.test(startupLine)
+}
+
+export function verifyStartupLog(source: string, expectedTag: string) {
+  const failures: string[] = []
+  const latest = latestStartupAttempt(source)
+
+  if (!latest) {
+    failures.push("Latest startup log does not include any app starting entry")
+    return failures
+  }
+
+  const startupLine = firstLine(latest)
+  let expectedVersion: string | undefined
+  try {
+    expectedVersion = releaseVersion(expectedTag)
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : String(error))
+  }
+
+  if (expectedVersion && !hasStartupVersion(startupLine, expectedVersion)) {
+    failures.push(`Latest startup log version does not match expected ${expectedVersion}`)
+  }
+  if (!hasPackagedStartup(startupLine)) failures.push("Latest startup log does not include packaged true")
+  if (!hasServerReady(latest)) failures.push("Latest startup log does not include server ready")
+  if (!latest.includes("loading task finished")) failures.push("Latest startup log does not include loading task finished")
+  if (!hasInitDone(latest)) failures.push("Latest startup log does not include init step done")
+
+  return failures
+}
+
 export function verifyReleasePayload(input: VerificationInput) {
   const failures: string[] = []
   const assetNames = new Set(input.release.assets.map((asset) => asset.name))
@@ -125,6 +189,8 @@ export function verifyReleasePayload(input: VerificationInput) {
   for (const asset of ["pawwork-mac-arm64.zip", "pawwork-mac-x64.zip"]) {
     if (!hasUpdaterEntry(latestMacUrls, asset)) failures.push(`latest-mac.yml does not include ${asset}`)
   }
+
+  if (input.startupLog !== undefined) failures.push(...verifyStartupLog(input.startupLog, input.release.tag_name))
 
   return failures
 }
@@ -164,6 +230,15 @@ export async function fetchJson<T>(url: string) {
   }
 }
 
+export async function readStartupLogFile(path: string) {
+  try {
+    return await Bun.file(path).text()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Failed to read startup log file ${path}: ${message}`)
+  }
+}
+
 async function fetchWithTimeout(url: string) {
   try {
     return await fetch(url, {
@@ -198,7 +273,9 @@ async function main() {
   try {
     const tag = process.argv[2]
     if (!tag) {
-      console.error("Usage: bun packages/desktop-electron/scripts/verify-release.ts <tag> [owner/repo]")
+      console.error(
+        "Usage: bun packages/desktop-electron/scripts/verify-release.ts <tag> [owner/repo] [env: PAWWORK_RELEASE_STARTUP_LOG=/path/to/main.log]",
+      )
       process.exit(2)
     }
 
@@ -212,7 +289,9 @@ async function main() {
     )
     const latestYml = await fetchAssetText(release, "latest.yml")
     const latestMacYml = await fetchAssetText(release, "latest-mac.yml")
-    const failures = verifyReleasePayload({ release, latestYml, latestMacYml })
+    const startupLogPath = process.env.PAWWORK_RELEASE_STARTUP_LOG
+    const startupLog = startupLogPath ? await readStartupLogFile(startupLogPath) : undefined
+    const failures = verifyReleasePayload({ release, latestYml, latestMacYml, startupLog })
 
     if (failures.length) {
       console.error(`Release verification failed for ${repo} ${normalizedTag}:`)

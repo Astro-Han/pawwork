@@ -136,6 +136,80 @@ The helper verifies:
 - `latest.yml` points to `pawwork-win-x64.exe`.
 - `latest-mac.yml` includes both `pawwork-mac-arm64.zip` and `pawwork-mac-x64.zip`.
 
+Also verify a fresh packaged startup before closing startup-blocking issues. The command below is for macOS; override `PAWWORK_RELEASE_APP_PATH` and `PAWWORK_RELEASE_STARTUP_LOG` if the app or log is in a custom location.
+
+```bash
+set -euo pipefail
+smoke_home=/tmp/pawwork-release-smoke/user-data
+smoke_user_data="$smoke_home/ai.pawwork.desktop"
+ready_file="$smoke_user_data/ci-smoke-ready.json"
+app_path=${PAWWORK_RELEASE_APP_PATH:-/Applications/PawWork.app/Contents/MacOS/PawWork}
+startup_log=${PAWWORK_RELEASE_STARTUP_LOG:-$smoke_user_data/logs/main.log}
+app_pid=""
+cleanup() {
+  if [ -n "$app_pid" ]; then
+    kill "$app_pid" 2>/dev/null || true
+  fi
+  rm -rf "$smoke_home"
+}
+trap cleanup EXIT
+rm -rf "$smoke_home"
+PAWWORK_CI_SMOKE=true PAWWORK_CI_SMOKE_HOME="$smoke_home" "$app_path" &
+app_pid=$!
+i=0
+while [ "$i" -lt 60 ]; do
+  test -f "$ready_file" && break
+  sleep 1
+  i=$((i + 1))
+done
+if [ ! -f "$ready_file" ]; then
+  echo "Timed out waiting for $ready_file"
+  exit 1
+fi
+sleep 1
+PAWWORK_RELEASE_STARTUP_LOG="$startup_log" bun packages/desktop-electron/scripts/verify-release.ts vX.Y.Z
+```
+
+The startup log check reads the latest `app starting` block and verifies it reaches `server ready`, `loading task finished`, and `init step done`. This catches first-launch hangs where the sidecar becomes reachable but the desktop shell never opens the main window.
+
+For Windows releases, run the same fresh-user-data check from PowerShell:
+
+```powershell
+$ErrorActionPreference = "Stop"
+$smokeHome = "$env:TEMP\pawwork-release-smoke\user-data"
+$smokeUserData = "$smokeHome\ai.pawwork.desktop"
+$readyFile = "$smokeUserData\ci-smoke-ready.json"
+$appPath = if ($env:PAWWORK_RELEASE_APP_PATH) { $env:PAWWORK_RELEASE_APP_PATH } else { "$env:LOCALAPPDATA\Programs\PawWork\PawWork.exe" }
+$startupLog = if ($env:PAWWORK_RELEASE_STARTUP_LOG) { $env:PAWWORK_RELEASE_STARTUP_LOG } else { "$smokeUserData\logs\main.log" }
+Remove-Item -Recurse -Force $smokeHome -ErrorAction SilentlyContinue
+$previousCiSmoke = $env:PAWWORK_CI_SMOKE
+$previousCiSmokeHome = $env:PAWWORK_CI_SMOKE_HOME
+$previousStartupLog = $env:PAWWORK_RELEASE_STARTUP_LOG
+$env:PAWWORK_CI_SMOKE = "true"
+$env:PAWWORK_CI_SMOKE_HOME = $smokeHome
+$app = Start-Process -FilePath $appPath -PassThru
+try {
+  $ready = $false
+  for ($i = 0; $i -lt 60; $i++) {
+    if (Test-Path $readyFile) {
+      $ready = $true
+      break
+    }
+    Start-Sleep -Seconds 1
+  }
+  if (-not $ready) { throw "Timed out waiting for $readyFile" }
+  Start-Sleep -Seconds 1
+  $env:PAWWORK_RELEASE_STARTUP_LOG = $startupLog
+  bun packages/desktop-electron/scripts/verify-release.ts vX.Y.Z
+} finally {
+  if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+  if ($null -eq $previousCiSmoke) { Remove-Item Env:PAWWORK_CI_SMOKE -ErrorAction SilentlyContinue } else { $env:PAWWORK_CI_SMOKE = $previousCiSmoke }
+  if ($null -eq $previousCiSmokeHome) { Remove-Item Env:PAWWORK_CI_SMOKE_HOME -ErrorAction SilentlyContinue } else { $env:PAWWORK_CI_SMOKE_HOME = $previousCiSmokeHome }
+  if ($null -eq $previousStartupLog) { Remove-Item Env:PAWWORK_RELEASE_STARTUP_LOG -ErrorAction SilentlyContinue } else { $env:PAWWORK_RELEASE_STARTUP_LOG = $previousStartupLog }
+  Remove-Item -Recurse -Force $smokeHome -ErrorAction SilentlyContinue
+}
+```
+
 Keep `.zip`, `.blockmap`, and `latest*.yml` assets unless updater requirements are proven safe without them.
 
 If verification fails, check the reported missing or malformed asset first, rerun only the affected build phase, and publish the release only after the verification helper passes.

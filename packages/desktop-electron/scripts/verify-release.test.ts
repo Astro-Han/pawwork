@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import {
+  escapeRegExp,
   fetchJson,
   fetchText,
   normalizeTag,
   parseUpdaterFileUrls,
+  readStartupLogFile,
   verifyReleasePayload,
+  verifyStartupLog,
   type GithubRelease,
 } from "./verify-release"
 
@@ -68,6 +74,8 @@ describe("verify-release", () => {
     expect(normalizeTag("0.2.6")).toBe("v0.2.6")
     expect(normalizeTag("v0.2.6")).toBe("v0.2.6")
     expect(() => normalizeTag("vv0.2.6")).toThrow("Invalid release tag")
+    expect(() => normalizeTag("")).toThrow("Invalid release tag")
+    expect(() => normalizeTag("v")).toThrow("Invalid release tag")
     expect(() => normalizeTag("abc")).toThrow("Invalid release tag")
   })
 
@@ -212,6 +220,198 @@ path: pawwork-win-x64.exe
     expect(failures).toContain("latest.yml does not include pawwork-win-x64.exe")
     expect(failures).toContain("latest-mac.yml does not include pawwork-mac-arm64.zip")
     expect(failures).toContain("latest-mac.yml does not include pawwork-mac-x64.zip")
+  })
+
+  test("accepts a complete startup log for the release version", () => {
+    expect(
+      verifyReleasePayload({
+        release: baseRelease,
+        latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+        latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+        startupLog: `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.130] [info]  loading task finished
+[2026-04-22 21:26:18.131] [info]  init done
+`,
+      }),
+    ).toEqual([])
+  })
+
+  test("reports an empty startup log", () => {
+    expect(
+      verifyReleasePayload({
+        release: baseRelease,
+        latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+        latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+        startupLog: "",
+      }),
+    ).toEqual(["Latest startup log does not include any app starting entry"])
+  })
+
+  test("reports a fresh startup log stuck after sidecar readiness", () => {
+    const failures = verifyReleasePayload({
+      release: baseRelease,
+      latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+      latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+      startupLog: `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 21:26:16.300] [info]  spawning sidecar { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:16.767] [info]  sidecar connection started { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.129] [info]  awaiting server ready
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+`,
+    })
+
+    expect(failures).toContain("Latest startup log does not include loading task finished")
+    expect(failures).toContain("Latest startup log does not include init step done")
+    expect(failures).toHaveLength(2)
+  })
+
+  test("does not accept awaiting server ready as server ready", () => {
+    const failures = verifyReleasePayload({
+      release: baseRelease,
+      latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+      latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+      startupLog: `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 21:26:18.129] [info]  awaiting server ready
+[2026-04-22 21:26:18.130] [info]  loading task finished
+[2026-04-22 21:26:18.131] [info]  init done
+`,
+    })
+
+    expect(failures).toEqual(["Latest startup log does not include server ready"])
+  })
+
+  test("checks the latest startup attempt instead of an older successful launch", () => {
+    const failures = verifyReleasePayload({
+      release: baseRelease,
+      latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+      latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+      startupLog: `[2026-04-22 20:00:00.000] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 20:00:01.000] [info]  loading task finished
+[2026-04-22 20:00:01.001] [info]  init done
+[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 21:26:16.767] [info]  sidecar connection started { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+`,
+    })
+
+    expect(failures).toContain("Latest startup log does not include loading task finished")
+    expect(failures).toContain("Latest startup log does not include init step done")
+    expect(failures).toHaveLength(2)
+  })
+
+  test("reports release version mismatches in the startup log", () => {
+    const failures = verifyReleasePayload({
+      release: baseRelease,
+      latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+      latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+      startupLog: `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.5', packaged: true }
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.130] [info]  loading task finished
+[2026-04-22 21:26:18.131] [info]  init done
+`,
+    })
+
+    expect(failures).toContain("Latest startup log version does not match expected 0.2.6")
+  })
+
+  test("reports startup logs from unpackaged desktop runs", () => {
+    const failures = verifyReleasePayload({
+      release: baseRelease,
+      latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+      latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+      startupLog: `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: false }
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.130] [info]  loading task finished
+[2026-04-22 21:26:18.131] [info]  init done
+`,
+    })
+
+    expect(failures).toEqual(["Latest startup log does not include packaged true"])
+  })
+
+  test("reports invalid release tags during startup log verification", () => {
+    expect(
+      verifyStartupLog(
+        `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.130] [info]  loading task finished
+[2026-04-22 21:26:18.131] [info]  init done
+`,
+        "v",
+      ),
+    ).toEqual(["Invalid release tag: v. Expected vX.Y.Z or X.Y.Z."])
+  })
+
+  test("reports invalid release tags with other startup failures", () => {
+    expect(
+      verifyStartupLog(
+        `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+`,
+        "v",
+      ),
+    ).toEqual([
+      "Invalid release tag: v. Expected vX.Y.Z or X.Y.Z.",
+      "Latest startup log does not include server ready",
+      "Latest startup log does not include loading task finished",
+      "Latest startup log does not include init step done",
+    ])
+  })
+
+  test("does not accept 'phase: done' in a non-init-step log line", () => {
+    const failures = verifyReleasePayload({
+      release: baseRelease,
+      latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+      latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+      startupLog: `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.130] [info]  loading task finished
+[2026-04-22 21:26:18.131] [info]  init step { step: { phase: 'loading' } }
+[2026-04-22 21:26:18.132] [info]  unrelated message containing phase: 'done'
+`,
+    })
+
+    expect(failures).toContain("Latest startup log does not include init step done")
+  })
+
+  test("does not accept legacy init step done without the dedicated marker", () => {
+    const failures = verifyReleasePayload({
+      release: baseRelease,
+      latestYml: "files:\n  - url: pawwork-win-x64.exe\n",
+      latestMacYml: "files:\n  - url: pawwork-mac-arm64.zip\n  - url: pawwork-mac-x64.zip\n",
+      startupLog: `[2026-04-22 21:26:16.088] [info]  app starting { version: '0.2.6', packaged: true }
+[2026-04-22 21:26:18.129] [info]  server ready { url: 'http://127.0.0.1:59635' }
+[2026-04-22 21:26:18.130] [info]  loading task finished
+[2026-04-22 21:26:18.131] [info]  init step { step: { phase: 'done' } }
+`,
+    })
+
+    expect(failures).toContain("Latest startup log does not include init step done")
+  })
+
+  test("reads startup log files", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pawwork-release-log-"))
+    const logPath = join(dir, "main.log")
+
+    try {
+      await writeFile(logPath, "startup log contents", "utf8")
+      await expect(readStartupLogFile(logPath)).resolves.toBe("startup log contents")
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("reports unreadable startup log files with the path", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pawwork-release-log-"))
+    const missingPath = join(dir, "missing-main.log")
+
+    try {
+      await expect(readStartupLogFile(missingPath)).rejects.toThrow(
+        new RegExp(`^Failed to read startup log file ${escapeRegExp(missingPath)}: .+`),
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test("fetchText reports GitHub rate limit headers on HTTP errors", async () => {
