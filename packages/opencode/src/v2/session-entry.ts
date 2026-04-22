@@ -96,6 +96,29 @@ export namespace SessionEntry {
     text: Schema.String,
   }) {}
 
+  export class AssistantRetry extends Schema.Class<AssistantRetry>("Session.Entry.Assistant.Retry")({
+    attempt: Schema.Number,
+    error: SessionEvent.RetryError,
+    time: Schema.Struct({
+      created: Schema.DateTimeUtc,
+    }),
+  }) {
+    static fromEvent(event: SessionEvent.Retried) {
+      const error =
+        typeof event.error === "string"
+          // Legacy retry events stored only the message, so retryability cannot be recovered.
+          ? new SessionEvent.RetryError({ message: event.error, isRetryable: true })
+          : event.error
+      return new AssistantRetry({
+        attempt: event.attempt ?? 0,
+        error,
+        time: {
+          created: event.timestamp,
+        },
+      })
+    }
+  }
+
   export const AssistantContent = Schema.Union([AssistantText, AssistantReasoning, AssistantTool])
   export type AssistantContent = Schema.Schema.Type<typeof AssistantContent>
 
@@ -103,6 +126,7 @@ export namespace SessionEntry {
     ...Base,
     type: Schema.Literal("assistant"),
     content: AssistantContent.pipe(Schema.Array),
+    retries: AssistantRetry.pipe(Schema.Array, Schema.optional),
     cost: Schema.Number.pipe(Schema.optional),
     tokens: Schema.Struct({
       input: Schema.Number,
@@ -146,8 +170,12 @@ export namespace SessionEntry {
     )
     const lastText = (assistant: Mutable<Assistant>) =>
       assistant.content.findLast((x: Mutable<AssistantContent>): x is Mutable<AssistantText> => x.type === "text")
-    const lastTool = (assistant: Mutable<Assistant>) =>
-      assistant.content.findLast((x: Mutable<AssistantContent>): x is Mutable<AssistantTool> => x.type === "tool")
+    // Tool events can interleave, so state updates must target the matching call.
+    const lastTool = (assistant: Mutable<Assistant>, callID: string) =>
+      assistant.content.findLast(
+        (x: Mutable<AssistantContent>): x is Mutable<AssistantTool> =>
+          x.type === "tool" && x.callID === callID,
+      )
     const lastReasoning = (assistant: Mutable<Assistant>) =>
       assistant.content.findLast(
         (x: Mutable<AssistantContent>): x is Mutable<AssistantReasoning> => x.type === "reasoning",
@@ -211,7 +239,7 @@ export namespace SessionEntry {
       }
       case "tool.input.delta": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match && match.state.status === "pending") match.state.input += event.delta
         break
       }
@@ -220,7 +248,7 @@ export namespace SessionEntry {
       }
       case "tool.called": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match) {
           match.time.ran = event.timestamp
           match.state = {
@@ -232,7 +260,7 @@ export namespace SessionEntry {
       }
       case "tool.success": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match && match.state.status === "running") {
           match.state = {
             status: "completed",
@@ -247,7 +275,7 @@ export namespace SessionEntry {
       }
       case "tool.error": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match && match.state.status === "running") {
           match.state = {
             status: "error",
@@ -276,6 +304,11 @@ export namespace SessionEntry {
         if (!pendingAssistant) break
         const match = lastReasoning(pendingAssistant)
         if (match) match.text = event.text
+        break
+      }
+      case "retried": {
+        if (!pendingAssistant) break
+        pendingAssistant.retries = [...(pendingAssistant.retries ?? []), AssistantRetry.fromEvent(event)]
         break
       }
       case "step.ended": {

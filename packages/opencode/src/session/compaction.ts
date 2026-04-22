@@ -2,7 +2,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import * as Session from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
-import { Provider } from "../provider"
+import { Provider, ProviderTransform } from "../provider"
 import { MessageV2 } from "./message-v2"
 import z from "zod"
 import { Token } from "../util/token"
@@ -32,6 +32,12 @@ export const Event = {
 export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
+// Keep the last exchange pair by default so a resumed session keeps the active request
+// and response intact. The token floor handles small contexts, while the ceiling keeps
+// retained text from crowding out the generated summary on larger models.
+const DEFAULT_TAIL_TURNS = 2
+const MIN_TAIL_TOKENS = 2_000
+const MAX_TAIL_TOKENS = 8_000
 export const CreateInput = z.object({
   sessionID: SessionID.zod,
   agent: z.string(),
@@ -67,6 +73,19 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCompaction") {}
 
+function usable(input: { cfg: Config.Info; model: Provider.Model }) {
+  const reserved = input.cfg.compaction?.reserved ?? Math.min(20_000, ProviderTransform.maxOutputTokens(input.model))
+  const base = input.model.limit.input ?? input.model.limit.context
+  return Math.max(0, base - reserved)
+}
+
+function tailBudget(input: { cfg: Config.Info; model: Provider.Model }) {
+  return (
+    input.cfg.compaction?.preserve_recent_tokens ??
+    Math.min(MAX_TAIL_TOKENS, Math.max(MIN_TAIL_TOKENS, Math.floor(usable(input) * 0.25)))
+  )
+}
+
 export const layer: Layer.Layer<
   Service,
   never,
@@ -95,11 +114,66 @@ export const layer: Layer.Layer<
       return overflow({ cfg: yield* config.get(), tokens: input.tokens, model: input.model })
     })
 
+    const estimate = Effect.fn("SessionCompaction.estimate")(function* (input: {
+      messages: MessageV2.WithParts[]
+      model: Provider.Model
+    }) {
+      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model, { stripMedia: true })
+      // JSON adds structural overhead, so this intentionally overestimates instead of risking overflow.
+      return Token.estimate(JSON.stringify(msgs))
+    })
+
+    const select = Effect.fn("SessionCompaction.select")(function* (input: {
+      messages: MessageV2.WithParts[]
+      cfg: Config.Info
+      model: Provider.Model
+    }) {
+      const limit = input.cfg.compaction?.tail_turns ?? DEFAULT_TAIL_TURNS
+      if (limit <= 0) return { head: input.messages, tail_start_id: undefined }
+      const budget = tailBudget({ cfg: input.cfg, model: input.model })
+      const userStarts = input.messages.flatMap((msg, idx) => (msg.info.role === "user" ? [idx] : []))
+      const turns = input.messages.flatMap((msg, idx) =>
+        msg.info.role === "user" && !msg.parts.some((part) => part.type === "compaction") ? [idx] : [],
+      )
+      if (!turns.length) return { head: input.messages, tail_start_id: undefined }
+
+      let total = 0
+      let start = input.messages.length
+      let kept = 0
+
+      for (let i = turns.length - 1; i >= 0 && kept < limit; i--) {
+        const idx = turns[i]
+        const userIdx = userStarts.indexOf(idx)
+        const end = userIdx >= 0 && userIdx + 1 < userStarts.length ? userStarts[userIdx + 1] : input.messages.length
+        const size = yield* estimate({
+          messages: input.messages.slice(idx, end),
+          model: input.model,
+        })
+        if (kept === 0 && size > budget) {
+          // The latest turn must stay intact or be summarized with the rest.
+          // Keeping a partial turn would separate tool calls from their prompt.
+          log.info("tail fallback", { budget, size })
+          return { head: input.messages, tail_start_id: undefined }
+        }
+        if (total + size > budget) break
+        total += size
+        start = idx
+        kept++
+      }
+
+      // If the tail starts at the first message, there is no older head to summarize.
+      if (kept === 0 || start === 0) return { head: input.messages, tail_start_id: undefined }
+      return {
+        head: input.messages.slice(0, start),
+        tail_start_id: input.messages[start]?.info.id,
+      }
+    })
+
     // goes backwards through parts until there are PRUNE_PROTECT tokens worth of tool
     // calls, then erases output of older tool calls to free context space
     const prune = Effect.fn("SessionCompaction.prune")(function* (input: { sessionID: SessionID }) {
       const cfg = yield* config.get()
-      if (cfg.compaction?.prune === false) return
+      if (cfg.compaction?.prune !== true) return
       log.info("pruning")
 
       const msgs = yield* session
@@ -157,6 +231,7 @@ export const layer: Layer.Layer<
         throw new Error(`Compaction parent must be a user message: ${input.parentID}`)
       }
       const userMessage = parent.info
+      const compactionPart = parent.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
 
       let messages = input.messages
       let replay:
@@ -187,6 +262,15 @@ export const layer: Layer.Layer<
       const model = agent.model
         ? yield* provider.getModel(agent.model.providerID, agent.model.modelID)
         : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID)
+      const cfg = yield* config.get()
+      // Drop the new compaction marker itself; otherwise it appears in the final turn's
+      // slice and inflates the retained-tail token estimate.
+      const history = compactionPart ? messages.filter((message) => message.info.id !== input.parentID) : messages
+      const selected = yield* select({
+        messages: history,
+        cfg,
+        model,
+      })
       // Allow plugins to inject context or replace compaction prompt.
       const compacting = yield* plugin.trigger(
         "experimental.session.compacting",
@@ -224,7 +308,7 @@ When constructing the summary, try to stick to this template:
 ---`
 
       const prompt = compacting.prompt ?? [defaultPrompt, ...compacting.context].join("\n\n")
-      const msgs = structuredClone(messages)
+      const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
       const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, { stripMedia: true })
       const ctx = yield* InstanceState.context
@@ -285,6 +369,14 @@ When constructing the summary, try to stick to this template:
         processor.message.finish = "error"
         yield* session.updateMessage(processor.message)
         return "stop"
+      }
+
+      if (compactionPart && compactionPart.tail_start_id !== selected.tail_start_id) {
+        // Repeated compactions can move the retained-tail boundary forward as older turns accumulate.
+        yield* session.updatePart({
+          ...compactionPart,
+          tail_start_id: selected.tail_start_id,
+        })
       }
 
       if (result === "continue" && input.auto) {

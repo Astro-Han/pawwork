@@ -49,6 +49,17 @@ export namespace SessionEvent {
     source: Source.pipe(Schema.optional),
   }) {}
 
+  export class RetryError extends Schema.Class<RetryError>("Session.Event.Retry.Error")({
+    message: Schema.String,
+    statusCode: Schema.Number.pipe(Schema.optional),
+    isRetryable: Schema.Boolean,
+    responseHeaders: Schema.Record(Schema.String, Schema.String).pipe(Schema.optional),
+    responseBody: Schema.String.pipe(Schema.optional),
+    metadata: Schema.Record(Schema.String, Schema.String).pipe(Schema.optional),
+  }) {}
+  // Accept legacy string errors while new retry events carry structured context.
+  const RetryEventError = Schema.Union([RetryError, Schema.String])
+
   export class Prompt extends Schema.Class<Prompt>("Session.Event.Prompt")({
     ...Base,
     type: Schema.Literal("prompt"),
@@ -382,14 +393,16 @@ export namespace SessionEvent {
   export class Retried extends Schema.Class<Retried>("Session.Event.Retried")({
     ...Base,
     type: Schema.Literal("retried"),
-    error: Schema.String,
+    attempt: Schema.Number.pipe(Schema.optional),
+    error: RetryEventError,
   }) {
-    static create(input: BaseInput & { error: string }) {
+    static create(input: BaseInput & { attempt?: number; error: RetryError | string }) {
       return new Retried({
         id: input.id ?? ID.create(),
         type: "retried",
         timestamp: input.timestamp ?? DateTime.makeUnsafe(Date.now()),
         metadata: input.metadata,
+        ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
         error: input.error,
       })
     }

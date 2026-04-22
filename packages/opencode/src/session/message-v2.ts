@@ -210,6 +210,9 @@ export const CompactionPart = PartBase.extend({
   type: z.literal("compaction"),
   auto: z.boolean(),
   overflow: z.boolean().optional(),
+  tail_start_id: MessageID.zod
+    .describe("Message ID of the first retained message kept verbatim after compaction.")
+    .optional(),
 }).meta({
   ref: "CompactionPart",
 })
@@ -926,14 +929,26 @@ export function get(input: { sessionID: SessionID; messageID: MessageID }): With
 export function filterCompacted(msgs: Iterable<WithParts>) {
   const result = [] as WithParts[]
   const completed = new Set<string>()
+  let tailStartID: MessageID | undefined
+  // Read newest to oldest. The first tail marker wins, even before its summary finishes.
   for (const msg of msgs) {
     result.push(msg)
-    if (msg.info.role === "user" && completed.has(msg.info.id) && msg.parts.some((part) => part.type === "compaction"))
+    const compactionPart = msg.parts.find((part): part is CompactionPart => part.type === "compaction")
+    tailStartID ??= compactionPart?.tail_start_id
+    if (tailStartID && msg.info.id === tailStartID) break
+    if (msg.info.role === "user" && completed.has(msg.info.id) && compactionPart) {
+      if (tailStartID) continue
       break
+    }
     if (msg.info.role === "assistant" && msg.info.summary && msg.info.finish && !msg.info.error)
       completed.add(msg.info.parentID)
   }
   result.reverse()
+  if (tailStartID) {
+    // After reversing to chronological order, drop everything before the retained tail.
+    const idx = result.findIndex((msg) => msg.info.id === tailStartID)
+    if (idx >= 0) return result.slice(idx)
+  }
   return result
 }
 

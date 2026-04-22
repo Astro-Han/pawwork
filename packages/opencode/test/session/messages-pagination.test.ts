@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
@@ -7,9 +7,13 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Log } from "../../src/util"
+import { provideTmpdirInstance } from "../fixture/fixture"
+import { testEffect } from "../lib/effect"
+import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 
 const root = path.join(__dirname, "../..")
 void Log.init({ print: false })
+const it = testEffect(Layer.mergeAll(CrossSpawnSpawner.defaultLayer, SessionNs.defaultLayer))
 
 function run<A, E>(fx: Effect.Effect<A, E, SessionNs.Service>) {
   return Effect.runPromise(fx.pipe(Effect.provide(SessionNs.defaultLayer)))
@@ -114,6 +118,75 @@ async function addCompactionPart(sessionID: SessionID, messageID: MessageID) {
     messageID,
     type: "compaction",
     auto: true,
+  } as any)
+}
+
+function addUserEffect(ssn: SessionNs.Interface, sessionID: SessionID, text?: string) {
+  return Effect.gen(function* () {
+    const id = MessageID.ascending()
+    yield* ssn.updateMessage({
+      id,
+      sessionID,
+      role: "user",
+      time: { created: Date.now() },
+      agent: "test",
+      model: { providerID: "test", modelID: "test" },
+      tools: {},
+      mode: "",
+    } as unknown as MessageV2.Info)
+    if (text) {
+      yield* ssn.updatePart({
+        id: PartID.ascending(),
+        sessionID,
+        messageID: id,
+        type: "text",
+        text,
+      })
+    }
+    return id
+  })
+}
+
+function addAssistantEffect(
+  ssn: SessionNs.Interface,
+  sessionID: SessionID,
+  parentID: MessageID,
+  opts?: { summary?: boolean; finish?: string; error?: MessageV2.Assistant["error"] },
+) {
+  return Effect.gen(function* () {
+    const id = MessageID.ascending()
+    yield* ssn.updateMessage({
+      id,
+      sessionID,
+      role: "assistant",
+      time: { created: Date.now() },
+      parentID,
+      modelID: ModelID.make("test"),
+      providerID: ProviderID.make("test"),
+      mode: "",
+      agent: "default",
+      path: { cwd: "/", root: "/" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      summary: opts?.summary,
+      finish: opts?.finish,
+      error: opts?.error,
+    } as unknown as MessageV2.Info)
+    return id
+  })
+}
+
+function addCompactionPartEffect(
+  ssn: SessionNs.Interface,
+  input: { sessionID: SessionID; messageID: MessageID; tail_start_id?: MessageID },
+) {
+  return ssn.updatePart({
+    id: PartID.ascending(),
+    sessionID: input.sessionID,
+    messageID: input.messageID,
+    type: "compaction",
+    auto: true,
+    tail_start_id: input.tail_start_id,
   } as any)
 }
 
@@ -710,6 +783,118 @@ describe("MessageV2.filterCompacted", () => {
       },
     })
   })
+
+  it.live(
+    "keeps retained tail messages after a compaction part with tail_start_id",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const ssn = yield* SessionNs.Service
+        const session = yield* ssn.create({})
+
+        const old = yield* addUserEffect(ssn, session.id, "old")
+        const oldAssistant = yield* addAssistantEffect(ssn, session.id, old)
+        const retained = yield* addUserEffect(ssn, session.id, "retained")
+        const retainedAssistant = yield* addAssistantEffect(ssn, session.id, retained)
+        const boundary = yield* addUserEffect(ssn, session.id, "compact")
+        yield* addCompactionPartEffect(ssn, { sessionID: session.id, messageID: boundary, tail_start_id: retained })
+
+        const result = MessageV2.filterCompacted(MessageV2.stream(session.id))
+        const ids = result.map((message) => message.info.id)
+        expect(ids).toContain(retained)
+        expect(ids).toContain(retainedAssistant)
+        expect(ids).not.toContain(old)
+        expect(ids).not.toContain(oldAssistant)
+
+        yield* ssn.remove(session.id)
+      }),
+    ),
+  )
+
+  it.live(
+    "keeps retained tail messages after successful compaction summary",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const ssn = yield* SessionNs.Service
+        const session = yield* ssn.create({})
+
+        const old = yield* addUserEffect(ssn, session.id, "old")
+        const oldAssistant = yield* addAssistantEffect(ssn, session.id, old)
+        const retained = yield* addUserEffect(ssn, session.id, "retained")
+        const retainedAssistant = yield* addAssistantEffect(ssn, session.id, retained)
+        const boundary = yield* addUserEffect(ssn, session.id, "compact")
+        yield* addCompactionPartEffect(ssn, { sessionID: session.id, messageID: boundary, tail_start_id: retained })
+        const summary = yield* addAssistantEffect(ssn, session.id, boundary, { summary: true, finish: "end_turn" })
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          sessionID: session.id,
+          messageID: summary,
+          type: "text",
+          text: "summary",
+        })
+
+        const result = MessageV2.filterCompacted(MessageV2.stream(session.id))
+        const ids = result.map((message) => message.info.id)
+        expect(ids).toContain(retained)
+        expect(ids).toContain(retainedAssistant)
+        expect(ids).not.toContain(old)
+        expect(ids).not.toContain(oldAssistant)
+
+        yield* ssn.remove(session.id)
+      }),
+    ),
+  )
+
+  it.live(
+    "uses the newest pending compaction tail marker",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const ssn = yield* SessionNs.Service
+        const session = yield* ssn.create({})
+
+        const old = yield* addUserEffect(ssn, session.id, "old")
+        const oldAssistant = yield* addAssistantEffect(ssn, session.id, old)
+        const previousTail = yield* addUserEffect(ssn, session.id, "previous tail")
+        const previousTailAssistant = yield* addAssistantEffect(ssn, session.id, previousTail)
+        const previousBoundary = yield* addUserEffect(ssn, session.id, "previous compact")
+        yield* addCompactionPartEffect(ssn, {
+          sessionID: session.id,
+          messageID: previousBoundary,
+          tail_start_id: previousTail,
+        })
+        const previousSummary = yield* addAssistantEffect(ssn, session.id, previousBoundary, {
+          summary: true,
+          finish: "end_turn",
+        })
+        yield* ssn.updatePart({
+          id: PartID.ascending(),
+          sessionID: session.id,
+          messageID: previousSummary,
+          type: "text",
+          text: "summary",
+        })
+
+        const newestTail = yield* addUserEffect(ssn, session.id, "newest tail")
+        const newestTailAssistant = yield* addAssistantEffect(ssn, session.id, newestTail)
+        const pendingBoundary = yield* addUserEffect(ssn, session.id, "pending compact")
+        yield* addCompactionPartEffect(ssn, {
+          sessionID: session.id,
+          messageID: pendingBoundary,
+          tail_start_id: newestTail,
+        })
+
+        const result = MessageV2.filterCompacted(MessageV2.stream(session.id))
+        const ids = result.map((message) => message.info.id)
+        expect(ids).toContain(newestTail)
+        expect(ids).toContain(newestTailAssistant)
+        expect(ids).not.toContain(previousTail)
+        expect(ids).not.toContain(previousTailAssistant)
+        expect(ids).not.toContain(old)
+        expect(ids).not.toContain(oldAssistant)
+
+        yield* ssn.remove(session.id)
+      }),
+    ),
+  )
 
   test("handles empty iterable", () => {
     const result = MessageV2.filterCompacted([])
