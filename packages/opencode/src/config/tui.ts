@@ -10,6 +10,8 @@ import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
 import { isRecord } from "@/util/record"
 import { Global } from "@/global"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 
 export namespace TuiConfig {
   const log = Log.create({ service: "tui.config" })
@@ -51,7 +53,7 @@ export namespace TuiConfig {
   }
 
   function installDeps(dir: string): Promise<void> {
-    return Config.installDependencies(dir)
+    return Config.installDependencies(dir).then(() => {})
   }
 
   async function mergeFile(acc: Acc, file: string) {
@@ -72,7 +74,9 @@ export namespace TuiConfig {
     let projectFiles = Flag.OPENCODE_DISABLE_PROJECT_CONFIG
       ? []
       : await ConfigPaths.projectFiles("tui", Instance.directory, Instance.worktree)
-    const directories = await ConfigPaths.directories(Instance.directory, Instance.worktree)
+    const directories = await Effect.runPromise(
+      ConfigPaths.directories(Instance.directory, Instance.worktree).pipe(Effect.provide(AppFileSystem.defaultLayer)),
+    )
     const custom = customPath()
     const managed = Config.managedConfigDir()
     await migrateTuiConfig({ directories, custom, managed })
