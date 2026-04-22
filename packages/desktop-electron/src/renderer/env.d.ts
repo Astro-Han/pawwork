@@ -4,8 +4,7 @@ declare global {
   interface Window {
     api: ElectronAPI
     __OPENCODE__?: {
-      updaterEnabled?: boolean
-      wsl?: boolean
+      // Runtime deep-link buffer only; initial deep links come from startup-state IPC.
       deepLinks?: string[]
     }
   }

@@ -21,6 +21,7 @@ import { render } from "solid-js/web"
 import pkg from "../../package.json"
 import { desktopShellMainSelector, titlebarShellSelector } from "./ci-smoke-selectors"
 import { initI18n, t } from "./i18n"
+import { getStartupState, pushPendingDeepLinks } from "./startup-state"
 import { UPDATER_ENABLED } from "./updater"
 import { webviewZoom } from "./webview-zoom"
 import "./styles.css"
@@ -44,9 +45,7 @@ void initI18n()
 const deepLinkEvent = "opencode:deep-link"
 const emitDeepLinks = (urls: string[]) => {
   if (urls.length === 0) return
-  window.__OPENCODE__ ??= {}
-  const pending = window.__OPENCODE__.deepLinks ?? []
-  window.__OPENCODE__.deepLinks = [...pending, ...urls]
+  pushPendingDeepLinks(window, urls)
   window.dispatchEvent(new CustomEvent(deepLinkEvent, { detail: { urls } }))
 }
 
@@ -71,7 +70,7 @@ async function reportCiSmokeReady(sidecar: { url: string; username?: string | nu
 }
 
 const listenForDeepLinks = () => {
-  const startUrls = window.__OPENCODE__?.deepLinks ?? []
+  const startUrls = startupState.consumeInitialDeepLinks()
   if (startUrls.length) emitDeepLinks(startUrls)
   const dispose = window.api.onDeepLink((urls) => emitDeepLinks(urls))
   void window.api.reportDeepLinkReady()
@@ -88,12 +87,12 @@ const createPlatform = (): Platform => {
   })()
 
   const wslHome = async () => {
-    if (os !== "windows" || !window.__OPENCODE__?.wsl) return undefined
+    if (os !== "windows" || !startupState.wslEnabled()) return undefined
     return window.api.wslPath("~", "windows").catch(() => undefined)
   }
 
   const handleWslPicker = async <T extends string | string[]>(result: T | null): Promise<T | null> => {
-    if (!result || !window.__OPENCODE__?.wsl) return result
+    if (!result || !startupState.wslEnabled()) return result
     if (Array.isArray(result)) {
       return Promise.all(result.map((path) => window.api.wslPath(path, "linux").catch(() => path))) as any
     }
@@ -101,12 +100,12 @@ const createPlatform = (): Platform => {
   }
 
   const resolveWslPath = async (path: string, mode: "windows" | "linux") => {
-    if (!window.__OPENCODE__?.wsl) return path
+    if (!startupState.wslEnabled()) return path
     return window.api.wslPath(path, mode).catch(() => path)
   }
 
   const resolveWslPathForDirectRead = async (path: string) => {
-    if (!window.__OPENCODE__?.wsl) return path
+    if (!startupState.wslEnabled()) return path
     return window.api.wslPath(path, "windows").catch(() => null)
   }
 
@@ -183,7 +182,7 @@ const createPlatform = (): Platform => {
       if (os === "windows") {
         const resolvedApp = app ? await window.api.resolveAppPath(app).catch(() => null) : null
         const resolvedPath = await (async () => {
-          if (window.__OPENCODE__?.wsl) {
+          if (startupState.wslEnabled()) {
             const converted = await window.api.wslPath(path, "windows").catch(() => null)
             if (converted) return converted
           }
@@ -203,7 +202,7 @@ const createPlatform = (): Platform => {
       const pairs = await Promise.all(
         paths.map(async (original) => {
           const resolved =
-            os === "windows" && window.__OPENCODE__?.wsl
+            os === "windows" && startupState.wslEnabled()
               ? await window.api.wslPath(original, "windows").catch(() => original)
               : original
           return [original, resolved] as const
@@ -265,12 +264,16 @@ const createPlatform = (): Platform => {
 
     getWslEnabled: async () => {
       const next = await window.api.getWslConfig().catch(() => null)
-      if (next) return next.enabled
-      return window.__OPENCODE__!.wsl ?? false
+      if (next) {
+        startupState.setWslEnabled(next.enabled)
+        return next.enabled
+      }
+      return startupState.wslEnabled()
     },
 
     setWslEnabled: async (enabled) => {
       await window.api.setWslConfig({ enabled })
+      startupState.setWslEnabled(enabled)
     },
 
     getDefaultServer: async () => {
@@ -314,119 +317,122 @@ let menuTrigger = null as null | ((id: string) => void)
 window.api.onMenuCommand((id) => {
   menuTrigger?.(id)
 })
-listenForDeepLinks()
+const startupState = getStartupState()
+void startupState.ready.then(() => {
+  listenForDeepLinks()
 
-render(() => {
-  const platform = createPlatform()
-  const loadLocale = async () => {
-    const current = await platform.storage?.("pawwork.global.dat").getItem("language")
-    const legacy = current ? undefined : await platform.storage?.().getItem("language.v1")
-    const raw = current ?? legacy
-    if (!raw) return
-    const locale = raw.match(/"locale"\s*:\s*"([^"]+)"/)?.[1]
-    if (!locale) return
-    const next = normalizeLocale(locale)
-    if (next !== "en") await loadLocaleDict(next)
-    return next satisfies Locale
-  }
-
-  const [windowCount] = createResource(() => window.api.getWindowCount())
-
-  // Fetch sidecar credentials (available immediately, before health check)
-  const [sidecar] = createResource(() => window.api.awaitInitialization(() => undefined))
-
-  const [defaultServer] = createResource(() =>
-    platform.getDefaultServer?.().then((url) => {
-      if (url) return ServerConnection.key({ type: "http", http: { url } })
-    }),
-  )
-  const [locale] = createResource(loadLocale)
-  let ciSmokeTaskStarted = false
-
-  const servers = () => {
-    const data = sidecar()
-    if (!data) return []
-    const server: ServerConnection.Sidecar = {
-      displayName: "Local Server",
-      type: "sidecar",
-      variant: "base",
-      http: {
-        url: data.url,
-        username: data.username ?? undefined,
-        password: data.password ?? undefined,
-      },
+  render(() => {
+    const platform = createPlatform()
+    const loadLocale = async () => {
+      const current = await platform.storage?.("pawwork.global.dat").getItem("language")
+      const legacy = current ? undefined : await platform.storage?.().getItem("language.v1")
+      const raw = current ?? legacy
+      if (!raw) return
+      const locale = raw.match(/"locale"\s*:\s*"([^"]+)"/)?.[1]
+      if (!locale) return
+      const next = normalizeLocale(locale)
+      if (next !== "en") await loadLocaleDict(next)
+      return next satisfies Locale
     }
-    return [server] as ServerConnection.Any[]
-  }
 
-  function handleClick(e: MouseEvent) {
-    const link = (e.target as HTMLElement).closest("a.external-link") as HTMLAnchorElement | null
-    if (link?.href) {
-      e.preventDefault()
-      platform.openLink(link.href)
+    const [windowCount] = createResource(() => window.api.getWindowCount())
+
+    // Fetch sidecar credentials (available immediately, before health check)
+    const [sidecar] = createResource(() => window.api.awaitInitialization(() => undefined))
+
+    const [defaultServer] = createResource(() =>
+      platform.getDefaultServer?.().then((url) => {
+        if (url) return ServerConnection.key({ type: "http", http: { url } })
+      }),
+    )
+    const [locale] = createResource(loadLocale)
+    let ciSmokeTaskStarted = false
+
+    const servers = () => {
+      const data = sidecar()
+      if (!data) return []
+      const server: ServerConnection.Sidecar = {
+        displayName: "Local Server",
+        type: "sidecar",
+        variant: "base",
+        http: {
+          url: data.url,
+          username: data.username ?? undefined,
+          password: data.password ?? undefined,
+        },
+      }
+      return [server] as ServerConnection.Any[]
     }
-  }
 
-  function Inner() {
-    const cmd = useCommand()
-    menuTrigger = (id) => cmd.trigger(id)
+    function handleClick(e: MouseEvent) {
+      const link = (e.target as HTMLElement).closest("a.external-link") as HTMLAnchorElement | null
+      if (link?.href) {
+        e.preventDefault()
+        platform.openLink(link.href)
+      }
+    }
 
-    const theme = useTheme()
+    function Inner() {
+      const cmd = useCommand()
+      menuTrigger = (id) => cmd.trigger(id)
+
+      const theme = useTheme()
+
+      createEffect(() => {
+        theme.themeId()
+        theme.mode()
+        const bg = getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim()
+        if (bg) {
+          void window.api.setBackgroundColor(bg)
+        }
+      })
+
+      return null
+    }
 
     createEffect(() => {
-      theme.themeId()
-      theme.mode()
-      const bg = getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim()
-      if (bg) {
-        void window.api.setBackgroundColor(bg)
-      }
+      if (!window.api.ciSmokeEnabled) return
+      if (ciSmokeTaskStarted) return
+      if (defaultServer.loading || sidecar.loading || windowCount.loading || locale.loading) return
+
+      const readySidecar = sidecar.latest
+      if (!readySidecar) return
+
+      ciSmokeTaskStarted = true
+      void (async () => {
+        const timeoutAt = Date.now() + 15_000
+        while (Date.now() < timeoutAt) {
+          if (await reportCiSmokeReady(readySidecar)) return
+          await new Promise((resolve) => setTimeout(resolve, 250))
+        }
+      })()
     })
 
-    return null
-  }
-
-  createEffect(() => {
-    if (!window.api.ciSmokeEnabled) return
-    if (ciSmokeTaskStarted) return
-    if (defaultServer.loading || sidecar.loading || windowCount.loading || locale.loading) return
-
-    const readySidecar = sidecar.latest
-    if (!readySidecar) return
-
-    ciSmokeTaskStarted = true
-    void (async () => {
-      const timeoutAt = Date.now() + 15_000
-      while (Date.now() < timeoutAt) {
-        if (await reportCiSmokeReady(readySidecar)) return
-        await new Promise((resolve) => setTimeout(resolve, 250))
-      }
-    })()
-  })
-
-  onMount(() => {
-    document.addEventListener("click", handleClick)
-    onCleanup(() => {
-      document.removeEventListener("click", handleClick)
+    onMount(() => {
+      document.addEventListener("click", handleClick)
+      onCleanup(() => {
+        document.removeEventListener("click", handleClick)
+      })
     })
-  })
 
-  return (
-    <PlatformProvider value={platform}>
-      <AppBaseProviders locale={locale.latest}>
-        <Show when={!defaultServer.loading && !sidecar.loading && !windowCount.loading && !locale.loading}>
-          {(_) => {
-            return (
-              <AppInterface
-                defaultServer={defaultServer.latest ?? ServerConnection.Key.make("sidecar")}
-                servers={servers()}
-                router={MemoryRouter}
-              >
-                <Inner />
-              </AppInterface>
-            )
-          }}
-        </Show>
-      </AppBaseProviders>
-    </PlatformProvider>
-  )
-}, root!)
+    return (
+      <PlatformProvider value={platform}>
+        <AppBaseProviders locale={locale.latest}>
+          <Show when={!defaultServer.loading && !sidecar.loading && !windowCount.loading && !locale.loading}>
+            {(_) => {
+              return (
+                <AppInterface
+                  defaultServer={defaultServer.latest ?? ServerConnection.Key.make("sidecar")}
+                  servers={servers()}
+                  router={MemoryRouter}
+                >
+                  <Inner />
+                </AppInterface>
+              )
+            }}
+          </Show>
+        </AppBaseProviders>
+      </PlatformProvider>
+    )
+  }, root!)
+})

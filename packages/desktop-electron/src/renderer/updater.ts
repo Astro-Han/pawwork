@@ -1,6 +1,7 @@
 import { initI18n, t } from "./i18n"
+import { getStartupState } from "./startup-state"
 
-export const UPDATER_ENABLED = () => window.__OPENCODE__?.updaterEnabled ?? false
+export const UPDATER_ENABLED = () => getStartupState().updaterEnabled()
 
 export async function runUpdater({ alertOnFail }: { alertOnFail: boolean }) {
   await initI18n()

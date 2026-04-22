@@ -16,6 +16,11 @@ export type SqliteMigrationProgress = { type: "InProgress"; value: number } | { 
 
 export type WslConfig = { enabled: boolean }
 
+export type WindowConfig = {
+  updaterEnabled: boolean
+  wslEnabled: boolean
+}
+
 export type LinuxDisplayBackend = "wayland" | "auto"
 export type TitlebarTheme = {
   mode: "light" | "dark"
@@ -30,6 +35,8 @@ export type ElectronAPI = {
   setDefaultServerUrl: (url: string | null) => Promise<void>
   getWslConfig: () => Promise<WslConfig>
   setWslConfig: (config: WslConfig) => Promise<void>
+  getWindowConfig: () => Promise<WindowConfig>
+  consumeInitialDeepLinks: () => Promise<string[]>
   getDisplayBackend: () => Promise<LinuxDisplayBackend | null>
   setDisplayBackend: (backend: LinuxDisplayBackend | null) => Promise<void>
   parseMarkdownCommand: (markdown: string) => Promise<string>

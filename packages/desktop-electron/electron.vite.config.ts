@@ -70,6 +70,11 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: "src/preload/index.ts" },
+        output: {
+          // Electron sandboxed preload scripts require CommonJS.
+          format: "cjs",
+          entryFileNames: "[name].js",
+        },
       },
     },
   },
