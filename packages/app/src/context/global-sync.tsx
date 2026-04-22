@@ -26,7 +26,7 @@ import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { sanitizeProject } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
-import { queryOptions, skipToken, useQueryClient } from "@tanstack/solid-query"
+import { queryOptions, useQueryClient } from "@tanstack/solid-query"
 
 type GlobalStore = {
   ready: boolean
@@ -42,8 +42,10 @@ type GlobalStore = {
   reload: undefined | "pending" | "complete"
 }
 
+const inactiveQueryFn = async () => null
+
 export const loadSessionsQuery = (directory: string) =>
-  queryOptions<null>({ queryKey: [directory, "loadSessions"], queryFn: skipToken })
+  queryOptions<null>({ queryKey: [directory, "loadSessions"], queryFn: inactiveQueryFn, enabled: false })
 
 function createGlobalSync() {
   const globalSDK = useGlobalSDK()

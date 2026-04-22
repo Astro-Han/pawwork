@@ -18,7 +18,7 @@ import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
-import { QueryClient, queryOptions, skipToken } from "@tanstack/solid-query"
+import { QueryClient, queryOptions } from "@tanstack/solid-query"
 import { loadSessionsQuery } from "../global-sync"
 
 type GlobalStore = {
@@ -180,11 +180,13 @@ function warmSessions(input: {
   ).then(() => undefined)
 }
 
+const inactiveQueryFn = async () => null
+
 export const loadProvidersQuery = (directory: string | null) =>
-  queryOptions<null>({ queryKey: [directory, "providers"], queryFn: skipToken })
+  queryOptions<null>({ queryKey: [directory, "providers"], queryFn: inactiveQueryFn, enabled: false })
 
 export const loadAgentsQuery = (directory: string | null) =>
-  queryOptions<null>({ queryKey: [directory, "agents"], queryFn: skipToken })
+  queryOptions<null>({ queryKey: [directory, "agents"], queryFn: inactiveQueryFn, enabled: false })
 
 export async function bootstrapDirectory(input: {
   directory: string
