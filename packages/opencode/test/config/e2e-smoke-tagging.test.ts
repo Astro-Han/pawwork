@@ -20,7 +20,17 @@ const expectedSmokeTests = [
   "packages/app/e2e/terminal/terminal-init.spec.ts:@smoke terminal mounts and can create a second tab",
 ]
 
+function normalizeSmokeInventoryPath(relative: string, separator = path.sep) {
+  return relative.replaceAll(separator, path.posix.sep)
+}
+
 describe("e2e smoke tagging", () => {
+  test("normalizes Windows smoke inventory paths", () => {
+    expect(normalizeSmokeInventoryPath("packages\\app\\e2e\\settings\\settings.spec.ts", path.win32.sep)).toBe(
+      "packages/app/e2e/settings/settings.spec.ts",
+    )
+  })
+
   test("uses the expected @smoke inventory without legacy smoke titles", async () => {
     const legacy: string[] = []
     const tagged: string[] = []
@@ -30,7 +40,7 @@ describe("e2e smoke tagging", () => {
       absolute: true,
     })) {
       const text = await fs.readFile(file, "utf8")
-      const relative = path.relative(repoRoot, file)
+      const relative = normalizeSmokeInventoryPath(path.relative(repoRoot, file))
 
       for (const match of text.matchAll(/test(?:\.fixme)?\(\s*["']smoke\b/g)) {
         legacy.push(`${relative}:${match.index ?? 0}`)
