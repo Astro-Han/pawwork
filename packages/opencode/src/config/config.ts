@@ -58,16 +58,21 @@ export namespace Config {
 
   const log = Log.create({ service: "config" })
 
+  function isPawWorkRuntime() {
+    return process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork"
+  }
+
   // Managed settings directory for enterprise deployments (highest priority, admin-controlled)
   // These settings override all user and project settings
   function systemManagedConfigDir(): string {
+    const app = isPawWorkRuntime() ? "pawwork" : "opencode"
     switch (process.platform) {
       case "darwin":
-        return "/Library/Application Support/opencode"
+        return `/Library/Application Support/${app}`
       case "win32":
-        return path.join(process.env.ProgramData || "C:\\ProgramData", "opencode")
+        return path.join(process.env.ProgramData || "C:\\ProgramData", app)
       default:
-        return "/etc/opencode"
+        return `/etc/${app}`
     }
   }
 
@@ -75,9 +80,9 @@ export namespace Config {
     return process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || systemManagedConfigDir()
   }
 
-  const managedDir = managedConfigDir()
-
-  const MANAGED_PLIST_DOMAIN = "ai.opencode.managed"
+  function managedPlistDomain() {
+    return isPawWorkRuntime() ? "ai.pawwork.managed" : "ai.opencode.managed"
+  }
 
   // Keys injected by macOS/MDM into the managed plist that are not OpenCode config
   const PLIST_META = new Set([
@@ -110,7 +115,7 @@ export namespace Config {
   async function readManagedPreferences(): Promise<Info> {
     if (process.platform !== "darwin") return {}
 
-    const domain = MANAGED_PLIST_DOMAIN
+    const domain = managedPlistDomain()
     const user = os.userInfo().username
     const paths = [
       path.join("/Library/Managed Preferences", user, `${domain}.plist`),
@@ -1152,18 +1157,32 @@ export namespace Config {
   // below; if you add a name, keep "wins last" at the tail.
   const PROJECT_CONFIG_NAMES = ["opencode", "pawwork"] as const
   const PROJECT_CONFIG_FILENAMES = PROJECT_CONFIG_NAMES.flatMap((n) => [`${n}.json`, `${n}.jsonc`])
+  const PAWWORK_GLOBAL_CONFIG_FILENAMES = ["pawwork.json", "pawwork.jsonc"] as const
+  const OPENCODE_GLOBAL_CONFIG_FILENAMES = ["config.json", ...PROJECT_CONFIG_FILENAMES] as const
+
+  function globalConfigFilenames() {
+    return isPawWorkRuntime() ? PAWWORK_GLOBAL_CONFIG_FILENAMES : OPENCODE_GLOBAL_CONFIG_FILENAMES
+  }
 
   function globalConfigFile() {
-    // Reverse of merge order because this helper picks FIRST match (not merge),
-    // so pawwork must come before opencode. Legacy `config.json` last.
-    const candidates = [...PROJECT_CONFIG_FILENAMES]
-      .reverse()
-      .concat("config.json")
-      .map((file) => path.join(Global.Path.config, file))
-    for (const file of candidates) {
+    const candidates = [...globalConfigFilenames()].map((file) => path.join(Global.Path.config, file))
+    for (const file of [...candidates].reverse()) {
       if (existsSync(file)) return file
     }
-    return candidates[0]
+    return path.join(Global.Path.config, isPawWorkRuntime() ? "pawwork.json" : "opencode.json")
+  }
+
+  function projectConfigFile(dir: string) {
+    if (!isPawWorkRuntime()) return path.join(dir, "config.json")
+    const candidates = ["pawwork.json", "pawwork.jsonc"].map((file) => path.join(dir, file))
+    for (const file of [...candidates].reverse()) {
+      if (existsSync(file)) return file
+    }
+    return path.join(dir, "pawwork.json")
+  }
+
+  function shouldInstallDependencies(dir: string) {
+    return !(isPawWorkRuntime() && path.basename(dir) === ".opencode")
   }
 
   function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
@@ -1307,10 +1326,8 @@ export namespace Config {
         })
 
         const loadGlobal = Effect.fnUntraced(function* () {
-          // Merge order matches PROJECT_CONFIG_FILENAMES: legacy `config.json`
-          // first, then opencode -> pawwork so pawwork wins via last-in merge.
           let result: Info = {}
-          for (const file of ["config.json", ...PROJECT_CONFIG_FILENAMES]) {
+          for (const file of globalConfigFilenames()) {
             result = mergeDeep(result, yield* loadFile(path.join(Global.Path.config, file)))
           }
 
@@ -1323,7 +1340,10 @@ export namespace Config {
                   if (provider && model) result.model = `${provider}/${model}`
                   result["$schema"] = "https://opencode.ai/config.json"
                   result = mergeDeep(result, rest)
-                  await fsNode.writeFile(path.join(Global.Path.config, "config.json"), JSON.stringify(result, null, 2))
+                  await fsNode.writeFile(
+                    path.join(Global.Path.config, isPawWorkRuntime() ? "pawwork.json" : "config.json"),
+                    JSON.stringify(result, null, 2),
+                  )
                   await fsNode.unlink(legacy)
                 })
                 .catch(() => {}),
@@ -1433,15 +1453,25 @@ export namespace Config {
 
           const directories = yield* Effect.promise(() => ConfigPaths.directories(ctx.directory, ctx.worktree))
 
-          if (Flag.OPENCODE_CONFIG_DIR) {
+          const pawworkConfigDir = process.env.PAWWORK_CONFIG_DIR
+          if (isPawWorkRuntime() && pawworkConfigDir) {
+            log.debug("loading config from PAWWORK_CONFIG_DIR", { path: pawworkConfigDir })
+          } else if (Flag.OPENCODE_CONFIG_DIR) {
             log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
           }
 
           const deps: Promise<void>[] = []
 
           for (const dir of unique(directories)) {
-            if (dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR) {
-              for (const file of PROJECT_CONFIG_FILENAMES) {
+            const configFiles =
+              isPawWorkRuntime() && pawworkConfigDir && dir === pawworkConfigDir
+                ? globalConfigFilenames()
+                : dir.endsWith(".opencode") || dir === Flag.OPENCODE_CONFIG_DIR
+                  ? PROJECT_CONFIG_FILENAMES
+                  : []
+
+            if (configFiles.length > 0) {
+              for (const file of configFiles) {
                 const source = path.join(dir, file)
                 log.debug(`loading config from ${source}`)
                 yield* merge(source, yield* loadFile(source))
@@ -1451,13 +1481,15 @@ export namespace Config {
               }
             }
 
-            const dep = iife(async () => {
-              await installDependencies(dir)
-            })
-            void dep.catch((err) => {
-              log.warn("background dependency install failed", { dir, error: err })
-            })
-            deps.push(dep)
+            if (shouldInstallDependencies(dir)) {
+              const dep = iife(async () => {
+                await installDependencies(dir)
+              })
+              void dep.catch((err) => {
+                log.warn("background dependency install failed", { dir, error: err })
+              })
+              deps.push(dep)
+            }
 
             result.command = mergeDeep(result.command ?? {}, yield* Effect.promise(() => loadCommand(dir)))
             result.agent = mergeDeep(result.agent, yield* Effect.promise(() => loadAgent(dir)))
@@ -1513,8 +1545,10 @@ export namespace Config {
             )
           }
 
+          const managedDir = managedConfigDir()
           if (existsSync(managedDir)) {
-            for (const file of PROJECT_CONFIG_FILENAMES) {
+            const managedFiles = isPawWorkRuntime() ? globalConfigFilenames() : PROJECT_CONFIG_FILENAMES
+            for (const file of managedFiles) {
               const source = path.join(managedDir, file)
               yield* merge(source, yield* loadFile(source), "global")
             }
@@ -1598,11 +1632,19 @@ export namespace Config {
 
         const update = Effect.fn("Config.update")(function* (config: Info) {
           const dir = yield* InstanceState.directory
-          const file = path.join(dir, "config.json")
-          const existing = yield* loadFile(file)
-          yield* fs
-            .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), writable(config)), null, 2))
-            .pipe(Effect.orDie)
+          const file = projectConfigFile(dir)
+          const input = writable(config)
+
+          if (!file.endsWith(".jsonc")) {
+            const existing = yield* loadFile(file)
+            yield* fs
+              .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), input), null, 2))
+              .pipe(Effect.orDie)
+          } else {
+            const before = (yield* readConfigFile(file)) ?? "{}"
+            yield* fs.writeFileString(file, patchJsonc(before, input)).pipe(Effect.orDie)
+          }
+
           yield* Effect.promise(() => Instance.dispose())
         })
 

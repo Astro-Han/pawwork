@@ -36,6 +36,10 @@ const log = Log.create({ service: "session" })
 const parentTitlePrefix = "New session - "
 const childTitlePrefix = "Child session - "
 
+function isPawWorkRuntime() {
+  return process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork"
+}
+
 function createDefaultTitle(isChild = false) {
   return (isChild ? childTitlePrefix : parentTitlePrefix) + new Date().toISOString()
 }
@@ -264,7 +268,7 @@ export const Event = {
 
 export function plan(input: { slug: string; time: { created: number } }) {
   const base = Instance.project.vcs
-    ? path.join(Instance.worktree, ".opencode", "plans")
+    ? path.join(Instance.worktree, isPawWorkRuntime() ? ".pawwork" : ".opencode", "plans")
     : path.join(Global.Path.data, "plans")
   return path.join(base, [input.time.created, input.slug].join("-") + ".md")
 }

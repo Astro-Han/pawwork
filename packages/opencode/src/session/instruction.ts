@@ -21,10 +21,19 @@ const FILES = [
   "CONTEXT.md", // deprecated
 ]
 
+function isPawWorkRuntime() {
+  return process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork"
+}
+
+function configDir() {
+  return isPawWorkRuntime() ? process.env.PAWWORK_CONFIG_DIR : Flag.OPENCODE_CONFIG_DIR
+}
+
 function globalFiles() {
   const files = []
-  if (Flag.OPENCODE_CONFIG_DIR) {
-    files.push(path.join(Flag.OPENCODE_CONFIG_DIR, "AGENTS.md"))
+  const dir = configDir()
+  if (dir) {
+    files.push(path.join(dir, "AGENTS.md"))
   }
   files.push(path.join(Global.Path.config, "AGENTS.md"))
   if (!Flag.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT) {
@@ -87,14 +96,16 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
             .globUp(instruction, Instance.directory, Instance.worktree)
             .pipe(Effect.catch(() => Effect.succeed([] as string[])))
         }
-        if (!Flag.OPENCODE_CONFIG_DIR) {
+        const dir = configDir()
+        if (!dir) {
+          const env = isPawWorkRuntime() ? "PAWWORK_CONFIG_DIR" : "OPENCODE_CONFIG_DIR"
           log.warn(
-            `Skipping relative instruction "${instruction}" - no OPENCODE_CONFIG_DIR set while project config is disabled`,
+            `Skipping relative instruction "${instruction}" - no ${env} set while project config is disabled`,
           )
           return []
         }
         return yield* fs
-          .globUp(instruction, Flag.OPENCODE_CONFIG_DIR, Flag.OPENCODE_CONFIG_DIR)
+          .globUp(instruction, dir, dir)
           .pipe(Effect.catch(() => Effect.succeed([] as string[])))
       })
 

@@ -8,17 +8,11 @@ import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
 
 export namespace ConfigPaths {
-  export async function projectFiles(
-    name: string | readonly string[],
-    directory: string,
-    worktree: string,
-  ) {
-    const names = Array.isArray(name) ? name : [name]
-    const targets = names.flatMap((n) => [`${n}.json`, `${n}.jsonc`])
-    return Filesystem.findUp(targets, directory, worktree, { rootFirst: true })
+  function isPawWorkRuntime() {
+    return process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork"
   }
 
-  export async function directories(directory: string, worktree: string) {
+  async function opencodeDirectories(directory: string, worktree: string) {
     return [
       Global.Path.config,
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
@@ -38,6 +32,35 @@ export namespace ConfigPaths {
         }),
       )),
       ...(Flag.OPENCODE_CONFIG_DIR ? [Flag.OPENCODE_CONFIG_DIR] : []),
+    ]
+  }
+
+  export async function projectFiles(
+    name: string | readonly string[],
+    directory: string,
+    worktree: string,
+  ) {
+    const names = Array.isArray(name) ? name : [name]
+    const targets = names.flatMap((n) => [`${n}.json`, `${n}.jsonc`])
+    return Filesystem.findUp(targets, directory, worktree, { rootFirst: true })
+  }
+
+  export async function directories(directory: string, worktree: string) {
+    if (!isPawWorkRuntime()) return opencodeDirectories(directory, worktree)
+
+    const pawworkConfigDir = process.env.PAWWORK_CONFIG_DIR
+    return [
+      Global.Path.config,
+      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+        ? await Array.fromAsync(
+            Filesystem.up({
+              targets: [".opencode"],
+              start: directory,
+              stop: worktree,
+            }),
+          )
+        : []),
+      ...(pawworkConfigDir ? [pawworkConfigDir] : []),
     ]
   }
 
