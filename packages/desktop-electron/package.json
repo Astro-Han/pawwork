@@ -26,6 +26,7 @@
   },
   "main": "./out/main/index.js",
   "dependencies": {
+    "@opencode-ai/util": "workspace:*",
     "effect": "catalog:",
     "electron-context-menu": "4.1.2",
     "electron-log": "^5",

@@ -82,6 +82,7 @@
       "name": "@opencode-ai/desktop-electron",
       "version": "0.2.5",
       "dependencies": {
+        "@opencode-ai/util": "workspace:*",
         "effect": "catalog:",
         "electron-context-menu": "4.1.2",
         "electron-log": "^5",
