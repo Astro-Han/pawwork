@@ -35,7 +35,7 @@ export const SessionRoutes = lazy(() =>
       "/",
       describeRoute({
         summary: "List sessions",
-        description: "Get a list of all OpenCode sessions, sorted by most recently updated.",
+        description: "Get a list of all OpenCode sessions. Defaults to most recently updated; use sort=created for creation-time order.",
         operationId: "session.list",
         responses: {
           200: {
@@ -59,6 +59,7 @@ export const SessionRoutes = lazy(() =>
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
+          sort: z.enum(["updated", "created"]).optional().meta({ description: "Sort sessions by last update or creation time" }),
         }),
       ),
       async (c) => {
@@ -70,6 +71,7 @@ export const SessionRoutes = lazy(() =>
           start: query.start,
           search: query.search,
           limit: query.limit,
+          sort: query.sort,
         })) {
           sessions.push(session)
         }

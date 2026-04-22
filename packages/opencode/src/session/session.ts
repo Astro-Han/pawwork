@@ -8,7 +8,7 @@ import { type ProviderMetadata, type LanguageModelUsage } from "ai"
 import { Flag } from "../flag/flag"
 import { Installation } from "../installation"
 
-import { Database, NotFoundError, eq, and, gte, isNull, desc, like, inArray, lt } from "../storage/db"
+import { Database, NotFoundError, eq, and, or, gte, isNull, desc, asc, like, inArray, lt, gt } from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
 import { PartTable, SessionTable } from "./session.sql"
@@ -734,6 +734,20 @@ export const removePart = fn(RemovePartInput, (input) => runPromise((svc) => svc
 export const updateMessage = fn(MessageV2.Info, (input) => runPromise((svc) => svc.updateMessage(input)))
 export const updatePart = fn(MessageV2.Part, (input) => runPromise((svc) => svc.updatePart(input)))
 
+type ListSort = "updated" | "created"
+type GlobalListCursor =
+  | number
+  | {
+      created: number
+      id: SessionID
+    }
+
+function sessionOrder(sort: ListSort) {
+  return sort === "created"
+    ? [desc(SessionTable.time_created), asc(SessionTable.id)]
+    : [desc(SessionTable.time_updated), desc(SessionTable.id)]
+}
+
 export function* list(input?: {
   directory?: string
   workspaceID?: WorkspaceID
@@ -741,6 +755,7 @@ export function* list(input?: {
   start?: number
   search?: string
   limit?: number
+  sort?: ListSort
 }) {
   const project = Instance.project
   const conditions = [eq(SessionTable.project_id, project.id)]
@@ -764,13 +779,15 @@ export function* list(input?: {
   }
 
   const limit = input?.limit ?? 100
+  const sort = input?.sort ?? "updated"
+  const order = sessionOrder(sort)
 
   const rows = Database.use((db) =>
     db
       .select()
       .from(SessionTable)
       .where(and(...conditions))
-      .orderBy(desc(SessionTable.time_updated))
+      .orderBy(...order)
       .limit(limit)
       .all(),
   )
@@ -783,12 +800,14 @@ export function* listGlobal(input?: {
   directory?: string
   roots?: boolean
   start?: number
-  cursor?: number
+  cursor?: GlobalListCursor
   search?: string
   limit?: number
   archived?: boolean
+  sort?: ListSort
 }) {
   const conditions: SQL[] = []
+  const sort = input?.sort ?? "updated"
 
   if (input?.directory) {
     conditions.push(eq(SessionTable.directory, input.directory))
@@ -799,8 +818,22 @@ export function* listGlobal(input?: {
   if (input?.start) {
     conditions.push(gte(SessionTable.time_updated, input.start))
   }
-  if (input?.cursor) {
-    conditions.push(lt(SessionTable.time_updated, input.cursor))
+  if (input?.cursor !== undefined) {
+    if (sort === "created") {
+      if (typeof input.cursor !== "number") {
+        conditions.push(
+          or(
+            lt(SessionTable.time_created, input.cursor.created),
+            and(eq(SessionTable.time_created, input.cursor.created), gt(SessionTable.id, input.cursor.id)),
+          )!,
+        )
+      } else {
+        // Numeric cursors are invalid for created-order pagination and are ignored.
+      }
+    } else {
+      const cursor = typeof input.cursor === "number" ? input.cursor : input.cursor.created
+      conditions.push(lt(SessionTable.time_updated, cursor))
+    }
   }
   if (input?.search) {
     conditions.push(like(SessionTable.title, `%${input.search}%`))
@@ -819,7 +852,8 @@ export function* listGlobal(input?: {
             .from(SessionTable)
             .where(and(...conditions))
         : db.select().from(SessionTable)
-    return query.orderBy(desc(SessionTable.time_updated), desc(SessionTable.id)).limit(limit).all()
+    const order = sessionOrder(sort)
+    return query.orderBy(...order).limit(limit).all()
   })
 
   const ids = [...new Set(rows.map((row) => row.project_id))]

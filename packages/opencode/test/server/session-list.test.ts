@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
+import type { SessionID } from "../../src/session/schema"
 import { Log } from "../../src/util"
 import { tmpdir } from "../fixture/fixture"
+import { testEffect } from "../lib/effect"
 
 void Log.init({ print: false })
 
@@ -16,7 +18,12 @@ const svc = {
   create(input?: Parameters<typeof SessionNs.create>[0]) {
     return run(SessionNs.Service.use((svc) => svc.create(input)))
   },
+  touch(sessionID: SessionID) {
+    return run(SessionNs.Service.use((svc) => svc.touch(sessionID)))
+  },
 }
+
+const it = testEffect(SessionNs.defaultLayer)
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -107,4 +114,44 @@ describe("session.list", () => {
       },
     })
   })
+
+  it.live(
+    "keeps default ordering by last update for existing clients",
+    Effect.promise(async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const older = await svc.create({ title: "older-session" })
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          const newer = await svc.create({ title: "newer-session" })
+          await svc.touch(older.id)
+
+          const sessions = [...svc.list({ roots: true, limit: 2 })]
+
+          expect(sessions.map((session) => session.id)).toEqual([older.id, newer.id])
+        },
+      })
+    }),
+  )
+
+  it.live(
+    "orders root sessions by creation time when requested",
+    Effect.promise(async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const older = await svc.create({ title: "older-session" })
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          const newer = await svc.create({ title: "newer-session" })
+          await svc.touch(older.id)
+
+          const sessions = [...svc.list({ roots: true, limit: 2, sort: "created" })]
+
+          expect(sessions.map((session) => session.id)).toEqual([newer.id, older.id])
+        },
+      })
+    }),
+  )
 })

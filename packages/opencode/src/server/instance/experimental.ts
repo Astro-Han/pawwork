@@ -18,6 +18,7 @@ import { lazy } from "../../util/lazy"
 import { Effect, Option } from "effect"
 import { WorkspaceRoutes } from "./workspace"
 import { Agent } from "@/agent/agent"
+import { SessionID } from "@/session/schema"
 
 const ConsoleOrgOption = z.object({
   accountID: z.string(),
@@ -36,6 +37,30 @@ const ConsoleSwitchBody = z.object({
   accountID: z.string(),
   orgID: z.string(),
 })
+
+function encodeCreatedSessionCursor(session: Session.GlobalInfo) {
+  return Buffer.from(JSON.stringify({ created: session.time.created, id: session.id }), "utf8").toString("base64url")
+}
+
+const CreatedSessionCursor = z.object({ created: z.number(), id: SessionID.zod })
+
+function decodeCreatedSessionCursor(value: string | number | undefined) {
+  if (value === undefined) return undefined
+  if (typeof value === "number") return undefined
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8"))
+    const parsed = CreatedSessionCursor.safeParse(decoded)
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function decodeUpdatedSessionCursor(value: string | number | undefined) {
+  if (value === undefined) return undefined
+  const cursor = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(cursor) ? cursor : undefined
+}
 
 export const ExperimentalRoutes = lazy(() =>
   new Hono()
@@ -324,7 +349,7 @@ export const ExperimentalRoutes = lazy(() =>
       describeRoute({
         summary: "List sessions",
         description:
-          "Get a list of all OpenCode sessions across projects, sorted by most recently updated. Archived sessions are excluded by default.",
+          "Get a list of all OpenCode sessions across projects. Defaults to most recently updated; use sort=created for creation-time order. Archived sessions are excluded by default.",
         operationId: "experimental.session.list",
         responses: {
           200: {
@@ -346,13 +371,19 @@ export const ExperimentalRoutes = lazy(() =>
             .number()
             .optional()
             .meta({ description: "Filter sessions updated on or after this timestamp (milliseconds since epoch)" }),
-          cursor: z.coerce
-            .number()
-            .optional()
-            .meta({ description: "Return sessions updated before this timestamp (milliseconds since epoch)" }),
+          cursor: z
+            .preprocess(
+              (value) => (value === "" ? undefined : value),
+              z.union([z.coerce.number(), z.string()]).optional(),
+            )
+            .meta({ description: "Cursor for loading the next page" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
           archived: z.coerce.boolean().optional().meta({ description: "Include archived sessions (default false)" }),
+          sort: z
+            .enum(["updated", "created"])
+            .optional()
+            .meta({ description: "Sort sessions by last update or creation time" }),
         }),
       ),
       async (c) => {
@@ -363,17 +394,26 @@ export const ExperimentalRoutes = lazy(() =>
           directory: query.directory,
           roots: query.roots,
           start: query.start,
-          cursor: query.cursor,
+          cursor:
+            query.sort === "created"
+              ? decodeCreatedSessionCursor(query.cursor)
+              : decodeUpdatedSessionCursor(query.cursor),
           search: query.search,
           limit: limit + 1,
           archived: query.archived,
+          sort: query.sort,
         })) {
           sessions.push(session)
         }
         const hasMore = sessions.length > limit
         const list = hasMore ? sessions.slice(0, limit) : sessions
         if (hasMore && list.length > 0) {
-          c.header("x-next-cursor", String(list[list.length - 1].time.updated))
+          c.header(
+            "x-next-cursor",
+            query.sort === "created"
+              ? encodeCreatedSessionCursor(list[list.length - 1])
+              : String(list[list.length - 1].time.updated),
+          )
         }
         return c.json(list)
       },
