@@ -549,6 +549,33 @@ test("allows optional missing environment variable substitution", async () => {
   }
 })
 
+test("skips substitutions inside comments", async () => {
+  const originalEnv = process.env["TEST_COMMENTED_VAR"]
+  delete process.env["TEST_COMMENTED_VAR"]
+
+  try {
+    await using tmp = await tmpdir()
+    const text = await ConfigVariable.substitute({
+      type: "virtual",
+      source: "test:comments",
+      dir: tmp.path,
+      text: [
+        "// {env:TEST_COMMENTED_VAR}",
+        `{"username":"ok"} // {env:TEST_COMMENTED_VAR} {file:missing.txt}`,
+        "/* {env:TEST_COMMENTED_VAR} {file:missing.txt} */",
+      ].join("\n"),
+    })
+
+    expect(text).toContain("// {env:TEST_COMMENTED_VAR}")
+    expect(text).toContain("// {env:TEST_COMMENTED_VAR} {file:missing.txt}")
+    expect(text).toContain("/* {env:TEST_COMMENTED_VAR} {file:missing.txt} */")
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env["TEST_COMMENTED_VAR"] = originalEnv
+    }
+  }
+})
+
 test("preserves env variables when adding $schema to config", async () => {
   const originalEnv = process.env["PRESERVE_VAR"]
   process.env["PRESERVE_VAR"] = "secret_value"

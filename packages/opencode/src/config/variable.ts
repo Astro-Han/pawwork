@@ -2,6 +2,7 @@ export * as ConfigVariable from "./variable"
 
 import path from "path"
 import os from "os"
+import { createScanner } from "jsonc-parser"
 import { Filesystem } from "@/util"
 import { InvalidError } from "./error"
 
@@ -21,6 +22,10 @@ type SubstituteInput = ParseSource & {
   missing?: "error" | "empty"
 }
 
+const LINE_COMMENT = 12
+const BLOCK_COMMENT = 13
+const EOF = 17
+
 function source(input: ParseSource) {
   return input.type === "path" ? input.path : input.source
 }
@@ -29,10 +34,24 @@ function dir(input: ParseSource) {
   return input.type === "path" ? path.dirname(input.path) : input.dir
 }
 
+function tokenInComment(text: string, index: number) {
+  const scanner = createScanner(text, false)
+  while (scanner.scan() !== EOF) {
+    const kind = scanner.getToken()
+    const start = scanner.getTokenOffset()
+    if (start > index) return false
+    const end = start + scanner.getTokenLength()
+    if (index < start || index >= end) continue
+    return kind === LINE_COMMENT || kind === BLOCK_COMMENT
+  }
+  return false
+}
+
 /** Apply {env:VAR}, {env:VAR?}, and {file:path} substitutions to config text. */
 export async function substitute(input: SubstituteInput) {
   const missing = input.missing ?? "error"
-  let text = input.text.replace(/\{env:([^}]+)\}/g, (token, rawName) => {
+  let text = input.text.replace(/\{env:([^}]+)\}/g, (token, rawName, index) => {
+    if (tokenInComment(input.text, index)) return token
     const optional = rawName.endsWith("?")
     const varName = optional ? rawName.slice(0, -1) : rawName
     const value = process.env[varName]
@@ -57,9 +76,7 @@ export async function substitute(input: SubstituteInput) {
     const index = match.index!
     out += text.slice(cursor, index)
 
-    const lineStart = text.lastIndexOf("\n", index - 1) + 1
-    const prefix = text.slice(lineStart, index).trimStart()
-    if (prefix.startsWith("//")) {
+    if (tokenInComment(text, index)) {
       out += token
       cursor = index + token.length
       continue
