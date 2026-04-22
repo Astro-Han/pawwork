@@ -343,14 +343,30 @@ jobs:
           path: packages/desktop-electron/.artifacts/unit/junit.xml
 
   unit-windows:
+    name: unit-windows-${{ matrix.package }}
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: windows-latest
-    timeout-minutes: 15
+    # Windows unit jobs are advisory and package-scoped. The 20-minute budget
+    # gives each matrix child room for Windows runner setup and install overhead
+    # while still surfacing the package that timed out.
+    timeout-minutes: 20
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: app
+            command: bun turbo test:ci --filter=@opencode-ai/app
+            report_path: packages/app/.artifacts/unit/junit.xml
+          - package: opencode
+            command: bun turbo test:ci --filter=opencode
+            report_path: packages/opencode/.artifacts/unit/junit.xml
+          - package: desktop
+            command: bun turbo test:ci --filter=@opencode-ai/desktop-electron
+            report_path: packages/desktop-electron/.artifacts/unit/junit.xml
     permissions:
       contents: read
-      checks: write
     defaults:
       run:
         shell: bash
@@ -382,45 +398,50 @@ jobs:
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
           path: .turbo/cache
-          key: turbo-${{ runner.os }}-unit-windows-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          # Keep Turbo caches package-scoped because each matrix child runs a
+          # different test filter; restore keys reuse only that package's cache.
+          key: turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            turbo-${{ runner.os }}-unit-windows-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
-            turbo-${{ runner.os }}-unit-windows-
+            turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-
 
       - run: bun install --frozen-lockfile
 
       - name: unit
-        run: bun turbo test:ci
+        id: unit
+        continue-on-error: true
+        run: |
+          set +e
+          ${{ matrix.command }}
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
 
-      - name: Publish unit reports
-        if: >
-          always() &&
-          (
-            github.event_name != 'pull_request' ||
-            github.event.pull_request.head.repo.full_name == github.repository
-          )
-        uses: mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386 # mikepenz/action-junit-report@v6
-        with:
-          report_paths: packages/**/.artifacts/unit/junit.xml
-          check_name: unit results (windows)
-          detailed_summary: true
-          include_time_in_summary: true
-          fail_on_failure: false
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Windows unit diagnostic"
+              echo ""
+              echo "- package: ${{ matrix.package }}"
+              echo "- exit code: $status"
+              echo "- status: failed advisory signal"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit "$status"
 
       - name: Upload unit artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
         with:
-          name: unit-windows-${{ github.run_attempt }}
+          name: unit-windows-${{ matrix.package }}-${{ github.run_attempt }}
           include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
-          path: packages/**/.artifacts/unit/junit.xml
+          path: ${{ matrix.report_path }}
 
   # Aggregator for the `dev` branch ruleset. The required check on GitHub
   # is `ci / check`; every new blocking job added above MUST be listed in
   # `needs:` below, otherwise its failure will not block merge. Non-blocking
-  # signal jobs, such as `unit-windows`, intentionally stay outside this list.
+  # signal jobs, such as `unit-windows-*`, intentionally stay outside this list.
   # If the blocking list grows past ~5 entries, consider switching to
   # `re-actors/alls-green` for dynamic aggregation (tracked in issue #54).
   check:

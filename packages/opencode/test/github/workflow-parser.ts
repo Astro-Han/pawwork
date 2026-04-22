@@ -3,6 +3,7 @@ import fs from "node:fs"
 
 /** Parsed subset of a workflow step used by workflow contract tests. */
 export type WorkflowStep = {
+  "continue-on-error"?: boolean
   id?: string
   if?: string
   name?: string
@@ -16,12 +17,25 @@ export type WorkflowStep = {
 /** Parsed subset of a workflow job used by workflow contract tests. */
 export type WorkflowJob = {
   "continue-on-error"?: boolean
+  /** Minimal `defaults.run` subset; add fields only when contract tests assert them. */
+  defaults?: {
+    run?: {
+      shell?: string
+    }
+  }
   if?: string
+  name?: string
   needs?: string | string[]
   "runs-on"?: string
   outputs?: Record<string, string>
   permissions?: Record<string, string>
   steps?: WorkflowStep[]
+  strategy?: {
+    "fail-fast"?: boolean
+    matrix?: {
+      include?: Record<string, unknown>[]
+    }
+  }
   "timeout-minutes"?: number
 }
 
