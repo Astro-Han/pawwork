@@ -1,7 +1,9 @@
 import fs from "node:fs/promises"
+import path from "node:path"
 import { execFile } from "node:child_process"
 import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from "electron"
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
+import { IMAGE_EXTS } from "@opencode-ai/util/file-extensions"
 
 import type { InitStep, ServerReadyData, SqliteMigrationProgress, TitlebarTheme, WslConfig } from "../preload/types"
 import { getStore } from "./store"
@@ -10,6 +12,24 @@ import { setTitlebar } from "./windows"
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
   return [{ name: "Files", extensions: ext }]
+}
+
+// Keep direct media reads bounded so the privileged main process never base64-loads very large files.
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+// Picker approvals are short-lived because they authorize a renderer to request file bytes from main.
+const ATTACHMENT_APPROVAL_TTL_MS = 30 * 60 * 1000
+const MAX_APPROVED_ATTACHMENT_PATHS = 1000
+
+function normalizeAttachmentPath(filepath: unknown) {
+  if (typeof filepath !== "string" || filepath.length === 0) return
+  if (/^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(filepath)) return filepath
+  return path.resolve(filepath)
+}
+
+function attachmentPathMime(filepath: string) {
+  const suffix = path.extname(filepath).slice(1).toLowerCase()
+  if (suffix === "pdf") return "application/pdf"
+  return IMAGE_EXTS.get(suffix)
 }
 
 type Deps = {
@@ -35,6 +55,52 @@ type Deps = {
 }
 
 export function registerIpcHandlers(deps: Deps) {
+  const approvedAttachmentPaths = new Map<string, number>()
+  const approvedAttachmentSenderIds = new Set<number>()
+
+  const attachmentApprovalKey = (senderID: number, filepath: string) => `${senderID}:${filepath}`
+
+  const pruneApprovedAttachmentSender = (senderID: number) => {
+    const prefix = `${senderID}:`
+    for (const key of approvedAttachmentPaths.keys()) {
+      if (key.startsWith(prefix)) approvedAttachmentPaths.delete(key)
+    }
+    approvedAttachmentSenderIds.delete(senderID)
+  }
+
+  const pruneApprovedAttachmentPaths = (now = Date.now()) => {
+    for (const [key, approvedAt] of approvedAttachmentPaths) {
+      if (now - approvedAt > ATTACHMENT_APPROVAL_TTL_MS) approvedAttachmentPaths.delete(key)
+    }
+    while (approvedAttachmentPaths.size > MAX_APPROVED_ATTACHMENT_PATHS) {
+      // Map iteration order is insertion order, so this removes the oldest approval first.
+      const oldest = approvedAttachmentPaths.keys().next().value
+      if (!oldest) break
+      approvedAttachmentPaths.delete(oldest)
+    }
+  }
+
+  const trackAttachmentSender = (sender: IpcMainInvokeEvent["sender"]) => {
+    if (approvedAttachmentSenderIds.has(sender.id)) return
+    approvedAttachmentSenderIds.add(sender.id)
+    sender.once("destroyed", () => pruneApprovedAttachmentSender(sender.id))
+  }
+
+  const approveAttachmentPaths = (sender: IpcMainInvokeEvent["sender"], paths: string | string[] | null) => {
+    const now = Date.now()
+    trackAttachmentSender(sender)
+    pruneApprovedAttachmentPaths(now)
+    for (const filepath of Array.isArray(paths) ? paths : paths ? [paths] : []) {
+      const normalized = normalizeAttachmentPath(filepath)
+      if (normalized) {
+        const key = attachmentApprovalKey(sender.id, normalized)
+        approvedAttachmentPaths.delete(key)
+        approvedAttachmentPaths.set(key, now)
+      }
+    }
+    pruneApprovedAttachmentPaths(now)
+  }
+
   ipcMain.handle("kill-sidecar", () => deps.killSidecar())
   ipcMain.handle("await-initialization", (event: IpcMainInvokeEvent) => {
     const send = (step: InitStep) => event.sender.send("init-step", step)
@@ -105,7 +171,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "open-file-picker",
     async (
-      _event: IpcMainInvokeEvent,
+      event: IpcMainInvokeEvent,
       opts?: { multiple?: boolean; title?: string; defaultPath?: string; accept?: string[]; extensions?: string[] },
     ) => {
       const result = await dialog.showOpenDialog({
@@ -115,9 +181,28 @@ export function registerIpcHandlers(deps: Deps) {
         filters: pickerFilters(opts?.extensions),
       })
       if (result.canceled) return null
-      return opts?.multiple ? result.filePaths : result.filePaths[0]
+      const paths = opts?.multiple ? result.filePaths : (result.filePaths[0] ?? null)
+      approveAttachmentPaths(event.sender, paths)
+      return paths
     },
   )
+
+  ipcMain.handle("read-file-data-url", async (event: IpcMainInvokeEvent, filepath: string, mime: string) => {
+    let normalized: string | undefined
+    try {
+      normalized = normalizeAttachmentPath(filepath)
+      pruneApprovedAttachmentPaths()
+      if (!normalized || !approvedAttachmentPaths.has(attachmentApprovalKey(event.sender.id, normalized))) return null
+      if (attachmentPathMime(normalized) !== mime) return null
+      const stat = await fs.stat(normalized)
+      if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) return null
+      const buffer = await fs.readFile(normalized)
+      return `data:${mime};base64,${buffer.toString("base64")}`
+    } catch (err) {
+      console.warn("read-file-data-url failed", normalized ?? filepath, err)
+      return null
+    }
+  })
 
   ipcMain.handle(
     "save-file-picker",

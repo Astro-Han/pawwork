@@ -39,6 +39,7 @@ import { createSessionTabs } from "@/pages/session/helpers"
 import { promptEnabled, promptProbe } from "@/testing/prompt"
 import { createTextFragment, getCursorPosition, setCursorPosition, setRangeEdge } from "./prompt-input/editor-dom"
 import { createPromptAttachments } from "./prompt-input/attachments"
+import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import {
   canNavigateHistoryAtCursor,
@@ -438,7 +439,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const escBlur = () => platform.platform === "desktop" && platform.os === "macos"
 
-  const pick = () => fileInputRef?.click()
+  const pick = () => {
+    void pickAttachments({
+      openFilePickerDialog: platform.openFilePickerDialog,
+      addPickedPaths,
+      fallbackInputClick: () => fileInputRef?.click(),
+    })
+  }
 
   const setMode = (mode: "normal" | "shell") => {
     setStore("mode", mode)
@@ -1062,7 +1069,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return true
   }
 
-  const { addAttachments, removeAttachment, handlePaste } = createPromptAttachments({
+  const { addAttachments, addPickedPaths, removeAttachment, handlePaste } = createPromptAttachments({
     editor: () => editorRef,
     isDialogActive: () => !!dialog.active,
     setDraggingType: (type) => setStore("draggingType", type),
@@ -1071,6 +1078,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       setCursorPosition(editorRef, promptLength(prompt.current()))
     },
     addPart,
+    model: () => local.model.current(),
+    openModelSelector: () => {
+      void import("@/components/dialog-select-model").then((x) => {
+        dialog.show(() => <x.DialogSelectModel model={local.model} />)
+      })
+    },
+    readFileDataUrl: platform.readFileDataUrl,
     readClipboardImage: platform.readClipboardImage,
   })
 

@@ -3,6 +3,7 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
+import { pathToFileURL } from "url"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
@@ -229,6 +230,26 @@ const cfg = {
       options: {
         apiKey: "test-key",
         baseURL: "http://localhost:1/v1",
+      },
+    },
+  },
+}
+
+const imageCfg = {
+  ...cfg,
+  provider: {
+    ...cfg.provider,
+    test: {
+      ...cfg.provider.test,
+      models: {
+        ...cfg.provider.test.models,
+        "test-model": {
+          ...cfg.provider.test.models["test-model"],
+          modalities: {
+            input: ["text", "image"] as ("text" | "image")[],
+            output: ["text"] as "text"[],
+          },
+        },
       },
     },
   },
@@ -509,6 +530,61 @@ it.live("glob tool keeps instance context during prompt runs", () =>
         expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
       }),
     { git: true, config: providerCfg },
+  ),
+)
+
+it.live("text file part does not promote PDF attachment when model lacks PDF input", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({})
+        const pdf = path.join(dir, "guide.pdf")
+        const pdfUrl = pathToFileURL(pdf).href
+        yield* Effect.promise(() => Bun.write(pdf, "%PDF-1.7\n"))
+
+        const msg = yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "read this PDF" },
+            { type: "file", url: pdfUrl, filename: "guide.pdf", mime: "text/plain" },
+          ],
+        })
+
+        expect(msg.parts.some((part) => part.type === "file" && part.mime === "application/pdf")).toBe(false)
+        expect(msg.parts.some((part) => part.type === "file" && part.url === pdfUrl)).toBe(true)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+it.live("text file part promotes PDF attachment when model has image input", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({})
+        const pdf = path.join(dir, "guide.pdf")
+        const pdfUrl = pathToFileURL(pdf).href
+        yield* Effect.promise(() => Bun.write(pdf, "%PDF-1.7\n"))
+
+        const msg = yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [
+            { type: "text", text: "read this PDF" },
+            { type: "file", url: pdfUrl, filename: "guide.pdf", mime: "text/plain" },
+          ],
+        })
+
+        expect(msg.parts.some((part) => part.type === "file" && part.mime === "application/pdf")).toBe(true)
+      }),
+    { git: true, config: imageCfg },
   ),
 )
 

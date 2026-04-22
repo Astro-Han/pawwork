@@ -49,6 +49,9 @@ export type Platform = {
   /** Open native file picker dialog (desktop only) */
   openFilePickerDialog?(opts?: OpenFilePickerOptions): Promise<PickerPaths>
 
+  /** Read a local file as a data URL. Undefined on web, callers must keep a path fallback. */
+  readFileDataUrl?(path: string, mime: string): Promise<string | null>
+
   /** Save file picker dialog (desktop only) */
   saveFilePickerDialog?(opts?: SaveFilePickerOptions): Promise<string | null>
 

@@ -1,15 +1,9 @@
 import { ACCEPTED_FILE_TYPES, ACCEPTED_IMAGE_TYPES } from "@/constants/file-picker"
+import { IMAGE_EXTS, pathSuffix } from "@opencode-ai/util/file-extensions"
 
 export { ACCEPTED_FILE_TYPES }
 
 const IMAGE_MIMES = new Set(ACCEPTED_IMAGE_TYPES)
-const IMAGE_EXTS = new Map([
-  ["gif", "image/gif"],
-  ["jpeg", "image/jpeg"],
-  ["jpg", "image/jpeg"],
-  ["png", "image/png"],
-  ["webp", "image/webp"],
-])
 const TEXT_MIMES = new Set([
   "application/json",
   "application/ld+json",
@@ -26,13 +20,7 @@ function kind(type: string) {
   return type.split(";", 1)[0]?.trim().toLowerCase() ?? ""
 }
 
-function ext(name: string) {
-  const idx = name.lastIndexOf(".")
-  if (idx === -1) return ""
-  return name.slice(idx + 1).toLowerCase()
-}
-
-function textMime(type: string) {
+export function textMime(type: string) {
   if (!type) return false
   if (type.startsWith("text/")) return true
   if (TEXT_MIMES.has(type)) return true
@@ -55,7 +43,7 @@ export async function attachmentMime(file: File) {
   if (IMAGE_MIMES.has(type)) return type
   if (type === "application/pdf") return type
 
-  const suffix = ext(file.name)
+  const suffix = pathSuffix(file.name)
   const fallback = IMAGE_EXTS.get(suffix) ?? (suffix === "pdf" ? "application/pdf" : undefined)
   if ((!type || type === "application/octet-stream") && fallback) return fallback
 

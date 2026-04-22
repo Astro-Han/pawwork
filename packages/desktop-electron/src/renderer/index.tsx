@@ -92,6 +92,16 @@ const createPlatform = (): Platform => {
     return window.api.wslPath(result, "linux").catch(() => result) as any
   }
 
+  const resolveWslPath = async (path: string, mode: "windows" | "linux") => {
+    if (!window.__OPENCODE__?.wsl) return path
+    return window.api.wslPath(path, mode).catch(() => path)
+  }
+
+  const resolveWslPathForDirectRead = async (path: string) => {
+    if (!window.__OPENCODE__?.wsl) return path
+    return window.api.wslPath(path, "windows").catch(() => null)
+  }
+
   const storage = (() => {
     const cache = new Map<string, AsyncStorage>()
 
@@ -144,6 +154,12 @@ const createPlatform = (): Platform => {
       return handleWslPicker(result)
     },
 
+    async readFileDataUrl(path, mime) {
+      const hostPath = await resolveWslPathForDirectRead(path)
+      if (!hostPath) return null
+      return window.api.readFileDataUrl(hostPath, mime).catch(() => null)
+    },
+
     async saveFilePickerDialog(opts) {
       const result = await window.api.saveFilePicker({
         title: opts?.title ?? t("desktop.dialog.saveFile"),
@@ -171,8 +187,7 @@ const createPlatform = (): Platform => {
     },
 
     async showItemInFolder(path: string) {
-      const resolved =
-        os === "windows" && window.__OPENCODE__?.wsl ? await window.api.wslPath(path, "windows").catch(() => path) : path
+      const resolved = os === "windows" ? await resolveWslPath(path, "windows") : path
       return window.api.showItemInFolder(resolved)
     },
 

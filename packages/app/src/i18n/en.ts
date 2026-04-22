@@ -293,6 +293,12 @@ export const dict = {
 
   "prompt.toast.pasteUnsupported.title": "Unsupported attachment",
   "prompt.toast.pasteUnsupported.description": "Only images, PDFs, or text files can be attached here.",
+  "prompt.toast.imageUnsupported.title": "This model cannot read images",
+  "prompt.toast.imageUnsupported.description": "Image not added. Switch models and reattach.",
+  "prompt.toast.imageUnsupported.chooseModel": "Choose model",
+  "prompt.toast.pathRequired.title": "Use the attach button",
+  "prompt.toast.pathRequired.description":
+    "PawWork needs the file path to let the agent read this file. Choose it with the attach button instead.",
   "prompt.toast.modelAgentRequired.title": "Select an agent and model",
   "prompt.toast.modelAgentRequired.description": "Choose an agent and model before sending a prompt.",
   "prompt.toast.worktreeCreateFailed.title": "Failed to create worktree",

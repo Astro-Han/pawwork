@@ -1,7 +1,7 @@
 import path from "path"
 import { describe, expect, test } from "bun:test"
 import { NamedError } from "@opencode-ai/util/error"
-import { fileURLToPath } from "url"
+import { fileURLToPath, pathToFileURL } from "url"
 import { Effect, Layer } from "effect"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
@@ -139,6 +139,74 @@ describe("session.prompt missing file", () => {
               (part) => part.type === "text" && part.synthetic && part.text.includes("Read tool failed to read"),
             )
             expect(hasFailure).toBe(true)
+            expect(msg.parts.some((part) => part.type === "file" && part.url === `file://${missing}`)).toBe(true)
+
+            yield* sessions.remove(session.id)
+          }),
+        ),
+    })
+  })
+
+  test("keeps Office file path parts without calling Read", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "report.docx"), Uint8Array.of(0, 1, 2, 3))
+      },
+      config: {
+        agent: {
+          build: {
+            model: "openai/gpt-5.2",
+          },
+        },
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Effect.gen(function* () {
+            const prompt = yield* SessionPrompt.Service
+            const sessions = yield* Session.Service
+            const session = yield* sessions.create({})
+            const file = path.join(tmp.path, "report.docx")
+            const fileUrl = pathToFileURL(file).href
+
+            const msg = yield* prompt.prompt({
+              sessionID: session.id,
+              agent: "build",
+              noReply: true,
+              parts: [
+                { type: "text", text: "summarize this document" },
+                {
+                  type: "file",
+                  mime: "text/plain",
+                  url: fileUrl,
+                  filename: "report.docx",
+                },
+              ],
+            })
+
+            if (msg.info.role !== "user") throw new Error("expected user message")
+
+            expect(
+              msg.parts.some(
+                (part) =>
+                  part.type === "text" &&
+                  part.synthetic &&
+                  part.text.startsWith("Called the Read tool with the following input:"),
+              ),
+            ).toBe(false)
+            expect(msg.parts.some((part) => part.type === "file" && part.url === fileUrl)).toBe(true)
+            expect(
+              msg.parts.some(
+                (part) =>
+                  part.type === "text" &&
+                  part.synthetic &&
+                  part.text === `Attached local file by path: ${file}`,
+              ),
+            ).toBe(true)
 
             yield* sessions.remove(session.id)
           }),

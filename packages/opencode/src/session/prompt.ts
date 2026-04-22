@@ -31,6 +31,7 @@ import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { ConfigMarkdown } from "../config/markdown"
+import { OFFICE_EXTS, pathBasename, pathSuffix } from "@opencode-ai/util/file-extensions"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
 import { SessionProcessor } from "./processor"
@@ -66,6 +67,30 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
+function officePathOnly(filepath: string) {
+  return OFFICE_EXTS.has(pathSuffix(filepath))
+}
+
+function attachedLocalFileText(filepath: string, filename?: string) {
+  const text = `Attached local file by path: ${filepath}`
+  if (!filename || filename === pathBasename(filepath)) return text
+  return `${text} (attachment name: ${filename})`
+}
+
+type MediaInputKind = "image" | "pdf" | "audio" | "video"
+
+function mediaInputKind(mime: string): MediaInputKind | undefined {
+  if (mime.startsWith("image/")) return "image"
+  if (mime === "application/pdf") return "pdf"
+  if (mime.startsWith("audio/")) return "audio"
+  if (mime.startsWith("video/")) return "video"
+  return undefined
+}
+
+function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
+  if (model.capabilities.input[kind] === true) return true
+  return kind === "pdf" && model.capabilities.input.image === true
+}
 
 export interface Interface {
   readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
@@ -1073,6 +1098,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               }
 
               if (part.mime === "text/plain") {
+                if (officePathOnly(filepath)) {
+                  return [
+                    {
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text: attachedLocalFileText(filepath, part.filename),
+                    },
+                    { ...part, messageID: info.id, sessionID: input.sessionID },
+                  ]
+                }
+
                 let offset: number | undefined
                 let limit: number | undefined
                 const range = { start: url.searchParams.get("start"), end: url.searchParams.get("end") }
@@ -1107,11 +1145,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   },
                 ]
                 const exit = yield* provider.getModel(info.model.providerID, info.model.modelID).pipe(
-                  Effect.flatMap((mdl) => execRead(args, { model: mdl })),
+                  Effect.flatMap((mdl) =>
+                    execRead(args, { model: mdl }).pipe(Effect.map((result) => ({ model: mdl, result }))),
+                  ),
                   Effect.exit,
                 )
                 if (Exit.isSuccess(exit)) {
-                  const result = exit.value
+                  const { model, result } = exit.value
                   pieces.push({
                     messageID: info.id,
                     sessionID: input.sessionID,
@@ -1120,15 +1160,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     text: result.output,
                   })
                   if (result.attachments?.length) {
-                    pieces.push(
-                      ...result.attachments.map((a) => ({
-                        ...a,
-                        synthetic: true,
-                        filename: a.filename ?? part.filename,
-                        messageID: info.id,
-                        sessionID: input.sessionID,
-                      })),
-                    )
+                    const attachments = result.attachments.filter((attachment) => {
+                      const kind = mediaInputKind(attachment.mime)
+                      return kind !== undefined && modelCanReadMedia(model, kind)
+                    })
+                    if (attachments.length) {
+                      pieces.push(
+                        ...attachments.map((a) => ({
+                          ...a,
+                          synthetic: true,
+                          filename: a.filename ?? part.filename,
+                          messageID: info.id,
+                          sessionID: input.sessionID,
+                        })),
+                      )
+                    }
+                    if (attachments.length < result.attachments.length) {
+                      pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
+                    }
                   } else {
                     pieces.push({ ...part, messageID: info.id, sessionID: input.sessionID })
                   }
@@ -1140,13 +1189,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     sessionID: input.sessionID,
                     error: new NamedError.Unknown({ message }).toObject(),
                   })
-                  pieces.push({
-                    messageID: info.id,
-                    sessionID: input.sessionID,
-                    type: "text",
-                    synthetic: true,
-                    text: `Read tool failed to read ${filepath} with the following error: ${message}`,
-                  })
+                  pieces.push(
+                    {
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text: `Read tool failed to read ${filepath} with the following error: ${message}`,
+                    },
+                    { ...part, messageID: info.id, sessionID: input.sessionID },
+                  )
                 }
                 return pieces
               }
