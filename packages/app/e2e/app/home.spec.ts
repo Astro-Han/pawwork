@@ -60,12 +60,13 @@ test("@smoke home hero prompt starts a session", async ({ page, project, assista
 
 test("@smoke project home status panel can open the server picker dialog", async ({ page, project }) => {
   await project.open()
-  const statusButton = page.getByRole("button", { name: "Right utility panel" }).first()
-  const rightPanel = page.locator("#right-panel")
 
-  await statusButton.click()
-  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
-  await rightPanel.getByRole("button", { name: "Manage servers" }).click()
+  const statusPanel = page.getByRole("complementary", { name: "Right utility panel" })
+  if (!(await statusPanel.isVisible())) {
+    await page.getByRole("button", { name: "Right utility panel" }).click()
+  }
+  await expect(statusPanel).toBeVisible()
+  await statusPanel.getByRole("button", { name: "Manage servers" }).click()
 
   const dialog = page.getByRole("dialog")
   await expect(dialog).toBeVisible()

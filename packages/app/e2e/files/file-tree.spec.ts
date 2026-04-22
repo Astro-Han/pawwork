@@ -1,6 +1,5 @@
 import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
-import { titlebarRightSelector } from "../selectors"
 
 // Historical context: before the right-panel-polish PR (#52), the Review tab
 // carried a sibling vertical file-tree pane (#file-tree-panel) that surfaced
@@ -14,16 +13,12 @@ test("@smoke review tab no longer renders the legacy file-tree sub-panel", async
   await withSession(project.sdk, `e2e review layout smoke ${Date.now()}`, async (session) => {
     await project.gotoSession(session.id)
 
-    const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-    const rightPanel = page.locator("#right-panel")
-    const shellTabList = rightPanel.getByRole("tablist").first()
-
-    await expect(rightToggle).toBeVisible()
-    await rightToggle.click()
-    await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+    const rightPanel = page.getByRole("complementary", { name: "Right utility panel" })
+    const shellTabList = rightPanel.getByRole("tablist")
+    await shellTabList.locator("button").last().click()
+    await page.getByRole("menuitem", { name: "Review" }).click()
 
     const reviewTab = shellTabList.getByRole("tab", { name: "Review", exact: true })
-    await reviewTab.click()
     await expect(reviewTab).toHaveAttribute("aria-selected", "true")
 
     // The old vertical file-tree pane is gone by design.
