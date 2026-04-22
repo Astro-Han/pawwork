@@ -19,7 +19,7 @@ export namespace Global {
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
-      const app = "opencode"
+      const app = process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork" ? "pawwork" : "opencode"
       const home = process.env.OPENCODE_TEST_HOME ?? os.homedir()
       const data = path.join(xdgData!, app)
       const cache = path.join(xdgCache!, app)

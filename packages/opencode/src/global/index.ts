@@ -4,7 +4,7 @@ import path from "path"
 import os from "os"
 import { Filesystem } from "../util/filesystem"
 
-const app = "opencode"
+const app = process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork" ? "pawwork" : "opencode"
 
 const data = path.join(xdgData!, app)
 const cache = path.join(xdgCache!, app)
