@@ -540,6 +540,23 @@ describe("session.compaction.isOverflow", () => {
     ),
   )
 
+  it.live(
+    "respects reserved override without input caps",
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const compact = yield* SessionCompaction.Service
+          const model = createModel({ context: 100_000, output: 10_000 })
+          const tokens = { input: 45_000, output: 5_000, reasoning: 0, cache: { read: 0, write: 0 } }
+          expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
+        }),
+      {
+        config: {
+          compaction: { reserved: 50_000 },
+        },
+      },
+    ),
+  )
 })
 
 describe("session.compaction.create", () => {

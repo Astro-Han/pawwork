@@ -75,9 +75,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Se
 
 function usable(input: { cfg: Config.Info; model: Provider.Model }) {
   const reserved = input.cfg.compaction?.reserved ?? Math.min(20_000, ProviderTransform.maxOutputTokens(input.model))
-  return input.model.limit.input
-    ? Math.max(0, input.model.limit.input - reserved)
-    : Math.max(0, input.model.limit.context - ProviderTransform.maxOutputTokens(input.model))
+  const base = input.model.limit.input ?? input.model.limit.context
+  return Math.max(0, base - reserved)
 }
 
 function tailBudget(input: { cfg: Config.Info; model: Provider.Model }) {
