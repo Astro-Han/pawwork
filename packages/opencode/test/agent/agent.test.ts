@@ -63,6 +63,27 @@ test("plan agent denies edits except .opencode/plans/*", async () => {
   })
 })
 
+test("plan agent allows .pawwork plans in PawWork runtime mode", async () => {
+  await using tmp = await tmpdir()
+  const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
+  process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const plan = await Agent.get("plan")
+        expect(plan).toBeDefined()
+        expect(Permission.evaluate("edit", ".pawwork/plans/foo.md", plan!.permission).action).toBe("allow")
+        expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("deny")
+      },
+    })
+  } finally {
+    if (previous === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    else process.env.PAWWORK_RUNTIME_NAMESPACE = previous
+  }
+})
+
 test("explore agent denies edit and write", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({

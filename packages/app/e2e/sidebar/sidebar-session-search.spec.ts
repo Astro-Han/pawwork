@@ -11,7 +11,7 @@ test("command palette prioritizes pinned and recent PawWork sessions", async ({ 
 
   await page.addInitScript((sessionID) => {
     localStorage.setItem(
-      "opencode.global.dat:layout.page",
+      "pawwork.global.dat:layout.page",
       JSON.stringify({
         pawworkPinnedSessions: [sessionID],
         pawworkSortMode: "time",
@@ -23,7 +23,7 @@ test("command palette prioritizes pinned and recent PawWork sessions", async ({ 
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const raw = localStorage.getItem("opencode.global.dat:layout.page")
+        const raw = localStorage.getItem("pawwork.global.dat:layout.page")
         const next = raw ? (JSON.parse(raw) as { pawworkPinnedSessions?: string[] }).pawworkPinnedSessions : []
         return next ?? []
       }),

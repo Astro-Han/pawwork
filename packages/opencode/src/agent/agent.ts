@@ -22,6 +22,7 @@ import { Skill } from "../skill"
 import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { Runtime } from "@opencode-ai/shared/runtime"
 
 export namespace Agent {
   export const Info = z
@@ -114,6 +115,7 @@ export namespace Agent {
         })
 
           const user = Permission.fromConfig(cfg.permission ?? {})
+          const projectPlansDir = Runtime.isPawWork() ? ".pawwork" : ".opencode"
 
           const agents: Record<string, Info> = {
             build: {
@@ -145,7 +147,7 @@ export namespace Agent {
                   },
                   edit: {
                     "*": "deny",
-                    [path.join(".opencode", "plans", "*.md")]: "allow",
+                    [path.join(projectPlansDir, "plans", "*.md")]: "allow",
                     [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]:
                       "allow",
                   },

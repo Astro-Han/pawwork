@@ -11,6 +11,28 @@ import { tmpdir } from "../fixture/fixture"
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
 
+describe("PawWork runtime namespace", () => {
+  test("plan files use .pawwork in git projects", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          expect(SessionNs.plan({ slug: "test-plan", time: { created: 123 } })).toBe(
+            path.join(tmp.path, ".pawwork", "plans", "123-test-plan.md"),
+          )
+        },
+      })
+    } finally {
+      if (previous === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previous
+    }
+  })
+})
+
 describe("session.created event", () => {
   test("should emit session.created event when session is created", async () => {
     await Instance.provide({

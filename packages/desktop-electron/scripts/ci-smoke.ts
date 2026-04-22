@@ -23,6 +23,9 @@ export function buildSmokeEnv(homeDir: string) {
     PAWWORK_CI_SMOKE: "true",
     PAWWORK_CI_SMOKE_HOME: homeDir,
     XDG_DATA_HOME: homeDir,
+    XDG_CACHE_HOME: homeDir,
+    XDG_CONFIG_HOME: homeDir,
+    XDG_STATE_HOME: homeDir,
     OPENCODE_CHANNEL: "dev",
   }
 }

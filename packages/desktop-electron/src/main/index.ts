@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
@@ -50,6 +50,7 @@ import { initLogging } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
 import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
+import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createLoadingWindow, createMainWindow, setBackgroundColor, setDockIcon } from "./windows"
 import {
   registerWindowLifecycle,
@@ -199,10 +200,10 @@ function setInitStep(step: InitStep) {
 }
 
 async function initialize() {
-  // CI smoke only verifies that the desktop shell boots and the embedded
-  // sidecar is healthy; sqlite migration coverage stays outside this gate.
-  const needsMigration = !CI_SMOKE_ENABLED && !sqliteFileExists()
-  const sqliteDone = needsMigration ? defer<void>() : undefined
+  // The embedded server owns DB initialization. The desktop shell must not
+  // block first launch on a migration progress event that the embedded runtime
+  // does not emit.
+  const needsMigration = false
   let overlay: BrowserWindow | null = null
 
   const port = await getSidecarPort()
@@ -215,7 +216,7 @@ async function initialize() {
   server = listener
   serverReady.resolve({
     url,
-    username: "opencode",
+    username: PAWWORK_RUNTIME.serverUsername,
     password,
   })
 
@@ -226,12 +227,7 @@ async function initialize() {
       setInitStep({ phase: "sqlite_waiting" })
       if (overlay) sendSqliteMigrationProgress(overlay, progress)
       if (mainWindow) sendSqliteMigrationProgress(mainWindow, progress)
-      if (progress.type === "Done") sqliteDone?.resolve()
     })
-
-    if (needsMigration) {
-      await sqliteDone?.promise
-    }
 
     await Promise.race([
       health.wait,
@@ -375,12 +371,6 @@ async function getSidecarPort() {
       server.close(() => resolve(port))
     })
   })
-}
-
-function sqliteFileExists() {
-  const xdg = process.env.XDG_DATA_HOME
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share")
-  return existsSync(join(base, "opencode", "opencode.db"))
 }
 
 function setupAutoUpdater() {

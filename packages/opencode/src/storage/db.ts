@@ -14,6 +14,7 @@ import { Flag } from "../flag/flag"
 import { CHANNEL } from "../installation/meta"
 import { InstanceState } from "@/effect/instance-state"
 import { iife } from "@/util/iife"
+import { Runtime } from "@opencode-ai/shared/runtime"
 import { init } from "#db"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
@@ -29,10 +30,11 @@ const log = Log.create({ service: "db" })
 
 export namespace Database {
   export function getChannelPath() {
+    const database = Runtime.appName()
     if (["latest", "beta", "prod"].includes(CHANNEL) || Flag.OPENCODE_DISABLE_CHANNEL_DB)
-      return path.join(Global.Path.data, "opencode.db")
+      return path.join(Global.Path.data, `${database}.db`)
     const safe = CHANNEL.replace(/[^a-zA-Z0-9._-]/g, "-")
-    return path.join(Global.Path.data, `opencode-${safe}.db`)
+    return path.join(Global.Path.data, `${database}-${safe}.db`)
   }
 
   export const Path = iife(() => {

@@ -61,6 +61,29 @@ async function defaultModel() {
   return run((provider) => provider.defaultModel())
 }
 
+test("OpenCode Zen and OpenCode Go providers remain discoverable in PawWork runtime mode", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
+  process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        set("OPENCODE_API_KEY", "test-api-key")
+      },
+      fn: async () => {
+        const providers = await list()
+        expect(providers[ProviderID.make("opencode")]?.name).toBe("OpenCode Zen")
+        expect(providers[ProviderID.make("opencode-go")]?.name).toBe("OpenCode Go")
+      },
+    })
+  } finally {
+    if (previous === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    else process.env.PAWWORK_RUNTIME_NAMESPACE = previous
+  }
+})
+
 function paid(providers: Awaited<ReturnType<typeof list>>) {
   const item = providers[ProviderID.make("opencode")]
   expect(item).toBeDefined()

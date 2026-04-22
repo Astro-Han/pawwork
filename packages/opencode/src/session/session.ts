@@ -25,6 +25,7 @@ import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
 import { fn } from "../util/fn"
 import { makeRuntime } from "../effect/run-service"
+import { Runtime } from "@opencode-ai/shared/runtime"
 
 import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
@@ -264,7 +265,7 @@ export const Event = {
 
 export function plan(input: { slug: string; time: { created: number } }) {
   const base = Instance.project.vcs
-    ? path.join(Instance.worktree, ".opencode", "plans")
+    ? path.join(Instance.worktree, Runtime.isPawWork() ? ".pawwork" : ".opencode", "plans")
     : path.join(Global.Path.data, "plans")
   return path.join(base, [input.time.created, input.slug].join("-") + ".md")
 }

@@ -20,8 +20,11 @@ type PersistTarget = {
 }
 
 const LEGACY_STORAGE = "default.dat"
-const GLOBAL_STORAGE = "opencode.global.dat"
-const LOCAL_PREFIX = "opencode."
+const GLOBAL_STORAGE = "pawwork.global.dat"
+const LOCAL_PREFIX = "pawwork."
+const LEGACY_LOCAL_PREFIX = "opencode."
+// The legacy prefix intentionally covers old workspace, global, and settings keys.
+const EVICT_PREFIXES = [LOCAL_PREFIX, LEGACY_LOCAL_PREFIX]
 const fallback = new Map<string, boolean>()
 
 const CACHE_MAX_ENTRIES = 500
@@ -111,7 +114,7 @@ function evict(storage: Storage, keep: string, value: string) {
   for (const index of indexes) {
     const name = storage.key(index)
     if (!name) continue
-    if (!name.startsWith(LOCAL_PREFIX)) continue
+    if (!EVICT_PREFIXES.some((prefix) => name.startsWith(prefix))) continue
     if (name === keep) continue
     const stored = storage.getItem(name)
     items.push({ key: name, size: stored?.length ?? 0 })
@@ -211,7 +214,7 @@ function normalize(defaults: unknown, raw: string, migrate?: (value: unknown) =>
 function workspaceStorage(dir: string) {
   const head = (dir.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
   const sum = checksum(dir) ?? "0"
-  return `opencode.workspace.${head}.${sum}.dat`
+  return `pawwork.workspace.${head}.${sum}.dat`
 }
 
 function localStorageWithPrefix(prefix: string): SyncStorage {

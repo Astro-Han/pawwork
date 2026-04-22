@@ -10,6 +10,7 @@ import { unique } from "remeda"
 import { JsonError } from "./error"
 import * as Effect from "effect/Effect"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Runtime } from "@opencode-ai/shared/runtime"
 
 /** Find project config files while preserving root-to-leaf config precedence and per-directory alias order. */
 export const files = Effect.fn("ConfigPaths.projectFiles")(function* (
@@ -30,6 +31,20 @@ export const files = Effect.fn("ConfigPaths.projectFiles")(function* (
 /** Return every config directory that can contribute files, commands, agents, plugins, or config dependencies. */
 export const directories = Effect.fn("ConfigPaths.directories")(function* (directory: string, worktree?: string) {
   const afs = yield* AppFileSystem.Service
+  if (Runtime.isPawWork()) {
+    return unique([
+      Global.Path.config,
+      ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+        ? yield* afs.up({
+            targets: [".opencode", ".pawwork"],
+            start: directory,
+            stop: worktree,
+          })
+        : []),
+      ...(Flag.PAWWORK_CONFIG_DIR ? [Flag.PAWWORK_CONFIG_DIR] : []),
+    ])
+  }
+
   return unique([
     Global.Path.config,
     ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG

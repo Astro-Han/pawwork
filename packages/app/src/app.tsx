@@ -135,6 +135,12 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
       <Font />
       <ThemeProvider
         defaultTheme="pawwork"
+        storageKeys={{
+          themeId: "pawwork-theme-id",
+          colorScheme: "pawwork-color-scheme",
+          cssLight: "pawwork-theme-css-light",
+          cssDark: "pawwork-theme-css-dark",
+        }}
         onThemeApplied={(_, mode) => {
           void window.api?.setTitlebar?.({ mode })
         }}

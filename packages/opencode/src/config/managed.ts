@@ -4,10 +4,13 @@ import { existsSync } from "fs"
 import os from "os"
 import path from "path"
 import { Log, Process } from "../util"
+import { Runtime } from "@opencode-ai/shared/runtime"
 
 const log = Log.create({ service: "config" })
 
-const MANAGED_PLIST_DOMAIN = "ai.opencode.managed"
+function managedPlistDomain() {
+  return Runtime.isPawWork() ? "ai.pawwork.managed" : "ai.opencode.managed"
+}
 
 // Keys injected by macOS/MDM into the managed plist that are not OpenCode config
 const PLIST_META = new Set([
@@ -20,13 +23,14 @@ const PLIST_META = new Set([
 ])
 
 function systemManagedConfigDir(): string {
+  const app = Runtime.appName()
   switch (process.platform) {
     case "darwin":
-      return "/Library/Application Support/opencode"
+      return `/Library/Application Support/${app}`
     case "win32":
-      return path.join(process.env.ProgramData || "C:\\ProgramData", "opencode")
+      return path.join(process.env.ProgramData || "C:\\ProgramData", app)
     default:
-      return "/etc/opencode"
+      return `/etc/${app}`
   }
 }
 
@@ -52,9 +56,10 @@ export async function readManagedPreferences() {
   if (process.platform !== "darwin") return
 
   const user = os.userInfo().username
+  const domain = managedPlistDomain()
   const paths = [
-    path.join("/Library/Managed Preferences", user, `${MANAGED_PLIST_DOMAIN}.plist`),
-    path.join("/Library/Managed Preferences", `${MANAGED_PLIST_DOMAIN}.plist`),
+    path.join("/Library/Managed Preferences", user, `${domain}.plist`),
+    path.join("/Library/Managed Preferences", `${domain}.plist`),
   ]
 
   for (const plist of paths) {

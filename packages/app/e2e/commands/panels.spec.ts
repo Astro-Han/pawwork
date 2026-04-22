@@ -176,7 +176,7 @@ test("desktop right-panel collapses shell tab labels below the compact threshold
 
 test("legacy changes side-panel state restores into the review tab", async ({ page, gotoSession, slug }) => {
   await page.addInitScript(({ slug }) => {
-    const key = "opencode.global.dat:layout"
+    const key = "pawwork.global.dat:layout"
     const raw = localStorage.getItem(key)
     const parsed = (() => {
       if (!raw) return {}

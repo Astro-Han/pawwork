@@ -141,7 +141,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
         active: terminal.active(),
         at: new Date().toISOString(),
       })
-      const store = platform.storage?.("opencode.global.dat")
+      const store = platform.storage?.("pawwork.global.dat")
       if (store) {
         void Promise.resolve(store.setItem("debug:terminal-panel-invalid-all", payload)).catch(() => undefined)
       }

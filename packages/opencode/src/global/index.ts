@@ -3,8 +3,9 @@ import { xdgData, xdgCache, xdgConfig, xdgState } from "xdg-basedir"
 import path from "path"
 import os from "os"
 import { Filesystem } from "../util/filesystem"
+import { Runtime } from "@opencode-ai/shared/runtime"
 
-const app = "opencode"
+const app = Runtime.appName()
 
 const data = path.join(xdgData!, app)
 const cache = path.join(xdgCache!, app)
