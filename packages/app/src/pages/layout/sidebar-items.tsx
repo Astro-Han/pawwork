@@ -113,27 +113,25 @@ const SessionRow = (props: {
         props.clearHoverProjectSoon()
       }}
     >
-      <Show when={props.isWorking() || props.hasPermissions() || props.hasError() || props.unseenCount() > 0}>
-        <div
-          class="shrink-0 size-6 flex items-center justify-center"
-          style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
-        >
-          <Switch>
-            <Match when={props.isWorking()}>
-              <Spinner class="size-[15px]" />
-            </Match>
-            <Match when={props.hasPermissions()}>
-              <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-            </Match>
-            <Match when={props.hasError()}>
-              <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-            </Match>
-            <Match when={props.unseenCount() > 0}>
-              <div class="size-1.5 rounded-full bg-text-interactive-base" />
-            </Match>
-          </Switch>
-        </div>
-      </Show>
+      <div
+        class="shrink-0 size-6 flex items-center justify-center"
+        style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
+      >
+        <Switch>
+          <Match when={props.isWorking()}>
+            <Spinner class="size-[15px]" />
+          </Match>
+          <Match when={props.hasPermissions()}>
+            <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+          </Match>
+          <Match when={props.hasError()}>
+            <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+          </Match>
+          <Match when={props.unseenCount() > 0}>
+            <div class="size-1.5 rounded-full bg-text-interactive-base" />
+          </Match>
+        </Switch>
+      </div>
       <div class="min-w-0 flex-1 flex items-center gap-2">
         <Show when={props.titleContent} fallback={<span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
           {props.titleContent}
