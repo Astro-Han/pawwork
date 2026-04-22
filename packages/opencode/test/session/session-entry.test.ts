@@ -314,6 +314,37 @@ describe("session-entry step", () => {
         { numRuns: 50 },
       )
     })
+
+    test("routes interleaved tool updates by callID", () => {
+      const next = run(
+        [
+          SessionEvent.Tool.Input.Started.create({ callID: "a", name: "bash", timestamp: time(1) }),
+          SessionEvent.Tool.Input.Started.create({ callID: "b", name: "read", timestamp: time(2) }),
+          SessionEvent.Tool.Input.Delta.create({ callID: "a", delta: "{\"cmd\":\"pwd\"}", timestamp: time(3) }),
+          SessionEvent.Tool.Called.create({
+            callID: "a",
+            tool: "bash",
+            input: { cmd: "pwd" },
+            provider: { executed: true },
+            timestamp: time(4),
+          }),
+          SessionEvent.Tool.Success.create({
+            callID: "a",
+            title: "pwd",
+            output: "/tmp/project",
+            provider: { executed: true },
+            timestamp: time(5),
+          }),
+        ],
+        active(),
+      )
+
+      const first = tool(next, "a")
+      const second = tool(next, "b")
+      expect(first?.state.status).toBe("completed")
+      expect(second?.state.status).toBe("pending")
+    })
+
   })
 
   describe("known reducer gaps", () => {

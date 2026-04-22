@@ -146,8 +146,12 @@ export namespace SessionEntry {
     )
     const lastText = (assistant: Mutable<Assistant>) =>
       assistant.content.findLast((x: Mutable<AssistantContent>): x is Mutable<AssistantText> => x.type === "text")
-    const lastTool = (assistant: Mutable<Assistant>) =>
-      assistant.content.findLast((x: Mutable<AssistantContent>): x is Mutable<AssistantTool> => x.type === "tool")
+    // Tool events can interleave, so state updates must target the matching call.
+    const lastTool = (assistant: Mutable<Assistant>, callID: string) =>
+      assistant.content.findLast(
+        (x: Mutable<AssistantContent>): x is Mutable<AssistantTool> =>
+          x.type === "tool" && x.callID === callID,
+      )
     const lastReasoning = (assistant: Mutable<Assistant>) =>
       assistant.content.findLast(
         (x: Mutable<AssistantContent>): x is Mutable<AssistantReasoning> => x.type === "reasoning",
@@ -211,7 +215,7 @@ export namespace SessionEntry {
       }
       case "tool.input.delta": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match && match.state.status === "pending") match.state.input += event.delta
         break
       }
@@ -220,7 +224,7 @@ export namespace SessionEntry {
       }
       case "tool.called": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match) {
           match.time.ran = event.timestamp
           match.state = {
@@ -232,7 +236,7 @@ export namespace SessionEntry {
       }
       case "tool.success": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match && match.state.status === "running") {
           match.state = {
             status: "completed",
@@ -247,7 +251,7 @@ export namespace SessionEntry {
       }
       case "tool.error": {
         if (!pendingAssistant) break
-        const match = lastTool(pendingAssistant)
+        const match = lastTool(pendingAssistant, event.callID)
         if (match && match.state.status === "running") {
           match.state = {
             status: "error",
