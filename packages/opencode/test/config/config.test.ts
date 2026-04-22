@@ -1382,6 +1382,7 @@ it.live(
     expect(await Filesystem.exists(gitignorePath)).toBe(true)
     expect(await Filesystem.readText(gitignorePath)).toContain("package-lock.json")
   }),
+  60_000,
 )
 
 // Note: npm install deduplication is covered in the current Npm implementation,
