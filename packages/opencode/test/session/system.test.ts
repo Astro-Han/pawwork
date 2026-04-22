@@ -20,6 +20,40 @@ describe("session.system", () => {
     expect(prompts[0]).toContain("PawWork")
   })
 
+  const representativeModels = [
+    { label: "gpt", providerID: "openai", api: { id: "gpt-5.2" } },
+    { label: "codex", providerID: "openai", api: { id: "gpt-5.4-codex" } },
+    { label: "gemini", providerID: "google", api: { id: "gemini-3-pro" } },
+    { label: "claude", providerID: "anthropic", api: { id: "claude-sonnet-4" } },
+    { label: "kimi", providerID: "moonshotai", api: { id: "kimi-k2.6" } },
+    { label: "trinity", providerID: "opencode", api: { id: "trinity" } },
+    { label: "glm", providerID: "zhipu", api: { id: "glm-5.1" } },
+    { label: "qwen", providerID: "alibaba", api: { id: "qwen3-coder" } },
+    { label: "unknown", providerID: "custom", api: { id: "custom-model" } },
+  ] as const
+
+  test("provider prompt is identical across model families", () => {
+    const [first, ...rest] = representativeModels.map((model) => SystemPrompt.provider(model as any))
+
+    for (const prompts of rest) {
+      expect(prompts).toEqual(first)
+    }
+  })
+
+  test("provider prompt uses PawWork product behavior without OpenCode support identity", () => {
+    const prompt = SystemPrompt.provider(representativeModels[0] as any).join("\n")
+
+    expect(prompt).toContain("PawWork")
+    expect(prompt).toContain("understand")
+    expect(prompt).toContain("execute")
+    expect(prompt).toContain("parallel")
+    expect(prompt).toContain("dedicated file and search tools")
+    expect(prompt).not.toContain("opencode.ai")
+    expect(prompt).not.toContain("anomalyco/opencode")
+    expect(prompt).not.toContain("Get help with using opencode")
+    expect(prompt).not.toContain("To give feedback")
+  })
+
   test("environment includes user locale only when provided", async () => {
     await using tmp = await tmpdir({ git: true })
 
