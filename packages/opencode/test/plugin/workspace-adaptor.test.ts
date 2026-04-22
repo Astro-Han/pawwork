@@ -36,6 +36,15 @@ function wait(ms = 50) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+async function waitFor(fn: () => boolean, timeout = 5_000) {
+  const end = Date.now() + timeout
+  while (Date.now() < end) {
+    if (fn()) return
+    await wait(25)
+  }
+  throw new Error("timed out waiting for workspace status")
+}
+
 async function pluginProject() {
   return tmpdir({
     git: true,
@@ -117,8 +126,13 @@ describe("plugin.workspace", () => {
       directory: tmp.extra.space,
       extra: { key: "value" },
     })
-    await wait(100)
-    expect(Workspace.status().find((item) => item.workspaceID === info.id)?.status).not.toBe("connecting")
+    await waitFor(() => {
+      const status = Workspace.status().find((item) => item.workspaceID === info.id)
+      return status !== undefined && status.status !== "connecting"
+    })
+    const status = Workspace.status().find((item) => item.workspaceID === info.id)
+    expect(status).toBeDefined()
+    expect(status?.status).not.toBe("connecting")
   })
 
   test("plugin workspace adaptor registration does not survive instance disposal", async () => {

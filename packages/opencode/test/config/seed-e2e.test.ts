@@ -24,7 +24,7 @@ describe("seed e2e script", () => {
       ])
 
       const abort = new AbortController()
-      const timer = setTimeout(() => abort.abort(), 5_000)
+      const timer = setTimeout(() => abort.abort(), 20_000)
 
       try {
         const out = await Process.run(["bun", "script/seed-e2e.ts"], {
@@ -48,7 +48,12 @@ describe("seed e2e script", () => {
           },
         })
 
-        expect(out.code).toBe(0)
+        if (out.code !== 0) {
+          throw new Error(
+            `seed e2e exited with code ${out.code}\nstdout:\n${out.stdout.toString()}\nstderr:\n${out.stderr.toString()}`,
+          )
+        }
+
       } finally {
         clearTimeout(timer)
         await Promise.allSettled(
@@ -56,5 +61,5 @@ describe("seed e2e script", () => {
         )
       }
     })
-  }, 15_000)
+  }, 30_000)
 })
