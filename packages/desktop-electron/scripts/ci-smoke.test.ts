@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test"
+import path from "node:path"
 import { desktopShellMainSelector, titlebarShellSelector } from "../src/renderer/ci-smoke-selectors"
 import { buildSmokeEnv, requiredSelectors, resolveCiSmokeReadyFile, resolveMainEntry } from "./ci-smoke"
 
 describe("ci smoke helpers", () => {
   test("resolveMainEntry points at the built Electron main process bundle", () => {
-    expect(resolveMainEntry()).toMatch(/packages\/desktop-electron\/out\/main\/index\.js$/)
+    expect(resolveMainEntry().endsWith(path.join("packages", "desktop-electron", "out", "main", "index.js"))).toBe(
+      true,
+    )
   })
 
   test("buildSmokeEnv isolates the app state in a temporary home", () => {
@@ -24,7 +27,7 @@ describe("ci smoke helpers", () => {
 
   test("resolveCiSmokeReadyFile points at the CI-ready marker inside the isolated user data dir", () => {
     expect(resolveCiSmokeReadyFile("/tmp/pawwork-ci-smoke")).toBe(
-      "/tmp/pawwork-ci-smoke/ai.pawwork.desktop.dev/ci-smoke-ready.json",
+      path.join("/tmp/pawwork-ci-smoke", "ai.pawwork.desktop.dev", "ci-smoke-ready.json"),
     )
   })
 })

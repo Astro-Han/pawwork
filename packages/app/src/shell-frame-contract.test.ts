@@ -3,7 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 
 function read(relativePath: string) {
-  return fs.readFileSync(path.join(import.meta.dir, relativePath), "utf8")
+  return fs.readFileSync(path.join(import.meta.dir, relativePath), "utf8").replaceAll("\r\n", "\n")
 }
 
 test("desktop shell shares titlebar height across titlebar and narrow sidebar geometry", () => {

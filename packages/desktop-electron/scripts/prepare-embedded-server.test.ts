@@ -4,5 +4,5 @@ import { resolveOpencodeRoot } from "./embedded-server-path"
 
 test("prepare-embedded-server resolves the opencode workspace from the script directory", () => {
   const scriptDir = path.join("/repo", "packages", "desktop-electron", "scripts")
-  expect(resolveOpencodeRoot(scriptDir)).toBe(path.join("/repo", "packages", "opencode"))
+  expect(resolveOpencodeRoot(scriptDir)).toBe(path.resolve(scriptDir, "../../opencode"))
 })

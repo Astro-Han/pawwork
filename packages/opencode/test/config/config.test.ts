@@ -1318,6 +1318,7 @@ it.live(
 
     const prev = process.env.OPENCODE_CONFIG_DIR
     const gitignorePath = path.join(tmp.extra, ".gitignore")
+    const install = spyOn(Npm, "install").mockResolvedValue(undefined)
 
     const testLayer = Config.layer.pipe(
       Layer.provide(AppFileSystem.defaultLayer),
@@ -1326,25 +1327,29 @@ it.live(
       Layer.provideMerge(infra),
     )
 
-    await withConfigDepsLock(async () => {
-      process.env.OPENCODE_CONFIG_DIR = tmp.extra
-      try {
-        await Instance.provide({
-          directory: tmp.path,
-          fn: async () => {
-            await Effect.runPromise(
-              Config.Service.use((svc) => svc.get()).pipe(Effect.scoped, Effect.provide(testLayer)),
-            )
-            await Effect.runPromise(
-              Config.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.scoped, Effect.provide(testLayer)),
-            )
-          },
-        })
-      } finally {
-        if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
-        else process.env.OPENCODE_CONFIG_DIR = prev
-      }
-    })
+    try {
+      await withConfigDepsLock(async () => {
+        process.env.OPENCODE_CONFIG_DIR = tmp.extra
+        try {
+          await Instance.provide({
+            directory: tmp.path,
+            fn: async () => {
+              await Effect.runPromise(
+                Config.Service.use((svc) => svc.get()).pipe(Effect.scoped, Effect.provide(testLayer)),
+              )
+              await Effect.runPromise(
+                Config.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.scoped, Effect.provide(testLayer)),
+              )
+            },
+          })
+        } finally {
+          if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
+          else process.env.OPENCODE_CONFIG_DIR = prev
+        }
+      })
+    } finally {
+      install.mockRestore()
+    }
 
     await waitFor(async () => {
       if (!(await Filesystem.exists(gitignorePath))) return false
