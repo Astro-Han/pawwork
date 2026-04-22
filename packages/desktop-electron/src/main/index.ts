@@ -39,6 +39,10 @@ if (CI_SMOKE_HOME) {
   app.setPath("appData", CI_SMOKE_HOME)
 }
 app.setPath("userData", join(userDataRoot, app.isPackaged ? APP_IDS[CHANNEL] : "ai.pawwork.desktop.dev"))
+if (CI_SMOKE_HOME) {
+  // Keep smoke logs inside the isolated profile so release checks cannot read stale user logs.
+  app.setPath("logs", join(app.getPath("userData"), "logs"))
+}
 const CI_SMOKE_READY_FILE = join(app.getPath("userData"), "ci-smoke-ready.json")
 const { autoUpdater } = pkg
 
@@ -327,6 +331,7 @@ function openMainWindow() {
 function setInitStep(step: InitStep) {
   initStep = step
   logger.log("init step", { step })
+  if (step.phase === "done") logger.log("init done")
   initEmitter.emit("step", step)
 }
 

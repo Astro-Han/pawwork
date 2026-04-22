@@ -6,6 +6,9 @@ describe("desktop sidecar source guard", () => {
 
     expect(source).toContain("username: PAWWORK_RUNTIME.serverUsername")
     expect(source).toContain("const needsMigration = false")
+    expect(source).toContain('app.setPath("logs", join(app.getPath("userData"), "logs"))')
+    expect(source).toContain('logger.log("server ready", { url: res.url })')
+    expect(source).toContain('logger.log("init done")')
     expect(source).not.toContain("sqliteFileExists")
     expect(source).not.toContain('username: "opencode"')
   })
