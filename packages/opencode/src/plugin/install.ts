@@ -13,10 +13,10 @@ import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
 import { isRecord } from "@/util/record"
 
-import { parsePluginSpecifier, readPackageThemes, readPluginPackage, resolvePluginTarget } from "./shared"
+import { parsePluginSpecifier, readPluginPackage, resolvePluginTarget } from "./shared"
 
 type Mode = "noop" | "add" | "replace"
-type Kind = "server" | "tui"
+type Kind = "server"
 
 export type Target = {
   kind: Kind
@@ -31,7 +31,7 @@ export type PatchDeps = {
   readText: (file: string) => Promise<string>
   write: (file: string, text: string) => Promise<void>
   exists: (file: string) => Promise<boolean>
-  files: (dir: string, name: "opencode" | "tui") => string[]
+  files: (dir: string, name: "opencode") => string[]
 }
 
 export type PatchInput = {
@@ -143,23 +143,12 @@ function hasMainTarget(pkg: Record<string, unknown>) {
 }
 
 function packageTargets(pkg: { json: Record<string, unknown>; dir: string; pkg: string }) {
-  const spec =
-    typeof pkg.json.name === "string" && pkg.json.name.trim().length > 0 ? pkg.json.name.trim() : path.basename(pkg.dir)
   const targets: Target[] = []
   const server = exportTarget(pkg.json, "server")
   if (server) {
     targets.push({ kind: "server", opts: server.opts })
   } else if (hasMainTarget(pkg.json)) {
     targets.push({ kind: "server" })
-  }
-
-  const tui = exportTarget(pkg.json, "tui")
-  if (tui) {
-    targets.push({ kind: "tui", opts: tui.opts })
-  }
-
-  if (!targets.some((item) => item.kind === "tui") && readPackageThemes(spec, pkg).length) {
-    targets.push({ kind: "tui" })
   }
 
   return targets
@@ -337,13 +326,8 @@ function patchDir(input: PatchInput) {
   return path.join(root, ".opencode")
 }
 
-function patchName(kind: Kind): "opencode" | "tui" {
-  if (kind === "server") return "opencode"
-  return "tui"
-}
-
 async function patchOne(dir: string, target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
-  const name = patchName(target.kind)
+  const name = "opencode"
   await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
 
   const files = dep.files(dir, name)

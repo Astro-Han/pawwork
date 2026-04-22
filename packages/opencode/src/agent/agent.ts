@@ -22,12 +22,9 @@ import { Skill } from "../skill"
 import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { Runtime } from "@opencode-ai/shared/runtime"
 
 export namespace Agent {
-  function isPawWorkRuntime() {
-    return process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork"
-  }
-
   export const Info = z
     .object({
       name: z.string(),
@@ -118,7 +115,7 @@ export namespace Agent {
         })
 
           const user = Permission.fromConfig(cfg.permission ?? {})
-          const projectPlansDir = isPawWorkRuntime() ? ".pawwork" : ".opencode"
+          const projectPlansDir = Runtime.isPawWork() ? ".pawwork" : ".opencode"
 
           const agents: Record<string, Info> = {
             build: {

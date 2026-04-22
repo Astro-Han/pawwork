@@ -86,7 +86,7 @@ describe("plugin.install.concurrent", () => {
     expectPlugins(cfg.plugin, all)
   }, 25_000)
 
-  test("serializes concurrent server+tui config updates across processes", async () => {
+  test("serializes concurrent updates for packages exposing server exports with tui exports ignored", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["server", "tui"])
     const all = mods("mod-both", 10)
@@ -106,9 +106,8 @@ describe("plugin.install.concurrent", () => {
     expect(out.map((x) => x.stderr.toString()).filter(Boolean)).toEqual([])
 
     const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
-    const tui = await read(path.join(tmp.path, ".opencode", "tui.jsonc"))
     expectPlugins(server.plugin, all)
-    expectPlugins(tui.plugin, all)
+    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
   }, 25_000)
 
   test("preserves updates when existing config uses .json", async () => {

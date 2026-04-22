@@ -474,6 +474,15 @@ function list<T>(value: T[] | undefined | null, fallback: T[]) {
   return fallback
 }
 
+function latestDefined<T>(value: () => T | undefined) {
+  let latest: T | undefined
+  return () => {
+    const next = value()
+    if (next !== undefined) latest = next
+    return latest
+  }
+}
+
 function same<T>(a: readonly T[] | undefined, b: readonly T[] | undefined) {
   if (a === b) return true
   if (!a || !b) return false
@@ -670,16 +679,22 @@ export function AssistantParts(props: {
                   if (entry.type !== "part") return
                   return part().get(entry.ref.messageID)?.get(entry.ref.partID)
                 })
+                const stableMessage = latestDefined(() => message())
+                const stableItem = latestDefined(() => item())
 
                 return (
-                  <Show when={message()}>
-                    <Show when={item()}>
+                  <Show when={stableMessage()}>
+                    <Show when={stableItem()}>
                       <Part
-                        part={item()!}
-                        message={message()!}
+                        part={stableItem()!}
+                        message={stableMessage()!}
                         showAssistantCopyPartID={props.showAssistantCopyPartID}
                         turnDurationMs={props.turnDurationMs}
-                        defaultOpen={partDefaultOpen(item()!, props.shellToolDefaultOpen, props.editToolDefaultOpen)}
+                        defaultOpen={partDefaultOpen(
+                          stableItem()!,
+                          props.shellToolDefaultOpen,
+                          props.editToolDefaultOpen,
+                        )}
                       />
                     </Show>
                   </Show>
@@ -872,11 +887,12 @@ export function AssistantMessageDisplay(props: {
                   if (entry.type !== "part") return
                   return part().get(entry.ref.partID)
                 })
+                const stableItem = latestDefined(() => item())
 
                 return (
-                  <Show when={item()}>
+                  <Show when={stableItem()}>
                     <Part
-                      part={item()!}
+                      part={stableItem()!}
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
                     />

@@ -168,33 +168,6 @@ import type {
   LspStatusResponses,
   FormatterStatusData,
   FormatterStatusResponses,
-  TuiAppendPromptData,
-  TuiAppendPromptResponses,
-  TuiAppendPromptErrors,
-  TuiOpenHelpData,
-  TuiOpenHelpResponses,
-  TuiOpenSessionsData,
-  TuiOpenSessionsResponses,
-  TuiOpenThemesData,
-  TuiOpenThemesResponses,
-  TuiOpenModelsData,
-  TuiOpenModelsResponses,
-  TuiSubmitPromptData,
-  TuiSubmitPromptResponses,
-  TuiClearPromptData,
-  TuiClearPromptResponses,
-  TuiExecuteCommandData,
-  TuiExecuteCommandResponses,
-  TuiExecuteCommandErrors,
-  TuiShowToastData,
-  TuiShowToastResponses,
-  TuiPublishData,
-  TuiPublishResponses,
-  TuiPublishErrors,
-  TuiControlNextData,
-  TuiControlNextResponses,
-  TuiControlResponseData,
-  TuiControlResponseResponses,
   AuthSetData,
   AuthSetResponses,
   AuthSetErrors,
@@ -997,151 +970,6 @@ class Formatter extends _HeyApiClient {
   }
 }
 
-class Control extends _HeyApiClient {
-  /**
-   * Get the next TUI request from the queue
-   */
-  public next<ThrowOnError extends boolean = false>(options?: Options<TuiControlNextData, ThrowOnError>) {
-    return (options?.client ?? this._client).get<TuiControlNextResponses, unknown, ThrowOnError>({
-      url: "/tui/control/next",
-      ...options,
-    })
-  }
-
-  /**
-   * Submit a response to the TUI request queue
-   */
-  public response<ThrowOnError extends boolean = false>(options?: Options<TuiControlResponseData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiControlResponseResponses, unknown, ThrowOnError>({
-      url: "/tui/control/response",
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    })
-  }
-}
-
-class Tui extends _HeyApiClient {
-  /**
-   * Append prompt to the TUI
-   */
-  public appendPrompt<ThrowOnError extends boolean = false>(options?: Options<TuiAppendPromptData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiAppendPromptResponses, TuiAppendPromptErrors, ThrowOnError>({
-      url: "/tui/append-prompt",
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    })
-  }
-
-  /**
-   * Open the help dialog
-   */
-  public openHelp<ThrowOnError extends boolean = false>(options?: Options<TuiOpenHelpData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiOpenHelpResponses, unknown, ThrowOnError>({
-      url: "/tui/open-help",
-      ...options,
-    })
-  }
-
-  /**
-   * Open the session dialog
-   */
-  public openSessions<ThrowOnError extends boolean = false>(options?: Options<TuiOpenSessionsData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiOpenSessionsResponses, unknown, ThrowOnError>({
-      url: "/tui/open-sessions",
-      ...options,
-    })
-  }
-
-  /**
-   * Open the theme dialog
-   */
-  public openThemes<ThrowOnError extends boolean = false>(options?: Options<TuiOpenThemesData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiOpenThemesResponses, unknown, ThrowOnError>({
-      url: "/tui/open-themes",
-      ...options,
-    })
-  }
-
-  /**
-   * Open the model dialog
-   */
-  public openModels<ThrowOnError extends boolean = false>(options?: Options<TuiOpenModelsData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiOpenModelsResponses, unknown, ThrowOnError>({
-      url: "/tui/open-models",
-      ...options,
-    })
-  }
-
-  /**
-   * Submit the prompt
-   */
-  public submitPrompt<ThrowOnError extends boolean = false>(options?: Options<TuiSubmitPromptData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiSubmitPromptResponses, unknown, ThrowOnError>({
-      url: "/tui/submit-prompt",
-      ...options,
-    })
-  }
-
-  /**
-   * Clear the prompt
-   */
-  public clearPrompt<ThrowOnError extends boolean = false>(options?: Options<TuiClearPromptData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiClearPromptResponses, unknown, ThrowOnError>({
-      url: "/tui/clear-prompt",
-      ...options,
-    })
-  }
-
-  /**
-   * Execute a TUI command (e.g. agent_cycle)
-   */
-  public executeCommand<ThrowOnError extends boolean = false>(options?: Options<TuiExecuteCommandData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiExecuteCommandResponses, TuiExecuteCommandErrors, ThrowOnError>({
-      url: "/tui/execute-command",
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    })
-  }
-
-  /**
-   * Show a toast notification in the TUI
-   */
-  public showToast<ThrowOnError extends boolean = false>(options?: Options<TuiShowToastData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiShowToastResponses, unknown, ThrowOnError>({
-      url: "/tui/show-toast",
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    })
-  }
-
-  /**
-   * Publish a TUI event
-   */
-  public publish<ThrowOnError extends boolean = false>(options?: Options<TuiPublishData, ThrowOnError>) {
-    return (options?.client ?? this._client).post<TuiPublishResponses, TuiPublishErrors, ThrowOnError>({
-      url: "/tui/publish",
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
-    })
-  }
-  control = new Control({ client: this._client })
-}
-
 class Event extends _HeyApiClient {
   /**
    * Get events
@@ -1191,7 +1019,6 @@ export class OpencodeClient extends _HeyApiClient {
   mcp = new Mcp({ client: this._client })
   lsp = new Lsp({ client: this._client })
   formatter = new Formatter({ client: this._client })
-  tui = new Tui({ client: this._client })
   auth = new Auth({ client: this._client })
   event = new Event({ client: this._client })
 }

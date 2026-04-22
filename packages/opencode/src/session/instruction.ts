@@ -10,6 +10,7 @@ import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
 import { Log } from "../util/log"
+import { Runtime } from "@opencode-ai/shared/runtime"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID } from "./schema"
 
@@ -21,15 +22,11 @@ const FILES = [
   "CONTEXT.md", // deprecated
 ]
 
-function isPawWorkRuntime() {
-  return process.env.PAWWORK_RUNTIME_NAMESPACE === "pawwork"
-}
-
 function configDir() {
-  return isPawWorkRuntime() ? process.env.PAWWORK_CONFIG_DIR : Flag.OPENCODE_CONFIG_DIR
+  return Runtime.isPawWork() ? process.env.PAWWORK_CONFIG_DIR : Flag.OPENCODE_CONFIG_DIR
 }
 
-function globalFiles() {
+function globalInstructionFiles() {
   const files = []
   const dir = configDir()
   if (dir) {
@@ -98,7 +95,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         }
         const dir = configDir()
         if (!dir) {
-          const env = isPawWorkRuntime() ? "PAWWORK_CONFIG_DIR" : "OPENCODE_CONFIG_DIR"
+          const env = Runtime.isPawWork() ? "PAWWORK_CONFIG_DIR" : "OPENCODE_CONFIG_DIR"
           log.warn(
             `Skipping relative instruction "${instruction}" - no ${env} set while project config is disabled`,
           )
@@ -143,7 +140,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
           }
         }
 
-        for (const file of globalFiles()) {
+        for (const file of globalInstructionFiles()) {
           if (yield* fs.existsSafe(file)) {
             paths.add(path.resolve(file))
             break

@@ -4,11 +4,17 @@ type PersistTestingType = typeof import("./persist").PersistTesting
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
+  private failingSets = new Map<string, number>()
   readonly events: string[] = []
   readonly calls = { get: 0, set: 0, remove: 0 }
 
   clear() {
     this.values.clear()
+    this.failingSets.clear()
+  }
+
+  failSet(key: string, times: number) {
+    this.failingSets.set(key, times)
   }
 
   get length() {
@@ -29,6 +35,11 @@ class MemoryStorage implements Storage {
   setItem(key: string, value: string) {
     this.calls.set += 1
     this.events.push(`set:${key}`)
+    const remaining = this.failingSets.get(key) ?? 0
+    if (remaining > 0) {
+      this.failingSets.set(key, remaining - 1)
+      throw new DOMException("quota", "QuotaExceededError")
+    }
     if (key.startsWith("pawwork.quota")) throw new DOMException("quota", "QuotaExceededError")
     if (key.startsWith("pawwork.throw")) throw new Error("storage set failed")
     this.values.set(key, value)
@@ -98,6 +109,21 @@ describe("persist localStorage resilience", () => {
     direct.setItem("direct-value", '{"value":5}')
 
     expect(storage.getItem("direct-value")).toBe('{"value":5}')
+  })
+
+  test("quota eviction can remove legacy OpenCode local entries", () => {
+    storage.setItem("opencode.workspace.old.dat:value", "old workspace")
+    storage.setItem("opencode.global.dat:value", "old global")
+    storage.setItem("opencode.settings.dat:value", "old settings")
+    storage.failSet("pawwork.workspace.new.dat:value", 4)
+
+    const storageApi = persistTesting.localStorageWithPrefix("pawwork.workspace.new.dat")
+    storageApi.setItem("value", '{"value":1}')
+
+    expect(storage.getItem("opencode.workspace.old.dat:value")).toBeNull()
+    expect(storage.getItem("opencode.global.dat:value")).toBeNull()
+    expect(storage.getItem("opencode.settings.dat:value")).toBeNull()
+    expect(storage.getItem("pawwork.workspace.new.dat:value")).toBe('{"value":1}')
   })
 
   test("normalizer rejects malformed JSON payloads", () => {

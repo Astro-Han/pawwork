@@ -50,7 +50,7 @@ export const ExperimentalRoutes = lazy(() =>
             description: "Active Console provider metadata",
             content: {
               "application/json": {
-                schema: resolver(ConsoleState),
+                schema: resolver(ConsoleState.zod),
               },
             },
           },

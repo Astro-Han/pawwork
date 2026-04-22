@@ -64,6 +64,8 @@ async function plugin(
   },
   themes?: string[],
 ) {
+  // Fixture helper creates mock packages exposing server and/or legacy tui exports.
+  // Used to verify server exports are processed and tui exports are rejected as unsupported targets.
   const p = path.join(dir, "plugin")
   const server = kinds?.includes("server") ?? false
   const tui = kinds?.includes("tui") ?? false
@@ -109,7 +111,7 @@ async function read(file: string) {
 }
 
 describe("plugin.install.task", () => {
-  test("writes both server and tui config entries", async () => {
+  test("writes only server config for packages that expose server and tui", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["server", "tui"])
     const run = createPlugTask(
@@ -123,12 +125,11 @@ describe("plugin.install.task", () => {
     expect(ok).toBe(true)
 
     const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
-    const tui = await read(path.join(tmp.path, ".opencode", "tui.jsonc"))
     expect(server.plugin).toEqual(["acme@1.2.3"])
-    expect(tui.plugin).toEqual(["acme@1.2.3"])
+    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
   })
 
-  test("writes default options from exports config metadata", async () => {
+  test("uses only server default options from exports config metadata", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["server", "tui"], {
       server: { custom: true, other: false },
@@ -145,12 +146,11 @@ describe("plugin.install.task", () => {
     expect(ok).toBe(true)
 
     const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
-    const tui = await read(path.join(tmp.path, ".opencode", "tui.jsonc"))
     expect(server.plugin).toEqual([["acme@1.2.3", { custom: true, other: false }]])
-    expect(tui.plugin).toEqual([["acme@1.2.3", { compact: true }]])
+    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
   })
 
-  test("preserves JSONC comments when adding plugins to server and tui config", async () => {
+  test("preserves JSONC comments when adding server plugin, leaves pre-existing tui config unchanged", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["server", "tui"])
     const cfg = path.join(tmp.path, ".opencode")
@@ -206,7 +206,7 @@ describe("plugin.install.task", () => {
     const serverJson = parseJsonc(serverText) as { plugin?: unknown[] }
     const tuiJson = parseJsonc(tuiText) as { plugin?: unknown[] }
     expect(serverJson.plugin).toEqual(["seed@1.0.0", "acme@1.2.3"])
-    expect(tuiJson.plugin).toEqual(["seed@1.0.0", "acme@1.2.3"])
+    expect(tuiJson.plugin).toEqual(["seed@1.0.0"])
   })
 
   test("preserves JSONC comments when force replacing plugin version", async () => {
@@ -407,7 +407,7 @@ describe("plugin.install.task", () => {
     expect(await Filesystem.exists(path.join(directory, ".opencode", "opencode.jsonc"))).toBe(true)
   })
 
-  test("writes tui local scope under directory when worktree is root slash", async () => {
+  test("returns false for tui-only plugins under directory when worktree is root slash", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["tui"])
     const directory = path.join(tmp.path, "dir")
@@ -420,50 +420,14 @@ describe("plugin.install.task", () => {
     )
 
     const ok = await run(ctxRoot(directory))
-    expect(ok).toBe(true)
-    expect(await Filesystem.exists(path.join(directory, ".opencode", "tui.jsonc"))).toBe(true)
+    expect(ok).toBe(false)
+    expect(await Filesystem.exists(path.join(directory, ".opencode", "tui.jsonc"))).toBe(false)
+    expect(await Filesystem.exists(path.join(directory, ".opencode", "opencode.jsonc"))).toBe(false)
   })
 
-  test("writes only tui config for tui-only plugins", async () => {
+  test("returns false for tui-only plugins without writing config", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["tui"])
-    const run = createPlugTask(
-      {
-        mod: "acme@1.2.3",
-      },
-      deps(path.join(tmp.path, "global"), target),
-    )
-
-    const ok = await run(ctx(tmp.path))
-    expect(ok).toBe(true)
-    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(true)
-    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "opencode.jsonc"))).toBe(false)
-  })
-
-  test("writes tui config for oc-themes-only packages", async () => {
-    await using tmp = await tmpdir()
-    const target = await plugin(tmp.path, undefined, undefined, ["themes/forest.json"])
-    await fs.mkdir(path.join(target, "themes"), { recursive: true })
-    await Bun.write(path.join(target, "themes", "forest.json"), JSON.stringify({ theme: { text: "#fff" } }, null, 2))
-    const run = createPlugTask(
-      {
-        mod: "acme@1.2.3",
-      },
-      deps(path.join(tmp.path, "global"), target),
-    )
-
-    const ok = await run(ctx(tmp.path))
-    expect(ok).toBe(true)
-    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(true)
-    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "opencode.jsonc"))).toBe(false)
-
-    const tui = await read(path.join(tmp.path, ".opencode", "tui.jsonc"))
-    expect(tui.plugin).toEqual(["acme@1.2.3"])
-  })
-
-  test("returns false for oc-themes outside plugin directory", async () => {
-    await using tmp = await tmpdir()
-    const target = await plugin(tmp.path, undefined, undefined, ["../outside.json"])
     const run = createPlugTask(
       {
         mod: "acme@1.2.3",
@@ -477,7 +441,42 @@ describe("plugin.install.task", () => {
     expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "opencode.jsonc"))).toBe(false)
   })
 
-  test("force replaces version in both server and tui configs", async () => {
+  test("returns false for oc-themes-only packages without writing config", async () => {
+    await using tmp = await tmpdir()
+    const target = await plugin(tmp.path, undefined, undefined, ["themes/forest.json"])
+    await fs.mkdir(path.join(target, "themes"), { recursive: true })
+    await Bun.write(path.join(target, "themes", "forest.json"), JSON.stringify({ theme: { text: "#fff" } }, null, 2))
+    const run = createPlugTask(
+      {
+        mod: "acme@1.2.3",
+      },
+      deps(path.join(tmp.path, "global"), target),
+    )
+
+    const ok = await run(ctx(tmp.path))
+    expect(ok).toBe(false)
+    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
+    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "opencode.jsonc"))).toBe(false)
+  })
+
+  test("installs server plugin when package has server target and oc-themes, ignores oc-themes", async () => {
+    await using tmp = await tmpdir()
+    const target = await plugin(tmp.path, ["server"], undefined, ["../outside.json"])
+    const run = createPlugTask(
+      {
+        mod: "acme@1.2.3",
+      },
+      deps(path.join(tmp.path, "global"), target),
+    )
+
+    const ok = await run(ctx(tmp.path))
+    expect(ok).toBe(true)
+    const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
+    expect(server.plugin).toEqual(["acme@1.2.3"])
+    expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
+  })
+
+  test("force replaces version in server config, leaves tui config unchanged", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["server", "tui"])
     const server = path.join(tmp.path, ".opencode", "opencode.json")
@@ -499,7 +498,7 @@ describe("plugin.install.task", () => {
     const serverJson = await read(server)
     const tuiJson = await read(tui)
     expect(serverJson.plugin).toEqual(["acme@2.0.0", "other@1.0.0"])
-    expect(tuiJson.plugin).toEqual([["acme@2.0.0", { mode: "safe" }], "other@1.0.0"])
+    expect(tuiJson.plugin).toEqual([["acme@1.0.0", { mode: "safe" }], "other@1.0.0"])
   })
 
   test("returns false and keeps config unchanged for invalid JSONC", async () => {

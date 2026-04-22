@@ -5,7 +5,7 @@ import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Account } from "../../src/account"
 import { Auth } from "../../src/auth"
-import { Config } from "../../src/config"
+import { Config, ConfigManaged } from "../../src/config"
 import { ConfigPaths } from "../../src/config/paths"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 import { AppFileSystem } from "../../src/filesystem"
@@ -43,6 +43,8 @@ const clear = (wait = false) =>
   Effect.runPromise(Config.Service.use((svc) => svc.invalidate(wait)).pipe(Effect.scoped, Effect.provide(layer)))
 const ready = () =>
   Effect.runPromise(Config.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.scoped, Effect.provide(layer)))
+const listConfigDirs = (directory: string, worktree: string) =>
+  Effect.runPromise(ConfigPaths.directories(directory, worktree).pipe(Effect.provide(AppFileSystem.defaultLayer)))
 
 const originalRuntimeNamespace = process.env.PAWWORK_RUNTIME_NAMESPACE
 
@@ -69,7 +71,7 @@ describe("default OpenCode config compatibility", () => {
     process.env.OPENCODE_CONFIG_DIR = opencodeConfig.path
 
     try {
-      const dirs = await ConfigPaths.directories(project.path, project.path)
+      const dirs = await listConfigDirs(project.path, project.path)
       expect(dirs).toContain(opencodeConfig.path)
     } finally {
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -86,9 +88,8 @@ describe("default OpenCode config compatibility", () => {
     delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
 
     try {
-      const managed = Config.managedConfigDir()
-      expect(managed.toLowerCase()).toContain("opencode")
-      expect(managed.toLowerCase()).not.toContain("pawwork")
+      const managed = ConfigManaged.managedConfigDir()
+      expect(path.basename(managed)).toBe("opencode")
     } finally {
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
@@ -102,7 +103,11 @@ describe("default OpenCode config compatibility", () => {
       process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
       process.env.XDG_CONFIG_HOME = "/tmp/pawwork-config-root-test"
       const { ConfigPaths } = await import("./src/config/paths.ts")
-      const dirs = await ConfigPaths.directories("/tmp/project", "/tmp/project")
+      const { AppFileSystem } = await import("./src/filesystem/index.ts")
+      const { Effect } = await import("effect")
+      const dirs = await Effect.runPromise(
+        ConfigPaths.directories("/tmp/project", "/tmp/project").pipe(Effect.provide(AppFileSystem.defaultLayer)),
+      )
       console.log(JSON.stringify(dirs[0]))
     `
     const result = Bun.spawnSync({
@@ -115,6 +120,22 @@ describe("default OpenCode config compatibility", () => {
 
     if (result.exitCode !== 0) throw new Error(Buffer.from(result.stderr).toString())
     expect(JSON.parse(Buffer.from(result.stdout).toString())).toBe("/tmp/pawwork-config-root-test/pawwork")
+  })
+
+  test("keeps legacy project .opencode config.json compatibility", async () => {
+    await using project = await tmpdir({ git: true })
+
+    const configDir = path.join(project.path, ".opencode")
+    await fs.mkdir(configDir, { recursive: true })
+    await Filesystem.write(path.join(configDir, "config.json"), JSON.stringify({ model: "compat/config" }))
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.model).toBe("compat/config")
+      },
+    })
   })
 })
 
@@ -130,7 +151,7 @@ describe("PawWork global config isolation", () => {
       await fs.mkdir(homeConfigDir, { recursive: true })
       await Filesystem.write(path.join(homeConfigDir, "opencode.json"), JSON.stringify({ model: "leaked/model" }))
 
-      const dirs = await ConfigPaths.directories(project.path, project.path)
+      const dirs = await listConfigDirs(project.path, project.path)
 
       expect(dirs).not.toContain(homeConfigDir)
 
@@ -158,7 +179,7 @@ describe("PawWork global config isolation", () => {
     try {
       await Filesystem.write(path.join(opencodeConfig.path, "opencode.json"), JSON.stringify({ model: "leaked/env" }))
 
-      const dirs = await ConfigPaths.directories(project.path, project.path)
+      const dirs = await listConfigDirs(project.path, project.path)
       expect(dirs).not.toContain(opencodeConfig.path)
 
       await Instance.provide({
@@ -227,6 +248,24 @@ describe("PawWork global config isolation", () => {
       if (previousPawWork === undefined) delete process.env.PAWWORK_CONFIG_DIR
       else process.env.PAWWORK_CONFIG_DIR = previousPawWork
     }
+  })
+
+  test("loads project .pawwork config directories", async () => {
+    await using project = await tmpdir({ git: true })
+    const pawworkDir = path.join(project.path, ".pawwork")
+    await fs.mkdir(pawworkDir, { recursive: true })
+    await Filesystem.write(path.join(pawworkDir, "pawwork.json"), JSON.stringify({ model: "project/pawwork" }))
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const dirs = await listConfigDirs(project.path, project.path)
+        expect(dirs).toContain(pawworkDir)
+
+        const config = await load()
+        expect(config.model).toBe("project/pawwork")
+      },
+    })
   })
 
   test("project .opencode directories stay read-only for dependency installs", async () => {
@@ -348,9 +387,8 @@ describe("PawWork global config isolation", () => {
     delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
 
     try {
-      const managed = Config.managedConfigDir()
-      expect(managed.toLowerCase()).toContain("pawwork")
-      expect(managed.toLowerCase()).not.toContain("opencode")
+      const managed = ConfigManaged.managedConfigDir()
+      expect(path.basename(managed)).toBe("pawwork")
     } finally {
       if (previous === undefined) delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
       else process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR = previous

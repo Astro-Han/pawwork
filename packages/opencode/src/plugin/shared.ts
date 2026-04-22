@@ -34,7 +34,7 @@ export function parsePluginSpecifier(spec: string) {
 }
 
 export type PluginSource = "file" | "npm"
-export type PluginKind = "server" | "tui"
+export type PluginKind = "server"
 type PluginMode = "strict" | "detect"
 
 export type PluginPackage = {
@@ -107,7 +107,6 @@ function resolvePackageEntrypoint(spec: string, kind: PluginKind, pkg: PluginPac
     if (raw) return resolvePackagePath(spec, raw, kind, pkg)
   }
 
-  if (kind !== "server") return
   const main = packageMain(pkg)
   if (!main) return
   return resolvePackagePath(spec, main, kind, pkg)
@@ -143,18 +142,6 @@ async function resolvePluginEntrypoint(spec: string, target: string, kind: Plugi
   if (entry) return entry
 
   const dir = await resolveTargetDirectory(target)
-
-  if (kind === "tui") {
-    if (source === "file" && dir) {
-      const index = await resolveDirectoryIndex(dir)
-      if (index) return pathToFileURL(index).href
-    }
-
-    if (source === "npm") return
-    if (dir) return
-
-    return target
-  }
 
   if (dir && isRecord(hit.json.exports)) {
     if (source === "file") {
@@ -235,32 +222,6 @@ export async function createPluginEntry(spec: string, target: string, kind: Plug
   }
 }
 
-export function readPackageThemes(spec: string, pkg: PluginPackage) {
-  const field = pkg.json["oc-themes"]
-  if (field === undefined) return []
-  if (!Array.isArray(field)) {
-    throw new TypeError(`Plugin ${spec} has invalid oc-themes field`)
-  }
-
-  const list = field.map((item) => {
-    if (typeof item !== "string") {
-      throw new TypeError(`Plugin ${spec} has invalid oc-themes entry`)
-    }
-
-    const raw = item.trim()
-    if (!raw) {
-      throw new TypeError(`Plugin ${spec} has empty oc-themes entry`)
-    }
-    if (raw.startsWith("file://") || isAbsolutePath(raw)) {
-      throw new TypeError(`Plugin ${spec} oc-themes entry must be relative: ${item}`)
-    }
-
-    return resolvePackageFile(spec, raw, "oc-themes", pkg)
-  })
-
-  return Array.from(new Set(list))
-}
-
 export function readPluginId(id: unknown, spec: string) {
   if (id === undefined) return
   if (typeof id !== "string") throw new TypeError(`Plugin ${spec} has invalid id type ${typeof id}`)
@@ -287,17 +248,11 @@ export function readV1Plugin(
   if (server !== undefined && typeof server !== "function") {
     throw new TypeError(`Plugin ${spec} has invalid server export`)
   }
-  if (tui !== undefined && typeof tui !== "function") {
-    throw new TypeError(`Plugin ${spec} has invalid tui export`)
-  }
-  if (server !== undefined && tui !== undefined) {
-    throw new TypeError(`Plugin ${spec} must default export either server() or tui(), not both`)
-  }
   if (kind === "server" && server === undefined) {
     throw new TypeError(`Plugin ${spec} must default export an object with server()`)
   }
-  if (kind === "tui" && tui === undefined) {
-    throw new TypeError(`Plugin ${spec} must default export an object with tui()`)
+  if (tui !== undefined) {
+    throw new TypeError(`Plugin ${spec} has unsupported tui export. TUI plugins are no longer supported in this runtime`)
   }
 
   return value

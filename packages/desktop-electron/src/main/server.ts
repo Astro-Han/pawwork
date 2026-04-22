@@ -56,11 +56,11 @@ export async function spawnLocalServer(hostname: string, port: number, password:
   return { listener, health: { wait } }
 }
 
-function prepareServerEnv(password: string) {
+function buildServerEnv(password: string) {
   const shell = process.platform === "win32" ? null : getUserShell()
   const shellEnv = shell ? (loadShellEnv(shell) ?? {}) : {}
   const roots = runtimeRoots(app.getPath("userData"))
-  const env = {
+  return {
     ...process.env,
     ...shellEnv,
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
@@ -74,10 +74,14 @@ function prepareServerEnv(password: string) {
     XDG_CONFIG_HOME: roots.config,
     XDG_STATE_HOME: roots.state,
   }
-  Object.assign(process.env, env)
 }
 
-export const prepareServerEnvForTest = prepareServerEnv
+function prepareServerEnv(password: string) {
+  // Mutates the current process because the embedded server is imported in-process and reads env at module load.
+  Object.assign(process.env, buildServerEnv(password))
+}
+
+export const buildServerEnvForTest = buildServerEnv
 
 export async function checkHealth(url: string, password?: string | null): Promise<boolean> {
   let healthUrl: URL

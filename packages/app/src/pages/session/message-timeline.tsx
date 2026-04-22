@@ -19,6 +19,7 @@ import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { Popover as KobaltePopover } from "@kobalte/core/popover"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
+import { isSessionRunning } from "@/pages/session/session-running-state"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
@@ -261,8 +262,7 @@ export function MessageTimeline(props: {
     return sync.data.session_status[id] ?? idle
   })
   const working = createMemo(() => {
-    const status = sessionStatus() ?? idle
-    return !!pending() || status.type !== "idle"
+    return isSessionRunning(sessionStatus(), sessionMessages())
   })
   const tint = createMemo(() => messageAgentColor(sessionMessages(), sync.data.agent))
 

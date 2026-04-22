@@ -1,8 +1,11 @@
-import { test, expect, describe, mock, afterEach, beforeEach } from "bun:test"
+import { test, expect, describe, mock, afterEach, beforeEach, spyOn } from "bun:test"
 import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
-import { Config, ConfigManaged } from "../../src/config"
+import { Config, ConfigManaged, ConfigVariable } from "../../src/config"
 import { ConfigParse } from "../../src/config/parse"
+import { ConsoleState } from "../../src/config/console-state"
+import { configEntryNameFromPath } from "../../src/config/entry-name"
+import { ConfigModelID } from "../../src/config/model-id"
 
 import { Instance } from "../../src/project/instance"
 import { Auth } from "../../src/auth"
@@ -26,6 +29,8 @@ import { ProjectID } from "../../src/project/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { ConfigPlugin } from "@/config/plugin"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
+import { Npm } from "../../src/npm"
+import { Installation } from "../../src/installation"
 
 const emptyAccount = Layer.mock(Account.Service)({
   active: () => Effect.succeed(Option.none()),
@@ -123,6 +128,33 @@ test("loads config with defaults when no files exist", async () => {
   })
 })
 
+test("console state keeps switchableOrgCount as a nonnegative integer", () => {
+  expect(
+    ConsoleState.zod.safeParse({
+      consoleManagedProviders: [],
+      switchableOrgCount: 1,
+    }).success,
+  ).toBe(true)
+  expect(
+    ConsoleState.zod.safeParse({
+      consoleManagedProviders: [],
+      switchableOrgCount: 0,
+    }).success,
+  ).toBe(true)
+  expect(
+    ConsoleState.zod.safeParse({
+      consoleManagedProviders: [],
+      switchableOrgCount: 1.5,
+    }).success,
+  ).toBe(false)
+  expect(
+    ConsoleState.zod.safeParse({
+      consoleManagedProviders: [],
+      switchableOrgCount: -1,
+    }).success,
+  ).toBe(false)
+})
+
 test("loads JSON config file", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -139,6 +171,177 @@ test("loads JSON config file", async () => {
       const config = await load()
       expect(config.model).toBe("test/model")
       expect(config.username).toBe("testuser")
+    },
+  })
+})
+
+test("config model IDs require provider and model parts", () => {
+  expect(ConfigModelID.zod.safeParse("test/model").success).toBe(true)
+  expect(ConfigModelID.zod.safeParse("test/model/with/slash").success).toBe(true)
+  expect(ConfigModelID.zod.safeParse("").success).toBe(false)
+  expect(ConfigModelID.zod.safeParse("model-only").success).toBe(false)
+  expect(ConfigModelID.zod.safeParse("/model").success).toBe(false)
+  expect(ConfigModelID.zod.safeParse("provider/").success).toBe(false)
+  expect(ConfigModelID.zod.safeParse("provider//model").success).toBe(false)
+})
+
+test("config entry names tolerate unnormalized roots", () => {
+  expect(
+    configEntryNameFromPath("C:\\repo\\.opencode\\commands\\nested\\run.md", ["C:\\repo\\.opencode\\commands"]),
+  ).toBe("nested/run")
+  expect(
+    configEntryNameFromPath("C:\\Repo\\.opencode\\commands\\nested\\run.md", ["c:\\repo\\.opencode\\commands"]),
+  ).toBe("nested/run")
+  expect(configEntryNameFromPath("/repo/.opencode/commands/nested/run.md", ["/repo/.opencode/commands"])).toBe(
+    "nested/run",
+  )
+})
+
+test("loads PawWork project config aliases", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(
+        dir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-root",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-root")
+    },
+  })
+})
+
+test("loads PawWork configs from .opencode directories", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const configDir = path.join(dir, ".opencode")
+      await fs.mkdir(configDir, { recursive: true })
+      await writeConfig(
+        configDir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-dir",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-dir")
+    },
+  })
+})
+
+test("loads and updates global PawWork config aliases", async () => {
+  await using globalTmp = await tmpdir()
+  await using tmp = await tmpdir()
+  const prev = Global.Path.config
+  ;(Global.Path as { config: string }).config = globalTmp.path
+  await clear()
+  try {
+    await writeConfig(
+      globalTmp.path,
+      {
+        $schema: "https://opencode.ai/config.json",
+        username: "global-pawwork",
+      },
+      "pawwork.json",
+    )
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.username).toBe("global-pawwork")
+
+        const updated = await Effect.runPromise(
+          Config.Service.use((svc) => svc.updateGlobal({ ...config, username: "updated-pawwork" })).pipe(
+            Effect.scoped,
+            Effect.provide(layer),
+          ),
+        )
+        expect(updated.username).toBe("updated-pawwork")
+      },
+    })
+
+    const content = await Filesystem.readJson<{ username?: string }>(path.join(globalTmp.path, "pawwork.json"))
+    expect(content.username).toBe("updated-pawwork")
+    expect(await Filesystem.exists(path.join(globalTmp.path, "opencode.jsonc"))).toBe(false)
+  } finally {
+    ;(Global.Path as { config: string }).config = prev
+    await clear()
+  }
+})
+
+test("PawWork config aliases win consistently when OpenCode aliases coexist", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(
+        dir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/opencode-root",
+        },
+        "opencode.json",
+      )
+      await writeConfig(
+        dir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-root",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-root")
+    },
+  })
+})
+
+test("PawWork .opencode aliases win consistently when OpenCode aliases coexist", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const configDir = path.join(dir, ".opencode")
+      await fs.mkdir(configDir, { recursive: true })
+      await writeConfig(
+        configDir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/opencode-dir",
+        },
+        "opencode.json",
+      )
+      await writeConfig(
+        configDir,
+        {
+          $schema: "https://opencode.ai/config.json",
+          model: "test/pawwork-dir",
+        },
+        "pawwork.json",
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("test/pawwork-dir")
     },
   })
 })
@@ -249,14 +452,14 @@ test("jsonc overrides json in the same directory", async () => {
         dir,
         {
           $schema: "https://opencode.ai/config.json",
-          model: "base",
+          model: "base/model",
           username: "base",
         },
         "opencode.jsonc",
       )
       await writeConfig(dir, {
         $schema: "https://opencode.ai/config.json",
-        model: "override",
+        model: "override/model",
       })
     },
   })
@@ -264,7 +467,7 @@ test("jsonc overrides json in the same directory", async () => {
     directory: tmp.path,
     fn: async () => {
       const config = await load()
-      expect(config.model).toBe("base")
+      expect(config.model).toBe("base/model")
       expect(config.username).toBe("base")
     },
   })
@@ -295,6 +498,80 @@ test("handles environment variable substitution", async () => {
       process.env["TEST_VAR"] = originalEnv
     } else {
       delete process.env["TEST_VAR"]
+    }
+  }
+})
+
+test("rejects missing environment variable substitution by default", async () => {
+  const originalEnv = process.env["TEST_MISSING_VAR"]
+  delete process.env["TEST_MISSING_VAR"]
+
+  try {
+    await using tmp = await tmpdir()
+    let caught = false
+    try {
+      await ConfigVariable.substitute({
+        type: "virtual",
+        source: "test:env",
+        dir: tmp.path,
+        text: `{"username":"{env:TEST_MISSING_VAR}"}`,
+      })
+    } catch (error: any) {
+      caught = true
+      expect(error.name).toBe("ConfigInvalidError")
+      expect(error.data.message).toContain("missing environment variable")
+    }
+    expect(caught).toBe(true)
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env["TEST_MISSING_VAR"] = originalEnv
+    }
+  }
+})
+
+test("allows optional missing environment variable substitution", async () => {
+  const originalEnv = process.env["TEST_OPTIONAL_VAR"]
+  delete process.env["TEST_OPTIONAL_VAR"]
+
+  try {
+    await using tmp = await tmpdir()
+    const text = await ConfigVariable.substitute({
+      type: "virtual",
+      source: "test:env",
+      dir: tmp.path,
+      text: `{"username":"{env:TEST_OPTIONAL_VAR?}"}`,
+    })
+    expect(text).toBe(`{"username":""}`)
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env["TEST_OPTIONAL_VAR"] = originalEnv
+    }
+  }
+})
+
+test("skips substitutions inside comments", async () => {
+  const originalEnv = process.env["TEST_COMMENTED_VAR"]
+  delete process.env["TEST_COMMENTED_VAR"]
+
+  try {
+    await using tmp = await tmpdir()
+    const text = await ConfigVariable.substitute({
+      type: "virtual",
+      source: "test:comments",
+      dir: tmp.path,
+      text: [
+        "// {env:TEST_COMMENTED_VAR}",
+        `{"username":"ok"} // {env:TEST_COMMENTED_VAR} {file:missing.txt}`,
+        "/* {env:TEST_COMMENTED_VAR} {file:missing.txt} */",
+      ].join("\n"),
+    })
+
+    expect(text).toContain("// {env:TEST_COMMENTED_VAR}")
+    expect(text).toContain("// {env:TEST_COMMENTED_VAR} {file:missing.txt}")
+    expect(text).toContain("/* {env:TEST_COMMENTED_VAR} {file:missing.txt} */")
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env["TEST_COMMENTED_VAR"] = originalEnv
     }
   }
 })
@@ -387,6 +664,8 @@ test("resolves env templates in account config with account token", async () => 
         Effect.gen(function* () {
           const config = yield* svc.get()
           expect(config.provider?.["opencode"]?.options?.apiKey).toBe("st_test_token")
+          const consoleState = yield* svc.getConsoleState()
+          expect(consoleState.activeOrgName).toBe("Example Org")
         }),
       ),
     ).pipe(Effect.scoped, Effect.provide(layer), Effect.runPromise)
@@ -558,6 +837,106 @@ test("handles command configuration", async () => {
   })
 })
 
+test("continues loading commands when one command file is invalid", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const commandsDir = path.join(dir, ".opencode", "commands")
+      await fs.mkdir(commandsDir, { recursive: true })
+
+      await Filesystem.write(
+        path.join(commandsDir, "valid.md"),
+        `---
+description: Valid command
+---
+Run the valid command`,
+      )
+      await Filesystem.write(
+        path.join(commandsDir, "invalid.md"),
+        `---
+subtask: nope
+---
+Run the invalid command`,
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.command?.["valid"]).toMatchObject({
+        description: "Valid command",
+        template: "Run the valid command",
+      })
+      expect(config.command?.["invalid"]).toBeUndefined()
+    },
+  })
+})
+
+test("command markdown frontmatter cannot override derived names", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const commandsDir = path.join(dir, ".opencode", "commands")
+      await fs.mkdir(commandsDir, { recursive: true })
+
+      await Filesystem.write(
+        path.join(commandsDir, "derived.md"),
+        `---
+name: injected
+description: Derived command
+---
+Run the derived command`,
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.command?.["derived"]).toMatchObject({
+        description: "Derived command",
+        template: "Run the derived command",
+      })
+      expect(config.command?.["injected"]).toBeUndefined()
+    },
+  })
+})
+
+test("duplicate derived command names keep the first command", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const singularDir = path.join(dir, ".opencode", "command")
+      const pluralDir = path.join(dir, ".opencode", "commands")
+      await fs.mkdir(singularDir, { recursive: true })
+      await fs.mkdir(pluralDir, { recursive: true })
+
+      await Filesystem.write(
+        path.join(singularDir, "dup.md"),
+        `---
+description: Singular command
+---
+Run the singular command`,
+      )
+      await Filesystem.write(
+        path.join(pluralDir, "dup.md"),
+        `---
+description: Plural command
+---
+Run the plural command`,
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.command?.["dup"]).toEqual({
+        description: "Singular command",
+        template: "Run the singular command",
+      })
+    },
+  })
+})
+
 test("migrates autoshare to share field", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -695,6 +1074,89 @@ Nested agent prompt`,
   })
 })
 
+test("continues loading agents when one agent file is invalid", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const agentsDir = path.join(dir, ".opencode", "agents")
+      await fs.mkdir(agentsDir, { recursive: true })
+
+      await Filesystem.write(
+        path.join(agentsDir, "valid.md"),
+        `---
+mode: subagent
+steps: 1
+---
+Valid agent prompt`,
+      )
+      await Filesystem.write(
+        path.join(agentsDir, "invalid.md"),
+        `---
+mode: subagent
+steps: 0
+---
+Invalid agent prompt`,
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.agent?.["valid"]).toMatchObject({
+        mode: "subagent",
+        prompt: "Valid agent prompt",
+        steps: 1,
+      })
+      expect(config.agent?.["invalid"]).toBeUndefined()
+    },
+  })
+})
+
+test("agent markdown frontmatter cannot override derived names", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const agentsDir = path.join(dir, ".opencode", "agents")
+      const modesDir = path.join(dir, ".opencode", "modes")
+      await fs.mkdir(agentsDir, { recursive: true })
+      await fs.mkdir(modesDir, { recursive: true })
+
+      await Filesystem.write(
+        path.join(agentsDir, "helper.md"),
+        `---
+name: injected-agent
+mode: subagent
+---
+Helper agent prompt`,
+      )
+      await Filesystem.write(
+        path.join(modesDir, "primary.md"),
+        `---
+name: injected-mode
+---
+Primary mode prompt`,
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.agent?.["helper"]).toMatchObject({
+        name: "helper",
+        mode: "subagent",
+        prompt: "Helper agent prompt",
+      })
+      expect(config.agent?.["primary"]).toMatchObject({
+        name: "primary",
+        mode: "primary",
+        prompt: "Primary mode prompt",
+      })
+      expect(config.agent?.["injected-agent"]).toBeUndefined()
+      expect(config.agent?.["injected-mode"]).toBeUndefined()
+    },
+  })
+})
+
 test("loads commands from .opencode/command (singular)", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -793,7 +1255,7 @@ test("updates config and writes to file", async () => {
       const newConfig = { model: "updated/model" }
       await save(newConfig as any)
 
-      const writtenConfig = await Filesystem.readJson<{ model: string }>(path.join(tmp.path, "config.json"))
+      const writtenConfig = await Filesystem.readJson<{ model: string }>(path.join(tmp.path, "opencode.json"))
       expect(writtenConfig.model).toBe("updated/model")
     },
   })
@@ -896,6 +1358,59 @@ it.live(
 
 // Note: npm install deduplication is covered in the current Npm implementation,
 // not in this config suite.
+
+test("installDependencies bootstraps the config plugin package metadata", async () => {
+  await using tmp = await tmpdir()
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  try {
+    await Config.installDependencies(tmp.path)
+
+    const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.path, "package.json"))
+    const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+    expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+    expect(await Filesystem.readText(path.join(tmp.path, ".gitignore"))).toContain("package-lock.json")
+    expect(install).toHaveBeenCalledWith(tmp.path)
+  } finally {
+    install.mockRestore()
+  }
+})
+
+test("service dependency loading uses config plugin package metadata", async () => {
+  await using tmp = await tmpdir<string>({
+    init: async (dir) => {
+      const cfg = path.join(dir, "configdir")
+      await fs.mkdir(cfg, { recursive: true })
+      return cfg
+    },
+  })
+  const prev = process.env.OPENCODE_CONFIG_DIR
+  const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+  await withConfigDepsLock(async () => {
+    process.env.OPENCODE_CONFIG_DIR = tmp.extra
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await load()
+          await ready()
+        },
+      })
+
+      const pkg = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(path.join(tmp.extra, "package.json"))
+      const target = Installation.isLocal() ? "*" : Installation.VERSION
+
+      expect(pkg.dependencies?.["@opencode-ai/plugin"]).toBe(target)
+      expect(install).toHaveBeenCalledWith(tmp.extra)
+    } finally {
+      if (prev === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = prev
+      install.mockRestore()
+    }
+  })
+})
 
 test("resolves scoped npm plugins in config", async () => {
   await using tmp = await tmpdir({
@@ -1226,6 +1741,7 @@ test("migrates legacy tools config to permissions - allow", async () => {
         bash: "allow",
         read: "allow",
       })
+      expect(config.agent?.["test"]).not.toHaveProperty("tools")
     },
   })
 })
@@ -1270,6 +1786,7 @@ test("migrates legacy write tool to edit permission", async () => {
           $schema: "https://opencode.ai/config.json",
           agent: {
             test: {
+              maxSteps: 3,
               tools: {
                 write: true,
               },
@@ -1286,6 +1803,8 @@ test("migrates legacy write tool to edit permission", async () => {
       expect(config.agent?.["test"]?.permission).toEqual({
         edit: "allow",
       })
+      expect(config.agent?.["test"]?.steps).toBe(3)
+      expect(config.agent?.["test"]).not.toHaveProperty("maxSteps")
     },
   })
 })
@@ -1345,6 +1864,33 @@ test("managed settings override project settings", async () => {
       const config = await load()
       expect(config.autoupdate).toBe(false)
       expect(config.disabled_providers).toEqual(["openai"])
+    },
+  })
+})
+
+test("managed settings honor PawWork config aliases", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(dir, {
+        $schema: "https://opencode.ai/config.json",
+        model: "user/model",
+      })
+    },
+  })
+
+  await writeManagedSettings(
+    {
+      $schema: "https://opencode.ai/config.json",
+      model: "managed/pawwork",
+    },
+    "pawwork.json",
+  )
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.model).toBe("managed/pawwork")
     },
   })
 })
@@ -1523,6 +2069,38 @@ test("merges legacy tools with existing permission config", async () => {
   })
 })
 
+test("permission config wins over legacy tools on conflicts", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          agent: {
+            test: {
+              permission: {
+                edit: "allow",
+              },
+              tools: {
+                edit: false,
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await load()
+      expect(config.agent?.["test"]?.permission).toEqual({
+        edit: "allow",
+      })
+    },
+  })
+})
+
 test("permission config preserves key order", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -1674,6 +2252,86 @@ test("MCP config deep merges preserving base config properties", async () => {
           "X-Custom-Header": "value",
         },
       })
+    },
+  })
+})
+
+test("rejects invalid MCP timeout values", async () => {
+  for (const timeout of [0, -1, 1.5]) {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Filesystem.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            mcp: {
+              local: {
+                type: "local",
+                command: ["node", "server.js"],
+                timeout,
+              },
+              remote: {
+                type: "remote",
+                url: "https://example.com/mcp",
+                timeout,
+              },
+            },
+          }),
+        )
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await expect(load()).rejects.toThrow()
+      },
+    })
+  }
+})
+
+test("rejects empty local MCP command arrays", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          mcp: {
+            local: {
+              type: "local",
+              command: [],
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      await expect(load()).rejects.toThrow()
+    },
+  })
+})
+
+test("rejects unknown nested server keys", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          server: {
+            hostnmae: "127.0.0.1",
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      await expect(load()).rejects.toThrow()
     },
   })
 })
@@ -1895,6 +2553,19 @@ describe("resolvePluginSpec", () => {
     const file = path.join(tmp.path, "opencode.json")
     const hit = await ConfigPlugin.resolvePluginSpec("./plugin", file)
     expect(ConfigPlugin.pluginSpecifier(hit)).toBe(pathToFileURL(path.join(tmp.path, "plugin", "index.ts")).href)
+  })
+
+  test("rejects plugin directories without package.json or index file", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "plugin"), { recursive: true })
+      },
+    })
+
+    const file = path.join(tmp.path, "opencode.json")
+    await expect(ConfigPlugin.resolvePluginSpec("./plugin", file)).rejects.toThrow(
+      "is missing package.json or index file",
+    )
   })
 })
 
@@ -2237,6 +2908,37 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
       }
     }
   })
+
+  test("resolves relative plugin paths in OPENCODE_CONFIG_CONTENT", async () => {
+    const originalEnv = process.env["OPENCODE_CONFIG_CONTENT"]
+
+    try {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          await Filesystem.write(path.join(dir, "plugin.ts"), "export default {}")
+          process.env["OPENCODE_CONFIG_CONTENT"] = JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            plugin: ["./plugin.ts"],
+          })
+        },
+      })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.plugin?.map(ConfigPlugin.pluginSpecifier)).toContain(
+            pathToFileURL(path.join(tmp.path, "plugin.ts")).href,
+          )
+        },
+      })
+    } finally {
+      if (originalEnv !== undefined) {
+        process.env["OPENCODE_CONFIG_CONTENT"] = originalEnv
+      } else {
+        delete process.env["OPENCODE_CONFIG_CONTENT"]
+      }
+    }
+  })
 })
 
 // parseManagedPlist unit tests — pure function, no OS interaction
@@ -2267,6 +2969,10 @@ test("parseManagedPlist strips MDM metadata keys", async () => {
   expect((config as any).PayloadUUID).toBeUndefined()
   expect((config as any).PayloadType).toBeUndefined()
   expect((config as any)._manualProfile).toBeUndefined()
+})
+
+test("parseManagedPlist rejects malformed JSON", () => {
+  expect(() => ConfigManaged.parseManagedPlist("{")).toThrow("failed to parse managed preferences JSON")
 })
 
 test("parseManagedPlist parses server settings", async () => {

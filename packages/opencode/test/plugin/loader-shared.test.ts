@@ -10,7 +10,6 @@ process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
 
 const { Plugin } = await import("../../src/plugin/index")
 const { PluginLoader } = await import("../../src/plugin/loader")
-const { readPackageThemes } = await import("../../src/plugin/shared")
 const { Instance } = await import("../../src/project/instance")
 const { Npm } = await import("../../src/npm")
 const { Config } = await import("../../src/config/config")
@@ -760,10 +759,7 @@ describe("plugin.loader.shared", () => {
           const mark = path.join(dir, "plugin.txt")
 
           await fs.mkdir(pluginsDir, { recursive: true })
-          await Bun.write(
-            helperFile,
-            ["import { ready } from 'late-dep'", "export { ready }", ""].join("\n"),
-          )
+          await Bun.write(helperFile, ["import { ready } from 'late-dep'", "export { ready }", ""].join("\n"))
           await Bun.write(
             pluginFile,
             [
@@ -959,187 +955,7 @@ export default {
     }
   })
 
-  test("reads oc-themes from package manifest", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const mod = path.join(dir, "mod")
-        await fs.mkdir(path.join(mod, "themes"), { recursive: true })
-        await Bun.write(
-          path.join(mod, "package.json"),
-          JSON.stringify(
-            {
-              name: "acme-plugin",
-              version: "1.0.0",
-              "oc-themes": ["themes/one.json", "./themes/one.json", "themes/two.json"],
-            },
-            null,
-            2,
-          ),
-        )
-
-        return { mod }
-      },
-    })
-
-    const file = path.join(tmp.extra.mod, "package.json")
-    const json = await Filesystem.readJson<Record<string, unknown>>(file)
-    const list = readPackageThemes("acme-plugin", {
-      dir: tmp.extra.mod,
-      pkg: file,
-      json,
-    })
-
-    expect(list).toEqual([
-      Filesystem.resolve(path.join(tmp.extra.mod, "themes", "one.json")),
-      Filesystem.resolve(path.join(tmp.extra.mod, "themes", "two.json")),
-    ])
-  })
-
-  test("handles no-entrypoint tui packages via missing callback", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const mod = path.join(dir, "mods", "acme-plugin")
-        await fs.mkdir(path.join(mod, "themes"), { recursive: true })
-        await Bun.write(
-          path.join(mod, "package.json"),
-          JSON.stringify(
-            {
-              name: "acme-plugin",
-              version: "1.0.0",
-              "oc-themes": ["themes/night.json"],
-            },
-            null,
-            2,
-          ),
-        )
-        await Bun.write(path.join(mod, "themes", "night.json"), "{}\n")
-        return { mod }
-      },
-    })
-
-    const install = spyOn(Npm, "add").mockResolvedValue({ directory: tmp.extra.mod, entrypoint: tmp.extra.mod })
-    const missing: string[] = []
-
-    try {
-      const loaded = await PluginLoader.loadExternal({
-        items: [
-          {
-            spec: "acme-plugin@1.0.0",
-            scope: "local" as const,
-            source: tmp.path,
-          },
-        ],
-        kind: "tui",
-        missing: async (item) => {
-          if (!item.pkg) return
-          const themes = readPackageThemes(item.spec, item.pkg)
-          if (!themes.length) return
-          return {
-            spec: item.spec,
-            target: item.target,
-            themes,
-          }
-        },
-        report: {
-          missing(_candidate, _retry, message) {
-            missing.push(message)
-          },
-        },
-      })
-
-      expect(loaded).toEqual([
-        {
-          spec: "acme-plugin@1.0.0",
-          target: tmp.extra.mod,
-          themes: [Filesystem.resolve(path.join(tmp.extra.mod, "themes", "night.json"))],
-        },
-      ])
-      expect(missing).toHaveLength(0)
-    } finally {
-      install.mockRestore()
-    }
-  })
-
-  test("passes package metadata for entrypoint tui plugins", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const mod = path.join(dir, "mods", "acme-plugin")
-        await fs.mkdir(path.join(mod, "themes"), { recursive: true })
-        await Bun.write(
-          path.join(mod, "package.json"),
-          JSON.stringify(
-            {
-              name: "acme-plugin",
-              version: "1.0.0",
-              exports: {
-                "./tui": "./tui.js",
-              },
-              "oc-themes": ["themes/night.json"],
-            },
-            null,
-            2,
-          ),
-        )
-        await Bun.write(path.join(mod, "tui.js"), 'export default { id: "demo", tui: async () => {} }\n')
-        await Bun.write(path.join(mod, "themes", "night.json"), "{}\n")
-        return { mod }
-      },
-    })
-
-    const install = spyOn(Npm, "add").mockResolvedValue({ directory: tmp.extra.mod, entrypoint: tmp.extra.mod })
-
-    try {
-      const loaded = await PluginLoader.loadExternal({
-        items: [
-          {
-            spec: "acme-plugin@1.0.0",
-            scope: "local" as const,
-            source: tmp.path,
-          },
-        ],
-        kind: "tui",
-        finish: async (item) => {
-          if (!item.pkg) return
-          return {
-            spec: item.spec,
-            themes: readPackageThemes(item.spec, item.pkg),
-          }
-        },
-      })
-
-      expect(loaded).toEqual([
-        {
-          spec: "acme-plugin@1.0.0",
-          themes: [Filesystem.resolve(path.join(tmp.extra.mod, "themes", "night.json"))],
-        },
-      ])
-    } finally {
-      install.mockRestore()
-    }
-  })
-
-  test("rejects oc-themes path traversal", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const mod = path.join(dir, "mod")
-        await fs.mkdir(mod, { recursive: true })
-        const file = path.join(mod, "package.json")
-        await Bun.write(file, JSON.stringify({ name: "acme", "oc-themes": ["../escape.json"] }, null, 2))
-        return { mod, file }
-      },
-    })
-
-    const json = await Filesystem.readJson<Record<string, unknown>>(tmp.extra.file)
-    expect(() =>
-      readPackageThemes("acme", {
-        dir: tmp.extra.mod,
-        pkg: tmp.extra.file,
-        json,
-      }),
-    ).toThrow("outside plugin directory")
-  })
-
-  test("retries failed file plugins once after wait and keeps order", async () => {
+  test("retries failed file server plugins once after wait and keeps order", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         const a = path.join(dir, "a")
@@ -1161,7 +977,7 @@ export default {
         scope: "local" as const,
         source: tmp.path,
       })),
-      kind: "tui",
+      kind: "server",
       wait: async () => {
         wait += 1
         await Bun.write(path.join(tmp.extra.a, "index.ts"), "export default {}\n")
@@ -1205,7 +1021,7 @@ export default {
           source: tmp.path,
         },
       ],
-      kind: "tui",
+      kind: "server",
       wait: async () => {
         wait += 1
       },
@@ -1238,7 +1054,7 @@ export default {
             source: "test",
           },
         ],
-        kind: "tui",
+        kind: "server",
         wait: async () => {
           wait += 1
         },

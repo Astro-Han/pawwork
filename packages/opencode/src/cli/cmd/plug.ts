@@ -28,7 +28,7 @@ export type PlugDeps = {
   readText: (file: string) => Promise<string>
   write: (file: string, text: string) => Promise<void>
   exists: (file: string) => Promise<boolean>
-  files: (dir: string, name: "opencode" | "tui") => string[]
+  files: (dir: string, name: "opencode") => string[]
   global: string
 }
 
@@ -115,9 +115,7 @@ export function createPlugTask(input: PlugInput, dep: PlugDeps = defaultPlugDeps
       if (manifest.code === "manifest_no_targets") {
         inspect.stop("No plugin targets found", 1)
         dep.log.error(`"${mod}" does not expose plugin entrypoints in package.json`)
-        dep.log.info(
-          'Expected one of: exports["./tui"], exports["./server"], package.json main for server, or package.json["oc-themes"] for tui themes.',
-        )
+        dep.log.info('Expected exports["./server"] entrypoint or package.json main field with a server() export.')
         return false
       }
 

@@ -34,18 +34,18 @@ afterEach(() => {
 
 describe("desktop server runtime namespace", () => {
   test("prepares PawWork-owned server environment before embedded server import", async () => {
-    const { prepareServerEnvForTest } = await import("./server")
+    const { buildServerEnvForTest } = await import("./server")
 
-    prepareServerEnvForTest("secret")
+    const env = buildServerEnvForTest("secret")
 
-    expect(process.env.OPENCODE_CLIENT).toBe("desktop")
-    expect(process.env.OPENCODE_SERVER_USERNAME).toBe("PawWork")
-    expect(process.env.OPENCODE_SERVER_PASSWORD).toBe("secret")
-    expect(process.env.PAWWORK_RUNTIME_NAMESPACE).toBe("pawwork")
-    expect(process.env.XDG_DATA_HOME).toBe("/tmp/pawwork-user-data/data")
-    expect(process.env.XDG_CACHE_HOME).toBe("/tmp/pawwork-user-data/cache")
-    expect(process.env.XDG_CONFIG_HOME).toBe("/tmp/pawwork-user-data/config")
-    expect(process.env.XDG_STATE_HOME).toBe("/tmp/pawwork-user-data/state")
+    expect(env.OPENCODE_CLIENT).toBe("desktop")
+    expect(env.OPENCODE_SERVER_USERNAME).toBe("PawWork")
+    expect(env.OPENCODE_SERVER_PASSWORD).toBe("secret")
+    expect(env.PAWWORK_RUNTIME_NAMESPACE).toBe("pawwork")
+    expect(env.XDG_DATA_HOME).toBe("/tmp/pawwork-user-data/data")
+    expect(env.XDG_CACHE_HOME).toBe("/tmp/pawwork-user-data/cache")
+    expect(env.XDG_CONFIG_HOME).toBe("/tmp/pawwork-user-data/config")
+    expect(env.XDG_STATE_HOME).toBe("/tmp/pawwork-user-data/state")
   })
 
   test("runtime roots keep Windows-shaped user data under PawWork", async () => {
