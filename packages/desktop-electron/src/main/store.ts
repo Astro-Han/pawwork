@@ -11,5 +11,3 @@ export function getStore(name: string = SETTINGS_STORE) {
   cache.set(name, next)
   return next
 }
-
-export const store = getStore(SETTINGS_STORE)

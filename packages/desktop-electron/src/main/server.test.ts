@@ -17,11 +17,11 @@ mock.module("electron", () => ({
 }))
 
 mock.module("./store", () => ({
-  store: {
+  getStore: () => ({
     get: () => null,
     set: () => undefined,
     delete: () => undefined,
-  },
+  }),
 }))
 
 mock.module("./shell-env", () => ({
