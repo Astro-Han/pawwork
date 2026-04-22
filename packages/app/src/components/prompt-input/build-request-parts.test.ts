@@ -221,6 +221,55 @@ describe("buildRequestParts", () => {
     }
   })
 
+  test("preserves absolute external macOS file paths", () => {
+    const path = "/Users/kelvin/Documents/客户 reports/final (signed)'s copy.docx"
+    const result = buildRequestParts({
+      prompt: [{ type: "file", path, content: "@" + path, start: 0, end: path.length + 1 }],
+      context: [],
+      images: [],
+      text: "@" + path,
+      messageID: "msg_external_abs",
+      sessionID: "ses_external_abs",
+      sessionDirectory: "/Users/kelvin/Projects/pawwork",
+    })
+
+    const filePart = result.requestParts.find((part) => part.type === "file")
+    expect(filePart).toBeDefined()
+    if (filePart?.type === "file") {
+      expect(() => new URL(filePart.url)).not.toThrow()
+      expect(filePart.source?.type).toBe("file")
+      if (filePart.source?.type === "file") expect(filePart.source.path).toBe(path)
+      expect(filePart.url).toContain("/Users/kelvin/Documents/")
+      expect(filePart.url).toContain("%E5%AE%A2%E6%88%B7%20reports")
+      expect(filePart.url).toContain("final%20(signed)'s%20copy.docx")
+    }
+  })
+
+  test("preserves UNC style paths as parseable file URLs", () => {
+    const path = "\\\\server\\share\\客户 file.docx"
+    const result = buildRequestParts({
+      prompt: [{ type: "file", path, content: "@" + path, start: 0, end: path.length + 1 }],
+      context: [],
+      images: [],
+      text: "@" + path,
+      messageID: "msg_unc",
+      sessionID: "ses_unc",
+      sessionDirectory: "C:\\project",
+    })
+
+    const filePart = result.requestParts.find((part) => part.type === "file")
+    expect(filePart).toBeDefined()
+    if (filePart?.type === "file") {
+      const url = new URL(filePart.url)
+      expect(filePart.source?.type).toBe("file")
+      if (filePart.source?.type === "file") expect(filePart.source.path).toBe(path)
+      expect(filePart.url).not.toContain("%5C")
+      expect(url.protocol).toBe("file:")
+      expect(url.hostname).toBe("server")
+      expect(decodeURIComponent(url.pathname)).toBe("/share/客户 file.docx")
+    }
+  })
+
   test("handles context files with Windows paths", () => {
     const prompt: Prompt = []
 
