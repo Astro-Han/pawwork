@@ -115,6 +115,7 @@ export const dict = {
   "dialog.provider.google.note": "Gemini models for fast, structured responses",
   "dialog.provider.openrouter.note": "Access all supported models from one provider",
   "dialog.provider.vercel.note": "Unified access to AI models with smart routing",
+  "dialog.provider.volcenginePlan.note": "Connect with Volcano Ark Coding Plan model quota",
 
   "dialog.model.select.title": "Select model",
   "dialog.model.search.placeholder": "Search models",
@@ -579,7 +580,8 @@ export const dict = {
   "session.new.card.document.title": "Process documents",
   "session.new.card.document.description": "Edit, convert, and extract from Word, Excel, PowerPoint, and PDF files.",
   "session.new.card.analysis.title": "Analyze data",
-  "session.new.card.analysis.description": "Summarize spreadsheets, build charts, and answer questions from your files.",
+  "session.new.card.analysis.description":
+    "Summarize spreadsheets, build charts, and answer questions from your files.",
   "session.new.card.writing.title": "Write faster",
   "session.new.card.writing.description": "Draft emails, reports, plans, and polished work copy.",
   "session.new.worktree.main": "Main branch",

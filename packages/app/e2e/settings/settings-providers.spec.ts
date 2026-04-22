@@ -37,6 +37,33 @@ test("custom provider form can be filled and validates input", async ({ page, go
   await closeSettingsPanel(page, settings)
 })
 
+test("shows volcano engine coding plan as a popular provider with api key connect flow", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const settings = await openSettings(page)
+  await settings.getByRole("tab", { name: "Providers" }).click()
+
+  const connectedRow = settings.locator('[data-provider-id="volcengine-plan"][data-provider-section="connected"]')
+  const row = settings.locator('[data-provider-id="volcengine-plan"][data-provider-section="popular"]')
+  if (await connectedRow.isVisible().catch(() => false)) {
+    await expect(connectedRow).toContainText("Volcano Engine Coding Plan")
+    await closeSettingsPanel(page, settings)
+    return
+  }
+
+  await expect(row).toBeVisible()
+  await expect(row).toContainText("Volcano Engine Coding Plan")
+
+  await row.getByRole("button", { name: "Connect" }).click()
+  await expect(page.getByRole("dialog")).toContainText("Volcano Engine Coding Plan")
+  await expect(page.getByLabel(/api key/i)).toBeVisible()
+
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+
+  await closeSettingsPanel(page, settings)
+})
+
 test("custom provider form shows validation errors", async ({ page, gotoSession }) => {
   await gotoSession()
 

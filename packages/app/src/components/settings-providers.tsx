@@ -25,6 +25,7 @@ const PROVIDER_NOTES = [
   { match: (id: string) => id === "google", key: "dialog.provider.google.note" },
   { match: (id: string) => id === "openrouter", key: "dialog.provider.openrouter.note" },
   { match: (id: string) => id === "vercel", key: "dialog.provider.vercel.note" },
+  { match: (id: string) => id === "volcengine-plan", key: "dialog.provider.volcenginePlan.note" },
 ] as const
 
 export const SettingsProviders: Component = () => {
@@ -148,7 +149,11 @@ export const SettingsProviders: Component = () => {
             >
               <For each={connected()}>
                 {(item) => (
-                  <div class="group flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
+                  <div
+                    class="group flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none"
+                    data-provider-id={item.id}
+                    data-provider-section="connected"
+                  >
                     <div class="flex items-center gap-3 min-w-0">
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />
                       <span class="text-14-medium text-text-strong truncate">{item.name}</span>
@@ -178,7 +183,11 @@ export const SettingsProviders: Component = () => {
           <SettingsList>
             <For each={popular()}>
               {(item) => (
-                <div class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none">
+                <div
+                  class="flex flex-wrap items-center justify-between gap-4 min-h-16 py-3 border-b border-border-weak-base last:border-none"
+                  data-provider-id={item.id}
+                  data-provider-section="popular"
+                >
                   <div class="flex flex-col min-w-0">
                     <div class="flex items-center gap-x-3">
                       <ProviderIcon id={item.id} class="size-5 shrink-0 icon-strong-base" />

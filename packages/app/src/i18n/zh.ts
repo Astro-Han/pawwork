@@ -140,6 +140,7 @@ export const dict = {
   "dialog.provider.google.note": "使用 Google 账号或 API 密钥连接",
   "dialog.provider.openrouter.note": "使用 OpenRouter 账号或 API 密钥连接",
   "dialog.provider.vercel.note": "使用 Vercel 账号或 API 密钥连接",
+  "dialog.provider.volcenginePlan.note": "使用火山方舟 Coding Plan 模型额度连接",
 
   "dialog.model.select.title": "选择模型",
   "dialog.model.search.placeholder": "搜索模型",
