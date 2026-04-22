@@ -358,14 +358,22 @@ export namespace Worktree {
       }
 
       function cleanDirectory(target: string) {
-        return Effect.promise(() =>
-          import("fs/promises")
-            .then((fsp) => fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-            .catch((error) => {
+        // Match test preload cleanup: Windows can keep git and sqlite handles
+        // alive briefly after process teardown, so EBUSY needs a longer budget.
+        const maxRetries = process.platform === "win32" ? 30 : 5
+        const remove = (remaining: number): Effect.Effect<void> =>
+          fs.remove(target, { recursive: true, force: true }).pipe(
+            Effect.catch((error) => {
+              if (remaining > 0) {
+                return Effect.sleep(100).pipe(Effect.flatMap(() => remove(remaining - 1)))
+              }
               const message = errorMessage(error)
-              throw new RemoveFailedError({ message: message || "Failed to remove git worktree directory" })
+              return Effect.sync(() => {
+                throw new RemoveFailedError({ message: message || "Failed to remove git worktree directory" })
+              })
             }),
-        )
+          )
+        return remove(maxRetries)
       }
 
       const remove = Effect.fn("Worktree.remove")(function* (input: RemoveInput) {

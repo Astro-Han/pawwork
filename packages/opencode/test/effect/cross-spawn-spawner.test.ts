@@ -169,7 +169,12 @@ describe("cross-spawn spawner", () => {
             'process.stderr.write("stderr\\n", done)',
           ].join("\n"),
         )
-        const [stdout, stderr] = yield* Effect.all([decodeByteStream(handle.stdout), decodeByteStream(handle.stderr)])
+        // Drain both pipes in parallel so Windows CI does not stall when stderr
+        // waits behind stdout decoding.
+        const [stdout, stderr] = yield* Effect.all(
+          [decodeByteStream(handle.stdout), decodeByteStream(handle.stderr)],
+          { concurrency: 2 },
+        )
         expect(stdout).toBe("stdout")
         expect(stderr).toBe("stderr")
       }),

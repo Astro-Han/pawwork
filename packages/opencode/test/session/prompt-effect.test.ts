@@ -1236,6 +1236,8 @@ unix(
   30_000,
 )
 
+const shellQueueTimeout = process.platform === "win32" ? 10_000 : 3_000
+
 it.live(
   "loop waits while shell runs and starts after shell exits",
   () =>
@@ -1271,7 +1273,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  shellQueueTimeout,
 )
 
 it.live(
@@ -1311,7 +1313,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  shellQueueTimeout,
 )
 
 unix(

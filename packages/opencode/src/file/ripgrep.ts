@@ -118,6 +118,7 @@ export namespace Ripgrep {
     "x64-darwin": { platform: "x86_64-apple-darwin", extension: "tar.gz" },
     "x64-linux": { platform: "x86_64-unknown-linux-musl", extension: "tar.gz" },
     "arm64-win32": { platform: "aarch64-pc-windows-msvc", extension: "zip" },
+    "ia32-win32": { platform: "i686-pc-windows-msvc", extension: "zip" },
     "x64-win32": { platform: "x86_64-pc-windows-msvc", extension: "zip" },
   } as const
 
@@ -158,7 +159,7 @@ export namespace Ripgrep {
       const config = PLATFORM[platformKey]
       if (!config) throw new UnsupportedPlatformError({ platform: platformKey })
 
-      const version = "14.1.1"
+      const version = "15.1.0"
       const filename = `ripgrep-${version}-${config.platform}.${config.extension}`
       const url = `https://github.com/BurntSushi/ripgrep/releases/download/${version}/${filename}`
 
