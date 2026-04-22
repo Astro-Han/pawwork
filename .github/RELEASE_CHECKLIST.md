@@ -32,6 +32,10 @@ Create or update the GitHub Release body before publishing the release. Use Engl
 - [macOS Intel](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-x64.dmg)
 - [Windows](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-win-x64.exe)
 
+## App Update Notice
+
+- Short product-facing sentence for the in-app post-update modal. Do not include download links, PR numbers, verification details, or maintenance-only notes.
+
 ## Highlights
 
 - User-facing changes, bug fixes, or packaging fixes.

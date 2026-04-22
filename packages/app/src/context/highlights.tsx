@@ -61,8 +61,25 @@ function parseHighlight(value: unknown): Highlight | undefined {
   return { title, description, media }
 }
 
-function summarizeBody(body: string): string | undefined {
-  const lines = body
+function findAppUpdateNotice(body: string): string | undefined {
+  const lines = body.split(/\r?\n/)
+  const start = lines.findIndex((line) => /^#{2,6}\s+App Update Notice\s*$/i.test(line.trim()))
+  if (start === -1) return
+
+  const headingLevel = lines[start].trim().match(/^#+/)?.[0].length ?? 2
+  const section = lines.slice(start + 1)
+  const end = section.findIndex((line) => {
+    const heading = line.trim().match(/^(#{1,6})(?:\s|$)/)
+    return heading !== null && heading[1].length <= headingLevel
+  })
+  return (end === -1 ? section : section.slice(0, end)).join("\n")
+}
+
+function summarizeAppUpdateNotice(body: string): string | undefined {
+  const notice = findAppUpdateNotice(body)
+  if (!notice) return
+
+  const lines = notice
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"))
@@ -97,7 +114,7 @@ function parseRelease(value: unknown): ParsedRelease | undefined {
 
   const body = getText(value.body)
   if (tag && body) {
-    const summary = summarizeBody(body)
+    const summary = summarizeAppUpdateNotice(body)
     if (summary) {
       return {
         tag,
