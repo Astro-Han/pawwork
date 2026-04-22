@@ -1,4 +1,5 @@
 import { app } from "electron"
+import path from "node:path"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { rendererOrigin } from "./renderer-protocol"
 import { PAWWORK_RUNTIME, runtimeRoots } from "./runtime-namespace"
@@ -58,19 +59,34 @@ export async function spawnLocalServer(hostname: string, port: number, password:
   return { listener, health: { wait } }
 }
 
+function githubConfigDir(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  pathUtils: Pick<typeof path, "join"> = path,
+) {
+  if (env.GH_CONFIG_DIR) return env.GH_CONFIG_DIR
+  if (env.XDG_CONFIG_HOME) return pathUtils.join(env.XDG_CONFIG_HOME, "gh")
+  const appData = env.AppData ?? env.APPDATA ?? (platform === "win32" ? env.appdata : undefined)
+  if (platform === "win32" && appData) return pathUtils.join(appData, "GitHub CLI")
+  if (env.HOME) return pathUtils.join(env.HOME, ".config", "gh")
+  return undefined
+}
+
 function buildServerEnv(password: string) {
   const shell = process.platform === "win32" ? null : getUserShell()
   const shellEnv = shell ? (loadShellEnv(shell) ?? {}) : {}
   const roots = runtimeRoots(app.getPath("userData"))
+  const mergedEnv = { ...shellEnv, ...process.env }
+  const ghConfigDir = githubConfigDir(mergedEnv, process.platform)
   return {
-    ...process.env,
-    ...shellEnv,
+    ...mergedEnv,
     OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
     OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
     OPENCODE_CLIENT: PAWWORK_RUNTIME.client,
     OPENCODE_SERVER_USERNAME: PAWWORK_RUNTIME.serverUsername,
     OPENCODE_SERVER_PASSWORD: password,
     PAWWORK_RUNTIME_NAMESPACE: "pawwork",
+    ...(ghConfigDir ? { GH_CONFIG_DIR: ghConfigDir } : {}),
     XDG_DATA_HOME: roots.data,
     XDG_CACHE_HOME: roots.cache,
     XDG_CONFIG_HOME: roots.config,
@@ -84,6 +100,7 @@ function prepareServerEnv(password: string) {
 }
 
 export const buildServerEnvForTest = buildServerEnv
+export const githubConfigDirForTest = githubConfigDir
 
 export async function checkHealth(url: string, password?: string | null): Promise<boolean> {
   let healthUrl: URL

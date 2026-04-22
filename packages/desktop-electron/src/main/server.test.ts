@@ -10,6 +10,8 @@ const serverRoots = {
   state: path.join(userData, "state"),
 }
 
+let mockShellEnv: Record<string, string> = {}
+
 mock.module("electron", () => ({
   app: {
     getPath: (name: string) => (name === "userData" ? userData : `/tmp/${name}`),
@@ -26,13 +28,13 @@ mock.module("./store", () => ({
 }))
 
 mock.module("./shell-env", () => ({
-  getUserShell: () => null,
+  getUserShell: () => "/bin/zsh",
   isNushell: (shell: string) => {
     const name = path.basename(shell).toLowerCase()
     const raw = shell.toLowerCase()
     return name === "nu" || name === "nu.exe" || raw.endsWith("\\nu.exe")
   },
-  loadShellEnv: () => ({}),
+  loadShellEnv: () => mockShellEnv,
   mergeShellEnv: (shell: Record<string, string> | null, env: Record<string, string>) => ({
     ...(shell || {}),
     ...env,
@@ -52,6 +54,7 @@ mock.module("./shell-env", () => ({
 const originalEnv = { ...process.env }
 
 afterEach(() => {
+  mockShellEnv = {}
   for (const key of Object.keys(process.env)) {
     if (!(key in originalEnv)) delete process.env[key]
   }
@@ -63,6 +66,8 @@ afterAll(() => {
 })
 
 describe("desktop server runtime namespace", () => {
+  const nonWindowsTest = process.platform === "win32" ? test.skip : test
+
   test("prepares PawWork-owned server environment before embedded server import", async () => {
     const { buildServerEnvForTest } = await import("./server")
 
@@ -76,6 +81,155 @@ describe("desktop server runtime namespace", () => {
     expect(env.XDG_CACHE_HOME).toBe(serverRoots.cache)
     expect(env.XDG_CONFIG_HOME).toBe(serverRoots.config)
     expect(env.XDG_STATE_HOME).toBe(serverRoots.state)
+  })
+
+  test("uses process GitHub CLI config directory before shell config directory", async () => {
+    process.env.GH_CONFIG_DIR = "/process/gh"
+    mockShellEnv = { GH_CONFIG_DIR: "/shell/gh", XDG_CONFIG_HOME: "/shell/config" }
+    const { buildServerEnvForTest } = await import("./server")
+
+    const env = buildServerEnvForTest("secret")
+
+    expect(env.XDG_CONFIG_HOME).toBe(serverRoots.config)
+    expect(env.GH_CONFIG_DIR).toBe("/process/gh")
+  })
+
+  test("keeps explicit GitHub CLI config directory while isolating PawWork config", async () => {
+    process.env.GH_CONFIG_DIR = "/custom/gh"
+    process.env.XDG_CONFIG_HOME = "/user/config"
+    process.env.HOME = "/Users/example"
+    const { buildServerEnvForTest } = await import("./server")
+
+    const env = buildServerEnvForTest("secret")
+
+    expect(env.XDG_CONFIG_HOME).toBe(serverRoots.config)
+    expect(env.GH_CONFIG_DIR).toBe("/custom/gh")
+  })
+
+  test("keeps process env values before shell env values", async () => {
+    process.env.PAWWORK_TEST_ENV = "process"
+    mockShellEnv = { PAWWORK_TEST_ENV: "shell" }
+    const { buildServerEnvForTest } = await import("./server")
+
+    const env = buildServerEnvForTest("secret")
+
+    expect(env.PAWWORK_TEST_ENV).toBe("process")
+  })
+
+  nonWindowsTest("derives GitHub CLI config directory from shell XDG config home", async () => {
+    delete process.env.GH_CONFIG_DIR
+    delete process.env.XDG_CONFIG_HOME
+    mockShellEnv = { XDG_CONFIG_HOME: "/shell/config" }
+    process.env.HOME = "/Users/example"
+    const { buildServerEnvForTest } = await import("./server")
+
+    const env = buildServerEnvForTest("secret")
+
+    expect(env.XDG_CONFIG_HOME).toBe(serverRoots.config)
+    expect(env.GH_CONFIG_DIR).toBe(path.join("/shell/config", "gh"))
+  })
+
+  test("uses process XDG config home before shell XDG config home", async () => {
+    delete process.env.GH_CONFIG_DIR
+    process.env.XDG_CONFIG_HOME = "/process/config"
+    mockShellEnv = { XDG_CONFIG_HOME: "/shell/config" }
+    process.env.HOME = "/Users/example"
+    const { buildServerEnvForTest } = await import("./server")
+
+    const env = buildServerEnvForTest("secret")
+
+    expect(env.XDG_CONFIG_HOME).toBe(serverRoots.config)
+    expect(env.GH_CONFIG_DIR).toBe(path.join("/process/config", "gh"))
+  })
+
+  nonWindowsTest("derives GitHub CLI config directory from home when original XDG config home is absent", async () => {
+    delete process.env.GH_CONFIG_DIR
+    delete process.env.XDG_CONFIG_HOME
+    mockShellEnv = {}
+    process.env.HOME = "/Users/example"
+    const { buildServerEnvForTest } = await import("./server")
+
+    const env = buildServerEnvForTest("secret")
+
+    expect(env.XDG_CONFIG_HOME).toBe(serverRoots.config)
+    expect(env.GH_CONFIG_DIR).toBe(path.join("/Users/example", ".config", "gh"))
+  })
+
+  test("derives Windows GitHub CLI config directory from AppData when XDG config home is absent", async () => {
+    delete process.env.GH_CONFIG_DIR
+    const { githubConfigDirForTest } = await import("./server")
+
+    expect(
+      githubConfigDirForTest(
+        {
+          AppData: "C:\\Users\\example\\AppData\\Roaming",
+          HOME: "C:\\Users\\example",
+        },
+        "win32",
+      ),
+    ).toBe(path.join("C:\\Users\\example\\AppData\\Roaming", "GitHub CLI"))
+  })
+
+  test("derives Windows GitHub CLI config directory from uppercase APPDATA", async () => {
+    delete process.env.GH_CONFIG_DIR
+    const { githubConfigDirForTest } = await import("./server")
+
+    expect(
+      githubConfigDirForTest(
+        {
+          APPDATA: "C:\\Users\\example\\AppData\\Roaming",
+          HOME: "C:\\Users\\example",
+        },
+        "win32",
+      ),
+    ).toBe(path.join("C:\\Users\\example\\AppData\\Roaming", "GitHub CLI"))
+  })
+
+  test("derives Windows GitHub CLI config directory from lowercase appdata", async () => {
+    delete process.env.GH_CONFIG_DIR
+    const { githubConfigDirForTest } = await import("./server")
+
+    expect(
+      githubConfigDirForTest(
+        {
+          appdata: "C:\\Users\\example\\AppData\\Roaming",
+          HOME: "C:\\Users\\example",
+        },
+        "win32",
+      ),
+    ).toBe(path.join("C:\\Users\\example\\AppData\\Roaming", "GitHub CLI"))
+  })
+
+  test("uses injectable path utility for platform-specific GitHub CLI config paths", async () => {
+    delete process.env.GH_CONFIG_DIR
+    const { githubConfigDirForTest } = await import("./server")
+    const pathUtils = {
+      join: (...parts: string[]) => parts.join("\\"),
+    }
+
+    expect(
+      githubConfigDirForTest(
+        {
+          APPDATA: "C:\\Users\\example\\AppData\\Roaming",
+        },
+        "win32",
+        pathUtils,
+      ),
+    ).toBe("C:\\Users\\example\\AppData\\Roaming\\GitHub CLI")
+  })
+
+  test("derives Windows GitHub CLI config directory from home when AppData is absent", async () => {
+    delete process.env.GH_CONFIG_DIR
+    const { githubConfigDirForTest } = await import("./server")
+
+    expect(
+      githubConfigDirForTest(
+        {
+          HOME: "C:\\Users\\example",
+        },
+        "win32",
+      ),
+    ).toBe(path.join("C:\\Users\\example", ".config", "gh"))
   })
 
   test("runtime roots keep Windows-shaped user data under PawWork", async () => {
