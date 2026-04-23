@@ -359,6 +359,68 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
+  test("converts pdf tool attachments into media tool results", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "read pdf",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-1",
+            tool: "read",
+            state: {
+              status: "completed",
+              input: { filePath: "report.pdf" },
+              output: "PDF read successfully",
+              title: "Read",
+              metadata: {},
+              time: { start: 0, end: 1 },
+              attachments: [
+                {
+                  ...basePart(assistantID, "file-1"),
+                  type: "file",
+                  mime: "application/pdf",
+                  filename: "report.pdf",
+                  url: "data:application/pdf;base64,JVBERi0=",
+                },
+              ],
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, , tool] = await MessageV2.toModelMessages(input, model)
+    expect(tool).toMatchObject({
+      role: "tool",
+      content: [
+        {
+          output: {
+            type: "content",
+            value: [
+              { type: "text", text: "PDF read successfully" },
+              { type: "media", mediaType: "application/pdf", data: "JVBERi0=" },
+            ],
+          },
+        },
+      ],
+    })
+  })
+
   test("omits provider metadata when assistant model differs", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"

@@ -161,3 +161,138 @@ test("remaps fallback oauth model urls to the enterprise host", async () => {
   expect(models.claude.api.url).toBe("https://copilot-api.ghe.example.com")
   expect(models.claude.api.npm).toBe("@ai-sdk/github-copilot")
 })
+
+test("disables anthropic tool streaming for github copilot chat params", async () => {
+  const hooks = await CopilotAuthPlugin({
+    client: {} as never,
+    project: {} as never,
+    directory: "",
+    worktree: "",
+    experimental_workspace: {
+      register() {},
+    },
+    serverUrl: new URL("https://example.com"),
+    $: {} as never,
+  })
+
+  const output = { temperature: 0, topP: 1, topK: 0, options: {} as Record<string, unknown> }
+  await hooks["chat.params"]?.(
+    {
+      model: {
+        providerID: "github-copilot",
+        id: "claude",
+        api: { id: "claude-sonnet-4.5", npm: "@ai-sdk/anthropic" },
+      },
+    } as never,
+    output as never,
+  )
+
+  expect(output.options).toMatchObject({ toolStreaming: false })
+})
+
+test("keeps tool streaming untouched outside github copilot anthropic chat params", async () => {
+  const hooks = await CopilotAuthPlugin({
+    client: {} as never,
+    project: {} as never,
+    directory: "",
+    worktree: "",
+    experimental_workspace: {
+      register() {},
+    },
+    serverUrl: new URL("https://example.com"),
+    $: {} as never,
+  })
+
+  const copilotOpenAI = { temperature: 0, topP: 1, topK: 0, options: {} as Record<string, unknown> }
+  await hooks["chat.params"]?.(
+    {
+      model: {
+        providerID: "github-copilot",
+        id: "gpt",
+        api: { id: "gpt-5", npm: "@ai-sdk/openai" },
+      },
+    } as never,
+    copilotOpenAI as never,
+  )
+
+  const anthropic = { temperature: 0, topP: 1, topK: 0, options: {} as Record<string, unknown> }
+  await hooks["chat.params"]?.(
+    {
+      model: {
+        providerID: "anthropic",
+        id: "claude",
+        api: { id: "claude-sonnet-4.5", npm: "@ai-sdk/anthropic" },
+      },
+    } as never,
+    anthropic as never,
+  )
+
+  expect(copilotOpenAI.options).not.toHaveProperty("toolStreaming")
+  expect(anthropic.options).not.toHaveProperty("toolStreaming")
+})
+
+test("sets anthropic beta header only for github copilot anthropic chat headers", async () => {
+  const hooks = await CopilotAuthPlugin({
+    client: {
+      session: {
+        message: async () => {
+          throw new Error("skip")
+        },
+        get: async () => {
+          throw new Error("skip")
+        },
+      },
+    } as never,
+    project: {} as never,
+    directory: "",
+    worktree: "",
+    experimental_workspace: {
+      register() {},
+    },
+    serverUrl: new URL("https://example.com"),
+    $: {} as never,
+  })
+
+  const copilotAnthropic = { headers: {} as Record<string, string> }
+  await hooks["chat.headers"]?.(
+    {
+      model: {
+        providerID: "github-copilot",
+        id: "claude",
+        api: { id: "claude-sonnet-4.5", npm: "@ai-sdk/anthropic" },
+      },
+      message: { sessionID: "s", id: "m" },
+    } as never,
+    copilotAnthropic as never,
+  )
+
+  const copilotOpenAI = { headers: {} as Record<string, string> }
+  await hooks["chat.headers"]?.(
+    {
+      model: {
+        providerID: "github-copilot",
+        id: "gpt",
+        api: { id: "gpt-5", npm: "@ai-sdk/openai" },
+      },
+      message: { sessionID: "s", id: "m" },
+    } as never,
+    copilotOpenAI as never,
+  )
+
+  const anthropic = { headers: {} as Record<string, string> }
+  await hooks["chat.headers"]?.(
+    {
+      model: {
+        providerID: "anthropic",
+        id: "claude",
+        api: { id: "claude-sonnet-4.5", npm: "@ai-sdk/anthropic" },
+      },
+      message: { sessionID: "s", id: "m" },
+    } as never,
+    anthropic as never,
+  )
+
+  expect(copilotAnthropic.headers["anthropic-beta"]).toBe("interleaved-thinking-2025-05-14")
+  expect(copilotOpenAI.headers).not.toHaveProperty("anthropic-beta")
+  expect(anthropic.headers).not.toHaveProperty("anthropic-beta")
+})

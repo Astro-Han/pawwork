@@ -17,6 +17,12 @@ import { provideInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const FIXTURES_DIR = path.join(import.meta.dir, "fixtures")
+const ftyp = (...brands: string[]) => {
+  const content = Buffer.concat([Buffer.from("ftyp"), ...brands.map((item) => Buffer.from(item))])
+  const size = Buffer.alloc(4)
+  size.writeUInt32BE(size.length + content.length)
+  return Buffer.concat([size, content])
+}
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -421,6 +427,92 @@ describe("tool.read truncation", () => {
     }),
   )
 
+  it.live("detects attachment media from file contents", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00])
+      yield* put(path.join(dir, "image.bin"), jpeg)
+
+      const result = yield* exec(dir, { filePath: path.join(dir, "image.bin") })
+
+      expect(result.output).toContain("Image read successfully")
+      expect(result.attachments?.[0]?.mime).toBe("image/jpeg")
+      expect(result.attachments?.[0]?.url).toStartWith("data:image/jpeg;base64,")
+    }),
+  )
+
+  it.live("detects pdf attachment media from file contents", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "report.bin"), Buffer.from("%PDF-1.4\n"))
+
+      const result = yield* exec(dir, { filePath: path.join(dir, "report.bin") })
+
+      expect(result.output).toContain("PDF read successfully")
+      expect(result.attachments?.[0]?.mime).toBe("application/pdf")
+      expect(result.attachments?.[0]?.url).toStartWith("data:application/pdf;base64,")
+    }),
+  )
+
+  it.live("detects modern image attachment media from file contents", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "photo.bin"), Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x00, 0x08, 0x00, 0x00]))
+      yield* put(path.join(dir, "phone.dat"), ftyp("heic", "\0\0\0\0"))
+      yield* put(path.join(dir, "screen.bin"), ftyp("avif", "\0\0\0\0"))
+
+      const tiff = yield* exec(dir, { filePath: path.join(dir, "photo.bin") })
+      const heic = yield* exec(dir, { filePath: path.join(dir, "phone.dat") })
+      const avif = yield* exec(dir, { filePath: path.join(dir, "screen.bin") })
+
+      expect(tiff.attachments?.[0]?.mime).toBe("image/tiff")
+      expect(heic.attachments?.[0]?.mime).toBe("image/heic")
+      expect(avif.attachments?.[0]?.mime).toBe("image/avif")
+    }),
+  )
+
+  it.live("rejects oversized sniffed attachments before base64 encoding", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      const largeJpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(5 * 1024 * 1024)])
+      yield* put(path.join(dir, "large.bin"), largeJpeg)
+
+      const err = yield* fail(dir, { filePath: path.join(dir, "large.bin") })
+
+      expect(err.message).toContain("Cannot read attachment larger than 5 MB")
+    }),
+  )
+
+  it.live("detects ftyp compatible-brand image media from file contents", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "phone.bin"), ftyp("isom", "\0\0\0\0", "heix"))
+      yield* put(path.join(dir, "motion.bin"), ftyp("isom", "\0\0\0\0", "hevx"))
+      yield* put(path.join(dir, "screen.dat"), ftyp("isom", "\0\0\0\0", "avis"))
+
+      const heix = yield* exec(dir, { filePath: path.join(dir, "phone.bin") })
+      const hevx = yield* exec(dir, { filePath: path.join(dir, "motion.bin") })
+      const avis = yield* exec(dir, { filePath: path.join(dir, "screen.dat") })
+
+      expect(heix.attachments?.[0]?.mime).toBe("image/heic")
+      expect(hevx.attachments?.[0]?.mime).toBe("image/heic")
+      expect(avis.attachments?.[0]?.mime).toBe("image/avif")
+    }),
+  )
+
+  it.live("reads svg files as text instead of attachments", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "icon.svg"), `<svg><text>hello</text></svg>`)
+
+      const result = yield* exec(dir, { filePath: path.join(dir, "icon.svg") })
+
+      expect(result.attachments).toBeUndefined()
+      expect(result.output).toContain("<svg>")
+      expect(result.output).toContain("hello")
+    }),
+  )
+
   it.live(".fbs files (FlatBuffers schema) are read as text, not images", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
@@ -468,7 +560,7 @@ describe("tool.read binary detection", () => {
       yield* put(path.join(dir, "null-byte.txt"), bytes)
 
       const err = yield* fail(dir, { filePath: path.join(dir, "null-byte.txt") })
-      expect(err.message).toContain("Cannot read binary file")
+      expect(err.message).toContain("Cannot read binary file (content inspection)")
     }),
   )
 
@@ -478,7 +570,7 @@ describe("tool.read binary detection", () => {
       yield* put(path.join(dir, "module.wasm"), "not really wasm")
 
       const err = yield* fail(dir, { filePath: path.join(dir, "module.wasm") })
-      expect(err.message).toContain("Cannot read binary file")
+      expect(err.message).toContain("Cannot read binary file (extension: .wasm)")
     }),
   )
 })

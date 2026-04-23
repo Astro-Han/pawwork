@@ -85,8 +85,8 @@ async function pluginProject() {
           "    configure(input) {",
           `      return { ...input, name: "plug", branch: "plug/main", directory: ${JSON.stringify(space)} }`,
           "    },",
-          "    async create(input) {",
-          `      await Bun.write(${JSON.stringify(mark)}, JSON.stringify(input))`,
+          "    async create(input, env) {",
+          `      await Bun.write(${JSON.stringify(mark)}, JSON.stringify({ input, env }))`,
           "    },",
           "    async remove() {},",
           "    target(input) {",
@@ -141,13 +141,25 @@ describe("plugin.workspace", () => {
     expect(info.branch).toBe("plug/main")
     expect(info.directory).toBe(tmp.extra.space)
     expect(info.extra).toEqual({ key: "value" })
-    expect(JSON.parse(await Bun.file(tmp.extra.mark).text())).toMatchObject({
+    const created = JSON.parse(await Bun.file(tmp.extra.mark).text())
+    expect(created.input).toMatchObject({
       type: tmp.extra.type,
       name: "plug",
       branch: "plug/main",
       directory: tmp.extra.space,
       extra: { key: "value" },
     })
+    expect(created.env.OPENCODE_WORKSPACE_ID).toBe(info.id)
+    expect(created.env.OPENCODE_EXPERIMENTAL_WORKSPACES).toBe("true")
+    const otelKeys = ["OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_RESOURCE_ATTRIBUTES"] as const
+    for (const key of otelKeys) {
+      const expected = process.env[key]
+      if (expected === undefined) expect(created.env).not.toHaveProperty(key)
+      else expect(created.env[key]).toBe(expected)
+    }
+    const auth = JSON.parse(created.env.OPENCODE_AUTH_CONTENT)
+    expect(typeof auth).toBe("object")
+    expect(auth).not.toBeNull()
     await waitFor(() => {
       const status = Workspace.status().find((item) => item.workspaceID === info.id)
       return status !== undefined && status.status !== "connecting"

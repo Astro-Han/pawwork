@@ -49,7 +49,14 @@ export type WorkspaceAdaptor = {
   name: string
   description: string
   configure(config: WorkspaceInfo): WorkspaceInfo | Promise<WorkspaceInfo>
-  create(config: WorkspaceInfo, from?: WorkspaceInfo): Promise<void>
+  /**
+   * Environment variables to pass to spawned workspace processes.
+   *
+   * This can include OPENCODE_AUTH_CONTENT, a serialized provider auth blob.
+   * Treat values as secrets and avoid persisting or logging them.
+   * The from parameter is reserved for future workspace copy flows; core does not pass it today.
+   */
+  create(config: WorkspaceInfo, env?: Record<string, string>, from?: WorkspaceInfo): Promise<void>
   remove(config: WorkspaceInfo): Promise<void>
   target(config: WorkspaceInfo): WorkspaceTarget | Promise<WorkspaceTarget>
 }

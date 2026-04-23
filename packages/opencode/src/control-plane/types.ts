@@ -26,7 +26,8 @@ export type Target =
 
 export type Adaptor = {
   configure(input: WorkspaceInfo): WorkspaceInfo | Promise<WorkspaceInfo>
-  create(config: WorkspaceInfo, from?: WorkspaceInfo): Promise<void>
+  // from is reserved for future workspace copy flows; core does not pass it today.
+  create(config: WorkspaceInfo, env?: Record<string, string>, from?: WorkspaceInfo): Promise<void>
   remove(config: WorkspaceInfo): Promise<void>
   target(config: WorkspaceInfo): Target | Promise<Target>
 }

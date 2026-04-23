@@ -85,6 +85,8 @@ function list(value: unknown): ReviewDiff[] {
   return Object.values(value).filter(diff)
 }
 
+const canRenderDiff = (diff: ViewDiff) => !!mediaKindFromPath(diff.file) || diff.additions !== 0 || diff.deletions !== 0
+
 export interface SessionReviewProps {
   title?: JSX.Element
   empty?: JSX.Element
@@ -261,8 +263,16 @@ export const SessionReview = (props: SessionReviewProps) => {
     queue()
   }
 
+  const renderableFiles = createMemo(() =>
+    items()
+      .filter(canRenderDiff)
+      .map((diff) => diff.file),
+  )
+
+  const hasOpenRenderableFiles = createMemo(() => renderableFiles().some((file) => open().includes(file)))
+
   const handleExpandOrCollapseAll = () => {
-    const next = open().length > 0 ? [] : files()
+    const next = hasOpenRenderableFiles() ? [] : renderableFiles()
     handleChange(next)
   }
 
@@ -358,7 +368,7 @@ export const SessionReview = (props: SessionReviewProps) => {
               onClick={handleExpandOrCollapseAll}
             >
               <Switch>
-                <Match when={open().length > 0}>{i18n.t("ui.sessionReview.collapseAll")}</Match>
+                <Match when={hasOpenRenderableFiles()}>{i18n.t("ui.sessionReview.collapseAll")}</Match>
                 <Match when={true}>{i18n.t("ui.sessionReview.expandAll")}</Match>
               </Switch>
             </Button>
@@ -387,7 +397,8 @@ export const SessionReview = (props: SessionReviewProps) => {
                   {(diff) => {
                     const file = diff.file
 
-                    const expanded = createMemo(() => open().includes(file))
+                    const diffCanRender = () => canRenderDiff(diff)
+                    const expanded = createMemo(() => diffCanRender() && open().includes(file))
                     const mounted = createMemo(() => expanded() && (!!store.visible[file] || pinned(file)))
                     const force = () => !!store.force[file]
 
@@ -502,7 +513,7 @@ export const SessionReview = (props: SessionReviewProps) => {
                         data-selected={props.focusedFile === file ? "" : undefined}
                       >
                         <StickyAccordionHeader>
-                          <Accordion.Trigger>
+                          <Accordion.Trigger disabled={!diffCanRender()}>
                             <div data-slot="session-review-trigger-content">
                               <div data-slot="session-review-file-info">
                                 <FileIcon node={{ path: file, type: "file" }} />
@@ -511,7 +522,7 @@ export const SessionReview = (props: SessionReviewProps) => {
                                     <span data-slot="session-review-directory">{`\u202A${getDirectory(file)}\u202C`}</span>
                                   </Show>
                                   <span data-slot="session-review-filename">{getFilename(file)}</span>
-                                  <Show when={props.onViewFile && diff.status !== "deleted"}>
+                                  <Show when={props.onViewFile && diff.status !== "deleted" && diffCanRender()}>
                                     <Tooltip value={openFileLabel()} placement="top" gutter={4}>
                                       <button
                                         data-slot="session-review-view-button"
@@ -552,9 +563,11 @@ export const SessionReview = (props: SessionReviewProps) => {
                                     <DiffChanges changes={diff} />
                                   </Match>
                                 </Switch>
-                                <span data-slot="session-review-diff-chevron">
-                                  <Icon name="chevron-down" size="small" />
-                                </span>
+                                <Show when={diffCanRender()}>
+                                  <span data-slot="session-review-diff-chevron">
+                                    <Icon name="chevron-down" size="small" />
+                                  </span>
+                                </Show>
                               </div>
                             </div>
                           </Accordion.Trigger>

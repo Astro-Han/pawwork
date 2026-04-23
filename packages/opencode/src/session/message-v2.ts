@@ -16,6 +16,8 @@ import type { Provider } from "@/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect } from "effect"
 import { EffectLogger } from "@/effect"
+import { isMedia } from "@/util/media"
+export { isMedia } from "@/util/media"
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
 interface FetchDecompressionError extends Error {
@@ -25,10 +27,6 @@ interface FetchDecompressionError extends Error {
 }
 
 export const SYNTHETIC_ATTACHMENT_PROMPT = "Attached image(s) from tool result:"
-
-export function isMedia(mime: string) {
-  return mime.startsWith("image/") || mime === "application/pdf"
-}
 
 export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
 export const AbortedError = NamedError.create("MessageAbortedError", z.object({ message: z.string() }))

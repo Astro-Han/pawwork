@@ -10,3 +10,10 @@ test("assistant part renderers capture item values before passing them to Part",
   expect(source).not.toMatch(/defaultOpen=\{partDefaultOpen\(item\(\)!?/)
   expect(source).not.toMatch(/message=\{message\(\)!?\}/)
 })
+
+test("tool file accordions account for tool content gap in sticky offset", () => {
+  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+
+  expect(source).toContain('style={{ "--sticky-accordion-offset": "calc(32px + var(--tool-content-gap))" }}')
+  expect(source).not.toContain('style={{ "--sticky-accordion-offset": "40px" }}')
+})

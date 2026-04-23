@@ -41,7 +41,7 @@ export const SkillTool = Tool.define(
           const base = pathToFileURL(dir).href
 
           const limit = 10
-          const files = yield* rg.files({ cwd: dir, follow: false, hidden: true }).pipe(
+          const files = yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
             Stream.filter((file) => !file.includes("SKILL.md")),
             Stream.map((file) => path.resolve(dir, file)),
             Stream.take(limit),
