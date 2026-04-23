@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { EventEmitter } from "node:events"
 import { mkdirSync, writeFileSync } from "node:fs"
+import { rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import os, { homedir } from "node:os"
 import { dirname, join } from "node:path"
@@ -61,6 +62,7 @@ import { readStoredMenuLocale, writeStoredMenuLocale } from "./menu-i18n"
 import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController } from "./updater"
+import { pendingUpdateCacheDir } from "./updater-cache"
 import { updaterDialogLabels } from "./updater-dialog-labels"
 import {
   createLoadingWindow,
@@ -106,6 +108,7 @@ const updater = createUpdaterController({
   currentVersion: () => app.getVersion(),
   checkForUpdates: () => autoUpdater.checkForUpdates(),
   downloadUpdate: () => autoUpdater.downloadUpdate(),
+  clearPendingUpdate: clearPendingUpdate,
   quitAndInstall: () => {
     killSidecar()
     autoUpdater.quitAndInstall()
@@ -544,18 +547,23 @@ async function getSidecarPort() {
   })
 }
 
+async function clearPendingUpdate() {
+  await rm(pendingUpdateCacheDir(), { recursive: true, force: true })
+}
+
 function setupAutoUpdater() {
   if (!UPDATER_ENABLED) return
   autoUpdater.logger = logger
   autoUpdater.channel = "latest"
   autoUpdater.allowPrerelease = false
-  autoUpdater.allowDowngrade = true
+  autoUpdater.allowDowngrade = false
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.autoInstallOnAppQuit = process.platform !== "darwin"
   logger.log("auto updater configured", {
     channel: autoUpdater.channel,
     allowPrerelease: autoUpdater.allowPrerelease,
     allowDowngrade: autoUpdater.allowDowngrade,
+    autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
     currentVersion: app.getVersion(),
   })
 }
