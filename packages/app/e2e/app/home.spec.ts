@@ -20,7 +20,7 @@ test("@smoke home renders the hero composer and starter cards", async ({ page, p
 
   const home = page.locator('[data-component="session-new-home"]')
   const composer = home.locator(sessionComposerDockSelector)
-  const firstCard = home.getByRole("button", { name: /Process documents/i })
+  const firstCard = home.getByRole("button", { name: /Process docs/i })
   const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
   await expect(home).toBeVisible()
   await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
@@ -31,7 +31,7 @@ test("@smoke home renders the hero composer and starter cards", async ({ page, p
   await expect(home.locator(promptSelector)).toBeVisible()
   await expect(firstCard).toBeVisible()
   await expect(page.getByRole("button", { name: /Analyze data/i })).toBeVisible()
-  await expect(page.getByRole("button", { name: /Write faster/i })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Start writing/i })).toBeVisible()
   await expect(page.getByRole("button", { name: "Right utility panel" })).toBeVisible()
   await expect(workspaceChip).toBeVisible()
 

@@ -1,3 +1,4 @@
+import { Icon } from "@opencode-ai/ui/icon"
 import { Popover } from "@opencode-ai/ui/popover"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
@@ -60,9 +61,9 @@ export function WorkspaceChip() {
       }}
       trigger={
         <>
-          <FolderIcon class="text-text-weak" />
+          <Icon name="workspace" size="small" class="text-text-weak" />
           <span class="leading-none">{label()}</span>
-          <ChevronIcon class="text-text-weak" />
+          <Icon name="chevron-down" size="small" class="text-text-weak" />
         </>
       }
       class="w-60 rounded-[10px] border border-border-strong bg-surface-base p-1 shadow-lg"
@@ -90,7 +91,7 @@ export function WorkspaceChip() {
                     setOpen(false)
                   }}
                 >
-                  <FolderIcon class="text-text-weak" />
+                  <Icon name="workspace" size="small" class="text-text-weak" />
                   <span class="min-w-0 flex-1 truncate">{getFilename(workspace)}</span>
                 </button>
               )
@@ -107,7 +108,7 @@ export function WorkspaceChip() {
               layoutPage.openProject()
             }}
           >
-            <PlusIcon class="text-text-weak" />
+            <Icon name="plus-small" size="small" class="text-text-weak" />
             <span class="min-w-0 flex-1 truncate">{language.t("workspace.chip.add")}</span>
           </button>
         </div>
@@ -116,36 +117,3 @@ export function WorkspaceChip() {
   )
 }
 
-function FolderIcon(props: { class?: string }) {
-  return (
-    <div data-component="icon" data-size="small" class={props.class}>
-      <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path
-          d="M1.5 3.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V3.5z"
-          stroke="currentColor"
-          stroke-width="1.1"
-        />
-      </svg>
-    </div>
-  )
-}
-
-function ChevronIcon(props: { class?: string }) {
-  return (
-    <div data-component="icon" data-size="small" class={props.class}>
-      <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path d="M3.5 5.5l3.5 3 3.5-3" stroke="currentColor" stroke-width="1.1" fill="none" />
-      </svg>
-    </div>
-  )
-}
-
-function PlusIcon(props: { class?: string }) {
-  return (
-    <div data-component="icon" data-size="small" class={props.class}>
-      <svg data-slot="icon-svg" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path d="M7 3.5v7M3.5 7h7" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
-      </svg>
-    </div>
-  )
-}

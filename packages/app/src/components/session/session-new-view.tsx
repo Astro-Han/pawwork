@@ -1,7 +1,7 @@
+import { Icon } from "@opencode-ai/ui/icon"
 import { For, createSignal, Show, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { pawworkSkillCards, type PawworkSkillName } from "./pawwork-skill-meta"
-import { SkillIcon } from "./skill-icons"
 
 type ComposerCtx = {
   onModeChange: (mode: "normal" | "shell") => void
@@ -23,7 +23,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
         <h1 class="text-20-medium text-text-strong">{language.t("session.new.title")}</h1>
         <p class="mt-3 text-14-regular text-text-weak">{language.t("session.new.subtitle")}</p>
 
-        <div class="mt-8 flex w-full max-w-[640px] flex-wrap justify-center gap-3">
+        <div class="mt-8 grid w-fit max-w-[640px] grid-cols-1 gap-3 sm:grid-cols-3">
           <For each={pawworkSkillCards}>
             {(card) => {
               const isSelected = () => mode() === "normal" && selectedSkill() === card.name
@@ -33,14 +33,19 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   data-skill-card={card.name}
                   aria-pressed={isSelected()}
                   classList={{
-                    "flex items-center gap-2 rounded-xl border px-6 py-3 transition-colors": true,
+                    "flex items-center justify-center gap-2 rounded-xl border px-6 py-3 transition-colors": true,
                     "border-border-weaker-base bg-surface-base hover:border-border-weak-base hover:bg-surface-raised-base-hover":
                       !isSelected(),
                     "border-border-interactive-base bg-surface-raised-base shadow-sm": isSelected(),
                   }}
                   onClick={() => toggleSkill(card.name)}
                 >
-                  <SkillIcon name={card.homeIcon} class={`h-6 w-6 shrink-0 ${card.homeIconClass}`} />
+                  <Icon
+                    name={card.homeIcon}
+                    size="normal"
+                    class={`shrink-0 ${card.homeIconClass ?? ""}`}
+                    style={card.homeIconStyle}
+                  />
                   <span class="text-14-medium text-text-strong">{language.t(card.titleKey)}</span>
                 </button>
               )
