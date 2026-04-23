@@ -1,4 +1,4 @@
-import { createEffect, For, Match, on, onCleanup, Show, Switch, type JSX } from "solid-js"
+import { createEffect, For, on, onCleanup, Show, type JSX } from "solid-js"
 import { animate, type AnimationPlaybackControls } from "motion"
 import { useI18n } from "../context/i18n"
 import { createStore } from "solid-js/store"
@@ -124,6 +124,62 @@ export function BasicTool(props: BasicToolProps) {
     setState("open", value)
   }
 
+  const triggerInfo = () => {
+    const title = isTriggerTitle(props.trigger) ? props.trigger : undefined
+    if (!title) return props.trigger as JSX.Element
+
+    return (
+      <div data-slot="basic-tool-tool-info-structured">
+        <div data-slot="basic-tool-tool-info-main">
+          <span
+            data-slot="basic-tool-tool-title"
+            classList={{
+              [title.titleClass ?? ""]: !!title.titleClass,
+            }}
+          >
+            <TextShimmer text={title.title} active={pending()} />
+          </span>
+          <Show when={!pending()}>
+            <Show when={title.subtitle}>
+              <span
+                data-slot="basic-tool-tool-subtitle"
+                classList={{
+                  [title.subtitleClass ?? ""]: !!title.subtitleClass,
+                  clickable: !!props.onSubtitleClick,
+                }}
+                onClick={(e) => {
+                  if (props.onSubtitleClick) {
+                    e.stopPropagation()
+                    props.onSubtitleClick()
+                  }
+                }}
+              >
+                {title.subtitle}
+              </span>
+            </Show>
+            <Show when={title.args?.length}>
+              <For each={title.args}>
+                {(arg) => (
+                  <span
+                    data-slot="basic-tool-tool-arg"
+                    classList={{
+                      [title.argsClass ?? ""]: !!title.argsClass,
+                    }}
+                  >
+                    {arg}
+                  </span>
+                )}
+              </For>
+            </Show>
+          </Show>
+        </div>
+        <Show when={!pending() && title.action}>
+          <span data-slot="basic-tool-tool-action">{title.action}</span>
+        </Show>
+      </div>
+    )
+  }
+
   const trigger = () => (
     <div
       data-component="tool-trigger"
@@ -131,63 +187,7 @@ export function BasicTool(props: BasicToolProps) {
       data-hide-details={props.hideDetails ? "true" : undefined}
     >
       <div data-slot="basic-tool-tool-trigger-content">
-        <div data-slot="basic-tool-tool-info">
-          <Switch>
-            <Match when={isTriggerTitle(props.trigger) && props.trigger}>
-              {(title) => (
-                <div data-slot="basic-tool-tool-info-structured">
-                  <div data-slot="basic-tool-tool-info-main">
-                    <span
-                      data-slot="basic-tool-tool-title"
-                      classList={{
-                        [title().titleClass ?? ""]: !!title().titleClass,
-                      }}
-                    >
-                      <TextShimmer text={title().title} active={pending()} />
-                    </span>
-                    <Show when={!pending()}>
-                      <Show when={title().subtitle}>
-                        <span
-                          data-slot="basic-tool-tool-subtitle"
-                          classList={{
-                            [title().subtitleClass ?? ""]: !!title().subtitleClass,
-                            clickable: !!props.onSubtitleClick,
-                          }}
-                          onClick={(e) => {
-                            if (props.onSubtitleClick) {
-                              e.stopPropagation()
-                              props.onSubtitleClick()
-                            }
-                          }}
-                        >
-                          {title().subtitle}
-                        </span>
-                      </Show>
-                      <Show when={title().args?.length}>
-                        <For each={title().args}>
-                          {(arg) => (
-                            <span
-                              data-slot="basic-tool-tool-arg"
-                              classList={{
-                                [title().argsClass ?? ""]: !!title().argsClass,
-                              }}
-                            >
-                              {arg}
-                            </span>
-                          )}
-                        </For>
-                      </Show>
-                    </Show>
-                  </div>
-                  <Show when={!pending() && title().action}>
-                    <span data-slot="basic-tool-tool-action">{title().action}</span>
-                  </Show>
-                </div>
-              )}
-            </Match>
-            <Match when={true}>{props.trigger as JSX.Element}</Match>
-          </Switch>
-        </div>
+        <div data-slot="basic-tool-tool-info">{triggerInfo()}</div>
       </div>
       <Show when={props.children && !props.hideDetails && !props.locked && !pending()}>
         <Collapsible.Arrow />
