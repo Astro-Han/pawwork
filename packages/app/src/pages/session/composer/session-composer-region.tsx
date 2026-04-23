@@ -15,6 +15,7 @@ import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
+import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 
 export function SessionComposerRegion(props: {
@@ -27,6 +28,8 @@ export function SessionComposerRegion(props: {
   onNewSessionWorktreeReset: () => void
   onSubmit: () => void
   onResponseSubmit: () => void
+  onModeChange?: (mode: "normal" | "shell") => void
+  selectedSkill?: () => PawworkSkillName | undefined
   followup?: {
     queue: () => boolean
     items: { id: string; text: string }[]
@@ -270,6 +273,8 @@ export function SessionComposerRegion(props: {
                       onQueue={props.followup?.onQueue}
                       onAbort={props.followup?.onAbort}
                       onSubmit={props.onSubmit}
+                      onModeChange={props.onModeChange}
+                      selectedSkill={props.selectedSkill}
                     />
                   </Show>
                 }

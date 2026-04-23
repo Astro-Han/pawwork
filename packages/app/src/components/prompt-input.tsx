@@ -57,6 +57,7 @@ import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
+import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 
 interface PromptInputProps {
   class?: string
@@ -70,6 +71,8 @@ interface PromptInputProps {
   onQueue?: (draft: FollowupDraft) => void
   onAbort?: () => void
   onSubmit?: () => void
+  onModeChange?: (mode: "normal" | "shell") => void
+  selectedSkill?: () => PawworkSkillName | undefined
 }
 
 const EXAMPLES = [
@@ -341,12 +344,21 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const suggest = createMemo(() => !hasUserPrompt())
 
+  createEffect(
+    on(
+      () => store.mode,
+      (mode) => props.onModeChange?.(mode),
+      { defer: true },
+    ),
+  )
+
   const placeholder = createMemo(() =>
     promptPlaceholder({
       mode: store.mode,
       commentCount: commentCount(),
       example: suggest() ? language.t(EXAMPLES[store.placeholder]) : "",
       suggest: suggest(),
+      selectedSkill: props.selectedSkill?.(),
       t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
     }),
   )

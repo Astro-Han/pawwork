@@ -31,6 +31,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { checksum } from "@opencode-ai/util/encode"
 import { useLocation, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
+import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { useComments } from "@/context/comments"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
@@ -1957,7 +1958,13 @@ export default function Page() {
     if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
   })
 
-  const renderComposerRegion = (variant: "session" | "home") => (
+  const renderComposerRegion = (
+    variant: "session" | "home",
+    ctx?: {
+      onModeChange: (mode: "normal" | "shell") => void
+      selectedSkill: () => PawworkSkillName | undefined
+    },
+  ) => (
     <SessionComposerRegion
       variant={variant}
       state={composer}
@@ -1973,6 +1980,8 @@ export default function Page() {
         resumeScroll()
       }}
       onResponseSubmit={resumeScroll}
+      onModeChange={ctx?.onModeChange}
+      selectedSkill={ctx?.selectedSkill}
       followup={
         params.id && !isChildSession()
           ? {
@@ -2087,7 +2096,7 @@ export default function Page() {
                 </Show>
               </Match>
               <Match when={true}>
-                <NewSessionView composer={renderComposerRegion("home")} />
+                <NewSessionView composer={(ctx) => renderComposerRegion("home", ctx)} />
               </Match>
             </Switch>
           </div>
