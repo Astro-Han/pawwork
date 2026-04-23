@@ -78,36 +78,54 @@
     --shell-titlebar-height: 44px;
     --shell-frame-margin: 12px;
     --shell-frame-radius: 12px;
-    --shell-background-base: #F4EFE9;
-    --shell-background-weak: #EEE6DE;
-    --shell-surface-base: #FBF8F4;
-    --shell-surface-raised: #F7F1EA;
-    --shell-surface-strong: #FEFBF8;
-    --shell-border-base: #D8CFC6;
-    --shell-border-weak: #E7DED6;
+    --shell-background-base: #F8F7F6;
+    --shell-background-weak: #F0EFEE;
+    --shell-surface-base: #FAF9F9;
+    --shell-surface-raised: #F8F7F7;
+    --shell-surface-strong: #FCFBFB;
+    --shell-border-base: #D6D2CA;
+    --shell-border-weak: #E3DED6;
+    --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.72), transparent 52%);
     --shell-frame-border: color-mix(in srgb, var(--shell-border-base) 78%, #c4b5a8 22%);
     --shell-frame-shadow:
       0 24px 64px -36px rgb(33 26 22 / 0.34),
       0 10px 28px -20px rgb(33 26 22 / 0.2);
     --shell-frame-surface: linear-gradient(180deg, var(--shell-surface-strong) 0%, var(--shell-surface-base) 100%);
     --shell-titlebar-border: color-mix(in srgb, var(--shell-border-weak) 72%, var(--shell-border-base) 28%);
+
     background:
-      radial-gradient(circle at top, rgb(255 255 255 / 0.72), transparent 52%),
+      var(--shell-highlight-overlay),
       linear-gradient(180deg, var(--shell-background-base), var(--shell-background-weak));
+  }
+
+  :root[data-color-scheme="dark"] [data-component="desktop-shell"][data-platform="desktop"] {
+    --shell-background-base: #1E2128;
+    --shell-background-weak: #181A20;
+    --shell-surface-base: #23252C;
+    --shell-surface-raised: #25272E;
+    --shell-surface-strong: #2A2C34;
+    --shell-border-base: #2F323A;
+    --shell-border-weak: #23252A;
+    --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.04), transparent 52%);
+    --shell-frame-border: color-mix(in srgb, var(--shell-border-base) 78%, #5a5e68 22%);
+    --shell-frame-shadow:
+      0 24px 64px -36px rgb(0 0 0 / 0.6),
+      0 10px 28px -20px rgb(0 0 0 / 0.45);
+    --shell-titlebar-border: color-mix(in srgb, var(--shell-border-weak) 72%, var(--shell-border-base) 28%);
   }
 
   :root {
     --accent-brand: #ff5910;
     --accent-brand-hover: #e04e0e;
     --accent-brand-on: #ffffff;
-    --sidebar: #f2f1ee;
+    --sidebar: #FAF9F9;
   }
 
   :root[data-color-scheme="dark"] {
     --accent-brand: #ff5910;
     --accent-brand-hover: #ff7a3a;
     --accent-brand-on: #ffffff;
-    --sidebar: #1d1d1b;
+    --sidebar: #23252A;
   }
 
   [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"] {
