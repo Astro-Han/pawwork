@@ -106,6 +106,7 @@ test("home model selector opens without footer overlap", async ({ page, gotoSess
   await gotoSession()
 
   const trigger = page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first()
+  await expect(trigger).toBeVisible()
   const hit = await hitTest(trigger)
 
   expect(hit.within, `model trigger center was intercepted by ${hit.tag ?? "unknown"} (${hit.action ?? "no-action"})`).toBe(
