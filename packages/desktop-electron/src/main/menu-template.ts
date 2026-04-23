@@ -1,4 +1,4 @@
-import { menuLabel, type MenuLocale } from "./menu-labels"
+import { menuLabel, menuRoleLabel, type MenuLocale, type MenuRoleLabelKey } from "./menu-labels"
 import { PAWWORK_GITHUB_ISSUE_URL, PAWWORK_GITHUB_URL } from "./support-links"
 
 export type MenuItemTemplate = {
@@ -31,6 +31,7 @@ type BuildMenuOptions = {
 export function buildMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[] {
   const { deps, appName, locale, feedbackEnabled } = options
   const t = (key: Parameters<typeof menuLabel>[1]) => menuLabel(locale, key)
+  const roleLabel = (key: MenuRoleLabelKey) => menuRoleLabel(locale, key, appName)
 
   const helpSubmenu: MenuItemTemplate[] = [
     { label: t("pawworkOnGithub"), click: () => deps.openExternal(PAWWORK_GITHUB_URL) },
@@ -47,7 +48,7 @@ export function buildMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[]
     {
       label: appName,
       submenu: [
-        { role: "about" },
+        { label: roleLabel("about"), role: "about" },
         {
           label: t("checkForUpdates"),
           click: () => deps.checkForUpdates(),
@@ -61,11 +62,11 @@ export function buildMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[]
           click: () => deps.relaunch(),
         },
         { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
+        { label: roleLabel("hide"), role: "hide" },
+        { label: roleLabel("hideOthers"), role: "hideOthers" },
+        { label: roleLabel("unhide"), role: "unhide" },
         { type: "separator" },
-        { role: "quit" },
+        { label: roleLabel("quit"), role: "quit" },
       ],
     },
     {
@@ -75,19 +76,19 @@ export function buildMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[]
         { label: t("openProject"), accelerator: "Cmd+O", click: () => deps.trigger("project.open") },
         { label: t("newWindow"), accelerator: "Cmd+Shift+N", click: () => deps.newWindow() },
         { type: "separator" },
-        { role: "close" },
+        { label: roleLabel("close"), role: "close" },
       ],
     },
     {
       label: t("edit"),
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
+        { label: roleLabel("undo"), role: "undo" },
+        { label: roleLabel("redo"), role: "redo" },
         { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
+        { label: roleLabel("cut"), role: "cut" },
+        { label: roleLabel("copy"), role: "copy" },
+        { label: roleLabel("paste"), role: "paste" },
+        { label: roleLabel("selectAll"), role: "selectAll" },
       ],
     },
     {
@@ -97,14 +98,14 @@ export function buildMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[]
         { label: t("toggleTerminal"), accelerator: "Ctrl+`", click: () => deps.trigger("terminal.toggle") },
         { label: t("toggleFileTree"), click: () => deps.trigger("fileTree.toggle") },
         { type: "separator" },
-        { role: "reload" },
-        { role: "toggleDevTools" },
+        { label: roleLabel("reload"), role: "reload" },
+        { label: roleLabel("toggleDevTools"), role: "toggleDevTools" },
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
+        { label: roleLabel("resetZoom"), role: "resetZoom" },
+        { label: roleLabel("zoomIn"), role: "zoomIn" },
+        { label: roleLabel("zoomOut"), role: "zoomOut" },
         { type: "separator" },
-        { role: "togglefullscreen" },
+        { label: roleLabel("togglefullscreen"), role: "togglefullscreen" },
       ],
     },
     {
@@ -120,7 +121,20 @@ export function buildMenuTemplate(options: BuildMenuOptions): MenuItemTemplate[]
         { label: t("nextProject"), accelerator: "Cmd+Option+Down", click: () => deps.trigger("project.next") },
       ],
     },
-    { role: "windowMenu" },
+    {
+      label: t("window"),
+      // Electron 40.8.0 on macOS 15 still keeps our labeled submenu entries while
+      // preserving the native window list for the parent windowMenu role.
+      // If an Electron upgrade stops honoring this merge, localize the generated
+      // window submenu items after Menu.buildFromTemplate instead of dropping the role.
+      role: "windowMenu",
+      submenu: [
+        { label: roleLabel("minimize"), role: "minimize" },
+        { label: roleLabel("zoom"), role: "zoom" },
+        { type: "separator" },
+        { label: roleLabel("front"), role: "front" },
+      ],
+    },
     {
       label: t("help"),
       submenu: helpSubmenu,
