@@ -21,6 +21,7 @@ function setup(overrides: Partial<Parameters<typeof createFeedbackHandler>[0]> =
   const calls = {
     copied: "",
     opened: "",
+    fallbackUrl: "",
     shown: "",
     openedPath: "",
     savedMarkdown: "",
@@ -39,6 +40,9 @@ function setup(overrides: Partial<Parameters<typeof createFeedbackHandler>[0]> =
       },
       openExternal: async (url) => {
         calls.opened = url
+      },
+      showFeedbackUrlFallback: async (url) => {
+        calls.fallbackUrl = url
       },
       showItemInFolder: async (path) => {
         calls.shown = path
@@ -223,6 +227,22 @@ describe("feedback handler", () => {
     expect(subject.calls.copied).toContain("PawWork Problem Report Summary")
     expect(subject.calls.copied).toContain("Full report: not generated")
     expect(subject.calls.opened).toBe("https://example.com/form")
+  })
+
+  test("form open failure is reported after summary and report file are available", async () => {
+    const subject = setup({
+      openExternal: async () => {
+        throw new Error("browser unavailable")
+      },
+    })
+
+    await subject.handler()
+
+    expect(subject.calls.copied).toContain("PawWork Problem Report Summary")
+    expect(subject.calls.savedMarkdown).toContain("# PawWork Problem Report")
+    expect(subject.calls.fallbackUrl).toBe("https://example.com/form")
+    expect(subject.calls.handledErrors).toContain("feedback form open failed")
+    expect(subject.calls.errors).toHaveLength(0)
   })
 
   test("file reveal failure still opens the form and keeps summary recovery information", async () => {

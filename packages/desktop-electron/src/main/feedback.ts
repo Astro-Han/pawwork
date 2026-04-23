@@ -29,6 +29,7 @@ type FeedbackDeps = {
   confirm: (context?: unknown) => Promise<boolean>
   copy: (value: string) => Promise<void> | void
   openExternal: (url: string) => Promise<void> | void
+  showFeedbackUrlFallback: (url: string) => Promise<void> | void
   showItemInFolder: (path: string) => Promise<void> | void
   openPath: (path: string) => Promise<string | void> | string | void
   saveReport: (input: SaveReportInput) => Promise<SavedReport>
@@ -51,6 +52,9 @@ export function feedbackDialogLabels(locale: MenuLocale) {
       cancel: "Cancel",
       failedTitle: "Problem Report Failed",
       failedMessage: "Could not prepare the problem report. You can try Report a Problem again.",
+      formOpenFailedTitle: "Feedback Form Did Not Open",
+      formOpenFailedMessage:
+        "PawWork prepared the problem report, but could not open the feedback form. Open this URL manually to finish submitting feedback.",
     },
     zh: {
       title: "准备问题报告？",
@@ -60,6 +64,8 @@ export function feedbackDialogLabels(locale: MenuLocale) {
       cancel: "取消",
       failedTitle: "问题报告失败",
       failedMessage: "无法准备问题报告。你可以重新点击“报告问题”再试一次。",
+      formOpenFailedTitle: "反馈表单未打开",
+      formOpenFailedMessage: "PawWork 已准备好问题报告，但无法打开反馈表单。请手动打开这个链接继续提交反馈。",
     },
   } satisfies Record<
     MenuLocale,
@@ -70,6 +76,8 @@ export function feedbackDialogLabels(locale: MenuLocale) {
       cancel: string
       failedTitle: string
       failedMessage: string
+      formOpenFailedTitle: string
+      formOpenFailedMessage: string
     }
   >
 
@@ -212,7 +220,16 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       }
     }
 
-    await deps.openExternal(deps.feedbackUrl)
+    try {
+      await deps.openExternal(deps.feedbackUrl)
+    } catch (error) {
+      deps.onHandledError?.("feedback form open failed", error)
+      try {
+        await deps.showFeedbackUrlFallback(deps.feedbackUrl)
+      } catch (fallbackError) {
+        deps.onHandledError?.("feedback form fallback failed", fallbackError)
+      }
+    }
   }
 
   return async function reportProblem() {

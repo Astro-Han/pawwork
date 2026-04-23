@@ -207,6 +207,15 @@ const reportProblem = createFeedbackHandler({
   openExternal: (url) => {
     return shell.openExternal(url).then(() => undefined)
   },
+  showFeedbackUrlFallback: async (url) => {
+    const labels = feedbackDialogLabels(currentDesktopContext().locale)
+    await dialog.showMessageBox({
+      type: "warning",
+      title: labels.formOpenFailedTitle,
+      message: labels.formOpenFailedMessage,
+      detail: url,
+    })
+  },
   showItemInFolder: (path) => shell.showItemInFolder(path),
   openPath: (path) => shell.openPath(path),
   saveReport: (input) => writeProblemReportFile({ root: problemReportRoot, ...input }),
