@@ -53,3 +53,38 @@ test("pawwork sidebar merges pin into the status slot with a stable title baseli
     expect(Math.round(pinRect.width)).toBe(24)
   })
 })
+
+test("pawwork sidebar keeps title width stable when the row action appears", async ({ page, sdk, gotoSession }) => {
+  const STAMP = Date.now()
+  const TITLE = `i192 regression long session title that should keep a stable truncation width ${STAMP}`
+
+  await withSession(sdk, TITLE, async (session) => {
+    await gotoSession(session.id)
+    await openSidebar(page)
+
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    const row = sidebar.locator(`[data-session-id="${session.id}"]`).first()
+    const titleNode = row.locator("span", { hasText: TITLE }).first()
+    const menu = row.locator('[data-action="session-row-menu"]').first()
+
+    const widthOf = async () => {
+      const rect = await titleNode.evaluate((el) => el.getBoundingClientRect())
+      return Math.round(rect.width)
+    }
+
+    await page.mouse.move(0, 0)
+    await expect(row).toBeVisible()
+    const baseline = await widthOf()
+
+    await row.hover()
+    expect(await widthOf()).toBe(baseline)
+
+    await page.mouse.move(0, 0)
+    await menu.focus()
+    expect(await widthOf()).toBe(baseline)
+
+    await page.keyboard.press("Enter")
+    await expect(page.getByRole("menuitem", { name: /pin session/i })).toBeVisible()
+    expect(await widthOf()).toBe(baseline)
+  })
+})

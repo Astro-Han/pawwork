@@ -228,12 +228,12 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
           <Show when={!props.level}>
             <div
-              class="shrink-0 overflow-hidden transition-[width,opacity]"
+              class="w-6 shrink-0 overflow-hidden transition-opacity"
               classList={{
-                "w-6 opacity-100 pointer-events-auto": !!props.mobile,
-                "w-0 opacity-0 pointer-events-none": !props.mobile,
-                "group-hover/session:w-6 group-hover/session:opacity-100 group-hover/session:pointer-events-auto": true,
-                "group-focus-within/session:w-6 group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
+                "opacity-100 pointer-events-auto": !!props.mobile,
+                "opacity-0 pointer-events-none": !props.mobile,
+                "group-hover/session:opacity-100 group-hover/session:pointer-events-auto": true,
+                "group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto": true,
               }}
             >
               <Show
