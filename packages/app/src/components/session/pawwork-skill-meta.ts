@@ -29,7 +29,3 @@ export const pawworkSkillCards = [
 ] as const
 
 export type PawworkSkillName = (typeof pawworkSkillCards)[number]["name"]
-
-export function getPawworkSkillMeta(skill?: string) {
-  return pawworkSkillCards.find((item) => item.name === skill)
-}

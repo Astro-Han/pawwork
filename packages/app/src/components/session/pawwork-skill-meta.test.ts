@@ -1,20 +1,22 @@
 import { describe, expect, test } from "bun:test"
-import { getPawworkSkillMeta, pawworkSkillCards } from "./pawwork-skill-meta"
+import { pawworkSkillCards } from "./pawwork-skill-meta"
 
-describe("pawwork skill cards", () => {
-  test("exports exactly three hardcoded Day 1 cards", () => {
-    expect(pawworkSkillCards.map((item) => item.name)).toEqual([
+describe("pawworkSkillCards", () => {
+  test("names are document-processing / data-analysis / writing-assistant in this order", () => {
+    expect(pawworkSkillCards.map((c) => c.name)).toEqual([
       "document-processing",
       "data-analysis",
       "writing-assistant",
     ])
   })
 
-  test("resolves sidebar badge metadata by skill name", () => {
-    const meta = getPawworkSkillMeta("document-processing")
-    expect(meta).toBeDefined()
-    expect(meta!.name).toBe("document-processing")
-    expect(typeof meta!.iconName).toBe("string")
-    expect(getPawworkSkillMeta("missing-skill")).toBeUndefined()
+  test("each card has the fields the home view and sidebar fallback rely on", () => {
+    for (const card of pawworkSkillCards) {
+      expect(card).toHaveProperty("iconName")
+      expect(card).toHaveProperty("homeIcon")
+      expect(card).toHaveProperty("homeIconClass")
+      expect(card).toHaveProperty("titleKey")
+      expect(card).toHaveProperty("descriptionKey")
+    }
   })
 })
