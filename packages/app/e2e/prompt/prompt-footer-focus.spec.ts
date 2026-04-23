@@ -40,6 +40,21 @@ async function body(prompt: Locator) {
   return prompt.evaluate((el) => (el as HTMLElement).innerText)
 }
 
+async function hitTest(locator: Locator) {
+  return locator.evaluate((el) => {
+    const rect = el.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    const hit = document.elementFromPoint(x, y)
+    const action = hit instanceof Element ? hit.closest("[data-action]")?.getAttribute("data-action") : null
+    return {
+      within: hit === el || !!hit && el.contains(hit),
+      action,
+      tag: hit?.tagName ?? null,
+    }
+  })
+}
+
 test("agent select returns focus to the prompt", async ({ page, gotoSession }) => {
   await gotoSession()
 
@@ -85,4 +100,20 @@ test("model select returns focus to the prompt", async ({ page, gotoSession }) =
   await expect(prompt).toBeFocused()
   await prompt.pressSequentially(" model")
   await expect.poll(() => body(prompt)).toContain("focus model")
+})
+
+test("home model selector opens without footer overlap", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const trigger = page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first()
+  await expect(trigger).toBeVisible()
+  const hit = await hitTest(trigger)
+
+  expect(hit.within, `model trigger center was intercepted by ${hit.tag ?? "unknown"} (${hit.action ?? "no-action"})`).toBe(
+    true,
+  )
+
+  await trigger.click()
+
+  await expect(page.locator('[data-slot="list-item"]').first()).toBeVisible()
 })

@@ -1514,75 +1514,128 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             }}
           />
 
-          <div class="pointer-events-none absolute bottom-2 right-2 flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept={ACCEPTED_FILE_TYPES.join(",")}
-              class="hidden"
-              onChange={(e) => {
-                const list = e.currentTarget.files
-                if (list) void addAttachments(Array.from(list))
-                e.currentTarget.value = ""
-              }}
-            />
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={ACCEPTED_FILE_TYPES.join(",")}
+            class="hidden"
+            onChange={(e) => {
+              const list = e.currentTarget.files
+              if (list) void addAttachments(Array.from(list))
+              e.currentTarget.value = ""
+            }}
+          />
 
-            <Show when={props.homeMode && store.mode === "normal"}>
-              <div class="flex items-center gap-1.5 pointer-events-auto">
-                {renderModelControl(buttons)}
-                {renderVariantControl(buttons)}
-              </div>
-            </Show>
-            <div class="flex items-center gap-1 pointer-events-auto">
-              <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
-                <IconButton
-                  data-action="prompt-submit"
-                  type="submit"
-                  disabled={store.mode !== "normal" || (!working() && blank() && !props.selectedSkill?.())}
-                  tabIndex={store.mode === "normal" ? undefined : -1}
-                  icon={stopping() ? "stop" : "arrow-up"}
-                  variant="primary"
-                  class="size-8"
-                  style={buttons()}
-                  aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
-                />
-              </Tooltip>
-            </div>
-          </div>
+          <Show
+            when={props.homeMode}
+            fallback={
+              <>
+                <div class="pointer-events-none absolute bottom-2 right-2 flex items-center gap-2">
+                  <div class="flex items-center gap-1 pointer-events-auto">
+                    <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
+                      <IconButton
+                        data-action="prompt-submit"
+                        type="submit"
+                        disabled={store.mode !== "normal" || (!working() && blank() && !props.selectedSkill?.())}
+                        tabIndex={store.mode === "normal" ? undefined : -1}
+                        icon={stopping() ? "stop" : "arrow-up"}
+                        variant="primary"
+                        class="size-8"
+                        style={buttons()}
+                        aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
+                      />
+                    </Tooltip>
+                  </div>
+                </div>
 
-          <div class="pointer-events-none absolute bottom-2 left-2">
-            <div
-              aria-hidden={store.mode !== "normal"}
-              class="pointer-events-auto flex items-center gap-2"
-              style={{
-                "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-              }}
-            >
-              <Show when={props.homeMode}>
-                <WorkspaceChip />
-              </Show>
-              <TooltipKeybind
-                placement="top"
-                title={language.t("prompt.action.attachFile")}
-                keybind={command.keybind("file.attach")}
+                <div class="pointer-events-none absolute bottom-2 left-2">
+                  <div
+                    aria-hidden={store.mode !== "normal"}
+                    class="pointer-events-auto flex items-center gap-2"
+                    style={{
+                      "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+                    }}
+                  >
+                    <TooltipKeybind
+                      placement="top"
+                      title={language.t("prompt.action.attachFile")}
+                      keybind={command.keybind("file.attach")}
+                    >
+                      <Button
+                        data-action="prompt-attach"
+                        type="button"
+                        variant="ghost"
+                        class="size-8 p-0"
+                        style={buttons()}
+                        onClick={pick}
+                        disabled={store.mode !== "normal"}
+                        tabIndex={store.mode === "normal" ? undefined : -1}
+                        aria-label={language.t("prompt.action.attachFile")}
+                      >
+                        <Icon name="plus" class="size-4.5" />
+                      </Button>
+                    </TooltipKeybind>
+                  </div>
+                </div>
+              </>
+            }
+          >
+            <div class="pointer-events-none absolute inset-x-2 bottom-2 flex items-center justify-between gap-2">
+              <div
+                aria-hidden={store.mode !== "normal"}
+                class="pointer-events-auto flex min-w-0 items-center gap-2"
+                style={{
+                  "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+                }}
               >
-                <Button
-                  data-action="prompt-attach"
-                  type="button"
-                  variant="ghost"
-                  class="size-8 p-0"
-                  style={buttons()}
-                  onClick={pick}
-                  disabled={store.mode !== "normal"}
-                  tabIndex={store.mode === "normal" ? undefined : -1}
-                  aria-label={language.t("prompt.action.attachFile")}
+                <WorkspaceChip />
+                <TooltipKeybind
+                  placement="top"
+                  title={language.t("prompt.action.attachFile")}
+                  keybind={command.keybind("file.attach")}
                 >
-                  <Icon name="plus" class="size-4.5" />
-                </Button>
-              </TooltipKeybind>
+                  <Button
+                    data-action="prompt-attach"
+                    type="button"
+                    variant="ghost"
+                    class="size-8 shrink-0 p-0"
+                    style={buttons()}
+                    onClick={pick}
+                    disabled={store.mode !== "normal"}
+                    tabIndex={store.mode === "normal" ? undefined : -1}
+                    aria-label={language.t("prompt.action.attachFile")}
+                  >
+                    <Icon name="plus" class="size-4.5" />
+                  </Button>
+                </TooltipKeybind>
+              </div>
+
+              <div class="flex min-w-0 items-center justify-end gap-2">
+                <Show when={store.mode === "normal"}>
+                  <div class="flex min-w-0 items-center gap-1.5 pointer-events-auto">
+                    {renderModelControl(buttons)}
+                    {renderVariantControl(buttons)}
+                  </div>
+                </Show>
+                <div class="flex items-center gap-1 pointer-events-auto">
+                  <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
+                    <IconButton
+                      data-action="prompt-submit"
+                      type="submit"
+                      disabled={store.mode !== "normal" || (!working() && blank() && !props.selectedSkill?.())}
+                      tabIndex={store.mode === "normal" ? undefined : -1}
+                      icon={stopping() ? "stop" : "arrow-up"}
+                      variant="primary"
+                      class="size-8"
+                      style={buttons()}
+                      aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
+                    />
+                  </Tooltip>
+                </div>
+              </div>
             </div>
-          </div>
+          </Show>
         </div>
       </DockShellForm>
       <Show when={!props.homeMode && (store.mode === "normal" || store.mode === "shell")}>
