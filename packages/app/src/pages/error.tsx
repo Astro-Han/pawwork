@@ -1,219 +1,15 @@
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Logo } from "@opencode-ai/ui/logo"
 import { Button } from "@opencode-ai/ui/button"
-import { Component, Show, onMount } from "solid-js"
+import { Component, Show, createMemo, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { usePlatform } from "@/context/platform"
 import { useLanguage } from "@/context/language"
-import { Icon } from "@opencode-ai/ui/icon"
 import type { E2EWindow } from "@/testing/terminal"
 import { updateErrorPageState } from "./error-update"
-
-export type InitError = {
-  name: string
-  data: Record<string, unknown>
-}
-
-type Translator = ReturnType<typeof useLanguage>["t"]
-const CHAIN_SEPARATOR = "\n" + "─".repeat(40) + "\n"
-
-function isIssue(value: unknown): value is { message: string; path: string[] } {
-  if (!value || typeof value !== "object") return false
-  if (!("message" in value) || !("path" in value)) return false
-  const message = (value as { message: unknown }).message
-  const path = (value as { path: unknown }).path
-  if (typeof message !== "string") return false
-  if (!Array.isArray(path)) return false
-  return path.every((part) => typeof part === "string")
-}
-
-function isInitError(error: unknown): error is InitError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    "data" in error &&
-    typeof (error as InitError).data === "object"
-  )
-}
-
-function safeJson(value: unknown, circular: string): string {
-  const seen = new WeakSet<object>()
-  const json = JSON.stringify(
-    value,
-    (_key, val) => {
-      if (typeof val === "bigint") return val.toString()
-      if (typeof val === "object" && val) {
-        if (seen.has(val)) return circular
-        seen.add(val)
-      }
-      return val
-    },
-    2,
-  )
-  return json ?? String(value)
-}
-
-function formatInitError(error: InitError, t: Translator): string {
-  const data = error.data
-  const json = (value: unknown) => safeJson(value, t("error.page.circular"))
-  switch (error.name) {
-    case "MCPFailed": {
-      const name = typeof data.name === "string" ? data.name : ""
-      return t("error.chain.mcpFailed", { name })
-    }
-    case "ProviderAuthError": {
-      const providerID = typeof data.providerID === "string" ? data.providerID : t("common.unknown")
-      const message = typeof data.message === "string" ? data.message : json(data.message)
-      return t("error.chain.providerAuthFailed", { provider: providerID, message })
-    }
-    case "APIError": {
-      const message = typeof data.message === "string" ? data.message : t("error.chain.apiError")
-      const lines: string[] = [message]
-
-      if (typeof data.statusCode === "number") {
-        lines.push(t("error.chain.status", { status: data.statusCode }))
-      }
-
-      if (typeof data.isRetryable === "boolean") {
-        lines.push(t("error.chain.retryable", { retryable: data.isRetryable }))
-      }
-
-      if (typeof data.responseBody === "string" && data.responseBody) {
-        lines.push(t("error.chain.responseBody", { body: data.responseBody }))
-      }
-
-      return lines.join("\n")
-    }
-    case "ProviderModelNotFoundError": {
-      const { providerID, modelID, suggestions } = data as {
-        providerID: string
-        modelID: string
-        suggestions?: string[]
-      }
-
-      const suggestionsLine =
-        Array.isArray(suggestions) && suggestions.length
-          ? [t("error.chain.didYouMean", { suggestions: suggestions.join(", ") })]
-          : []
-
-      return [
-        t("error.chain.modelNotFound", { provider: providerID, model: modelID }),
-        ...suggestionsLine,
-        t("error.chain.checkConfig"),
-      ].join("\n")
-    }
-    case "ProviderInitError": {
-      const providerID = typeof data.providerID === "string" ? data.providerID : t("common.unknown")
-      return t("error.chain.providerInitFailed", { provider: providerID })
-    }
-    case "ConfigJsonError": {
-      const path = typeof data.path === "string" ? data.path : json(data.path)
-      const message = typeof data.message === "string" ? data.message : ""
-      if (message) return t("error.chain.configJsonInvalidWithMessage", { path, message })
-      return t("error.chain.configJsonInvalid", { path })
-    }
-    case "ConfigDirectoryTypoError": {
-      const path = typeof data.path === "string" ? data.path : json(data.path)
-      const dir = typeof data.dir === "string" ? data.dir : json(data.dir)
-      const suggestion = typeof data.suggestion === "string" ? data.suggestion : json(data.suggestion)
-      return t("error.chain.configDirectoryTypo", { dir, path, suggestion })
-    }
-    case "ConfigFrontmatterError": {
-      const path = typeof data.path === "string" ? data.path : json(data.path)
-      const message = typeof data.message === "string" ? data.message : json(data.message)
-      return t("error.chain.configFrontmatterError", { path, message })
-    }
-    case "ConfigInvalidError": {
-      const issues = Array.isArray(data.issues)
-        ? data.issues.filter(isIssue).map((issue) => "↳ " + issue.message + " " + issue.path.join("."))
-        : []
-      const message = typeof data.message === "string" ? data.message : ""
-      const path = typeof data.path === "string" ? data.path : json(data.path)
-
-      const line = message
-        ? t("error.chain.configInvalidWithMessage", { path, message })
-        : t("error.chain.configInvalid", { path })
-
-      return [line, ...issues].join("\n")
-    }
-    case "UnknownError":
-      return typeof data.message === "string" ? data.message : json(data)
-    default:
-      if (typeof data.message === "string") return data.message
-      return json(data)
-  }
-}
-
-function formatErrorChain(error: unknown, t: Translator, depth = 0, parentMessage?: string): string {
-  const json = (value: unknown) => safeJson(value, t("error.page.circular"))
-  if (!error) return t("error.chain.unknown")
-
-  if (isInitError(error)) {
-    const message = formatInitError(error, t)
-    if (depth > 0 && parentMessage === message) return ""
-    const indent = depth > 0 ? `\n${CHAIN_SEPARATOR}${t("error.chain.causedBy")}\n` : ""
-    return indent + `${error.name}\n${message}`
-  }
-
-  if (error instanceof Error) {
-    const isDuplicate = depth > 0 && parentMessage === error.message
-    const parts: string[] = []
-    const indent = depth > 0 ? `\n${CHAIN_SEPARATOR}${t("error.chain.causedBy")}\n` : ""
-
-    const header = `${error.name}${error.message ? `: ${error.message}` : ""}`
-    const stack = error.stack?.trim()
-
-    if (stack) {
-      const startsWithHeader = stack.startsWith(header)
-
-      if (isDuplicate && startsWithHeader) {
-        const trace = stack.split("\n").slice(1).join("\n").trim()
-        if (trace) {
-          parts.push(indent + trace)
-        }
-      }
-
-      if (isDuplicate && !startsWithHeader) {
-        parts.push(indent + stack)
-      }
-
-      if (!isDuplicate && startsWithHeader) {
-        parts.push(indent + stack)
-      }
-
-      if (!isDuplicate && !startsWithHeader) {
-        parts.push(indent + `${header}\n${stack}`)
-      }
-    }
-
-    if (!stack && !isDuplicate) {
-      parts.push(indent + header)
-    }
-
-    if (error.cause) {
-      const causeResult = formatErrorChain(error.cause, t, depth + 1, error.message)
-      if (causeResult) {
-        parts.push(causeResult)
-      }
-    }
-
-    return parts.join("\n\n")
-  }
-
-  if (typeof error === "string") {
-    if (depth > 0 && parentMessage === error) return ""
-    const indent = depth > 0 ? `\n${CHAIN_SEPARATOR}${t("error.chain.causedBy")}\n` : ""
-    return indent + error
-  }
-
-  const indent = depth > 0 ? `\n${CHAIN_SEPARATOR}${t("error.chain.causedBy")}\n` : ""
-  return indent + json(error)
-}
-
-function formatError(error: unknown, t: Translator): string {
-  return formatErrorChain(error, t, 0)
-}
+import { PAWWORK_GITHUB_ISSUE_URL } from "@/utils/support-links"
+import { buildErrorReportDetails, errorReportStatusMessage, formatError, summarizeKnownError } from "./error-report"
+export type { InitError } from "./error-report"
 
 interface ErrorPageProps {
   error: unknown
@@ -221,9 +17,12 @@ interface ErrorPageProps {
 
 type ErrorPageStore = {
   checking: boolean
+  reporting: boolean
+  reportConfirmOpen: boolean
   version: string | undefined
   actionError: string | undefined
   actionMessage: string | undefined
+  feedbackUrl: string | undefined
 }
 
 export const ErrorPage: Component<ErrorPageProps> = (props) => {
@@ -231,17 +30,33 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
   const language = useLanguage()
   const [store, setStore] = createStore<ErrorPageStore>({
     checking: false,
+    reporting: false,
+    reportConfirmOpen: false,
     version: undefined,
     actionError: undefined,
     actionMessage: undefined,
+    feedbackUrl: undefined,
   })
+  const knownError = createMemo(() => summarizeKnownError(props.error, language.t))
+  const errorDetails = createMemo(() => formatError(props.error, language.t))
+  const reportDetails = createMemo(() => buildErrorReportDetails(props.error, language.t))
 
   onMount(() => {
     const win = window as E2EWindow
     if (!win.__opencode_e2e) return
-    const detail = formatError(props.error, language.t)
+    const detail = errorDetails()
     console.error(`[e2e:error-boundary] ${window.location.pathname}\n${detail}`)
   })
+
+  async function copyCurrentErrorDetails() {
+    if (!navigator.clipboard?.writeText) return false
+    try {
+      await navigator.clipboard.writeText(errorDetails())
+    } catch {
+      return false
+    }
+    return true
+  }
 
   async function checkForUpdates() {
     if (!platform.checkUpdate) return
@@ -273,6 +88,38 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
       })
   }
 
+  async function reportProblem() {
+    if (!platform.reportProblem) {
+      setStore({
+        actionError: undefined,
+        actionMessage: language.t("error.page.report.unavailable"),
+        feedbackUrl: undefined,
+      })
+      return
+    }
+    setStore({ reporting: true, actionError: undefined, actionMessage: undefined, feedbackUrl: undefined })
+    await platform
+      .reportProblem({ confirm: false, rendererError: reportDetails() })
+      .then((result) => {
+        setStore({
+          feedbackUrl: result.status === "form-fallback" ? result.feedbackUrl : undefined,
+          actionError: result.status === "failed" ? errorReportStatusMessage(result, language.t) : undefined,
+          actionMessage: result.status === "failed" ? undefined : errorReportStatusMessage(result, language.t),
+        })
+      })
+      .catch(async () => {
+        const copied = await copyCurrentErrorDetails()
+        setStore({
+          actionError: copied ? undefined : language.t("error.page.report.failed"),
+          actionMessage: copied ? language.t("error.page.report.copiedFallback") : undefined,
+          feedbackUrl: undefined,
+        })
+      })
+      .finally(() => {
+        setStore("reporting", false)
+      })
+  }
+
   return (
     <div class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans">
       <div class="w-2/3 max-w-3xl flex flex-col items-center justify-center gap-8">
@@ -281,15 +128,14 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           <h1 class="text-lg font-medium text-text-strong">{language.t("error.page.title")}</h1>
           <p class="text-sm text-text-weak">{language.t("error.page.description")}</p>
         </div>
-        <TextField
-          value={formatError(props.error, language.t)}
-          readOnly
-          copyable
-          multiline
-          class="max-h-96 w-full font-mono text-xs no-scrollbar"
-          label={language.t("error.page.details.label")}
-          hideLabel
-        />
+        <Show when={knownError()}>
+          {(known) => (
+            <div class="w-full rounded-lg border border-border-subtle-base bg-background-muted p-4 text-left">
+              <div class="text-sm font-medium text-text-strong">{known().title}</div>
+              <p class="mt-1 text-sm text-text-weak">{known().description}</p>
+            </div>
+          )}
+        </Show>
         <div class="flex items-center gap-3">
           <Button size="large" onClick={platform.restart}>
             {language.t("error.page.action.restart")}
@@ -311,24 +157,63 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
             </Show>
           </Show>
         </div>
+        <div class="flex flex-col items-center gap-3 text-center">
+          <Button
+            size="large"
+            variant="secondary"
+            onClick={() => setStore("reportConfirmOpen", true)}
+            disabled={store.reporting}
+          >
+            {store.reporting ? language.t("error.page.report.preparing") : language.t("error.page.report.action")}
+          </Button>
+          <Show when={store.reportConfirmOpen}>
+            <div class="w-full max-w-2xl rounded-lg border border-border-subtle-base bg-background-muted p-4 text-left">
+              <p class="text-sm text-text-strong">{language.t("error.page.report.confirm.description")}</p>
+              <p class="mt-1 text-sm text-text-weak">{language.t("error.page.report.confirm.privacy")}</p>
+              <details class="mt-3 text-sm text-text-weak">
+                <summary class="cursor-pointer text-text-interactive-base">
+                  {language.t("error.page.report.confirm.details")}
+                </summary>
+                <ul class="mt-2 list-disc pl-5">
+                  <li>{language.t("error.page.report.confirm.item.error")}</li>
+                  <li>{language.t("error.page.report.confirm.item.app")}</li>
+                  <li>{language.t("error.page.report.confirm.item.logs")}</li>
+                  <li>{language.t("error.page.report.confirm.item.context")}</li>
+                </ul>
+              </details>
+              <div class="mt-4">
+                <Button size="large" onClick={reportProblem} disabled={store.reporting}>
+                  {language.t("error.page.report.confirm.continue")}
+                </Button>
+              </div>
+            </div>
+          </Show>
+          <button
+            type="button"
+            class="text-xs text-text-weak hover:text-text-interactive-base"
+            onClick={() => platform.openLink(store.feedbackUrl ?? PAWWORK_GITHUB_ISSUE_URL)}
+          >
+            {store.feedbackUrl
+              ? language.t("error.page.report.formFallbackAction")
+              : language.t("error.page.report.githubFallback")}
+          </button>
+        </div>
         <Show when={store.actionError}>
           {(message) => <p class="text-xs text-text-danger-base text-center max-w-2xl">{message()}</p>}
         </Show>
         <Show when={store.actionMessage}>
           {(message) => <p class="text-xs text-text-weak text-center max-w-2xl">{message()}</p>}
         </Show>
+        <TextField
+          value={errorDetails()}
+          readOnly
+          copyable
+          multiline
+          class="max-h-96 w-full font-mono text-xs no-scrollbar"
+          label={language.t("error.page.details.label")}
+          hideLabel
+        />
         <div class="flex flex-col items-center gap-2">
-          <div class="flex items-center justify-center gap-1">
-            {language.t("error.page.report.prefix")}
-            <button
-              type="button"
-              class="flex items-center text-text-interactive-base gap-1"
-              onClick={() => platform.openLink("https://github.com/Astro-Han/pawwork/issues")}
-            >
-              <div>{language.t("error.page.report.github")}</div>
-              <Icon name="github" class="text-text-interactive-base" />
-            </button>
-          </div>
           <Show when={platform.version}>
             {(version) => (
               <p class="text-xs text-text-weak">{language.t("error.page.version", { version: version() })}</p>

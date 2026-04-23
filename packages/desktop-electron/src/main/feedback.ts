@@ -5,6 +5,7 @@ import {
   DEFAULT_PROBLEM_REPORT_MAX_BYTES,
   defaultReportId,
   type ProblemReportDiagnostics,
+  type RendererErrorDetails,
   type SessionExport,
 } from "./problem-report"
 import type { MenuLocale } from "./menu-labels"
@@ -41,6 +42,37 @@ type FeedbackDeps = {
   onHandledError?: (message: string, error: unknown) => void
   onError?: (error: unknown) => Promise<void> | void
 }
+
+type FeedbackInput = {
+  confirm?: boolean
+  rendererError?: RendererErrorDetails
+}
+
+export type FeedbackResult =
+  | {
+      status: "ready"
+      summaryCopied: true
+      feedbackOpened: true
+      fullReport: { status: "ready"; fileName: string; locationHint: string }
+    }
+  | {
+      status: "summary-only"
+      summaryCopied: true
+      feedbackOpened: true
+      fullReport: { status: "failed" }
+    }
+  | {
+      status: "form-fallback"
+      summaryCopied: true
+      feedbackOpened: false
+      feedbackUrl: string
+      fullReport:
+        | { status: "ready"; fileName: string; locationHint: string }
+        | { status: "failed" }
+    }
+  | { status: "cancelled"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
+  | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
+  | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }
 
 export function feedbackDialogLabels(locale: MenuLocale) {
   const labels = {
@@ -141,13 +173,20 @@ async function sessionExportWithTimeout(deps: FeedbackDeps, context: unknown) {
 }
 
 export function createFeedbackHandler(deps: FeedbackDeps) {
-  let inFlight: Promise<void> | undefined
+  let inFlight: Promise<FeedbackResult> | undefined
 
-  async function runReportProblem() {
-    if (!deps.feedbackUrl) return
+  async function runReportProblem(input: FeedbackInput = {}): Promise<FeedbackResult> {
+    if (!deps.feedbackUrl) {
+      return { status: "unavailable", summaryCopied: false, feedbackOpened: false, fullReport: { status: "none" } }
+    }
     const context = deps.context?.()
-    const confirmed = await deps.confirm(context)
-    if (!confirmed) return
+    const needsConfirm = input.confirm ?? true
+    if (needsConfirm) {
+      const confirmed = await deps.confirm(context)
+      if (!confirmed) {
+        return { status: "cancelled", summaryCopied: false, feedbackOpened: false, fullReport: { status: "none" } }
+      }
+    }
 
     const id = defaultReportId()
     const generatedAt = new Date().toISOString()
@@ -179,7 +218,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
     if (!fullReportFailure) {
       try {
         const report = buildProblemReport(
-          { diagnostics, logTail, sessionExport },
+          { diagnostics, logTail, sessionExport, rendererError: input.rendererError },
           { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES },
         )
         savedReport = await deps.saveReport({ reportId: id, generatedAt, markdown: report.markdown })
@@ -197,6 +236,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       fullReportStatus: savedReport ? "ready" : "failed",
       failureReason: fullReportFailure,
       recentErrors: recentKeyErrors(logTail),
+      rendererError: input.rendererError,
     })
 
     await deps.copy(summary)
@@ -229,18 +269,52 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       } catch (fallbackError) {
         deps.onHandledError?.("feedback form fallback failed", fallbackError)
       }
+      return {
+        status: "form-fallback",
+        summaryCopied: true,
+        feedbackOpened: false,
+        feedbackUrl: deps.feedbackUrl,
+        fullReport: savedReport
+          ? { status: "ready", fileName: savedReport.fileName, locationHint: savedReport.locationHint }
+          : { status: "failed" },
+      }
     }
+
+    return savedReport
+      ? {
+          status: "ready",
+          summaryCopied: true,
+          feedbackOpened: true,
+          fullReport: { status: "ready", fileName: savedReport.fileName, locationHint: savedReport.locationHint },
+        }
+      : {
+          status: "summary-only",
+          summaryCopied: true,
+          feedbackOpened: true,
+          fullReport: { status: "failed" },
+        }
   }
 
-  return async function reportProblem() {
+  return async function reportProblem(input?: FeedbackInput): Promise<FeedbackResult> {
     if (inFlight) return inFlight
-    inFlight = runReportProblem()
+    const next = runReportProblem(input)
       .catch(async (error) => {
-        await deps.onError?.(error)
+        try {
+          await deps.onError?.(error)
+        } catch (handlerError) {
+          deps.onHandledError?.("report problem error handler failed", handlerError)
+        }
+        return {
+          status: "failed",
+          summaryCopied: false,
+          feedbackOpened: false,
+          fullReport: { status: "failed" },
+        } satisfies FeedbackResult
       })
       .finally(() => {
         inFlight = undefined
       })
-    return inFlight
+    inFlight = next
+    return next
   }
 }

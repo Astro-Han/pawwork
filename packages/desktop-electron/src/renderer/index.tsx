@@ -229,6 +229,8 @@ const createPlatform = (): Platform => {
       return window.api.checkUpdate()
     },
 
+    reportProblem: (input) => window.api.reportProblem(input),
+
     update: async () => {
       if (!UPDATER_ENABLED()) return
       await window.api.installUpdate()

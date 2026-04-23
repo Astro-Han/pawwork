@@ -5,6 +5,7 @@ const SUMMARY_ERROR_LINE_MAX_CHARS = 220
 const SUMMARY_FAILURE_REASON_MAX_CHARS = 80
 const SUMMARY_ROUTE_MAX_CHARS = 120
 const SUMMARY_SESSION_MAX_CHARS = 80
+const SUMMARY_RENDERER_ERROR_MAX_CHARS = 220
 
 export type ProblemReportDiagnostics = {
   appVersion: string
@@ -24,6 +25,11 @@ export type ProblemReportDiagnostics = {
 
 type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[]
 
+export type RendererErrorDetails = {
+  summary: string
+  details: string
+}
+
 export type SessionExport =
   | { status: "none" }
   | { status: "failed"; error: string }
@@ -38,6 +44,7 @@ type Input = {
   diagnostics: ProblemReportDiagnostics
   logTail: string
   sessionExport: SessionExport
+  rendererError?: RendererErrorDetails
 }
 
 type Options = {
@@ -52,6 +59,7 @@ type Payload = {
   generatedAt: string
   diagnostics: ProblemReportDiagnostics
   logTail: string
+  rendererError?: RendererErrorDetails
   sessionExport: SafeSessionExport
   truncation: {
     omittedMessages: number
@@ -175,6 +183,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   let messages = sessionMessages(sessionExport)
   let sessionInfo = sessionExport.status === "ok" ? sessionExport.info : undefined
   let failedExportError = sessionExport.status === "failed" ? sessionExport.error : undefined
+  let rendererError = input.rendererError
   let omittedMessages = 0
   let omittedLogBytes = 0
   let omittedSessionInfoBytes = 0
@@ -187,7 +196,11 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     generatedAt,
     diagnostics,
     logTail,
-    sessionExport: withFailedExportError(withMessages(withSessionInfo(sessionExport, sessionInfo ?? null), messages), failedExportError),
+    ...(rendererError ? { rendererError } : {}),
+    sessionExport: withFailedExportError(
+      withMessages(withSessionInfo(sessionExport, sessionInfo ?? null), messages),
+      failedExportError,
+    ),
     truncation: {
       omittedMessages,
       omittedLogBytes,
@@ -232,6 +245,25 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     }
   }
 
+  if (bytes(output) > maxBytes && rendererError) {
+    const originalDetails = rendererError.details
+    let detailsLimit = Math.max(0, Math.floor(originalDetails.length / 2))
+    while (bytes(output) > maxBytes && detailsLimit >= 0) {
+      rendererError = {
+        ...rendererError,
+        details: truncateString(originalDetails, detailsLimit),
+      }
+      output = markdown(makePayload())
+      if (detailsLimit === 0) break
+      detailsLimit = Math.floor(detailsLimit / 2)
+    }
+  }
+
+  if (bytes(output) > maxBytes && rendererError) {
+    rendererError = undefined
+    output = markdown(makePayload())
+  }
+
   let diagnosticStringLimit = 512
   while (bytes(output) > maxBytes && diagnosticStringLimit >= 0) {
     diagnostics = truncateDiagnostics(input.diagnostics, diagnosticStringLimit)
@@ -257,6 +289,7 @@ type ProblemReportSummaryInput = {
   fullReportStatus: "ready" | "failed"
   failureReason?: string
   recentErrors: string[]
+  rendererError?: RendererErrorDetails
 }
 
 function oneLine(value: string) {
@@ -268,6 +301,8 @@ function redactLocalPathFragments(value: string) {
     .replace(/[A-Za-z]:\\[^\r\n]*/g, "[path]")
     .replace(/\\\\[^\\\s]+\\[^\r\n]*/g, "[path]")
     .replace(/\/(?:Users|home|tmp|var\/folders|private\/tmp)\/[^\r\n]*/g, "[path]")
+    .replace(/\bpawwork\.workspace\.[\w.-]+\.dat\b/gi, "[storage]")
+    .replace(/\b(storage|key)\s*=\s*[^,\s]+/gi, "$1=[redacted]")
 }
 
 function truncateSummaryLine(value: string, maxChars: number) {
@@ -297,7 +332,16 @@ function summaryRecentErrors(recentErrors: string[]) {
   return lines.length > 0 ? lines : ["No recent errors found"]
 }
 
+function safeRendererErrorSummary(rendererError: RendererErrorDetails | undefined) {
+  if (!rendererError?.summary) return
+  return truncateSummaryLine(
+    oneLine(redactLocalPathFragments(rendererError.summary)),
+    SUMMARY_RENDERER_ERROR_MAX_CHARS,
+  )
+}
+
 export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
+  const rendererError = safeRendererErrorSummary(input.rendererError)
   const fullReportLines =
     input.fullReportStatus === "ready"
       ? [
@@ -321,6 +365,7 @@ export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
     `Electron: ${input.diagnostics.electronVersion}`,
     `Route: ${safeSummaryRoute(input.diagnostics.route)}`,
     `Session: ${safeSummarySession(input.diagnostics.sessionID)}`,
+    ...(rendererError ? [`Renderer error: ${rendererError}`] : []),
     ...fullReportLines,
     "",
     "Recent key errors:",
@@ -368,6 +413,10 @@ function isSessionExport(value: unknown): value is SessionExport {
   return false
 }
 
+function isRendererErrorDetails(value: unknown): value is RendererErrorDetails {
+  return isRecord(value) && typeof value.summary === "string" && typeof value.details === "string"
+}
+
 function isTruncation(value: unknown): value is Payload["truncation"] {
   if (!isRecord(value)) return false
   return (
@@ -389,6 +438,7 @@ function isProblemReportPayload(value: unknown): value is Payload {
     !Number.isNaN(Date.parse(value.generatedAt)) &&
     isDiagnostics(value.diagnostics) &&
     typeof value.logTail === "string" &&
+    (value.rendererError === undefined || isRendererErrorDetails(value.rendererError)) &&
     isSessionExport(value.sessionExport) &&
     isTruncation(value.truncation)
   )

@@ -18,6 +18,7 @@ import { useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { Persist, persisted } from "@/utils/persist"
+import { PAWWORK_GITHUB_ISSUE_URL } from "@/utils/support-links"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -2424,7 +2425,7 @@ export default function Layout(props: ParentProps) {
       onSearch={() => command.show()}
       onOpenProject={chooseProject}
       onOpenSettings={openSettings}
-      onOpenHelp={() => platform.openLink("https://github.com/Astro-Han/pawwork/issues")}
+      onOpenHelp={() => platform.openLink(PAWWORK_GITHUB_ISSUE_URL)}
       openProjectLabel={() => language.t("command.project.open")}
       openProjectKeybind={() => command.keybind("project.open")}
       settingsLabel={() => language.t("sidebar.settings")}

@@ -79,6 +79,38 @@ describe("problem report", () => {
     expect(summary.split(/\r?\n/).length).toBeLessThanOrEqual(28)
   })
 
+  test("includes renderer error details in the short summary and full report", () => {
+    const rendererError = {
+      summary: "PawWork hit a local state problem. storage=pawwork.workspace.project.abc123.dat key=workspace:vcs",
+      details: [
+        "ChildStoreError: Failed to create persisted cache",
+        'cache=vcs, storage=pawwork.workspace.project.abc123.dat, key=workspace:vcs, directory="/Users/test/project"',
+        "Caused by:",
+        "TypeError: storage init failed",
+      ].join("\n"),
+    }
+    const report = buildProblemReport({ ...base, rendererError })
+    const payload = parseProblemReportPayload(report.markdown)
+    const summary = buildProblemReportSummary({
+      reportId: report.reportId,
+      generatedAt: report.generatedAt,
+      diagnostics: base.diagnostics,
+      reportFileName: "pawwork-problem-report.md",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
+      fullReportStatus: "ready",
+      recentErrors: [],
+      rendererError,
+    })
+
+    expect(payload.rendererError).toEqual(rendererError)
+    expect(summary).toContain("Renderer error: PawWork hit a local state problem.")
+    expect(summary).toContain("storage=[redacted]")
+    expect(summary).toContain("key=[redacted]")
+    expect(summary).not.toContain("/Users/test/project")
+    expect(summary).not.toContain("pawwork.workspace.project.abc123.dat")
+    expect(summary).not.toContain("workspace:vcs")
+  })
+
   test("summary explains summary-only submission when the full report is unavailable", () => {
     const summary = buildProblemReportSummary({
       reportId: "pwr_20260423_failed",
@@ -262,6 +294,27 @@ describe("problem report", () => {
     if (payload.sessionExport.status === "failed") expect(payload.sessionExport.error.length).toBeLessThan(100_000)
   })
 
+  test("truncates oversized renderer error details to honor max bytes", () => {
+    const details = "renderer stack\n".repeat(20_000)
+    const report = buildProblemReport(
+      {
+        ...base,
+        logTail: "",
+        sessionExport: { status: "none" },
+        rendererError: {
+          summary: "large renderer error",
+          details,
+        },
+      },
+      { maxBytes: 8_000 },
+    )
+
+    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(8_000)
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(payload.rendererError?.summary).toBe("large renderer error")
+    expect(payload.rendererError?.details.length).toBeLessThan(details.length)
+  })
+
   test("sanitizes non-json session export values", () => {
     const circular: Record<string, unknown> = { id: "root" }
     circular.self = circular
@@ -424,6 +477,31 @@ describe("problem report", () => {
     ].join("\n")
 
     expect(parseProblemReportPayload(report).sessionExport.status).toBe("none")
+  })
+
+  test("rejects malformed renderer error details", () => {
+    const report = [
+      "```json",
+      JSON.stringify({
+        reportVersion: 1,
+        reportId: "pwr_fixture",
+        generatedAt: new Date().toISOString(),
+        diagnostics: base.diagnostics,
+        logTail: "",
+        rendererError: { summary: "missing details" },
+        sessionExport: { status: "none" },
+        truncation: {
+          omittedMessages: 0,
+          omittedLogBytes: 0,
+          omittedSessionInfoBytes: 0,
+          omittedFailedExportErrorBytes: 0,
+          omittedDiagnosticsBytes: 0,
+        },
+      }),
+      "```",
+    ].join("\n")
+
+    expect(() => parseProblemReportPayload(report)).toThrow("Problem report JSON block not found")
   })
 
   test("rejects fenced JSON that is not a valid problem report payload", () => {

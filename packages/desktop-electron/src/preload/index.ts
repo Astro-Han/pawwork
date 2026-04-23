@@ -82,6 +82,7 @@ const api: ElectronAPI = {
   loadingWindowComplete: () => ipcRenderer.send("loading-window-complete"),
   runUpdater: (alertOnFail) => ipcRenderer.invoke("run-updater", alertOnFail),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
+  reportProblem: (input) => ipcRenderer.invoke("report-problem", input),
   installUpdate: () => ipcRenderer.invoke("install-update"),
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
 }

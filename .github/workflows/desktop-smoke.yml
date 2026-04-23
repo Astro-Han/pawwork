@@ -133,6 +133,7 @@ jobs:
         working-directory: packages/desktop-electron
         env:
           OPENCODE_CHANNEL: dev
+          PAWWORK_FEEDBACK_FORM_URL: https://example.com/pawwork-feedback
 
       - name: Check desktop runtime imports
         run: bun ./scripts/runtime-import-guard.ts
@@ -141,6 +142,12 @@ jobs:
       - name: Launch desktop smoke app
         run: bun run smoke:ci
         working-directory: packages/desktop-electron
+
+      - name: Report problem smoke
+        run: bun run smoke:report
+        working-directory: packages/desktop-electron
+        env:
+          PAWWORK_FEEDBACK_FORM_URL: https://example.com/pawwork-feedback
 
       - name: Package desktop app
         run: npx electron-builder --mac dir --arm64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false

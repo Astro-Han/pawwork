@@ -106,13 +106,45 @@ describe("feedback handler", () => {
 
   test("confirm copies a short summary, saves the full report, reveals the file, and opens form", async () => {
     const subject = setup()
-    await subject.handler()
+    const result = await subject.handler()
     expect(subject.calls.copied).toContain("PawWork Problem Report Summary")
     expect(subject.calls.copied).toContain("Full report: ready for manual upload")
     expect(subject.calls.copied).not.toContain("```json")
     expect(subject.calls.savedMarkdown).toContain("# PawWork Problem Report")
     expect(subject.calls.shown).toContain("/tmp/pawwork/problem-reports/")
     expect(subject.calls.opened).toBe("https://example.com/form")
+    expect(result).toEqual({
+      status: "ready",
+      summaryCopied: true,
+      feedbackOpened: true,
+      fullReport: {
+        status: "ready",
+        fileName: expect.stringContaining("pawwork-problem-report-"),
+        locationHint: expect.stringContaining("problem-reports"),
+      },
+    })
+  })
+
+  test("renderer callers can skip menu confirmation and include current error details", async () => {
+    let confirms = 0
+    const subject = setup({
+      confirm: async () => {
+        confirms += 1
+        return true
+      },
+    })
+    const result = await subject.handler({
+      confirm: false,
+      rendererError: {
+        summary: "PawWork had trouble reading local state.",
+        details: "ChildStoreError: Failed to create persisted cache\nCaused by:\nTypeError: storage init failed",
+      },
+    })
+
+    expect(confirms).toBe(0)
+    expect(subject.calls.copied).toContain("Renderer error: PawWork had trouble reading local state.")
+    expect(subject.calls.savedMarkdown).toContain("ChildStoreError: Failed to create persisted cache")
+    expect(result.status).toBe("ready")
   })
 
   test("busy guard starts before confirmation and releases on cancel", async () => {
@@ -206,13 +238,14 @@ describe("feedback handler", () => {
       },
     })
 
-    await subject.handler()
+    const result = await subject.handler()
 
     expect(subject.calls.copied).toContain("Full report: not generated")
     expect(subject.calls.copied).toContain("Submit this summary without an attachment if needed.")
     expect(subject.calls.copied).not.toContain("/Users/name")
     expect(subject.calls.shown).toBe("")
     expect(subject.calls.opened).toBe("https://example.com/form")
+    expect(result.status).toBe("summary-only")
   })
 
   test("full report construction failure still copies a minimum summary and opens form", async () => {
@@ -236,13 +269,15 @@ describe("feedback handler", () => {
       },
     })
 
-    await subject.handler()
+    const result = await subject.handler()
 
     expect(subject.calls.copied).toContain("PawWork Problem Report Summary")
     expect(subject.calls.savedMarkdown).toContain("# PawWork Problem Report")
     expect(subject.calls.fallbackUrl).toBe("https://example.com/form")
     expect(subject.calls.handledErrors).toContain("feedback form open failed")
     expect(subject.calls.errors).toHaveLength(0)
+    expect(result.status).toBe("form-fallback")
+    expect(result.feedbackUrl).toBe("https://example.com/form")
   })
 
   test("file reveal failure still opens the form and keeps summary recovery information", async () => {
@@ -308,8 +343,33 @@ describe("feedback handler", () => {
       },
     })
 
-    await expect(subject.handler()).resolves.toBeUndefined()
+    await expect(subject.handler()).resolves.toEqual({
+      status: "failed",
+      summaryCopied: false,
+      feedbackOpened: false,
+      fullReport: { status: "failed" },
+    })
     expect(subject.calls.errors).toHaveLength(1)
+    expect(subject.calls.opened).toBe("")
+  })
+
+  test("onError failures do not reject the report fallback", async () => {
+    const subject = setup({
+      copy: async () => {
+        throw new Error("clipboard unavailable")
+      },
+      onError: () => {
+        throw new Error("logger failed")
+      },
+    })
+
+    await expect(subject.handler()).resolves.toEqual({
+      status: "failed",
+      summaryCopied: false,
+      feedbackOpened: false,
+      fullReport: { status: "failed" },
+    })
+    expect(subject.calls.handledErrors).toContain("report problem error handler failed")
     expect(subject.calls.opened).toBe("")
   })
 })

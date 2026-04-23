@@ -13,6 +13,42 @@ export type UpdateInfo =
   | { updateAvailable: true; status: "ready"; version: string }
   | { updateAvailable: false; status: "failed"; reason: UpdateFailureReason; message: string; version?: undefined }
 
+export type RendererErrorDetails = {
+  summary: string
+  details: string
+}
+
+export type ReportProblemInput = {
+  confirm?: boolean
+  rendererError?: RendererErrorDetails
+}
+
+export type ReportProblemResult =
+  | {
+      status: "ready"
+      summaryCopied: true
+      feedbackOpened: true
+      fullReport: { status: "ready"; fileName: string; locationHint: string }
+    }
+  | {
+      status: "summary-only"
+      summaryCopied: true
+      feedbackOpened: true
+      fullReport: { status: "failed" }
+    }
+  | {
+      status: "form-fallback"
+      summaryCopied: true
+      feedbackOpened: false
+      feedbackUrl: string
+      fullReport:
+        | { status: "ready"; fileName: string; locationHint: string }
+        | { status: "failed" }
+    }
+  | { status: "cancelled"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
+  | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
+  | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }
+
 export type Platform = {
   /** Platform discriminator */
   platform: "web" | "desktop"
@@ -64,6 +100,9 @@ export type Platform = {
 
   /** Check for updates (desktop only) */
   checkUpdate?(): Promise<UpdateInfo>
+
+  /** Prepare a problem report and open the configured feedback form (desktop only) */
+  reportProblem?(input?: ReportProblemInput): Promise<ReportProblemResult>
 
   /** Install updates (desktop only) */
   update?(): Promise<void>

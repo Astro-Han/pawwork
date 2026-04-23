@@ -488,6 +488,33 @@ export const dict = {
   "error.page.circular": "[Circular]",
   "error.page.report.prefix": "Please report this error to the PawWork team",
   "error.page.report.github": "on GitHub",
+  "error.page.known.localState.title": "Local state problem",
+  "error.page.known.localState.description":
+    "PawWork had trouble reading local state for this workspace. Your original project files are usually not affected.",
+  "error.page.report.action": "Report a problem",
+  "error.page.report.preparing": "Preparing report...",
+  "error.page.report.githubFallback": "You can also report this on GitHub.",
+  "error.page.report.formFallbackAction": "Open the feedback form manually.",
+  "error.page.report.confirm.description": "PawWork will prepare a problem report and open the feedback form.",
+  "error.page.report.confirm.privacy":
+    "The report is for diagnostics. It will not automatically upload your original project files.",
+  "error.page.report.confirm.details": "See what is included",
+  "error.page.report.confirm.item.error": "Error summary and full error details",
+  "error.page.report.confirm.item.app": "App version and system information",
+  "error.page.report.confirm.item.logs": "Recent diagnostic logs",
+  "error.page.report.confirm.item.context": "Current page, workspace, and session context",
+  "error.page.report.confirm.continue": "Prepare report and open form",
+  "error.page.report.success":
+    "The feedback form is open. A short summary was copied, and the full report was saved locally for manual upload.",
+  "error.page.report.summaryOnly": "The current error summary was copied. Paste it into the feedback form.",
+  "error.page.report.formFallback":
+    "The feedback form did not open automatically. Open the link manually, then paste the copied summary.",
+  "error.page.report.failed":
+    "PawWork could not prepare the report. Use the technical details below when reporting this.",
+  "error.page.report.copiedFallback":
+    "PawWork could not prepare the report. The current error details were copied instead.",
+  "error.page.report.unavailable":
+    "Problem reporting is not available in this build. Use the GitHub link or the technical details below.",
   "error.page.version": "Version: {{version}}",
 
   "error.dev.rootNotFound":
