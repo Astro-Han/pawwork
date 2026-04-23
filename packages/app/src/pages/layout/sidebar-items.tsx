@@ -96,6 +96,7 @@ const SessionRow = (props: {
   warmPress: () => void
   warmFocus: () => void
   titleContent?: JSX.Element
+  leadingSlot?: JSX.Element
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
   const indicator = () => {
@@ -103,7 +104,7 @@ const SessionRow = (props: {
     if (props.hasPermissions()) return <div class="size-1.5 rounded-full bg-surface-warning-strong" />
     if (props.hasError()) return <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
     if (props.unseenCount() > 0) return <div class="size-1.5 rounded-full bg-text-interactive-base" />
-    return null
+    return props.leadingSlot ?? null
   }
 
   return (
@@ -195,6 +196,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
       titleContent={props.titleContent?.({ session: props.session, title: () => sessionTitle(props.session.title) ?? "" })}
+      leadingSlot={!props.level && props.leadingSlot ? props.leadingSlot(props.session) : undefined}
     />
   )
 
@@ -206,9 +208,6 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
       >
         <div class="flex min-w-0 items-center gap-1">
-          <Show when={props.leadingSlot && !props.level}>
-            <div class="shrink-0">{props.leadingSlot?.(props.session)}</div>
-          </Show>
           <div class="min-w-0 flex-1">
             <Show
               when={!tooltip()}
