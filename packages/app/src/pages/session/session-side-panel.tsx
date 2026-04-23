@@ -69,7 +69,7 @@ export function openReviewShellTab(sidePanel: { openTab: (tab: "review") => void
 }
 
 /** Maps right-panel tab names to their shell icon components. */
-function RightPanelShellIcon(props: { icon: ShellTabIcon }) {
+function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
   return (
     <Switch>
       <Match when={props.icon.kind === "indicator"}>
@@ -82,10 +82,10 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon }) {
         <Icon name="folder" size="small" class="text-text-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "review"}>
-        <Icon name="review" size="small" class="text-text-weaker" />
+        <Icon name={props.active ? "review-active" : "review"} size="small" class="text-text-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "terminal"}>
-        <Icon name="terminal" size="small" class="text-text-weaker" />
+        <Icon name={props.active ? "terminal-active" : "terminal"} size="small" class="text-text-weaker" />
       </Match>
     </Switch>
   )
@@ -317,7 +317,7 @@ export function SessionSidePanel(props: {
                             closable={tab.closable}
                             onClose={view().sidePanel.closeTab}
                           >
-                            <RightPanelShellIcon icon={tab.icon} />
+                            <RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />
                             <span>{tab.label}</span>
                           </ShellTab>
                         }
@@ -328,7 +328,7 @@ export function SessionSidePanel(props: {
                           closable={tab.closable}
                           onClose={view().sidePanel.closeTab}
                         >
-                          <RightPanelShellIcon icon={tab.icon} />
+                          <RightPanelShellIcon icon={tab.icon} active={activeTab() === tab.value} />
                           <span>{tab.label}</span>
                         </SortableShellTab>
                       </Show>
@@ -349,7 +349,7 @@ export function SessionSidePanel(props: {
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content>
                       <DropdownMenu.Item onSelect={() => openFilePicker(showAllFiles)}>
-                        <Icon name="folder-add-left" size="small" />
+                        <Icon name="open-file" size="small" />
                         <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
                         <span class="ml-auto text-12-regular text-text-weaker">{command.keybind("file.open")}</span>
                       </DropdownMenu.Item>

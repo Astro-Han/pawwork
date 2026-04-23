@@ -2,6 +2,7 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import { Button } from "@opencode-ai/ui/button"
 import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
+import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
@@ -22,21 +23,6 @@ const FilterIcon = (props: { size?: number }) => {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
       <path d="M2.5 5h15M5 10h10M7.5 15h5" stroke="currentColor" stroke-linecap="square" />
-    </svg>
-  )
-}
-
-const PinIcon = (props: { filled?: boolean; size?: number }) => {
-  const size = props.size ?? 16
-  return (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path
-        d="M11 2L18 9L14 11L11 14L6 9L9 6Z"
-        stroke="currentColor"
-        stroke-linejoin="miter"
-        fill={props.filled ? "currentColor" : "none"}
-      />
-      <path d="M8 11L2 18" stroke="currentColor" stroke-linecap="square" />
     </svg>
   )
 }
@@ -145,12 +131,12 @@ export const PawworkSidebar = (props: {
                 }}
                 classList={{
                   "inline-flex size-6 items-center justify-center rounded transition-colors": true,
-                  "text-accent-brand opacity-100 pointer-events-auto": isPinned(),
+                  "text-text-strong opacity-100 pointer-events-auto": isPinned(),
                   "text-text-weak opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto hover:text-text-base":
                     !isPinned(),
                 }}
               >
-                <PinIcon filled={isPinned()} />
+                <Icon name="pin" size="small" />
               </button>
             )}
             titleContent={({ session: rowSession, title }) => (
@@ -264,7 +250,7 @@ export const PawworkSidebar = (props: {
             size="large"
             variant="ghost"
             icon="magnifying-glass"
-            class="w-full [&>[data-component=icon]]:!size-5"
+            class="w-full"
             onClick={props.onSearch}
           >
             {language.t("sidebar.pawwork.search")}
