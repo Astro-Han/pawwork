@@ -1,9 +1,12 @@
 import { $ } from "bun"
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
+import { unlink } from "node:fs/promises"
 import { Effect } from "effect"
 import { mkdir } from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "url"
+import { Global } from "../../src/global"
+import { Filesystem } from "../../src/util/filesystem"
 import { eq } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
@@ -116,6 +119,32 @@ async function pluginProject() {
   })
 }
 
+async function withAuthFile<T>(auth: Record<string, unknown>, fn: () => Promise<T>) {
+  const authPath = path.join(Global.Path.data, "auth.json")
+  let original: string | undefined
+
+  try {
+    original = await Filesystem.readText(authPath)
+  } catch (error: unknown) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      original = undefined
+    } else {
+      throw error
+    }
+  }
+
+  try {
+    await Filesystem.write(authPath, JSON.stringify(auth))
+    return await fn()
+  } finally {
+    if (original !== undefined) {
+      await Filesystem.write(authPath, original)
+    } else {
+      await unlink(authPath).catch(() => {})
+    }
+  }
+}
+
 describe("plugin.workspace", () => {
   test("plugin can install a workspace adaptor", async () => {
     await using tmp = await pluginProject()
@@ -157,9 +186,7 @@ describe("plugin.workspace", () => {
       if (expected === undefined) expect(created.env).not.toHaveProperty(key)
       else expect(created.env[key]).toBe(expected)
     }
-    const auth = JSON.parse(created.env.OPENCODE_AUTH_CONTENT)
-    expect(typeof auth).toBe("object")
-    expect(auth).not.toBeNull()
+    expect(created.env).not.toHaveProperty("OPENCODE_AUTH_CONTENT")
     await waitFor(() => {
       const status = Workspace.status().find((item) => item.workspaceID === info.id)
       return status !== undefined && status.status !== "connecting"
@@ -167,6 +194,97 @@ describe("plugin.workspace", () => {
     const status = Workspace.status().find((item) => item.workspaceID === info.id)
     expect(status).toBeDefined()
     expect(status?.status).not.toBe("connecting")
+  })
+
+  test("plugin workspace adaptor only receives the requested auth providers", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        const type = `plug-${Math.random().toString(36).slice(2)}`
+        const file = path.join(dir, "plugin.ts")
+        const mark = path.join(dir, "created.json")
+        const space = path.join(dir, "space")
+        await Bun.write(
+          file,
+          [
+            "export default async ({ experimental_workspace }) => {",
+            `  experimental_workspace.register(${JSON.stringify(type)}, {`,
+            '    name: "scoped",',
+            '    description: "scoped auth adaptor",',
+            '    auth: { providers: ["openai"] },',
+            "    configure(input) {",
+            `      return { ...input, name: "scoped", branch: "scoped/main", directory: ${JSON.stringify(space)} }`,
+            "    },",
+            "    async create(input, env) {",
+            `      await Bun.write(${JSON.stringify(mark)}, JSON.stringify({ input, env }))`,
+            "    },",
+            "    async remove() {},",
+            "    target(input) {",
+            '      return { type: "local", directory: input.directory }',
+            "    },",
+            "  })",
+            "  return {}",
+            "}",
+            "",
+          ].join("\n"),
+        )
+
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify(
+            {
+              $schema: "https://opencode.ai/config.json",
+              plugin: [pathToFileURL(file).href],
+            },
+            null,
+            2,
+          ),
+        )
+
+        return { mark, space, type }
+      },
+    })
+
+    await mkdir(tmp.extra.space, { recursive: true })
+
+    await withAuthFile(
+      {
+        openai: {
+          type: "api",
+          key: "sk-openai",
+        },
+        anthropic: {
+          type: "api",
+          key: "sk-anthropic",
+        },
+      },
+      async () => {
+        const info = await Instance.provide({
+          directory: tmp.path,
+          fn: async () =>
+            Effect.gen(function* () {
+              const plugin = yield* Plugin.Service
+              yield* plugin.init()
+              return Workspace.create({
+                type: tmp.extra.type,
+                branch: null,
+                extra: null,
+                projectID: Instance.project.id,
+              })
+            }).pipe(Effect.provide(Plugin.defaultLayer), Effect.runPromise),
+        })
+
+        expect(info.directory).toBe(tmp.extra.space)
+
+        const created = JSON.parse(await Bun.file(tmp.extra.mark).text())
+        expect(JSON.parse(created.env.OPENCODE_AUTH_CONTENT)).toEqual({
+          openai: {
+            type: "api",
+            key: "sk-openai",
+          },
+        })
+      },
+    )
   })
 
   test("plugin workspace adaptor registration does not survive instance disposal", async () => {

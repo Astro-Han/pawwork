@@ -1,5 +1,6 @@
 import z from "zod"
 import { setTimeout as sleep } from "node:timers/promises"
+import { Effect } from "effect"
 import { fn } from "@/util/fn"
 import { Database, eq } from "@/storage/db"
 import { Project } from "@/project/project"
@@ -204,9 +205,27 @@ export namespace Workspace {
         .run()
     })
 
+    const requestedProviders = [...new Set(adaptor.auth?.providers ?? [])]
+    const scopedAuth =
+      requestedProviders.length === 0
+        ? undefined
+        : await AppRuntime.runPromise(
+            Auth.Service.use((auth) =>
+              Effect.gen(function* () {
+                const all = yield* auth.all()
+                return Object.fromEntries(
+                  requestedProviders
+                    .map((provider) => [provider, all[provider]] as const)
+                    .filter(([, value]) => value !== undefined),
+                )
+              }),
+            ),
+          )
+
     const env = Object.fromEntries(
       Object.entries({
-        OPENCODE_AUTH_CONTENT: JSON.stringify(await AppRuntime.runPromise(Auth.Service.use((auth) => auth.all()))),
+        OPENCODE_AUTH_CONTENT:
+          scopedAuth && Object.keys(scopedAuth).length > 0 ? JSON.stringify(scopedAuth) : undefined,
         OPENCODE_WORKSPACE_ID: info.id,
         OPENCODE_EXPERIMENTAL_WORKSPACES: "true",
         OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS,

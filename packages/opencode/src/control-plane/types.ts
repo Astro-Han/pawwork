@@ -25,6 +25,9 @@ export type Target =
     }
 
 export type Adaptor = {
+  auth?: {
+    providers: string[]
+  }
   configure(input: WorkspaceInfo): WorkspaceInfo | Promise<WorkspaceInfo>
   // from is reserved for future workspace copy flows; core does not pass it today.
   create(config: WorkspaceInfo, env?: Record<string, string>, from?: WorkspaceInfo): Promise<void>
