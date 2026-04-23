@@ -1122,6 +1122,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       resetHistoryNavigation(true)
     },
     setMode: (mode) => setStore("mode", mode),
+    selectedSkill: props.selectedSkill,
     setPopover: (popover) => setStore("popover", popover),
     newSessionWorktree: () => props.newSessionWorktree,
     onNewSessionWorktreeReset: props.onNewSessionWorktreeReset,
@@ -1431,7 +1432,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 <IconButton
                   data-action="prompt-submit"
                   type="submit"
-                  disabled={store.mode !== "normal" || (!working() && blank())}
+                  disabled={store.mode !== "normal" || (!working() && blank() && !props.selectedSkill?.())}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   icon={stopping() ? "stop" : "arrow-up"}
                   variant="primary"

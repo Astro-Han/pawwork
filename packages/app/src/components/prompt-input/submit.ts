@@ -5,6 +5,7 @@ import { Binary } from "@opencode-ai/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import { batch, type Accessor } from "solid-js"
 import type { FileSelection } from "@/context/file"
+import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -36,6 +37,7 @@ export type FollowupDraft = {
   model: { providerID: string; modelID: string }
   locale?: string
   variant?: string
+  outgoingTextOverride?: string
 }
 
 type FollowupSendInput = {
@@ -53,7 +55,7 @@ const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? 
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
-  const text = draftText(input.draft.prompt)
+  const text = input.draft.outgoingTextOverride ?? draftText(input.draft.prompt)
   const images = draftImages(input.draft.prompt)
   const [, setStore] = input.globalSync.child(input.draft.sessionDirectory)
 
@@ -75,7 +77,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 
   const [head, ...tail] = text.split(" ")
   const cmd = head?.startsWith("/") ? head.slice(1) : undefined
-  if (cmd && input.sync.data.command.find((item) => item.name === cmd)) {
+  if (!input.draft.outgoingTextOverride && cmd && input.sync.data.command.find((item) => item.name === cmd)) {
     setBusy()
     try {
       if (!(await wait())) {
@@ -187,6 +189,7 @@ type PromptSubmitInput = {
   addToHistory: (prompt: Prompt, mode: "normal" | "shell") => void
   resetHistoryNavigation: () => void
   setMode: (mode: "normal" | "shell") => void
+  selectedSkill?: () => PawworkSkillName | undefined
   setPopover: (popover: "at" | "slash" | null) => void
   newSessionWorktree?: Accessor<string | undefined>
   onNewSessionWorktreeReset?: () => void
@@ -297,13 +300,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
     const mode = input.mode()
+    const isNewSession = !params.id
+    const homeSkill = isNewSession && mode === "normal" ? input.selectedSkill?.() : undefined
 
-    if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0) {
+    if (
+      text.trim().length === 0 &&
+      images.length === 0 &&
+      input.commentCount() === 0 &&
+      !homeSkill
+    ) {
       if (input.working()) abort()
       return
     }
 
-    const isNewSession = !params.id
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()
     const variant = local.model.variant.current()
@@ -315,7 +324,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    input.addToHistory(currentPrompt, mode)
+    if (!homeSkill) {
+      input.addToHistory(currentPrompt, mode)
+    }
     input.resetHistoryNavigation()
     promptProbe.start()
 
@@ -401,6 +412,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const locale = language.intl()
     const agent = isNewSession ? "build" : currentAgent!.name
     const context = prompt.context.items().slice()
+    const outgoingTextOverride = homeSkill
+      ? text.trim().length > 0
+        ? `/${homeSkill} ${text.trim()}`
+        : `/${homeSkill}`
+      : undefined
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -410,6 +426,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       model,
       locale,
       variant,
+      outgoingTextOverride,
     }
 
     const clearInput = () => {
@@ -460,7 +477,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       return
     }
 
-    if (text.startsWith("/")) {
+    if (!homeSkill && text.startsWith("/")) {
       const [cmdName, ...args] = text.split(" ")
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
