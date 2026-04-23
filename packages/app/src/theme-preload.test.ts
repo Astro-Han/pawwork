@@ -4,41 +4,53 @@ const src = await Bun.file(new URL("../public/oc-theme-preload.js", import.meta.
 
 const run = () => Function(src)()
 
+const setMatchMedia = (prefersDark: boolean) => {
+  Object.defineProperty(window, "matchMedia", {
+    value: () => ({ matches: prefersDark }) as MediaQueryList,
+    configurable: true,
+  })
+}
+
 beforeEach(() => {
   document.head.innerHTML = ""
   document.documentElement.removeAttribute("data-theme")
   document.documentElement.removeAttribute("data-color-scheme")
   localStorage.clear()
-  Object.defineProperty(window, "matchMedia", {
-    value: () =>
-      ({
-        matches: false,
-      }) as MediaQueryList,
-    configurable: true,
-  })
+  setMatchMedia(false)
 })
 
 describe("theme preload", () => {
-  test("uses PawWork as the empty-storage default theme", () => {
+  test("defaults first-install users to pawwork light", () => {
     run()
     expect(document.documentElement.dataset.theme).toBe("pawwork")
     expect(document.documentElement.dataset.colorScheme).toBe("light")
+    expect(localStorage.getItem("pawwork-color-scheme")).toBe("light")
   })
 
-  test("locks PawWork to light and rewrites stored color scheme", () => {
+  test("preserves stored dark color scheme on pawwork", () => {
     localStorage.setItem("pawwork-theme-id", "pawwork")
     localStorage.setItem("pawwork-color-scheme", "dark")
 
     run()
 
     expect(document.documentElement.dataset.theme).toBe("pawwork")
-    expect(document.documentElement.dataset.colorScheme).toBe("light")
-    expect(localStorage.getItem("pawwork-theme-id")).toBe("pawwork")
-    expect(localStorage.getItem("pawwork-color-scheme")).toBe("light")
+    expect(document.documentElement.dataset.colorScheme).toBe("dark")
+    expect(localStorage.getItem("pawwork-color-scheme")).toBe("dark")
+  })
+
+  test("resolves 'system' scheme against prefers-color-scheme", () => {
+    localStorage.setItem("pawwork-theme-id", "pawwork")
+    localStorage.setItem("pawwork-color-scheme", "system")
+    setMatchMedia(true)
+
+    run()
+
+    expect(document.documentElement.dataset.colorScheme).toBe("dark")
+    expect(localStorage.getItem("pawwork-color-scheme")).toBe("system")
   })
 
   for (const legacy of ["oc-1", "oc-2", "dracula", "nightowl", "amoled"]) {
-    test(`migrates legacy "${legacy}" theme to pawwork and clears cached css`, () => {
+    test(`migrates legacy "${legacy}" theme to pawwork and clears cached css, preserving scheme`, () => {
       localStorage.setItem("pawwork-theme-id", legacy)
       localStorage.setItem("pawwork-color-scheme", "dark")
       localStorage.setItem("pawwork-theme-css-light", "--background-base:#ffffff;")
@@ -47,9 +59,9 @@ describe("theme preload", () => {
       run()
 
       expect(document.documentElement.dataset.theme).toBe("pawwork")
-      expect(document.documentElement.dataset.colorScheme).toBe("light")
+      expect(document.documentElement.dataset.colorScheme).toBe("dark")
       expect(localStorage.getItem("pawwork-theme-id")).toBe("pawwork")
-      expect(localStorage.getItem("pawwork-color-scheme")).toBe("light")
+      expect(localStorage.getItem("pawwork-color-scheme")).toBe("dark")
       expect(localStorage.getItem("pawwork-theme-css-light")).toBeNull()
       expect(localStorage.getItem("pawwork-theme-css-dark")).toBeNull()
     })

@@ -95,13 +95,8 @@ function getSystemMode(): "light" | "dark" {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
-function resolveMode(themeId: string, colorScheme: ColorScheme): "light" | "dark" {
-  if (themeId === DEFAULT_THEME_ID) return "light"
+function resolveMode(_themeId: string, colorScheme: ColorScheme): "light" | "dark" {
   return colorScheme === "system" ? getSystemMode() : colorScheme
-}
-
-function shouldCacheTheme(themeId: string) {
-  return themeId !== DEFAULT_THEME_ID
 }
 
 function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "dark", keys: ThemeStorageKeys) {
@@ -110,9 +105,7 @@ function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "da
   const tokens = resolveThemeVariant(variant, isDark)
   const css = themeToCss(tokens)
 
-  if (shouldCacheTheme(themeId)) {
-    write(isDark ? keys.cssDark : keys.cssLight, css)
-  }
+  write(isDark ? keys.cssDark : keys.cssLight, css)
 
   const fullCss = `:root {
   color-scheme: ${mode};
@@ -126,8 +119,7 @@ function applyThemeCss(theme: DesktopTheme, themeId: string, mode: "light" | "da
   document.documentElement.dataset.colorScheme = mode
 }
 
-function cacheThemeVariants(theme: DesktopTheme, themeId: string, keys: ThemeStorageKeys) {
-  if (!shouldCacheTheme(themeId)) return
+function cacheThemeVariants(theme: DesktopTheme, _themeId: string, keys: ThemeStorageKeys) {
   for (const mode of ["light", "dark"] as const) {
     const isDark = mode === "dark"
     const variant = isDark ? theme.dark : theme.light
@@ -152,8 +144,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     const fallbackDefault =
       props.defaultTheme && knownThemes().has(props.defaultTheme) ? props.defaultTheme : DEFAULT_THEME_ID
     const themeId = storedTheme ?? fallbackDefault
-    const colorScheme =
-      themeId === DEFAULT_THEME_ID ? "light" : ((storedScheme ?? (firstInstall ? "light" : "system")) as ColorScheme)
+    const colorScheme = (storedScheme ?? (firstInstall ? "light" : "system")) as ColorScheme
     const mode = resolveMode(themeId, colorScheme)
     const [store, setStore] = createStore({
       themes: {
@@ -210,19 +201,13 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         const next = e.newValue
         if (!knownThemes().has(next) && !store.themes[next]) return
         setStore("themeId", next)
-        if (next === DEFAULT_THEME_ID) {
-          setStore("colorScheme", "light")
-          setStore("mode", "light")
-          clear(storageKeys)
-          return
-        }
         void load(next).then((theme) => {
           if (!theme || store.themeId !== next) return
           cacheThemeVariants(theme, next, storageKeys)
         })
       }
       if (e.key === storageKeys.colorScheme && e.newValue) {
-        const nextScheme = store.themeId === DEFAULT_THEME_ID ? "light" : (e.newValue as ColorScheme)
+        const nextScheme = e.newValue as ColorScheme
         setStore("colorScheme", nextScheme)
         setStore("mode", resolveMode(store.themeId, nextScheme))
       }
@@ -243,15 +228,10 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       const firstInstall = !rawTheme && !rawScheme
       const candidate = rawTheme ?? props.defaultTheme
       const savedTheme = candidate && knownThemes().has(candidate) ? candidate : DEFAULT_THEME_ID
-      const savedScheme =
-        savedTheme === DEFAULT_THEME_ID ? "light" : ((rawScheme ?? (firstInstall ? "light" : "system")) as ColorScheme)
+      const savedScheme = (rawScheme ?? (firstInstall ? "light" : "system")) as ColorScheme
       if (rawTheme && rawTheme !== savedTheme) {
         write(storageKeys.themeId, savedTheme)
         clear(storageKeys)
-      }
-      if (savedTheme === DEFAULT_THEME_ID) {
-        write(storageKeys.themeId, savedTheme)
-        write(storageKeys.colorScheme, "light")
       }
       if (savedTheme !== store.themeId) setStore("themeId", savedTheme)
       if (savedScheme !== store.colorScheme) setStore("colorScheme", savedScheme)
@@ -274,14 +254,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
         return
       }
       setStore("themeId", id)
-      if (id === DEFAULT_THEME_ID) {
-        setStore("colorScheme", "light")
-        setStore("mode", "light")
-        write(storageKeys.themeId, id)
-        write(storageKeys.colorScheme, "light")
-        clear(storageKeys)
-        return
-      }
       void load(id).then((theme) => {
         if (!theme || store.themeId !== id) return
         cacheThemeVariants(theme, id, storageKeys)
@@ -290,10 +262,9 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     }
 
     const setColorScheme = (scheme: ColorScheme) => {
-      const next = store.themeId === DEFAULT_THEME_ID ? "light" : scheme
-      setStore("colorScheme", next)
-      write(storageKeys.colorScheme, next)
-      setStore("mode", resolveMode(store.themeId, next))
+      setStore("colorScheme", scheme)
+      write(storageKeys.colorScheme, scheme)
+      setStore("mode", resolveMode(store.themeId, scheme))
     }
 
     return {
@@ -304,11 +275,7 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       name: (id: string) => store.themes[id]?.name ?? names[id] ?? id,
       loadThemes,
       themes: () => store.themes,
-      // Whether the current theme supports user-selectable color schemes.
-      // The bundled pawwork theme is light-only for Phase 1, so setColorScheme
-      // coerces to "light"; expose this so UI surfaces can hide the picker
-      // rather than showing a no-op control.
-      canSwitchColorScheme: () => store.themeId !== DEFAULT_THEME_ID,
+      canSwitchColorScheme: () => true,
       setTheme,
       setColorScheme,
       registerTheme: (theme: DesktopTheme) => setStore("themes", theme.id, theme),

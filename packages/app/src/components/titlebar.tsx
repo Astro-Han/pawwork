@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
-import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 
 import { useLayout } from "@/context/layout"
 import { usePlatform } from "@/context/platform"
@@ -51,10 +51,6 @@ export function Titlebar() {
       setHistory(next)
     })
   })
-
-  const canBack = createMemo(() => history.index > 0)
-  const canForward = createMemo(() => history.index < history.stack.length - 1)
-  const hasProjects = createMemo(() => layout.projects.list().length > 0)
 
   const back = () => {
     const next = backPath(history)
@@ -148,7 +144,7 @@ export function Titlebar() {
           <div class="hidden xl:flex items-center shrink-0">
             <Show when={params.dir}>
               <div
-                class="flex items-center shrink-0 w-8 mr-1"
+                class="flex items-center shrink-0 w-8"
                 aria-hidden={layout.sidebar.opened() ? "true" : undefined}
               >
                 <div
@@ -179,38 +175,6 @@ export function Titlebar() {
                     />
                   </TooltipKeybind>
                 </div>
-              </div>
-            </Show>
-            <Show when={hasProjects()}>
-              <div
-                class="flex items-center gap-0 transition-transform"
-                classList={{
-                  "translate-x-0": !layout.sidebar.opened(),
-                  "-translate-x-[36px]": layout.sidebar.opened(),
-                  "duration-180 ease-out": !layout.sidebar.opened(),
-                  "duration-180 ease-in": layout.sidebar.opened(),
-                }}
-              >
-                <Tooltip placement="bottom" value={language.t("common.goBack")} openDelay={2000}>
-                  <Button
-                    variant="ghost"
-                    icon="chevron-left"
-                    class="titlebar-icon w-6 h-6 p-0 box-border"
-                    disabled={!canBack()}
-                    onClick={back}
-                    aria-label={language.t("common.goBack")}
-                  />
-                </Tooltip>
-                <Tooltip placement="bottom" value={language.t("common.goForward")} openDelay={2000}>
-                  <Button
-                    variant="ghost"
-                    icon="chevron-right"
-                    class="titlebar-icon w-6 h-6 p-0 box-border"
-                    disabled={!canForward()}
-                    onClick={forward}
-                    aria-label={language.t("common.goForward")}
-                  />
-                </Tooltip>
               </div>
             </Show>
           </div>

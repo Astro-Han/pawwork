@@ -238,11 +238,22 @@ export const PawworkSidebar = (props: {
     <section
       data-component="pawwork-sidebar"
       data-sidebar-scope={props.scope ?? "main"}
-      class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background-base"
+      class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background-weak"
     >
       <div class="shrink-0 px-3 pt-3">
         <div class="flex flex-col gap-2">
-          <Button data-action="pawwork-session-new" size="large" icon="new-session" class="w-full" onClick={props.onNew}>
+          <Button
+            data-action="pawwork-session-new"
+            size="large"
+            icon="new-session"
+            class="w-full"
+            style={{
+              "--button-secondary-base": "var(--surface-interactive-base)",
+              "--button-secondary-hover": "var(--surface-interactive-hover)",
+              "--icon-base": "var(--accent-brand)",
+            }}
+            onClick={props.onNew}
+          >
             {language.t("command.session.new")}
           </Button>
           <Button
