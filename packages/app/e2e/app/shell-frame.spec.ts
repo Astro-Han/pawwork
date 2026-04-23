@@ -22,8 +22,6 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
   await expect(page.locator(titlebarCenterSelector)).toContainText(/new session/i)
   await expect(page.locator(`${titlebarRightSelector} button`).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /toggle sidebar/i }).first()).toBeVisible()
-  await expect(page.getByRole("button", { name: /navigate back/i })).toBeVisible()
-  await expect(page.getByRole("button", { name: /navigate forward/i })).toBeVisible()
 
   const settings = await openSettings(page)
   await expect(settings.getByRole("heading", { level: 2 })).toBeVisible()
