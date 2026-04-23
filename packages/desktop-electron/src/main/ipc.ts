@@ -7,6 +7,8 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron"
 import type {
   DesktopContext,
   InitStep,
+  ReportProblemInput,
+  ReportProblemResult,
   ServerReadyData,
   SqliteMigrationProgress,
   TitlebarTheme,
@@ -53,6 +55,7 @@ type Deps = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<UpdateInfo>
+  reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
   installUpdate: () => Promise<boolean> | boolean
   setBackgroundColor: (color: string) => void
   reportDeepLinkReady: (win: BrowserWindow | null) => void
@@ -133,6 +136,9 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
+  ipcMain.handle("report-problem", (_event: IpcMainInvokeEvent, input?: ReportProblemInput) =>
+    deps.reportProblem(input),
+  )
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
   ipcMain.handle("report-deep-link-ready", (event: IpcMainInvokeEvent) =>

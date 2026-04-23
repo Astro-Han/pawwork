@@ -11,4 +11,9 @@ describe("desktop startup IPC", () => {
     expect(source).toContain("getWindowConfig")
     expect(source).toContain("consumeInitialDeepLinks")
   })
+
+  test("registers problem report channel for renderer error pages", () => {
+    expect(source).toContain('"report-problem"')
+    expect(source).toContain("reportProblem")
+  })
 })
