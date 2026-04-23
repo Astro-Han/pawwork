@@ -499,10 +499,18 @@ test("bundled productivity skills enforce clarify-first workflow and locale guid
           expect(content).toContain("## Step 3: Verify")
           expect(content).toContain("## Language")
           expect(content).toContain('Reply in the user\'s locale (shown in system environment as "User locale").')
-          // Skills must NOT hardcode tool names or JSON schemas — models pick the
-          // right tool from the tool list at runtime
+          // Skills should name the question tool behavior without embedding raw schemas.
           expect(content).not.toContain("```json")
-          expect(content).not.toContain("`question` tool")
+          expect(content).toContain("`question` tool")
+          expect(content).toContain("typically 2-4")
+          expect(content).toContain("ask fewer when only one material gap is missing")
+          expect(content).toContain("recommended answer")
+          expect(content).toContain("Do not ask obvious questions")
+          expect(content).toContain("Stop asking")
+          expect(content).toContain("Before asking, use this decision rule")
+          expect(content).toContain("**Must ask**")
+          expect(content).toContain("**Use a recommended default and continue**")
+          expect(content).toContain("**Ask one multiple-choice question**")
         }
 
         const documentProcessing = getContent("document-processing")
@@ -510,18 +518,21 @@ test("bundled productivity skills enforce clarify-first workflow and locale guid
         expect(documentProcessing).toContain("**Task type**")
         expect(documentProcessing).toContain("**Source**")
         expect(documentProcessing).toContain("**Constraints**")
+        expect(documentProcessing).toContain("**Success check**")
 
         const dataAnalysis = getContent("data-analysis")
         assertSharedStructure(dataAnalysis)
         expect(dataAnalysis).toContain("**Data source**")
         expect(dataAnalysis).toContain("**Output**")
         expect(dataAnalysis).toContain("**Business question**")
+        expect(dataAnalysis).toContain("**Decision use**")
 
         const writingAssistant = getContent("writing-assistant")
         assertSharedStructure(writingAssistant)
         expect(writingAssistant).toContain("**Content type**")
         expect(writingAssistant).toContain("**Tone**")
         expect(writingAssistant).toContain("**Key points**")
+        expect(writingAssistant).toContain("**Success check**")
         expect(writingAssistant).toContain("wait for their next message")
       },
     })

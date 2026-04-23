@@ -8,23 +8,33 @@ description: Use when user wants to draft or revise work writing like emails, re
 Draft or revise business writing without inventing facts, commitments, or details.
 
 <GATE>
-Do NOT start drafting until you understand what the user needs. Ask clarifying questions first, then write.
+Do NOT start drafting until you understand the user's goal, audience, and source material well enough to avoid inventing facts.
+
+When important context is missing, use the `question` tool instead of asking only in plain text. Ask a focused round of questions, typically 2-4, and ask fewer when only one material gap is missing. Ask deeper, non-obvious questions that uncover the user's goal, audience, tone, constraints, and tradeoffs. Provide your recommended answer as the first option when useful. Use multiple selection when several tones, channels, or output formats may be acceptable.
+
+Do not ask obvious questions whose answers are already in the user's message. Stop asking once you can produce a useful first draft. Ask another focused round only if the user's answer reveals a material gap.
+
+Before asking, use this decision rule:
+- **Must ask** when the missing answer changes the audience, purpose, factual claims, commitments, deadline, channel, or reader action.
+- **Use a recommended default and continue** when the missing answer is only a preference, such as exact length, minor tone choice, or whether to include a subject line.
+- **Ask one multiple-choice question** when several safe drafts are possible. Put the recommended default first and explain why it is recommended.
 </GATE>
 
 ## Workflow
 
-1. **Clarify** - Ask the user what they need before writing anything.
+1. **Clarify** - Use focused questions to understand what the writing needs to achieve before writing anything.
 2. **Execute** - Extract the facts, choose the right structure, and draft in the requested tone.
 3. **Verify** - Check the draft for factual fidelity, tone, and usability.
 
 ## Step 1: Clarify
 
-Ask the user the following before acting:
+Use the question tool to ask what matters before acting:
 
-- **Content type** — Email, report or memo, announcement, or plan/proposal?
-- **Tone** — Formal, conversational, concise and direct, or persuasive?
-- **Key points** — Will they provide details now, should you draft from what they already said, or should you ask more questions first? Always ask this, even when input seems sufficient.
-- **Constraints** — Any length, audience, structure, or deadline requirements.
+- **Content type**: Email, report or memo, announcement, or plan/proposal?
+- **Tone**: Formal, conversational, concise and direct, or persuasive?
+- **Key points**: Will they provide details now, should you draft from what they already said, or should you ask more questions first? Ask only when the answer would materially change the draft.
+- **Constraints**: Any length, audience, structure, or deadline requirements.
+- **Success check**: What should the reader think, decide, or do after reading?
 
 If the user chooses to provide details later, wait for their next message before proceeding to draft.
 
