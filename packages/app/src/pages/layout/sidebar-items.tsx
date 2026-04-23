@@ -12,7 +12,6 @@ import { useLanguage } from "@/context/language"
 import { getAvatarColors, type LocalProject, useLayout } from "@/context/layout"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
-import { getPawworkSkillMeta } from "@/components/session/pawwork-skill-meta"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
@@ -98,9 +97,7 @@ const SessionRow = (props: {
   warmFocus: () => void
   titleContent?: JSX.Element
 }): JSX.Element => {
-  const language = useLanguage()
   const title = () => sessionTitle(props.session.title)
-  const skill = createMemo(() => getPawworkSkillMeta(props.session.skill))
   const indicator = () => {
     if (props.isWorking()) return <Spinner class="size-[15px]" />
     if (props.hasPermissions()) return <div class="size-1.5 rounded-full bg-surface-warning-strong" />
@@ -129,17 +126,6 @@ const SessionRow = (props: {
       <div class="min-w-0 flex-1 flex items-center gap-2">
         <Show when={props.titleContent} fallback={<span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
           {props.titleContent}
-        </Show>
-        <Show when={skill()}>
-          {(meta) => (
-            <span
-              data-session-skill={meta().name}
-              class="shrink-0 inline-flex items-center gap-1 rounded-full bg-surface-base px-2 py-0.5 text-11-medium text-text-weak"
-            >
-              <Icon name={meta().iconName} size="small" class="text-text-weak" />
-              {language.t(meta().titleKey)}
-            </span>
-          )}
         </Show>
       </div>
     </A>
