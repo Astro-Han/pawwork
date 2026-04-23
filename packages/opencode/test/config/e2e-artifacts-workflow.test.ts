@@ -6,7 +6,7 @@ const repoRoot = path.join(import.meta.dir, "../../../..")
 const workflowPath = path.join(repoRoot, ".github", "workflows", "e2e-artifacts.yml")
 
 describe("e2e artifacts workflow", () => {
-  test("defines a visible but non-blocking PR diagnostics workflow", () => {
+  test("defines a required PR e2e workflow with retained failure artifacts", () => {
     const workflow = readWorkflow(workflowPath)
     const parsed = parseWorkflow(workflowPath)
     const job = parsed.jobs?.["e2e-artifacts"]
@@ -15,7 +15,7 @@ describe("e2e artifacts workflow", () => {
     const bunStep = steps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
     const installBrowsersStep = steps.find((step) => step.name === "Install Playwright browsers")
     const runStep = steps.find((step) => step.name === "Run e2e")
-    const warnStep = steps.find((step) => step.name === "Warn on smoke failure")
+    const warnStep = steps.find((step) => step.name === "Warn on E2E failure")
     const uploadStep = steps.find((step) => step.name === "Upload e2e artifacts")
 
     expect(parsed.name).toBe("e2e-artifacts")
@@ -36,15 +36,18 @@ describe("e2e artifacts workflow", () => {
     )
     expect(parsed.permissions).toEqual({ contents: "read" })
     expect(job?.["runs-on"]).toBe("ubuntu-latest")
-    expect(job?.["continue-on-error"]).toBe(true)
+    expect(job?.["continue-on-error"]).not.toBe(true)
     expect(checkoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
     expect(checkoutStep?.with).toEqual({ "persist-credentials": false })
     expect(bunStep?.uses).toBe("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")
     expect(installBrowsersStep?.run).toBe("bunx playwright install --with-deps chromium")
     expect(runStep?.run).toContain("bun --cwd packages/app test:e2e:local:smoke")
+    expect(runStep?.["continue-on-error"]).not.toBe(true)
     expect(warnStep?.if).toBe("failure()")
     expect(warnStep?.run).toContain("::warning::")
+    expect(warnStep?.run).not.toContain("Non-blocking")
     expect(uploadStep?.uses).toBe("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a")
+    expect(uploadStep?.if).toBe("always()")
     expect(uploadStep?.with?.name).toBe("e2e-artifacts-linux-${{ github.run_attempt }}")
     expect(uploadStep?.with?.["if-no-files-found"]).toBe("ignore")
     expect(uploadStep?.with?.["retention-days"]).toBe(7)

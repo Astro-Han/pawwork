@@ -1,9 +1,7 @@
-# This workflow is intentionally non-blocking: it uploads Playwright
-# artifacts on PRs for manual inspection but never fails the PR. Do NOT
-# add `e2e-artifacts / e2e-artifacts` to the `dev` ruleset as a required
-# check -- `continue-on-error: true` on the job means the check reports
-# success even when tests fail, which would make the gate lie about
-# every PR forever. Decision recorded in issue #54.
+# This workflow is the PR E2E check for rendered app behavior. It must
+# fail when Playwright smoke fails, while still uploading artifacts for
+# debugging. The `dev` ruleset should require `e2e-artifacts` only after
+# this workflow is merged, so the required check reflects real failures.
 name: e2e-artifacts
 
 on:
@@ -34,7 +32,6 @@ jobs:
   e2e-artifacts:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
@@ -85,10 +82,10 @@ jobs:
             bun --cwd packages/app test:e2e:local
           fi
 
-      - name: Warn on smoke failure
+      - name: Warn on E2E failure
         if: failure()
         run: |
-          echo "::warning::Non-blocking e2e-artifacts failed. Download the uploaded artifacts for the Playwright report and junit output."
+          echo "::warning::E2E failed. Download the uploaded artifacts for the Playwright report, junit output, and test results."
 
       - name: Upload e2e artifacts
         if: always()
