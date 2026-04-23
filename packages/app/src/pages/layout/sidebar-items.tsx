@@ -6,7 +6,7 @@ import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import { A, useParams } from "@solidjs/router"
-import { type Accessor, createMemo, For, type JSX, Match, Show, Switch } from "solid-js"
+import { type Accessor, createMemo, For, type JSX, Show } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { getAvatarColors, type LocalProject, useLayout } from "@/context/layout"
@@ -101,6 +101,13 @@ const SessionRow = (props: {
   const language = useLanguage()
   const title = () => sessionTitle(props.session.title)
   const skill = createMemo(() => getPawworkSkillMeta(props.session.skill))
+  const indicator = () => {
+    if (props.isWorking()) return <Spinner class="size-[15px]" />
+    if (props.hasPermissions()) return <div class="size-1.5 rounded-full bg-surface-warning-strong" />
+    if (props.hasError()) return <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
+    if (props.unseenCount() > 0) return <div class="size-1.5 rounded-full bg-text-interactive-base" />
+    return null
+  }
 
   return (
     <A
@@ -117,20 +124,7 @@ const SessionRow = (props: {
         class="shrink-0 size-6 flex items-center justify-center"
         style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
       >
-        <Switch>
-          <Match when={props.isWorking()}>
-            <Spinner class="size-[15px]" />
-          </Match>
-          <Match when={props.hasPermissions()}>
-            <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-          </Match>
-          <Match when={props.hasError()}>
-            <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-          </Match>
-          <Match when={props.unseenCount() > 0}>
-            <div class="size-1.5 rounded-full bg-text-interactive-base" />
-          </Match>
-        </Switch>
+        {indicator()}
       </div>
       <div class="min-w-0 flex-1 flex items-center gap-2">
         <Show when={props.titleContent} fallback={<span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>

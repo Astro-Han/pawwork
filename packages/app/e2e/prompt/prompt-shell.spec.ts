@@ -124,6 +124,48 @@ test("shell mode renders command failures without crashing the renderer", async 
   }
 })
 
+test("shell mode can start from the new session home", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  const errors = capturePageErrors(page)
+  const cmd = process.platform === "win32" ? "dir" : "command ls"
+
+  try {
+    await project.open()
+    const sessionID = await project.shell(cmd)
+
+    await expect
+      .poll(
+        async () => {
+          const list = await project.sdk.session
+            .messages({ sessionID, limit: 50 })
+            .then((x) => x.data ?? [])
+          const msg = list.findLast(
+            (item) => item.info.role === "assistant" && "path" in item.info && item.info.path.cwd === project.directory,
+          )
+          if (!msg) return
+
+          const part = msg.parts
+            .filter(isBash)
+            .find((item) => item.state.input?.command === cmd && item.state.status === "completed")
+
+          if (!part || part.state.status !== "completed") return
+          const output =
+            typeof part.state.metadata?.output === "string" ? part.state.metadata.output : part.state.output
+          if (!output.includes("README.md")) return
+
+          return { cwd: project.directory, output }
+        },
+        { timeout: 90_000 },
+      )
+      .toEqual(expect.objectContaining({ cwd: project.directory, output: expect.stringContaining("README.md") }))
+
+    expect(errors.pageErrors.join("\n")).not.toContain("switchFunc(...) is not a function")
+  } finally {
+    errors.dispose()
+  }
+})
+
 test("shell mode unmounts model and variant controls", async ({ page, project }) => {
   await project.open()
 
