@@ -146,6 +146,8 @@ jobs:
       - name: Report problem smoke
         run: bun run smoke:report
         working-directory: packages/desktop-electron
+        env:
+          PAWWORK_FEEDBACK_FORM_URL: https://example.com/pawwork-feedback
 
       - name: Package desktop app
         run: npx electron-builder --mac dir --arm64 --publish never --config electron-builder.config.ts --config.mac.identity=- --config.mac.notarize=false
