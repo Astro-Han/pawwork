@@ -149,13 +149,12 @@ export const SettingsGeneral: Component = () => {
         }
 
         const actions =
-          platform.update && platform.restart
+          platform.update
             ? [
                 {
                   label: language.t("toast.update.action.installRestart"),
                   onClick: async () => {
                     await platform.update!()
-                    await platform.restart!()
                   },
                 },
                 {

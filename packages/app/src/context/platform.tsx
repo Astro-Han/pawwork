@@ -7,7 +7,7 @@ type PickerPaths = string | string[] | null
 type OpenDirectoryPickerOptions = { title?: string; multiple?: boolean }
 type OpenFilePickerOptions = { title?: string; multiple?: boolean; accept?: string[]; extensions?: string[] }
 type SaveFilePickerOptions = { title?: string; defaultPath?: string }
-type UpdateFailureReason = "check" | "download" | "metadata"
+type UpdateFailureReason = "check" | "download" | "metadata" | "cache"
 export type UpdateInfo =
   | { updateAvailable: false; status: "disabled" | "none" | "busy"; version?: undefined }
   | { updateAvailable: true; status: "ready"; version: string }
