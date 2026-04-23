@@ -1,15 +1,14 @@
 import path from "path"
-import z from "zod"
 import trash from "trash"
-import { Effect } from "effect"
-import { Tool } from "./tool"
+import { Effect, Schema } from "effect"
+import * as Tool from "./tool"
 import { AppFileSystem } from "../filesystem"
 import { Instance } from "../project/instance"
 import DESCRIPTION from "./trash.txt"
 import { assertExternalDirectoryEffect } from "./external-directory"
 
-const Parameters = z.object({
-  path: z.string().describe("The file or directory path to move to the system Trash"),
+const Parameters = Schema.Struct({
+  path: Schema.String.annotate({ description: "The file or directory path to move to the system Trash" }),
 })
 
 export const TrashTool = Tool.define(
@@ -20,7 +19,7 @@ export const TrashTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: z.infer<typeof Parameters>, ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const target = path.isAbsolute(params.path) ? params.path : path.join(Instance.directory, params.path)
           const info = yield* fs.stat(target).pipe(

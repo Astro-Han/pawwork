@@ -69,9 +69,9 @@ describe("agent rename literal sweep (#128)", () => {
   })
 
   test("Zod schema has subagent_session_id and not task_id", async () => {
-    const { parameters } = await import("@/tool/agent")
-    expect(parameters.shape.subagent_session_id).toBeDefined()
-    expect((parameters.shape as Record<string, unknown>).task_id).toBeUndefined()
+    const { Parameters } = await import("@/tool/agent")
+    expect((Parameters.fields as any).subagent_session_id).toBeDefined()
+    expect((Parameters.fields as Record<string, unknown>).task_id).toBeUndefined()
   })
 
   test("agent.ts exists; task.ts does not", () => {

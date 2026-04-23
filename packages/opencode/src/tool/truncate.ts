@@ -149,5 +149,6 @@ export type Result = Truncate.Result
 export type Options = Truncate.Options
 export type Interface = Truncate.Interface
 export const Service = Truncate.Service
+export type Service = Truncate.Service
 export const layer = Truncate.layer
 export const defaultLayer = Truncate.defaultLayer

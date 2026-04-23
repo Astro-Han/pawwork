@@ -12,7 +12,7 @@ import { Server } from "../../server/server"
 import { Provider } from "../../provider/provider"
 import { Agent } from "../../agent/agent"
 import { Permission } from "../../permission"
-import { Tool } from "../../tool/tool"
+import * as Tool from "../../tool/tool"
 import { GlobTool } from "../../tool/glob"
 import { GrepTool } from "../../tool/grep"
 import { ReadTool } from "../../tool/read"
@@ -80,8 +80,9 @@ function fallback(part: ToolPart) {
 }
 
 function glob(info: ToolProps<typeof GlobTool>) {
-  const root = info.input.path ?? ""
-  const title = `Glob "${info.input.pattern}"`
+  const input = info.input as { path?: string; pattern: string }
+  const root = input.path ?? ""
+  const title = `Glob "${input.pattern}"`
   const suffix = root ? `in ${normalizePath(root)}` : ""
   const num = info.metadata.count
   const description =
@@ -94,8 +95,9 @@ function glob(info: ToolProps<typeof GlobTool>) {
 }
 
 function grep(info: ToolProps<typeof GrepTool>) {
-  const root = info.input.path ?? ""
-  const title = `Grep "${info.input.pattern}"`
+  const input = info.input as { path?: string; pattern: string }
+  const root = input.path ?? ""
+  const title = `Grep "${input.pattern}"`
   const suffix = root ? `in ${normalizePath(root)}` : ""
   const num = info.metadata.matches
   const description =

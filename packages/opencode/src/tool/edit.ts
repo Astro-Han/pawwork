@@ -3,10 +3,9 @@
 // https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/utils/editCorrector.ts
 // https://github.com/cline/cline/blob/main/evals/diff-edits/diff-apply/diff-06-26-25.ts
 
-import z from "zod"
 import * as path from "path"
-import { Effect } from "effect"
-import { Tool } from "./tool"
+import { Effect, Schema, Semaphore } from "effect"
+import * as Tool from "./tool"
 import { LSP } from "../lsp"
 import { createTwoFilesPatch, diffLines } from "diff"
 import DESCRIPTION from "./edit.txt"
@@ -14,12 +13,11 @@ import { File } from "../file"
 import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
 import { Format } from "../format"
-import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
-import { AppFileSystem } from "../filesystem"
-import { Lock } from "../util/lock"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import * as Bom from "@/util/bom"
 
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")
@@ -34,11 +32,27 @@ function convertToLineEnding(text: string, ending: "\n" | "\r\n"): string {
   return text.replaceAll("\n", "\r\n")
 }
 
-const Parameters = z.object({
-  filePath: z.string().describe("The absolute path to the file to modify"),
-  oldString: z.string().describe("The text to replace"),
-  newString: z.string().describe("The text to replace it with (must be different from oldString)"),
-  replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
+const locks = new Map<string, Semaphore.Semaphore>()
+
+function lock(filePath: string) {
+  const resolvedFilePath = AppFileSystem.resolve(filePath)
+  const hit = locks.get(resolvedFilePath)
+  if (hit) return hit
+
+  const next = Semaphore.makeUnsafe(1)
+  locks.set(resolvedFilePath, next)
+  return next
+}
+
+export const Parameters = Schema.Struct({
+  filePath: Schema.String.annotate({ description: "The absolute path to the file to modify" }),
+  oldString: Schema.String.annotate({ description: "The text to replace" }),
+  newString: Schema.String.annotate({
+    description: "The text to replace it with (must be different from oldString)",
+  }),
+  replaceAll: Schema.optional(Schema.Boolean).annotate({
+    description: "Replace all occurrences of oldString (default false)",
+  }),
 })
 
 export const EditTool = Tool.define(
@@ -52,7 +66,7 @@ export const EditTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: z.infer<typeof Parameters>, ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           if (!params.filePath) {
             throw new Error("filePath is required")
@@ -70,52 +84,16 @@ export const EditTool = Tool.define(
           let diff = ""
           let contentOld = ""
           let contentNew = ""
-          yield* Effect.acquireUseRelease(
-            Effect.promise(() => Lock.write(filePath)),
-            () =>
-              Effect.gen(function* () {
-                if (params.oldString === "") {
-                  const existed = yield* afs.existsSafe(filePath)
-                  contentNew = params.newString
-                  diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                  yield* ctx.ask({
-                    permission: "edit",
-                    patterns: [path.relative(Instance.worktree, filePath)],
-                    always: ["*"],
-                    metadata: {
-                      filepath: filePath,
-                      diff,
-                    },
-                  })
-                  yield* afs.writeWithDirs(filePath, params.newString)
-                  yield* format.file(filePath)
-                  yield* bus.publish(File.Event.Edited, { file: filePath })
-                  yield* bus.publish(FileWatcher.Event.Updated, {
-                    file: filePath,
-                    event: existed ? "change" : "add",
-                  })
-                  return
-                }
-
-                const info = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
-                if (!info) throw new Error(`File ${filePath} not found`)
-                if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
-                contentOld = yield* afs.readFileString(filePath)
-
-                const ending = detectLineEnding(contentOld)
-                const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
-                const next = convertToLineEnding(normalizeLineEndings(params.newString), ending)
-
-                contentNew = replace(contentOld, old, next, params.replaceAll)
-
-                diff = trimDiff(
-                  createTwoFilesPatch(
-                    filePath,
-                    filePath,
-                    normalizeLineEndings(contentOld),
-                    normalizeLineEndings(contentNew),
-                  ),
-                )
+          yield* lock(filePath).withPermits(1)(
+            Effect.gen(function* () {
+              if (params.oldString === "") {
+                const existed = yield* afs.existsSafe(filePath)
+                const source = existed ? yield* Bom.readFile(afs, filePath) : { bom: false, text: "" }
+                const next = Bom.split(params.newString)
+                const desiredBom = source.bom || next.bom
+                contentOld = source.text
+                contentNew = next.text
+                diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
                 yield* ctx.ask({
                   permission: "edit",
                   patterns: [path.relative(Instance.worktree, filePath)],
@@ -125,26 +103,71 @@ export const EditTool = Tool.define(
                     diff,
                   },
                 })
-
-                yield* afs.writeWithDirs(filePath, contentNew)
+                yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
                 yield* format.file(filePath)
+                {
+                  contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
+                }
                 yield* bus.publish(File.Event.Edited, { file: filePath })
                 yield* bus.publish(FileWatcher.Event.Updated, {
                   file: filePath,
-                  event: "change",
+                  event: existed ? "change" : "add",
                 })
-                contentNew = yield* afs.readFileString(filePath)
-                diff = trimDiff(
-                  createTwoFilesPatch(
-                    filePath,
-                    filePath,
-                    normalizeLineEndings(contentOld),
-                    normalizeLineEndings(contentNew),
-                  ),
-                )
-              }),
-            (lock) => Effect.sync(() => lock[Symbol.dispose]()),
-          ).pipe(Effect.orDie)
+                return
+              }
+
+              const info = yield* afs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              if (!info) throw new Error(`File ${filePath} not found`)
+              if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
+              const source = yield* Bom.readFile(afs, filePath)
+              contentOld = source.text
+
+              const ending = detectLineEnding(contentOld)
+              const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
+              const replacement = convertToLineEnding(normalizeLineEndings(params.newString), ending)
+
+              const next = Bom.split(replace(contentOld, old, replacement, params.replaceAll))
+              const desiredBom = source.bom || next.bom
+              contentNew = next.text
+
+              diff = trimDiff(
+                createTwoFilesPatch(
+                  filePath,
+                  filePath,
+                  normalizeLineEndings(contentOld),
+                  normalizeLineEndings(contentNew),
+                ),
+              )
+              yield* ctx.ask({
+                permission: "edit",
+                patterns: [path.relative(Instance.worktree, filePath)],
+                always: ["*"],
+                metadata: {
+                  filepath: filePath,
+                  diff,
+                },
+              })
+
+              yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
+              yield* format.file(filePath)
+                {
+                contentNew = yield* Bom.syncFile(afs, filePath, desiredBom)
+              }
+              yield* bus.publish(File.Event.Edited, { file: filePath })
+              yield* bus.publish(FileWatcher.Event.Updated, {
+                file: filePath,
+                event: "change",
+              })
+              diff = trimDiff(
+                createTwoFilesPatch(
+                  filePath,
+                  filePath,
+                  normalizeLineEndings(contentOld),
+                  normalizeLineEndings(contentNew),
+                ),
+              )
+            }).pipe(Effect.orDie),
+          )
 
           let additions = 0
           let deletions = 0
@@ -170,7 +193,7 @@ export const EditTool = Tool.define(
           let output = "Edit applied successfully."
           yield* lsp.touchFile(filePath, true)
           const diagnostics = yield* lsp.diagnostics()
-          const normalizedFilePath = Filesystem.normalizePath(filePath)
+          const normalizedFilePath = AppFileSystem.normalizePath(filePath)
           const block = LSP.Diagnostic.report(filePath, diagnostics[normalizedFilePath] ?? [])
           if (block) output += `\n\nLSP errors detected in this file, please fix:\n${block}`
 
@@ -418,7 +441,7 @@ export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) 
             if (match) {
               yield match[0]
             }
-          } catch (e) {
+          } catch {
             // Invalid regex pattern, skip
           }
         }

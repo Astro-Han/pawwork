@@ -16,6 +16,7 @@ type Metadata = {
   answers: ReadonlyArray<Question.Answer>
 }
 
+// @ts-expect-error - Zod params accepted at runtime; Question.Prompt stays Zod-typed for PawWork's question namespace
 export const QuestionTool = Tool.define<typeof parameters, Metadata, Question.Service>(
   "question",
   Effect.gen(function* () {

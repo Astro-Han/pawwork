@@ -1,13 +1,12 @@
 import * as Tool from "./tool"
 import DESCRIPTION from "./agent.txt"
-import z from "zod"
 import { Session } from "../session"
 import { SessionID, MessageID } from "../session/schema"
 import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "../config"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
 export interface AgentPromptOps {
   cancel(sessionID: SessionID): void
@@ -17,17 +16,15 @@ export interface AgentPromptOps {
 
 const id = "agent"
 
-export const parameters = z.object({
-  description: z.string().describe("A short (3-5 words) description of the subagent dispatch"),
-  prompt: z.string().describe("The task for the subagent to perform"),
-  subagent_type: z.string().describe("The type of specialized subagent to use for this dispatch"),
-  subagent_session_id: z
-    .string()
-    .describe(
+export const Parameters = Schema.Struct({
+  description: Schema.String.annotate({ description: "A short (3-5 words) description of the subagent dispatch" }),
+  prompt: Schema.String.annotate({ description: "The task for the subagent to perform" }),
+  subagent_type: Schema.String.annotate({ description: "The type of specialized subagent to use for this dispatch" }),
+  subagent_session_id: Schema.optional(Schema.String).annotate({
+    description:
       "Set only when resuming a prior subagent dispatch — pass the prior subagent_session_id and the subagent will continue its previous session instead of starting a fresh one.",
-    )
-    .optional(),
-  command: z.string().describe("The command that triggered this dispatch").optional(),
+  }),
+  command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this dispatch" }),
 })
 
 export const AgentTool = Tool.define(
@@ -37,7 +34,7 @@ export const AgentTool = Tool.define(
     const config = yield* Config.Service
     const sessions = yield* Session.Service
 
-    const run = Effect.fn("AgentTool.execute")(function* (params: z.infer<typeof parameters>, ctx: Tool.Context) {
+    const run = Effect.fn("AgentTool.execute")(function* (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) {
       const cfg = yield* config.get()
 
       if (!ctx.extra?.bypassAgentCheck) {
@@ -168,8 +165,8 @@ export const AgentTool = Tool.define(
 
     return {
       description: DESCRIPTION,
-      parameters,
-      execute: (params: z.infer<typeof parameters>, ctx: Tool.Context) => run(params, ctx).pipe(Effect.orDie),
+      parameters: Parameters,
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) => run(params, ctx).pipe(Effect.orDie),
     }
   }),
 )

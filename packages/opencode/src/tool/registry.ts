@@ -13,7 +13,7 @@ import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
 import { SkillTool } from "./skill"
-import { Tool } from "./tool"
+import * as Tool from "./tool"
 import { Config } from "../config/config"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
 import z from "zod"
@@ -140,6 +140,7 @@ export namespace ToolRegistry {
           function fromPlugin(id: string, def: ToolDefinition): Tool.Def {
             return {
               id,
+              // @ts-expect-error - Plugin tools register Zod params; PawWork plugin loader keeps Zod
               parameters: z.object(def.args),
               description: def.description,
               execute: (args, toolCtx) =>
@@ -243,6 +244,7 @@ export namespace ToolRegistry {
             code: Tool.init(codesearch),
             skill: Tool.init(skilltool),
             patch: Tool.init(patchtool),
+            // @ts-expect-error - QuestionTool uses Zod params; PawWork question/index keeps Zod
             question: Tool.init(question),
             lsp: Tool.init(lsptool),
             plan: Tool.init(plan),

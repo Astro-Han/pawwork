@@ -22,6 +22,7 @@ function ripgrepEnv() {
 
 export const GrepTool = Tool.define(
   "grep",
+  // @ts-expect-error - Zod params accepted at runtime; PawWork keeps grep on Zod for its Ripgrep adapter
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner
     const fs = yield* AppFileSystem.Service
