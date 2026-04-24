@@ -961,6 +961,7 @@ export interface Interface {
 }
 
 interface State {
+  modelsVersion: number
   models: Map<string, LanguageModelV3>
   providers: Record<ProviderID, Info>
   sdk: Map<string, BundledSDK>
@@ -1095,8 +1096,8 @@ const layer: Layer.Layer<
         using _ = log.time("state")
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
-        const modelsDev = yield* Effect.promise(() => ModelsDev.get())
-        const database = mapValues(modelsDev, fromModelsDevProvider)
+        const modelsDev = yield* Effect.promise(() => ModelsDev.getWithVersion())
+        const database = mapValues(modelsDev.providers, fromModelsDevProvider)
 
         const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
         const languages = new Map<string, LanguageModelV3>()
@@ -1173,9 +1174,14 @@ const layer: Layer.Layer<
                   model.provider?.npm ??
                   provider.npm ??
                   existingModel?.api.npm ??
-                  modelsDev[providerID]?.npm ??
+                  modelsDev.providers[providerID]?.npm ??
                   "@ai-sdk/openai-compatible",
-                url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api ?? "",
+                url:
+                  model.provider?.api ??
+                  provider?.api ??
+                  existingModel?.api.url ??
+                  modelsDev.providers[providerID]?.api ??
+                  "",
               },
               status: model.status ?? existingModel?.status ?? "active",
               name,
@@ -1397,6 +1403,7 @@ const layer: Layer.Layer<
         }
 
         return {
+          modelsVersion: modelsDev.version,
           models: languages,
           providers,
           sdk,
@@ -1406,7 +1413,17 @@ const layer: Layer.Layer<
       }),
     )
 
-    const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
+    const currentState = Effect.fn("Provider.currentState")(function* () {
+      const existing = yield* InstanceState.get(state)
+      if (existing.modelsVersion === ModelsDev.version()) return existing
+      yield* InstanceState.invalidate(state)
+      return yield* InstanceState.get(state)
+    })
+
+    const list = Effect.fn("Provider.list")(function* () {
+      const s = yield* currentState()
+      return s.providers
+    })
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
@@ -1545,12 +1562,13 @@ const layer: Layer.Layer<
       }
     }
 
-    const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderID) =>
-      InstanceState.use(state, (s) => s.providers[providerID]),
-    )
+    const getProvider = Effect.fn("Provider.getProvider")(function* (providerID: ProviderID) {
+      const s = yield* currentState()
+      return s.providers[providerID]
+    })
 
     const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderID, modelID: ModelID) {
-      const s = yield* InstanceState.get(state)
+      const s = yield* currentState()
       const provider = s.providers[providerID]
       if (!provider) {
         const available = Object.keys(s.providers)
@@ -1568,7 +1586,7 @@ const layer: Layer.Layer<
     })
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
-      const s = yield* InstanceState.get(state)
+      const s = yield* currentState()
       const envs = yield* env.all()
       const key = `${model.providerID}/${model.id}`
       if (s.models.has(key)) return s.models.get(key)!
@@ -1588,6 +1606,16 @@ const layer: Layer.Layer<
         }
 
         const provider = s.providers[model.providerID]
+        if (!provider) {
+          const available = Object.keys(s.providers)
+          const matches = fuzzysort.go(model.providerID, available, { limit: 3, threshold: -10000 })
+          throw new ModelNotFoundError({
+            providerID: model.providerID,
+            modelID: model.id,
+            suggestions: matches.map((m) => m.target),
+          })
+        }
+
         const sdk = await resolveSDK(model, s, envs)
 
         try {
@@ -1614,7 +1642,7 @@ const layer: Layer.Layer<
     })
 
     const closest = Effect.fn("Provider.closest")(function* (providerID: ProviderID, query: string[]) {
-      const s = yield* InstanceState.get(state)
+      const s = yield* currentState()
       const provider = s.providers[providerID]
       if (!provider) return undefined
       for (const item of query) {
@@ -1633,7 +1661,7 @@ const layer: Layer.Layer<
         return yield* getModel(parsed.providerID, parsed.modelID)
       }
 
-      const s = yield* InstanceState.get(state)
+      const s = yield* currentState()
       const provider = s.providers[providerID]
       if (!provider) return undefined
 
@@ -1685,7 +1713,7 @@ const layer: Layer.Layer<
       const cfg = yield* config.get()
       if (cfg.model) return parseModel(cfg.model)
 
-      const s = yield* InstanceState.get(state)
+      const s = yield* currentState()
       const recent = yield* fs.readJson(path.join(Global.Path.state, "model.json")).pipe(
         Effect.map((x): { providerID: ProviderID; modelID: ModelID }[] => {
           if (!isRecord(x) || !Array.isArray(x.recent)) return []
