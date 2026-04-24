@@ -87,6 +87,19 @@ const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
 
 let mainWindow: BrowserWindow | null = null
+let currentProgress: number | null = null
+
+function applyProgressBar(value: number) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.setProgressBar(value)
+  }
+}
+
+function clearProgressBar() {
+  currentProgress = null
+  applyProgressBar(-1)
+}
+
 let server: Server.Listener | null = null
 const loadingComplete = defer<void>()
 const deepLinkReadyWindows = new WeakSet<BrowserWindow>()
@@ -587,6 +600,17 @@ function setupAutoUpdater() {
     allowDowngrade: autoUpdater.allowDowngrade,
     autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
     currentVersion: app.getVersion(),
+  })
+  autoUpdater.on("download-progress", (info) => {
+    currentProgress = info.percent / 100
+    applyProgressBar(currentProgress)
+  })
+  autoUpdater.on("update-downloaded", clearProgressBar)
+  autoUpdater.on("update-not-available", clearProgressBar)
+  autoUpdater.on("update-cancelled", clearProgressBar)
+  autoUpdater.on("error", (error) => {
+    logger.error("updater error", error)
+    clearProgressBar()
   })
 }
 

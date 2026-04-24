@@ -24,4 +24,26 @@ describe("main updater source contracts", () => {
       /rm\(pendingUpdateCacheDir\(\),\s*\{\s*recursive:\s*true,\s*force:\s*true\s*\}\)\s*\.catch\(\(\)\s*=>/,
     )
   })
+
+  test("broadcasts download progress to every open window", () => {
+    expect(source).toContain('autoUpdater.on("download-progress"')
+    expect(source).toMatch(/currentProgress\s*=\s*info\.percent\s*\/\s*100/)
+    expect(source).toMatch(/for\s*\(\s*const\s+win\s+of\s+BrowserWindow\.getAllWindows\(\)\s*\)/)
+    expect(source).toContain("win.setProgressBar(")
+  })
+
+  test("clears the progress bar on every updater terminal event", () => {
+    expect(source).toContain('autoUpdater.on("update-downloaded", clearProgressBar)')
+    expect(source).toContain('autoUpdater.on("update-not-available", clearProgressBar)')
+    expect(source).toContain('autoUpdater.on("update-cancelled", clearProgressBar)')
+    expect(source).toContain('autoUpdater.on("error"')
+    expect(source).toContain('logger.error("updater error"')
+  })
+
+  test("registers progress listeners only after the updater-disabled early return", () => {
+    const earlyReturnIndex = source.search(/if\s*\(\s*!UPDATER_ENABLED\s*\)\s*return/)
+    const listenerIndex = source.search(/autoUpdater\.on\("download-progress"/)
+    expect(earlyReturnIndex).toBeGreaterThan(0)
+    expect(listenerIndex).toBeGreaterThan(earlyReturnIndex)
+  })
 })
