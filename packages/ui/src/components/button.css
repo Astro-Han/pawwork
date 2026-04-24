@@ -52,6 +52,8 @@
     }
     &:focus-visible:not(:disabled) {
       background-color: var(--surface-base-hover);
+      outline: auto;
+      outline-color: -webkit-focus-ring-color;
     }
     &:active:not(:disabled) {
       background-color: var(--surface-base-active);

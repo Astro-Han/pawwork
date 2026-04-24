@@ -59,3 +59,21 @@ test("hiding a model removes it from the model picker", async ({ page, gotoSessi
   await page.keyboard.press("Escape")
   await expect(pickerAgain).toHaveCount(0)
 })
+
+test("model picker surfaces image-capable tag", async ({ page, gotoSession }) => {
+  await gotoSession()
+  await page.locator(promptSelector).click()
+  await page.keyboard.type("/model")
+  const command = page.locator('[data-slash-id="model.choose"]')
+  await expect(command).toBeVisible()
+  await command.hover()
+  await page.keyboard.press("Enter")
+
+  const picker = page.getByRole("dialog")
+  await expect(picker).toBeVisible()
+  await expect(
+    picker.locator('[data-slot="list-item"] [data-component="tag"]').filter({ hasText: /Image|图片/i })
+  ).not.toHaveCount(0)
+  await page.keyboard.press("Escape")
+  await expect(picker).toHaveCount(0)
+})

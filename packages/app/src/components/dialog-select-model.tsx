@@ -1,5 +1,5 @@
 import { Popover as Kobalte } from "@kobalte/core/popover"
-import { Component, ComponentProps, createMemo, JSX, Show, ValidComponent } from "solid-js"
+import { Component, ComponentProps, createMemo, For, JSX, ValidComponent } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -13,6 +13,7 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
 import { compareModelsForDisplay } from "@/utils/model-order"
+import { modelSupportsInput } from "./prompt-input/attachment-routing"
 
 const isFree = (provider: string, cost: { input: number } | undefined) =>
   provider === "opencode" && (!cost || cost.input === 0)
@@ -71,17 +72,21 @@ const ModelList: Component<{
         props.onSelect()
       }}
     >
-      {(i) => (
-        <div class="w-full flex items-center gap-x-2 text-13-regular">
-          <span class="truncate">{i.name}</span>
-          <Show when={isFree(i.provider.id, i.cost)}>
-            <Tag>{language.t("model.tag.free")}</Tag>
-          </Show>
-          <Show when={i.latest}>
-            <Tag>{language.t("model.tag.latest")}</Tag>
-          </Show>
-        </div>
-      )}
+      {(i) => {
+        const tagNames: Array<"free" | "image" | "latest"> = []
+        if (isFree(i.provider.id, i.cost)) tagNames.push("free")
+        if (modelSupportsInput(i, "image")) tagNames.push("image")
+        if (i.latest) tagNames.push("latest")
+        const visible = tagNames.slice(0, 2)
+        return (
+          <div class="w-full min-w-0 flex items-center gap-x-2 text-13-regular text-left">
+            <span class="min-w-0 truncate">{i.name}</span>
+            <For each={visible}>
+              {(tag) => <Tag class="shrink-0 rounded-full!">{language.t(`model.tag.${tag}`)}</Tag>}
+            </For>
+          </div>
+        )
+      }}
     </List>
   )
 }
