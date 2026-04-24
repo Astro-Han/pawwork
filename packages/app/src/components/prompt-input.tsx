@@ -1146,7 +1146,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               as="div"
               variant="ghost"
               size="normal"
-              class="h-[32px]! min-w-0 w-48 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! hover:bg-surface-base-hover"
+              class="h-[32px]! min-w-0 w-44 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover"
               style={triggerStyle()}
               onClick={() => {
                 void import("@/components/dialog-select-model-unpaid").then((x) => {
@@ -1183,7 +1183,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "h-[32px]! min-w-0 w-48 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! hover:bg-surface-base-hover",
+                "h-[32px]! min-w-0 w-44 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover",
               "data-action": "prompt-model",
             }}
             onClose={restoreFocus}
