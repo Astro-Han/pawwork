@@ -180,6 +180,8 @@ function DesktopContextRouteBridge() {
 
   createEffect(() => {
     if (typeof document !== "object") return
+    const pathname = location.pathname
+    if (isSessionRoute(pathname)) return
     document.title = desktopWindowTitle(language.locale())
   })
 
