@@ -78,6 +78,8 @@ describe("electron builder app-update config", () => {
     expect(existsSync(zhCn)).toBe(true)
     expect(readFileSync(zhHans, "utf8")).toContain('CFBundleDisplayName = "爪印";')
     expect(readFileSync(zhHans, "utf8")).toContain('CFBundleName = "爪印";')
+    expect(readFileSync(zhCn, "utf8")).toContain('CFBundleDisplayName = "爪印";')
+    expect(readFileSync(zhCn, "utf8")).toContain('CFBundleName = "爪印";')
   })
 
   test("afterPack writes beta app-update.yml to the beta app resources path", async () => {

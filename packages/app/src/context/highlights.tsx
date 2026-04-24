@@ -152,7 +152,9 @@ function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | un
 
 function parseChangelog(value: unknown, locale: ReleaseLocale): ParsedRelease[] | undefined {
   if (Array.isArray(value)) {
-    return value.map((release) => parseRelease(release, locale)).filter((release): release is ParsedRelease => release !== undefined)
+    return value
+      .map((release) => parseRelease(release, locale))
+      .filter((release): release is ParsedRelease => release !== undefined)
   }
 
   if (!isRecord(value)) return

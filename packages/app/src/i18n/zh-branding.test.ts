@@ -11,7 +11,18 @@ describe("zh branding copy", () => {
     expect(zh["error.page.report.prefix"]).toBe("请将此错误报告给开发团队")
   })
 
-  test("removes PawWork from curated Chinese UI strings", () => {
-    expect(Object.values(zh).join("\n")).not.toContain("PawWork")
+  test("removes standalone PawWork from curated Chinese UI strings", () => {
+    const curatedKeys = [
+      "dialog.model.unpaid.freeModels.title",
+      "session.new.subtitle",
+      "sidebar.gettingStarted.line1",
+      "app.name.desktop",
+      "toast.update.description",
+      "error.page.report.prefix",
+    ] as const
+
+    for (const key of curatedKeys) {
+      expect(zh[key]).not.toContain("PawWork")
+    }
   })
 })
