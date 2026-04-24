@@ -81,6 +81,8 @@ describe("feedback handler", () => {
     expect(feedbackDialogLabels("zh").message).toContain("简短摘要")
     expect(feedbackDialogLabels("zh").message).toContain("完整问题报告文件")
     expect(feedbackDialogLabels("zh").message).toContain("提交后可以删除")
+    expect(feedbackDialogLabels("zh").message).not.toContain("PawWork")
+    expect(feedbackDialogLabels("zh").formOpenFailedMessage).not.toContain("PawWork")
   })
 
   test("has English confirmation labels", () => {

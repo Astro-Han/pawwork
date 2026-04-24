@@ -91,13 +91,13 @@ export function feedbackDialogLabels(locale: MenuLocale) {
     zh: {
       title: "准备问题报告？",
       message:
-        "PawWork 会复制一份简短摘要到剪贴板，保存完整问题报告文件到本地，并打开反馈表单。\n\n如果表单需要更多细节，可以上传完整问题报告文件。提交后可以删除本地完整报告文件。",
+        "应用会复制一份简短摘要到剪贴板，保存完整问题报告文件到本地，并打开反馈表单。\n\n如果表单需要更多细节，可以上传完整问题报告文件。提交后可以删除本地完整报告文件。",
       confirm: "复制摘要并打开表单",
       cancel: "取消",
       failedTitle: "问题报告失败",
       failedMessage: "无法准备问题报告。你可以重新点击“报告问题”再试一次。",
       formOpenFailedTitle: "反馈表单未打开",
-      formOpenFailedMessage: "PawWork 已准备好问题报告，但无法打开反馈表单。请手动打开这个链接继续提交反馈。",
+      formOpenFailedMessage: "问题报告已准备好，但无法打开反馈表单。请手动打开这个链接继续提交反馈。",
     },
   } satisfies Record<
     MenuLocale,

@@ -53,7 +53,7 @@ const labels: Record<MenuLocale, Labels> = {
   zh: {
     busy: {
       title: "正在检查更新",
-      message: "PawWork 正在检查更新。",
+      message: "正在检查更新。",
     },
     disabled: {
       title: "更新不可用",
@@ -74,7 +74,7 @@ const labels: Record<MenuLocale, Labels> = {
     },
     none: {
       title: "没有可用更新",
-      message: "PawWork 已是最新版本。",
+      message: "已是最新版本。",
     },
     ready: {
       title: "更新已准备好",

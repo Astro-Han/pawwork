@@ -98,7 +98,7 @@ const labels: Record<MenuLocale, Record<MenuLabelKey, string>> = {
     nextSession: "下一个会话",
     previousProject: "上一个项目",
     nextProject: "下一个项目",
-    pawworkOnGithub: "PawWork 在 GitHub",
+    pawworkOnGithub: "在 GitHub 上查看爪印",
     reportProblem: "报告问题",
     openGithubIssue: "打开 GitHub Issue",
   },

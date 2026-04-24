@@ -125,7 +125,7 @@ describe("desktop menu template", () => {
   test("localizes PawWork-controlled labels", () => {
     const template = buildMenuTemplate({
       deps: deps(),
-      appName: "PawWork",
+      appName: "爪印",
       locale: "zh",
       feedbackEnabled: true,
     })
@@ -134,10 +134,11 @@ describe("desktop menu template", () => {
     expect(labels(template)).toContain("视图")
     expect(labels(template)).toContain("前往")
     expect(labels(template)).toContain("帮助")
+    expect(submenu(template, "帮助")).toContainEqual(expect.objectContaining({ label: "在 GitHub 上查看爪印" }))
   })
 
   test("localizes Chinese labels for role-backed menu items while preserving roles", () => {
-    const appName = "PawWork"
+    const appName = "爪印"
     const template = buildMenuTemplate({
       deps: deps(),
       appName,

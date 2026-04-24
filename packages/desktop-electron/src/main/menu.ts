@@ -2,6 +2,7 @@ import { app, Menu, shell } from "electron"
 // electron-log exposes this ESM entrypoint with the `.js` suffix.
 import log from "electron-log/main.js"
 
+import { localizedAppDisplayName } from "./app-display-name"
 import { FEEDBACK_FORM_URL } from "./constants"
 import { readStoredMenuLocale } from "./menu-i18n"
 import { buildMenuTemplate, type MenuTemplateDeps } from "./menu-template"
@@ -20,7 +21,7 @@ export function createMenu(deps: Deps, locale = readStoredMenuLocale(app.getLoca
         })
       },
     },
-    appName: app.getName(),
+    appName: localizedAppDisplayName(app.getName(), locale),
     locale,
     feedbackEnabled: Boolean(FEEDBACK_FORM_URL),
   }) as Electron.MenuItemConstructorOptions[]
