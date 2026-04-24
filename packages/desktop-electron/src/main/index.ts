@@ -719,11 +719,23 @@ async function checkForUpdates(alertOnFail: boolean) {
       }
     } catch (error) {
       logger.error("install update failed", error)
-      await dialog.showMessageBox({
+      const response = await dialog.showMessageBox({
         type: "error",
         title: labels.failed.title,
-        message: error instanceof Error ? error.message : labels.failed.fallbackMessage,
+        message: labels.failed.installFailedMessage,
+        detail: [
+          error instanceof Error ? error.message : "",
+          labels.failed.currentVersionUnaffected,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        buttons: [labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
+        defaultId: 0,
+        cancelId: 1,
       })
+      if (response.response === 0) {
+        await shell.openExternal("https://github.com/Astro-Han/pawwork/releases/latest")
+      }
     }
   } else {
     updater.dismissReady()

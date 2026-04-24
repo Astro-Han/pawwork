@@ -75,4 +75,17 @@ describe("main updater source contracts", () => {
   test("failure dialog open-download-page opens the releases URL", () => {
     expect(source).toContain('shell.openExternal("https://github.com/Astro-Han/pawwork/releases/latest")')
   })
+
+  test("install-failure dialog uses the unified structure without a retry button", () => {
+    expect(source).toContain("labels.failed.installFailedMessage")
+    expect(source).toContain(
+      "[labels.failed.buttons.openDownloadPage, labels.failed.buttons.later]",
+    )
+    const installBlockStart = source.search(/catch\s*\(\s*error\s*\)\s*\{\s*logger\.error\("install update failed"/)
+    expect(installBlockStart).toBeGreaterThan(0)
+    const installSlice = source.slice(installBlockStart, installBlockStart + 800)
+    expect(installSlice).toContain("labels.failed.installFailedMessage")
+    expect(installSlice).toContain("labels.failed.currentVersionUnaffected")
+    expect(installSlice).not.toContain("labels.failed.buttons.retry")
+  })
 })
