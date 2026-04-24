@@ -63,7 +63,7 @@ export function WorkspaceChip() {
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "h-[32px] px-3 inline-flex items-center gap-1.5 rounded-lg border border-border-strong-base text-14-medium text-text-base transition-colors hover:bg-background-base-hover",
+            "h-[32px] px-3 inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-14-medium text-text-base transition-colors hover:bg-surface-base-hover",
         } as any
       }
       trigger={

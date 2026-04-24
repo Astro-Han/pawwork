@@ -156,7 +156,7 @@ export function SessionComposerRegion(props: {
         classList={{
           "w-full px-3 pointer-events-auto": true,
           "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered && !home(),
-          "mx-auto max-w-170": home(),
+          "mx-auto max-w-[1200px]": home(),
         }}
       >
         <Show when={props.state.questionRequest()} keyed>

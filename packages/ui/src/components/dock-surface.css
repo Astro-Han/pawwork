@@ -1,9 +1,9 @@
 [data-dock-surface="shell"] {
   background-color: var(--surface-raised-stronger-non-alpha);
-  box-shadow: var(--shadow-xs-border);
+  box-shadow: var(--shadow-xs-border-base), var(--shadow-xs);
   position: relative;
   z-index: 10;
-  border-radius: 12px;
+  border-radius: 26px;
   overflow: clip;
 }
 
@@ -12,7 +12,7 @@
   border: 1px solid var(--border-weak-base);
   position: relative;
   z-index: 0;
-  border-radius: 12px;
+  border-radius: 26px;
   overflow: clip;
 }
 
