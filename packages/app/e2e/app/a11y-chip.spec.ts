@@ -15,20 +15,21 @@ test("WorkspaceChip selection navigates to the chosen workspace", async ({ page,
   const chip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
 
   await chip.click()
-  const listbox = page.getByRole("listbox", { name: /Workspaces|工作目录/i })
-  await expect(listbox).toBeVisible()
-  const options = listbox.getByRole("option")
+  const menu = page.getByRole("menu", { name: /Workspaces|工作目录/i })
+  await expect(menu).toBeVisible()
+  const options = menu.getByRole("menuitemradio")
   const optionCount = await options.count()
   test.skip(optionCount < 2, "need at least 2 workspaces seeded to exercise a switch")
 
   const target = options.nth(1)
-  const targetLabel = await target.textContent()
+  const targetLabel = (await target.locator("span").first().textContent())?.trim()
+  expect(targetLabel, "workspace option label should be non-empty").toBeTruthy()
   const urlBefore = page.url()
 
   await target.click()
-  await expect(listbox).toHaveCount(0)
+  await expect(menu).toHaveCount(0)
   await expect.poll(() => page.url()).not.toBe(urlBefore)
-  await expect(chip).toContainText(targetLabel?.trim() ?? "")
+  await expect(chip).toContainText(targetLabel!)
 })
 
 test("WorkspaceChip popover ESC + outside-click dismiss", async ({ page, project }) => {
@@ -37,14 +38,14 @@ test("WorkspaceChip popover ESC + outside-click dismiss", async ({ page, project
 
   await chip.focus()
   await page.keyboard.press("Enter")
-  const listbox = page.getByRole("listbox", { name: /Workspaces|工作目录/i })
-  await expect(listbox).toBeVisible()
+  const menu = page.getByRole("menu", { name: /Workspaces|工作目录/i })
+  await expect(menu).toBeVisible()
   await page.keyboard.press("Escape")
-  await expect(listbox).toHaveCount(0)
+  await expect(menu).toHaveCount(0)
   await expect(chip).toBeFocused()
 
   await chip.click()
-  await expect(listbox).toBeVisible()
+  await expect(menu).toBeVisible()
   await page.locator('[data-component="session-new-home"]').click({ position: { x: 5, y: 5 } })
-  await expect(listbox).toHaveCount(0)
+  await expect(menu).toHaveCount(0)
 })

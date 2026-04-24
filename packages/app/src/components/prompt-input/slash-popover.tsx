@@ -37,6 +37,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
   return (
     <Show when={props.popover}>
       <div
+        data-component={props.popover === "at" ? "prompt-at-popover" : "prompt-slash-popover"}
         ref={(el) => {
           if (props.popover === "slash") props.setSlashPopoverRef(el)
         }}

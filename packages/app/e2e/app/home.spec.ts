@@ -58,6 +58,33 @@ test("@smoke home hero prompt starts a session", async ({ page, project, assista
   await expect(page.getByText("home hero reply")).toBeVisible()
 })
 
+test("@smoke home composer shows unified single-row bar with brand orange send", async ({ page, project }) => {
+  await project.open()
+
+  const home = page.locator('[data-component="session-new-home"]')
+  const composer = home.locator(sessionComposerDockSelector)
+
+  await expect(composer).toBeVisible()
+
+  // no DockTray tray surface above the input
+  await expect(composer.locator('[data-dock-surface="tray"]')).toHaveCount(0)
+
+  // brand orange enables only when input has content, type first
+  const prompt = home.locator(promptSelector)
+  await prompt.click()
+  await page.keyboard.type("x")
+
+  const send = composer.locator('[data-action="prompt-submit"]')
+  await expect(send).toBeVisible()
+  await expect(send).toBeEnabled()
+  // retry until the transition-colors duration-150ms animation settles
+  await expect(send).toHaveCSS("background-color", "rgb(229, 106, 46)")
+
+  // WorkspaceChip present on home
+  const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
+  await expect(workspaceChip).toBeVisible()
+})
+
 test("@smoke project home status panel can open the server picker dialog", async ({ page, project }) => {
   await project.open()
 

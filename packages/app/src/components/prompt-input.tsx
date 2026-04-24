@@ -1,6 +1,6 @@
 import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { createEffect, on, Component, Show, onCleanup, createMemo, createSignal } from "solid-js"
+import { createEffect, on, Component, For, Show, onCleanup, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
@@ -19,15 +19,16 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
-import { DockShellForm, DockTray } from "@opencode-ai/ui/dock-surface"
+import { DockShellForm } from "@opencode-ai/ui/dock-surface"
+import { Popover } from "@opencode-ai/ui/popover"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { WorkspaceChip } from "@/components/prompt-input/workspace-chip"
+import { translateVariant } from "./prompt-input/variant-label"
+import { SendButton } from "./prompt-input/send-button"
 import { useProviders } from "@/hooks/use-providers"
 import { useCommand } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
@@ -278,8 +279,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     "pointer-events": value > 0.5 ? ("auto" as const) : ("none" as const),
   })
   const buttons = createMemo(() => motion(buttonsSpring()))
-  const shell = createMemo(() => motion(1 - buttonsSpring()))
-  const control = createMemo(() => ({ height: "28px", ...buttons() }))
 
   const commentCount = createMemo(() => {
     if (store.mode === "shell") return 0
@@ -580,7 +579,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
-  const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
 
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
@@ -1148,7 +1146,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               as="div"
               variant="ghost"
               size="normal"
-              class="min-w-0 max-w-[320px] text-13-regular text-text-base group"
+              class="h-[32px]! min-w-0 w-48 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! hover:bg-surface-base-hover"
               style={triggerStyle()}
               onClick={() => {
                 void import("@/components/dialog-select-model-unpaid").then((x) => {
@@ -1163,7 +1161,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                 />
               </Show>
-              <span class="truncate">
+              <span class="flex-1 truncate text-center">
                 {local.model.current()?.name ?? language.t("dialog.model.select.title")}
               </span>
               <Icon name="chevron-down" size="small" class="shrink-0" />
@@ -1184,7 +1182,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               variant: "ghost",
               size: "normal",
               style: triggerStyle(),
-              class: "min-w-0 max-w-[320px] text-13-regular text-text-base group",
+              class:
+                "h-[32px]! min-w-0 w-48 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! hover:bg-surface-base-hover",
               "data-action": "prompt-model",
             }}
             onClose={restoreFocus}
@@ -1196,7 +1195,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 style={{ "will-change": "opacity", transform: "translateZ(0)" }}
               />
             </Show>
-            <span class="truncate">
+            <span class="flex-1 truncate text-center">
               {local.model.current()?.name ?? language.t("dialog.model.select.title")}
             </span>
             <Icon name="chevron-down" size="small" class="shrink-0" />
@@ -1206,6 +1205,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     </div>
   )
 
+  const [variantOpen, setVariantOpen] = createSignal(false)
+
   const renderVariantControl = (triggerStyle: () => Record<string, string | number | undefined>) => (
     <div data-component="prompt-variant-control">
       <TooltipKeybind
@@ -1214,21 +1215,59 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         title={language.t("command.model.variant.cycle")}
         keybind={command.keybind("model.variant.cycle")}
       >
-        <Select
-          size="normal"
-          options={variants()}
-          current={local.model.variant.current() ?? "default"}
-          label={(x) => (x === "default" ? language.t("common.default") : x)}
-          onSelect={(value) => {
-            local.model.variant.set(value === "default" ? undefined : value)
-            restoreFocus()
-          }}
-          class="capitalize max-w-[160px] text-text-base"
-          valueClass="truncate text-13-regular text-text-base"
-          triggerStyle={triggerStyle()}
-          triggerProps={{ "data-action": "prompt-model-variant" }}
-          variant="ghost"
-        />
+        <Popover
+          open={variantOpen()}
+          onOpenChange={setVariantOpen}
+          placement="bottom-start"
+          triggerAs={"button"}
+          triggerProps={
+            {
+              type: "button",
+              "data-action": "prompt-model-variant",
+              "aria-haspopup": "menu",
+              style: triggerStyle(),
+              class:
+                "h-[32px] px-3 max-w-[140px] inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-14-medium text-text-base transition-colors hover:bg-surface-base-hover",
+            } as any
+          }
+          trigger={
+            <>
+              <span class="truncate leading-none">
+                {translateVariant(language.t, local.model.variant.current() ?? "default")}
+              </span>
+              <Icon name="chevron-down" size="small" class="text-text-weak" />
+            </>
+          }
+          class="min-w-32 border border-border-base bg-surface-raised-stronger-non-alpha p-2 shadow-md"
+          style={{ "border-radius": "16px" }}
+        >
+          <div role="menu">
+            <For each={variants()}>
+              {(variant) => {
+                const active = createMemo(() => (local.model.variant.current() ?? "default") === variant)
+                return (
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={active()}
+                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-14-medium text-text-strong outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
+                    classList={{ "font-medium": active() }}
+                    onClick={() => {
+                      local.model.variant.set(variant === "default" ? undefined : variant)
+                      setVariantOpen(false)
+                      restoreFocus()
+                    }}
+                  >
+                    <span class="truncate">{translateVariant(language.t, variant)}</span>
+                    <Show when={active()}>
+                      <Icon name="check" size="small" class="shrink-0 text-text-strong" data-icon="check" />
+                    </Show>
+                  </button>
+                )
+              }}
+            </For>
+          </div>
+        </Popover>
       </TooltipKeybind>
     </div>
   )
@@ -1451,14 +1490,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           onMouseDown={(e) => {
             const target = e.target
             if (!(target instanceof HTMLElement)) return
-            if (target.closest('[data-action="prompt-attach"], [data-action="prompt-submit"]')) {
+            // exempt all chip / action controls in the bar so clicking them
+            // doesn't steal focus back to the editor before the popover opens
+            if (target.closest("[data-action], button, [role='button']")) {
               return
             }
             editorRef?.focus()
           }}
         >
           <div
-            class="relative min-h-[104px] max-h-[240px] overflow-y-auto no-scrollbar"
+            class="relative min-h-[120px] max-h-[240px] overflow-y-auto no-scrollbar"
             ref={(el) => (scrollRef = el)}
             style={{ "scroll-padding-bottom": space }}
           >
@@ -1486,7 +1527,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               onKeyDown={handleKeyDown}
               classList={{
                 "select-text": true,
-                "w-full pl-3 pr-2 pt-2 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
+                "w-full pl-4 pr-4 pt-4 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
@@ -1495,7 +1536,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             />
             <Show when={!prompt.dirty()}>
               <div
-                class="absolute top-0 inset-x-0 pl-3 pr-2 pt-2 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
+                data-component="prompt-placeholder"
+                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
                 classList={{ "font-mono!": store.mode === "shell" }}
                 style={{ "padding-bottom": space }}
               >
@@ -1527,166 +1569,54 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             }}
           />
 
-          <Show
-            when={props.homeMode}
-            fallback={
-              <>
-                <div class="pointer-events-none absolute bottom-2 right-2 flex items-center gap-2">
-                  <div class="flex items-center gap-1 pointer-events-auto">
-                    <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
-                      <IconButton
-                        data-action="prompt-submit"
-                        type="submit"
-                        disabled={store.mode !== "normal" || (!working() && blank() && !props.selectedSkill?.())}
-                        tabIndex={store.mode === "normal" ? undefined : -1}
-                        icon={stopping() ? "stop" : "arrow-up"}
-                        variant="primary"
-                        class="size-8"
-                        style={buttons()}
-                        aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
-                      />
-                    </Tooltip>
-                  </div>
-                </div>
-
-                <div class="pointer-events-none absolute bottom-2 left-2">
-                  <div
-                    aria-hidden={store.mode !== "normal"}
-                    class="pointer-events-auto flex items-center gap-2"
-                    style={{
-                      "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-                    }}
-                  >
-                    <TooltipKeybind
-                      placement="top"
-                      title={language.t("prompt.action.attachFile")}
-                      keybind={command.keybind("file.attach")}
-                    >
-                      <Button
-                        data-action="prompt-attach"
-                        type="button"
-                        variant="ghost"
-                        class="size-8 p-0"
-                        style={buttons()}
-                        onClick={pick}
-                        disabled={store.mode !== "normal"}
-                        tabIndex={store.mode === "normal" ? undefined : -1}
-                        aria-label={language.t("prompt.action.attachFile")}
-                      >
-                        <Icon name="plus" class="size-4.5" />
-                      </Button>
-                    </TooltipKeybind>
-                  </div>
-                </div>
-              </>
-            }
-          >
-            <div class="pointer-events-none absolute inset-x-2 bottom-2 flex items-center justify-between gap-2">
-              <div
-                aria-hidden={store.mode !== "normal"}
-                class="pointer-events-auto flex min-w-0 items-center gap-2"
-                style={{
-                  "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
-                }}
+          <div class="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-8">
+            <div
+              aria-hidden={store.mode !== "normal"}
+              class="pointer-events-auto flex min-w-0 items-center gap-2"
+              style={{
+                "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
+              }}
+            >
+              <TooltipKeybind
+                placement="top"
+                title={language.t("prompt.action.attachFile")}
+                keybind={command.keybind("file.attach")}
               >
-                <WorkspaceChip />
-                <TooltipKeybind
-                  placement="top"
-                  title={language.t("prompt.action.attachFile")}
-                  keybind={command.keybind("file.attach")}
+                <Button
+                  data-action="prompt-attach"
+                  type="button"
+                  variant="ghost"
+                  class="size-8 shrink-0 p-0"
+                  style={buttons()}
+                  onClick={pick}
+                  disabled={store.mode !== "normal"}
+                  tabIndex={store.mode === "normal" ? undefined : -1}
+                  aria-label={language.t("prompt.action.attachFile")}
                 >
-                  <Button
-                    data-action="prompt-attach"
-                    type="button"
-                    variant="ghost"
-                    class="size-8 shrink-0 p-0"
-                    style={buttons()}
-                    onClick={pick}
-                    disabled={store.mode !== "normal"}
-                    tabIndex={store.mode === "normal" ? undefined : -1}
-                    aria-label={language.t("prompt.action.attachFile")}
-                  >
-                    <Icon name="plus" class="size-4.5" />
-                  </Button>
-                </TooltipKeybind>
-              </div>
-
-              <div class="flex min-w-0 items-center justify-end gap-2">
-                <Show when={store.mode === "normal"}>
-                  <div class="flex min-w-0 items-center gap-1.5 pointer-events-auto">
-                    {renderModelControl(buttons)}
-                    {renderVariantControl(buttons)}
-                  </div>
-                </Show>
-                <div class="flex items-center gap-1 pointer-events-auto">
-                  <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
-                    <IconButton
-                      data-action="prompt-submit"
-                      type="submit"
-                      disabled={store.mode !== "normal" || (!working() && blank() && !props.selectedSkill?.())}
-                      tabIndex={store.mode === "normal" ? undefined : -1}
-                      icon={stopping() ? "stop" : "arrow-up"}
-                      variant="primary"
-                      class="size-8"
-                      style={buttons()}
-                      aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
-                    />
-                  </Tooltip>
-                </div>
-              </div>
+                  <Icon name="plus" class="size-4.5" />
+                </Button>
+              </TooltipKeybind>
+              <Show when={store.mode === "normal"}>
+                {renderModelControl(buttons)}
+                {renderVariantControl(buttons)}
+              </Show>
+              <Show when={props.homeMode && store.mode === "normal"}>
+                <WorkspaceChip />
+              </Show>
             </div>
-          </Show>
-        </div>
-      </DockShellForm>
-      <Show when={!props.homeMode && (store.mode === "normal" || store.mode === "shell")}>
-        <DockTray attach="top">
-          <div class="px-1.75 pt-5.5 pb-2 flex items-center gap-2 min-w-0">
-            <div class="flex items-center gap-1.5 min-w-0 flex-1 relative">
-              <div
-                class="h-7 flex items-center gap-1.5 max-w-[160px] min-w-0 absolute inset-y-0 left-0"
-                style={{
-                  padding: "0 4px 0 8px",
-                  ...shell(),
-                }}
-              >
-                <span class="truncate text-13-medium text-text-strong">{language.t("prompt.mode.shell")}</span>
-                <div class="size-4 shrink-0" />
-              </div>
-              <div class="flex items-center gap-1.5 min-w-0 flex-1">
-                <Show when={!props.homeMode}>
-                  <div data-component="prompt-agent-control">
-                    <TooltipKeybind
-                      placement="top"
-                      gutter={4}
-                      title={language.t("command.agent.cycle")}
-                      keybind={command.keybind("agent.cycle")}
-                    >
-                      <Select
-                        size="normal"
-                        options={agentNames()}
-                        current={local.agent.current()?.name ?? ""}
-                        onSelect={(value) => {
-                          local.agent.set(value)
-                          restoreFocus()
-                        }}
-                        class="capitalize max-w-[160px] text-text-base"
-                        valueClass="truncate text-13-regular text-text-base"
-                        triggerStyle={control()}
-                        triggerProps={{ "data-action": "prompt-agent" }}
-                        variant="ghost"
-                      />
-                    </TooltipKeybind>
-                  </div>
-                </Show>
-                <Show when={store.mode !== "shell"}>
-                  {renderModelControl(control)}
-                  {renderVariantControl(control)}
-                </Show>
-              </div>
+
+            <div class="flex items-center gap-2 pointer-events-auto">
+              <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
+                <SendButton
+                  stopping={stopping()}
+                  disabled={!working() && blank() && !props.selectedSkill?.()}
+                  aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
+                />
+              </Tooltip>
             </div>
           </div>
-        </DockTray>
-      </Show>
+        </div>
+      </DockShellForm>
     </div>
   )
 }

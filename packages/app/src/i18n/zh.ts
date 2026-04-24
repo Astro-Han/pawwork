@@ -257,6 +257,14 @@ export const dict = {
   "common.default": "默认",
   "common.attachment": "附件",
 
+  "variant.none": "无",
+  "variant.minimal": "极低",
+  "variant.low": "低",
+  "variant.medium": "中",
+  "variant.high": "高",
+  "variant.xhigh": "超高",
+  "variant.max": "最高",
+
   "prompt.placeholder.shell": "输入 shell 命令...",
   "prompt.placeholder.normal": '随便问点什么... "{{example}}"',
   "prompt.placeholder.simple": "随便问点什么...",

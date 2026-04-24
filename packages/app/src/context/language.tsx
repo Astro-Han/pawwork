@@ -9,7 +9,7 @@ import { dict as uiEn } from "@opencode-ai/ui/i18n/en"
 export type Locale = "en" | "zh"
 
 type RawDictionary = typeof en & typeof uiEn
-type Dictionary = i18n.Flatten<RawDictionary>
+export type Dictionary = i18n.Flatten<RawDictionary>
 type Source = { dict: Record<string, string> }
 
 function cookie(locale: Locale) {

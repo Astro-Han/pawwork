@@ -10,6 +10,7 @@ import { useLayout } from "@/context/layout"
 import { useLayoutPage } from "@/context/layout-page"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { findWorkspaceProject, workspaceChipChoices } from "./workspace-chip-helpers"
+import { workspaceKey } from "@/pages/layout/helpers"
 import { decode64 } from "@/utils/base64"
 
 export function WorkspaceChip() {
@@ -24,8 +25,10 @@ export function WorkspaceChip() {
   const current = createMemo(() => decode64(params.dir))
   const project = createMemo(() => findWorkspaceProject(layout.projects.list(), current()))
   const root = createMemo(() => project()?.worktree ?? current())
+  // Fetch on mount (not gated on open) so popover content is ready when clicked.
+  // Previously gated on open() which caused the list to flash empty→full on every click.
   const [listed] = createResource(
-    () => (open() ? root() : undefined),
+    () => root(),
     async (directory) => {
       if (!directory) return []
       return globalSDK.client.worktree
@@ -51,25 +54,30 @@ export function WorkspaceChip() {
     <Popover
       open={open()}
       onOpenChange={setOpen}
+      placement="bottom-start"
       triggerAs={"button"}
-      triggerProps={{
-        type: "button",
-        "aria-label": language.t("workspace.chip.ariaLabel"),
-        "aria-haspopup": "listbox",
-        class:
-          "h-[26px] px-[9px] inline-flex items-center gap-1.5 rounded-md border border-border-strong bg-transparent text-12 text-text-base hover:bg-background-base-hover",
-      }}
+      triggerProps={
+        {
+          type: "button",
+          "data-action": "prompt-workspace",
+          "aria-label": language.t("workspace.chip.ariaLabel"),
+          "aria-haspopup": "menu",
+          class:
+            "h-[32px] px-3 inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-14-medium text-text-base transition-colors hover:bg-surface-base-hover",
+        } as any
+      }
       trigger={
         <>
-          <Icon name="workspace" size="small" class="text-text-weak" />
-          <span class="leading-none">{label()}</span>
-          <Icon name="chevron-down" size="small" class="text-text-weak" />
+          <Icon name="folder" size="small" class="shrink-0 text-text-weak" />
+          <span class="max-w-[120px] truncate leading-none">{label()}</span>
+          <Icon name="chevron-down" size="small" class="shrink-0 text-text-weak" />
         </>
       }
-      class="w-60 rounded-[10px] border border-border-strong bg-surface-base p-1 shadow-lg"
+      class="min-w-56 max-w-xs border border-border-base bg-surface-raised-stronger-non-alpha p-2 shadow-md"
+      style={{ "border-radius": "16px" }}
     >
-      <div role="listbox" aria-label={language.t("workspace.chip.popover.title")}>
-        <div class="px-2.5 pt-1.5 pb-1 text-11 font-medium text-text-weak">
+      <div role="menu" aria-label={language.t("workspace.chip.popover.title")}>
+        <div class="px-2 pt-0.5 pb-2 text-11 font-medium text-text-weak">
           {language.t("workspace.chip.popover.title")}
         </div>
         <Show
@@ -78,21 +86,31 @@ export function WorkspaceChip() {
         >
           <For each={workspaces()}>
             {(workspace) => {
-              const active = createMemo(() => workspace === current())
+              const active = createMemo(() => {
+                const c = current()
+                return c ? workspaceKey(workspace.path) === workspaceKey(c) : false
+              })
               return (
                 <button
                   type="button"
-                  role="option"
-                  aria-selected={active()}
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-12 outline-none hover:bg-background-base-hover focus-visible:bg-background-base-hover"
-                  classList={{ "font-medium": active() }}
+                  role="menuitemradio"
+                  aria-checked={active()}
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-14-medium outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
                   onClick={() => {
-                    navigate(`/${base64Encode(workspace)}/session`)
+                    navigate(`/${base64Encode(workspace.path)}/session`)
                     setOpen(false)
                   }}
                 >
-                  <Icon name="workspace" size="small" class="text-text-weak" />
-                  <span class="min-w-0 flex-1 truncate">{getFilename(workspace)}</span>
+                  <Icon name="folder" size="small" class="shrink-0 text-text-weak" />
+                  <span
+                    class="min-w-0 flex-1 truncate text-text-strong"
+                    classList={{ "font-medium": active() }}
+                  >
+                    {getFilename(workspace.path)}
+                  </span>
+                  <Show when={active()}>
+                    <Icon name="check" size="small" class="shrink-0 text-text-strong" data-icon="check" />
+                  </Show>
                 </button>
               )
             }}
@@ -101,14 +119,15 @@ export function WorkspaceChip() {
         <div class="mt-1 border-t border-border-weaker-base pt-1">
           <button
             type="button"
+            role="menuitem"
             data-action="workspace-chip-add"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-12 text-text-base outline-none hover:bg-background-base-hover focus-visible:bg-background-base-hover"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-14-medium text-text-base outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
             onClick={() => {
               setOpen(false)
               layoutPage.openProject()
             }}
           >
-            <Icon name="plus-small" size="small" class="text-text-weak" />
+            <Icon name="plus-small" size="small" class="shrink-0 text-text-weak" />
             <span class="min-w-0 flex-1 truncate">{language.t("workspace.chip.add")}</span>
           </button>
         </div>

@@ -95,7 +95,11 @@ export function SessionHeader() {
                     aria-label={
                       canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined
                     }
-                    title={projectDirectory()}
+                    title={
+                      canOpenProjectDirectory()
+                        ? `${projectDirectory()} (${language.t("session.header.open.ariaLabel", { app: fileManagerLabel() })})`
+                        : projectDirectory()
+                    }
                     disabled={!canOpenProjectDirectory()}
                   >
                     <Icon name="folder" size="small" class="shrink-0 text-icon-weak" />

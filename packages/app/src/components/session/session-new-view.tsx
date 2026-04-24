@@ -33,7 +33,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   data-skill-card={card.name}
                   aria-pressed={isSelected()}
                   classList={{
-                    "flex items-center justify-center gap-2 rounded-xl border px-6 py-3 transition-colors": true,
+                    "flex items-center justify-center gap-2 rounded-full border px-6 py-3 transition-colors": true,
                     "border-border-weaker-base bg-surface-base hover:border-border-weak-base hover:bg-surface-raised-base-hover":
                       !isSelected(),
                     "border-border-interactive-base bg-surface-raised-base shadow-sm": isSelected(),
@@ -54,7 +54,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
         </div>
 
         <Show when={props.composer}>
-          <div class="mt-8 flex w-full max-w-[640px] flex-col items-center">
+          <div class="mt-8 flex w-full max-w-[760px] flex-col items-center">
             {props.composer!({ onModeChange: setMode, selectedSkill })}
           </div>
         </Show>

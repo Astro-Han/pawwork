@@ -13,23 +13,28 @@ export function findWorkspaceProject(projects: WorkspaceProject[], directory?: s
   )
 }
 
+export type WorkspaceChoice = {
+  path: string
+  branch?: string
+}
+
 export function workspaceChipChoices(input: {
   directory?: string
   projects: WorkspaceProject[]
   listed?: string[]
-}) {
+}): WorkspaceChoice[] {
   const directory = input.directory
   if (!directory) return []
 
   const current = findWorkspaceProject(input.projects, directory)
   const seen = new Set<string>()
-  const choices: string[] = []
+  const choices: WorkspaceChoice[] = []
 
   const append = (value: string) => {
     const key = workspaceKey(value)
     if (seen.has(key)) return
     seen.add(key)
-    choices.push(value)
+    choices.push({ path: value })
   }
 
   if (!current) append(directory)
@@ -43,8 +48,8 @@ export function workspaceChipChoices(input: {
     for (const item of ordered) append(item)
   }
 
-  if (current && !choices.some((item) => workspaceKey(item) === workspaceKey(directory))) {
-    choices.unshift(directory)
+  if (current && !choices.some((item) => workspaceKey(item.path) === workspaceKey(directory))) {
+    choices.unshift({ path: directory })
   }
 
   return choices

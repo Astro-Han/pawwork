@@ -238,6 +238,14 @@ export const dict = {
   "common.default": "Default",
   "common.attachment": "attachment",
 
+  "variant.none": "None",
+  "variant.minimal": "Minimal",
+  "variant.low": "Low",
+  "variant.medium": "Medium",
+  "variant.high": "High",
+  "variant.xhigh": "Extra High",
+  "variant.max": "Max",
+
   "prompt.placeholder.shell": "Enter shell command...",
   "prompt.placeholder.normal": 'Ask anything... "{{example}}"',
   "prompt.placeholder.simple": "Ask anything...",
