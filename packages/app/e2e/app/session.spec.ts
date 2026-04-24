@@ -46,3 +46,23 @@ test("@smoke session composer matches home structure without docktray or agent c
     await expect(send).toBeVisible()
   })
 })
+
+test("session composer insets from message column at 2xl viewport", async ({ page, sdk, gotoSession }) => {
+  // At >=1536px the message timeline is capped at max-w-[1000px] and the composer is
+  // capped at md:max-w-[720px] 2xl:max-w-[920px]. This test guards the 2xl breakpoint
+  // so a regression to the old 'composer matches message column exactly' behavior
+  // (i.e. composer also grows to 1000px and sits flush with messages) fails.
+  await page.setViewportSize({ width: 1600, height: 1000 })
+
+  const title = `e2e 2xl composer ${Date.now()}`
+  await withSession(sdk, title, async (session) => {
+    await gotoSession(session.id)
+
+    const composer = page.locator(sessionComposerDockSelector)
+    await expect(composer).toBeVisible()
+
+    const composerBox = await composer.boundingBox()
+    expect(composerBox).not.toBeNull()
+    expect(composerBox!.width).toBeLessThanOrEqual(920)
+  })
+})

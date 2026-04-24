@@ -653,3 +653,43 @@ test("keyboard focus stays off prompt while blocked", async ({ page, llm, projec
     { trackSession: project.trackSession },
   )
 })
+
+test("question text renders source newlines as visible line breaks", async ({ page, llm, project }) => {
+  // Behavior guard: seed a question with paragraph breaks (\n\n) in the source and
+  // assert the rendered innerText still contains multiple non-empty lines. If a
+  // future CSS refactor drops white-space: pre-wrap on [data-slot="question-text"]
+  // the browser will collapse the \n into spaces and innerText returns one line.
+  // Testing the rendered behavior (line count) instead of the CSS mechanism keeps
+  // the test valid if the implementation switches to a different technique that
+  // also preserves paragraph breaks.
+  await project.open()
+  const MULTILINE_QUESTIONS = [
+    {
+      header: "Multiline",
+      question: "First paragraph\n\nSecond paragraph",
+      options: [{ label: "OK", description: "ack" }],
+    },
+  ]
+  await withDockSession(
+    project.sdk,
+    "e2e question multiline",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+        await llm.toolMatch(inputMatch({ questions: MULTILINE_QUESTIONS }), "question", {
+          questions: MULTILINE_QUESTIONS,
+        })
+        await seedSessionQuestion(project.sdk, { sessionID: session.id, questions: MULTILINE_QUESTIONS })
+
+        const dock = page.locator(questionDockSelector)
+        const text = dock.locator('[data-slot="question-text"]')
+        const rendered = await text.evaluate((el) => (el as HTMLElement).innerText)
+        const nonEmptyLines = rendered.split(/\r?\n/).filter((line) => line.trim().length > 0)
+        expect(nonEmptyLines.length).toBeGreaterThanOrEqual(2)
+        expect(rendered).toContain("First paragraph")
+        expect(rendered).toContain("Second paragraph")
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})

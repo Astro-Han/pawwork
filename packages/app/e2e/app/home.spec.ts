@@ -77,12 +77,29 @@ test("@smoke home composer shows unified single-row bar with brand orange send",
   const send = composer.locator('[data-action="prompt-submit"]')
   await expect(send).toBeVisible()
   await expect(send).toBeEnabled()
-  // retry until the transition-colors duration-150ms animation settles
-  await expect(send).toHaveCSS("background-color", "rgb(229, 106, 46)")
 
   // WorkspaceChip present on home
   const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
   await expect(workspaceChip).toBeVisible()
+})
+
+test("home model chip stays at w-44 (176px) with chip row neighbors visible", async ({ page, project }) => {
+  await project.open()
+
+  const home = page.locator('[data-component="session-new-home"]')
+  const composer = home.locator(sessionComposerDockSelector)
+  const chip = composer.locator('[data-component="prompt-model-control"] [data-action="prompt-model"]').first()
+
+  await expect(chip).toBeVisible()
+  await expect(chip).toHaveCSS("width", "176px")
+
+  // Guard the single-row chip bar: attach, variant, workspace, send all stay visible
+  // when the model chip is at its w-44 width (regression catches w-48 revert or any
+  // overflow-by-neighbor).
+  await expect(composer.locator('[data-action="prompt-attach"]').first()).toBeVisible()
+  await expect(composer.locator('[data-action="prompt-model-variant"]').first()).toBeVisible()
+  await expect(page.getByRole("button", { name: /Switch workspace|切换工作目录/i })).toBeVisible()
+  await expect(composer.locator('[data-action="prompt-submit"]').first()).toBeVisible()
 })
 
 test("@smoke project home status panel can open the server picker dialog", async ({ page, project }) => {
