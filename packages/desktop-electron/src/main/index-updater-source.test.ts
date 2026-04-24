@@ -54,4 +54,25 @@ describe("main updater source contracts", () => {
     expect(reapplySlice).toMatch(/if\s*\(\s*currentProgress\s*!==\s*null\s*\)/)
     expect(reapplySlice).toMatch(/win\.setProgressBar\(currentProgress\)/)
   })
+
+  test("failure dialog uses reason-specific copy and three recovery buttons", () => {
+    expect(source).toContain("labels.failed.reasonCopy[result.reason]")
+    expect(source).toContain("labels.failed.currentVersionUnaffected")
+    expect(source).toMatch(/\[result\.message,\s*labels\.failed\.currentVersionUnaffected\]/)
+    expect(source).toContain(
+      "[labels.failed.buttons.retry, labels.failed.buttons.openDownloadPage, labels.failed.buttons.later]",
+    )
+    expect(source).toContain("defaultId: 0")
+    expect(source).toContain("cancelId: 2")
+  })
+
+  test("failure dialog retry awaits recursion and logs rejection", () => {
+    expect(source).toMatch(
+      /try\s*\{\s*await\s+checkForUpdates\(alertOnFail\)\s*\}\s*catch\s*\(error\)\s*\{\s*logger\.error\("retry after update failure failed"/,
+    )
+  })
+
+  test("failure dialog open-download-page opens the releases URL", () => {
+    expect(source).toContain('shell.openExternal("https://github.com/Astro-Han/pawwork/releases/latest")')
+  })
 })

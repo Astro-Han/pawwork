@@ -660,11 +660,28 @@ async function checkForUpdates(alertOnFail: boolean) {
   if (result.status === "failed") {
     logger.log("no update decision", { reason: result.reason ?? "update check failed" })
     if (!alertOnFail) return
-    await dialog.showMessageBox({
+    const copy = labels.failed.reasonCopy[result.reason] ?? labels.failed.fallbackMessage
+    const detail = [result.message, labels.failed.currentVersionUnaffected]
+      .filter(Boolean)
+      .join("\n\n")
+    const response = await dialog.showMessageBox({
       type: "error",
-      message: result.message ?? labels.failed.fallbackMessage,
       title: labels.failed.title,
+      message: copy,
+      detail,
+      buttons: [labels.failed.buttons.retry, labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
+      defaultId: 0,
+      cancelId: 2,
     })
+    if (response.response === 0) {
+      try {
+        await checkForUpdates(alertOnFail)
+      } catch (error) {
+        logger.error("retry after update failure failed", error)
+      }
+    } else if (response.response === 1) {
+      await shell.openExternal("https://github.com/Astro-Han/pawwork/releases/latest")
+    }
     return
   }
   if (!result.updateAvailable) {
