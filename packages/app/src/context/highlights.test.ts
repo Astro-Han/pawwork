@@ -44,6 +44,21 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     })
   })
 
+  test("falls back to bullets directly under 中文版本 when 主要更新 is absent", () => {
+    const payload = [
+      {
+        tag_name: "v0.2.10",
+        body: ["## App Update Notice", "", "- Fixed first-message crash", "", "## 中文版本", "", "- 修复首条消息崩溃", "- 调整更新提示"].join("\n"),
+      },
+    ]
+    const highlights = loadReleaseHighlights(payload, "0.2.10", "0.2.9", "zh")
+    expect(highlights).toHaveLength(1)
+    expect(highlights[0]).toMatchObject({
+      title: "爪印 v0.2.10",
+      description: "修复首条消息崩溃",
+    })
+  })
+
   test("falls back to the English update notice when Chinese summary is missing", () => {
     const payload = [
       {

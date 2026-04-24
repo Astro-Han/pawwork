@@ -85,7 +85,7 @@ function findAppUpdateNotice(body: string) {
 function findChineseUpdateNotice(body: string) {
   const chinese = findHeadingSection(body, /^#{2,6}\s+中文版本\s*$/)
   if (!chinese) return
-  return findHeadingSection(chinese, /^#{3,6}\s+主要更新\s*$/)
+  return findHeadingSection(chinese, /^#{3,6}\s+主要更新\s*$/) ?? chinese
 }
 
 function summarizeNotice(notice: string | undefined): string | undefined {
