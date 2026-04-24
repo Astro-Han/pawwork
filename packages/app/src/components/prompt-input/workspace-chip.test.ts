@@ -30,7 +30,7 @@ test("workspaceChipChoices lists all known project directories for global switch
     ],
   })
 
-  expect(result).toEqual(["/repo/main", "/repo/feature-a", "/repo/analytics"])
+  expect(result.map((c) => c.path)).toEqual(["/repo/main", "/repo/feature-a", "/repo/analytics"])
 })
 
 test("workspaceChipChoices preserves current directory when it is not part of the known project list", () => {
@@ -47,5 +47,24 @@ test("workspaceChipChoices preserves current directory when it is not part of th
     ],
   })
 
-  expect(result).toEqual(["/repo/feature-c", "/repo/main", "/repo/feature-a", "/repo/analytics"])
+  expect(result.map((c) => c.path)).toEqual(["/repo/feature-c", "/repo/main", "/repo/feature-a", "/repo/analytics"])
+})
+
+test("each choice exposes path field for sub-label rendering", () => {
+  const result = workspaceChipChoices({
+    directory: "/repo/main",
+    projects: [{ worktree: "/repo/main" }],
+  })
+
+  expect(result[0]).toHaveProperty("path")
+  expect(typeof result[0].path).toBe("string")
+})
+
+test("branch field is optional (not required when SDK can't resolve)", () => {
+  const result = workspaceChipChoices({
+    directory: "/repo/main",
+    projects: [{ worktree: "/repo/main" }],
+  })
+
+  expect(result[0].branch === undefined || typeof result[0].branch === "string").toBe(true)
 })
