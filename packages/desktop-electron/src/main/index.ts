@@ -89,6 +89,8 @@ let initStep: InitStep = { phase: "server_waiting" }
 let mainWindow: BrowserWindow | null = null
 let currentProgress: number | null = null
 
+const LATEST_RELEASE_URL = "https://github.com/Astro-Han/pawwork/releases/latest"
+
 function applyProgressBar(value: number) {
   for (const win of BrowserWindow.getAllWindows()) {
     win.setProgressBar(value)
@@ -680,7 +682,7 @@ async function checkForUpdates(alertOnFail: boolean) {
         logger.error("retry after update failure failed", error)
       }
     } else if (response.response === 1) {
-      await shell.openExternal("https://github.com/Astro-Han/pawwork/releases/latest")
+      await shell.openExternal(LATEST_RELEASE_URL)
     }
     return
   }
@@ -734,7 +736,7 @@ async function checkForUpdates(alertOnFail: boolean) {
         cancelId: 1,
       })
       if (response.response === 0) {
-        await shell.openExternal("https://github.com/Astro-Han/pawwork/releases/latest")
+        await shell.openExternal(LATEST_RELEASE_URL)
       }
     }
   } else {

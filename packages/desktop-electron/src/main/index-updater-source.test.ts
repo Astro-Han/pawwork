@@ -73,7 +73,8 @@ describe("main updater source contracts", () => {
   })
 
   test("failure dialog open-download-page opens the releases URL", () => {
-    expect(source).toContain('shell.openExternal("https://github.com/Astro-Han/pawwork/releases/latest")')
+    expect(source).toMatch(/const LATEST_RELEASE_URL = "https:\/\/github\.com\/Astro-Han\/pawwork\/releases\/latest"/)
+    expect(source).toMatch(/shell\.openExternal\(LATEST_RELEASE_URL\)/)
   })
 
   test("install-failure dialog uses the unified structure without a retry button", () => {
