@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron"
-import { buildDesktopContext } from "../../../app/src/utils/desktop-context"
+import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
 import type { DesktopContext, ElectronAPI, InitStep, SqliteMigrationProgress } from "./types"
 import { getRuntimeFlags } from "./runtime-flags"
 

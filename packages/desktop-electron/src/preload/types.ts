@@ -1,5 +1,4 @@
-import type { ReportProblemInput, ReportProblemResult, UpdateInfo } from "../../../app/src/context/platform"
-import type { DesktopContext } from "../../../app/src/utils/desktop-context"
+import type { DesktopContext, ReportProblemInput, ReportProblemResult, UpdateInfo } from "@opencode-ai/app/desktop-api"
 
 export type { DesktopContext }
 export type { ReportProblemInput, ReportProblemResult, UpdateInfo }

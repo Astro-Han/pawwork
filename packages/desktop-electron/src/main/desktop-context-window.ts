@@ -1,5 +1,5 @@
 import type { BrowserWindow } from "electron"
-import { desktopWindowTitle } from "../../../app/src/utils/desktop-context"
+import { desktopWindowTitle } from "@opencode-ai/app/desktop-api"
 import type { DesktopContext } from "../preload/types"
 import type { MenuLocale } from "./menu-labels"
 

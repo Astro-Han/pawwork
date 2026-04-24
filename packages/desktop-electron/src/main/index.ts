@@ -8,7 +8,7 @@ import { dirname, join } from "node:path"
 import type { Event } from "electron"
 import { app, BrowserWindow, clipboard, dialog, shell } from "electron"
 import pkg from "electron-updater"
-import { buildDesktopContext } from "../../../app/src/utils/desktop-context"
+import { buildDesktopContext } from "@opencode-ai/app/desktop-api"
 
 import contextMenu from "electron-context-menu"
 contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })

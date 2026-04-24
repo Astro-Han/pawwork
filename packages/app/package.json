@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./desktop-api": "./src/desktop-api.ts",
     "./vite": "./vite.js",
     "./index.css": "./src/index.css"
   },
