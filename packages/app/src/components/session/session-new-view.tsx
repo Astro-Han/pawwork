@@ -54,7 +54,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
         </div>
 
         <Show when={props.composer}>
-          <div class="mt-8 flex w-full max-w-[760px] flex-col items-center">
+          <div class="mt-8 flex w-full max-w-[720px] flex-col items-center">
             {props.composer!({ onModeChange: setMode, selectedSkill })}
           </div>
         </Show>
