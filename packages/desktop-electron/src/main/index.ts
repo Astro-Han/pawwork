@@ -87,6 +87,29 @@ const initEmitter = new EventEmitter()
 let initStep: InitStep = { phase: "server_waiting" }
 
 let mainWindow: BrowserWindow | null = null
+let currentProgress: number | null = null
+
+const LATEST_RELEASE_URL = "https://github.com/Astro-Han/pawwork/releases/latest"
+
+async function openLatestReleasePage() {
+  try {
+    await shell.openExternal(LATEST_RELEASE_URL)
+  } catch (error) {
+    logger.error("open latest release page failed", error)
+  }
+}
+
+function applyProgressBar(value: number) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.setProgressBar(value)
+  }
+}
+
+function clearProgressBar() {
+  currentProgress = null
+  applyProgressBar(-1)
+}
+
 let server: Server.Listener | null = null
 const loadingComplete = defer<void>()
 const deepLinkReadyWindows = new WeakSet<BrowserWindow>()
@@ -343,6 +366,11 @@ function focusMainWindow(options: { openIfMissing?: boolean } = {}) {
 function openMainWindow() {
   const win = createMainWindow()
   mainWindow = win
+  win.once("ready-to-show", () => {
+    if (currentProgress !== null) {
+      win.setProgressBar(currentProgress)
+    }
+  })
   win.on("focus", () => syncMenuLocaleForWindow(win))
   win.on("closed", () => {
     if (mainWindow !== win) return
@@ -588,6 +616,17 @@ function setupAutoUpdater() {
     autoInstallOnAppQuit: autoUpdater.autoInstallOnAppQuit,
     currentVersion: app.getVersion(),
   })
+  autoUpdater.on("download-progress", (info) => {
+    currentProgress = info.percent / 100
+    applyProgressBar(currentProgress)
+  })
+  autoUpdater.on("update-downloaded", clearProgressBar)
+  autoUpdater.on("update-not-available", clearProgressBar)
+  autoUpdater.on("update-cancelled", clearProgressBar)
+  autoUpdater.on("error", (error) => {
+    logger.error("updater error", error)
+    clearProgressBar()
+  })
 }
 
 async function checkUpdate() {
@@ -631,11 +670,28 @@ async function checkForUpdates(alertOnFail: boolean) {
   if (result.status === "failed") {
     logger.log("no update decision", { reason: result.reason ?? "update check failed" })
     if (!alertOnFail) return
-    await dialog.showMessageBox({
+    const copy = labels.failed.reasonCopy[result.reason] ?? labels.failed.fallbackMessage
+    const detail = [result.message, labels.failed.currentVersionUnaffected]
+      .filter(Boolean)
+      .join("\n\n")
+    const response = await dialog.showMessageBox({
       type: "error",
-      message: result.message ?? labels.failed.fallbackMessage,
       title: labels.failed.title,
+      message: copy,
+      detail,
+      buttons: [labels.failed.buttons.retry, labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
+      defaultId: 0,
+      cancelId: 2,
     })
+    if (response.response === 0) {
+      try {
+        await checkForUpdates(alertOnFail)
+      } catch (error) {
+        logger.error("retry after update failure failed", error)
+      }
+    } else if (response.response === 1) {
+      await openLatestReleasePage()
+    }
     return
   }
   if (!result.updateAvailable) {
@@ -673,11 +729,23 @@ async function checkForUpdates(alertOnFail: boolean) {
       }
     } catch (error) {
       logger.error("install update failed", error)
-      await dialog.showMessageBox({
+      const response = await dialog.showMessageBox({
         type: "error",
         title: labels.failed.title,
-        message: error instanceof Error ? error.message : labels.failed.fallbackMessage,
+        message: labels.failed.installFailedMessage,
+        detail: [
+          error instanceof Error ? error.message : "",
+          labels.failed.currentVersionUnaffected,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        buttons: [labels.failed.buttons.openDownloadPage, labels.failed.buttons.later],
+        defaultId: 0,
+        cancelId: 1,
       })
+      if (response.response === 0) {
+        await openLatestReleasePage()
+      }
     }
   } else {
     updater.dismissReady()
