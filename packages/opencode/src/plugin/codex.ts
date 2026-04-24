@@ -15,6 +15,16 @@ const ISSUER = "https://auth.openai.com"
 const CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 const OAUTH_PORT = 1455
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
+const CODEX_OAUTH_ALLOWED_MODELS = new Set([
+  "gpt-5.1-codex",
+  "gpt-5.1-codex-max",
+  "gpt-5.1-codex-mini",
+  "gpt-5.2",
+  "gpt-5.2-codex",
+  "gpt-5.3-codex",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+])
 
 interface PkceCodes {
   verifier: string
@@ -86,6 +96,16 @@ export function extractAccountId(tokens: TokenResponse): string | undefined {
     return claims ? extractAccountIdFromClaims(claims) : undefined
   }
   return undefined
+}
+
+export function shouldKeepCodexOAuthModel(modelId: string, apiId: string): boolean {
+  if (modelId.includes("codex")) return true
+  if (CODEX_OAUTH_ALLOWED_MODELS.has(apiId)) return true
+  const match = apiId.match(/^gpt-(\d+)\.(\d+)/)
+  if (!match) return false
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  return major > 5 || (major === 5 && minor > 4)
 }
 
 function buildAuthorizeUrl(redirectUri: string, pkce: PkceCodes, state: string): string {
@@ -365,22 +385,8 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         const auth = await getAuth()
         if (auth.type !== "oauth") return {}
 
-        // Filter models to only allowed Codex models for OAuth
-        const allowedModels = new Set([
-          "gpt-5.1-codex",
-          "gpt-5.1-codex-max",
-          "gpt-5.1-codex-mini",
-          "gpt-5.2",
-          "gpt-5.2-codex",
-          "gpt-5.3-codex",
-          "gpt-5.4",
-          "gpt-5.4-mini",
-        ])
         for (const [modelId, model] of Object.entries(provider.models)) {
-          if (modelId.includes("codex")) continue
-          if (allowedModels.has(model.api.id)) continue
-          const match = model.api.id.match(/^gpt-(\d+\.\d+)/)
-          if (match && parseFloat(match[1]) > 5.4) continue
+          if (shouldKeepCodexOAuthModel(modelId, model.api.id)) continue
           delete provider.models[modelId]
         }
 

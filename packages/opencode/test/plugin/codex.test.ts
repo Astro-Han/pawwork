@@ -3,6 +3,7 @@ import {
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
+  shouldKeepCodexOAuthModel,
   type IdTokenClaims,
 } from "../../src/plugin/codex"
 
@@ -118,6 +119,26 @@ describe("plugin.codex", () => {
           refresh_token: "rt",
         }),
       ).toBe("acc-123")
+    })
+  })
+
+  describe("shouldKeepCodexOAuthModel", () => {
+    test("keeps explicit OAuth models and codex model ids", () => {
+      expect(shouldKeepCodexOAuthModel("gpt-5.4", "gpt-5.4")).toBe(true)
+      expect(shouldKeepCodexOAuthModel("some-codex-model", "custom-model")).toBe(true)
+    })
+
+    test("keeps future GPT minor versions using semantic comparison", () => {
+      expect(shouldKeepCodexOAuthModel("gpt-5.5", "gpt-5.5")).toBe(true)
+      expect(shouldKeepCodexOAuthModel("gpt-5.5-mini", "gpt-5.5-mini")).toBe(true)
+      expect(shouldKeepCodexOAuthModel("gpt-5.10", "gpt-5.10")).toBe(true)
+      expect(shouldKeepCodexOAuthModel("gpt-6.0", "gpt-6.0")).toBe(true)
+    })
+
+    test("drops older non-allowlisted GPT and unrelated models", () => {
+      expect(shouldKeepCodexOAuthModel("gpt-5.3", "gpt-5.3")).toBe(false)
+      expect(shouldKeepCodexOAuthModel("gpt-4.1", "gpt-4.1")).toBe(false)
+      expect(shouldKeepCodexOAuthModel("custom-model", "custom-model")).toBe(false)
     })
   })
 })
