@@ -101,6 +101,8 @@
   --color-text-on-brand-strong: var(--text-on-brand-strong);
   --color-button-secondary-base: var(--button-secondary-base);
   --color-button-secondary-hover: var(--button-secondary-hover);
+  --color-button-brand-base: var(--button-brand-base);
+  --color-button-brand-hover: var(--button-brand-hover);
   --color-border-base: var(--border-base);
   --color-border-hover: var(--border-hover);
   --color-border-active: var(--border-active);

@@ -195,6 +195,9 @@
   --button-primary-base: #e8533a;
   --button-secondary-base: #fcfcfc;
   --button-secondary-hover: #f8f8f8;
+  --button-brand-base: #e56a2e;
+  --button-brand-hover: #d05e26;
+  --button-brand-shadow: rgba(229, 106, 46, 0.45);
   --button-ghost-hover: rgba(0, 0, 0, 0.031);
   --button-ghost-hover2: rgba(0, 0, 0, 0.051);
   --border-base: rgba(0, 0, 0, 0.162);
@@ -610,4 +613,5 @@
 
 :root[data-theme="pawwork"] {
   --font-family-sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --button-primary-base: var(--button-brand-base);
 }
