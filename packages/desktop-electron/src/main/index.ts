@@ -356,6 +356,11 @@ function focusMainWindow(options: { openIfMissing?: boolean } = {}) {
 function openMainWindow() {
   const win = createMainWindow()
   mainWindow = win
+  win.once("ready-to-show", () => {
+    if (currentProgress !== null) {
+      win.setProgressBar(currentProgress)
+    }
+  })
   win.on("focus", () => syncMenuLocaleForWindow(win))
   win.on("closed", () => {
     if (mainWindow !== win) return

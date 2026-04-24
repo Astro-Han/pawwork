@@ -46,4 +46,12 @@ describe("main updater source contracts", () => {
     expect(earlyReturnIndex).toBeGreaterThan(0)
     expect(listenerIndex).toBeGreaterThan(earlyReturnIndex)
   })
+
+  test("reapplies current progress to a new window on ready-to-show", () => {
+    expect(source).toContain('win.once("ready-to-show"')
+    const hookIndex = source.search(/win\.once\("ready-to-show"/)
+    const reapplySlice = source.slice(hookIndex, hookIndex + 400)
+    expect(reapplySlice).toMatch(/if\s*\(\s*currentProgress\s*!==\s*null\s*\)/)
+    expect(reapplySlice).toMatch(/win\.setProgressBar\(currentProgress\)/)
+  })
 })
