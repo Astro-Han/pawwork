@@ -34,4 +34,32 @@ describe("createCurrentSyncChild", () => {
     expect(childOwner).toBeDefined()
     expect(childOwner).not.toBe(providerOwner)
   })
+
+  test("seeds the last valid directory before a disposed provider accessor turns empty", () => {
+    let directory = "/tmp/project" as string | undefined
+    const calls: string[] = []
+
+    const current = createRoot((dispose) => {
+      const accessor = createCurrentSyncChild({
+        directory: () => directory,
+        child: (directory) => {
+          calls.push(directory)
+          return [{ directory }, () => {}] as const
+        },
+      })
+      dispose()
+      return accessor
+    })
+
+    directory = undefined
+
+    const value = createRoot((dispose) => {
+      const result = current()
+      dispose()
+      return result
+    })
+
+    expect(value[0].directory).toBe("/tmp/project")
+    expect(calls).toEqual(["/tmp/project"])
+  })
 })

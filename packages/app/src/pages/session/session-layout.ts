@@ -14,7 +14,24 @@ export const useSessionLayout = () => {
   return {
     params,
     sessionKey,
-    tabs: createMemo(() => layout.tabs(sessionKey)),
-    view: createMemo(() => layout.view(sessionKey)),
+    tabs: createStableLayoutMemo(() => layout.tabs(sessionKey)),
+    view: createStableLayoutMemo(() => layout.view(sessionKey)),
+  }
+}
+
+export function createStableLayoutMemo<T>(read: () => T) {
+  let last: { value: T } | undefined
+  const memo = createMemo(read)
+
+  return () => {
+    const value = memo()
+    if (value !== undefined) {
+      last = { value }
+      return value
+    }
+
+    if (last) return last.value
+
+    throw new Error("Stable layout memo read before initialization")
   }
 }

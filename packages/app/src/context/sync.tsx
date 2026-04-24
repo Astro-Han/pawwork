@@ -62,8 +62,20 @@ type OptimisticItem = {
   parts: Part[]
 }
 
-export function createCurrentSyncChild<Child>(input: { directory: () => string; child: (directory: string) => Child }) {
-  return () => input.child(input.directory())
+export function createCurrentSyncChild<Child>(input: { directory: () => string | undefined; child: (directory: string) => Child }) {
+  const initialDirectory = input.directory()
+  let lastDirectory =
+    typeof initialDirectory === "string" && initialDirectory.length > 0 ? initialDirectory : undefined
+
+  return () => {
+    const directory = input.directory()
+    if (typeof directory === "string" && directory.length > 0) {
+      lastDirectory = directory
+      return input.child(directory)
+    }
+
+    return input.child(lastDirectory ?? (directory as string))
+  }
 }
 
 type MessagePage = {
