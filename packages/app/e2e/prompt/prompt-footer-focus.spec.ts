@@ -28,6 +28,20 @@ async function state(page: Page) {
   return value
 }
 
+const modelKey = (model?: { providerID: string; modelID: string } | null) =>
+  model ? `${model.providerID}:${model.modelID}` : null
+
+async function selectModel(page: Page, model: { providerID: string; modelID: string }) {
+  const key = modelKey(model)
+  await page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first().click()
+
+  const item = page.locator(`[data-slot="list-item"][data-key="${model.providerID}:${model.modelID}"]`).first()
+  await expect(item).toBeVisible()
+  await item.click({ force: true })
+
+  await expect.poll(() => probe(page).then((value) => modelKey(value?.model)), { timeout: 10_000 }).toBe(key)
+}
+
 async function ready(page: Page) {
   const prompt = page.locator(promptSelector)
   await prompt.click()
@@ -55,8 +69,12 @@ async function hitTest(locator: Locator) {
   })
 }
 
-test("agent select returns focus to the prompt", async ({ page, gotoSession }) => {
-  await gotoSession()
+test("agent select returns focus to the prompt", async ({ page, project }) => {
+  await project.open()
+  const session = await project.sdk.session.create({ title: `e2e agent focus ${Date.now()}` }).then((r) => r.data)
+  if (!session?.id) throw new Error("Session create did not return an id")
+  project.trackSession(session.id)
+  await project.gotoSession(session.id)
 
   const prompt = await ready(page)
 
@@ -85,21 +103,42 @@ test("model select returns focus to the prompt", async ({ page, gotoSession }) =
   const prompt = await ready(page)
 
   const info = await state(page)
-  const key = info.model ? `${info.model.providerID}:${info.model.modelID}` : null
-  const next = info.models?.find((item) => `${item.providerID}:${item.modelID}` !== key)
+  const key = modelKey(info.model)
+  const next = info.models?.find((item) => modelKey(item) !== key)
   test.skip(!next, "only one model available")
   if (!next) return
 
-  await page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first().click()
-
-  const item = page.locator(`[data-slot="list-item"][data-key="${next.providerID}:${next.modelID}"]`).first()
-  await expect(item).toBeVisible()
-  await item.click({ force: true })
-
+  await selectModel(page, next)
   await expect(page.locator(`${promptModelSelector} [data-action="prompt-model"] span`).first()).toHaveText(next.name)
   await expect(prompt).toBeFocused()
   await prompt.pressSequentially(" model")
   await expect.poll(() => body(prompt)).toContain("focus model")
+})
+
+test("home selected model is used for the first prompt", async ({ page, project }) => {
+  await project.open()
+
+  const info = await state(page)
+  const key = modelKey(info.model)
+  const next = info.models?.find((item) => modelKey(item) !== key)
+  test.skip(!next, "only one model available")
+  if (!next) return
+  const nextKey = modelKey(next)
+
+  await selectModel(page, next)
+
+  const sessionID = await project.prompt(`home selected model ${Date.now()}`)
+  await expect
+    .poll(
+      async () => {
+        const messages = await project.sdk.session.messages({ sessionID, limit: 50 }).then((r) => r.data ?? [])
+        return messages
+          .filter((message) => message.info.role === "user")
+          .some((message) => modelKey(message.info.model ?? null) === nextKey)
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true)
 })
 
 test("home model selector opens without footer overlap", async ({ page, gotoSession }) => {
@@ -116,4 +155,18 @@ test("home model selector opens without footer overlap", async ({ page, gotoSess
   await trigger.click()
 
   await expect(page.locator('[data-slot="list-item"]').first()).toBeVisible()
+})
+
+test("home model selector closes when keyboard focus leaves", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const trigger = page.locator(`${promptModelSelector} [data-action="prompt-model"]`).first()
+  await trigger.click()
+
+  const item = page.locator('[data-slot="list-item"]').first()
+  await expect(item).toBeVisible()
+
+  await page.keyboard.press("Shift+Tab")
+
+  await expect(item).toBeHidden()
 })
