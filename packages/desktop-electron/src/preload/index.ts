@@ -80,6 +80,14 @@ const api: ElectronAPI = {
   reportProblem: (input) => ipcRenderer.invoke("report-problem", input),
   installUpdate: () => ipcRenderer.invoke("install-update"),
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
+  getAboutInfo: () => ipcRenderer.invoke("about:get-info"),
+  onAboutOpen: (handler: () => void) => {
+    const wrapped = () => handler()
+    ipcRenderer.on("about:open", wrapped)
+    return () => {
+      ipcRenderer.removeListener("about:open", wrapped)
+    }
+  },
 }
 
 contextBridge.exposeInMainWorld("api", api)

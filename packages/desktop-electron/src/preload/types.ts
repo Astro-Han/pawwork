@@ -22,6 +22,13 @@ export type WindowConfig = {
 
 export type LinuxDisplayBackend = "wayland" | "auto"
 
+export type AboutInfo = {
+  version: string
+  electronVersion: string
+  chromeVersion: string
+  buildSha: string
+}
+
 export type ElectronAPI = {
   ciSmokeEnabled: boolean
   killSidecar: () => Promise<void>
@@ -87,4 +94,6 @@ export type ElectronAPI = {
   reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
   installUpdate: () => Promise<void>
   setBackgroundColor: (color: string) => Promise<void>
+  getAboutInfo: () => Promise<AboutInfo>
+  onAboutOpen: (handler: () => void) => () => void
 }
