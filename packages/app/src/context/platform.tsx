@@ -95,6 +95,16 @@ export type Platform = {
   /** Save file picker dialog (desktop only) */
   saveFilePickerDialog?(opts?: SaveFilePickerOptions): Promise<string | null>
 
+  /**
+   * Export a session to a local JSON file (desktop only).
+   * Main process fetches the internal export route, opens save dialog, writes file.
+   */
+  exportSession?(
+    sessionID: string,
+    directory: string,
+    defaultName?: string,
+  ): Promise<{ ok: true; path: string } | { ok: false; error: string }>
+
   /** Storage mechanism, defaults to localStorage */
   storage?: (name?: string) => SyncStorage | AsyncStorage
 

@@ -46,6 +46,7 @@ import { Pty } from "@/pty"
 import { Installation } from "@/installation"
 import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
+import { ShareRuntime } from "@/share/runtime"
 import { memoMap } from "./memo-map"
 
 export const AppLayer = Layer.mergeAll(
@@ -94,6 +95,7 @@ export const AppLayer = Layer.mergeAll(
   Installation.defaultLayer,
   ShareNext.defaultLayer,
   SessionShare.defaultLayer,
+  ShareRuntime.cloudShareGateDefaultLayer,
 )
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })

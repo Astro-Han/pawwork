@@ -633,6 +633,10 @@ export const dict = {
   "session.share.copy.copied": "已复制",
   "session.share.copy.copyLink": "复制链接",
 
+  "session.export.action.export": "导出会话日志",
+  "session.export.success": "会话已导出",
+  "session.export.error.failed": "导出失败",
+
   "lsp.tooltip.none": "没有 LSP 服务器",
   "lsp.label.connected": "{{count}} LSP",
 

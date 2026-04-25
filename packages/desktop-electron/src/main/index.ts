@@ -496,6 +496,7 @@ registerIpcHandlers({
       initEmitter.off("step", listener)
     }
   },
+  getServerReadyData: () => serverReady.promise,
   getDefaultServerUrl: () => getDefaultServerUrl(),
   setDefaultServerUrl: (url) => setDefaultServerUrl(url),
   getWslConfig: () => Promise.resolve(getWslConfig()),

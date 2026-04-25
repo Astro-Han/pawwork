@@ -7,6 +7,7 @@ import { Effect, Layer, Scope, Context } from "effect"
 import { Config } from "../config/config"
 import { Flag } from "../flag/flag"
 import { ShareNext } from "./share-next"
+import { ShareRuntime } from "./runtime"
 
 export namespace SessionShare {
   export interface Interface {
@@ -23,9 +24,18 @@ export namespace SessionShare {
       const cfg = yield* Config.Service
       const session = yield* Session.Service
       const shareNext = yield* ShareNext.Service
+      const gate = yield* ShareRuntime.CloudShareGate
       const scope = yield* Scope.Scope
 
+      // Local closure mirrors ShareRuntime.ensureEnabled — kept here so the captured `gate`
+      // reference doesn't leak the CloudShareGate requirement into share/unshare/create's R type.
+      // If you change the failure semantics here, mirror the change in runtime.ts.
+      const ensureEnabled = Effect.suspend(() =>
+        gate.isEnabled() ? Effect.void : Effect.fail(ShareRuntime.cloudShareDisabled()),
+      )
+
       const share = Effect.fn("SessionShare.share")(function* (sessionID: SessionID) {
+        yield* ensureEnabled
         const conf = yield* cfg.get()
         if (conf.share === "disabled") throw new Error("Sharing is disabled in configuration")
         const result = yield* shareNext.create(sessionID)
@@ -36,6 +46,7 @@ export namespace SessionShare {
       })
 
       const unshare = Effect.fn("SessionShare.unshare")(function* (sessionID: SessionID) {
+        yield* ensureEnabled
         yield* shareNext.remove(sessionID)
         yield* Effect.sync(() => SyncEvent.run(Session.Event.Updated, { sessionID, info: { share: { url: null } } }))
       })
@@ -43,6 +54,7 @@ export namespace SessionShare {
       const create = Effect.fn("SessionShare.create")(function* (input?: Parameters<typeof Session.create>[0]) {
         const result = yield* session.create(input)
         if (result.parentID) return result
+        if (!gate.isEnabled()) return result
         const conf = yield* cfg.get()
         if (!(Flag.OPENCODE_AUTO_SHARE || conf.share === "auto")) return result
         yield* share(result.id).pipe(Effect.ignore, Effect.forkIn(scope))
@@ -57,6 +69,7 @@ export namespace SessionShare {
     Layer.provide(ShareNext.defaultLayer),
     Layer.provide(Session.defaultLayer),
     Layer.provide(Config.defaultLayer),
+    Layer.provide(ShareRuntime.cloudShareGateDefaultLayer),
   )
 
   const { runPromise } = makeRuntime(Service, defaultLayer)

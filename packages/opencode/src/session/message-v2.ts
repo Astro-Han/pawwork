@@ -184,6 +184,7 @@ export const FilePart = PartBase.extend({
   filename: z.string().optional(),
   url: z.string(),
   source: FilePartSource.optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 }).meta({
   ref: "FilePart",
 })

@@ -697,6 +697,10 @@ export const dict = {
   "session.share.copy.copied": "Copied",
   "session.share.copy.copyLink": "Copy link",
 
+  "session.export.action.export": "Export session log",
+  "session.export.success": "Session exported",
+  "session.export.error.failed": "Export failed",
+
   "lsp.tooltip.none": "No LSP servers",
   "lsp.label.connected": "{{count}} LSP",
 

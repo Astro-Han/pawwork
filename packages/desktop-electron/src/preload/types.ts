@@ -74,6 +74,11 @@ export type ElectronAPI = {
   }) => Promise<string | string[] | null>
   readFileDataUrl: (path: string, mime: string) => Promise<string | null>
   saveFilePicker: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>
+  exportSession: (
+    sessionID: string,
+    directory: string,
+    defaultName?: string,
+  ) => Promise<{ ok: true; path: string } | { ok: false; error: string }>
   openLink: (url: string) => void
   openPath: (path: string, app?: string) => Promise<void>
   showItemInFolder: (path: string) => Promise<void>

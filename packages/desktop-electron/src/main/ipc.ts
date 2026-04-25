@@ -17,6 +17,7 @@ import type {
 } from "../preload/types"
 import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
+import { fetchExport } from "./server-client"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -38,6 +39,7 @@ function normalizeAttachmentPath(filepath: unknown) {
 type Deps = {
   killSidecar: () => void
   awaitInitialization: (sendStep: (step: InitStep) => void) => Promise<ServerReadyData>
+  getServerReadyData: () => Promise<ServerReadyData>
   getDefaultServerUrl: () => Promise<string | null> | string | null
   setDefaultServerUrl: (url: string | null) => Promise<void> | void
   getWslConfig: () => Promise<WslConfig>
@@ -230,6 +232,33 @@ export function registerIpcHandlers(deps: Deps) {
       })
       if (result.canceled) return null
       return result.filePath ?? null
+    },
+  )
+
+  ipcMain.handle(
+    "export-session",
+    async (_event: IpcMainInvokeEvent, sessionID: string, directory: string, defaultName?: string) => {
+      if (typeof sessionID !== "string" || typeof directory !== "string") {
+        return { ok: false, error: "invalid_args" } as const
+      }
+      const server = await deps.getServerReadyData()
+      const fetched = await fetchExport(server, directory, sessionID)
+      if (!fetched.ok) return fetched
+
+      const fallbackStamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
+      const result = await dialog.showSaveDialog({
+        title: "Export session log",
+        defaultPath: defaultName ?? `pawwork-session-${sessionID.slice(-8)}-${fallbackStamp}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      })
+      if (result.canceled || !result.filePath) return { ok: false, error: "cancelled" } as const
+
+      try {
+        await fs.writeFile(result.filePath, fetched.body, "utf8")
+        return { ok: true, path: result.filePath } as const
+      } catch (err) {
+        return { ok: false, error: (err as Error).message } as const
+      }
     },
   )
 

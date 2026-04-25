@@ -10,6 +10,9 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionCompaction } from "../../session/compaction"
 import { SessionRevert } from "../../session/revert"
 import { SessionShare } from "@/share/session"
+import { Export } from "@/session/export"
+import { ShareRuntime } from "@/share/runtime"
+import { NotFoundError } from "@/storage/db"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
@@ -439,12 +442,56 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const enabled = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const gate = yield* ShareRuntime.CloudShareGate
+            return gate.isEnabled()
+          }),
+        )
+        if (!enabled) {
+          return c.json({ error: "cloud_share_disabled" }, 410)
+        }
         const share = await SessionShare.share(sessionID)
         const session = await Session.get(sessionID)
         return c.json({
           ...session,
           share,
         })
+      },
+    )
+    .get(
+      "/:sessionID/export",
+      describeRoute({
+        summary: "Export session log",
+        description:
+          "Export the full root session tree as a single JSON document for local debugging. " +
+          "If a child session id is provided, climbs to the topmost ancestor and exports the whole tree.",
+        operationId: "session.export",
+        responses: {
+          200: {
+            description: "Successfully exported session",
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        try {
+          const result = await AppRuntime.runPromise(Export.session(sessionID))
+          return c.json(result)
+        } catch (err) {
+          // Session.get throws NotFoundError; matches the typed pattern used in middleware.ts.
+          if (err instanceof NotFoundError) {
+            return c.json({ error: "session_not_found", sessionID }, 404)
+          }
+          throw err
+        }
       },
     )
     .get(
@@ -543,6 +590,15 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const enabled = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const gate = yield* ShareRuntime.CloudShareGate
+            return gate.isEnabled()
+          }),
+        )
+        if (!enabled) {
+          return c.json({ error: "cloud_share_disabled" }, 410)
+        }
         await SessionShare.unshare(sessionID)
         const session = await Session.get(sessionID)
         return c.json({
