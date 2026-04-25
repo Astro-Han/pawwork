@@ -16,6 +16,7 @@ const channel = (() => {
   return "dev"
 })()
 const feedbackFormUrl = process.env.PAWWORK_FEEDBACK_FORM_URL ?? ""
+const buildSha = process.env.PAWWORK_BUILD_SHA ?? ""
 
 const OPENCODE_ROOT = path.resolve(process.cwd(), "../opencode")
 const { runtimeDir: OPENCODE_SERVER_DIST, runtimeEntry: OPENCODE_SERVER_ENTRY } = embeddedServerArtifacts(OPENCODE_ROOT)
@@ -33,6 +34,7 @@ export default defineConfig({
     define: {
       "import.meta.env.OPENCODE_CHANNEL": JSON.stringify(channel),
       "import.meta.env.PAWWORK_FEEDBACK_FORM_URL": JSON.stringify(feedbackFormUrl),
+      "import.meta.env.PAWWORK_BUILD_SHA": JSON.stringify(buildSha),
     },
     build: {
       rollupOptions: {

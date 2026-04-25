@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
-import { buildMenuTemplate, type MenuItemTemplate } from "./menu-template"
+import { buildMacosMenuTemplate, type MenuItemTemplate } from "./menu-template"
 
 function deps() {
   return {
@@ -10,6 +10,7 @@ function deps() {
     reportProblem: mock(() => undefined),
     openExternal: mock(() => undefined),
     newWindow: mock(() => undefined),
+    triggerAbout: mock(() => undefined),
   }
 }
 
@@ -123,7 +124,7 @@ function expectWindowMenuRoleLabels(template: MenuItemTemplate[], locale: "en" |
 
 describe("desktop menu template", () => {
   test("localizes PawWork-controlled labels", () => {
-    const template = buildMenuTemplate({
+    const template = buildMacosMenuTemplate({
       deps: deps(),
       appName: "爪印",
       locale: "zh",
@@ -139,7 +140,7 @@ describe("desktop menu template", () => {
 
   test("localizes Chinese labels for role-backed menu items while preserving roles", () => {
     const appName = "爪印"
-    const template = buildMenuTemplate({
+    const template = buildMacosMenuTemplate({
       deps: deps(),
       appName,
       locale: "zh",
@@ -151,7 +152,7 @@ describe("desktop menu template", () => {
 
   test("localizes English labels for role-backed menu items while preserving roles", () => {
     const appName = "PawWork"
-    const template = buildMenuTemplate({
+    const template = buildMacosMenuTemplate({
       deps: deps(),
       appName,
       locale: "en",
@@ -162,7 +163,7 @@ describe("desktop menu template", () => {
   })
 
   test("renames stale webview label", () => {
-    const template = buildMenuTemplate({
+    const template = buildMacosMenuTemplate({
       deps: deps(),
       appName: "PawWork Dev",
       locale: "en",
@@ -176,7 +177,7 @@ describe("desktop menu template", () => {
 
   test("keeps check for updates clickable", () => {
     const menuDeps = deps()
-    const template = buildMenuTemplate({
+    const template = buildMacosMenuTemplate({
       deps: menuDeps,
       appName: "PawWork",
       locale: "en",
@@ -193,7 +194,7 @@ describe("desktop menu template", () => {
 
   test("shows report problem only when configured and always keeps github issue", () => {
     const menuDeps = deps()
-    const template = buildMenuTemplate({
+    const template = buildMacosMenuTemplate({
       deps: menuDeps,
       appName: "PawWork",
       locale: "en",
@@ -209,7 +210,7 @@ describe("desktop menu template", () => {
 
   test("shows report problem when feedback is configured", () => {
     const menuDeps = deps()
-    const template = buildMenuTemplate({
+    const template = buildMacosMenuTemplate({
       deps: menuDeps,
       appName: "PawWork",
       locale: "en",
