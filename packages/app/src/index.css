@@ -178,7 +178,7 @@
   }
 
   @media (min-width: 1280px) {
-    [data-component="desktop-shell-frame"][data-platform="desktop"]:not([data-os="macos"]) {
+    [data-component="desktop-shell-frame"][data-platform="desktop"][data-os="linux"] {
       margin: var(--shell-frame-margin);
       border: 1px solid var(--shell-frame-border);
       border-radius: var(--shell-frame-radius);
