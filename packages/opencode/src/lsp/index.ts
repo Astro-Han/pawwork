@@ -20,6 +20,10 @@ export namespace LSP {
 
   export const Event = {
     Updated: BusEvent.define("lsp.updated", z.object({})),
+    InstallFailed: BusEvent.define(
+      "lsp.server.install.failed",
+      z.object({ pkg: z.string(), error: z.string() }),
+    ),
   }
 
   export const Range = z

@@ -340,6 +340,18 @@ function createGlobalSync() {
           })
       },
     })
+
+    if ((event.type as string) === "lsp.server.install.failed") {
+      const properties = (event as unknown as { properties?: { pkg?: string; error?: string } }).properties
+      showToast({
+        variant: "error",
+        title: language.t("toast.lsp.installFailed.title"),
+        description: language.t("toast.lsp.installFailed.description", {
+          pkg: properties?.pkg ?? "",
+          error: properties?.error ?? "",
+        }),
+      })
+    }
   })
 
   onCleanup(unsub)
