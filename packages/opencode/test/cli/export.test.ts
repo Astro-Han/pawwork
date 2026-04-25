@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import yargs from "yargs/yargs"
-import { ExportCommand, sanitize } from "../../src/cli/cmd/export"
+import { ExportCommand } from "../../src/cli/cmd/export"
+import { Export } from "../../src/session/export"
+const { sanitize } = Export
 
 describe("cli export command", () => {
   test("registers the sanitize option", () => {
