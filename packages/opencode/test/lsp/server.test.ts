@@ -1,42 +1,44 @@
-import { describe, expect, test } from "bun:test"
-import path from "path"
-import os from "os"
-import fs from "fs"
+import { describe, expect } from "bun:test"
+import { Effect, Layer } from "effect"
+import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import fs from "node:fs"
+import path from "node:path"
 import { LSPServer } from "../../src/lsp/server"
-import { Instance } from "../../src/project/instance"
+import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import { provideTmpdirInstance } from "../fixture/fixture"
+import { testEffect } from "../lib/effect"
+
+const infra = CrossSpawnSpawner.defaultLayer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
+)
+
+const it = testEffect(infra)
 
 describe("JavascriptPackageRoot", () => {
-  test("prepends tsconfig.json and package.json before lockfiles", () => {
-    const list = LSPServer.JavascriptPackageRoot()
-    expect(list[0]).toBe("tsconfig.json")
-    expect(list[1]).toBe("package.json")
-    expect(list).toContain("bun.lock")
-  })
+  it.live("prepends tsconfig.json and package.json before lockfiles", () =>
+    Effect.sync(() => {
+      const list = LSPServer.JavascriptPackageRoot()
+      expect(list[0]).toBe("tsconfig.json")
+      expect(list[1]).toBe("package.json")
+      expect(list).toContain("bun.lock")
+    }),
+  )
 })
 
-function makeFixture(files: Record<string, string>) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "lsp-test-"))
-  for (const [rel, content] of Object.entries(files)) {
-    const full = path.join(root, rel)
-    fs.mkdirSync(path.dirname(full), { recursive: true })
-    fs.writeFileSync(full, content)
-  }
-  return root
-}
-
 describe("Typescript root resolution", () => {
-  test("resolves to nearest tsconfig.json, not monorepo lockfile", async () => {
-    const root = makeFixture({
-      "bun.lock": "",
-      "packages/app/tsconfig.json": "{}",
-      "packages/app/src/foo.ts": "",
-    })
+  it.live("resolves to nearest tsconfig.json, not monorepo lockfile", () =>
+    provideTmpdirInstance((root) =>
+      Effect.gen(function* () {
+        fs.writeFileSync(path.join(root, "bun.lock"), "")
+        fs.mkdirSync(path.join(root, "packages/app/src"), { recursive: true })
+        fs.writeFileSync(path.join(root, "packages/app/tsconfig.json"), "{}")
+        fs.writeFileSync(path.join(root, "packages/app/src/foo.ts"), "")
 
-    const resolved = await Instance.provide({
-      directory: root,
-      fn: async () => LSPServer.Typescript.root(path.join(root, "packages/app/src/foo.ts")),
-    })
-
-    expect(resolved).toBe(path.join(root, "packages/app"))
-  })
+        const resolved = yield* Effect.promise(() =>
+          LSPServer.Typescript.root(path.join(root, "packages/app/src/foo.ts")),
+        )
+        expect(resolved).toBe(path.join(root, "packages/app"))
+      }),
+    ),
+  )
 })

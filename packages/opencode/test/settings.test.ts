@@ -1,27 +1,29 @@
-import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { describe, expect } from "bun:test"
+import { Effect, Layer } from "effect"
 import { Settings } from "../src/settings"
-import { AppRuntime } from "../src/effect/app-runtime"
+import { testEffect } from "./lib/effect"
+
+const it = testEffect(Layer.mergeAll(Settings.defaultLayer))
 
 describe("Settings.Service", () => {
-  test("lspEnabled defaults to false", async () => {
-    const value = await AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const settings = yield* Settings.Service
-        return yield* settings.lspEnabled()
-      }),
-    )
-    expect(value).toBe(false)
-  })
+  it.live("lspEnabled defaults to false", () =>
+    Effect.gen(function* () {
+      const settings = yield* Settings.Service
+      // Reset in case a prior test in the suite enabled it (Ref is shared via memoMap).
+      yield* settings.setLspEnabled(false)
+      expect(yield* settings.lspEnabled()).toBe(false)
+    }),
+  )
 
-  test("setLspEnabled persists across reads", async () => {
-    const value = await AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const settings = yield* Settings.Service
-        yield* settings.setLspEnabled(true)
-        return yield* settings.lspEnabled()
-      }),
-    )
-    expect(value).toBe(true)
-  })
+  it.live("setLspEnabled persists across reads", () =>
+    Effect.gen(function* () {
+      const settings = yield* Settings.Service
+      yield* settings.setLspEnabled(true)
+      try {
+        expect(yield* settings.lspEnabled()).toBe(true)
+      } finally {
+        yield* settings.setLspEnabled(false)
+      }
+    }),
+  )
 })

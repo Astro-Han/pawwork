@@ -1,118 +1,119 @@
 import { describe, expect, spyOn, test } from "bun:test"
+import { Effect, Layer } from "effect"
+import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import fs from "node:fs"
-import { Effect } from "effect"
 import path from "path"
 import { LSP } from "../../src/lsp"
 import { LSPServer, LSP_SERVER_PACKAGES } from "../../src/lsp/server"
 import { Settings } from "../../src/settings"
-import { Instance } from "../../src/project/instance"
-import { AppRuntime } from "../../src/effect/app-runtime"
-import { tmpdir } from "../fixture/fixture"
+import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import { provideTmpdirInstance } from "../fixture/fixture"
+import { testEffect } from "../lib/effect"
+
+const infra = CrossSpawnSpawner.defaultLayer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
+)
+
+const it = testEffect(Layer.mergeAll(infra, LSP.defaultLayer, Settings.defaultLayer))
+
+const resetSettings = Effect.gen(function* () {
+  const settings = yield* Settings.Service
+  yield* settings.setLspEnabled(false)
+})
 
 describe("LSP gate", () => {
-  test("when lspEnabled=false, no server registers and spawn is never called", async () => {
-    await using tmp = await tmpdir()
-    const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
-    try {
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const has = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const settings = yield* Settings.Service
-              yield* settings.setLspEnabled(false)
-              const lsp = yield* LSP.Service
-              return yield* lsp.hasClients(path.join(tmp.path, "test.ts"))
-            }),
-          )
+  it.live("when lspEnabled=false, no server registers and spawn is never called", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
+        try {
+          const settings = yield* Settings.Service
+          yield* settings.setLspEnabled(false)
+          const lsp = yield* LSP.Service
+          const has = yield* lsp.hasClients(path.join(dir, "test.ts"))
           expect(has).toBe(false)
-          await LSP.touchFile(path.join(tmp.path, "test.ts"))
-        },
-      })
-      expect(spy).toHaveBeenCalledTimes(0)
-    } finally {
-      spy.mockRestore()
-      await Instance.disposeAll()
-    }
-  })
+          yield* lsp.touchFile(path.join(dir, "test.ts"))
+          expect(spy).toHaveBeenCalledTimes(0)
+        } finally {
+          spy.mockRestore()
+          yield* resetSettings
+        }
+      }),
+    ),
+  )
 
-  test("when lspEnabled=true, servers register and spawn is attempted", async () => {
-    await using tmp = await tmpdir()
-    const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
-    try {
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const has = await AppRuntime.runPromise(
-            Effect.gen(function* () {
-              const settings = yield* Settings.Service
-              yield* settings.setLspEnabled(true)
-              const lsp = yield* LSP.Service
-              return yield* lsp.hasClients(path.join(tmp.path, "test.ts"))
-            }),
-          )
+  it.live("when lspEnabled=true, servers register and spawn is attempted", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
+        try {
+          const settings = yield* Settings.Service
+          yield* settings.setLspEnabled(true)
+          const lsp = yield* LSP.Service
+          const has = yield* lsp.hasClients(path.join(dir, "test.ts"))
           expect(has).toBe(true)
-          await LSP.touchFile(path.join(tmp.path, "test.ts"))
-        },
-      })
-      expect(spy).toHaveBeenCalledTimes(1)
-    } finally {
-      spy.mockRestore()
-      await Instance.disposeAll()
-    }
-  })
+          yield* lsp.touchFile(path.join(dir, "test.ts"))
+          expect(spy).toHaveBeenCalledTimes(1)
+        } finally {
+          spy.mockRestore()
+          yield* resetSettings
+        }
+      }),
+    ),
+  )
 
-  test("shutdownAll resolves cleanly when no state is initialized", async () => {
-    await using tmp = await tmpdir()
-    try {
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          await LSP.shutdownAll()
-        },
-      })
-    } finally {
-      await Instance.disposeAll()
-    }
-  })
+  it.live("shutdownAll resolves cleanly when no state is initialized", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const lsp = yield* LSP.Service
+        yield* lsp.shutdownAll()
+      }),
+    ),
+  )
 
-  test("invalidate forces state re-init so flip-on becomes observable", async () => {
-    await using tmp = await tmpdir()
-    const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
-    try {
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          await Settings.setLspEnabled(false)
-          const off = await LSP.hasClients(path.join(tmp.path, "test.ts"))
+  it.live("invalidate forces state re-init so flip-on becomes observable", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
+        try {
+          const settings = yield* Settings.Service
+          const lsp = yield* LSP.Service
+
+          yield* settings.setLspEnabled(false)
+          const off = yield* lsp.hasClients(path.join(dir, "test.ts"))
           expect(off).toBe(false)
 
-          await Settings.setLspEnabled(true)
-          await LSP.invalidate()
-          const on = await LSP.hasClients(path.join(tmp.path, "test.ts"))
+          yield* settings.setLspEnabled(true)
+          yield* lsp.invalidate()
+          const on = yield* lsp.hasClients(path.join(dir, "test.ts"))
           expect(on).toBe(true)
-        },
-      })
-    } finally {
-      spy.mockRestore()
-      await Instance.disposeAll()
-      await Settings.setLspEnabled(false)
-    }
-  })
+        } finally {
+          spy.mockRestore()
+          yield* resetSettings
+        }
+      }),
+    ),
+  )
+})
 
+describe("LSP package metadata", () => {
   test("LSP_SERVER_PACKAGES contains TypeScript and Vue language server packages", () => {
     expect(LSP_SERVER_PACKAGES.has("typescript-language-server")).toBe(true)
     expect(LSP_SERVER_PACKAGES.has("@vue/language-server")).toBe(true)
   })
 
-  test("install failures take the .catch branch and skip s.broken poison", () => {
+  test("install failures take the .catch branch with cooldown instead of s.broken poison", () => {
     const src = fs.readFileSync(
       path.join(import.meta.dir, "..", "..", "src", "lsp", "index.ts"),
       "utf8",
     )
     expect(src.includes("InstallFailedError")).toBe(true)
-    const catchSection = src.slice(src.indexOf(".catch((err)"))
+    const catchSection = src.slice(
+      src.indexOf(".catch((err)"),
+      src.indexOf(".catch((err)") + 800,
+    )
     expect(catchSection.includes("isInstallFailure")).toBe(true)
-    expect(catchSection.includes("if (!isInstallFailure)")).toBe(true)
+    expect(catchSection.includes("installCooldownUntil")).toBe(true)
+    expect(catchSection.includes("s.broken.add(key)")).toBe(true)
   })
 })
