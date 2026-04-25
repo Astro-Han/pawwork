@@ -3,6 +3,7 @@ import {
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
+  formatOAuthFailure,
   shouldKeepCodexOAuthModel,
   type IdTokenClaims,
 } from "../../src/plugin/codex"
@@ -139,6 +140,47 @@ describe("plugin.codex", () => {
       expect(shouldKeepCodexOAuthModel("gpt-5.3", "gpt-5.3")).toBe(false)
       expect(shouldKeepCodexOAuthModel("gpt-4.1", "gpt-4.1")).toBe(false)
       expect(shouldKeepCodexOAuthModel("custom-model", "custom-model")).toBe(false)
+    })
+  })
+
+  describe("formatOAuthFailure", () => {
+    test("includes safe JSON error fields and request metadata", async () => {
+      const response = new Response(
+        JSON.stringify({
+          error: {
+            code: "unsupported_country_region_territory",
+            type: "request_forbidden",
+            message: "Country, region, or territory not supported",
+          },
+        }),
+        {
+          status: 403,
+          headers: {
+            "content-type": "application/json",
+            "x-request-id": "req_123",
+            "cf-ray": "ray_123",
+            "cf-mitigated": "challenge",
+          },
+        },
+      )
+
+      expect(await formatOAuthFailure("Token exchange", response)).toBe(
+        "Token exchange failed (status=403, request_id=req_123, cf_ray=ray_123, cf_mitigated=challenge, code=unsupported_country_region_territory, type=request_forbidden, message=Country, region, or territory not supported)",
+      )
+    })
+
+    test("falls back to status and headers when response is not JSON", async () => {
+      const response = new Response("<html>blocked</html>", {
+        status: 403,
+        headers: {
+          "content-type": "text/html",
+          "x-request-id": "req_html",
+        },
+      })
+
+      expect(await formatOAuthFailure("Token exchange", response)).toBe(
+        "Token exchange failed (status=403, request_id=req_html)",
+      )
     })
   })
 })

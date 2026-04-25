@@ -6,9 +6,31 @@ import { PAWWORK_RUNTIME, runtimeRoots } from "./runtime-namespace"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 
+const PROXY_ENV_KEYS = [
+  "HTTP_PROXY",
+  "http_proxy",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+  "NO_PROXY",
+  "no_proxy",
+] as const
+
 export type WslConfig = { enabled: boolean }
 
 export type HealthCheck = { wait: Promise<void> }
+
+type ProxyDispatcherModule = {
+  EnvHttpProxyAgent: new (options: { httpProxy?: string; httpsProxy?: string; noProxy?: string }) => unknown
+  setGlobalDispatcher(dispatcher: unknown): void
+}
+
+type ProxyConfig = {
+  httpProxy?: string
+  httpsProxy?: string
+  noProxy?: string
+}
 
 export function getDefaultServerUrl(): string | null {
   const value = getStore().get(DEFAULT_SERVER_URL_KEY)
@@ -35,6 +57,7 @@ export function setWslConfig(config: WslConfig) {
 
 export async function spawnLocalServer(hostname: string, port: number, password: string) {
   prepareServerEnv(password)
+  await configureProxyDispatcher(process.env)
   const { Log, Server } = await import("virtual:opencode-server")
   await Log.init({ print: false, level: "WARN" })
   const listener = await Server.listen({
@@ -103,8 +126,92 @@ function prepareServerEnv(password: string) {
   Object.assign(process.env, buildServerEnv(password))
 }
 
+function proxyConfigFromEnv(env: NodeJS.ProcessEnv): ProxyConfig | null {
+  const allProxy = env.ALL_PROXY ?? env.all_proxy
+  const httpProxy = env.HTTP_PROXY ?? env.http_proxy ?? allProxy
+  const httpsProxy = env.HTTPS_PROXY ?? env.https_proxy ?? allProxy
+  const noProxy = env.NO_PROXY ?? env.no_proxy
+  if (!httpProxy && !httpsProxy) return null
+  return { httpProxy, httpsProxy, noProxy }
+}
+
+function presentProxyEnvKeys(env: NodeJS.ProcessEnv) {
+  return PROXY_ENV_KEYS.filter((key) => Boolean(env[key]))
+}
+
+function supportedProxyUrl(url: string | undefined) {
+  if (!url) return undefined
+  try {
+    const protocol = new URL(url).protocol
+    if (protocol === "http:" || protocol === "https:") return url
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+function normalizeProxyConfig(proxy: ProxyConfig) {
+  const httpProxy = supportedProxyUrl(proxy.httpProxy)
+  const httpsProxy = supportedProxyUrl(proxy.httpsProxy)
+  const skipped = {
+    httpProxy: Boolean(proxy.httpProxy && !httpProxy),
+    httpsProxy: Boolean(proxy.httpsProxy && !httpsProxy),
+  }
+  if (!httpProxy && !httpsProxy) {
+    return {
+      proxy: null,
+      skipped,
+    }
+  }
+  return {
+    proxy: {
+      httpProxy,
+      httpsProxy,
+      noProxy: proxy.noProxy,
+    },
+    skipped,
+  }
+}
+
+async function configureProxyDispatcher(
+  env: NodeJS.ProcessEnv,
+  load: () => Promise<ProxyDispatcherModule> = () => import("undici"),
+) {
+  const proxy = proxyConfigFromEnv(env)
+  if (!proxy) {
+    console.log("[server] No Node fetch proxy env detected")
+    return false
+  }
+  const configuredKeys = presentProxyEnvKeys(env)
+  const normalized = normalizeProxyConfig(proxy)
+  if (!normalized.proxy) {
+    console.warn("[server] Skipped Node fetch proxy env with unsupported protocol", {
+      keys: configuredKeys,
+      skipped: normalized.skipped,
+    })
+    return false
+  }
+  try {
+    const { EnvHttpProxyAgent, setGlobalDispatcher } = await load()
+    setGlobalDispatcher(new EnvHttpProxyAgent(normalized.proxy))
+    console.log("[server] Configured Node fetch proxy from env", {
+      keys: configuredKeys,
+    })
+    return true
+  } catch (error) {
+    console.warn("[server] Failed to configure Node fetch proxy from env", {
+      keys: configuredKeys,
+      skipped: normalized.skipped,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return false
+  }
+}
+
 export const buildServerEnvForTest = buildServerEnv
 export const githubConfigDirForTest = githubConfigDir
+export const proxyConfigFromEnvForTest = proxyConfigFromEnv
+export const configureProxyDispatcherForTest = configureProxyDispatcher
 
 export async function checkHealth(url: string, password?: string | null): Promise<boolean> {
   let healthUrl: URL
