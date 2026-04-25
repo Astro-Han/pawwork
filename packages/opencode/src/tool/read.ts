@@ -1,11 +1,10 @@
 import z from "zod"
-import { Effect, Option, Scope } from "effect"
+import { Effect, Option } from "effect"
 import { createReadStream } from "fs"
 import * as path from "path"
 import { createInterface } from "readline"
 import { Tool } from "./tool"
 import { AppFileSystem } from "../filesystem"
-import { LSP } from "../lsp"
 import DESCRIPTION from "./read.txt"
 import { Instance } from "../project/instance"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -32,8 +31,6 @@ export const ReadTool = Tool.define(
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
     const instruction = yield* Instruction.Service
-    const lsp = yield* LSP.Service
-    const scope = yield* Scope.Scope
 
     const miss = Effect.fn("ReadTool.miss")(function* (filepath: string) {
       const dir = path.dirname(filepath)
@@ -74,10 +71,6 @@ export const ReadTool = Tool.define(
         }),
         { concurrency: "unbounded" },
       ).pipe(Effect.map((items: string[]) => items.sort((a, b) => a.localeCompare(b))))
-    })
-
-    const warm = Effect.fn("ReadTool.warm")(function* (filepath: string) {
-      yield* lsp.touchFile(filepath, false).pipe(Effect.ignore, Effect.forkIn(scope))
     })
 
     const readSample = Effect.fn("ReadTool.sample")(function* (filepath: string, fileSize: number) {
@@ -220,8 +213,6 @@ export const ReadTool = Tool.define(
         output += `\n\n(End of file - total ${file.count} lines)`
       }
       output += "\n</content>"
-
-      yield* warm(filepath)
 
       if (loaded.length > 0) {
         output += `\n\n<system-reminder>\n${loaded.map((item) => item.content).join("\n\n")}\n</system-reminder>`

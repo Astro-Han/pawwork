@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { Cause, Effect, Exit, Layer } from "effect"
 import path from "path"
 import { Agent } from "../../src/agent/agent"
@@ -573,4 +573,16 @@ describe("tool.read binary detection", () => {
       expect(err.message).toContain("Cannot read binary file (extension: .wasm)")
     }),
   )
+})
+
+describe("ReadTool LSP warm hook removal", () => {
+  test("read.ts does not invoke LSP touchFile (warm hook removed)", async () => {
+    const fs = await import("node:fs")
+    const src = fs.readFileSync(
+      path.join(import.meta.dir, "..", "..", "src", "tool", "read.ts"),
+      "utf8",
+    )
+    expect(src.includes("lsp.touchFile")).toBe(false)
+    expect(src.includes("ReadTool.warm")).toBe(false)
+  })
 })
