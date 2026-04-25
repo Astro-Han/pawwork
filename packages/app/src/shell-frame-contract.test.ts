@@ -52,3 +52,9 @@ test("session header uses a view title on home and breadcrumb title in sessions"
   expect(sessionHeader).not.toContain('language.t("session.header.searchFiles")')
   expect(sessionHeader).not.toContain('language.t("session.header.search.placeholder"')
 })
+
+test("titlebar drops Windows-only 138px placeholder and conditional drag region", () => {
+  const titlebar = read("./components/titlebar.tsx")
+  expect(titlebar).not.toContain('class="w-36 shrink-0"')
+  expect(titlebar).toContain('data-shell-drag-region={!windows() || undefined}')
+})
