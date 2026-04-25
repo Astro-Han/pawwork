@@ -339,4 +339,66 @@ describe("desktop server runtime namespace", () => {
       globalThis.fetch = previousFetch
     }
   })
+
+  test("maps ALL_PROXY to HTTP and HTTPS proxy config", async () => {
+    const { proxyConfigFromEnvForTest } = await import("./server")
+
+    expect(
+      proxyConfigFromEnvForTest({
+        ALL_PROXY: "socks5h://127.0.0.1:7897",
+        NO_PROXY: "localhost,127.0.0.1",
+      }),
+    ).toEqual({
+      httpProxy: "socks5h://127.0.0.1:7897",
+      httpsProxy: "socks5h://127.0.0.1:7897",
+      noProxy: "localhost,127.0.0.1",
+    })
+  })
+
+  test("configureProxyDispatcher skips when no HTTP or HTTPS proxy env is present", async () => {
+    const { configureProxyDispatcherForTest } = await import("./server")
+
+    const configured = await configureProxyDispatcherForTest(
+      {
+        NO_PROXY: "localhost",
+      },
+      async () => {
+        throw new Error("undici should not load without proxy env")
+      },
+    )
+
+    expect(configured).toBe(false)
+  })
+
+  test("configureProxyDispatcher registers EnvHttpProxyAgent using env-derived proxy config", async () => {
+    let capturedOptions: Record<string, string | undefined> | undefined
+    let capturedDispatcher: unknown
+    const { configureProxyDispatcherForTest } = await import("./server")
+
+    const configured = await configureProxyDispatcherForTest(
+      {
+        HTTPS_PROXY: "http://127.0.0.1:7897",
+        HTTP_PROXY: "http://127.0.0.1:7897",
+        NO_PROXY: "localhost,127.0.0.1",
+      },
+      async () => ({
+        EnvHttpProxyAgent: class {
+          constructor(options: Record<string, string | undefined>) {
+            capturedOptions = options
+          }
+        } as any,
+        setGlobalDispatcher: (dispatcher: unknown) => {
+          capturedDispatcher = dispatcher
+        },
+      }),
+    )
+
+    expect(configured).toBe(true)
+    expect(capturedOptions).toEqual({
+      httpProxy: "http://127.0.0.1:7897",
+      httpsProxy: "http://127.0.0.1:7897",
+      noProxy: "localhost,127.0.0.1",
+    })
+    expect(capturedDispatcher).toBeTruthy()
+  })
 })

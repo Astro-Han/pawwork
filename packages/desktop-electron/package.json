@@ -36,7 +36,8 @@
     "electron-updater": "^6",
     "electron-window-state": "^5.0.3",
     "marked": "^15",
-    "semver": "^7.6.0"
+    "semver": "^7.6.0",
+    "undici": "7.24.7"
   },
   "devDependencies": {
     "@actions/artifact": "4.0.0",
