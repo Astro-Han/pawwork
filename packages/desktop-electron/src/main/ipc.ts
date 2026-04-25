@@ -11,14 +11,12 @@ import type {
   ReportProblemResult,
   ServerReadyData,
   SqliteMigrationProgress,
-  TitlebarTheme,
   UpdateInfo,
   WindowConfig,
   WslConfig,
 } from "../preload/types"
 import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
-import { setTitlebar } from "./windows"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -302,11 +300,6 @@ export function registerIpcHandlers(deps: Deps) {
 
   ipcMain.handle("get-zoom-factor", (event: IpcMainInvokeEvent) => event.sender.getZoomFactor())
   ipcMain.handle("set-zoom-factor", (event: IpcMainInvokeEvent, factor: number) => event.sender.setZoomFactor(factor))
-  ipcMain.handle("set-titlebar", (event: IpcMainInvokeEvent, theme: TitlebarTheme) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    setTitlebar(win, theme)
-  })
 }
 
 export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {

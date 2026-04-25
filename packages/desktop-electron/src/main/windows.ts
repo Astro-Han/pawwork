@@ -2,7 +2,6 @@ import windowState from "electron-window-state"
 import { app, BrowserWindow, nativeImage, nativeTheme, net, protocol } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import type { TitlebarTheme } from "../preload/types"
 import { rendererProtocol, rendererUrl, resolveRendererFile } from "./renderer-protocol"
 import { WINDOWS_TITLEBAR_OVERLAY_HEIGHT, macTrafficLightPosition } from "./window-chrome"
 import { rendererWebPreferences } from "./window-options"
@@ -34,18 +33,13 @@ function tone() {
   return nativeTheme.shouldUseDarkColors ? "dark" : "light"
 }
 
-function overlay(theme: Partial<TitlebarTheme> = {}) {
+function overlay(theme: { mode?: "light" | "dark" } = {}) {
   const mode = theme.mode ?? tone()
   return {
     color: "#00000000",
     symbolColor: mode === "dark" ? "white" : "black",
     height: WINDOWS_TITLEBAR_OVERLAY_HEIGHT,
   }
-}
-
-export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = {}) {
-  if (process.platform !== "win32") return
-  win.setTitleBarOverlay(overlay(theme))
 }
 
 export function setDockIcon() {

@@ -21,9 +21,6 @@ export type WindowConfig = {
 }
 
 export type LinuxDisplayBackend = "wayland" | "auto"
-export type TitlebarTheme = {
-  mode: "light" | "dark"
-}
 
 export type ElectronAPI = {
   ciSmokeEnabled: boolean
@@ -82,7 +79,6 @@ export type ElectronAPI = {
   relaunch: () => void
   getZoomFactor: () => Promise<number>
   setZoomFactor: (factor: number) => Promise<void>
-  setTitlebar: (theme: TitlebarTheme) => Promise<void>
   setDesktopContext: (context: DesktopContext) => Promise<void>
   initializeDesktopContext: (locale: DesktopContext["locale"]) => Promise<void>
   loadingWindowComplete: () => void
