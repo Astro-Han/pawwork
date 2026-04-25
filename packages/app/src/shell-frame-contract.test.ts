@@ -13,7 +13,7 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   const sessionHeader = read("./components/session/session-header.tsx")
   const wideDesktopQuery = css.indexOf("@media (min-width: 1280px)")
   const macMainSeamRule = css.indexOf('[data-component="desktop-shell-main"][data-platform="desktop"][data-os="macos"] {')
-  const wideFrameRule = css.indexOf('[data-component="desktop-shell-frame"][data-platform="desktop"]:not([data-os="macos"]) {')
+  const wideFrameRule = css.indexOf('[data-component="desktop-shell-frame"][data-platform="desktop"][data-os="linux"] {')
 
   expect(css).toContain('[data-component="desktop-shell"][data-platform="desktop"] {')
   expect(css).toContain("--shell-titlebar-height: 44px;")
