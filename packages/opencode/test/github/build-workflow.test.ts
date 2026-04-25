@@ -161,6 +161,7 @@ describe("release workflow", () => {
       expect(buildElectronAppStep?.env).toEqual({
         OPENCODE_CHANNEL: "${{ inputs.channel || 'dev' }}",
         PAWWORK_FEEDBACK_FORM_URL: "${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}",
+        PAWWORK_BUILD_SHA: "${{ github.sha }}",
       })
       expect(runtimeImportGuardStep?.if).toBe("${{ inputs.phase != 'finalize' }}")
       expect(runtimeImportGuardStep?.run).toBe("bun ./scripts/runtime-import-guard.ts")

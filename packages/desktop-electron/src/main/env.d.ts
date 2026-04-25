@@ -1,5 +1,7 @@
 interface ImportMetaEnv {
   readonly OPENCODE_CHANNEL: string
+  readonly PAWWORK_FEEDBACK_FORM_URL?: string
+  readonly PAWWORK_BUILD_SHA?: string
 }
 
 interface ImportMeta {

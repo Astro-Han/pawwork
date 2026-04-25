@@ -1030,4 +1030,9 @@ export const dict = {
   "workspace.chip.empty": "No workspaces available",
   "workspace.chip.popover.title": "Workspaces",
   "workspace.chip.add": "Add workspace",
+  "about.title": "About PawWork",
+  "about.version": "Version",
+  "about.build": "Build",
+  "about.electron": "Electron",
+  "about.chromium": "Chromium",
 }

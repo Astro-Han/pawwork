@@ -314,6 +314,7 @@ jobs:
         env:
           OPENCODE_CHANNEL: ${{ inputs.channel || 'dev' }}
           PAWWORK_FEEDBACK_FORM_URL: ${{ vars.PAWWORK_FEEDBACK_FORM_URL || '' }}
+          PAWWORK_BUILD_SHA: ${{ github.sha }}
 
       - name: Check desktop runtime imports
         if: ${{ inputs.phase != 'finalize' }}

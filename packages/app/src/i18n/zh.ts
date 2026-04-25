@@ -1001,4 +1001,9 @@ export const dict = {
   "error.childStore.persistedProjectIconCreateFailed": "创建持久化项目图标失败",
   "error.childStore.storeCreateFailed": "创建存储失败",
   "terminal.connectionLost.abnormalClose": "WebSocket 异常关闭：{{code}}",
+  "about.title": "关于爪印",
+  "about.version": "版本",
+  "about.build": "构建",
+  "about.electron": "Electron",
+  "about.chromium": "Chromium",
 } satisfies Partial<Record<Keys, string>>

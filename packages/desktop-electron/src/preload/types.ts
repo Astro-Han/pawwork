@@ -21,8 +21,12 @@ export type WindowConfig = {
 }
 
 export type LinuxDisplayBackend = "wayland" | "auto"
-export type TitlebarTheme = {
-  mode: "light" | "dark"
+
+export type AboutInfo = {
+  version: string
+  electronVersion: string
+  chromeVersion: string
+  buildSha: string
 }
 
 export type ElectronAPI = {
@@ -82,7 +86,6 @@ export type ElectronAPI = {
   relaunch: () => void
   getZoomFactor: () => Promise<number>
   setZoomFactor: (factor: number) => Promise<void>
-  setTitlebar: (theme: TitlebarTheme) => Promise<void>
   setDesktopContext: (context: DesktopContext) => Promise<void>
   initializeDesktopContext: (locale: DesktopContext["locale"]) => Promise<void>
   loadingWindowComplete: () => void
@@ -91,4 +94,6 @@ export type ElectronAPI = {
   reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
   installUpdate: () => Promise<void>
   setBackgroundColor: (color: string) => Promise<void>
+  getAboutInfo: () => Promise<AboutInfo>
+  onAboutOpen: (handler: () => void) => () => void
 }

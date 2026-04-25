@@ -42,6 +42,7 @@ import { PromptProvider } from "@/context/prompt"
 import { ServerConnection, ServerProvider, serverName, useServer } from "@/context/server"
 import { SettingsProvider } from "@/context/settings"
 import { TerminalProvider } from "@/context/terminal"
+import { AboutModal, type AboutInfo } from "@/components/about-modal"
 import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
@@ -78,8 +79,9 @@ declare global {
       wsl?: boolean
     }
     api?: {
-      setTitlebar?: (theme: { mode: "light" | "dark" }) => Promise<void>
       setDesktopContext?: (context: DesktopContext) => Promise<void>
+      getAboutInfo?: () => Promise<AboutInfo>
+      onAboutOpen?: (handler: () => void) => () => void
     }
   }
 }
@@ -228,9 +230,6 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
           cssLight: "pawwork-theme-css-light",
           cssDark: "pawwork-theme-css-dark",
         }}
-        onThemeApplied={(_, mode) => {
-          void window.api?.setTitlebar?.({ mode })
-        }}
       >
         <LanguageProvider locale={props.locale}>
           <UiI18nBridge>
@@ -238,7 +237,10 @@ export function AppBaseProviders(props: ParentProps<{ locale?: Locale }>) {
               <QueryProvider>
                 <DialogProvider>
                   <MarkedProvider>
-                    <FileComponentProvider component={File}>{props.children}</FileComponentProvider>
+                    <FileComponentProvider component={File}>
+                      <AboutModal />
+                      {props.children}
+                    </FileComponentProvider>
                   </MarkedProvider>
                 </DialogProvider>
               </QueryProvider>

@@ -1,10 +1,9 @@
 import windowState from "electron-window-state"
-import { app, BrowserWindow, nativeImage, nativeTheme, net, protocol } from "electron"
+import { app, BrowserWindow, nativeImage, net, protocol } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import type { TitlebarTheme } from "../preload/types"
 import { rendererProtocol, rendererUrl, resolveRendererFile } from "./renderer-protocol"
-import { WINDOWS_TITLEBAR_OVERLAY_HEIGHT, macTrafficLightPosition } from "./window-chrome"
+import { macTrafficLightPosition } from "./window-chrome"
 import { rendererWebPreferences } from "./window-options"
 
 const root = dirname(fileURLToPath(import.meta.url))
@@ -28,24 +27,6 @@ function iconsDir() {
 function iconPath() {
   const ext = process.platform === "win32" ? "ico" : "png"
   return join(iconsDir(), `icon.${ext}`)
-}
-
-function tone() {
-  return nativeTheme.shouldUseDarkColors ? "dark" : "light"
-}
-
-function overlay(theme: Partial<TitlebarTheme> = {}) {
-  const mode = theme.mode ?? tone()
-  return {
-    color: "#00000000",
-    symbolColor: mode === "dark" ? "white" : "black",
-    height: WINDOWS_TITLEBAR_OVERLAY_HEIGHT,
-  }
-}
-
-export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = {}) {
-  if (process.platform !== "win32") return
-  win.setTitleBarOverlay(overlay(theme))
 }
 
 export function setDockIcon() {
@@ -85,7 +66,6 @@ export function createMainWindow() {
     defaultHeight: 800,
   })
 
-  const mode = tone()
   const win = new BrowserWindow({
     x: state.x,
     y: state.y,
@@ -99,13 +79,6 @@ export function createMainWindow() {
       ? {
           titleBarStyle: "hidden" as const,
           trafficLightPosition: macTrafficLightPosition(),
-        }
-      : {}),
-    ...(process.platform === "win32"
-      ? {
-          frame: false,
-          titleBarStyle: "hidden" as const,
-          titleBarOverlay: overlay({ mode }),
         }
       : {}),
     webPreferences: rendererWebPreferences(root),
@@ -123,7 +96,6 @@ export function createMainWindow() {
 }
 
 export function createLoadingWindow() {
-  const mode = tone()
   const win = new BrowserWindow({
     width: 640,
     height: 480,
@@ -133,15 +105,12 @@ export function createLoadingWindow() {
     icon: iconPath(),
     backgroundColor,
     ...(process.platform === "darwin" ? { titleBarStyle: "hidden" as const } : {}),
-    ...(process.platform === "win32"
-      ? {
-          frame: false,
-          titleBarStyle: "hidden" as const,
-          titleBarOverlay: overlay({ mode }),
-        }
-      : {}),
     webPreferences: rendererWebPreferences(root),
   })
+
+  if (process.platform === "win32") {
+    win.removeMenu()
+  }
 
   loadWindow(win, "loading.html")
 

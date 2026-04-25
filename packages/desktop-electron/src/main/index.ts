@@ -56,6 +56,7 @@ import { normalizeDesktopContextPayload, syncWindowTitleForDesktopContext } from
 import { createDesktopContextStore } from "./desktop-context-store"
 import { createFeedbackHandler, feedbackDialogLabels } from "./feedback"
 import { registerIpcHandlers, sendDeepLinks, sendMenuCommand, sendSqliteMigrationProgress } from "./ipc"
+import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { filePath, initLogging, tail } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
@@ -476,6 +477,7 @@ function wireMenu() {
     reportProblem: () => {
       void reportProblem()
     },
+    triggerAbout: (win) => triggerAbout(win),
   }, focusedMenuLocale())
 }
 
@@ -531,6 +533,8 @@ registerIpcHandlers({
     if (BrowserWindow.getFocusedWindow()?.id === win.id) syncMenuLocaleForWindow(win)
   },
 })
+
+registerAboutIpc()
 
 function killSidecar() {
   if (!server) return

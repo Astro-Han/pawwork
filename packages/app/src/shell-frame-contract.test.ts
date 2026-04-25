@@ -13,7 +13,7 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   const sessionHeader = read("./components/session/session-header.tsx")
   const wideDesktopQuery = css.indexOf("@media (min-width: 1280px)")
   const macMainSeamRule = css.indexOf('[data-component="desktop-shell-main"][data-platform="desktop"][data-os="macos"] {')
-  const wideFrameRule = css.indexOf('[data-component="desktop-shell-frame"][data-platform="desktop"]:not([data-os="macos"]) {')
+  const wideFrameRule = css.indexOf('[data-component="desktop-shell-frame"][data-platform="desktop"][data-os="linux"] {')
 
   expect(css).toContain('[data-component="desktop-shell"][data-platform="desktop"] {')
   expect(css).toContain("--shell-titlebar-height: 44px;")
@@ -51,4 +51,10 @@ test("session header uses a view title on home and breadcrumb title in sessions"
   expect(sessionHeader).toContain('sync.session.get(params.id)')
   expect(sessionHeader).not.toContain('language.t("session.header.searchFiles")')
   expect(sessionHeader).not.toContain('language.t("session.header.search.placeholder"')
+})
+
+test("titlebar drops Windows-only 138px placeholder and conditional drag region", () => {
+  const titlebar = read("./components/titlebar.tsx")
+  expect(titlebar).not.toContain('class="w-36 shrink-0"')
+  expect(titlebar).toContain('data-shell-drag-region={!windows() || undefined}')
 })

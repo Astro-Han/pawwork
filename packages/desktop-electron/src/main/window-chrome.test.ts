@@ -6,7 +6,6 @@ import {
   LEGACY_MACOS_TITLEBAR_HEIGHT,
   LEGACY_MACOS_TRAFFIC_LIGHT_Y,
   MACOS_SHELL_TITLEBAR_HEIGHT,
-  WINDOWS_TITLEBAR_OVERLAY_HEIGHT,
   macTrafficLightPosition,
 } from "./window-chrome"
 
@@ -23,7 +22,6 @@ test("macOS traffic lights stay centered when shell titlebar height increases", 
   expect(css).toContain("--shell-titlebar-height: 44px;")
   expect(css).not.toContain("--shell-titlebar-height: 40px;")
   expect(css).not.toContain("--shell-titlebar-height: 48px;")
-  expect(WINDOWS_TITLEBAR_OVERLAY_HEIGHT).toBe(44)
   expect(macTrafficLightPosition()).toEqual({
     x: 12,
     y: 16,

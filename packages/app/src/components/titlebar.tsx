@@ -91,7 +91,7 @@ export function Titlebar() {
       class="shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
       classList={{ "h-11": platform.platform === "desktop" && !mac() }}
       style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}
-      data-shell-drag-region
+      data-shell-drag-region={!windows() || undefined}
     >
       <div
         classList={{
@@ -197,9 +197,6 @@ export function Titlebar() {
           data-shell-slot="right-portal"
           class="flex items-center gap-1 shrink-0 justify-end"
         />
-        <Show when={windows()}>
-          <div class="w-36 shrink-0" />
-        </Show>
       </div>
     </header>
   )

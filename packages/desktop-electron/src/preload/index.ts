@@ -71,7 +71,6 @@ const api: ElectronAPI = {
   relaunch: () => ipcRenderer.send("relaunch"),
   getZoomFactor: () => ipcRenderer.invoke("get-zoom-factor"),
   setZoomFactor: (factor) => ipcRenderer.invoke("set-zoom-factor", factor),
-  setTitlebar: (theme) => ipcRenderer.invoke("set-titlebar", theme),
   setDesktopContext: (context) => invokeSetDesktopContext(context),
   initializeDesktopContext: (locale) =>
     invokeSetDesktopContext(buildDesktopContext({ route: "/", locale })),
@@ -81,6 +80,14 @@ const api: ElectronAPI = {
   reportProblem: (input) => ipcRenderer.invoke("report-problem", input),
   installUpdate: () => ipcRenderer.invoke("install-update"),
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
+  getAboutInfo: () => ipcRenderer.invoke("about:get-info"),
+  onAboutOpen: (handler: () => void) => {
+    const wrapped = () => handler()
+    ipcRenderer.on("about:open", wrapped)
+    return () => {
+      ipcRenderer.removeListener("about:open", wrapped)
+    }
+  },
 }
 
 contextBridge.exposeInMainWorld("api", api)
