@@ -623,7 +623,12 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
                     })
 
                     if (!tokenResponse.ok) {
-                      throw new Error(await formatOAuthFailure("Token exchange", tokenResponse))
+                      const message = await formatOAuthFailure("Token exchange", tokenResponse)
+                      log.warn("codex token exchange failed", {
+                        proxy: proxyEnvSummary(),
+                        message,
+                      })
+                      throw new Error(message)
                     }
 
                     const tokens: TokenResponse = await tokenResponse.json()
