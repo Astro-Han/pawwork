@@ -10,6 +10,7 @@ import { SessionRunState } from "@/session/run-state"
 import { SessionCompaction } from "../../session/compaction"
 import { SessionRevert } from "../../session/revert"
 import { SessionShare } from "@/share/session"
+import { Export } from "@/session/export"
 import { SessionStatus } from "@/session/status"
 import { SessionSummary } from "@/session/summary"
 import { Todo } from "../../session/todo"
@@ -445,6 +446,41 @@ export const SessionRoutes = lazy(() =>
           ...session,
           share,
         })
+      },
+    )
+    .get(
+      "/:sessionID/export",
+      describeRoute({
+        summary: "Export session log",
+        description:
+          "Export the full root session tree as a single JSON document for local debugging. " +
+          "If a child session id is provided, climbs to the topmost ancestor and exports the whole tree.",
+        operationId: "session.export",
+        responses: {
+          200: {
+            description: "Successfully exported session",
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        try {
+          const result = await AppRuntime.runPromise(Export.session(sessionID))
+          return c.json(result)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          if (msg.toLowerCase().includes("not found")) {
+            return c.json({ error: "session_not_found", sessionID }, 404)
+          }
+          throw err
+        }
       },
     )
     .get(
