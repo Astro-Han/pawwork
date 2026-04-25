@@ -502,8 +502,15 @@ export namespace LSP {
         const inFlight = Array.from(s.spawning.values())
         s.spawning.clear()
         yield* Effect.promise(() => Promise.allSettled(inFlight))
+        const hadClients = s.clients.length > 0
         yield* Effect.promise(() => Promise.all(s.clients.map((c) => c.shutdown().catch(() => {}))))
         s.clients.length = 0
+        // Notify the renderer so cached LSP status no longer reflects the
+        // killed clients; without this the status popover keeps showing
+        // connected servers until another lsp event fires.
+        if (hadClients) {
+          yield* Effect.promise(() => Bus.publish(Event.Updated, {}).catch(() => {}))
+        }
       })
 
       const invalidate = Effect.fn("LSP.invalidate")(function* () {
