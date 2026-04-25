@@ -131,7 +131,49 @@ interface TokenResponse {
   expires_in?: number
 }
 
+function proxyEnvSummary() {
+  return {
+    HTTP_PROXY: Boolean(process.env.HTTP_PROXY || process.env.http_proxy),
+    HTTPS_PROXY: Boolean(process.env.HTTPS_PROXY || process.env.https_proxy),
+    ALL_PROXY: Boolean(process.env.ALL_PROXY || process.env.all_proxy),
+    NO_PROXY: Boolean(process.env.NO_PROXY || process.env.no_proxy),
+  }
+}
+
+export async function formatOAuthFailure(action: string, response: Response): Promise<string> {
+  const parts = [`status=${response.status}`]
+  const requestId = response.headers.get("x-request-id")
+  const cfRay = response.headers.get("cf-ray")
+  const cfMitigated = response.headers.get("cf-mitigated")
+  if (requestId) parts.push(`request_id=${requestId}`)
+  if (cfRay) parts.push(`cf_ray=${cfRay}`)
+  if (cfMitigated) parts.push(`cf_mitigated=${cfMitigated}`)
+
+  try {
+    const payload = await response.clone().json()
+    const error = typeof payload?.error === "object" && payload.error ? payload.error : payload
+    const code = typeof error?.code === "string" ? error.code : typeof error?.error === "string" ? error.error : undefined
+    const type = typeof error?.type === "string" ? error.type : undefined
+    const message =
+      typeof error?.message === "string"
+        ? error.message
+        : typeof error?.error_description === "string"
+          ? error.error_description
+          : undefined
+    if (code) parts.push(`code=${code}`)
+    if (type) parts.push(`type=${type}`)
+    if (message) parts.push(`message=${message}`)
+  } catch {}
+
+  return `${action} failed (${parts.join(", ")})`
+}
+
 async function exchangeCodeForTokens(code: string, redirectUri: string, pkce: PkceCodes): Promise<TokenResponse> {
+  log.info("codex token exchange start", {
+    issuer: ISSUER,
+    host: "auth.openai.com",
+    proxy: proxyEnvSummary(),
+  })
   const response = await fetch(`${ISSUER}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -144,7 +186,12 @@ async function exchangeCodeForTokens(code: string, redirectUri: string, pkce: Pk
     }).toString(),
   })
   if (!response.ok) {
-    throw new Error(`Token exchange failed: ${response.status}`)
+    const message = await formatOAuthFailure("Token exchange", response)
+    log.warn("codex token exchange failed", {
+      proxy: proxyEnvSummary(),
+      message,
+    })
+    throw new Error(message)
   }
   return response.json()
 }
@@ -160,7 +207,12 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> 
     }).toString(),
   })
   if (!response.ok) {
-    throw new Error(`Token refresh failed: ${response.status}`)
+    const message = await formatOAuthFailure("Token refresh", response)
+    log.warn("codex token refresh failed", {
+      proxy: proxyEnvSummary(),
+      message,
+    })
+    throw new Error(message)
   }
   return response.json()
 }
@@ -571,7 +623,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
                     })
 
                     if (!tokenResponse.ok) {
-                      throw new Error(`Token exchange failed: ${tokenResponse.status}`)
+                      throw new Error(await formatOAuthFailure("Token exchange", tokenResponse))
                     }
 
                     const tokens: TokenResponse = await tokenResponse.json()
