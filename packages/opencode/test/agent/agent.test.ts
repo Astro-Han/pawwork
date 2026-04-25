@@ -490,7 +490,7 @@ test("legacy tools config converts to permissions", async () => {
   })
 })
 
-test("legacy tools config maps write/edit/patch to edit permission", async () => {
+test("legacy tools.write config maps to edit permission", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
