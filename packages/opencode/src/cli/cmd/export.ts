@@ -75,8 +75,7 @@ export const ExportCommand = cmd({
 
       try {
         const result = await AppRuntime.runPromise(Export.session(sessionID!))
-        const finalSession = args.sanitize ? Export.sanitizeTree(result.session) : result.session
-        const final = { ...result, session: finalSession }
+        const final = args.sanitize ? Export.sanitizeSnapshot(result) : result
         process.stdout.write(JSON.stringify(final, null, 2))
         process.stdout.write(EOL)
       } catch {

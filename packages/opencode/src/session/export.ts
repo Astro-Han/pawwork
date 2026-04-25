@@ -28,9 +28,11 @@ async function hashFile(p: string) {
 }
 
 function redactDataUrl(url: string): { mime: string; size_bytes: number; sha256: string } | null {
-  const match = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(url)
+  // RFC 2397 allows zero-or-more `;param=value` segments between mime and the optional `;base64` flag,
+  // e.g. `data:text/plain;charset=utf-8;base64,...`. Lazy params group lets `;base64` still anchor.
+  const match = /^data:([^;,]+)((?:;[^;,]+)*?)(;base64)?,(.*)$/s.exec(url)
   if (!match) return null
-  const [, mime, isBase64, payload] = match
+  const [, mime, , isBase64, payload] = match
   const buf = isBase64 ? Buffer.from(payload, "base64") : Buffer.from(payload, "utf8")
   return {
     mime,
@@ -574,6 +576,25 @@ export namespace Export {
       info: out.info as Omit<Session.Info, "share">,
       messages: out.messages as MessageV2.WithParts[],
       children: node.children.map(sanitizeTree),
+    }
+  }
+
+  // Snapshot-level sanitize. Wraps sanitizeTree (the conversation tree) AND redacts top-level
+  // runtime_context fields that may carry user-machine paths (instruction_sources). Other
+  // runtime_context fields (app_version, build_channel, locale, timezone, model_refs, stats)
+  // are not user-identifying and are kept verbatim.
+  export function sanitizeSnapshot(snap: Snapshot): Snapshot {
+    return {
+      ...snap,
+      runtime_context: {
+        ...snap.runtime_context,
+        instruction_sources: snap.runtime_context.instruction_sources.map((s, i) => ({
+          ...s,
+          path: s.path === undefined ? undefined : redact("instruction-path", String(i), s.path),
+          url: s.url === undefined ? undefined : redact("instruction-url", String(i), s.url),
+        })),
+      },
+      session: sanitizeTree(snap.session),
     }
   }
 }

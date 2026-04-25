@@ -222,6 +222,68 @@ describe("redactPart", () => {
     expect(ctx.count.omitted).toBe(0)
   })
 
+  test("redacts data: url with extra parameters between mime and base64 (RFC 2397 compliance)", () => {
+    const ctx = { count: { omitted: 0 } }
+    const part: MessageV2.FilePart = {
+      id: PartID.make("prt_test"),
+      messageID: MessageID.make("msg_test"),
+      sessionID: SessionID.make("ses_test"),
+      type: "file",
+      // Real-world data URL with charset between mime and base64.
+      url: "data:image/png;charset=utf-8;base64,iVBORw0KGgo=",
+      mime: "image/png",
+    }
+
+    const out = redactPart(part, ctx)
+    if (out.type !== "file") throw new Error("type narrowing")
+    expect(out.url).toBe("")
+    expect(out.metadata?.redacted_binary).toMatchObject({
+      mime: "image/png",
+      size_bytes: expect.any(Number),
+      sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    })
+    expect(ctx.count.omitted).toBe(1)
+  })
+
+  test("sanitizeSnapshot redacts instruction_sources paths in runtime_context", () => {
+    const fakeSnapshot: Export.Snapshot = {
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 0,
+      root_session_id: SessionID.make("ses_x"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: "darwin",
+        os_version: "0",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [
+          { kind: "global", path: "/Users/secret/.config/AGENTS.md", hash: "sha256:abc" },
+          { kind: "remote", url: "https://example.com/secret-instructions" },
+        ],
+        model_refs: {},
+        stats: { session_count: 0, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: {},
+      session: {
+        info: { id: SessionID.make("ses_x"), title: "t", directory: "/dir" } as never,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [],
+        children: [],
+      },
+    }
+
+    const sanitized = Export.sanitizeSnapshot(fakeSnapshot)
+    const sources = sanitized.runtime_context.instruction_sources
+    expect(sources[0].path).toBe("[redacted:instruction-path:0]")
+    expect(sources[1].url).toBe("[redacted:instruction-url:1]")
+    // hash + kind + structural fields preserved
+    expect(sources[0].kind).toBe("global")
+    expect(sources[0].hash).toBe("sha256:abc")
+  })
+
   test("redacts data: url inside completed tool attachments", () => {
     const ctx = { count: { omitted: 0 } }
     const part: MessageV2.ToolPart = {
