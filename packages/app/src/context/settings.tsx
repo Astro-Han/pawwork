@@ -31,6 +31,7 @@ export interface Settings {
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
+    lspEnabled: boolean
   }
   updates: {
     startup: boolean
@@ -110,6 +111,7 @@ const defaultSettings: Settings = {
     showReasoningSummaries: false,
     shellToolPartsExpanded: false,
     editToolPartsExpanded: false,
+    lspEnabled: false,
   },
   updates: {
     startup: true,
@@ -237,6 +239,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setEditToolPartsExpanded(value: boolean) {
           setStore("general", "editToolPartsExpanded", value)
+        },
+        lspEnabled: withFallback(() => store.general?.lspEnabled, defaultSettings.general.lspEnabled),
+        setLspEnabled(value: boolean) {
+          setStore("general", "lspEnabled", value)
+          // Notify the Electron main process to coordinate the runtime-side flip.
+          // Best-effort; silently no-op outside of Electron (web preview).
+          window.api?.setLspEnabled?.(value)
         },
       },
       updates: {

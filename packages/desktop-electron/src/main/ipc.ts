@@ -172,6 +172,16 @@ export function registerIpcHandlers(deps: Deps) {
   })
   ipcMain.handle("report-ci-smoke-ready", () => deps.reportCiSmokeReady())
 
+  ipcMain.handle("lsp-set-enabled", async (_event: IpcMainInvokeEvent, value: boolean) => {
+    const { Settings, LSP, ToolRegistry } = await import("virtual:opencode-server")
+    await Settings.setLspEnabled(value)
+    if (!value) {
+      await LSP.shutdownAll()
+    }
+    await LSP.invalidate()
+    await ToolRegistry.invalidate()
+  })
+
   ipcMain.handle(
     "open-directory-picker",
     async (_event: IpcMainInvokeEvent, opts?: { multiple?: boolean; title?: string; defaultPath?: string }) => {
