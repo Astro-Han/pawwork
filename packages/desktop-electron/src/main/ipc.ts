@@ -173,13 +173,23 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("report-ci-smoke-ready", () => deps.reportCiSmokeReady())
 
   ipcMain.handle("lsp-set-enabled", async (_event: IpcMainInvokeEvent, value: boolean) => {
-    const { Settings, LSP, ToolRegistry } = await import("virtual:opencode-server")
+    const { Settings, LSP, ToolRegistry, Instance } = await import("virtual:opencode-server")
     await Settings.setLspEnabled(value)
-    if (!value) {
-      await LSP.shutdownAll()
+    // LSP.invalidate / ToolRegistry.invalidate / LSP.shutdownAll all read
+    // InstanceState.directory, which requires an Instance scope. Iterate every
+    // active instance so caches and processes are reset per-project.
+    for (const directory of Instance.directories()) {
+      await Instance.provide({
+        directory,
+        fn: async () => {
+          if (!value) {
+            await LSP.shutdownAll()
+          }
+          await LSP.invalidate()
+          await ToolRegistry.invalidate()
+        },
+      })
     }
-    await LSP.invalidate()
-    await ToolRegistry.invalidate()
   })
 
   ipcMain.handle(

@@ -47,4 +47,13 @@ declare module "virtual:opencode-server" {
   export namespace ToolRegistry {
     export function invalidate(): Promise<void>
   }
+
+  export namespace Instance {
+    export function directories(): string[]
+    export function provide<R>(input: {
+      directory: string
+      init?: () => Promise<unknown>
+      fn: () => R
+    }): Promise<R>
+  }
 }
