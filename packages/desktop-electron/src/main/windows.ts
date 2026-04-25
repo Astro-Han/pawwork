@@ -108,6 +108,10 @@ export function createLoadingWindow() {
     webPreferences: rendererWebPreferences(root),
   })
 
+  if (process.platform === "win32") {
+    win.removeMenu()
+  }
+
   loadWindow(win, "loading.html")
 
   return win
