@@ -19,7 +19,7 @@ test("agent tool child-session link does not trigger stale show errors", async (
         prompt: "Search the repository for AssistantParts and then reply with exactly CHILD_OK.",
         subagent_type: "general",
       }
-      await llm.toolMatch(inputMatch(taskInput), "task", taskInput)
+      await llm.toolMatch(inputMatch(taskInput), "agent", taskInput)
       const child = await seedSessionTask(project.sdk, {
         sessionID: session.id,
         description: taskInput.description,

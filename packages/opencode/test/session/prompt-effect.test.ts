@@ -790,7 +790,7 @@ it.live(
             if (tool?.state.status === "running" && tool.state.metadata?.sessionId) return tool
             await new Promise((done) => setTimeout(done, 20))
           }
-          throw new Error("timed out waiting for running task metadata")
+          throw new Error("timed out waiting for running agent metadata")
         })
 
         if (tool.state.status !== "running") return

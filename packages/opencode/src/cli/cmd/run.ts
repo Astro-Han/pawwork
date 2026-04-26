@@ -468,6 +468,11 @@ export const RunCommand = cmd({
                 tool(part)
                 continue
               }
+              if (isAgentToolPart(part.tool)) {
+                agent(props<typeof AgentTool>(part))
+                UI.error(part.state.error)
+                continue
+              }
               inline({
                 icon: "✗",
                 title: `${part.tool} failed`,

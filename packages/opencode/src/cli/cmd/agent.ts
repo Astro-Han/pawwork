@@ -17,6 +17,12 @@ type AgentMode = "all" | "primary" | "subagent"
 
 const AVAILABLE_TOOLS = ["bash", "read", "write", "edit", "glob", "grep", "webfetch", "agent", "todowrite"]
 
+// Map legacy tool names so existing scripts/aliases like `--tools=task` keep working
+// after the agent rename (#128).
+const LEGACY_TOOL_ALIASES: Record<string, string> = {
+  task: "agent", // agent-rename:legacy-render
+}
+
 const AgentCreateCommand = cmd({
   command: "create",
   describe: "create a new agent",
@@ -123,7 +129,26 @@ const AgentCreateCommand = cmd({
         // Select tools
         let selectedTools: string[]
         if (cliTools !== undefined) {
-          selectedTools = cliTools ? cliTools.split(",").map((t) => t.trim()) : AVAILABLE_TOOLS
+          if (cliTools) {
+            const parsed = cliTools
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean)
+              .map((t) => LEGACY_TOOL_ALIASES[t] ?? t)
+            const unknown = parsed.filter((tool) => !AVAILABLE_TOOLS.includes(tool))
+            if (unknown.length > 0) {
+              const message = `Unknown tool(s): ${unknown.join(", ")}. Available: ${AVAILABLE_TOOLS.join(", ")}`
+              if (isFullyNonInteractive) {
+                console.error(`Error: ${message}`)
+                process.exit(1)
+              }
+              prompts.log.error(message)
+              throw new UI.CancelledError()
+            }
+            selectedTools = [...new Set(parsed)]
+          } else {
+            selectedTools = AVAILABLE_TOOLS
+          }
         } else {
           const result = await prompts.multiselect({
             message: "Select tools to enable (Space to toggle)",
