@@ -28,7 +28,7 @@ export namespace Truncate {
 
   function hasTaskTool(agent?: Agent.Info) {
     if (!agent?.permission) return false
-    return evaluate("task", "*", agent.permission).action !== "deny"
+    return evaluate("agent", "*", agent.permission).action !== "deny"
   }
 
   export interface Interface {

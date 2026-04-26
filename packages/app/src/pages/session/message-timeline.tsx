@@ -68,8 +68,8 @@ const messageComments = (parts: Part[]): MessageComment[] =>
     ]
   })
 
-const taskDescription = (part: Part, sessionID: string) => {
-  if (part.type !== "tool" || part.tool !== "task") return
+export const taskDescription = (part: Part, sessionID: string) => {
+  if (part.type !== "tool" || (part.tool !== "task" && part.tool !== "agent")) return // agent-rename:legacy-render
   const metadata = "metadata" in part.state ? part.state.metadata : undefined
   if (metadata?.sessionId !== sessionID) return
   const value = part.state.input?.description

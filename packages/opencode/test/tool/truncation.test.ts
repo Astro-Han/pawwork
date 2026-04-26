@@ -128,7 +128,7 @@ describe("Truncate", () => {
       Effect.gen(function* () {
         const svc = yield* Truncate.Service
         const lines = Array.from({ length: 100 }, (_, i) => `line${i}`).join("\n")
-        const agent = { permission: [{ permission: "task", pattern: "*", action: "allow" as const }] }
+        const agent = { permission: [{ permission: "agent", pattern: "*", action: "allow" as const }] }
         const result = yield* svc.output(lines, { maxLines: 10 }, agent as any)
 
         expect(result.truncated).toBe(true)
@@ -141,7 +141,7 @@ describe("Truncate", () => {
       Effect.gen(function* () {
         const svc = yield* Truncate.Service
         const lines = Array.from({ length: 100 }, (_, i) => `line${i}`).join("\n")
-        const agent = { permission: [{ permission: "task", pattern: "*", action: "deny" as const }] }
+        const agent = { permission: [{ permission: "agent", pattern: "*", action: "deny" as const }] }
         const result = yield* svc.output(lines, { maxLines: 10 }, agent as any)
 
         expect(result.truncated).toBe(true)

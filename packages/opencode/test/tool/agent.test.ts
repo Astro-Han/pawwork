@@ -166,7 +166,7 @@ describe("tool.task", () => {
       {
         config: {
           permission: {
-            task: {
+            agent: {
               "*": "allow",
               zebra: "deny",
             },
@@ -262,7 +262,7 @@ describe("tool.task", () => {
 
         expect(calls).toHaveLength(1)
         expect(calls[0]).toEqual({
-          permission: "task",
+          permission: "agent",
           patterns: ["general"],
           always: ["*"],
           metadata: {
@@ -373,7 +373,7 @@ describe("tool.task", () => {
             reviewer: {
               mode: "subagent",
               permission: {
-                task: "allow",
+                agent: "allow",
               },
             },
           },

@@ -62,6 +62,11 @@ function block(info: Inline, output?: string) {
   UI.empty()
 }
 
+// OR-match helper: accepts both legacy "task" id and new "agent" id so old sessions continue to
+// render after the tool id flip. Keep in sync with agent-rename:legacy-render sweep (Task 18).
+export const isAgentToolPart = (tool: string): boolean =>
+  tool === "task" || tool === "agent" // agent-rename:legacy-render
+
 function fallback(part: ToolPart) {
   const state = part.state
   const input = "input" in state ? state.input : undefined
@@ -417,7 +422,7 @@ export const RunCommand = cmd({
           if (part.tool === "edit") return edit(props<typeof EditTool>(part))
           if (part.tool === "codesearch") return codesearch(props<typeof CodeSearchTool>(part))
           if (part.tool === "websearch") return websearch(props<typeof WebSearchTool>(part))
-          if (part.tool === "task") return agent(props<typeof AgentTool>(part))
+          if (isAgentToolPart(part.tool)) return agent(props<typeof AgentTool>(part))
           if (part.tool === "todowrite") return todo(props<typeof TodoWriteTool>(part))
           if (part.tool === "skill") return skill(props<typeof SkillTool>(part))
           return fallback(part)
@@ -472,7 +477,7 @@ export const RunCommand = cmd({
 
             if (
               part.type === "tool" &&
-              part.tool === "task" &&
+              isAgentToolPart(part.tool) &&
               part.state.status === "running" &&
               args.format !== "json"
             ) {

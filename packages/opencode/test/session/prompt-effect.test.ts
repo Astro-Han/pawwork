@@ -676,7 +676,7 @@ it.live("failed subtask preserves metadata on error tool state", () =>
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service
       const chat = yield* sessions.create({ title: "Pinned" })
-      yield* llm.tool("task", {
+      yield* llm.tool("agent", {
         description: "inspect bug",
         prompt: "look into the cache key path",
         subagent_type: "general",
@@ -769,7 +769,7 @@ it.live(
           title: "Pinned",
           permission: [{ permission: "*", pattern: "*", action: "allow" }],
         })
-        yield* llm.tool("task", {
+        yield* llm.tool("agent", {
           description: "inspect bug",
           prompt: "look into the cache key path",
           subagent_type: "general",
@@ -785,7 +785,7 @@ it.live(
             const msgs = await Effect.runPromise(MessageV2.filterCompactedEffect(chat.id))
             const assistant = msgs.findLast((item) => item.info.role === "assistant" && item.info.agent === "build")
             const tool = assistant?.parts.find(
-              (part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "task",
+              (part): part is MessageV2.ToolPart => part.type === "tool" && part.tool === "agent",
             )
             if (tool?.state.status === "running" && tool.state.metadata?.sessionId) return tool
             await new Promise((done) => setTimeout(done, 20))

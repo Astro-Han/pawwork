@@ -15,7 +15,7 @@ export interface AgentPromptOps {
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
 }
 
-const id = "task"
+const id = "agent"
 
 const parameters = z.object({
   description: z.string().describe("A short (3-5 words) description of the task"),
@@ -138,7 +138,7 @@ export const AgentTool = Tool.define(
               agent: next.name,
               tools: {
                 ...(canTodo ? {} : { todowrite: false }),
-                ...(canTask ? {} : { task: false }),
+                ...(canTask ? {} : { agent: false }),
                 ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
               },
               parts,

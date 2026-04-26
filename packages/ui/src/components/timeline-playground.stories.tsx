@@ -352,8 +352,8 @@ const TOOL_SAMPLES = {
     title: "Write src/utils/helpers.ts",
     metadata: {},
   },
-  task: {
-    tool: "task",
+  agent: {
+    tool: "agent",
     input: { description: "Explore components", subagent_type: "explore", prompt: "Find all session components" },
     output: "Found 12 session-related components across 3 directories.",
     title: "Agent (Explore)",
