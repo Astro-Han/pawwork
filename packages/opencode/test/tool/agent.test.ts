@@ -186,7 +186,7 @@ describe("tool.task", () => {
     ),
   )
 
-  it.live("execute resumes an existing task session from task_id", () =>
+  it.live("execute resumes an existing task session from subagent_session_id", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
@@ -202,7 +202,7 @@ describe("tool.task", () => {
             description: "inspect bug",
             prompt: "look into the cache key path",
             subagent_type: "general",
-            task_id: child.id,
+            subagent_session_id: child.id,
           },
           {
             sessionID: chat.id,
@@ -220,7 +220,7 @@ describe("tool.task", () => {
         expect(kids).toHaveLength(1)
         expect(kids[0]?.id).toBe(child.id)
         expect(result.metadata.sessionId).toBe(child.id)
-        expect(result.output).toContain(`task_id: ${child.id}`)
+        expect(result.output).toContain(`subagent_session_id: ${child.id}`)
         expect(seen?.sessionID).toBe(child.id)
       }),
     ),
@@ -274,7 +274,7 @@ describe("tool.task", () => {
     ),
   )
 
-  it.live("execute creates a child when task_id does not exist", () =>
+  it.live("execute creates a child when subagent_session_id does not exist", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
@@ -289,7 +289,7 @@ describe("tool.task", () => {
             description: "inspect bug",
             prompt: "look into the cache key path",
             subagent_type: "general",
-            task_id: "ses_missing",
+            subagent_session_id: "ses_missing",
           },
           {
             sessionID: chat.id,
@@ -307,7 +307,7 @@ describe("tool.task", () => {
         expect(kids).toHaveLength(1)
         expect(kids[0]?.id).toBe(result.metadata.sessionId)
         expect(result.metadata.sessionId).not.toBe("ses_missing")
-        expect(result.output).toContain(`task_id: ${result.metadata.sessionId}`)
+        expect(result.output).toContain(`subagent_session_id: ${result.metadata.sessionId}`)
         expect(seen?.sessionID).toBe(result.metadata.sessionId)
       }),
     ),
