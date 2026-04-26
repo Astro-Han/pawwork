@@ -33,6 +33,7 @@ import { SessionPrompt } from "@/session/prompt"
 import { Instruction } from "@/session/instruction"
 import { LLM } from "@/session/llm"
 import { LSP } from "@/lsp"
+import { Settings } from "@/settings"
 import { MCP } from "@/mcp"
 import { McpAuth } from "@/mcp/auth"
 import { Command } from "@/command"
@@ -56,6 +57,7 @@ export const AppLayer = Layer.mergeAll(
   Auth.defaultLayer,
   Account.defaultLayer,
   Config.defaultLayer,
+  Settings.defaultLayer,
   Git.defaultLayer,
   Ripgrep.defaultLayer,
   File.defaultLayer,

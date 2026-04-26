@@ -396,6 +396,7 @@ jobs:
               test/project
               test/file
               test/github
+              test/settings.test.ts
             report_path: packages/opencode/.artifacts/unit/junit-windows-config-project.xml
           # Server tools carries many smaller and faster directories, which is
           # why it has more entries than the other two opencode shards.

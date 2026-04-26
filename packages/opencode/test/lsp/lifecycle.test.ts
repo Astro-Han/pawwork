@@ -2,6 +2,7 @@ import { describe, expect, test, spyOn, beforeEach, afterEach } from "bun:test"
 import path from "path"
 import * as Lsp from "../../src/lsp/index"
 import { LSPServer } from "../../src/lsp/server"
+import { Settings } from "../../src/settings"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
@@ -22,12 +23,14 @@ function withInstance(fn: (dir: string) => Promise<void>) {
 describe("LSP service lifecycle", () => {
   let spawnSpy: ReturnType<typeof spyOn>
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await Settings.setLspEnabled(true)
     spawnSpy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     spawnSpy.mockRestore()
+    await Settings.setLspEnabled(false)
   })
 
   test(

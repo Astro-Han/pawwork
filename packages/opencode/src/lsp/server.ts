@@ -32,6 +32,16 @@ export namespace LSPServer {
 
   type RootFunction = (file: string) => Promise<string | undefined>
 
+  export const JavascriptPackageRoot = () => [
+    "tsconfig.json",
+    "package.json",
+    "package-lock.json",
+    "bun.lockb",
+    "bun.lock",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+  ]
+
   const NearestRoot = (includePatterns: string[], excludePatterns?: string[]): RootFunction => {
     return async (file) => {
       if (excludePatterns) {
@@ -62,6 +72,7 @@ export namespace LSPServer {
     global?: boolean
     root: RootFunction
     spawn(root: string): Promise<Handle | undefined>
+    packages?: string[]
   }
 
   export const Deno: Info = {
@@ -94,14 +105,17 @@ export namespace LSPServer {
 
   export const Typescript: Info = {
     id: "typescript",
-    root: NearestRoot(
-      ["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"],
-      ["deno.json", "deno.jsonc"],
-    ),
+    packages: ["typescript-language-server"],
+    root: NearestRoot(JavascriptPackageRoot(), ["deno.json", "deno.jsonc"]),
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
     async spawn(root) {
-      const tsserver = Module.resolve("typescript/lib/tsserver.js", Instance.directory)
-      log.info("typescript server", { tsserver })
+      // Prefer the package-local TypeScript SDK so diagnostics match the
+      // package's own version. Fall back to the worktree root install for
+      // monorepos that hoist typescript to the top level.
+      const tsserver =
+        Module.resolve("typescript/lib/tsserver.js", root) ??
+        Module.resolve("typescript/lib/tsserver.js", Instance.directory)
+      log.info("typescript server", { tsserver, root })
       if (!tsserver) return
       const bin = await Npm.which("typescript-language-server")
       if (!bin) return
@@ -125,7 +139,8 @@ export namespace LSPServer {
   export const Vue: Info = {
     id: "vue",
     extensions: [".vue"],
-    root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
+    packages: ["@vue/language-server"],
+    root: NearestRoot(JavascriptPackageRoot()),
     async spawn(root) {
       let binary = which("vue-language-server")
       const args: string[] = []
@@ -153,7 +168,7 @@ export namespace LSPServer {
 
   export const ESLint: Info = {
     id: "eslint",
-    root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
+    root: NearestRoot(JavascriptPackageRoot()),
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue"],
     async spawn(root) {
       const eslint = Module.resolve("eslint", Instance.directory)
@@ -283,6 +298,7 @@ export namespace LSPServer {
 
   export const Biome: Info = {
     id: "biome",
+    packages: ["biome"],
     root: NearestRoot([
       "biome.json",
       "biome.jsonc",
@@ -487,6 +503,7 @@ export namespace LSPServer {
   export const Pyright: Info = {
     id: "pyright",
     extensions: [".py", ".pyi"],
+    packages: ["pyright"],
     root: NearestRoot(["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "pyrightconfig.json"]),
     async spawn(root) {
       let binary = which("pyright-langserver")
@@ -1004,7 +1021,8 @@ export namespace LSPServer {
   export const Svelte: Info = {
     id: "svelte",
     extensions: [".svelte"],
-    root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
+    packages: ["svelte-language-server"],
+    root: NearestRoot(JavascriptPackageRoot()),
     async spawn(root) {
       let binary = which("svelteserver")
       const args: string[] = []
@@ -1031,9 +1049,12 @@ export namespace LSPServer {
   export const Astro: Info = {
     id: "astro",
     extensions: [".astro"],
-    root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
+    packages: ["@astrojs/language-server"],
+    root: NearestRoot(JavascriptPackageRoot()),
     async spawn(root) {
-      const tsserver = Module.resolve("typescript/lib/tsserver.js", Instance.directory)
+      const tsserver =
+        Module.resolve("typescript/lib/tsserver.js", root) ??
+        Module.resolve("typescript/lib/tsserver.js", Instance.directory)
       if (!tsserver) {
         log.info("typescript not found, required for Astro language server")
         return
@@ -1289,7 +1310,8 @@ export namespace LSPServer {
   export const YamlLS: Info = {
     id: "yaml-ls",
     extensions: [".yaml", ".yml"],
-    root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
+    packages: ["yaml-language-server"],
+    root: NearestRoot(JavascriptPackageRoot()),
     async spawn(root) {
       let binary = which("yaml-language-server")
       const args: string[] = []
@@ -1456,6 +1478,7 @@ export namespace LSPServer {
   export const PHPIntelephense: Info = {
     id: "php intelephense",
     extensions: [".php"],
+    packages: ["intelephense"],
     root: NearestRoot(["composer.json", "composer.lock", ".php-version"]),
     async spawn(root) {
       let binary = which("intelephense")
@@ -1540,6 +1563,7 @@ export namespace LSPServer {
   export const BashLS: Info = {
     id: "bash",
     extensions: [".sh", ".bash", ".zsh", ".ksh"],
+    packages: ["bash-language-server"],
     root: async () => Instance.directory,
     async spawn(root) {
       let binary = which("bash-language-server")
@@ -1735,6 +1759,7 @@ export namespace LSPServer {
   export const DockerfileLS: Info = {
     id: "dockerfile",
     extensions: [".dockerfile", "Dockerfile"],
+    packages: ["dockerfile-language-server-nodejs"],
     root: async () => Instance.directory,
     async spawn(root) {
       let binary = which("docker-langserver")
@@ -1956,3 +1981,9 @@ export namespace LSPServer {
     },
   }
 }
+
+export const LSP_SERVER_PACKAGES: Set<string> = new Set(
+  Object.values(LSPServer)
+    .filter((s): s is LSPServer.Info => typeof s === "object" && s !== null && "id" in s)
+    .flatMap((s) => s.packages ?? []),
+)

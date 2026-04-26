@@ -838,6 +838,10 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Expand edit tool parts",
   "settings.general.row.editToolPartsExpanded.description":
     "Show edit, write, and patch tool parts expanded by default in the timeline",
+  "settings.general.row.lsp.title": "Language Server Protocol (LSP)",
+  "settings.general.row.lsp.description": "Detect type errors and symbol references when editing code",
+  "toast.lsp.installFailed.title": "Language server download failed",
+  "toast.lsp.installFailed.description": "{{pkg}}: {{error}}",
 
   "settings.general.row.wayland.title": "Use native Wayland",
   "settings.general.row.wayland.description": "Disable X11 fallback on Wayland. Requires restart.",

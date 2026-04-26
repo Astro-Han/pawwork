@@ -33,4 +33,27 @@ declare module "virtual:opencode-server" {
       level?: "DEBUG" | "INFO" | "WARN" | "ERROR"
     }): Promise<void>
   }
+
+  export namespace Settings {
+    export function setLspEnabled(value: boolean): Promise<void>
+    export function lspEnabled(): Promise<boolean>
+  }
+
+  export namespace LSP {
+    export function shutdownAll(): Promise<void>
+    export function invalidate(): Promise<void>
+  }
+
+  export namespace ToolRegistry {
+    export function invalidate(): Promise<void>
+  }
+
+  export namespace Instance {
+    export function directories(): string[]
+    export function provide<R>(input: {
+      directory: string
+      init?: () => Promise<unknown>
+      fn: () => R
+    }): Promise<R>
+  }
 }

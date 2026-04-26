@@ -82,6 +82,7 @@ const api: ElectronAPI = {
   reportProblem: (input) => ipcRenderer.invoke("report-problem", input),
   installUpdate: () => ipcRenderer.invoke("install-update"),
   setBackgroundColor: (color: string) => ipcRenderer.invoke("set-background-color", color),
+  setLspEnabled: (value: boolean) => ipcRenderer.invoke("lsp-set-enabled", value),
   getAboutInfo: () => ipcRenderer.invoke("about:get-info"),
   onAboutOpen: (handler: () => void) => {
     const wrapped = () => handler()

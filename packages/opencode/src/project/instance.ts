@@ -75,6 +75,9 @@ export const Instance = {
   get current() {
     return context.use()
   },
+  directories() {
+    return [...cache.keys()]
+  },
   get directory() {
     return context.use().directory
   },

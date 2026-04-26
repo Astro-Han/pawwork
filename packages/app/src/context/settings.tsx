@@ -31,6 +31,7 @@ export interface Settings {
     showReasoningSummaries: boolean
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
+    lspEnabled: boolean
   }
   updates: {
     startup: boolean
@@ -110,6 +111,7 @@ const defaultSettings: Settings = {
     showReasoningSummaries: false,
     shellToolPartsExpanded: false,
     editToolPartsExpanded: false,
+    lspEnabled: false,
   },
   updates: {
     startup: true,
@@ -176,6 +178,17 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       setStore("general", "followup", "steer")
     })
 
+    // Mirror lspEnabled into the Electron main process. Fires on store
+    // rehydration (restart sync) and on every toggle. On IPC rejection,
+    // rolls the store back so the UI reflects the actual runtime state.
+    createEffect(() => {
+      if (!ready()) return
+      const value = store.general?.lspEnabled ?? defaultSettings.general.lspEnabled
+      void window.api?.setLspEnabled?.(value)?.catch(() => {
+        setStore("general", "lspEnabled", !value)
+      })
+    })
+
     return {
       ready,
       get current() {
@@ -237,6 +250,12 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         ),
         setEditToolPartsExpanded(value: boolean) {
           setStore("general", "editToolPartsExpanded", value)
+        },
+        lspEnabled: withFallback(() => store.general?.lspEnabled, defaultSettings.general.lspEnabled),
+        setLspEnabled(value: boolean) {
+          // The createEffect above mirrors this change to the Electron main
+          // process and rolls back if the IPC handler rejects.
+          setStore("general", "lspEnabled", value)
         },
       },
       updates: {

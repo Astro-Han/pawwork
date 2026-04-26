@@ -82,6 +82,7 @@ declare global {
       setDesktopContext?: (context: DesktopContext) => Promise<void>
       getAboutInfo?: () => Promise<AboutInfo>
       onAboutOpen?: (handler: () => void) => () => void
+      setLspEnabled?: (value: boolean) => Promise<void>
     }
   }
 }

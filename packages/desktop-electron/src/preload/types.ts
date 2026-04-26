@@ -99,6 +99,7 @@ export type ElectronAPI = {
   reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
   installUpdate: () => Promise<void>
   setBackgroundColor: (color: string) => Promise<void>
+  setLspEnabled: (value: boolean) => Promise<void>
   getAboutInfo: () => Promise<AboutInfo>
   onAboutOpen: (handler: () => void) => () => void
 }

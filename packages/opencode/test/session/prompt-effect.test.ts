@@ -31,6 +31,7 @@ import { SessionRunState } from "../../src/session/run-state"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { Skill } from "../../src/skill"
+import { Settings } from "../../src/settings"
 import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
@@ -146,6 +147,8 @@ const lsp = Layer.succeed(
     prepareCallHierarchy: () => Effect.succeed([]),
     incomingCalls: () => Effect.succeed([]),
     outgoingCalls: () => Effect.succeed([]),
+    shutdownAll: () => Effect.succeed(void 0),
+    invalidate: () => Effect.succeed(void 0),
   }),
 )
 
@@ -173,6 +176,7 @@ function makeHttp() {
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
     Layer.provide(Skill.defaultLayer),
+    Layer.provide(Settings.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),

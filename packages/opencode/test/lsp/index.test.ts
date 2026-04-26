@@ -1,11 +1,19 @@
-import { describe, expect, spyOn, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import * as Lsp from "../../src/lsp/index"
 import { LSPServer } from "../../src/lsp/server"
+import { Settings } from "../../src/settings"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 
 describe("lsp.spawn", () => {
+  beforeEach(async () => {
+    await Settings.setLspEnabled(true)
+  })
+  afterEach(async () => {
+    await Settings.setLspEnabled(false)
+  })
+
   test("does not spawn builtin LSP for files outside instance", async () => {
     await using tmp = await tmpdir()
     const spy = spyOn(LSPServer.Typescript, "spawn").mockResolvedValue(undefined)

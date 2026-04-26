@@ -28,6 +28,22 @@ export namespace Npm {
     return path.join(Global.Path.cache, "packages", sanitize(pkg))
   }
 
+  async function emitLspInstallFailedIfApplicable(pkg: string, cause: unknown) {
+    try {
+      // Lazy import to avoid the npm <-> lsp circular module load.
+      const { LSP_SERVER_PACKAGES } = await import("../lsp/server")
+      if (!LSP_SERVER_PACKAGES.has(pkg)) return
+      const { LSP } = await import("../lsp")
+      const { Bus } = await import("../bus")
+      await Bus.publish(LSP.Event.InstallFailed, {
+        pkg,
+        error: cause instanceof Error ? cause.message : String(cause),
+      })
+    } catch (err) {
+      log.warn("failed to emit lsp install failed event", { error: err })
+    }
+  }
+
   async function loadArborist() {
     if (process.platform === "win32") {
       // Bun on Windows does not support the UV_FS_O_FILEMAP flag used by tar
@@ -99,7 +115,8 @@ export namespace Npm {
         save: true,
         saveType: "prod",
       })
-      .catch((cause) => {
+      .catch(async (cause) => {
+        await emitLspInstallFailedIfApplicable(pkg, cause)
         throw new InstallFailedError(
           { pkg },
           {
@@ -109,7 +126,10 @@ export namespace Npm {
       })
 
     const first = result.edgesOut.values().next().value?.to
-    if (!first) throw new InstallFailedError({ pkg })
+    if (!first) {
+      await emitLspInstallFailedIfApplicable(pkg, new Error("install completed but no package was reified"))
+      throw new InstallFailedError({ pkg })
+    }
     return resolveEntryPoint(first.name, first.path)
   }
 

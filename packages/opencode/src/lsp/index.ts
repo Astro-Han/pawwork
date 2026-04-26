@@ -6,20 +6,24 @@ import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import { LSPServer } from "./server"
 import z from "zod"
-import { Config } from "../config/config"
 import { Instance } from "../project/instance"
 import { Flag } from "@/flag/flag"
 import { Process } from "../util/process"
-import { spawn as lspspawn } from "./launch"
 import { Effect, Layer, Context } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { Settings } from "@/settings"
+import { Npm } from "../npm"
 
 export namespace LSP {
   const log = Log.create({ service: "lsp" })
 
   export const Event = {
     Updated: BusEvent.define("lsp.updated", z.object({})),
+    InstallFailed: BusEvent.define(
+      "lsp.server.install.failed",
+      z.object({ pkg: z.string(), error: z.string() }),
+    ),
   }
 
   export const Range = z
@@ -137,7 +141,11 @@ export namespace LSP {
     servers: Record<string, LSPServer.Info>
     broken: Set<string>
     spawning: Map<string, Promise<LSPClient.Info | undefined>>
+    /** Per-server-key cooldown timestamps after a transient install failure. */
+    installCooldownUntil: Map<string, number>
   }
+
+  const INSTALL_RETRY_COOLDOWN_MS = 60_000
 
   export interface Interface {
     readonly init: () => Effect.Effect<void>
@@ -154,6 +162,8 @@ export namespace LSP {
     readonly prepareCallHierarchy: (input: LocInput) => Effect.Effect<any[]>
     readonly incomingCalls: (input: LocInput) => Effect.Effect<any[]>
     readonly outgoingCalls: (input: LocInput) => Effect.Effect<any[]>
+    readonly shutdownAll: () => Effect.Effect<void>
+    readonly invalidate: () => Effect.Effect<void>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/LSP") {}
@@ -161,44 +171,23 @@ export namespace LSP {
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
-      const config = yield* Config.Service
+      const settings = yield* Settings.Service
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("LSP.state")(function* () {
-          const cfg = yield* config.get()
+          const lspEnabled = yield* settings.lspEnabled()
 
           const servers: Record<string, LSPServer.Info> = {}
 
-          if (cfg.lsp === false) {
-            log.info("all LSPs are disabled")
+          if (!lspEnabled) {
+            log.info("LSP disabled (Settings.lspEnabled=false)")
           } else {
             for (const server of Object.values(LSPServer)) {
+              if (typeof server !== "object" || server === null || !("id" in server)) continue
               servers[server.id] = server
             }
 
             filterExperimentalServers(servers)
-
-            for (const [name, item] of Object.entries(cfg.lsp ?? {})) {
-              const existing = servers[name]
-              if (item.disabled) {
-                log.info(`LSP server ${name} is disabled`)
-                delete servers[name]
-                continue
-              }
-              servers[name] = {
-                ...existing,
-                id: name,
-                root: existing?.root ?? (async () => Instance.directory),
-                extensions: item.extensions ?? existing?.extensions ?? [],
-                spawn: async (root) => ({
-                  process: lspspawn(item.command[0], item.command.slice(1), {
-                    cwd: root,
-                    env: { ...process.env, ...item.env },
-                  }),
-                  initialization: item.initialization,
-                }),
-              }
-            }
 
             log.info("enabled LSP servers", {
               serverIds: Object.values(servers)
@@ -212,6 +201,7 @@ export namespace LSP {
             servers,
             broken: new Set(),
             spawning: new Map(),
+            installCooldownUntil: new Map(),
           }
 
           yield* Effect.addFinalizer(() =>
@@ -239,7 +229,17 @@ export namespace LSP {
                 return value
               })
               .catch((err) => {
-                s.broken.add(key)
+                const isInstallFailure =
+                  err instanceof Npm.InstallFailedError ||
+                  (err && typeof err === "object" && "name" in err && err.name === "NpmInstallFailedError")
+                if (isInstallFailure) {
+                  // Cooldown to avoid hammering npm + spamming toasts on every
+                  // touchFile/hover/definition while still allowing recovery
+                  // once the network/disk situation changes.
+                  s.installCooldownUntil.set(key, Date.now() + INSTALL_RETRY_COOLDOWN_MS)
+                } else {
+                  s.broken.add(key)
+                }
                 log.error(`Failed to spawn LSP server ${server.id}`, { error: err })
                 return undefined
               })
@@ -275,7 +275,13 @@ export namespace LSP {
 
             const root = await server.root(file)
             if (!root) continue
-            if (s.broken.has(root + server.id)) continue
+            const key = root + server.id
+            if (s.broken.has(key)) continue
+            const cooldownUntil = s.installCooldownUntil.get(key)
+            if (cooldownUntil !== undefined) {
+              if (Date.now() < cooldownUntil) continue
+              s.installCooldownUntil.delete(key)
+            }
 
             const match = s.clients.find((x) => x.root === root && x.serverID === server.id)
             if (match) {
@@ -283,7 +289,7 @@ export namespace LSP {
               continue
             }
 
-            const inflight = s.spawning.get(root + server.id)
+            const inflight = s.spawning.get(key)
             if (inflight) {
               const client = await inflight
               if (!client) continue
@@ -291,12 +297,12 @@ export namespace LSP {
               continue
             }
 
-            const task = schedule(server, root, root + server.id)
-            s.spawning.set(root + server.id, task)
+            const task = schedule(server, root, key)
+            s.spawning.set(key, task)
 
             task.finally(() => {
-              if (s.spawning.get(root + server.id) === task) {
-                s.spawning.delete(root + server.id)
+              if (s.spawning.get(key) === task) {
+                s.spawning.delete(key)
               }
             })
 
@@ -347,7 +353,10 @@ export namespace LSP {
             if (server.extensions.length && !server.extensions.includes(extension)) continue
             const root = await server.root(file)
             if (!root) continue
-            if (s.broken.has(root + server.id)) continue
+            const key = root + server.id
+            if (s.broken.has(key)) continue
+            const cooldownUntil = s.installCooldownUntil.get(key)
+            if (cooldownUntil !== undefined && Date.now() < cooldownUntil) continue
             return true
           }
           return false
@@ -487,6 +496,27 @@ export namespace LSP {
         return yield* callHierarchyRequest(input, "callHierarchy/outgoingCalls")
       })
 
+      const shutdownAll = Effect.fn("LSP.shutdownAll")(function* () {
+        if (!(yield* InstanceState.has(state))) return
+        const s = yield* InstanceState.get(state)
+        const inFlight = Array.from(s.spawning.values())
+        s.spawning.clear()
+        yield* Effect.promise(() => Promise.allSettled(inFlight))
+        const hadClients = s.clients.length > 0
+        yield* Effect.promise(() => Promise.all(s.clients.map((c) => c.shutdown().catch(() => {}))))
+        s.clients.length = 0
+        // Notify the renderer so cached LSP status no longer reflects the
+        // killed clients; without this the status popover keeps showing
+        // connected servers until another lsp event fires.
+        if (hadClients) {
+          yield* Effect.promise(() => Bus.publish(Event.Updated, {}).catch(() => {}))
+        }
+      })
+
+      const invalidate = Effect.fn("LSP.invalidate")(function* () {
+        yield* InstanceState.invalidate(state)
+      })
+
       return Service.of({
         init,
         status,
@@ -502,11 +532,13 @@ export namespace LSP {
         prepareCallHierarchy,
         incomingCalls,
         outgoingCalls,
+        shutdownAll,
+        invalidate,
       })
     }),
   )
 
-  export const defaultLayer = layer.pipe(Layer.provide(Config.defaultLayer))
+  export const defaultLayer = layer.pipe(Layer.provide(Settings.defaultLayer))
 
   const { runPromise } = makeRuntime(Service, defaultLayer)
 
@@ -538,6 +570,10 @@ export namespace LSP {
   export const incomingCalls = async (input: LocInput) => runPromise((svc) => svc.incomingCalls(input))
 
   export const outgoingCalls = async (input: LocInput) => runPromise((svc) => svc.outgoingCalls(input))
+
+  export const shutdownAll = async () => runPromise((svc) => svc.shutdownAll())
+
+  export const invalidate = async () => runPromise((svc) => svc.invalidate())
 
   export namespace Diagnostic {
     const MAX_PER_FILE = 20
