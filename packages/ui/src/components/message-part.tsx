@@ -16,7 +16,6 @@ import { createStore } from "solid-js/store"
 import stripAnsi from "strip-ansi"
 import { Dynamic } from "solid-js/web"
 import {
-  AgentPart,
   AssistantMessage,
   FilePart,
   Message as MessageType,
@@ -1028,8 +1027,6 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
 
   const inlineFiles = createMemo(() => files().filter(inline))
 
-  const agents = createMemo(() => (props.parts?.filter((p) => p.type === "agent") as AgentPart[]) ?? [])
-
   const model = createMemo(() => {
     const providerID = props.message.model?.providerID
     const modelID = props.message.model?.modelID
@@ -1117,7 +1114,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
         <>
           <div data-slot="user-message-body">
             <div data-slot="user-message-text">
-              <HighlightedText text={text()} references={inlineFiles()} agents={agents()} />
+              <HighlightedText text={text()} references={inlineFiles()} />
             </div>
           </div>
           <div data-slot="user-message-copy-wrapper">
@@ -1180,19 +1177,18 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   )
 }
 
-type HighlightSegment = { text: string; type?: "file" | "agent" }
+type HighlightSegment = { text: string; type?: "file" }
 
-function HighlightedText(props: { text: string; references: FilePart[]; agents: AgentPart[] }) {
+function HighlightedText(props: { text: string; references: FilePart[] }) {
+  // PawWork issue #239: `agents` prop removed. Past AgentPart mentions render as
+  // plain text (no styled pill) because the picker concept is gone.
   const segments = createMemo(() => {
     const text = props.text
 
-    const allRefs: { start: number; end: number; type: "file" | "agent" }[] = [
+    const allRefs: { start: number; end: number; type: "file" }[] = [
       ...props.references
         .filter((r) => r.source?.text?.start !== undefined && r.source?.text?.end !== undefined)
         .map((r) => ({ start: r.source!.text!.start, end: r.source!.text!.end, type: "file" as const })),
-      ...props.agents
-        .filter((a) => a.source?.start !== undefined && a.source?.end !== undefined)
-        .map((a) => ({ start: a.source!.start, end: a.source!.end, type: "agent" as const })),
     ].sort((a, b) => a.start - b.start)
 
     const result: HighlightSegment[] = []
