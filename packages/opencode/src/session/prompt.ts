@@ -737,7 +737,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         messageID: summaryUserMsg.id,
         sessionID,
         type: "text",
-        text: "Summarize the task tool output above and continue with your task.",
+        text: "Summarize the agent tool output above and continue with your task.",
         synthetic: true,
       } satisfies MessageV2.TextPart)
     })
@@ -1280,7 +1280,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               type: "text",
               synthetic: true,
               text:
-                " Use the above message and context to generate a prompt and call the task tool with subagent: " +
+                " Use the above message and context to generate a prompt and call the agent tool with subagent: " +
                 part.name +
                 hint,
             },
