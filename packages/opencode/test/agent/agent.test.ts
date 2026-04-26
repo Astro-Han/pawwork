@@ -23,7 +23,8 @@ test("returns default native agents when no config", async () => {
       const agents = await Agent.list()
       const names = agents.map((a) => a.name)
       expect(names).toContain("build")
-      expect(names).toContain("plan")
+      // plan agent removed in #239
+      expect(names).not.toContain("plan")
       expect(names).toContain("general")
       expect(names).toContain("explore")
       expect(names).toContain("compaction")
@@ -46,42 +47,6 @@ test("build agent has correct default properties", async () => {
       expect(evalPerm(build, "bash")).toBe("allow")
     },
   })
-})
-
-test("plan agent denies edits except .opencode/plans/*", async () => {
-  await using tmp = await tmpdir()
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const plan = await Agent.get("plan")
-      expect(plan).toBeDefined()
-      // Wildcard is denied
-      expect(evalPerm(plan, "edit")).toBe("deny")
-      // But specific path is allowed
-      expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("allow")
-    },
-  })
-})
-
-test("plan agent allows .pawwork plans in PawWork runtime mode", async () => {
-  await using tmp = await tmpdir()
-  const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
-  process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
-
-  try {
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const plan = await Agent.get("plan")
-        expect(plan).toBeDefined()
-        expect(Permission.evaluate("edit", ".pawwork/plans/foo.md", plan!.permission).action).toBe("allow")
-        expect(Permission.evaluate("edit", ".opencode/plans/foo.md", plan!.permission).action).toBe("deny")
-      },
-    })
-  } finally {
-    if (previous === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
-    else process.env.PAWWORK_RUNTIME_NAMESPACE = previous
-  }
 })
 
 test("explore agent denies edit and write", async () => {
@@ -269,7 +234,7 @@ test("agent steps/maxSteps config sets steps property", async () => {
     config: {
       agent: {
         build: { steps: 50 },
-        plan: { maxSteps: 100 },
+        general: { maxSteps: 100 },
       },
     },
   })
@@ -277,9 +242,9 @@ test("agent steps/maxSteps config sets steps property", async () => {
     directory: tmp.path,
     fn: async () => {
       const build = await Agent.get("build")
-      const plan = await Agent.get("plan")
+      const general = await Agent.get("general")
       expect(build?.steps).toBe(50)
-      expect(plan?.steps).toBe(100)
+      expect(general?.steps).toBe(100)
     },
   })
 })
@@ -410,8 +375,12 @@ test("multiple custom agents can be defined", async () => {
 test("Agent.list keeps the default agent first and sorts the rest by name", async () => {
   await using tmp = await tmpdir({
     config: {
-      default_agent: "plan",
+      default_agent: "my_primary",
       agent: {
+        my_primary: {
+          description: "Custom primary",
+          mode: "primary",
+        },
         zebra: {
           description: "Zebra",
           mode: "subagent",
@@ -427,7 +396,7 @@ test("Agent.list keeps the default agent first and sorts the rest by name", asyn
     directory: tmp.path,
     fn: async () => {
       const names = (await Agent.list()).map((a) => a.name)
-      expect(names[0]).toBe("plan")
+      expect(names[0]).toBe("my_primary")
       expect(names.slice(1)).toEqual(names.slice(1).toSorted((a, b) => a.localeCompare(b)))
     },
   })
@@ -624,21 +593,6 @@ test("defaultAgent returns build when no default_agent config", async () => {
   })
 })
 
-test("defaultAgent respects default_agent config set to plan", async () => {
-  await using tmp = await tmpdir({
-    config: {
-      default_agent: "plan",
-    },
-  })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const agent = await Agent.defaultAgent()
-      expect(agent).toBe("plan")
-    },
-  })
-})
-
 test("defaultAgent respects default_agent config set to custom agent with mode all", async () => {
   await using tmp = await tmpdir({
     config: {
@@ -701,11 +655,15 @@ test("defaultAgent throws when default_agent points to non-existent agent", asyn
   })
 })
 
-test("defaultAgent returns plan when build is disabled and default_agent not set", async () => {
+test("defaultAgent picks a custom primary when build is disabled", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
         build: { disable: true },
+        my_primary: {
+          description: "Custom primary",
+          mode: "primary",
+        },
       },
     },
   })
@@ -713,25 +671,23 @@ test("defaultAgent returns plan when build is disabled and default_agent not set
     directory: tmp.path,
     fn: async () => {
       const agent = await Agent.defaultAgent()
-      // build is disabled, so it should return plan (next primary agent)
-      expect(agent).toBe("plan")
+      // build is disabled, the next primary visible agent is the custom one
+      expect(agent).toBe("my_primary")
     },
   })
 })
 
-test("defaultAgent throws when all primary agents are disabled", async () => {
+test("defaultAgent throws when build is disabled and no other primary visible exists", async () => {
   await using tmp = await tmpdir({
     config: {
       agent: {
         build: { disable: true },
-        plan: { disable: true },
       },
     },
   })
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      // build and plan are disabled, no primary-capable agents remain
       await expect(Agent.defaultAgent()).rejects.toThrow("no primary visible agent found")
     },
   })

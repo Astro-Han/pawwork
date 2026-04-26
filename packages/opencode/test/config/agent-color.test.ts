@@ -21,7 +21,7 @@ test("agent color parsed from project config", async () => {
           $schema: "https://opencode.ai/config.json",
           agent: {
             build: { color: "#FFA500" },
-            plan: { color: "primary" },
+            general: { color: "primary" },
           },
         }),
       )
@@ -32,7 +32,7 @@ test("agent color parsed from project config", async () => {
     fn: async () => {
       const cfg = await load()
       expect(cfg.agent?.["build"]?.color).toBe("#FFA500")
-      expect(cfg.agent?.["plan"]?.color).toBe("primary")
+      expect(cfg.agent?.["general"]?.color).toBe("primary")
     },
   })
 })
@@ -45,7 +45,7 @@ test("Agent.get includes color from config", async () => {
         JSON.stringify({
           $schema: "https://opencode.ai/config.json",
           agent: {
-            plan: { color: "#A855F7" },
+            explore: { color: "#A855F7" },
             build: { color: "accent" },
           },
         }),
@@ -55,8 +55,8 @@ test("Agent.get includes color from config", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const plan = await agent(tmp.path, (svc) => svc.get("plan"))
-      expect(plan?.color).toBe("#A855F7")
+      const explore = await agent(tmp.path, (svc) => svc.get("explore"))
+      expect(explore?.color).toBe("#A855F7")
       const build = await agent(tmp.path, (svc) => svc.get("build"))
       expect(build?.color).toBe("accent")
     },

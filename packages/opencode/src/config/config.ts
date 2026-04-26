@@ -11,6 +11,7 @@ import { Flag } from "../flag/flag"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
+import { migrateDefaultAgent } from "./migrate-default-agent"
 import { Instance, type InstanceContext } from "../project/instance"
 import { constants, existsSync } from "fs"
 import { GlobalBus } from "@/bus/global"
@@ -201,7 +202,6 @@ const InfoSchema = Schema.Struct({
     Schema.StructWithRest(
       Schema.Struct({
         build: Schema.optional(AgentRef),
-        plan: Schema.optional(AgentRef),
       }),
       [Schema.Record(Schema.String, AgentRef)],
     ),
@@ -210,7 +210,6 @@ const InfoSchema = Schema.Struct({
     Schema.StructWithRest(
       Schema.Struct({
         // primary
-        plan: Schema.optional(AgentRef),
         build: Schema.optional(AgentRef),
         // subagent
         general: Schema.optional(AgentRef),
@@ -450,7 +449,16 @@ const rawLayer = Layer.effect(
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
       for (const file of globalConfigFiles()) {
-        result = pipe(result, mergeDeep(yield* loadFile(path.join(Global.Path.config, file))))
+        const filepath = path.join(Global.Path.config, file)
+        // Strip deprecated default_agent before parsing.
+        // If the on-disk rewrite failed, use the sanitized text directly so runtime
+        // never sees a stale default_agent value (issue #239).
+        const migrated = yield* Effect.promise(() => migrateDefaultAgent(filepath))
+        if (migrated.sanitizedText !== undefined && !migrated.rewritten) {
+          result = pipe(result, mergeDeep(yield* loadConfig(migrated.sanitizedText, { path: filepath })))
+        } else {
+          result = pipe(result, mergeDeep(yield* loadFile(filepath)))
+        }
       }
 
       const legacy = path.join(Global.Path.config, "config")

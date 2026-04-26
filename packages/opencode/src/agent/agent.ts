@@ -15,14 +15,12 @@ import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
-import { Global } from "@/global"
 import path from "path"
 import { Plugin } from "@/plugin"
 import { Skill } from "../skill"
 import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
-import { Runtime } from "@opencode-ai/shared/runtime"
 
 export namespace Agent {
   export const Info = z
@@ -115,7 +113,6 @@ export namespace Agent {
         })
 
           const user = Permission.fromConfig(cfg.permission ?? {})
-          const projectPlansDir = Runtime.isPawWork() ? ".pawwork" : ".opencode"
 
           const agents: Record<string, Info> = {
             build: {
@@ -133,30 +130,8 @@ export namespace Agent {
               mode: "primary",
               native: true,
             },
-            plan: {
-              name: "plan",
-              description: "Plan mode. Disallows all edit tools.",
-              options: {},
-              permission: Permission.merge(
-                defaults,
-                Permission.fromConfig({
-                  question: "allow",
-                  plan_exit: "allow",
-                  external_directory: {
-                    [path.join(Global.Path.data, "plans", "*")]: "allow",
-                  },
-                  edit: {
-                    "*": "deny",
-                    [path.join(projectPlansDir, "plans", "*.md")]: "allow",
-                    [path.relative(Instance.worktree, path.join(Global.Path.data, path.join("plans", "*.md")))]:
-                      "allow",
-                  },
-                }),
-                user,
-              ),
-              mode: "primary",
-              native: true,
-            },
+            // PawWork: visible Plan mode permanently removed (issue #239); resolve sync
+            // conflicts in this region to HEAD. Plan capability migrated to plan tool per #127.
             general: {
               name: "general",
               description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
