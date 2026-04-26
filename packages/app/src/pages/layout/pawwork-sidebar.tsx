@@ -130,7 +130,7 @@ export const PawworkSidebar = (props: {
                   props.onTogglePinnedSession(session.id)
                 }}
                 classList={{
-                  "inline-flex size-6 items-center justify-center rounded transition-colors": true,
+                  "inline-flex size-5 items-center justify-center rounded transition-colors": true,
                   "text-text-strong opacity-100 pointer-events-auto": isPinned(),
                   "text-text-weak opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto hover:text-text-base":
                     !isPinned(),
