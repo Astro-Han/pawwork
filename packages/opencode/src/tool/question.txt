@@ -1,10 +1,53 @@
-Use this tool when you need to ask the user questions during execution. This allows you to:
-1. Gather user preferences or requirements
-2. Clarify ambiguous instructions
-3. Get decisions on implementation choices as you work
-4. Offer choices to the user about what direction to take.
+Use this tool proactively when you need a user decision that meaningfully shapes the next step. The user clicks an option (or types a custom answer) and you continue with their answer in mind.
 
-Usage notes:
-- When `custom` is enabled (default), a "Type your own answer" option is added automatically; don't include "Other" or catch-all options
-- Answers are returned as arrays of labels; set `multiple: true` to allow selecting more than one
-- If you recommend a specific option, make that the first option in the list and add "(Recommended)" at the end of the label
+## When to Use
+
+1. **Hard-to-reverse choices**: pushing to dev, force-pushing, deleting branches/files, replacing branding assets, signing/notarizing.
+   - Example: "We're about to push this branch with 3 commits. Squash on merge or merge as-is?"
+2. **Multiple valid technical approaches**: when several solutions are reasonable and user preference matters.
+   - Example: "For the cap, do you want CSS-only with a constant or a dynamic measurement?"
+3. **Ambiguous scope**: when the request could mean different concrete deliverables.
+   - Example: "When you say 'clean up tests', do you mean delete obsolete ones, refactor for readability, or both?"
+4. **Content-style preferences**: tone, length, register, structure for user-facing copy.
+   - Example: "Should the X post lead with the metric or the story?"
+5. **Trade-off where defaults aren't obvious**: when picking the default would silently commit the user to one branch of a real choice.
+   - Example: "Add this gate to all 3 environments now, or only staging this week?"
+
+## When NOT to Use
+
+- Factual lookups you can answer by reading code, docs, or running a command.
+- The user already gave a specific instruction; just execute it.
+- Pure exploration tasks (use the explore agent or codesearch instead).
+- Trivial style choices a sensible default covers.
+- Confirmation theater: don't ask "should I proceed?" after the user already said proceed.
+
+## Examples
+
+GOOD:
+- `question: "Squash on merge or merge as-is?"` with options "Squash" / "Merge as-is".
+- `question: "Use SF Pro or system stack?"` with options "SF Pro" / "system stack".
+
+BAD (stuffs context into the question field; should stream context first then ask short):
+- `question: "We're shipping a feature flag for the new dock. The flag controls whether the new measurement runs only in dev mode initially or also in prod. The trade-off is that dev-only avoids any prod regressions but means we need a follow-up to flip it for the actual rollout. So should we enable it in prod from day 1?"` — 200+ chars; rejected by schema.
+- `question: "Yes or no?"` with no options array — schema requires 2–4 options.
+
+## Format
+
+- `header`: very short label (max 30 chars), shown as a chip.
+- `question`: short prompt (max 200 chars). If you need more context, stream it as normal assistant output BEFORE invoking this tool, then keep the question short.
+- `options`: 2–4 distinct choices; keep them mutually exclusive unless `multiple: true`.
+- `options[].label`: 1–5 words (max 50 chars).
+- `options[].description`: one-line explanation (max 50 chars). Longer per-option detail belongs in the streamed context above.
+- `multiple: true` only when choices aren't mutually exclusive (e.g. feature toggles).
+- `custom`: defaults to true; the dock adds a "Type your own answer" slot. Set false only when the options are exhaustive.
+- `questions`: 1–4 per invocation. If you have more, split.
+
+## Content routing
+
+The tool is for short clickable decisions, not long explanations.
+
+When framing a decision needs paragraphs of context, trade-offs, or background:
+1. Stream the context as normal assistant output FIRST (no tool call yet). The user reads it like any chat message.
+2. THEN invoke `question` with a short prompt that references the context you just streamed.
+
+This keeps the dock compact, every option visible without scroll, and the user's eye landing on the actual choice instead of a wall of text.

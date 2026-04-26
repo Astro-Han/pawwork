@@ -5,7 +5,11 @@ import { Question } from "../question"
 import DESCRIPTION from "./question.txt"
 
 const parameters = z.object({
-  questions: z.array(Question.Prompt).describe("Questions to ask"),
+  questions: z
+    .array(Question.Prompt)
+    .min(1, "Provide at least one question.")
+    .max(4, "Ask at most 4 questions per invocation. If you have more, split into multiple tool calls or stream context first.")
+    .describe("Questions to ask (1–4)"),
 })
 
 type Metadata = {

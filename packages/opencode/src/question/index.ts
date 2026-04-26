@@ -14,31 +14,62 @@ export namespace Question {
 
   export const Option = z
     .object({
-      label: z.string().describe("Display text (1-5 words, concise)"),
-      description: z.string().describe("Explanation of choice"),
+      label: z
+        .string()
+        .trim()
+        .min(1, "Option label cannot be empty.")
+        .max(50, "Option label is too long (max 50 chars). Keep labels to 1–5 words; put detail in description.")
+        .describe("Display text (1–5 words, max 50 chars)"),
+      description: z
+        .string()
+        .trim()
+        .min(1, "Option description cannot be empty.")
+        .max(50, "Option description is too long (max 50 chars). Keep it to one line; longer trade-off context belongs in the question or in normal streamed output before the tool call.")
+        .describe("One-line explanation of choice (max 50 chars)"),
     })
     .meta({ ref: "QuestionOption" })
   export type Option = z.infer<typeof Option>
 
   export const Info = z
     .object({
-      question: z.string().describe("Complete question"),
-      header: z.string().describe("Very short label (max 30 chars)"),
-      options: z.array(Option).describe("Available choices"),
+      question: z
+        .string()
+        .trim()
+        .min(1, "Question cannot be empty.")
+        .max(200, "Question is too long (max 200 chars). Stream longer framing or trade-off context as normal assistant output before invoking this tool, then keep the question short.")
+        .describe("Short question (max 200 chars). Stream longer framing as normal output first."),
+      header: z
+        .string()
+        .trim()
+        .min(1, "Header cannot be empty.")
+        .max(30, "Header is too long (max 30 chars). Use a chip-sized label like 'Auth method' or 'Approach'.")
+        .describe("Very short label (max 30 chars)"),
+      options: z
+        .array(Option)
+        .min(2, "Each question needs at least 2 options.")
+        .max(4, "Each question allows at most 4 options. Keep choices distinct and mutually exclusive.")
+        .describe("Available choices (2–4)"),
       multiple: z.boolean().optional().describe("Allow selecting multiple choices"),
       custom: z.boolean().optional().describe("Allow typing a custom answer (default: true)"),
     })
     .meta({ ref: "QuestionInfo" })
   export type Info = z.infer<typeof Info>
 
-  export const Prompt = Info.omit({ custom: true }).meta({ ref: "QuestionPrompt" })
+  // Prompt is the LLM-facing schema. Identical to Info — we expose `custom` so the
+  // tool description's "Set false only when the options are exhaustive" instruction
+  // is reachable from a real tool call. The omit({}) round-trip preserves the
+  // separate ref so docs render two distinct schemas (one internal, one tool input).
+  export const Prompt = Info.omit({}).meta({ ref: "QuestionPrompt" })
   export type Prompt = z.infer<typeof Prompt>
 
   export const Request = z
     .object({
       id: QuestionID.zod,
       sessionID: SessionID.zod,
-      questions: z.array(Info).describe("Questions to ask"),
+      questions: z
+        .array(Info)
+        .min(1, "Provide at least one question.")
+        .max(4, "Ask at most 4 questions per invocation. If you have more, split into multiple tool calls or stream context first."),
       tool: z
         .object({
           messageID: MessageID.zod,
