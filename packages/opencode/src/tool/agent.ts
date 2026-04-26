@@ -1,5 +1,5 @@
 import * as Tool from "./tool"
-import DESCRIPTION from "./task.txt"
+import DESCRIPTION from "./agent.txt"
 import z from "zod"
 import { Session } from "../session"
 import { SessionID, MessageID } from "../session/schema"
@@ -9,7 +9,7 @@ import type { SessionPrompt } from "../session/prompt"
 import { Config } from "../config"
 import { Effect } from "effect"
 
-export interface TaskPromptOps {
+export interface AgentPromptOps {
   cancel(sessionID: SessionID): void
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
@@ -30,14 +30,14 @@ const parameters = z.object({
   command: z.string().describe("The command that triggered this task").optional(),
 })
 
-export const TaskTool = Tool.define(
+export const AgentTool = Tool.define(
   id,
   Effect.gen(function* () {
     const agent = yield* Agent.Service
     const config = yield* Config.Service
     const sessions = yield* Session.Service
 
-    const run = Effect.fn("TaskTool.execute")(function* (params: z.infer<typeof parameters>, ctx: Tool.Context) {
+    const run = Effect.fn("AgentTool.execute")(function* (params: z.infer<typeof parameters>, ctx: Tool.Context) {
       const cfg = yield* config.get()
 
       if (!ctx.extra?.bypassAgentCheck) {
@@ -112,8 +112,8 @@ export const TaskTool = Tool.define(
         },
       })
 
-      const ops = ctx.extra?.promptOps as TaskPromptOps
-      if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
+      const ops = ctx.extra?.promptOps as AgentPromptOps
+      if (!ops) return yield* Effect.fail(new Error("AgentTool requires promptOps in ctx.extra"))
 
       const messageID = MessageID.ascending()
 

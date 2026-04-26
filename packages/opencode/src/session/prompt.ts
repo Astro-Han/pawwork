@@ -48,7 +48,7 @@ import { Process } from "@/util/process"
 import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
 import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
-import { TaskTool, type TaskPromptOps } from "@/tool/task"
+import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
 import { EffectBridge } from "@/effect"
 import { makeRuntime } from "@/effect/run-service"
@@ -139,7 +139,7 @@ export const layer = Layer.effect(
         cancel: (sessionID: SessionID) => run.fork(cancel(sessionID)),
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input),
-      } satisfies TaskPromptOps
+      } satisfies AgentPromptOps
     })
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
@@ -583,7 +583,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         sessionID: assistantMessage.sessionID,
         type: "tool",
         callID: ulid(),
-        tool: TaskTool.id,
+        tool: AgentTool.id,
         state: {
           status: "running",
           input: {
@@ -603,7 +603,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
       yield* plugin.trigger(
         "tool.execute.before",
-        { tool: TaskTool.id, sessionID, callID: part.id },
+        { tool: AgentTool.id, sessionID, callID: part.id },
         { args: taskArgs },
       )
 
@@ -682,7 +682,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       yield* plugin.trigger(
         "tool.execute.after",
-        { tool: TaskTool.id, sessionID, callID: part.id, args: taskArgs },
+        { tool: AgentTool.id, sessionID, callID: part.id, args: taskArgs },
         result,
       )
 

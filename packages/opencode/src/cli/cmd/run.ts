@@ -21,7 +21,7 @@ import { EditTool } from "../../tool/edit"
 import { WriteTool } from "../../tool/write"
 import { CodeSearchTool } from "../../tool/codesearch"
 import { WebSearchTool } from "../../tool/websearch"
-import { TaskTool } from "../../tool/task"
+import { AgentTool } from "../../tool/agent"
 import { SkillTool } from "../../tool/skill"
 import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
@@ -159,7 +159,7 @@ function websearch(info: ToolProps<typeof WebSearchTool>) {
   })
 }
 
-function task(info: ToolProps<typeof TaskTool>) {
+function agent(info: ToolProps<typeof AgentTool>) {
   const input = info.part.state.input
   const status = info.part.state.status
   const subagent =
@@ -417,7 +417,7 @@ export const RunCommand = cmd({
           if (part.tool === "edit") return edit(props<typeof EditTool>(part))
           if (part.tool === "codesearch") return codesearch(props<typeof CodeSearchTool>(part))
           if (part.tool === "websearch") return websearch(props<typeof WebSearchTool>(part))
-          if (part.tool === "task") return task(props<typeof TaskTool>(part))
+          if (part.tool === "task") return agent(props<typeof AgentTool>(part))
           if (part.tool === "todowrite") return todo(props<typeof TodoWriteTool>(part))
           if (part.tool === "skill") return skill(props<typeof SkillTool>(part))
           return fallback(part)
@@ -477,7 +477,7 @@ export const RunCommand = cmd({
               args.format !== "json"
             ) {
               if (toggles.get(part.id) === true) continue
-              task(props<typeof TaskTool>(part))
+              agent(props<typeof AgentTool>(part))
               toggles.set(part.id, true)
             }
 
@@ -562,7 +562,7 @@ export const RunCommand = cmd({
       }
 
       // Validate agent if specified
-      const agent = await (async () => {
+      const agentName = await (async () => {
         if (!args.agent) return undefined
         const name = args.agent
 
@@ -639,7 +639,7 @@ export const RunCommand = cmd({
       if (args.command) {
         await sdk.session.command({
           sessionID,
-          agent,
+          agent: agentName,
           model: args.model,
           command: args.command,
           arguments: message,
@@ -649,7 +649,7 @@ export const RunCommand = cmd({
         const model = args.model ? Provider.parseModel(args.model) : undefined
         await sdk.session.prompt({
           sessionID,
-          agent,
+          agent: agentName,
           model,
           variant: args.variant,
           parts: [...files, { type: "text", text: message }],

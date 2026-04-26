@@ -6,7 +6,7 @@ import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
-import { TaskTool } from "./task"
+import { AgentTool } from "./agent"
 import { TodoWriteTool } from "./todo"
 import { TrashTool } from "./trash"
 import { WebFetchTool } from "./webfetch"
@@ -58,20 +58,20 @@ export function localToolImportSpec(input: string) {
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
 
-  type TaskDef = Tool.InferDef<typeof TaskTool>
+  type AgentDef = Tool.InferDef<typeof AgentTool>
   type ReadDef = Tool.InferDef<typeof ReadTool>
 
   type State = {
     custom: Tool.Def[]
     builtin: Tool.Def[]
-    task: TaskDef
+    task: AgentDef
     read: ReadDef
   }
 
   export interface Interface {
     readonly ids: () => Effect.Effect<string[]>
     readonly all: () => Effect.Effect<Tool.Def[]>
-    readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
+    readonly named: () => Effect.Effect<{ task: AgentDef; read: ReadDef }>
     readonly tools: (model: {
       providerID: ProviderID
       modelID: ModelID
@@ -114,7 +114,7 @@ export namespace ToolRegistry {
       const settings = yield* Settings.Service
 
       const invalid = yield* InvalidTool
-      const task = yield* TaskTool
+      const task = yield* AgentTool
       const read = yield* ReadTool
       const question = yield* QuestionTool
       const todo = yield* TodoWriteTool
@@ -347,7 +347,7 @@ export namespace ToolRegistry {
               id: tool.id,
               description: [
                 output.description,
-                tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,
+                tool.id === AgentTool.id ? yield* describeTask(input.agent) : undefined,
                 tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
               ]
                 .filter(Boolean)

@@ -9,7 +9,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import type { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
+import { AgentTool, type AgentPromptOps } from "../../src/tool/agent"
 import { Truncate } from "../../src/tool/truncate"
 import { ToolRegistry } from "../../src/tool/registry"
 import { provideTmpdirInstance } from "../fixture/fixture"
@@ -35,7 +35,7 @@ const it = testEffect(
   ),
 )
 
-const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
+const seed = Effect.fn("AgentToolTest.seed")(function* (title = "Pinned") {
   const session = yield* Session.Service
   const chat = yield* session.create({ title })
   const user = yield* session.updateMessage({
@@ -64,7 +64,7 @@ const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
   return { chat, assistant }
 })
 
-function stubOps(opts?: { onPrompt?: (input: SessionPrompt.PromptInput) => void; text?: string }): TaskPromptOps {
+function stubOps(opts?: { onPrompt?: (input: SessionPrompt.PromptInput) => void; text?: string }): AgentPromptOps {
   return {
     cancel() {},
     resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
@@ -116,7 +116,7 @@ describe("tool.task", () => {
           const registry = yield* ToolRegistry.Service
           const get = Effect.fnUntraced(function* () {
             const tools = yield* registry.tools({ ...ref, agent: build })
-            return tools.find((tool) => tool.id === TaskTool.id)?.description ?? ""
+            return tools.find((tool) => tool.id === AgentTool.id)?.description ?? ""
           })
           const first = yield* get()
           const second = yield* get()
@@ -158,7 +158,7 @@ describe("tool.task", () => {
           const build = yield* agent.get("build")
           const registry = yield* ToolRegistry.Service
           const description =
-            (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === TaskTool.id)?.description ?? ""
+            (yield* registry.tools({ ...ref, agent: build })).find((tool) => tool.id === AgentTool.id)?.description ?? ""
 
           expect(description).toContain("- alpha: Alpha agent")
           expect(description).not.toContain("- zebra: Zebra agent")
@@ -192,7 +192,7 @@ describe("tool.task", () => {
         const sessions = yield* Session.Service
         const { chat, assistant } = yield* seed()
         const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
-        const tool = yield* TaskTool
+        const tool = yield* AgentTool
         const def = yield* tool.init()
         let seen: SessionPrompt.PromptInput | undefined
         const promptOps = stubOps({ text: "resumed", onPrompt: (input) => (seen = input) })
@@ -230,7 +230,7 @@ describe("tool.task", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const { chat, assistant } = yield* seed()
-        const tool = yield* TaskTool
+        const tool = yield* AgentTool
         const def = yield* tool.init()
         const calls: unknown[] = []
         const promptOps = stubOps()
@@ -279,7 +279,7 @@ describe("tool.task", () => {
       Effect.gen(function* () {
         const sessions = yield* Session.Service
         const { chat, assistant } = yield* seed()
-        const tool = yield* TaskTool
+        const tool = yield* AgentTool
         const def = yield* tool.init()
         let seen: SessionPrompt.PromptInput | undefined
         const promptOps = stubOps({ text: "created", onPrompt: (input) => (seen = input) })
@@ -319,7 +319,7 @@ describe("tool.task", () => {
         Effect.gen(function* () {
           const sessions = yield* Session.Service
           const { chat, assistant } = yield* seed()
-          const tool = yield* TaskTool
+          const tool = yield* AgentTool
           const def = yield* tool.init()
           let seen: SessionPrompt.PromptInput | undefined
           const promptOps = stubOps({ onPrompt: (input) => (seen = input) })
