@@ -8,8 +8,6 @@ import { showToast } from "@opencode-ai/ui/toast"
 import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
-import { makeEventListener } from "@solid-primitives/event-listener"
-import { createResizeObserver } from "@solid-primitives/resize-observer"
 
 const cache = new Map<string, { tab: number; answers: QuestionAnswer[]; custom: string[]; customOn: boolean[] }>()
 
@@ -86,7 +84,8 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   const input = createMemo(() => store.custom[store.tab] ?? "")
   const on = createMemo(() => store.customOn[store.tab] === true)
   const multi = createMemo(() => question()?.multiple === true)
-  const count = createMemo(() => options().length + 1)
+  const customAllowed = createMemo(() => question()?.custom !== false)
+  const count = createMemo(() => options().length + (customAllowed() ? 1 : 0))
 
   const summary = createMemo(() => {
     const n = Math.min(store.tab + 1, total())
@@ -118,33 +117,12 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     setStore("answers", store.tab, next ? [next] : [])
   }
 
-  const measure = () => {
-    if (!root) return
-
-    const scroller = document.querySelector(".scroll-view__viewport")
-    const head = scroller instanceof HTMLElement ? scroller.firstElementChild : undefined
-    const top =
-      head instanceof HTMLElement && head.classList.contains("sticky") ? head.getBoundingClientRect().bottom : 0
-    if (!top) {
-      root.style.removeProperty("--question-prompt-max-height")
-      return
-    }
-
-    const dock = root.closest('[data-component="session-prompt-dock"]')
-    if (!(dock instanceof HTMLElement)) return
-
-    const dockBottom = dock.getBoundingClientRect().bottom
-    const below = Math.max(0, dockBottom - root.getBoundingClientRect().bottom)
-    const gap = 8
-    const max = Math.max(240, Math.floor(dockBottom - top - gap - below))
-    root.style.setProperty("--question-prompt-max-height", `${max}px`)
-  }
-
   const clamp = (i: number) => Math.max(0, Math.min(count() - 1, i))
 
   const pickFocus = (tab: number = store.tab) => {
     const list = questions()[tab]?.options ?? []
-    if (store.customOn[tab] === true) return list.length
+    const customOnTab = questions()[tab]?.custom !== false
+    if (customOnTab && store.customOn[tab] === true) return list.length
     return Math.max(
       0,
       list.findIndex((item) => store.answers[tab]?.includes(item.label) ?? false),
@@ -164,38 +142,19 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   }
 
   onMount(() => {
-    let raf: number | undefined
-    const update = () => {
-      if (raf !== undefined) cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        raf = undefined
-        measure()
-      })
-    }
-
-    update()
-
-    makeEventListener(window, "resize", update)
-
-    const dock = root?.closest('[data-component="session-prompt-dock"]')
-    const scroller = document.querySelector(".scroll-view__viewport")
-    createResizeObserver([dock, scroller], update)
-
-    onCleanup(() => {
-      if (raf !== undefined) cancelAnimationFrame(raf)
-    })
-
     focus(pickFocus())
   })
 
   onCleanup(() => {
     if (focusFrame !== undefined) cancelAnimationFrame(focusFrame)
     if (replied) return
+    const customByTab = (i: number) => questions()[i]?.custom !== false
     cache.set(props.request.id, {
       tab: store.tab,
       answers: store.answers.map((a) => (a ? [...a] : [])),
-      custom: store.custom.map((s) => s ?? ""),
-      customOn: store.customOn.map((b) => b ?? false),
+      // Iterate by total() to avoid leaving stale entries when a tab was never visited.
+      custom: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.custom[i] ?? "" : "")),
+      customOn: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.customOn[i] ?? false : false)),
     })
   })
 
@@ -351,6 +310,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     if (sending()) return
 
     if (optIndex === options().length) {
+      if (!customAllowed()) return
       customOpen()
       return
     }
@@ -427,7 +387,13 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       onKeyDown={nav}
       header={
         <>
-          <div data-slot="question-header-title">{summary()}</div>
+          <div data-slot="question-header-title">
+            <span data-slot="question-header-seq">{summary()}</span>
+            <span data-slot="question-header-separator" aria-hidden="true">·</span>
+            <span data-slot="question-header-mode">
+              {multi() ? language.t("ui.question.multiHint") : language.t("ui.question.singleHint")}
+            </span>
+          </div>
           <div data-slot="question-progress">
             <For each={questions()}>
               {(_, i) => (
@@ -470,9 +436,6 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       }
     >
       <div data-slot="question-text">{question()?.question}</div>
-      <Show when={multi()} fallback={<div data-slot="question-hint">{language.t("ui.question.singleHint")}</div>}>
-        <div data-slot="question-hint">{language.t("ui.question.multiHint")}</div>
-      </Show>
       <div data-slot="question-options">
         <For each={options()}>
           {(opt, i) => (
@@ -489,78 +452,80 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
           )}
         </For>
 
-        <Show
-          when={store.editing}
-          fallback={
-            <button
-              type="button"
-              ref={customRef}
+        <Show when={customAllowed()}>
+          <Show
+            when={store.editing}
+            fallback={
+              <button
+                type="button"
+                ref={customRef}
+                data-slot="question-option"
+                data-custom="true"
+                data-picked={on()}
+                role={multi() ? "checkbox" : "radio"}
+                aria-checked={on()}
+                disabled={sending()}
+                onFocus={() => setStore("focus", options().length)}
+                onClick={customOpen}
+              >
+                <Mark multi={multi()} picked={on()} onClick={toggleCustomMark} />
+                <span data-slot="question-option-main">
+                  <span data-slot="option-label">{customLabel()}</span>
+                  <span data-slot="option-description">{input() || customPlaceholder()}</span>
+                </span>
+              </button>
+            }
+          >
+            <form
               data-slot="question-option"
               data-custom="true"
               data-picked={on()}
               role={multi() ? "checkbox" : "radio"}
               aria-checked={on()}
-              disabled={sending()}
-              onFocus={() => setStore("focus", options().length)}
-              onClick={customOpen}
+              onMouseDown={(e) => {
+                if (sending()) {
+                  e.preventDefault()
+                  return
+                }
+                if (e.target instanceof HTMLTextAreaElement) return
+                const input = e.currentTarget.querySelector('[data-slot="question-custom-input"]')
+                if (input instanceof HTMLTextAreaElement) input.focus()
+              }}
+              onSubmit={(e) => {
+                e.preventDefault()
+                commitCustom()
+              }}
             >
               <Mark multi={multi()} picked={on()} onClick={toggleCustomMark} />
               <span data-slot="question-option-main">
                 <span data-slot="option-label">{customLabel()}</span>
-                <span data-slot="option-description">{input() || customPlaceholder()}</span>
-              </span>
-            </button>
-          }
-        >
-          <form
-            data-slot="question-option"
-            data-custom="true"
-            data-picked={on()}
-            role={multi() ? "checkbox" : "radio"}
-            aria-checked={on()}
-            onMouseDown={(e) => {
-              if (sending()) {
-                e.preventDefault()
-                return
-              }
-              if (e.target instanceof HTMLTextAreaElement) return
-              const input = e.currentTarget.querySelector('[data-slot="question-custom-input"]')
-              if (input instanceof HTMLTextAreaElement) input.focus()
-            }}
-            onSubmit={(e) => {
-              e.preventDefault()
-              commitCustom()
-            }}
-          >
-            <Mark multi={multi()} picked={on()} onClick={toggleCustomMark} />
-            <span data-slot="question-option-main">
-              <span data-slot="option-label">{customLabel()}</span>
-              <textarea
-                ref={focusCustom}
-                data-slot="question-custom-input"
-                placeholder={customPlaceholder()}
-                value={input()}
-                rows={1}
-                disabled={sending()}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
+                <textarea
+                  ref={focusCustom}
+                  data-slot="question-custom-input"
+                  placeholder={customPlaceholder()}
+                  value={input()}
+                  rows={1}
+                  disabled={sending()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      e.preventDefault()
+                      setStore("editing", false)
+                      focus(options().length)
+                      return
+                    }
+                    if ((e.metaKey || e.ctrlKey) && !e.altKey) return
+                    if (e.key !== "Enter" || e.shiftKey) return
                     e.preventDefault()
-                    setStore("editing", false)
-                    focus(options().length)
-                    return
-                  }
-                  if ((e.metaKey || e.ctrlKey) && !e.altKey) return
-                  if (e.key !== "Enter" || e.shiftKey) return
-                  e.preventDefault()
-                  commitCustom()
-                }}
-                onInput={(e) => {
-                  customUpdate(e.currentTarget.value)
-                  resizeInput(e.currentTarget)
-                }}
-              />
-            </span>
-          </form>
+                    commitCustom()
+                  }}
+                  onInput={(e) => {
+                    customUpdate(e.currentTarget.value)
+                    resizeInput(e.currentTarget)
+                  }}
+                />
+              </span>
+            </form>
+          </Show>
         </Show>
       </div>
     </DockPrompt>

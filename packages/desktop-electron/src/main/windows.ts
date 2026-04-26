@@ -71,6 +71,8 @@ export function createMainWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
+    minWidth: 480,
+    minHeight: 480,
     show: false,
     title: "PawWork",
     icon: iconPath(),

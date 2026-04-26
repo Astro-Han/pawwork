@@ -73,7 +73,10 @@ describe("tool.question", () => {
           {
             question: "What is your favorite animal?",
             header: "This Header is Over 12",
-            options: [{ label: "Dog", description: "Man's best friend" }],
+            options: [
+              { label: "Dog", description: "Man's best friend" },
+              { label: "Cat", description: "Independent companion" },
+            ],
           },
         ]
 

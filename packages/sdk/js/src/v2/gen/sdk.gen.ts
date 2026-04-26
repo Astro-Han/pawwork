@@ -121,6 +121,8 @@ import type {
   SessionDeleteMessageResponses,
   SessionDeleteResponses,
   SessionDiffResponses,
+  SessionExportErrors,
+  SessionExportResponses,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -1988,6 +1990,38 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Export session log
+   *
+   * Export the full root session tree as a single JSON document for local debugging. If a child session id is provided, climbs to the topmost ancestor and exports the whole tree.
+   */
+  public export<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionExportResponses, SessionExportErrors, ThrowOnError>({
+      url: "/session/{sessionID}/export",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Get message diff
    *
    * Get the file changes (diff) that resulted from a specific user message in the session.
@@ -2352,6 +2386,9 @@ export class Session2 extends HeyApiClient {
         filename?: string
         url: string
         source?: FilePartSource
+        metadata?: {
+          [key: string]: unknown
+        }
       }>
     },
     options?: Options<never, ThrowOnError>,

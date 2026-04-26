@@ -162,7 +162,7 @@ export const dict: Record<string, string> = {
   "ui.question.subtitle.answered": "{{count}} answered",
   "ui.question.answer.none": "(no answer)",
   "ui.question.review.notAnswered": "(not answered)",
-  "ui.question.multiHint": "Select all answers that apply",
-  "ui.question.singleHint": "Select one answer",
+  "ui.question.multiHint": "Pick multiple",
+  "ui.question.singleHint": "Pick 1",
   "ui.question.custom.placeholder": "Type your answer...",
 }
