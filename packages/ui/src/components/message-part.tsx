@@ -368,7 +368,7 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
           ? input.subagent_type[0]!.toUpperCase() + input.subagent_type.slice(1)
           : undefined
       return {
-        icon: "task",
+        icon: "agent",
         title: agentTitle(i18n, type),
         subtitle: input.description,
       }
@@ -432,7 +432,7 @@ export function buildToolInfo(part: ToolPart, i18n: ReturnType<typeof useI18n>):
       const subagentType = typeof input?.subagent_type === "string" ? input.subagent_type : undefined
       const type = subagentType ? subagentType[0]!.toUpperCase() + subagentType.slice(1) : undefined
       return {
-        icon: "task", // icon rename is Task 10
+        icon: "agent",
         title: agentTitle(i18n, type),
         subtitle: input?.description ?? "",
       }
@@ -1865,7 +1865,7 @@ const renderAgentToolPart: ToolComponent = (props) => {
 
   return (
     <BasicTool
-      icon="task"
+      icon="agent"
       status={props.status}
       trigger={trigger()}
       hideDetails

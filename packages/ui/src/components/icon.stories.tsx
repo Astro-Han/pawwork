@@ -67,7 +67,7 @@ const names = [
   "glasses",
   "magnifying-glass-menu",
   "window-cursor",
-  "task",
+  "agent",
   "stop",
   "layout-left",
   "layout-left-partial",
