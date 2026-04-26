@@ -135,5 +135,12 @@ describe("extractPromptFromParts", () => {
     // path strips the leading "@" from the source.text.value (extractor convention)
     expect(files[0]).toMatchObject({ type: "file", path: "a.ts", start: 5, end: 10 })
     expect(files[1]).toMatchObject({ type: "file", path: "b.ts", start: 26, end: 31 })
+
+    // @bot stays as plain text in the surrounding text inlines
+    const text = result
+      .filter((p) => p.type === "text")
+      .map((p) => p.content)
+      .join("")
+    expect(text).toContain("@bot")
   })
 })
