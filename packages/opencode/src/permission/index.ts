@@ -276,9 +276,18 @@ export namespace Permission {
     return pattern
   }
 
+  // Map legacy permission keys to their renamed equivalent so existing user configs keep working
+  // after the agent rename (#128). The Schema rest record accepts the old key but ToolRegistry now
+  // queries the new name, so without this normalization a user-configured `permission.task` rule
+  // would silently stop applying.
+  const LEGACY_KEY_ALIASES: Record<string, string> = {
+    task: "agent", // agent-rename:legacy-render
+  }
+
   export function fromConfig(permission: Config.Permission) {
     const ruleset: Ruleset = []
-    for (const [key, value] of Object.entries(permission)) {
+    for (const [rawKey, value] of Object.entries(permission)) {
+      const key = LEGACY_KEY_ALIASES[rawKey] ?? rawKey
       if (typeof value === "string") {
         ruleset.push({ permission: key, action: value, pattern: "*" })
         continue

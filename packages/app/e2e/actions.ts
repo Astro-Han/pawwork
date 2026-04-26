@@ -794,14 +794,14 @@ export async function seedSessionTask(
   },
 ) {
   const text = [
-    "Your only valid response is one task tool call.",
+    "Your only valid response is one agent tool call.",
     `Use this JSON input: ${JSON.stringify({
       description: input.description,
       prompt: input.prompt,
       subagent_type: input.subagentType ?? "general",
     })}`,
     "Do not output plain text.",
-    "Wait for the task to start and return the child session id.",
+    "Wait for the subagent to start and return the child session id.",
   ].join("\n")
 
   const result = await seed({
@@ -814,7 +814,7 @@ export async function seedSessionTask(
       const part = messages
         .flatMap((message) => message.parts)
         .find((part) => {
-          if (part.type !== "tool" || part.tool !== "task") return false
+          if (part.type !== "tool" || (part.tool !== "task" && part.tool !== "agent")) return false // agent-rename:legacy-render
           if (!("state" in part) || !part.state || typeof part.state !== "object") return false
           if (!("input" in part.state) || !part.state.input || typeof part.state.input !== "object") return false
           if (!("description" in part.state.input) || part.state.input.description !== input.description) return false
@@ -838,7 +838,7 @@ export async function seedSessionTask(
     },
   })
 
-  if (!result) throw new Error("Timed out seeding task tool")
+  if (!result) throw new Error("Timed out seeding agent tool")
   return result
 }
 

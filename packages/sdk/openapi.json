@@ -10623,7 +10623,7 @@
               "bash": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
-              "task": {
+              "agent": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
               "external_directory": {

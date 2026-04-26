@@ -149,7 +149,6 @@ export const dict = {
   "ui.fileSearch.previousMatch": "Forrige match",
   "ui.fileSearch.nextMatch": "Næste match",
   "ui.fileSearch.close": "Luk søgning",
-  "ui.tool.task": "Opgave",
   "ui.tool.skill": "Færdighed",
   "ui.basicTool.called": "Kaldte `{{tool}}`",
   "ui.toolErrorCard.failed": "Fejlede",

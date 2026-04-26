@@ -173,7 +173,7 @@ function agent(info: ToolProps<typeof AgentTool>) {
   const desc =
     typeof input.description === "string" && input.description.trim().length > 0 ? input.description : undefined
   const icon = status === "error" ? "✗" : status === "running" ? "•" : "✓"
-  const name = desc ?? `${agent} Task`
+  const name = desc ?? `${agent} Agent`
   inline({
     icon,
     title: name,

@@ -759,7 +759,7 @@ it.live(
 )
 
 it.live(
-  "running task tool preserves metadata after tool-call transition",
+  "running agent tool preserves metadata after tool-call transition",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {

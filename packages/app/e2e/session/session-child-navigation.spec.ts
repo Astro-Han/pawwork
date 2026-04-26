@@ -2,7 +2,7 @@ import { seedSessionTask, withSession } from "../actions"
 import { test, expect } from "../fixtures"
 import { inputMatch } from "../prompt/mock"
 
-test("task tool child-session link does not trigger stale show errors", async ({ page, llm, project }) => {
+test("agent tool child-session link does not trigger stale show errors", async ({ page, llm, project }) => {
   test.setTimeout(120_000)
 
   const errs: string[] = []

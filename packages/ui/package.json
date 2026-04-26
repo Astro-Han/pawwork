@@ -25,6 +25,7 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
+    "test": "bun test",
     "dev": "vite",
     "generate:tailwind": "bun run script/tailwind.ts"
   },

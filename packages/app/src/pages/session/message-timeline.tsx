@@ -17,6 +17,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
+import { taskDescription } from "@/pages/session/task-description"
 import { isSessionRunning } from "@/pages/session/session-running-state"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -68,13 +69,7 @@ const messageComments = (parts: Part[]): MessageComment[] =>
     ]
   })
 
-export const taskDescription = (part: Part, sessionID: string) => {
-  if (part.type !== "tool" || (part.tool !== "task" && part.tool !== "agent")) return // agent-rename:legacy-render
-  const metadata = "metadata" in part.state ? part.state.metadata : undefined
-  if (metadata?.sessionId !== sessionID) return
-  const value = part.state.input?.description
-  if (typeof value === "string" && value) return value
-}
+export { taskDescription }
 
 const pace = (width: number) => Math.round(Math.max(1200, Math.min(3200, (Math.max(width, 360) * 2000) / 900)))
 

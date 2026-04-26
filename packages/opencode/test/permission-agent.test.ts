@@ -321,3 +321,33 @@ describe("permission.agent with real config files", () => {
     })
   })
 })
+
+describe("legacy permission.task config compatibility (#128)", () => {
+  test("fromConfig maps task: 'deny' to permission: 'agent'", () => {
+    const ruleset = Permission.fromConfig({ task: "deny" } as any) // agent-rename:legacy-render
+    expect(ruleset).toEqual([{ permission: "agent", pattern: "*", action: "deny" }])
+    expect(Permission.evaluate("agent", "any-subagent", ruleset).action).toBe("deny")
+  })
+
+  test("fromConfig maps task: { '*': 'allow', code-reviewer: 'deny' } to agent rules", () => {
+    const ruleset = Permission.fromConfig({
+      task: { "*": "allow", "code-reviewer": "deny" }, // agent-rename:legacy-render
+    } as any)
+    expect(ruleset).toEqual([
+      { permission: "agent", pattern: "*", action: "allow" },
+      { permission: "agent", pattern: "code-reviewer", action: "deny" },
+    ])
+    expect(Permission.evaluate("agent", "general", ruleset).action).toBe("allow")
+    expect(Permission.evaluate("agent", "code-reviewer", ruleset).action).toBe("deny")
+  })
+
+  test("fromConfig prefers explicit agent key when both task and agent are present", () => {
+    const ruleset = Permission.fromConfig({
+      task: { "*": "deny" }, // agent-rename:legacy-render
+      agent: { "*": "allow" },
+    } as any)
+    // Both produce permission: "agent" rules; later rules win in evaluate() via findLast.
+    expect(ruleset.map((r) => r.permission)).toEqual(["agent", "agent"])
+    expect(Permission.evaluate("agent", "any", ruleset).action).toBe("allow")
+  })
+})

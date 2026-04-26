@@ -106,7 +106,7 @@ function reply(input: Parameters<typeof SessionPrompt.prompt>[0], text: string):
   }
 }
 
-describe("tool.task", () => {
+describe("tool.agent", () => {
   it.live("description sorts subagents by name and is stable across calls", () =>
     provideTmpdirInstance(
       () =>

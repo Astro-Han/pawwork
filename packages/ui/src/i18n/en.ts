@@ -105,7 +105,6 @@ export const dict: Record<string, string> = {
   "ui.tool.list": "List",
   "ui.tool.glob": "Glob",
   "ui.tool.grep": "Grep",
-  "ui.tool.task": "Task",
   "ui.tool.webfetch": "Webfetch",
   "ui.tool.websearch": "Web Search",
   "ui.tool.codesearch": "Code Search",

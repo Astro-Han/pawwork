@@ -30,7 +30,8 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
       list: "ui.tool.list",
       glob: "ui.tool.glob",
       grep: "ui.tool.grep",
-      task: "ui.tool.task",
+      task: "ui.tool.agent.default", // agent-rename:legacy-render
+      agent: "ui.tool.agent.default",
       webfetch: "ui.tool.webfetch",
       websearch: "ui.tool.websearch",
       codesearch: "ui.tool.codesearch",

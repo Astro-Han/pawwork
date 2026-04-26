@@ -154,7 +154,6 @@ export const dict = {
   "ui.fileSearch.previousMatch": "Prethodno",
   "ui.fileSearch.nextMatch": "Sljedeće",
   "ui.fileSearch.close": "Zatvori pretragu",
-  "ui.tool.task": "Zadatak",
   "ui.tool.skill": "Vještina",
   "ui.basicTool.called": "Pozvan `{{tool}}`",
   "ui.toolErrorCard.failed": "Neuspješno",
