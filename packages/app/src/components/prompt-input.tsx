@@ -574,25 +574,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     })
   }
 
-  const agentList = createMemo(() =>
-    sync.data.agent
-      .filter((agent) => !agent.hidden && agent.mode !== "primary")
-      .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
-  )
-
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!option) return
-    if (option.type === "agent") {
-      addPart({ type: "agent", name: option.name, content: "@" + option.name, start: 0, end: 0 })
-    } else {
-      addPart({ type: "file", path: option.path, content: "@" + option.path, start: 0, end: 0 })
-    }
+    addPart({ type: "file", path: option.path, content: "@" + option.path, start: 0, end: 0 })
   }
 
-  const atKey = (x: AtOption | undefined) => {
-    if (!x) return ""
-    return x.type === "agent" ? `agent:${x.name}` : `file:${x.path}`
-  }
+  const atKey = (x: AtOption | undefined) => x?.path ?? ""
 
   const {
     flat: atFlat,
@@ -602,32 +589,20 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onKeyDown: atOnKeyDown,
   } = useFilteredList<AtOption>({
     items: async (query) => {
-      const agents = agentList()
       const open = recent()
       const seen = new Set(open)
       const pinned: AtOption[] = open.map((path) => ({ type: "file", path, display: path, recent: true }))
-      if (!query.trim()) return [...agents, ...pinned]
+      if (!query.trim()) return pinned
       const paths = await files.searchFilesAndDirectories(query)
       const fileOptions: AtOption[] = paths
         .filter((path) => !seen.has(path))
         .map((path) => ({ type: "file", path, display: path }))
-      return [...agents, ...pinned, ...fileOptions]
+      return [...pinned, ...fileOptions]
     },
     key: atKey,
     filterKeys: ["display"],
-    groupBy: (item) => {
-      if (item.type === "agent") return "agent"
-      if (item.recent) return "recent"
-      return "file"
-    },
-    sortGroupsBy: (a, b) => {
-      const rank = (category: string) => {
-        if (category === "agent") return 0
-        if (category === "recent") return 1
-        return 2
-      }
-      return rank(a.category) - rank(b.category)
-    },
+    groupBy: (item) => (item.recent ? "recent" : "file"),
+    sortGroupsBy: (a, b) => (a.category === "recent" ? -1 : b.category === "recent" ? 1 : 0),
     onSelect: handleAtSelect,
   })
 
