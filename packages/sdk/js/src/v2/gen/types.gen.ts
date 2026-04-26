@@ -3007,7 +3007,7 @@ export type WorktreeResetResponse = WorktreeResetResponses[keyof WorktreeResetRe
 export type ExperimentalSessionListData = {
   body?: never
   path?: never
-  query: {
+  query?: {
     /**
      * Filter sessions by project directory
      */
@@ -3024,7 +3024,7 @@ export type ExperimentalSessionListData = {
     /**
      * Cursor for loading the next page
      */
-    cursor: number | string
+    cursor?: number | string
     /**
      * Filter sessions by title (case-insensitive)
      */

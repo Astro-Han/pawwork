@@ -758,12 +758,12 @@ export class Session extends HeyApiClient {
    * Get a list of all OpenCode sessions across projects. Defaults to most recently updated; use sort=created for creation-time order. Archived sessions are excluded by default.
    */
   public list<ThrowOnError extends boolean = false>(
-    parameters: {
+    parameters?: {
       directory?: string
       workspace?: string
       roots?: boolean
       start?: number
-      cursor: number | string
+      cursor?: number | string
       search?: string
       limit?: number
       archived?: boolean

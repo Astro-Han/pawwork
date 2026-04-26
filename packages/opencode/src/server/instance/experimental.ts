@@ -376,6 +376,7 @@ export const ExperimentalRoutes = lazy(() =>
               (value) => (value === "" ? undefined : value),
               z.union([z.coerce.number(), z.string()]).optional(),
             )
+            .optional()
             .meta({ description: "Cursor for loading the next page" }),
           search: z.string().optional().meta({ description: "Filter sessions by title (case-insensitive)" }),
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
