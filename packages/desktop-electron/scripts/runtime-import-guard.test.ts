@@ -16,7 +16,7 @@ describe("runtime import guard", () => {
   test("extractRuntimeImports finds static and dynamic runtime imports", () => {
     const source = `
       import "side-effect";import { NamedError } from "@opencode-ai/util/error"
-      import "@opencode-ai/shared/runtime";const cjs = require("@opencode-ai/sdk")
+      import "@opencode-ai/core/runtime";const cjs = require("@opencode-ai/sdk")
       const lazy = import("@opencode-ai/plugin")
       const templated = import(\`@opencode-ai/util/template\`)
       export * from "@opencode-ai/util/re-export-all"
@@ -29,7 +29,7 @@ describe("runtime import guard", () => {
     expect(extractRuntimeImports(source)).toEqual([
       { kind: "import", specifier: "side-effect" },
       { kind: "import", specifier: "@opencode-ai/util/error" },
-      { kind: "import", specifier: "@opencode-ai/shared/runtime" },
+      { kind: "import", specifier: "@opencode-ai/core/runtime" },
       { kind: "require", specifier: "@opencode-ai/sdk" },
       { kind: "import", specifier: "@opencode-ai/plugin" },
       { kind: "import", specifier: "@opencode-ai/util/template" },
@@ -40,7 +40,7 @@ describe("runtime import guard", () => {
 
   test("packageNameForSpecifier returns the scoped package name", () => {
     expect(packageNameForSpecifier("@opencode-ai/util/error")).toBe("@opencode-ai/util")
-    expect(packageNameForSpecifier("@opencode-ai/shared/runtime")).toBe("@opencode-ai/shared")
+    expect(packageNameForSpecifier("@opencode-ai/core/runtime")).toBe("@opencode-ai/core")
     expect(packageNameForSpecifier("electron-store")).toBe("electron-store")
   })
 
@@ -148,11 +148,11 @@ describe("runtime import guard", () => {
       mkdirSync(path.join(dir, "out/main"), { recursive: true })
       mkdirSync(path.join(dir, "out/preload"), { recursive: true })
       await Bun.write(path.join(dir, "out/main/index.js"), 'import "@opencode-ai/util/error"')
-      await Bun.write(path.join(dir, "out/preload/index.mjs"), 'import "@opencode-ai/shared/runtime"')
+      await Bun.write(path.join(dir, "out/preload/index.mjs"), 'import "@opencode-ai/core/runtime"')
 
       expect(readBuiltRuntimeFiles(dir)).toEqual([
         { file: path.join("out/main/index.js"), source: 'import "@opencode-ai/util/error"' },
-        { file: path.join("out/preload/index.mjs"), source: 'import "@opencode-ai/shared/runtime"' },
+        { file: path.join("out/preload/index.mjs"), source: 'import "@opencode-ai/core/runtime"' },
       ])
     } finally {
       rmSync(dir, { recursive: true, force: true })

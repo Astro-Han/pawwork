@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { NodeFileSystem } from "@effect/platform-node"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import path from "path"
 
 const run = <A>(effect: Effect.Effect<A, unknown, never>) => Effect.runPromise(effect)

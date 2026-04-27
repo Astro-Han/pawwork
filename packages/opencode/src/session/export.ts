@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { Effect } from "effect"
-import { Runtime } from "@opencode-ai/shared/runtime"
+import { Runtime } from "@opencode-ai/core/runtime"
 import { Session } from "."
 import type { SessionID } from "./schema"
 import { MessageV2 } from "./message-v2"

@@ -4,7 +4,7 @@ import { existsSync } from "fs"
 import os from "os"
 import path from "path"
 import { Log, Process } from "../util"
-import { Runtime } from "@opencode-ai/shared/runtime"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 const log = Log.create({ service: "config" })
 
