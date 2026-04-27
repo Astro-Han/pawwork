@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { Effect } from "effect"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { Instruction } from "../../src/session/instruction"
+import { Instruction, projectFiles } from "../../src/session/instruction"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { Instance } from "../../src/project/instance"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -217,6 +217,41 @@ describe("Instruction.resolve", () => {
   })
 
   test.todo("fetches remote instructions from config URLs via HttpClient", () => {})
+})
+
+describe("projectFiles gate", () => {
+  test("PawWork mode keeps CLAUDE.md even when OPENCODE_DISABLE_CLAUDE_CODE_PROMPT is set", () => {
+    // Regression for issue #230 acceptance #6: a PawWork process inheriting the
+    // disable flag must still discover project-level CLAUDE.md as compatibility.
+    expect(projectFiles({ isPawWork: true, disableClaudeCodePrompt: true })).toEqual([
+      "AGENTS.md",
+      "CLAUDE.md",
+      "CONTEXT.md",
+    ])
+  })
+
+  test("PawWork mode keeps CLAUDE.md when flag is unset", () => {
+    expect(projectFiles({ isPawWork: true, disableClaudeCodePrompt: false })).toEqual([
+      "AGENTS.md",
+      "CLAUDE.md",
+      "CONTEXT.md",
+    ])
+  })
+
+  test("opencode CLI mode drops CLAUDE.md when OPENCODE_DISABLE_CLAUDE_CODE_PROMPT is set", () => {
+    expect(projectFiles({ isPawWork: false, disableClaudeCodePrompt: true })).toEqual([
+      "AGENTS.md",
+      "CONTEXT.md",
+    ])
+  })
+
+  test("opencode CLI mode keeps CLAUDE.md when flag is unset", () => {
+    expect(projectFiles({ isPawWork: false, disableClaudeCodePrompt: false })).toEqual([
+      "AGENTS.md",
+      "CLAUDE.md",
+      "CONTEXT.md",
+    ])
+  })
 })
 
 describe("Instruction.system", () => {

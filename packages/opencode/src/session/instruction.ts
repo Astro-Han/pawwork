@@ -16,11 +16,24 @@ import type { MessageID } from "./schema"
 
 const log = Log.create({ service: "instruction" })
 
-const FILES = [
-  "AGENTS.md",
-  ...(Flag.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT ? [] : ["CLAUDE.md"]),
-  "CONTEXT.md", // deprecated
-]
+// PawWork keeps project-level CLAUDE.md as compatibility (issue #230, acceptance #6),
+// even if a parent process inherits OPENCODE_DISABLE_CLAUDE_CODE_PROMPT. The flag only
+// suppresses Claude Code interop in plain opencode CLI mode. Exported so the gate can
+// be unit tested without mutating module-scope flags.
+export function projectFiles(deps: { isPawWork: boolean; disableClaudeCodePrompt: boolean }): string[] {
+  return [
+    "AGENTS.md",
+    ...(deps.isPawWork || !deps.disableClaudeCodePrompt ? ["CLAUDE.md"] : []),
+    "CONTEXT.md", // deprecated
+  ]
+}
+
+function FILES() {
+  return projectFiles({
+    isPawWork: Runtime.isPawWork(),
+    disableClaudeCodePrompt: Flag.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT,
+  })
+}
 
 function configDir() {
   return Runtime.isPawWork() ? Flag.PAWWORK_CONFIG_DIR : Flag.OPENCODE_CONFIG_DIR
@@ -135,7 +148,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
 
         // The first project-level match wins so we don't stack AGENTS.md/CLAUDE.md from every ancestor.
         if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
-          for (const file of FILES) {
+          for (const file of FILES()) {
             const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
             if (matches.length > 0) {
               matches.forEach((item) => paths.add(path.resolve(item)))
@@ -188,7 +201,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
       })
 
       const find = Effect.fn("Instruction.find")(function* (dir: string) {
-        for (const file of FILES) {
+        for (const file of FILES()) {
           const filepath = path.resolve(path.join(dir, file))
           if (yield* fs.existsSafe(filepath)) return filepath
         }
