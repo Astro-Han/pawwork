@@ -346,6 +346,83 @@ export namespace SessionDiagnostics {
     return { record }
   }
 
+  export function deriveParentLoopState(input: {
+    errorRecords: ToolErrorRecord[]
+    syntheticBlockSigKeys: string[]
+    parentID: MessageID
+  }): ParentLoopState {
+    const signatures: Record<string, SignatureState> = {}
+
+    const real = input.errorRecords.filter(
+      (r) =>
+        r.parentID === input.parentID &&
+        r.metadata.diagnostics?.loop?.loopAction !== "block" &&
+        r.metadata.diagnostics?.loop?.loopAction !== "stop" &&
+        r.inputHash !== "",
+    )
+
+    for (const r of real) {
+      const inputSigKey = r.inputHash ? `input:${r.tool}:${r.inputHash}` : null
+      const targetSigKey = r.targetHash ? `target:${r.tool}:${r.targetHash}` : null
+      const fired = r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? []
+      for (const [sigKey, kind] of [
+        [inputSigKey, "input"] as const,
+        [targetSigKey, "target"] as const,
+      ]) {
+        if (!sigKey) continue
+        const s = (signatures[sigKey] ??= {
+          kind,
+          completedFailures: 0,
+          recoverEmitted: false,
+          blockEmitted: false,
+        })
+        s.completedFailures += 1
+        if (fired.includes(sigKey)) s.recoverEmitted = true
+        if (r.lastInput !== undefined) s.lastInput = r.lastInput
+        if (r.lastError !== undefined) s.lastError = r.lastError
+      }
+    }
+
+    for (const sigKey of input.syntheticBlockSigKeys) {
+      const kind: SignatureKind = sigKey.startsWith("target:") ? "target" : "input"
+      const s = (signatures[sigKey] ??= {
+        kind,
+        completedFailures: 0,
+        recoverEmitted: false,
+        blockEmitted: false,
+      })
+      s.blockEmitted = true
+    }
+
+    return {
+      autoResumeSpent: input.syntheticBlockSigKeys.length > 0,
+      signatures,
+    }
+  }
+
+  export function queryGateAction(input: {
+    parentLoopState: ParentLoopState
+    tool: string
+    inputHash: string
+    targetHash?: string
+  }): GateDecision {
+    const { parentLoopState: state, tool, inputHash, targetHash } = input
+    const inputKey = `input:${tool}:${inputHash}`
+    const targetKey = targetHash ? `target:${tool}:${targetHash}` : null
+
+    for (const sigKey of [targetKey, inputKey] as const) {
+      if (!sigKey) continue
+      const s = state.signatures[sigKey]
+      if (!s) continue
+      if (s.completedFailures >= 5 && s.recoverEmitted) {
+        const action: LoopAction = state.autoResumeSpent || s.blockEmitted ? "stop" : "block"
+        return { action, sigKey, kind: s.kind, completedFailures: s.completedFailures }
+      }
+    }
+
+    return { action: "observe" }
+  }
+
   export function mergeMetadata<T extends Record<string, any> | undefined>(current: T, update: Metadata): NonNullable<T> & Metadata {
     if (!current?.diagnostics && !update.diagnostics) {
       return { ...(current ?? {}), ...update } as NonNullable<T> & Metadata
