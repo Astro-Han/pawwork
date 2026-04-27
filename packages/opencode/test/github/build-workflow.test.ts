@@ -95,7 +95,7 @@ describe("release workflow", () => {
         (step) => step.uses === "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
       )
       const setupNodeStep = steps.find(
-        (step) => step.uses === "actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f",
+        (step) => step.uses === "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
       )
       const signedArtifactStep = steps.find((step) => step.name === "Upload signed app artifact")
       const nonMacArtifactStep = steps.find((step) => step.name === "Upload packaged app artifact")
