@@ -1,5 +1,5 @@
 import { Context, Data, Effect, Layer } from "effect"
-import { Runtime } from "@opencode-ai/shared/runtime"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 export namespace ShareRuntime {
   export class CloudShareGate extends Context.Service<CloudShareGate, { isEnabled: () => boolean }>()(

@@ -25,7 +25,7 @@ import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
 import { fn } from "../util/fn"
 import { makeRuntime } from "../effect/run-service"
-import { Runtime } from "@opencode-ai/shared/runtime"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 import type { Provider } from "@/provider"
 import { Permission } from "@/permission"

@@ -9,7 +9,7 @@ import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
 import { Log } from "../util/log"
-import { Runtime } from "@opencode-ai/shared/runtime"
+import { Runtime } from "@opencode-ai/core/runtime"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID } from "./schema"
 

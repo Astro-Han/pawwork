@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/shared": "workspace:*",
+    "@opencode-ai/core": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {
