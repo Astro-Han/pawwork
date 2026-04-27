@@ -7,7 +7,7 @@ import { SessionShare } from "../../src/share/session"
 import { ShareNext } from "../../src/share/share-next"
 import { ShareRuntime } from "../../src/share/runtime"
 import { Config } from "../../src/config/config"
-import { Log } from "../../src/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })

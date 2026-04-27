@@ -7,7 +7,7 @@ import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { Instance } from "../../src/project/instance"
 import { localToolImportSpec, ToolRegistry } from "../../src/tool/registry"
 import { Settings } from "../../src/settings"
-import { Npm } from "../../src/npm"
+import { Npm } from "@opencode-ai/core/npm"
 
 afterEach(async () => {
   await Instance.disposeAll()

@@ -1,7 +1,7 @@
 import { Bus } from "@/bus"
 import { Config } from "@/config/config"
 import { AppRuntime } from "@/effect/app-runtime"
-import { Flag } from "@/flag/flag"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { Installation } from "@/installation"
 
 export async function upgrade() {

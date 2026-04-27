@@ -10,7 +10,7 @@ import {
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "../config/config"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod/v4"
 import { Instance } from "../project/instance"
@@ -24,11 +24,11 @@ import { BusEvent } from "../bus/bus-event"
 import { Bus } from "@/bus"
 import open from "open"
 import { Effect, Exit, Layer, Option, Context, Stream } from "effect"
-import { EffectLogger } from "@/effect/logger"
+import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
 export namespace MCP {
   const log = Log.create({ service: "mcp" })

@@ -14,7 +14,7 @@ import { Truncate } from "../../src/tool/truncate"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { FileWatcher } from "../../src/file/watcher"
 import { Tool } from "../../src/tool/tool"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { testEffect } from "../lib/effect"
 
 const ctx = {

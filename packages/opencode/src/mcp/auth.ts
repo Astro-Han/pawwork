@@ -1,6 +1,6 @@
 import path from "path"
 import z from "zod"
-import { Global } from "../global"
+import { Global } from "@opencode-ai/core/global"
 import { Effect, Layer, Context } from "effect"
 import { AppFileSystem } from "@/filesystem"
 import { makeRuntime } from "@/effect/run-service"

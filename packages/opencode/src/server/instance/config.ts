@@ -5,7 +5,7 @@ import { Config } from "../../config/config"
 import { Provider } from "../../provider/provider"
 import { mapValues } from "remeda"
 import { errors } from "../error"
-import { Log } from "../../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { lazy } from "../../util/lazy"
 
 const log = Log.create({ service: "server" })

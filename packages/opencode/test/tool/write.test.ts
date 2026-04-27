@@ -12,7 +12,7 @@ import { Truncate } from "../../src/tool/truncate"
 import { Tool } from "../../src/tool/tool"
 import { Agent } from "../../src/agent/agent"
 import { SessionID, MessageID } from "../../src/session/schema"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 

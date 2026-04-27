@@ -1,5 +1,5 @@
 import type { Hooks, PluginInput } from "@opencode-ai/plugin"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { Installation } from "../installation"
 import { Auth, OAUTH_DUMMY_KEY } from "../auth"
 import os from "os"

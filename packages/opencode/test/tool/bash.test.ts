@@ -11,7 +11,7 @@ import type { Permission } from "../../src/permission"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "../../src/tool/truncate"
 import { SessionID, MessageID } from "../../src/session/schema"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "../../src/filesystem"
 import { Plugin } from "../../src/plugin"
 

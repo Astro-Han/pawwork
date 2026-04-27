@@ -9,7 +9,7 @@ import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Log } from "../../src/util"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
 const root = path.join(__dirname, "../..")
 void Log.init({ print: false })

@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { AsyncQueue } from "../../util/queue"

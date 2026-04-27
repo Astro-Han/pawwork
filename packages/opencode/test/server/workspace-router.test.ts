@@ -11,7 +11,7 @@ import { WorkspaceID } from "../../src/control-plane/schema"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
 import { Database } from "../../src/storage/db"
-import { Log } from "../../src/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
 import { tmpdir } from "../fixture/fixture"
 
@@ -20,9 +20,10 @@ Log.init({ print: false })
 const disableDefault = process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS
 process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
 
-const { Flag } = await import("../../src/flag/flag")
+const { Flag } = await import("@opencode-ai/core/flag/flag")
 const experimental = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
-// @ts-expect-error test-only flag override
+
+// @ts-expect-error - Flag is readonly at type level but mutable at runtime for test toggling
 Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = true
 
 afterEach(async () => {
@@ -33,7 +34,8 @@ afterEach(async () => {
 afterAll(() => {
   if (disableDefault === undefined) delete process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS
   else process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = disableDefault
-  // @ts-expect-error test-only flag override
+
+  // @ts-expect-error - Flag is readonly at type level but mutable at runtime for test toggling
   Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = experimental
 })
 

@@ -1,4 +1,4 @@
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 
 export namespace State {
   interface Entry {

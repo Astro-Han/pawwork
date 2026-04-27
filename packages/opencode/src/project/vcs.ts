@@ -8,7 +8,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import { FileWatcher } from "@/file/watcher"
 import { Git } from "@/git"
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { Instance } from "./instance"
 import z from "zod"
 

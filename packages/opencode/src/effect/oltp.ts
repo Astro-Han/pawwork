@@ -1,9 +1,9 @@
 import { Duration, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { Otlp } from "effect/unstable/observability"
-import { EffectLogger } from "@/effect/logger"
-import { Flag } from "@/flag/flag"
-import { CHANNEL, VERSION } from "@/installation/meta"
+import * as EffectLogger from "@opencode-ai/core/effect/logger"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { InstallationChannel as CHANNEL, InstallationVersion as VERSION } from "@opencode-ai/core/installation/version"
 
 export namespace Observability {
   const base = Flag.OTEL_EXPORTER_OTLP_ENDPOINT

@@ -8,7 +8,7 @@ import { Instance } from "../../src/project/instance"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { Tool } from "../../src/tool/tool"
 import { Truncate } from "../../src/tool/truncate"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 

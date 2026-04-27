@@ -6,7 +6,7 @@ import path from "path"
 import { LSP } from "../../src/lsp"
 import { LSPServer, LSP_SERVER_PACKAGES } from "../../src/lsp/server"
 import { Settings } from "../../src/settings"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 

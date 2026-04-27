@@ -1,14 +1,14 @@
 import { Effect, Layer, Schema, Context, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
-import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import path from "path"
 import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
-import { Flag } from "../flag/flag"
-import { Log } from "../util/log"
-import { CHANNEL as channel, VERSION as version } from "./meta"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { Log } from "@opencode-ai/core/util/log"
+import { InstallationChannel as channel, InstallationVersion as version } from "@opencode-ai/core/installation/version"
 
 import semver from "semver"
 

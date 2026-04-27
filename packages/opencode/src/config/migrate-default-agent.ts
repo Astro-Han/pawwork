@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises"
 import { applyEdits, modify, parse as parseJsonc } from "jsonc-parser"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 
 const defaultLogger = Log.create({ service: "config.migrate-default-agent" })
 

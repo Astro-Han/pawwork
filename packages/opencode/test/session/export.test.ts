@@ -4,7 +4,7 @@ import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
-import { Log } from "../../src/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Export, getRuntimeNamespace, redactPart } from "../../src/session/export"
 
