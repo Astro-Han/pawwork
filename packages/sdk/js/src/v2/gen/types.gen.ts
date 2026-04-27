@@ -1139,7 +1139,9 @@ export type PermissionRuleConfig = PermissionActionConfig | PermissionObjectConf
 
 export type PermissionConfig =
   | PermissionActionConfig
-  | {
+  | ({
+      [key: string]: PermissionRuleConfig
+    } & {
       read?: PermissionRuleConfig
       edit?: PermissionRuleConfig
       glob?: PermissionRuleConfig
@@ -1157,7 +1159,7 @@ export type PermissionConfig =
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
       [key: string]: PermissionRuleConfig | PermissionActionConfig | undefined
-    }
+    })
 
 export type AgentConfig = {
   model?: string
@@ -1552,6 +1554,19 @@ export type Config = {
      * Enterprise URL
      */
     url?: string
+  }
+  /**
+   * Thresholds for truncating tool output. When output exceeds either limit, the full text is written to the truncation directory and a preview is returned.
+   */
+  tool_output?: {
+    /**
+     * Maximum lines of tool output before it is truncated and saved to disk (default: 2000)
+     */
+    max_lines?: number
+    /**
+     * Maximum bytes of tool output before it is truncated and saved to disk (default: 51200)
+     */
+    max_bytes?: number
   }
   compaction?: {
     /**
