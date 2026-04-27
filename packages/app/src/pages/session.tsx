@@ -58,7 +58,7 @@ import { useSessionLayout } from "@/pages/session/session-layout"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { isSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
-import { deriveArtifactFiles, nextFilesPanelAutoOpen } from "@/pages/session/files-tab-state"
+import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
@@ -694,11 +694,17 @@ export default function Page() {
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
     () => params.id,
-    (sessionID) => sdk.client.session.artifacts({ sessionID }).then((res) => res.data ?? []).catch(() => []),
+    async (sessionID) => ({
+      sessionID,
+      artifacts: await sdk.client.session.artifacts({ sessionID }).then((res) => res.data ?? []).catch(() => []),
+    }),
+    { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
   )
   const artifactFiles = createMemo(() => {
-    const history = artifactHistory() ?? []
-    if (history.length > 0) return deriveArtifactFiles(sdk.directory, history)
+    const history = artifactHistory.latest
+    if (history?.sessionID === params.id && history.artifacts.length > 0) {
+      return deriveArtifactFiles(sdk.directory, history.artifacts)
+    }
 
     return deriveArtifactFiles(
       sdk.directory,

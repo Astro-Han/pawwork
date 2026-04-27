@@ -3,6 +3,8 @@ const desktopTerminalSelector = '#right-panel[aria-hidden="false"] #terminal-pan
 const mobileTerminalSelector = '#terminal-panel[aria-hidden="false"] [data-component="terminal"]'
 export const terminalSelector = `${desktopTerminalSelector}, ${mobileTerminalSelector}`
 export const sessionComposerDockSelector = '[data-component="session-prompt-dock"]'
+export const sessionTurnListSelector = '[data-slot="session-turn-list"]'
+export const sessionMessageItemSelector = "[data-message-id]"
 export const questionDockSelector = '[data-component="dock-prompt"][data-kind="question"]'
 export const permissionDockSelector = '[data-component="dock-prompt"][data-kind="permission"]'
 export const sessionTodoToggleButtonSelector = '[data-action="session-todo-toggle-button"]'
