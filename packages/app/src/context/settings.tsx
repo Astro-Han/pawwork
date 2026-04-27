@@ -32,6 +32,7 @@ export interface Settings {
     shellToolPartsExpanded: boolean
     editToolPartsExpanded: boolean
     lspEnabled: boolean
+    webSearchEnabled: boolean
   }
   updates: {
     startup: boolean
@@ -112,6 +113,7 @@ const defaultSettings: Settings = {
     shellToolPartsExpanded: false,
     editToolPartsExpanded: false,
     lspEnabled: false,
+    webSearchEnabled: true,
   },
   updates: {
     startup: true,
@@ -185,7 +187,25 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       if (!ready()) return
       const value = store.general?.lspEnabled ?? defaultSettings.general.lspEnabled
       void window.api?.setLspEnabled?.(value)?.catch(() => {
+        const current = store.general?.lspEnabled ?? defaultSettings.general.lspEnabled
+        if (current !== value) return
         setStore("general", "lspEnabled", !value)
+      })
+    })
+
+    let rollingBackWebSearchEnabled = false
+    createEffect(() => {
+      if (!ready()) return
+      const value = store.general?.webSearchEnabled ?? defaultSettings.general.webSearchEnabled
+      if (rollingBackWebSearchEnabled) {
+        rollingBackWebSearchEnabled = false
+        return
+      }
+      void window.api?.setWebSearchEnabled?.(value)?.catch(() => {
+        const current = store.general?.webSearchEnabled ?? defaultSettings.general.webSearchEnabled
+        if (current !== value) return
+        rollingBackWebSearchEnabled = true
+        setStore("general", "webSearchEnabled", !value)
       })
     })
 
@@ -256,6 +276,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
           // The createEffect above mirrors this change to the Electron main
           // process and rolls back if the IPC handler rejects.
           setStore("general", "lspEnabled", value)
+        },
+        webSearchEnabled: withFallback(() => store.general?.webSearchEnabled, defaultSettings.general.webSearchEnabled),
+        setWebSearchEnabled(value: boolean) {
+          setStore("general", "webSearchEnabled", value)
         },
       },
       updates: {

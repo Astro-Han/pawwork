@@ -66,6 +66,13 @@ const SessionRoute = () => (
 
 const SessionIndexRoute = () => <Navigate href="session" />
 
+type WebSearchStatus = {
+  source: "saved" | "env" | "anonymous"
+  configured: boolean
+  needsAttention: boolean
+  quotaExceeded: boolean
+}
+
 function UiI18nBridge(props: ParentProps) {
   const language = useLanguage()
   return <I18nProvider value={{ locale: language.intl, t: language.t }}>{props.children}</I18nProvider>
@@ -83,6 +90,10 @@ declare global {
       getAboutInfo?: () => Promise<AboutInfo>
       onAboutOpen?: (handler: () => void) => () => void
       setLspEnabled?: (value: boolean) => Promise<void>
+      setWebSearchEnabled?: (value: boolean) => Promise<void>
+      webSearchStatus?: () => Promise<WebSearchStatus>
+      saveExaApiKey?: (key: string) => Promise<WebSearchStatus>
+      removeExaApiKey?: () => Promise<WebSearchStatus>
     }
   }
 }
