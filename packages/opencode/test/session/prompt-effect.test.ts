@@ -555,7 +555,8 @@ it.live("loop gate blocks then stops after autoResume budget on repeated tool er
         const trailingTexts = trailing.filter((p): p is MessageV2.TextPart => p.type === "text")
         expect(trailingTexts).toHaveLength(1)
         expect(trailingTexts[0]!.synthetic).toBe(true)
-        expect(trailingTexts[0]!.text).toContain("已停止")
+        // Default locale (test fixture sends no user-message locale) → English template.
+        expect(trailingTexts[0]!.text).toContain("stopped")
         expect(trailing.filter((p) => p.type === "tool")).toHaveLength(0)
 
         // Recovery fires per-sigKey; in this scenario read+filePath produces both `input:` and

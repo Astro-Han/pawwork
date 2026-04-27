@@ -97,8 +97,9 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   toolId: string
   args: unknown
   toolCallId: string
+  locale?: string
 }) {
-  const { processor, toolId, args, toolCallId } = input
+  const { processor, toolId, args, toolCallId, locale } = input
   const parentID = processor.message.parentID
   if (!parentID) return { kind: "observe" } satisfies GateOutcome
 
@@ -153,7 +154,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
     return { kind: "block", userFacing } satisfies GateOutcome
   }
 
-  const renderedText = LoopRenderer.render({ tool: toolId, state: sigState })
+  const renderedText = LoopRenderer.render({ tool: toolId, state: sigState, locale })
   const toolErrorMessage = `${LOOP_GATE_STOP_PREFIX}: stop after repeated failures (${decision.completedFailures})`
   yield* processor.recordSyntheticStop({
     toolCallId,
@@ -490,6 +491,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const tools: Record<string, AITool> = {}
       const run = yield* runner()
       const promptOps = yield* ops()
+      // Locale travels on the user message (set by the UI from `language.intl()`); capture
+      // once here and let every applyLoopGate call in this resolveTools scope share it.
+      // Falls back to undefined → English in LoopRenderer. Skip user messages without locale
+      // (synthetic continuations like subtask-summary or shell-input) so a zh session keeps
+      // rendering Chinese stop summaries even after a synthetic user hop.
+      const lastUserMessage = input.messages.findLast(
+        (m): m is MessageV2.WithParts & { info: MessageV2.User } =>
+          m.info.role === "user" && typeof m.info.locale === "string" && m.info.locale.length > 0,
+      )
+      const lastUserLocale = lastUserMessage?.info.locale
 
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
@@ -542,6 +553,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   toolId: item.id,
                   args,
                   toolCallId: options.toolCallId,
+                  locale: lastUserLocale,
                 })
                 if (outcome.kind === "block") return yield* Effect.fail(new BlockedLoopError(outcome.userFacing))
                 if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
@@ -591,6 +603,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 toolId: key,
                 args,
                 toolCallId: opts.toolCallId,
+                locale: lastUserLocale,
               })
               if (outcome.kind === "block") return yield* Effect.fail(new BlockedLoopError(outcome.userFacing))
               if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))

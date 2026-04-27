@@ -55,13 +55,24 @@ describe("LoopRenderer.render", () => {
     expect(text).toContain("5")
   })
 
-  test("missing lastError omits error line in target template", () => {
+  test("missing lastError omits error line in target template (zh)", () => {
     const text = LoopRenderer.render({
       tool: "webfetch",
       state: makeState({ kind: "target", lastInput: { url: "https://x.com/a" }, lastError: undefined }),
+      locale: "zh-Hans",
     })
     expect(text).toContain("https://x.com/a")
     expect(text).not.toContain("错误：")
+  })
+
+  test("missing lastError omits error line in target template (en)", () => {
+    const text = LoopRenderer.render({
+      tool: "webfetch",
+      state: makeState({ kind: "target", lastInput: { url: "https://x.com/a" }, lastError: undefined }),
+      locale: "en",
+    })
+    expect(text).toContain("https://x.com/a")
+    expect(text).not.toContain("Error:")
   })
 
   test("non-webfetch same_target shows tool name and error but never raw input", () => {
@@ -266,5 +277,55 @@ describe("LoopRenderer.render", () => {
     })
     expect(text.length).toBeLessThan(2200)
     expect(text).toContain("…")
+  })
+})
+
+describe("LoopRenderer.render locale routing", () => {
+  const baseTarget = { kind: "target" as const, lastInput: { url: "https://x.com/a" }, lastError: "404" }
+
+  test("default (no locale) renders English", () => {
+    const text = LoopRenderer.render({ tool: "webfetch", state: makeState(baseTarget) })
+    expect(text).toContain("failed to fetch the same target")
+    expect(text).not.toContain("我重复抓取")
+  })
+
+  test("locale 'en' renders English", () => {
+    const text = LoopRenderer.render({ tool: "webfetch", state: makeState(baseTarget), locale: "en" })
+    expect(text).toContain("failed to fetch the same target")
+  })
+
+  test("locale 'zh-Hans' renders Chinese", () => {
+    const text = LoopRenderer.render({ tool: "webfetch", state: makeState(baseTarget), locale: "zh-Hans" })
+    expect(text).toContain("我重复抓取同一个目标")
+    expect(text).not.toContain("failed to fetch")
+  })
+
+  test("locale 'zh' (bare prefix) renders Chinese", () => {
+    const text = LoopRenderer.render({ tool: "webfetch", state: makeState(baseTarget), locale: "zh" })
+    expect(text).toContain("我重复抓取同一个目标")
+  })
+
+  test("locale 'fr' (unsupported) falls back to English", () => {
+    const text = LoopRenderer.render({ tool: "webfetch", state: makeState(baseTarget), locale: "fr" })
+    expect(text).toContain("failed to fetch the same target")
+    expect(text).not.toContain("我重复抓取")
+  })
+
+  test("non-webfetch generic-target template honors locale", () => {
+    const baseGeneric = makeState({ kind: "target", lastInput: { command: "ls" }, lastError: "EACCES" })
+    const en = LoopRenderer.render({ tool: "bash", state: baseGeneric, locale: "en" })
+    const zh = LoopRenderer.render({ tool: "bash", state: baseGeneric, locale: "zh-Hans" })
+    expect(en).toContain("failed against the same target")
+    expect(en).toContain("EACCES")
+    expect(zh).toContain("我重复在同一个目标上失败了")
+    expect(zh).toContain("EACCES")
+  })
+
+  test("input-template (non-target) honors locale", () => {
+    const inputState = makeState({ kind: "input", lastInput: { pattern: "x" }, lastError: "permission denied" })
+    const en = LoopRenderer.render({ tool: "grep", state: inputState, locale: "en" })
+    const zh = LoopRenderer.render({ tool: "grep", state: inputState, locale: "zh-Hans" })
+    expect(en).toContain("I called grep")
+    expect(zh).toContain("我重复调用了 grep")
   })
 })
