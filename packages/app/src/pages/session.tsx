@@ -56,7 +56,7 @@ import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
-import { isSessionRunning } from "@/pages/session/session-running-state"
+import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
@@ -1672,7 +1672,11 @@ export default function Page() {
       return out
     })
 
-  const busy = (sessionID: string) => isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
+  const currentRunning = createSessionRunning(
+    () => (params.id ? sync.data.session_status[params.id] : undefined),
+    () => (params.id ? sync.data.message[params.id] : undefined),
+  )
+  const busy = () => currentRunning()
 
   const queuedFollowups = createMemo(() => {
     const id = params.id
@@ -1725,7 +1729,7 @@ export default function Page() {
   const queueEnabled = createMemo(() => {
     const id = params.id
     if (!id) return false
-    return settings.general.followup() === "queue" && busy(id) && !composer.blocked() && !isChildSession()
+    return settings.general.followup() === "queue" && busy() && !composer.blocked() && !isChildSession()
   })
 
   const followupText = (item: FollowupDraft) => {
@@ -1789,7 +1793,7 @@ export default function Page() {
   }
 
   const halt = (sessionID: string) =>
-    busy(sessionID) ? sdk.client.session.abort({ sessionID }).catch(() => {}) : Promise.resolve()
+    busy() ? sdk.client.session.abort({ sessionID }).catch(() => {}) : Promise.resolve()
 
   const revertMutation = useMutation(() => ({
     mutationFn: async (input: { sessionID: string; messageID: string }) => {
@@ -1890,7 +1894,7 @@ export default function Page() {
     if (followup.paused[sessionID]) return
     if (isChildSession()) return
     if (composer.blocked()) return
-    if (busy(sessionID)) return
+    if (busy()) return
 
     void sendFollowup(sessionID, item.id)
   })

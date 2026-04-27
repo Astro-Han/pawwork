@@ -18,7 +18,7 @@ import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { taskDescription } from "@/pages/session/task-description"
-import { isSessionRunning } from "@/pages/session/session-running-state"
+import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
@@ -258,9 +258,7 @@ export function MessageTimeline(props: {
     if (!id) return idle
     return sync.data.session_status[id] ?? idle
   })
-  const working = createMemo(() => {
-    return isSessionRunning(sessionStatus(), sessionMessages())
-  })
+  const working = createSessionRunning(sessionStatus, sessionMessages)
   const tint = createMemo(() => messageAgentColor(sessionMessages(), sync.data.agent))
 
   const [timeoutDone, setTimeoutDone] = createSignal(true)
@@ -279,7 +277,7 @@ export function MessageTimeline(props: {
   })
 
   const activeMessageID = createMemo(() => {
-    const parentID = pending()?.parentID
+    const parentID = working() ? pending()?.parentID : undefined
     if (parentID) {
       const messages = sessionMessages()
       const result = Binary.search(messages, parentID, (message) => message.id)
