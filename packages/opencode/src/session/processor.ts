@@ -57,7 +57,6 @@ export interface Handle {
     sigKey: string
     kind: SessionDiagnostics.SignatureKind
     completedFailures: number
-    args: unknown
     errorMessage: string
   }) => Effect.Effect<void>
   readonly recordSyntheticStop: (input: {
@@ -66,7 +65,6 @@ export interface Handle {
     sigKey: string
     kind: SessionDiagnostics.SignatureKind
     completedFailures: number
-    args: unknown
     renderedText: string
     toolErrorMessage: string
   }) => Effect.Effect<void>
@@ -763,7 +761,6 @@ export const layer: Layer.Layer<
         sigKey: string
         kind: SessionDiagnostics.SignatureKind
         completedFailures: number
-        args: unknown
         errorMessage: string
       }) {
         const match = yield* readToolCall(input.toolCallId)
@@ -809,14 +806,16 @@ export const layer: Layer.Layer<
             },
           },
         })
+        const end = Date.now()
+        const startTime = "time" in match.part.state ? match.part.state.time.start : end
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "error",
-            input: input.args,
+            input: match.part.state.input,
             error: input.errorMessage,
             metadata: merged,
-            time: { start: match.part.state.time.start, end: Date.now() },
+            time: { start: startTime, end },
           },
         })
         yield* settleToolCall(input.toolCallId)
@@ -828,7 +827,6 @@ export const layer: Layer.Layer<
         sigKey: string
         kind: SessionDiagnostics.SignatureKind
         completedFailures: number
-        args: unknown
         renderedText: string
         toolErrorMessage: string
       }) {
@@ -868,14 +866,16 @@ export const layer: Layer.Layer<
             },
           },
         })
+        const stopEnd = Date.now()
+        const stopStart = "time" in match.part.state ? match.part.state.time.start : stopEnd
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "error",
-            input: input.args,
+            input: match.part.state.input,
             error: input.toolErrorMessage,
             metadata: merged,
-            time: { start: match.part.state.time.start, end: Date.now() },
+            time: { start: stopStart, end: stopEnd },
           },
         })
         const textPart: MessageV2.TextPart = {
