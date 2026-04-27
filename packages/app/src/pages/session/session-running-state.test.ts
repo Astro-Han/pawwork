@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message, SessionStatus } from "@opencode-ai/sdk/v2/client"
-import { isSessionRunning } from "./session-running-state"
+import { isSessionRunning, PENDING_MESSAGE_FALLBACK_MS, runningFallbackExpiresAt } from "./session-running-state"
 
 const idle: SessionStatus = { type: "idle" }
 const busy: SessionStatus = { type: "busy" }
@@ -37,7 +37,7 @@ describe("isSessionRunning", () => {
 
   test("uses latest-message fallback when status is undefined", () => {
     expect(isSessionRunning(undefined, [user("msg_user", 1)])).toBe(false)
-    expect(isSessionRunning(undefined, [user("msg_user", 1), assistant("msg_pending", 2)])).toBe(true)
+    expect(isSessionRunning(undefined, [user("msg_user", 1), assistant("msg_pending", 2)], { now: 10_000 })).toBe(true)
   })
 
   test("ignores a stale incomplete assistant message when a later assistant completed", () => {
@@ -65,10 +65,29 @@ describe("isSessionRunning", () => {
     expect(isSessionRunning(retry, [assistant("msg_done", 1, 2, "stop")])).toBe(true)
   })
 
-  test("returns true when the latest assistant message is incomplete", () => {
+  test("returns true when the latest assistant message was just created", () => {
     const messages = [user("msg_user", 1), assistant("msg_pending", 2)]
 
-    expect(isSessionRunning(idle, messages)).toBe(true)
+    expect(isSessionRunning(idle, messages, { now: 10_000 })).toBe(true)
+  })
+
+  test("ignores a stale latest assistant message left incomplete by an interrupted turn", () => {
+    const messages = [user("msg_user", 1), assistant("msg_stale", 2)]
+
+    expect(isSessionRunning(idle, messages, { now: 40_000 })).toBe(false)
+  })
+
+  test("exposes the fallback expiry while the latest assistant message is fresh", () => {
+    const messages = [user("msg_user", 1), assistant("msg_pending", 2)]
+
+    expect(runningFallbackExpiresAt(idle, messages, { now: 10_000 })).toBe(2 + PENDING_MESSAGE_FALLBACK_MS)
+    expect(runningFallbackExpiresAt(idle, messages, { now: 40_000 })).toBeUndefined()
+  })
+
+  test("ignores malformed assistant messages without created time", () => {
+    const malformed = { id: "msg_bad", sessionID: "ses_1", role: "assistant" } as Message
+
+    expect(isSessionRunning(idle, [user("msg_user", 1), malformed], { now: 10_000 })).toBe(false)
   })
 
   test("returns false when there are no messages and status is idle", () => {

@@ -15,7 +15,7 @@ import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
-import { isSessionRunning } from "../session/session-running-state"
+import { createSessionRunning } from "../session/session-running-state"
 import { childSessionOnPath, hasProjectPermissions } from "./helpers"
 
 export const ProjectIcon = (props: { project: LocalProject; class?: string; notify?: boolean }): JSX.Element => {
@@ -148,9 +148,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       return !permission.autoResponds(item, props.session.directory)
     })
   })
+  const sessionRunning = createSessionRunning(
+    () => sessionStore.session_status[props.session.id],
+    () => sessionStore.message[props.session.id],
+  )
   const isWorking = createMemo(() => {
     if (hasPermissions()) return false
-    return isSessionRunning(sessionStore.session_status[props.session.id], sessionStore.message[props.session.id])
+    return sessionRunning()
   })
 
   const tint = createMemo(() => messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent))
