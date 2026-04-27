@@ -9,7 +9,7 @@ const opencodeTestRoot = path.join(repoRoot, "packages", "opencode", "test")
 
 const pinned = {
   checkout: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
-  setupNode: "actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f",
+  setupNode: "actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
   setupBun: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
   cache: "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae",
   junit: "mikepenz/action-junit-report@bccf2e31636835cf0874589931c4116687171386",
