@@ -7030,7 +7030,13 @@
           "properties": {
             "type": "object",
             "properties": {
-              "pkg": {
+              "add": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dir": {
                 "type": "string"
               },
               "error": {
@@ -7038,7 +7044,8 @@
               }
             },
             "required": [
-              "pkg",
+              "add",
+              "dir",
               "error"
             ]
           }

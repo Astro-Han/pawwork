@@ -22,7 +22,11 @@ export namespace LSP {
     Updated: BusEvent.define("lsp.updated", z.object({})),
     InstallFailed: BusEvent.define(
       "lsp.server.install.failed",
-      z.object({ pkg: z.string(), error: z.string() }),
+      z.object({
+        add: z.array(z.string()),
+        dir: z.string(),
+        error: z.string(),
+      }),
     ),
   }
 

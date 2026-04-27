@@ -14,6 +14,7 @@ import { which } from "../util/which"
 import { Module } from "@opencode-ai/util/module"
 import { spawn } from "./launch"
 import { Npm } from "@opencode-ai/core/npm"
+import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 
 export namespace LSPServer {
   const log = Log.create({ service: "lsp.server" })
@@ -24,6 +25,42 @@ export namespace LSPServer {
       .catch(() => false)
   const run = (cmd: string[], opts: Process.RunOptions = {}) => Process.run(cmd, { ...opts, nothrow: true })
   const output = (cmd: string[], opts: Process.RunOptions = {}) => Process.text(cmd, { ...opts, nothrow: true })
+
+  // Surface install failures to the UI via Bus. core/npm.ts which() swallows
+  // InstallFailedError; we drive add() explicitly so we can publish the event
+  // before falling back to undefined like the upstream which() contract.
+  async function npmWhich(pkg: string): Promise<string | undefined> {
+    try {
+      await Npm.add(pkg)
+    } catch (err) {
+      if (err instanceof Npm.InstallFailedError) {
+        try {
+          const { LSP } = await import("./index")
+          const { Bus } = await import("../bus")
+          await Bus.publish(LSP.Event.InstallFailed, {
+            add: Array.from(err.add ?? [pkg]),
+            dir: err.dir,
+            error: err.cause instanceof Error ? err.cause.message : String(err.cause),
+          })
+        } catch (publishErr) {
+          log.warn("failed to emit lsp install failed event", { error: publishErr })
+        }
+        return undefined
+      }
+      // flock contention is recoverable: another LSP install is racing or the
+      // lock file got compromised. Surface as "feature unavailable" instead of
+      // crashing LSP bootstrap; the next which() call will retry the lock.
+      if (
+        err instanceof EffectFlock.LockTimeoutError ||
+        err instanceof EffectFlock.LockCompromisedError
+      ) {
+        log.warn("npm install lock contention, skipping", { pkg, error: err.message })
+        return undefined
+      }
+      throw err
+    }
+    return await Npm.which(pkg)
+  }
 
   export interface Handle {
     process: ChildProcessWithoutNullStreams
@@ -117,7 +154,7 @@ export namespace LSPServer {
         Module.resolve("typescript/lib/tsserver.js", Instance.directory)
       log.info("typescript server", { tsserver, root })
       if (!tsserver) return
-      const bin = await Npm.which("typescript-language-server")
+      const bin = await npmWhich("typescript-language-server")
       if (!bin) return
       const proc = spawn(bin, ["--stdio"], {
         cwd: root,
@@ -146,7 +183,7 @@ export namespace LSPServer {
       const args: string[] = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("@vue/language-server")
+        const resolved = await npmWhich("@vue/language-server")
         if (!resolved) return
         binary = resolved
       }
@@ -341,7 +378,7 @@ export namespace LSPServer {
       if (!bin) {
         const resolved = Module.resolve("biome", root)
         if (!resolved) return
-        bin = await Npm.which("biome")
+        bin = await npmWhich("biome")
         if (!bin) return
         args = ["lsp-proxy", "--stdio"]
       }
@@ -510,7 +547,7 @@ export namespace LSPServer {
       const args = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("pyright")
+        const resolved = await npmWhich("pyright")
         if (!resolved) return
         binary = resolved
       }
@@ -1028,7 +1065,7 @@ export namespace LSPServer {
       const args: string[] = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("svelte-language-server")
+        const resolved = await npmWhich("svelte-language-server")
         if (!resolved) return
         binary = resolved
       }
@@ -1065,7 +1102,7 @@ export namespace LSPServer {
       const args: string[] = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("@astrojs/language-server")
+        const resolved = await npmWhich("@astrojs/language-server")
         if (!resolved) return
         binary = resolved
       }
@@ -1317,7 +1354,7 @@ export namespace LSPServer {
       const args: string[] = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("yaml-language-server")
+        const resolved = await npmWhich("yaml-language-server")
         if (!resolved) return
         binary = resolved
       }
@@ -1485,7 +1522,7 @@ export namespace LSPServer {
       const args: string[] = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("intelephense")
+        const resolved = await npmWhich("intelephense")
         if (!resolved) return
         binary = resolved
       }
@@ -1570,7 +1607,7 @@ export namespace LSPServer {
       const args: string[] = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("bash-language-server")
+        const resolved = await npmWhich("bash-language-server")
         if (!resolved) return
         binary = resolved
       }
@@ -1766,7 +1803,7 @@ export namespace LSPServer {
       const args: string[] = []
       if (!binary) {
         if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
-        const resolved = await Npm.which("dockerfile-language-server-nodejs")
+        const resolved = await npmWhich("dockerfile-language-server-nodejs")
         if (!resolved) return
         binary = resolved
       }
