@@ -1,5 +1,5 @@
 import type { ToolPart } from "@opencode-ai/sdk/v2"
-import { getFilename } from "@opencode-ai/shared/util/path"
+import { getFilename } from "@opencode-ai/core/util/path"
 import type { UiI18n } from "../context/i18n"
 import type { IconProps } from "./icon"
 

@@ -9,8 +9,8 @@ import { Global } from "@/global"
 import { unique } from "remeda"
 import { JsonError } from "./error"
 import * as Effect from "effect/Effect"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
-import { Runtime } from "@opencode-ai/shared/runtime"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 /** Find project config files while preserving root-to-leaf config precedence and per-directory alias order. */
 export const files = Effect.fn("ConfigPaths.projectFiles")(function* (
