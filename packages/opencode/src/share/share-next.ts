@@ -11,7 +11,7 @@ import { MessageV2 } from "@/session/message-v2"
 import type { SessionID } from "@/session/schema"
 import { Database, eq } from "@/storage/db"
 import { Config } from "@/config/config"
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { SessionShareTable } from "./share.sql"
 import { ShareRuntime } from "./runtime"
 

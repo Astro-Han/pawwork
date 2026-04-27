@@ -11,7 +11,7 @@ import path from "path"
 import z from "zod"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { Protected } from "./protected"
 import { Ripgrep } from "./ripgrep"
 

@@ -4,7 +4,7 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import fs from "node:fs"
 import path from "node:path"
 import { LSPServer } from "../../src/lsp/server"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 

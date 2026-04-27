@@ -18,7 +18,7 @@ import { SessionDiagnostics } from "./diagnostics"
 import type { Provider } from "@/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 
 const log = Log.create({ service: "session.processor" })

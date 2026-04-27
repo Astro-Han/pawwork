@@ -14,7 +14,7 @@ import { AccessToken, AccountID, OrgID } from "../../src/account/schema"
 import { AppFileSystem } from "../../src/filesystem"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { tmpdir } from "../fixture/fixture"
-import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { testEffect } from "../lib/effect"
 
 /** Infra layer that provides FileSystem, Path, ChildProcessSpawner for test fixtures */
@@ -29,7 +29,7 @@ import { ProjectID } from "../../src/project/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { ConfigPlugin } from "@/config/plugin"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
-import { Npm } from "../../src/npm"
+import { Npm } from "@opencode-ai/core/npm"
 import { Installation } from "../../src/installation"
 
 const emptyAccount = Layer.mock(Account.Service)({

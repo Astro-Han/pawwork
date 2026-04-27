@@ -1,7 +1,7 @@
 import path from "path"
 import fs from "fs/promises"
 import { createWriteStream } from "fs"
-import { Global } from "../global"
+import * as Global from "../global"
 import z from "zod"
 import { Glob } from "./glob"
 

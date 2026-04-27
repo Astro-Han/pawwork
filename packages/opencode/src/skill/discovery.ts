@@ -4,7 +4,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } fr
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { AppFileSystem } from "@/filesystem"
 import { Global } from "../global"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 
 export namespace Discovery {
   const skillConcurrency = 4

@@ -380,7 +380,6 @@ jobs:
               test/util
               test/skill
               test/index-runtime-namespace.test.ts
-              test/npm.test.ts
               test/permission-agent.test.ts
             report_path: packages/opencode/.artifacts/unit/junit-windows-session.xml
           # Config and project cover configuration, project discovery, file,

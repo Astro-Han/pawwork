@@ -5,13 +5,13 @@ import { makeRuntime } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
 import type { Proc } from "#pty"
 import z from "zod"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { lazy } from "@opencode-ai/util/lazy"
 import { Shell } from "@/shell/shell"
 import { Plugin } from "@/plugin"
 import { PtyID } from "./schema"
 import { Effect, Layer, Context } from "effect"
-import { EffectLogger } from "@/effect/logger"
+import * as EffectLogger from "@opencode-ai/core/effect/logger"
 
 export namespace Pty {
   const log = Log.create({ service: "pty" })

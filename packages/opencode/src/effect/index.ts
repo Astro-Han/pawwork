@@ -1,5 +1,5 @@
 export { InstanceState } from "./instance-state"
 export { EffectBridge } from "./bridge"
 export { Runner } from "./runner"
-export { Observability } from "./observability"
-export { EffectLogger } from "./logger"
+export { Observability } from "@opencode-ai/core/effect/observability"
+export * as EffectLogger from "@opencode-ai/core/effect/logger"

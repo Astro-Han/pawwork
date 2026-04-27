@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Server } from "../../src/server/server"
-import { Log } from "../../src/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { testEffect } from "../lib/effect"
 
 Log.init({ print: false })
