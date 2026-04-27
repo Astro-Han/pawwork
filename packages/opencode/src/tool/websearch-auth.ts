@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Auth } from "../auth"
 import { makeRuntime } from "../effect/run-service"
@@ -7,6 +8,10 @@ export namespace WebSearchAuth {
   export const AUTH_KEY = "pawwork:websearch:exa"
 
   export class MissingKeyError extends Schema.TaggedErrorClass<MissingKeyError>()("WebSearchAuthMissingKeyError", {
+    message: Schema.String,
+  }) {}
+
+  export class EnvKeyActiveError extends Schema.TaggedErrorClass<EnvKeyActiveError>()("WebSearchAuthEnvKeyActiveError", {
     message: Schema.String,
   }) {}
 
@@ -21,27 +26,37 @@ export namespace WebSearchAuth {
   export interface Interface {
     readonly credential: () => Effect.Effect<Credential, Auth.AuthError>
     readonly status: () => Effect.Effect<Status, Auth.AuthError>
-    readonly saveKey: (key: string) => Effect.Effect<Status, Auth.AuthError | MissingKeyError>
+    readonly saveKey: (key: string) => Effect.Effect<Status, Auth.AuthError | MissingKeyError | EnvKeyActiveError>
     readonly removeKey: () => Effect.Effect<Status, Auth.AuthError>
     readonly markNeedsAttention: (failure: McpExa.Failure) => Effect.Effect<void, Auth.AuthError>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/WebSearchAuth") {}
 
-  type SavedCredential = { source: "saved"; key: string }
+  type SavedCredential = { source: "saved"; key: string; version?: string }
+
+  function nextCredentialVersion() {
+    return randomUUID()
+  }
 
   function savedCredential(info: Auth.Info | undefined): SavedCredential | undefined {
     if (!info || info.type !== "api") return
     const key = info.key.trim()
     if (!key) return
-    return { source: "saved", key }
+    const version = typeof info.metadata?.credentialVersion === "string" ? info.metadata.credentialVersion : undefined
+    return { source: "saved", key, version }
   }
 
   function statusFrom(info: Auth.Info | undefined): Status {
     const saved = savedCredential(info)
     if (saved) {
-      const needsAttention = info?.type === "api" && info.metadata?.status === "needs_attention"
-      return { source: "saved", configured: true, needsAttention, quotaExceeded: false }
+      const marker = info?.type === "api" ? info.metadata?.status : undefined
+      return {
+        source: "saved",
+        configured: true,
+        needsAttention: marker === "needs_attention",
+        quotaExceeded: marker === "quota_exceeded",
+      }
     }
     const env = McpExa.credentialFromEnv()
     if (env.source === "env") return { source: "env", configured: true, needsAttention: false, quotaExceeded: false }
@@ -73,12 +88,19 @@ export namespace WebSearchAuth {
       const saveKey: Interface["saveKey"] = Effect.fn("WebSearchAuth.saveKey")(function* (key: string) {
         const trimmed = key.trim()
         if (!trimmed) return yield* new MissingKeyError({ message: "Exa API key is required" })
+        const currentSaved = savedCredential(yield* getSaved())
+        const env = McpExa.credentialFromEnv()
+        if (!currentSaved && env.source === "env") {
+          return yield* new EnvKeyActiveError({
+            message: "EXA_API_KEY is already active. Clear it before saving a key in Settings.",
+          })
+        }
         yield* auth.set(
           AUTH_KEY,
           new Auth.Api({
             type: "api",
             key: trimmed,
-            metadata: { status: "configured" },
+            metadata: { status: "configured", credentialVersion: nextCredentialVersion() },
           }),
         )
         return yield* status()
@@ -106,12 +128,19 @@ export namespace WebSearchAuth {
           if (failure.source !== "saved") return
           const saved = yield* getSaved()
           if (!saved || saved.type !== "api") return
+          const currentVersion =
+            typeof saved.metadata?.credentialVersion === "string" ? saved.metadata.credentialVersion : undefined
+          if (currentVersion !== failure.credentialVersion) return
           yield* auth.set(
             AUTH_KEY,
             new Auth.Api({
               type: "api",
               key: saved.key,
-              metadata: { ...saved.metadata, status: "needs_attention", reason: failure.kind },
+              metadata: {
+                ...saved.metadata,
+                status: failure.kind === "quota_exceeded" ? "quota_exceeded" : "needs_attention",
+                reason: failure.kind,
+              },
             }),
           )
         },
