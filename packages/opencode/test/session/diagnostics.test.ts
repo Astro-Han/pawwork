@@ -216,6 +216,13 @@ describe("SessionDiagnostics metadata helpers", () => {
   })
 })
 
+describe("SessionDiagnostics v1 schema", () => {
+  test("LoopAction enum is observe|block|stop only", () => {
+    const all: SessionDiagnostics.LoopAction[] = ["observe", "block", "stop"]
+    expect(all).toHaveLength(3)
+  })
+})
+
 describe("SessionDiagnostics.consumeReminders", () => {
   test("returns one model reminder and marks pending records injected", () => {
     const part: MessageV2.ToolPart = {

@@ -17,6 +17,28 @@ export namespace SessionDiagnostics {
     injectedAt?: number
   }
 
+  export type SignatureKind = "input" | "target"
+  export type LoopAction = "observe" | "block" | "stop"
+
+  export type SignatureState = {
+    kind: SignatureKind
+    completedFailures: number
+    recoverEmitted: boolean
+    blockEmitted: boolean
+    lastInput?: unknown
+    lastError?: unknown
+  }
+
+  export type ParentLoopState = {
+    autoResumeSpent: boolean
+    signatures: Record<string, SignatureState>
+  }
+
+  export type GateDecision =
+    | { action: "observe" }
+    | { action: "block"; sigKey: string; kind: SignatureKind; completedFailures: number }
+    | { action: "stop"; sigKey: string; kind: SignatureKind; completedFailures: number }
+
   export type LoopMetadata = {
     inputHash?: string
     inputRepeatCount?: number
@@ -36,6 +58,14 @@ export namespace SessionDiagnostics {
     parentID?: MessageID
     toolFamily?: string
     truncated?: boolean
+    loopAction?: LoopAction
+    loopType?: SignatureKind
+    loopCompletedFailures?: number
+    loopSigKey?: string
+    loopRecoverFiredFor?: string[]
+    targetHashIsFallback?: boolean
+    loopLastInput?: unknown
+    loopLastError?: unknown
   }
 
   export type Metadata = {
@@ -57,7 +87,11 @@ export namespace SessionDiagnostics {
     sessionID: SessionID
     parentID: MessageID
     tool: string
+    inputHash: string
+    targetHash?: string
     errorFingerprint: string
+    lastInput?: unknown
+    lastError?: unknown
     metadata: Metadata
   }
 
@@ -195,6 +229,7 @@ export namespace SessionDiagnostics {
       sessionID: input.sessionID,
       parentID: input.parentID,
       tool: input.tool,
+      inputHash: "",
       errorFingerprint: fingerprint,
       metadata: {
         diagnostics: {

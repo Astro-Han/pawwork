@@ -208,6 +208,7 @@ export const layer: Layer.Layer<
                 sessionID: ctx.sessionID,
                 parentID,
                 tool: part.tool,
+                inputHash: loop.inputHash ?? "",
                 errorFingerprint: loop.errorFingerprint,
                 metadata: { diagnostics: { loop } },
               } satisfies SessionDiagnostics.ToolErrorRecord,
