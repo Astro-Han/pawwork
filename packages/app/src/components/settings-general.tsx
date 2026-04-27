@@ -186,12 +186,13 @@ export const SettingsGeneral: Component = () => {
       .finally(() => setStore("checking", false))
   }
 
-  const [webSearchStatusResource] = createResource(() => window.api?.webSearchStatus?.())
+  const [webSearchStatusResource, webSearchStatusActions] = createResource(() => window.api?.webSearchStatus?.())
   const webSearchStatus = createMemo(() => webSearchStatusResource.latest)
   // Chip label for the current web search auth state.
   const webSearchChipText = createMemo(() => {
     const s = webSearchStatus()
     if (!s) return language.t("settings.general.webSearch.chip.loading")
+    if (s.source === "saved" && s.quotaExceeded) return language.t("settings.general.webSearch.chip.savedQuota")
     if (s.source === "saved" && s.needsAttention) return language.t("settings.general.webSearch.chip.invalid")
     if (s.source === "saved") return language.t("settings.general.webSearch.chip.personal")
     if (s.source === "env") return language.t("settings.general.webSearch.chip.env")
@@ -290,6 +291,11 @@ export const SettingsGeneral: Component = () => {
           description={
             <>
               <span>{language.t("settings.general.webSearch.description")}</span>
+              {webSearchStatus()?.source === "saved" && webSearchStatus()?.quotaExceeded && (
+                <span class="block pt-1 text-11-regular text-text-weaker">
+                  {language.t("settings.general.webSearch.secondary.savedQuota")}
+                </span>
+              )}
               {webSearchStatus()?.source === "saved" && webSearchStatus()?.needsAttention && (
                 <span class="block pt-1 text-11-regular text-text-weaker">
                   {language.t("settings.general.webSearch.secondary.failed")}
@@ -308,7 +314,7 @@ export const SettingsGeneral: Component = () => {
               data-action="settings-web-search-manage"
               size="small"
               variant="ghost"
-              onClick={() => dialog.show(() => <DialogConnectWebSearch />)}
+              onClick={() => dialog.show(() => <DialogConnectWebSearch onStatusChanged={webSearchStatusActions.refetch} />)}
             >
               {language.t("settings.general.webSearch.action.manage")}
             </Button>

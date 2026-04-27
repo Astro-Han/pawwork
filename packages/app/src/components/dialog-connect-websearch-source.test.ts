@@ -32,6 +32,20 @@ describe("dialog-connect-websearch source contract", () => {
     expect(source).toMatch(/window\.api[\s\S]{0,40}removeExaApiKey/)
   })
 
+  test("notifies the parent settings row after save or remove", () => {
+    expect(source).toContain("onStatusChanged")
+    expect(source.match(/props\.onStatusChanged\?\.\(\)/g)?.length).toBe(2)
+  })
+
+  test("prioritizes saved quota over saved invalid-key attention in the title", () => {
+    const quotaTitle = source.indexOf('dialog.websearch.title.savedQuota')
+    const failedTitle = source.indexOf('dialog.websearch.title.failed')
+
+    expect(quotaTitle).toBeGreaterThan(-1)
+    expect(failedTitle).toBeGreaterThan(-1)
+    expect(quotaTitle).toBeLessThan(failedTitle)
+  })
+
   test("imports Dialog from @opencode-ai/ui/dialog (visual pattern reuse)", () => {
     expect(source).toContain('from "@opencode-ai/ui/dialog"')
   })

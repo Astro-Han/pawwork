@@ -11,7 +11,10 @@ type Failure = {
 export type WebSearchRecoveryToast = {
   id: string
   titleKey: "toast.websearch.quota.title" | "toast.websearch.invalidKey.title"
-  descriptionKey: "toast.websearch.quota.description" | "toast.websearch.invalidKey.description"
+  descriptionKey:
+    | "toast.websearch.quota.description"
+    | "toast.websearch.savedQuota.description"
+    | "toast.websearch.invalidKey.description"
   actionKey: "toast.websearch.action.openSettings"
 }
 
@@ -52,13 +55,20 @@ export function webSearchRecoveryToast(
   const kind = context.failure.kind
   const source = context.failure.source
   const toast =
-    kind === "quota_exceeded"
+    kind === "quota_exceeded" && source === "anonymous"
       ? ({
           id: context.id,
           titleKey: "toast.websearch.quota.title",
           descriptionKey: "toast.websearch.quota.description",
           actionKey: "toast.websearch.action.openSettings",
         } satisfies WebSearchRecoveryToast)
+      : kind === "quota_exceeded" && source === "saved"
+        ? ({
+            id: context.id,
+            titleKey: "toast.websearch.quota.title",
+            descriptionKey: "toast.websearch.savedQuota.description",
+            actionKey: "toast.websearch.action.openSettings",
+          } satisfies WebSearchRecoveryToast)
       : kind === "invalid_key" && source === "saved"
         ? ({
             id: context.id,

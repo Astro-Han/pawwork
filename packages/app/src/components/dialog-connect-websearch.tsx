@@ -9,7 +9,7 @@ import { createMemo, createResource, createSignal, Match, Show, Switch } from "s
 import { useLanguage } from "@/context/language"
 import { Link } from "./link"
 
-export function DialogConnectWebSearch() {
+export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } = {}) {
   const dialog = useDialog()
   const language = useLanguage()
 
@@ -31,6 +31,7 @@ export function DialogConnectWebSearch() {
     const s = status()
     if (statusError()) return language.t("common.requestFailed")
     if (!s) return language.t("common.loading")
+    if (s.source === "saved" && s.quotaExceeded) return language.t("dialog.websearch.title.savedQuota")
     if (s.source === "saved" && s.needsAttention) return language.t("dialog.websearch.title.failed")
     if (s.source === "saved") return language.t("dialog.websearch.title.saved")
     if (s.source === "anonymous" && s.quotaExceeded) return language.t("dialog.websearch.title.exhausted")
@@ -52,6 +53,7 @@ export function DialogConnectWebSearch() {
       .then(() => {
         setApiKeyInput("")
         void webSearchStatusActions.refetch()
+        props.onStatusChanged?.()
         dialog.close()
         showToast({
           variant: "success",
@@ -77,6 +79,7 @@ export function DialogConnectWebSearch() {
       .then(() => {
         setApiKeyInput("")
         void webSearchStatusActions.refetch()
+        props.onStatusChanged?.()
         dialog.close()
         showToast({
           variant: "success",
@@ -93,6 +96,43 @@ export function DialogConnectWebSearch() {
       })
       .finally(() => setRemoving(false))
   }
+
+  const renderSavedKeyForm = (statusKey: "dialog.websearch.status.savedQuota" | "dialog.websearch.status.failed") => (
+    <div class="flex flex-col gap-4">
+      <div class="text-14-regular text-text-base">{language.t(statusKey)}</div>
+      <TextField
+        autofocus
+        type="password"
+        label={language.t("dialog.websearch.placeholder")}
+        hideLabel
+        placeholder={language.t("dialog.websearch.placeholder")}
+        value={apiKeyInput()}
+        onChange={(v) => {
+          setApiKeyInput(v)
+          if (validationError()) setValidationError("")
+        }}
+        validationState={validationError() ? "invalid" : undefined}
+        error={validationError()}
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck={false}
+      />
+      <div class="flex gap-2">
+        <Button size="large" variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
+          {language.t("dialog.websearch.action.removeShort")}
+        </Button>
+        <Button
+          size="large"
+          variant="primary"
+          disabled={saving() || removing() || apiKeyInput().trim() === ""}
+          onClick={handleSave}
+        >
+          {language.t("dialog.websearch.action.saveShort")}
+        </Button>
+      </div>
+    </div>
+  )
 
   return (
     <Dialog
@@ -135,7 +175,7 @@ export function DialogConnectWebSearch() {
             </Match>
 
             {/* saved + healthy state */}
-            <Match when={status()?.source === "saved" && !status()?.needsAttention}>
+            <Match when={status()?.source === "saved" && !status()?.needsAttention && !status()?.quotaExceeded}>
               <div class="flex flex-col gap-4">
                 <div class="text-14-regular text-text-base">{language.t("dialog.websearch.status.active")}</div>
                 <div class="flex gap-2">
@@ -173,42 +213,14 @@ export function DialogConnectWebSearch() {
               </div>
             </Match>
 
+            {/* saved + quota exceeded state */}
+            <Match when={status()?.source === "saved" && status()?.quotaExceeded}>
+              {renderSavedKeyForm("dialog.websearch.status.savedQuota")}
+            </Match>
+
             {/* saved + needsAttention state */}
             <Match when={status()?.source === "saved" && status()?.needsAttention}>
-              <div class="flex flex-col gap-4">
-                <div class="text-14-regular text-text-base">{language.t("dialog.websearch.status.failed")}</div>
-                <TextField
-                  autofocus
-                  type="password"
-                  label={language.t("dialog.websearch.placeholder")}
-                  hideLabel
-                  placeholder={language.t("dialog.websearch.placeholder")}
-                  value={apiKeyInput()}
-                  onChange={(v) => {
-                    setApiKeyInput(v)
-                    if (validationError()) setValidationError("")
-                  }}
-                  validationState={validationError() ? "invalid" : undefined}
-                  error={validationError()}
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  spellcheck={false}
-                />
-                <div class="flex gap-2">
-                  <Button size="large" variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
-                    {language.t("dialog.websearch.action.removeShort")}
-                  </Button>
-                  <Button
-                    size="large"
-                    variant="primary"
-                    disabled={saving() || removing() || apiKeyInput().trim() === ""}
-                    onClick={handleSave}
-                  >
-                    {language.t("dialog.websearch.action.saveShort")}
-                  </Button>
-                </div>
-              </div>
+              {renderSavedKeyForm("dialog.websearch.status.failed")}
             </Match>
 
             {/* anonymous (default) state */}

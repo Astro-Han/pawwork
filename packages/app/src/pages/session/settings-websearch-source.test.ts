@@ -29,29 +29,55 @@ describe("settings web search source contract", () => {
       "settings.general.webSearch.chip.free",
       "settings.general.webSearch.chip.loading",
       "settings.general.webSearch.chip.exhausted",
+      "settings.general.webSearch.chip.savedQuota",
       "settings.general.webSearch.chip.personal",
       "settings.general.webSearch.chip.env",
       "settings.general.webSearch.chip.invalid",
+      "settings.general.webSearch.secondary.failed",
+      "settings.general.webSearch.secondary.savedQuota",
       "settings.general.webSearch.secondary.exhausted",
       "settings.general.webSearch.action.manage",
       "dialog.websearch.title.default",
       "dialog.websearch.title.saved",
       "dialog.websearch.title.failed",
       "dialog.websearch.title.exhausted",
+      "dialog.websearch.title.savedQuota",
       "dialog.websearch.body.exhausted.line1",
       "dialog.websearch.body.exhausted.line2",
       "dialog.websearch.status.exhausted",
+      "dialog.websearch.status.savedQuota",
       "dialog.websearch.status.loading",
       "dialog.websearch.status.error",
       "dialog.websearch.action.retry",
       "toast.websearch.saved.title",
       "toast.websearch.removed.title",
       "toast.websearch.quota.title",
+      "toast.websearch.savedQuota.description",
       "toast.websearch.invalidKey.title",
       "toast.websearch.action.openSettings",
     ]) {
       expect(enSource).toContain(`"${key}"`)
       expect(zhSource).toContain(`"${key}"`)
     }
+  })
+
+  test("refreshes the General row status after dialog credential changes", () => {
+    expect(generalSource).toContain("webSearchStatusActions")
+    expect(generalSource).toContain("onStatusChanged={webSearchStatusActions.refetch}")
+    expect(generalSource).toContain("settings.general.webSearch.chip.savedQuota")
+  })
+
+  test("prioritizes saved quota over saved invalid-key attention in General status copy", () => {
+    const quotaChip = generalSource.indexOf("settings.general.webSearch.chip.savedQuota")
+    const invalidChip = generalSource.indexOf("settings.general.webSearch.chip.invalid")
+    const quotaSecondary = generalSource.indexOf("settings.general.webSearch.secondary.savedQuota")
+    const failedSecondary = generalSource.indexOf("settings.general.webSearch.secondary.failed")
+
+    expect(quotaChip).toBeGreaterThan(-1)
+    expect(invalidChip).toBeGreaterThan(-1)
+    expect(quotaSecondary).toBeGreaterThan(-1)
+    expect(failedSecondary).toBeGreaterThan(-1)
+    expect(quotaChip).toBeLessThan(invalidChip)
+    expect(quotaSecondary).toBeLessThan(failedSecondary)
   })
 })

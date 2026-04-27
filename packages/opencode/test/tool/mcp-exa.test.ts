@@ -80,6 +80,43 @@ describe("McpExa", () => {
     })
   })
 
+  test("carries the saved credential version in classified failures", async () => {
+    const McpExa = await import("../../src/tool/mcp-exa")
+    const http = HttpClient.make((request) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(errorSse("web_search_exa error (401): Invalid API key"), { status: 200 }),
+        ),
+      ),
+    )
+
+    await expect(
+      Effect.runPromise(
+        McpExa.call(
+          http,
+          "web_search_exa",
+          McpExa.SearchArgs,
+          {
+            query: "pawwork",
+            type: "auto",
+            numResults: 1,
+            livecrawl: "fallback",
+          },
+          "1 second",
+          { source: "saved", key: "submitted-key", version: "saved-version" },
+        ),
+      ),
+    ).rejects.toMatchObject({
+      failure: {
+        kind: "invalid_key",
+        source: "saved",
+        status: 401,
+        credentialVersion: "saved-version",
+      },
+    })
+  })
+
   test("does not classify incidental status text as an HTTP status", async () => {
     const McpExa = await import("../../src/tool/mcp-exa")
     const http = HttpClient.make((request) =>
@@ -242,6 +279,14 @@ describe("McpExa", () => {
 
     expect(McpExa.messageForFailure({ kind: "unknown", source: "anonymous", status: 500 })).not.toMatch(
       /key|settings|configure/i,
+    )
+  })
+
+  test("env quota copy does not point at the read-only settings flow", async () => {
+    const McpExa = await import("../../src/tool/mcp-exa")
+
+    expect(McpExa.messageForFailure({ kind: "quota_exceeded", source: "env", status: 429 })).toBe(
+      "The EXA_API_KEY search quota was reached. Update the environment variable and retry.",
     )
   })
 })

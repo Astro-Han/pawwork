@@ -34,6 +34,9 @@ describe("websearch IPC source contract", () => {
   test("web search toggle rejects when live tool invalidation fails", () => {
     expect(mainIpc).toContain("const previous = await Settings.webSearchEnabled()")
     expect(mainIpc).toContain("await Settings.setWebSearchEnabled(previous)")
+    expect(mainIpc).toContain("const rollbackDirectories = Instance.directories()")
+    expect(mainIpc).toContain("const rollbackResults = await invalidateWebSearchTools(rollbackDirectories)")
+    expect(mainIpc).toContain("websearch-set-enabled rollback failed for instance")
     expect(mainIpc).toContain("Failed to refresh Web Search tools")
   })
 })

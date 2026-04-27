@@ -41,7 +41,7 @@ describe("webSearchRecoveryToast", () => {
     expect(toast).toEqual({
       id: "call-1",
       titleKey: "toast.websearch.quota.title",
-      descriptionKey: "toast.websearch.quota.description",
+      descriptionKey: "toast.websearch.savedQuota.description",
       actionKey: "toast.websearch.action.openSettings",
     })
     expect(JSON.stringify(toast)).not.toContain("key")

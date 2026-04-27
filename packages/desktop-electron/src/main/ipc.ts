@@ -210,15 +210,17 @@ export function registerIpcHandlers(deps: Deps) {
     const { Settings, ToolRegistry, Instance } = await import("virtual:opencode-server")
     const previous = await Settings.webSearchEnabled()
     await Settings.setWebSearchEnabled(value)
+    const invalidateWebSearchTools = (targetDirectories: string[]) =>
+      Promise.allSettled(
+        targetDirectories.map((directory) =>
+          Instance.provide({
+            directory,
+            fn: () => ToolRegistry.invalidate(),
+          }),
+        ),
+      )
     const directories = Instance.directories()
-    const results = await Promise.allSettled(
-      directories.map((directory) =>
-        Instance.provide({
-          directory,
-          fn: () => ToolRegistry.invalidate(),
-        }),
-      ),
-    )
+    const results = await invalidateWebSearchTools(directories)
     for (const [index, result] of results.entries()) {
       if (result.status === "rejected") {
         console.warn("websearch-set-enabled failed for instance", {
@@ -230,6 +232,16 @@ export function registerIpcHandlers(deps: Deps) {
     const failures = results.filter((result) => result.status === "rejected")
     if (failures.length > 0) {
       await Settings.setWebSearchEnabled(previous)
+      const rollbackDirectories = Instance.directories()
+      const rollbackResults = await invalidateWebSearchTools(rollbackDirectories)
+      for (const [index, result] of rollbackResults.entries()) {
+        if (result.status === "rejected") {
+          console.warn("websearch-set-enabled rollback failed for instance", {
+            directory: rollbackDirectories[index],
+            error: result.reason,
+          })
+        }
+      }
       throw new Error(`Failed to refresh Web Search tools in ${failures.length} project instance(s)`)
     }
   })

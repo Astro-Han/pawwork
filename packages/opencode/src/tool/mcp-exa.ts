@@ -3,7 +3,7 @@ import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 
 const BASE_URL = "https://mcp.exa.ai/mcp"
 
-export type Credential = { source: "saved" | "env"; key: string } | { source: "anonymous" }
+export type Credential = { source: "saved" | "env"; key: string; version?: string } | { source: "anonymous" }
 
 export type FailureKind = "invalid_key" | "quota_exceeded" | "network" | "unknown"
 
@@ -11,6 +11,7 @@ export type Failure = {
   kind: FailureKind
   source: Credential["source"]
   status?: number
+  credentialVersion?: string
 }
 
 export class McpExaError extends Error {
@@ -41,6 +42,10 @@ export function endpoint(credential: Credential = credentialFromEnv()) {
   return url.toString()
 }
 
+function credentialVersion(credential: Credential) {
+  return credential.source === "anonymous" ? undefined : credential.version
+}
+
 function statusFromBody(body: string) {
   const errorMatch = body.match(/\berror\s*\(\s*(\d{3})\s*\)/i)
   if (errorMatch?.[1]) return Number(errorMatch[1])
@@ -52,16 +57,34 @@ function statusFromBody(body: string) {
   return value ? Number(value) : undefined
 }
 
-function classifyFailure(input: { status?: number; body: string; source: Credential["source"] }): Failure {
+function classifyFailure(input: {
+  status?: number
+  body: string
+  source: Credential["source"]
+  credentialVersion?: string
+}): Failure {
   const status = input.status ?? statusFromBody(input.body)
   const text = input.body.toLowerCase()
+  const base = {
+    source: input.source,
+    status,
+    ...(input.credentialVersion === undefined ? {} : { credentialVersion: input.credentialVersion }),
+  }
   if (status === 402 || status === 429 || /quota|rate.?limit|too many requests|usage limit/.test(text)) {
-    return { kind: "quota_exceeded", source: input.source, status }
+    return { kind: "quota_exceeded", ...base }
   }
   if (status === 401 || status === 403 || /invalid|unauthorized|forbidden|api key/.test(text)) {
-    return { kind: "invalid_key", source: input.source, status }
+    return { kind: "invalid_key", ...base }
   }
-  return { kind: "unknown", source: input.source, status }
+  return { kind: "unknown", ...base }
+}
+
+function failure(input: { kind: FailureKind; source: Credential["source"]; credentialVersion?: string }): Failure {
+  return {
+    kind: input.kind,
+    source: input.source,
+    ...(input.credentialVersion === undefined ? {} : { credentialVersion: input.credentialVersion }),
+  }
 }
 
 export function messageForFailure(failure: Failure) {
@@ -75,7 +98,7 @@ export function messageForFailure(failure: Failure) {
       return "The bundled Web Search quota was reached. Add an Exa API key in Settings or configure EXA_API_KEY."
     }
     if (failure.source === "saved") return "The saved Exa API key reached its search quota. Update it in Settings."
-    return "The EXA_API_KEY search quota was reached. Update the environment variable or save a new key in Settings."
+    return "The EXA_API_KEY search quota was reached. Update the environment variable and retry."
   }
   if (failure.kind === "network") return "Web Search could not reach Exa. Check the network connection and retry."
   return "Web Search failed while contacting Exa. Retry later."
@@ -95,22 +118,32 @@ const McpResult = Schema.Struct({
 
 const decode = Schema.decodeUnknownEffect(Schema.fromJsonString(McpResult))
 
-const decodeSseData = Effect.fn("McpExa.decodeSseData")(function* (payload: string, source: Credential["source"]) {
+const decodeSseData = Effect.fn("McpExa.decodeSseData")(function* (
+  payload: string,
+  input: { source: Credential["source"]; credentialVersion?: string },
+) {
   const data = yield* decode(payload).pipe(
     Effect.mapError(
       (cause) =>
-        new McpExaError({ kind: "unknown", source }, "Web Search returned an invalid Exa response.", { cause }),
+        new McpExaError(
+          failure({ kind: "unknown", source: input.source, credentialVersion: input.credentialVersion }),
+          "Web Search returned an invalid Exa response.",
+          { cause },
+        ),
     ),
   )
   const text = data.result.content[0]?.text
   if (data.result.isError) {
-    const failure = classifyFailure({ body: text ?? "", source })
+    const failure = classifyFailure({ body: text ?? "", ...input })
     return yield* Effect.fail(new McpExaError(failure, messageForFailure(failure)))
   }
   return text
 })
 
-const parseSse = Effect.fn("McpExa.parseSse")(function* (body: string, source: Credential["source"]) {
+const parseSse = Effect.fn("McpExa.parseSse")(function* (
+  body: string,
+  input: { source: Credential["source"]; credentialVersion?: string },
+) {
   let sawData = false
   let eventData: string[] = []
 
@@ -118,7 +151,7 @@ const parseSse = Effect.fn("McpExa.parseSse")(function* (body: string, source: C
     if (eventData.length === 0) return
     const payload = eventData.join("\n")
     eventData = []
-    return yield* decodeSseData(payload, source)
+    return yield* decodeSseData(payload, input)
   })
 
   for (const line of body.split(/\r?\n/)) {
@@ -135,7 +168,7 @@ const parseSse = Effect.fn("McpExa.parseSse")(function* (body: string, source: C
   const text = yield* flushEvent()
   if (text) return text
   const message = sawData ? "Web Search returned an empty Exa response." : "Web Search did not receive an Exa response."
-  return yield* Effect.fail(new McpExaError({ kind: "unknown", source }, message))
+  return yield* Effect.fail(new McpExaError(failure({ kind: "unknown", ...input }), message))
 })
 
 export const SearchArgs = Schema.Struct({
@@ -185,19 +218,33 @@ export const call = <F extends Schema.Struct.Fields>(
       Effect.timeoutOrElse({
         duration: timeout,
         orElse: () =>
-          Effect.fail(new McpExaError({ kind: "network", source: credential.source }, `${tool} request timed out`)),
+          Effect.fail(
+            new McpExaError(
+              failure({ kind: "network", source: credential.source, credentialVersion: credentialVersion(credential) }),
+              `${tool} request timed out`,
+            ),
+          ),
       }),
       Effect.mapError((error) =>
         isMcpExaError(error)
           ? error
-          : new McpExaError({ kind: "network", source: credential.source }, "Web Search request failed", {
-              cause: error,
-            }),
+          : new McpExaError(
+              failure({ kind: "network", source: credential.source, credentialVersion: credentialVersion(credential) }),
+              "Web Search request failed",
+              {
+                cause: error,
+              },
+            ),
       ),
     )
     if (response.status < 200 || response.status >= 300) {
-      const failure = classifyFailure({ status: response.status, body, source: credential.source })
+      const failure = classifyFailure({
+        status: response.status,
+        body,
+        source: credential.source,
+        credentialVersion: credentialVersion(credential),
+      })
       return yield* Effect.fail(new McpExaError(failure, messageForFailure(failure)))
     }
-    return yield* parseSse(body, credential.source)
+    return yield* parseSse(body, { source: credential.source, credentialVersion: credentialVersion(credential) })
   })
