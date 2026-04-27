@@ -817,6 +817,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const shellName = (
             process.platform === "win32" ? path.win32.basename(sh, ".exe") : path.basename(sh)
           ).toLowerCase()
+          const cwd = ctx.directory
           const invocations: Record<string, { args: string[] }> = {
             nu: { args: ["-c", input.command] },
             fish: { args: ["-c", input.command] },
@@ -825,12 +826,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 "-l",
                 "-c",
                 `
-                  __oc_cwd=$PWD
                   [[ -f ~/.zshenv ]] && source ~/.zshenv >/dev/null 2>&1 || true
                   [[ -f "\${ZDOTDIR:-$HOME}/.zshrc" ]] && source "\${ZDOTDIR:-$HOME}/.zshrc" >/dev/null 2>&1 || true
-                  cd "$__oc_cwd"
+                  cd -- "$1"
                   eval ${JSON.stringify(input.command)}
                 `,
+                "opencode",
+                cwd,
               ],
             },
             bash: {
@@ -838,12 +840,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 "-l",
                 "-c",
                 `
-                  __oc_cwd=$PWD
                   shopt -s expand_aliases
                   [[ -f ~/.bashrc ]] && source ~/.bashrc >/dev/null 2>&1 || true
-                  cd "$__oc_cwd"
+                  cd -- "$1"
                   eval ${JSON.stringify(input.command)}
                 `,
+                "opencode",
+                cwd,
               ],
             },
             cmd: { args: ["/c", input.command] },
@@ -853,7 +856,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }
 
           const args = (invocations[shellName] ?? invocations[""]).args
-          const cwd = ctx.directory
           const shellEnv = yield* restore(
             plugin.trigger(
               "shell.env",
