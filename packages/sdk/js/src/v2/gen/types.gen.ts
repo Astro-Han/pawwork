@@ -86,7 +86,8 @@ export type EventLspUpdated = {
 export type EventLspServerInstallFailed = {
   type: "lsp.server.install.failed"
   properties: {
-    pkg: string
+    add: string[]
+    dir: string
     error: string
   }
 }

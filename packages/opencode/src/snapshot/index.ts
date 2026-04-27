@@ -3,14 +3,14 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { formatPatch, structuredPatch } from "diff"
 import path from "path"
 import z from "zod"
-import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import { Hash } from "@/util/hash"
 import { Config } from "../config/config"
 import { Global } from "../global"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 
 export namespace Snapshot {
   export const Patch = z.object({

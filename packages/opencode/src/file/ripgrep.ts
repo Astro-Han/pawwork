@@ -6,7 +6,7 @@ import z from "zod"
 import { Effect, Layer, Context } from "effect"
 import * as Stream from "effect/Stream"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import type { PlatformError } from "effect/PlatformError"
 import { NamedError } from "@opencode-ai/util/error"
 import { lazy } from "../util/lazy"
@@ -18,7 +18,7 @@ import { which } from "../util/which"
 import { text } from "node:stream/consumers"
 
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 
 export namespace Ripgrep {
   type SearchItems = z.infer<typeof Match.shape.data>[]

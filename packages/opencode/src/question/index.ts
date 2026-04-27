@@ -3,7 +3,7 @@ import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
 import { SessionID, MessageID } from "@/session/schema"
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import z from "zod"
 import { QuestionID } from "./schema"
 

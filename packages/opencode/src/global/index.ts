@@ -1,55 +1,25 @@
 import fs from "fs/promises"
-import { xdgData, xdgCache, xdgConfig, xdgState } from "xdg-basedir"
 import path from "path"
-import os from "os"
 import { Filesystem } from "../util/filesystem"
-import { Runtime } from "@opencode-ai/core/runtime"
+import { Global, Path } from "@opencode-ai/core/global"
 
-const app = Runtime.appName()
-
-const data = path.join(xdgData!, app)
-const cache = path.join(xdgCache!, app)
-const config = path.join(xdgConfig!, app)
-const state = path.join(xdgState!, app)
-
-export namespace Global {
-  export const Path = {
-    // Allow override via OPENCODE_TEST_HOME for test isolation
-    get home() {
-      return process.env.OPENCODE_TEST_HOME || os.homedir()
-    },
-    data,
-    bin: path.join(cache, "bin"),
-    log: path.join(data, "log"),
-    cache,
-    config,
-    state,
-  }
-}
-
-await Promise.all([
-  fs.mkdir(Global.Path.data, { recursive: true }),
-  fs.mkdir(Global.Path.config, { recursive: true }),
-  fs.mkdir(Global.Path.state, { recursive: true }),
-  fs.mkdir(Global.Path.log, { recursive: true }),
-  fs.mkdir(Global.Path.bin, { recursive: true }),
-])
+export { Global }
 
 const CACHE_VERSION = "21"
 
-const version = await Filesystem.readText(path.join(Global.Path.cache, "version")).catch(() => "0")
+const version = await Filesystem.readText(path.join(Path.cache, "version")).catch(() => "0")
 
 if (version !== CACHE_VERSION) {
   try {
-    const contents = await fs.readdir(Global.Path.cache)
+    const contents = await fs.readdir(Path.cache)
     await Promise.all(
       contents.map((item) =>
-        fs.rm(path.join(Global.Path.cache, item), {
+        fs.rm(path.join(Path.cache, item), {
           recursive: true,
           force: true,
         }),
       ),
     )
   } catch (e) {}
-  await Filesystem.write(path.join(Global.Path.cache, "version"), CACHE_VERSION)
+  await Filesystem.write(path.join(Path.cache, "version"), CACHE_VERSION)
 }

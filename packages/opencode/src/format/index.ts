@@ -1,13 +1,13 @@
 import { Effect, Layer, Context } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import path from "path"
 import { mergeDeep } from "remeda"
 import z from "zod"
 import { Config } from "../config/config"
 import { Instance } from "../project/instance"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import * as Formatter from "./formatter"
 
 export namespace Format {

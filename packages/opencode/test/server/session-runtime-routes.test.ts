@@ -5,7 +5,7 @@ import { Server } from "../../src/server/server"
 import { Session as SessionNs } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionShare } from "../../src/share/session"
-import { Log } from "../../src/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })

@@ -1,19 +1,19 @@
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
-import { Log } from "../util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { LSPClient } from "./client"
 import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import { LSPServer } from "./server"
 import z from "zod"
 import { Instance } from "../project/instance"
-import { Flag } from "@/flag/flag"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { Process } from "../util/process"
 import { Effect, Layer, Context } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Settings } from "@/settings"
-import { Npm } from "../npm"
+import { Npm } from "@opencode-ai/core/npm"
 
 export namespace LSP {
   const log = Log.create({ service: "lsp" })
@@ -22,7 +22,11 @@ export namespace LSP {
     Updated: BusEvent.define("lsp.updated", z.object({})),
     InstallFailed: BusEvent.define(
       "lsp.server.install.failed",
-      z.object({ pkg: z.string(), error: z.string() }),
+      z.object({
+        add: z.array(z.string()),
+        dir: z.string(),
+        error: z.string(),
+      }),
     ),
   }
 

@@ -11,7 +11,7 @@ process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
 const { Plugin } = await import("../../src/plugin/index")
 const { PluginLoader } = await import("../../src/plugin/loader")
 const { Instance } = await import("../../src/project/instance")
-const { Npm } = await import("../../src/npm")
+const { Npm } = await import("@opencode-ai/core/npm")
 const { Config } = await import("../../src/config/config")
 const { writeMockConfigInstall } = await import("../shared/mock-npm-install")
 const { withConfigDepsLock } = await import("../shared/config-deps-lock")
@@ -237,7 +237,7 @@ describe("plugin.loader.shared", () => {
       },
     })
 
-    const add = spyOn(Npm, "add").mockImplementation(async (pkg) => {
+    const add = spyOn(Npm, "add").mockImplementation(async (pkg: any) => {
       if (pkg === "acme-plugin") return { directory: tmp.extra.acme, entrypoint: tmp.extra.acme }
       return { directory: tmp.extra.scope, entrypoint: tmp.extra.scope }
     })

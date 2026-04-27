@@ -148,7 +148,7 @@ try {
     process.env.OPENCODE = "1"
     process.env.OPENCODE_PID = String(process.pid)
 
-    const log = await import("../../opencode/src/util/log")
+    const log = await import("../../core/src/util/log")
     const install = await import("../../opencode/src/installation")
     await log.Log.init({
       print: true,

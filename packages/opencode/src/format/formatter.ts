@@ -1,10 +1,10 @@
 import { text } from "node:stream/consumers"
-import { Npm } from "@/npm"
+import { Npm } from "@opencode-ai/core/npm"
 import { Instance } from "../project/instance"
 import { Filesystem } from "../util/filesystem"
 import { Process } from "../util/process"
 import { which } from "../util/which"
-import { Flag } from "@/flag/flag"
+import { Flag } from "@opencode-ai/core/flag/flag"
 
 export interface Info {
   name: string

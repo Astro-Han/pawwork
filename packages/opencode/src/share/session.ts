@@ -5,7 +5,7 @@ import { SyncEvent } from "@/sync"
 import { fn } from "@/util/fn"
 import { Effect, Layer, Scope, Context } from "effect"
 import { Config } from "../config/config"
-import { Flag } from "../flag/flag"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { ShareNext } from "./share-next"
 import { ShareRuntime } from "./runtime"
 

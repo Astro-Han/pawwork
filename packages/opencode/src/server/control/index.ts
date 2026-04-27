@@ -1,5 +1,5 @@
 import { Auth } from "@/auth"
-import { Log } from "@/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { ProviderID } from "@/provider/schema"
 import { Hono } from "hono"
 import { describeRoute, resolver, validator, openAPIRouteHandler } from "hono-openapi"

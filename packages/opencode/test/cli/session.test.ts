@@ -3,7 +3,7 @@ import * as UI from "../../src/cli/ui"
 import { SessionDeleteCommand } from "../../src/cli/cmd/session"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
-import { Log } from "../../src/util/log"
+import { Log } from "@opencode-ai/core/util/log"
 import { tmpdir } from "../fixture/fixture"
 
 void Log.init({ print: false })
