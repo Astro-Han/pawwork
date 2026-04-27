@@ -4,6 +4,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Git } from "@/git"
 import { Effect, Layer, Context } from "effect"
+import * as Stream from "effect/Stream"
 import { formatPatch, structuredPatch } from "diff"
 import fuzzysort from "fuzzysort"
 import ignore from "ignore"
@@ -344,6 +345,7 @@ export namespace File {
     Effect.gen(function* () {
       const appFs = yield* AppFileSystem.Service
       const git = yield* Git.Service
+      const rg = yield* Ripgrep.Service
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("File.state")(() =>
@@ -382,7 +384,10 @@ export namespace File {
 
           next.dirs = Array.from(dirs).toSorted()
         } else {
-          const files = yield* Effect.promise(() => Array.fromAsync(Ripgrep.files({ cwd: Instance.directory })))
+          const files = yield* rg.files({ cwd: Instance.directory }).pipe(
+            Stream.runCollect,
+            Effect.map((c) => [...c]),
+          )
           const seen = new Set<string>()
           for (const file of files) {
             next.files.push(file)
@@ -643,7 +648,11 @@ export namespace File {
     }),
   )
 
-  export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer), Layer.provide(Git.defaultLayer))
+  export const defaultLayer = layer.pipe(
+    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(Git.defaultLayer),
+    Layer.provide(Ripgrep.defaultLayer),
+  )
 
   const { runPromise } = makeRuntime(Service, defaultLayer)
 

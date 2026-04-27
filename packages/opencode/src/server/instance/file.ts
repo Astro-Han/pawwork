@@ -5,6 +5,7 @@ import { File } from "../../file"
 import { Ripgrep } from "../../file/ripgrep"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
+import { AppRuntime } from "../../effect/app-runtime"
 import { lazy } from "../../util/lazy"
 
 export const FileRoutes = lazy(() =>
@@ -22,8 +23,9 @@ export const FileRoutes = lazy(() =>
               "application/json": {
                 schema: resolver(
                   z.object({
-                    items: Ripgrep.Match.shape.data.array(),
+                    items: z.array(Ripgrep.SearchMatch.zod),
                     partial: z.boolean(),
+                    partialReason: z.enum(["invalid_pattern", "partial_io"]).optional(),
                   }),
                 ),
               },
@@ -39,11 +41,15 @@ export const FileRoutes = lazy(() =>
       ),
       async (c) => {
         const pattern = c.req.valid("query").pattern
-        const result = await Ripgrep.search({
-          cwd: Instance.directory,
-          pattern,
-          limit: 10,
-        })
+        const result = await AppRuntime.runPromise(
+          Ripgrep.Service.use((rg) =>
+            rg.search({
+              cwd: Instance.directory,
+              pattern,
+              limit: 10,
+            }),
+          ),
+        )
         return c.json(result)
       },
     )

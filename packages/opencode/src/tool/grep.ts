@@ -1,23 +1,14 @@
-import { Effect, Fiber, Option, Schema } from "effect"
-import * as Stream from "effect/Stream"
-import * as Tool from "./tool"
+import path from "path"
+import { Schema } from "effect"
+import { Effect, Option } from "effect"
 import { InstanceState } from "@/effect"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Ripgrep } from "../file/ripgrep"
-import { ChildProcess } from "effect/unstable/process"
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-
-import DESCRIPTION from "./grep.txt"
-import path from "path"
 import { assertExternalDirectoryEffect } from "./external-directory"
+import DESCRIPTION from "./grep.txt"
+import * as Tool from "./tool"
 
 const MAX_LINE_LENGTH = 2000
-
-function ripgrepEnv() {
-  return {
-    RIPGREP_CONFIG_PATH: undefined,
-  } satisfies NodeJS.ProcessEnv
-}
 
 export const Parameters = Schema.Struct({
   pattern: Schema.String.annotate({ description: "The regex pattern to search for in file contents" }),
@@ -32,8 +23,8 @@ export const Parameters = Schema.Struct({
 export const GrepTool = Tool.define(
   "grep",
   Effect.gen(function* () {
-    const spawner = yield* ChildProcessSpawner
     const fs = yield* AppFileSystem.Service
+    const rg = yield* Ripgrep.Service
 
     return {
       description: DESCRIPTION,
@@ -73,95 +64,47 @@ export const GrepTool = Tool.define(
             kind: info?.type === "Directory" ? "directory" : "file",
           })
 
-          const rgPath = yield* Effect.promise(() => Ripgrep.filepath())
-          const args = ["--json", "--hidden", "--glob=!.git/*"]
-          if (params.include) {
-            args.push("--glob", params.include)
-          }
-          args.push("--", params.pattern)
-          if (file) args.push(...file)
-
-          const result = yield* Effect.scoped(
-            Effect.gen(function* () {
-              ctx.abort.throwIfAborted()
-              const handle = yield* spawner.spawn(
-                ChildProcess.make(rgPath, args, {
-                  cwd,
-                  env: ripgrepEnv(),
-                  stdin: "ignore",
-                }),
-              )
-
-              const outputFiber = yield* Stream.mkString(Stream.decodeText(handle.stdout)).pipe(Effect.forkScoped)
-              const errorFiber = yield* Stream.mkString(Stream.decodeText(handle.stderr)).pipe(Effect.forkScoped)
-
-              const abort = Effect.callback<void>((resume) => {
-                if (ctx.abort.aborted) return resume(Effect.void)
-                const handler = () => resume(Effect.void)
-                ctx.abort.addEventListener("abort", handler, { once: true })
-                return Effect.sync(() => ctx.abort.removeEventListener("abort", handler))
-              })
-
-              const exit = yield* Effect.raceAll([
-                handle.exitCode.pipe(Effect.map((code) => ({ kind: "exit" as const, code }))),
-                abort.pipe(Effect.map(() => ({ kind: "abort" as const }))),
-              ])
-
-              if (exit.kind === "abort") {
-                yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
-                return yield* Effect.fail(new DOMException("This operation was aborted", "AbortError"))
-              }
-
-              const output = yield* Fiber.join(outputFiber)
-              const errorOutput = yield* Fiber.join(errorFiber)
-
-              return { output, errorOutput, exitCode: exit.code }
-            }),
-          )
-
-          const { output, errorOutput, exitCode } = result
-
-          if (exitCode === 1) return empty
-
-          if (exitCode === 2 && !output.trim()) {
-            throw new Error(`ripgrep failed: ${errorOutput.trim() || "unknown error"}`)
-          }
-
-          if (exitCode !== 0 && exitCode !== 2) {
-            throw new Error(`ripgrep failed: ${errorOutput}`)
-          }
-
-          const hasErrors = exitCode === 2
-
-          const lines = output.trim().split(/\r?\n/).filter(Boolean)
-          const rows = lines.flatMap((line) => {
-            try {
-              const parsed = JSON.parse(line)
-              const match = Ripgrep.Match.parse(parsed).data
-              return [
-                {
-                  path: AppFileSystem.resolve(
-                    path.isAbsolute(match.path.text) ? match.path.text : path.join(cwd, match.path.text),
-                  ),
-                  line: match.line_number,
-                  text: match.lines.text,
-                },
-              ]
-            } catch {
-              return []
-            }
+          const result = yield* rg.search({
+            cwd,
+            pattern: params.pattern,
+            glob: params.include ? [params.include] : undefined,
+            file,
+            signal: ctx.abort,
           })
-          if (rows.length === 0) return empty
+          // ripgrep exits with code 2 for invalid regex (Service marks as
+          // partial). Only fail loudly when the partial flag is *because of*
+          // an invalid pattern — a code-2 exit caused by unreadable paths
+          // alongside zero matches should still return the empty result.
+          if (result.partialReason === "invalid_pattern") {
+            throw new Error(`ripgrep failed (invalid pattern: ${params.pattern})`)
+          }
+          if (result.items.length === 0) {
+            // A search that hits only unreadable paths comes back empty + partial.
+            // Returning the bare "No files found" would lie to the model — flag the
+            // partial-IO case so the caller can decide whether to retry / widen.
+            if (!result.partial) return empty
+            return {
+              ...empty,
+              output: `${empty.output}\n\n(Some paths were inaccessible and skipped)`,
+            }
+          }
 
+          const rows = result.items.map((item) => ({
+            path: AppFileSystem.resolve(
+              path.isAbsolute(item.path.text) ? item.path.text : path.join(cwd, item.path.text),
+            ),
+            line: item.line_number,
+            text: item.lines.text,
+          }))
           const times = new Map(
             (yield* Effect.forEach(
               [...new Set(rows.map((row) => row.path))],
-              Effect.fnUntraced(function* (filePath) {
-                const stat = yield* fs.stat(filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
-                if (!stat || stat.type === "Directory") return undefined
+              Effect.fnUntraced(function* (file) {
+                const info = yield* fs.stat(file).pipe(Effect.catch(() => Effect.succeed(undefined)))
+                if (!info || info.type === "Directory") return undefined
                 return [
-                  filePath,
-                  stat.mtime.pipe(
+                  file,
+                  info.mtime.pipe(
                     Option.map((time) => time.getTime()),
                     Option.getOrElse(() => 0),
                   ) ?? 0,
@@ -180,45 +123,43 @@ export const GrepTool = Tool.define(
 
           const limit = 100
           const truncated = matches.length > limit
-          const finalMatches = truncated ? matches.slice(0, limit) : matches
-          if (finalMatches.length === 0) return empty
+          const final = truncated ? matches.slice(0, limit) : matches
+          if (final.length === 0) return empty
 
-          const totalMatches = matches.length
-          const outputLines = [`Found ${totalMatches} matches${truncated ? ` (showing first ${limit})` : ""}`]
+          const total = matches.length
+          const output = [`Found ${total} matches${truncated ? ` (showing first ${limit})` : ""}`]
 
-          let currentFile = ""
-          for (const match of finalMatches) {
-            if (currentFile !== match.path) {
-              if (currentFile !== "") {
-                outputLines.push("")
-              }
-              currentFile = match.path
-              outputLines.push(`${match.path}:`)
+          let current = ""
+          for (const match of final) {
+            if (current !== match.path) {
+              if (current !== "") output.push("")
+              current = match.path
+              output.push(`${match.path}:`)
             }
-            const truncatedLineText =
+            const text =
               match.text.length > MAX_LINE_LENGTH ? match.text.substring(0, MAX_LINE_LENGTH) + "..." : match.text
-            outputLines.push(`  Line ${match.line}: ${truncatedLineText}`)
+            output.push(`  Line ${match.line}: ${text}`)
           }
 
           if (truncated) {
-            outputLines.push("")
-            outputLines.push(
-              `(Results truncated: showing ${limit} of ${totalMatches} matches (${totalMatches - limit} hidden). Consider using a more specific path or pattern.)`,
+            output.push("")
+            output.push(
+              `(Results truncated: showing ${limit} of ${total} matches (${total - limit} hidden). Consider using a more specific path or pattern.)`,
             )
           }
 
-          if (hasErrors) {
-            outputLines.push("")
-            outputLines.push("(Some paths were inaccessible and skipped)")
+          if (result.partial) {
+            output.push("")
+            output.push("(Some paths were inaccessible and skipped)")
           }
 
           return {
             title: params.pattern,
             metadata: {
-              matches: totalMatches,
+              matches: total,
               truncated,
             },
-            output: outputLines.join("\n"),
+            output: output.join("\n"),
           }
         }).pipe(Effect.orDie),
     }

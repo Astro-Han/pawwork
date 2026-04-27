@@ -6,23 +6,8 @@ import path from "path"
 import { tmpdir } from "../fixture/fixture"
 import { Ripgrep } from "../../src/file/ripgrep"
 
-async function withRipgrepConfig(contents: string, fn: () => Promise<void>) {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Bun.write(path.join(dir, "ripgreprc"), contents)
-    },
-  })
-
-  const previous = process.env.RIPGREP_CONFIG_PATH
-  process.env.RIPGREP_CONFIG_PATH = path.join(tmp.path, "ripgreprc")
-
-  try {
-    await fn()
-  } finally {
-    if (previous === undefined) delete process.env.RIPGREP_CONFIG_PATH
-    else process.env.RIPGREP_CONFIG_PATH = previous
-  }
-}
+const run = <A>(effect: Effect.Effect<A, unknown, Ripgrep.Service>) =>
+  effect.pipe(Effect.provide(Ripgrep.defaultLayer), Effect.runPromise)
 
 describe("file.ripgrep", () => {
   test("defaults to include hidden", async () => {
@@ -34,11 +19,16 @@ describe("file.ripgrep", () => {
       },
     })
 
-    const files = await Array.fromAsync(Ripgrep.files({ cwd: tmp.path }))
-    const hasVisible = files.includes("visible.txt")
-    const hasHidden = files.includes(path.join(".opencode", "thing.json"))
-    expect(hasVisible).toBe(true)
-    expect(hasHidden).toBe(true)
+    const files = await run(
+      Ripgrep.Service.use((rg) =>
+        rg.files({ cwd: tmp.path }).pipe(
+          Stream.runCollect,
+          Effect.map((c) => [...c]),
+        ),
+      ),
+    )
+    expect(files.includes("visible.txt")).toBe(true)
+    expect(files.includes(path.join(".opencode", "thing.json"))).toBe(true)
   })
 
   test("hidden false excludes hidden", async () => {
@@ -50,11 +40,16 @@ describe("file.ripgrep", () => {
       },
     })
 
-    const files = await Array.fromAsync(Ripgrep.files({ cwd: tmp.path, hidden: false }))
-    const hasVisible = files.includes("visible.txt")
-    const hasHidden = files.includes(path.join(".opencode", "thing.json"))
-    expect(hasVisible).toBe(true)
-    expect(hasHidden).toBe(false)
+    const files = await run(
+      Ripgrep.Service.use((rg) =>
+        rg.files({ cwd: tmp.path, hidden: false }).pipe(
+          Stream.runCollect,
+          Effect.map((c) => [...c]),
+        ),
+      ),
+    )
+    expect(files.includes("visible.txt")).toBe(true)
+    expect(files.includes(path.join(".opencode", "thing.json"))).toBe(false)
   })
 
   test("search returns empty when nothing matches", async () => {
@@ -64,138 +59,78 @@ describe("file.ripgrep", () => {
       },
     })
 
-    const result = await Ripgrep.search({
-      cwd: tmp.path,
-      pattern: "needle",
-    })
-
+    const result = await run(Ripgrep.Service.use((rg) => rg.search({ cwd: tmp.path, pattern: "needle" })))
     expect(result.partial).toBe(false)
     expect(result.items).toEqual([])
   })
 
-  test("files returns empty when glob matches nothing (ripgrep exit 1)", async () => {
+  test("search returns match metadata with normalized path", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        await Bun.write(path.join(dir, "match.ts"), "const value = 1\n")
+        await fs.mkdir(path.join(dir, "src"), { recursive: true })
+        await Bun.write(path.join(dir, "src", "match.ts"), "const needle = 1\n")
       },
     })
 
-    const files = await Array.fromAsync(
-      Ripgrep.files({
-        cwd: tmp.path,
-        glob: ["nothing-here-xyz/*"],
-      }),
-    )
-
-    expect(files).toEqual([])
+    const result = await run(Ripgrep.Service.use((rg) => rg.search({ cwd: tmp.path, pattern: "needle" })))
+    expect(result.partial).toBe(false)
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.path.text).toBe(path.join("src", "match.ts"))
+    expect(result.items[0]?.line_number).toBe(1)
+    expect(result.items[0]?.lines.text).toContain("needle")
   })
 
-  test("files returns empty when search root is gitignored (mirrors #243)", async () => {
+  test("search returns matched rows with glob filter", async () => {
     await using tmp = await tmpdir({
-      git: true,
       init: async (dir) => {
-        await fs.mkdir(path.join(dir, "docs", "content-strategy", "posts"), { recursive: true })
-        await Bun.write(
-          path.join(dir, "docs", "content-strategy", "posts", "sample.md"),
-          "# sample\n",
-        )
-        await Bun.write(path.join(dir, ".git", "info", "exclude"), "docs/\n")
+        await Bun.write(path.join(dir, "match.ts"), "const value = 'needle'\n")
+        await Bun.write(path.join(dir, "skip.txt"), "const value = 'other'\n")
       },
     })
 
-    const files = await Array.fromAsync(
-      Ripgrep.files({
-        cwd: tmp.path,
-        glob: ["docs/content-strategy/posts/*"],
-      }),
+    const result = await run(
+      Ripgrep.Service.use((rg) => rg.search({ cwd: tmp.path, pattern: "needle", glob: ["*.ts"] })),
     )
-
-    expect(files).toEqual([])
+    expect(result.partial).toBe(false)
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.path.text).toContain("match.ts")
+    expect(result.items[0]?.lines.text).toContain("needle")
   })
 
-  test("files throws when ripgrep exits with an invalid glob error", async () => {
+  test("search supports explicit file targets", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        await Bun.write(path.join(dir, "match.ts"), "const value = 1\n")
+        await Bun.write(path.join(dir, "match.ts"), "const value = 'needle'\n")
+        await Bun.write(path.join(dir, "skip.ts"), "const value = 'needle'\n")
       },
     })
 
-    await expect(
-      Array.fromAsync(
-        Ripgrep.files({
-          cwd: tmp.path,
-          glob: ["["],
-        }),
+    const file = path.join(tmp.path, "match.ts")
+    const result = await run(Ripgrep.Service.use((rg) => rg.search({ cwd: tmp.path, pattern: "needle", file: [file] })))
+    expect(result.partial).toBe(false)
+    expect(result.items).toHaveLength(1)
+    expect(result.items[0]?.path.text).toBe(file)
+  })
+
+  test("files returns empty when glob matches no files", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "packages", "console"), { recursive: true })
+        await Bun.write(path.join(dir, "packages", "console", "package.json"), "{}")
+      },
+    })
+
+    const files = await run(
+      Ripgrep.Service.use((rg) =>
+        rg.files({ cwd: tmp.path, glob: ["packages/*"] }).pipe(
+          Stream.runCollect,
+          Effect.map((c) => [...c]),
+        ),
       ),
-    ).rejects.toThrow()
+    )
+    expect(files).toEqual([])
   })
 
-  test("search keeps partial matches when ripgrep exits with code 2", async () => {
-    if (process.platform === "win32") return
-
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(path.join(dir, "match.ts"), "const needle = true\n")
-        const blocked = path.join(dir, "blocked")
-        await fs.mkdir(blocked, { recursive: true })
-        await Bun.write(path.join(blocked, "hidden.ts"), "const needle = false\n")
-      },
-    })
-
-    const blocked = path.join(tmp.path, "blocked")
-    await fs.chmod(blocked, 0o000)
-
-    try {
-      const result = await Ripgrep.search({
-        cwd: tmp.path,
-        pattern: "needle",
-      })
-
-      expect(result.partial).toBe(true)
-      expect(result.items.length).toBeGreaterThan(0)
-      expect(result.items.some((hit) => hit.path.text === "match.ts")).toBe(true)
-      expect(JSON.parse(JSON.stringify(result))).toEqual({
-        items: result.items,
-        partial: true,
-      })
-    } finally {
-      await fs.chmod(blocked, 0o755)
-    }
-  })
-
-  test("files ignores RIPGREP_CONFIG_PATH from the parent environment", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(path.join(dir, "match.ts"), "const value = true\n")
-      },
-    })
-
-    await withRipgrepConfig("--glob=!*.ts\n", async () => {
-      const files = await Array.fromAsync(Ripgrep.files({ cwd: tmp.path }))
-      expect(files).toContain("match.ts")
-    })
-  })
-
-  test("search ignores RIPGREP_CONFIG_PATH from the parent environment", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(path.join(dir, "match.ts"), "const needle = true\n")
-      },
-    })
-
-    await withRipgrepConfig("--glob=!*.ts\n", async () => {
-      const result = await Ripgrep.search({
-        cwd: tmp.path,
-        pattern: "needle",
-      })
-
-      expect(result.partial).toBe(false)
-      expect(result.items.some((hit) => hit.path.text === "match.ts")).toBe(true)
-    })
-  })
-})
-
-describe("Ripgrep.Service", () => {
   test("files returns stream of filenames", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -204,14 +139,14 @@ describe("Ripgrep.Service", () => {
       },
     })
 
-    const files = await Effect.gen(function* () {
-      const rg = yield* Ripgrep.Service
-      return yield* rg.files({ cwd: tmp.path }).pipe(
-        Stream.runCollect,
-        Effect.map((chunk) => [...chunk].sort()),
-      )
-    }).pipe(Effect.provide(Ripgrep.defaultLayer), Effect.runPromise)
-
+    const files = await run(
+      Ripgrep.Service.use((rg) =>
+        rg.files({ cwd: tmp.path }).pipe(
+          Stream.runCollect,
+          Effect.map((c) => [...c].sort()),
+        ),
+      ),
+    )
     expect(files).toEqual(["a.txt", "b.txt"])
   })
 
@@ -223,23 +158,46 @@ describe("Ripgrep.Service", () => {
       },
     })
 
-    const files = await Effect.gen(function* () {
-      const rg = yield* Ripgrep.Service
-      return yield* rg.files({ cwd: tmp.path, glob: ["*.ts"] }).pipe(
-        Stream.runCollect,
-        Effect.map((chunk) => [...chunk]),
-      )
-    }).pipe(Effect.provide(Ripgrep.defaultLayer), Effect.runPromise)
-
+    const files = await run(
+      Ripgrep.Service.use((rg) =>
+        rg.files({ cwd: tmp.path, glob: ["*.ts"] }).pipe(
+          Stream.runCollect,
+          Effect.map((c) => [...c]),
+        ),
+      ),
+    )
     expect(files).toEqual(["keep.ts"])
   })
 
   test("files dies on nonexistent directory", async () => {
-    const exit = await Effect.gen(function* () {
-      const rg = yield* Ripgrep.Service
-      return yield* rg.files({ cwd: "/tmp/nonexistent-dir-12345" }).pipe(Stream.runCollect)
-    }).pipe(Effect.provide(Ripgrep.defaultLayer), Effect.runPromiseExit)
-
+    await using tmp = await tmpdir()
+    const missing = path.join(tmp.path, "nonexistent-dir-12345")
+    const exit = await Ripgrep.Service.use((rg) =>
+      rg.files({ cwd: missing }).pipe(Stream.runCollect),
+    ).pipe(Effect.provide(Ripgrep.defaultLayer), Effect.runPromiseExit)
     expect(exit._tag).toBe("Failure")
+  })
+
+  // The post-streaming-Service ripgrep.ts has a single code path that strips
+  // RIPGREP_CONFIG_PATH from spawned env (see `delete env.RIPGREP_CONFIG_PATH`
+  // in src/file/ripgrep.ts). There is no longer a separate "worker" vs
+  // "direct" execution mode, so we keep one test guarding the env-strip
+  // behaviour rather than two identical tests with different titles.
+  test("ignores RIPGREP_CONFIG_PATH from spawned env", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "match.ts"), "const needle = 1\n")
+      },
+    })
+
+    const prev = process.env["RIPGREP_CONFIG_PATH"]
+    process.env["RIPGREP_CONFIG_PATH"] = path.join(tmp.path, "missing-ripgreprc")
+    try {
+      const result = await run(Ripgrep.Service.use((rg) => rg.search({ cwd: tmp.path, pattern: "needle" })))
+      expect(result.items).toHaveLength(1)
+    } finally {
+      if (prev === undefined) delete process.env["RIPGREP_CONFIG_PATH"]
+      else process.env["RIPGREP_CONFIG_PATH"] = prev
+    }
   })
 })

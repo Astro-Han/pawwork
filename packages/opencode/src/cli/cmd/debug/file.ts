@@ -3,6 +3,7 @@ import { File } from "../../../file"
 import { bootstrap } from "../../bootstrap"
 import { cmd } from "../cmd"
 import { Ripgrep } from "@/file/ripgrep"
+import { AppRuntime } from "@/effect/app-runtime"
 
 const FileSearchCommand = cmd({
   command: "search <query>",
@@ -77,8 +78,14 @@ const FileTreeCommand = cmd({
       default: process.cwd(),
     }),
   async handler(args) {
-    const files = await Ripgrep.tree({ cwd: args.dir, limit: 200 })
-    console.log(JSON.stringify(files, null, 2))
+    // `rg.tree()` already returns a formatted multi-line tree string (see
+    // `Ripgrep.Interface.tree` returning `Effect<string>`). Wrapping it in
+    // JSON.stringify quotes and escapes the newlines, so the debug command
+    // emits an unreadable single-line JSON-encoded string.
+    const tree = await AppRuntime.runPromise(
+      Ripgrep.Service.use((rg) => rg.tree({ cwd: args.dir, limit: 200 })),
+    )
+    process.stdout.write(tree + EOL)
   },
 })
 

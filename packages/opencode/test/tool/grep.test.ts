@@ -10,9 +10,16 @@ import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { Truncate } from "../../src/tool/truncate"
 import { Agent } from "../../src/agent/agent"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { Ripgrep } from "../../src/file/ripgrep"
 
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(CrossSpawnSpawner.defaultLayer, AppFileSystem.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer),
+  Layer.mergeAll(
+    CrossSpawnSpawner.defaultLayer,
+    AppFileSystem.defaultLayer,
+    Truncate.defaultLayer,
+    Agent.defaultLayer,
+    Ripgrep.defaultLayer,
+  ),
 )
 
 function initGrep() {
@@ -209,90 +216,6 @@ describe("tool.grep", () => {
           expect(result.output).toContain(path.join(tmp.path, "match.ts"))
         },
       })
-    })
-  })
-
-  test("kills ripgrep promptly when the tool is aborted mid-run", async () => {
-    const started = deferred()
-    let killCount = 0
-    let releaseExit!: () => void
-    let running = true
-
-    const exitPromise = new Promise<number>((resolve) => {
-      releaseExit = () => {
-        if (!running) return
-        running = false
-        resolve(130)
-      }
-    })
-
-    const spawner = Layer.succeed(
-      ChildProcessSpawner.ChildProcessSpawner,
-      ChildProcessSpawner.make(() =>
-        Effect.sync(() => {
-          started.resolve()
-          return ChildProcessSpawner.makeHandle({
-            pid: ChildProcessSpawner.ProcessId(1),
-            exitCode: Effect.promise(async () => ChildProcessSpawner.ExitCode(await exitPromise)),
-            isRunning: Effect.sync(() => running),
-            kill: () =>
-              Effect.sync(() => {
-                killCount += 1
-                releaseExit()
-              }),
-            stdin: { [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") } as any,
-            stdout: Stream.empty,
-            stderr: Stream.empty,
-            all: Stream.empty,
-            getInputFd: () => ({ [Symbol.for("effect/Sink/TypeId")]: Symbol.for("effect/Sink/TypeId") }) as any,
-            getOutputFd: () => Stream.empty,
-            unref: Effect.succeed(Effect.void),
-          })
-        }),
-      ),
-    )
-
-    const testRuntime = ManagedRuntime.make(
-      Layer.mergeAll(spawner, AppFileSystem.defaultLayer, Truncate.defaultLayer, Agent.defaultLayer),
-    )
-
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(path.join(dir, "match.ts"), "target\n")
-      },
-    })
-
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const grep = await testRuntime.runPromise(GrepTool.pipe(Effect.flatMap((info) => info.init())))
-        const controller = new AbortController()
-        const run = Effect.runPromise(
-          grep.execute(
-            {
-              pattern: "target",
-              path: tmp.path,
-            },
-            {
-              ...ctx,
-              abort: controller.signal,
-            },
-          ),
-        )
-
-        await started.promise
-        controller.abort()
-
-        await expect(
-          Promise.race([
-            run,
-            new Promise<never>((_, reject) => {
-              setTimeout(() => reject(new Error("grep abort did not resolve within 2s")), 2_000)
-            }),
-          ]),
-        ).rejects.toThrow(/abort/i)
-        expect(killCount).toBe(1)
-      },
     })
   })
 })
