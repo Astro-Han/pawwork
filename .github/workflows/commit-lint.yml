@@ -26,6 +26,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: wagoid/commitlint-github-action@6cf16efdf4da5277c791d335142c03a0bdf1766e # wagoid/commitlint-github-action@v6.2.1
+      - uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # wagoid/commitlint-github-action@v6.2.1
         with:
           configFile: .commitlintrc.json
