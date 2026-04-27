@@ -156,6 +156,12 @@ function fake(
     updateToolCall: Effect.fn("TestSessionProcessor.updateToolCall")(() => Effect.succeed(undefined)),
     completeToolCall: Effect.fn("TestSessionProcessor.completeToolCall")(() => Effect.void),
     process: Effect.fn("TestSessionProcessor.process")(() => Effect.succeed(result)),
+    errorRecords: () => [],
+    syntheticBlockSigKeys: () => [],
+    hasStopped: () => false,
+    buildLoopContext: () => ({ errorRecords: [], syntheticBlockSigKeys: [], hasStopped: false }),
+    recordSyntheticBlock: Effect.fn("TestSessionProcessor.recordSyntheticBlock")(() => Effect.void),
+    recordSyntheticStop: Effect.fn("TestSessionProcessor.recordSyntheticStop")(() => Effect.void),
   } satisfies SessionProcessorModule.SessionProcessor.Handle
 }
 

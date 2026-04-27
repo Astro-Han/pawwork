@@ -497,49 +497,107 @@ it.live("loop continues when finish is tool-calls", () =>
   ),
 )
 
-it.live("loop injects diagnostics reminder after repeated tool input", () =>
+it.live("loop gate blocks then stops after autoResume budget on repeated tool errors", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
         const session = yield* sessions.create({
-          title: "Diagnostics",
+          title: "Loop gate",
           permission: [{ permission: "*", pattern: "*", action: "allow" }],
         })
-        const file = path.join(dir, "probe.txt")
-        yield* Effect.promise(() => Bun.write(file, "probe"))
-
         yield* prompt.prompt({
           sessionID: session.id,
           agent: "build",
           noReply: true,
-          parts: [{ type: "text", text: "repeat tool" }],
+          parts: [{ type: "text", text: "read missing" }],
         })
-        const input = { pattern: "**/*.txt" }
-        yield* llm.tool("glob", input)
-        yield* llm.tool("glob", input)
-        yield* llm.tool("glob", input)
+
+        // Always read the same nonexistent path so input + (fallback target) hashes are stable.
+        const filePath = path.join(dir, "loop-gate-nonexistent.txt")
+        const input = { filePath }
+        for (let i = 0; i < 7; i++) yield* llm.tool("read", input)
         yield* llm.text("done")
 
         const result = yield* prompt.loop({ sessionID: session.id })
         expect(result.info.role).toBe("assistant")
-        expect(yield* llm.calls).toBe(4)
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const errorParts = allParts.filter(
+          (part): part is ErrorToolPart => part.type === "tool" && part.state.status === "error",
+        )
+        const completedParts = allParts.filter(
+          (part): part is CompletedToolPart => part.type === "tool" && part.state.status === "completed",
+        )
+        expect(completedParts).toHaveLength(0)
+
+        const blockParts = errorParts.filter((p) => p.state.metadata?.diagnostics?.loop?.loopAction === "block")
+        const stopParts = errorParts.filter((p) => p.state.metadata?.diagnostics?.loop?.loopAction === "stop")
+        expect(blockParts).toHaveLength(1)
+        expect(stopParts).toHaveLength(1)
+
+        const blockMeta = blockParts[0]!.state.metadata!.diagnostics!.loop!
+        expect(blockMeta.loopType).toBe("target")
+        expect(blockMeta.loopCompletedFailures).toBe(5)
+        expect(blockParts[0]!.state.error).toContain("blocked by PawWork")
+
+        const stopMeta = stopParts[0]!.state.metadata!.diagnostics!.loop!
+        expect(stopMeta.loopType).toBe("target")
+        expect(stopParts[0]!.state.error).toContain("halted by PawWork")
+
+        const stopIdx = allParts.indexOf(stopParts[0]!)
+        const trailing = allParts.slice(stopIdx + 1)
+        // After the synthetic stop, the turn must be terminal: exactly one trailing text part
+        // (the rendered stop summary) and no trailing tool parts. Just looking at the FIRST
+        // text part would still pass if a queued model text leaked through after stop.
+        const trailingTexts = trailing.filter((p): p is MessageV2.TextPart => p.type === "text")
+        expect(trailingTexts).toHaveLength(1)
+        expect(trailingTexts[0]!.synthetic).toBe(true)
+        // Default locale (test fixture sends no user-message locale) → English template.
+        expect(trailingTexts[0]!.text).toContain("stopped")
+        expect(trailing.filter((p) => p.type === "tool")).toHaveLength(0)
+
+        // Recovery fires per-sigKey; in this scenario read+filePath produces both `input:` and
+        // `target:` candidates, so loopRecoverFiredFor can carry either prefix. Accept both —
+        // narrowing to one was a false-failure risk without catching real regressions.
+        const recoverFired = errorParts.some((p) =>
+          (p.state.metadata?.diagnostics?.loop?.loopRecoverFiredFor ?? []).some(
+            (k: string) => k.startsWith("input:") || k.startsWith("target:"),
+          ),
+        )
+        expect(recoverFired).toBe(true)
 
         const requests = yield* llm.inputs
-        expect(JSON.stringify(requests.at(-1))).toContain("Detected that you have repeated the same tool input 3 times")
-
-        const msgs = yield* MessageV2.filterCompactedEffect(session.id)
-        const tools = msgs.flatMap((msg) =>
-          msg.parts.filter((part): part is CompletedToolPart => part.type === "tool" && part.state.status === "completed"),
-        )
-        expect(tools).toHaveLength(3)
-        expect(tools[2]?.state.metadata.diagnostics.loop.inputRepeatCount).toBe(3)
-        expect(tools[2]?.state.metadata.diagnostics.loop.reminders?.[0]).toMatchObject({
-          type: "input_repeat",
-          status: "injected",
-          count: 3,
+        // Extract user/system message text fields rather than stringifying the whole request
+        // shape, so the assertion does not break when ai-sdk request schema gets unrelated
+        // fields (timestamps, ids, model parameters).
+        const flattenedText = requests.flatMap((r) => {
+          const msgs = (r as { messages?: unknown[] }).messages ?? []
+          return msgs.flatMap((m) => {
+            const content = (m as { content?: unknown }).content
+            if (typeof content === "string") return [content]
+            if (Array.isArray(content)) {
+              return content.flatMap((c) => {
+                if (typeof c === "string") return [c]
+                if (c && typeof c === "object" && "text" in c) return [String((c as { text: unknown }).text)]
+                return []
+              })
+            }
+            return []
+          })
         })
+        // Either same-input or same-target reminder is acceptable in this scenario — the
+        // read+filePath path produces both signatures and either flavor is a valid recovery
+        // signal. Narrowing to one would fail spuriously without any behavior regression.
+        expect(
+          flattenedText.some(
+            (t) =>
+              t.includes("repeated the same tool input 3 times") ||
+              t.includes("failed against the same target multiple times"),
+          ),
+        ).toBe(true)
       }),
     { git: true, config: providerCfg },
   ),

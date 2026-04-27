@@ -36,6 +36,7 @@ import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
 import { SessionProcessor } from "./processor"
 import { SessionDiagnostics } from "./diagnostics"
+import { LoopRenderer } from "./loop-renderer"
 import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
@@ -68,6 +69,105 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
+
+// Single source of truth for product-name strings used in synthetic tool errors. If the brand
+// changes, only this constant + assistant-text Chinese summary need to change.
+const LOOP_GATE_BRAND = "PawWork"
+const LOOP_GATE_BLOCK_PREFIX = `blocked by ${LOOP_GATE_BRAND}`
+const LOOP_GATE_STOP_PREFIX = `halted by ${LOOP_GATE_BRAND}`
+
+class BlockedLoopError extends Error {
+  constructor(public readonly userFacing: string) {
+    super(userFacing)
+  }
+}
+class LoopStopError extends Error {
+  constructor(public readonly toolErrorMessage: string) {
+    super(toolErrorMessage)
+  }
+}
+
+type GateOutcome =
+  | { kind: "observe" }
+  | { kind: "block"; userFacing: string }
+  | { kind: "stop"; toolErrorMessage: string }
+
+const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input: {
+  processor: SessionProcessor.Handle
+  toolId: string
+  args: unknown
+  toolCallId: string
+  locale?: string
+}) {
+  const { processor, toolId, args, toolCallId, locale } = input
+  const parentID = processor.message.parentID
+  if (!parentID) return { kind: "observe" } satisfies GateOutcome
+
+  // Single pass over the message stream — folds errorRecords, syntheticBlockSigKeys, and
+  // hasStopped into one walk. applyLoopGate runs before every tool execution, so this saves
+  // O(2n) per call vs three independent scans.
+  const loopCtx = processor.buildLoopContext(parentID)
+
+  // Once a synthetic stop has been recorded under this parentID, keep the gate
+  // closed for any later tool call ai-sdk auto-resumes into. Returning `observe`
+  // here would let real tools execute after stop, breaking the "turn ends" contract.
+  // We propagate stop without re-recording to avoid duplicate Chinese summary.
+  if (loopCtx.hasStopped) {
+    return {
+      kind: "stop",
+      toolErrorMessage: `${LOOP_GATE_STOP_PREFIX}: stop already recorded for this turn`,
+    } satisfies GateOutcome
+  }
+
+  const inputHashRes = SessionDiagnostics.normalizeInput(args)
+  const targetSummaryRes = SessionDiagnostics.targetSummary(toolId, args)
+  const targetHash = targetSummaryRes.isFallback ? undefined : SessionDiagnostics.hash(targetSummaryRes.summary)
+
+  const parentLoopState = SessionDiagnostics.deriveParentLoopState({
+    errorRecords: loopCtx.errorRecords,
+    syntheticBlockSigKeys: loopCtx.syntheticBlockSigKeys,
+    parentID,
+  })
+
+  const decision = SessionDiagnostics.queryGateAction({
+    parentLoopState,
+    tool: toolId,
+    inputHash: inputHashRes.hash,
+    targetHash,
+  })
+
+  if (decision.action === "observe") return { kind: "observe" } satisfies GateOutcome
+
+  const sigState = parentLoopState.signatures[decision.sigKey]
+  if (!sigState) return { kind: "observe" } satisfies GateOutcome
+
+  if (decision.action === "block") {
+    const userFacing = `${LOOP_GATE_BLOCK_PREFIX}: this signature has already failed ${decision.completedFailures} times in this turn`
+    yield* processor.recordSyntheticBlock({
+      toolCallId,
+      tool: toolId,
+      sigKey: decision.sigKey,
+      kind: decision.kind,
+      completedFailures: decision.completedFailures,
+      errorMessage: userFacing,
+    })
+    return { kind: "block", userFacing } satisfies GateOutcome
+  }
+
+  const renderedText = LoopRenderer.render({ tool: toolId, state: sigState, locale })
+  const toolErrorMessage = `${LOOP_GATE_STOP_PREFIX}: stop after repeated failures (${decision.completedFailures})`
+  yield* processor.recordSyntheticStop({
+    toolCallId,
+    tool: toolId,
+    sigKey: decision.sigKey,
+    kind: decision.kind,
+    completedFailures: decision.completedFailures,
+    renderedText,
+    toolErrorMessage,
+  })
+  return { kind: "stop", toolErrorMessage } satisfies GateOutcome
+})
+
 function officePathOnly(filepath: string) {
   return OFFICE_EXTS.has(pathSuffix(filepath))
 }
@@ -383,7 +483,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       model: Provider.Model
       session: Session.Info
       tools?: Record<string, boolean>
-      processor: Pick<SessionProcessor.Handle, "message" | "updateToolCall" | "completeToolCall">
+      processor: SessionProcessor.Handle
       bypassAgentCheck: boolean
       messages: MessageV2.WithParts[]
     }) {
@@ -391,6 +491,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const tools: Record<string, AITool> = {}
       const run = yield* runner()
       const promptOps = yield* ops()
+      // Locale travels on the user message (set by the UI from `language.intl()`); capture
+      // once here and let every applyLoopGate call in this resolveTools scope share it.
+      // Falls back to undefined → English in LoopRenderer. Skip user messages without locale
+      // (synthetic continuations like subtask-summary or shell-input) so a zh session keeps
+      // rendering Chinese stop summaries even after a synthetic user hop.
+      const lastUserMessage = input.messages.findLast(
+        (m): m is MessageV2.WithParts & { info: MessageV2.User } =>
+          m.info.role === "user" && typeof m.info.locale === "string" && m.info.locale.length > 0,
+      )
+      const lastUserLocale = lastUserMessage?.info.locale
 
       const context = (args: any, options: ToolExecutionOptions): Tool.Context => ({
         sessionID: input.session.id,
@@ -438,6 +548,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             return run.promise(
               Effect.gen(function* () {
                 const ctx = context(args, options)
+                const outcome = yield* applyLoopGate({
+                  processor: input.processor,
+                  toolId: item.id,
+                  args,
+                  toolCallId: options.toolCallId,
+                  locale: lastUserLocale,
+                })
+                if (outcome.kind === "block") return yield* Effect.fail(new BlockedLoopError(outcome.userFacing))
+                if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
                 yield* plugin.trigger(
                   "tool.execute.before",
                   { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
@@ -479,6 +598,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           run.promise(
             Effect.gen(function* () {
               const ctx = context(args, opts)
+              const outcome = yield* applyLoopGate({
+                processor: input.processor,
+                toolId: key,
+                args,
+                toolCallId: opts.toolCallId,
+                locale: lastUserLocale,
+              })
+              if (outcome.kind === "block") return yield* Effect.fail(new BlockedLoopError(outcome.userFacing))
+              if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
               yield* plugin.trigger(
                 "tool.execute.before",
                 { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
@@ -1570,6 +1698,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 onSuccess(output) {
                   structured = output
                 },
+                shouldHalt: () => handle.hasStopped(handle.message.parentID),
               })
             }
 
@@ -1972,6 +2101,7 @@ export async function command(input: CommandInput) {
 export function createStructuredOutputTool(input: {
   schema: Record<string, any>
   onSuccess: (output: unknown) => void
+  shouldHalt?: () => boolean
 }): AITool {
   // Remove $schema property if present (not needed for tool input)
   const { $schema: _, ...toolSchema } = input.schema
@@ -1980,6 +2110,11 @@ export function createStructuredOutputTool(input: {
     description: STRUCTURED_OUTPUT_DESCRIPTION,
     inputSchema: jsonSchema(toolSchema as JSONSchema7),
     async execute(args) {
+      // After a synthetic stop, ai-sdk auto-resume must not capture a structured output:
+      // the turn ended, and emitting an answer here contradicts that contract.
+      if (input.shouldHalt?.()) {
+        throw new Error(`${LOOP_GATE_STOP_PREFIX}: stop already recorded for this turn`)
+      }
       // AI SDK validates args against inputSchema before calling execute()
       input.onSuccess(args)
       return {

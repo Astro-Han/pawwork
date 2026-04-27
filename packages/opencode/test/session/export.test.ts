@@ -180,6 +180,228 @@ describe("Export.session", () => {
   })
 })
 
+describe("Export.deriveSnapshotDiagnostics", () => {
+  const sessionID = SessionID.make("ses_diag")
+  const messageID = MessageID.make("msg_assistant")
+  const userID = MessageID.make("msg_user")
+
+  function blockToolPart(): MessageV2.ToolPart {
+    return {
+      id: PartID.make("prt_loop_block"),
+      messageID,
+      sessionID,
+      type: "tool",
+      tool: "webfetch",
+      callID: "call_block",
+      state: {
+        status: "error",
+        input: { url: "https://example.com/missing.md" },
+        error: "blocked by PawWork: 5 same target failures",
+        metadata: {
+          diagnostics: {
+            loop: {
+              loopAction: "block",
+              loopType: "target",
+              loopCompletedFailures: 5,
+              loopSigKey: "target:webfetch:abc",
+            },
+          },
+        },
+        time: { start: 1, end: 2 },
+      },
+    }
+  }
+
+  function makeTree(): Export.Tree {
+    return {
+      info: {
+        id: sessionID,
+        title: "loop test",
+        time: { created: 1 },
+        version: "0",
+      } as unknown as Export.Tree["info"],
+      had_cloud_share: false,
+      diffs: [],
+      messages: [
+        {
+          info: {
+            id: messageID,
+            role: "assistant",
+            sessionID,
+            mode: "build",
+            agent: "build",
+            path: { cwd: "/tmp", root: "/tmp" },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "test-model",
+            providerID: "test",
+            parentID: userID,
+            time: { created: 1 },
+          } as MessageV2.Assistant,
+          parts: [blockToolPart()],
+        },
+      ],
+      children: [],
+    }
+  }
+
+  test("emits loop.last for the latest synthetic block tool part", () => {
+    const tree = makeTree()
+    const result = Export.deriveSnapshotDiagnostics(tree)
+    expect(result.loop?.last).toBeDefined()
+    expect(result.loop?.last?.type).toBe("same_target")
+    expect(result.loop?.last?.action).toBe("block")
+    expect(result.loop?.last?.tool).toBe("webfetch")
+    expect(result.loop?.last?.completedFailures).toBe(5)
+    expect(result.loop?.last?.parentID).toBe(userID)
+  })
+
+  test("returns empty when no block tool part exists", () => {
+    const tree: Export.Tree = { ...makeTree(), messages: [] }
+    expect(Export.deriveSnapshotDiagnostics(tree)).toEqual({})
+  })
+
+  test("picks the block with the latest timestamp across child trees, not DFS order", () => {
+    const rootInfo = makeAssistantInfo()
+    const childInfo = makeAssistantInfo()
+    const olderInChild = blockToolPartAt(childInfo.id, 50, "older-child")
+    const newerInRoot = blockToolPartAt(rootInfo.id, 100, "newer-root")
+    const tree: Export.Tree = {
+      ...makeTree(),
+      messages: [
+        {
+          info: rootInfo,
+          parts: [newerInRoot],
+        },
+      ],
+      children: [
+        {
+          ...makeTree(),
+          messages: [
+            {
+              info: childInfo,
+              parts: [olderInChild],
+            },
+          ],
+        },
+      ],
+    }
+    const result = Export.deriveSnapshotDiagnostics(tree)
+    expect(result.loop?.last?.completedFailures).toBe(100)
+  })
+
+  test("picks stop over earlier block when stop is the terminal action", () => {
+    const info = makeAssistantInfo()
+    const block = blockToolPartAt(info.id, 100, "early-block")
+    const stop = stopToolPartAt(info.id, 200, "final-stop")
+    const tree: Export.Tree = {
+      ...makeTree(),
+      messages: [
+        {
+          info,
+          parts: [block, stop],
+        },
+      ],
+      children: [],
+    }
+    const result = Export.deriveSnapshotDiagnostics(tree)
+    expect(result.loop?.last?.action).toBe("stop")
+    expect(result.loop?.last?.completedFailures).toBe(200)
+  })
+
+  test("includes stop tool part even when no block exists in tree", () => {
+    const info = makeAssistantInfo()
+    const stop = stopToolPartAt(info.id, 50, "lone-stop")
+    const tree: Export.Tree = {
+      ...makeTree(),
+      messages: [
+        {
+          info,
+          parts: [stop],
+        },
+      ],
+      children: [],
+    }
+    const result = Export.deriveSnapshotDiagnostics(tree)
+    expect(result.loop?.last?.action).toBe("stop")
+  })
+})
+
+let assistantSeq = 0
+function makeAssistantInfo(): MessageV2.Assistant {
+  const sessionID = SessionID.make("ses_diag")
+  assistantSeq += 1
+  const messageID = MessageID.make(`msg_assistant_seq_${assistantSeq}`)
+  return {
+    id: messageID,
+    role: "assistant",
+    sessionID,
+    mode: "build",
+    agent: "build",
+    path: { cwd: "/tmp", root: "/tmp" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    modelID: "test-model",
+    providerID: "test",
+    parentID: MessageID.make("msg_user"),
+    time: { created: 1 },
+  } as MessageV2.Assistant
+}
+
+function blockToolPartAt(messageID: MessageID, end: number, tag: string): MessageV2.ToolPart {
+  return {
+    id: PartID.make("prt_block_" + tag),
+    messageID,
+    sessionID: SessionID.make("ses_diag"),
+    type: "tool",
+    tool: "webfetch",
+    callID: "call_" + tag,
+    state: {
+      status: "error",
+      input: { url: "https://x.com/" + tag },
+      error: "blocked by PawWork",
+      metadata: {
+        diagnostics: {
+          loop: {
+            loopAction: "block",
+            loopType: "target",
+            loopCompletedFailures: end,
+            loopSigKey: "target:webfetch:" + tag,
+          },
+        },
+      },
+      time: { start: 1, end },
+    },
+  }
+}
+
+function stopToolPartAt(messageID: MessageID, end: number, tag: string): MessageV2.ToolPart {
+  return {
+    id: PartID.make("prt_stop_" + tag),
+    messageID,
+    sessionID: SessionID.make("ses_diag"),
+    type: "tool",
+    tool: "webfetch",
+    callID: "call_stop_" + tag,
+    state: {
+      status: "error",
+      input: { url: "https://x.com/" + tag },
+      error: "halted by PawWork",
+      metadata: {
+        diagnostics: {
+          loop: {
+            loopAction: "stop",
+            loopType: "target",
+            loopCompletedFailures: end,
+            loopSigKey: "target:webfetch:" + tag,
+          },
+        },
+      },
+      time: { start: 1, end },
+    },
+  }
+}
+
 describe("redactPart", () => {
   test("replaces data: url in a file part with empty string and adds redacted_binary metadata", () => {
     const ctx = { count: { omitted: 0 } }

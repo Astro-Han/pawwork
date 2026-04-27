@@ -130,13 +130,81 @@ export namespace Export {
         omitted_attachment_count: number
       }
     }
-    diagnostics: Record<string, never>
+    diagnostics: {
+      loop?: {
+        last?: {
+          parentID: string
+          type: "same_input" | "same_target"
+          action: "block" | "stop"
+          tool: string
+          completedFailures: number
+        }
+      }
+    }
     session: Tree
   }
 
   type NodeData = {
     node: Tree
     childInfos: Session.Info[]
+  }
+
+  export function deriveSnapshotDiagnostics(node: Tree): {
+    loop?: {
+      last?: {
+        parentID: string
+        type: "same_input" | "same_target"
+        action: "block" | "stop"
+        tool: string
+        completedFailures: number
+      }
+    }
+  } {
+    let lastAt = -Infinity
+    let last:
+      | {
+          parentID: string
+          type: "same_input" | "same_target"
+          action: "block" | "stop"
+          tool: string
+          completedFailures: number
+        }
+      | undefined
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        if (message.info.role !== "assistant") continue
+        for (const part of message.parts) {
+          if (part.type !== "tool") continue
+          const metadata = "metadata" in part.state ? part.state.metadata : undefined
+          const loop = metadata?.diagnostics?.loop as
+            | {
+                loopAction?: string
+                loopType?: string
+                loopCompletedFailures?: number
+              }
+            | undefined
+          if (!loop || (loop.loopAction !== "block" && loop.loopAction !== "stop")) continue
+          if (!loop.loopType || typeof loop.loopCompletedFailures !== "number" || !message.info.parentID) continue
+          let at = -Infinity
+          if ("time" in part.state) {
+            const t = part.state.time
+            at = "end" in t && typeof t.end === "number" ? t.end : t.start
+          }
+          if (at < lastAt) continue
+          lastAt = at
+          last = {
+            parentID: message.info.parentID,
+            type: loop.loopType === "input" ? "same_input" : "same_target",
+            action: loop.loopAction,
+            tool: part.tool,
+            completedFailures: loop.loopCompletedFailures,
+          }
+        }
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return last ? { loop: { last } } : {}
   }
 
   const climbToRoot = Effect.fn("Export.climbToRoot")(function* (svc: Session.Interface, id: SessionID) {
@@ -296,7 +364,7 @@ export namespace Export {
         model_refs,
         stats: countStats(tree, ctx.count.omitted),
       },
-      diagnostics: {},
+      diagnostics: deriveSnapshotDiagnostics(tree),
       session: tree,
     } satisfies Snapshot
   })

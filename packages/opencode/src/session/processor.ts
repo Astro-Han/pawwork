@@ -43,6 +43,31 @@ export interface Handle {
     },
   ) => Effect.Effect<void>
   readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
+  readonly errorRecords: (parentID: MessageV2.Assistant["parentID"]) => SessionDiagnostics.ToolErrorRecord[]
+  readonly syntheticBlockSigKeys: (parentID: MessageV2.Assistant["parentID"]) => string[]
+  readonly hasStopped: (parentID: MessageV2.Assistant["parentID"]) => boolean
+  readonly buildLoopContext: (parentID: MessageV2.Assistant["parentID"]) => {
+    errorRecords: SessionDiagnostics.ToolErrorRecord[]
+    syntheticBlockSigKeys: string[]
+    hasStopped: boolean
+  }
+  readonly recordSyntheticBlock: (input: {
+    toolCallId: string
+    tool: string
+    sigKey: string
+    kind: SessionDiagnostics.SignatureKind
+    completedFailures: number
+    errorMessage: string
+  }) => Effect.Effect<void>
+  readonly recordSyntheticStop: (input: {
+    toolCallId: string
+    tool: string
+    sigKey: string
+    kind: SessionDiagnostics.SignatureKind
+    completedFailures: number
+    renderedText: string
+    toolErrorMessage: string
+  }) => Effect.Effect<void>
 }
 
 type Input = {
@@ -195,6 +220,11 @@ export const layer: Layer.Layer<
         })
       }
 
+      // Surface tool parts that represent a loop-relevant failure: real tool errors (carry
+      // errorFingerprint) AND synthetic block/stop markers. deriveParentLoopState applies the
+      // policy filter (loopAction !== "block"|"stop") on top — keeping this filter broad means
+      // we don't silently drop synthetic markers if a future merge accidentally clears
+      // errorFingerprint.
       const errorRecords = (parentID: MessageV2.Assistant["parentID"]) => {
         if (!parentID) return []
         return Array.from(MessageV2.stream(ctx.sessionID)).flatMap((message) => {
@@ -202,18 +232,90 @@ export const layer: Layer.Layer<
           return message.parts.flatMap((part) => {
             if (part.type !== "tool") return []
             const loop = toolDiagnostics(part)?.loop
-            if (!loop?.errorFingerprint) return []
+            if (!loop) return []
+            const isLoopRelevant =
+              !!loop.errorFingerprint || loop.loopAction === "block" || loop.loopAction === "stop"
+            if (!isLoopRelevant) return []
+            const targetHash = loop.targetHashIsFallback ? undefined : loop.targetHash
             return [
               {
                 sessionID: ctx.sessionID,
                 parentID,
                 tool: part.tool,
-                errorFingerprint: loop.errorFingerprint,
+                inputHash: loop.inputHash ?? "",
+                targetHash,
+                errorFingerprint: loop.errorFingerprint ?? "",
+                lastInput: loop.loopLastInput,
+                lastError: loop.loopLastError,
                 metadata: { diagnostics: { loop } },
               } satisfies SessionDiagnostics.ToolErrorRecord,
             ]
           })
         })
+      }
+
+      const syntheticBlockSigKeys = (parentID: MessageV2.Assistant["parentID"]): string[] => {
+        if (!parentID) return []
+        const out: string[] = []
+        for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
+          if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
+          for (const part of message.parts) {
+            if (part.type !== "tool") continue
+            const loop = toolDiagnostics(part)?.loop
+            if (loop?.loopAction !== "block") continue
+            if (loop.loopSigKey) out.push(loop.loopSigKey)
+          }
+        }
+        return out
+      }
+
+      const hasStopped = (parentID: MessageV2.Assistant["parentID"]): boolean => {
+        if (!parentID) return false
+        for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
+          if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
+          for (const part of message.parts) {
+            if (part.type !== "tool") continue
+            if (toolDiagnostics(part)?.loop?.loopAction === "stop") return true
+          }
+        }
+        return false
+      }
+
+      // Single-pass aggregator. applyLoopGate runs before every tool execution and would otherwise
+      // call errorRecords + syntheticBlockSigKeys + hasStopped (three full O(n) scans of the message
+      // stream); this helper folds them into one scan.
+      const buildLoopContext = (parentID: MessageV2.Assistant["parentID"]) => {
+        const errorRecordsOut: SessionDiagnostics.ToolErrorRecord[] = []
+        const syntheticBlockSigKeysOut: string[] = []
+        let hasStoppedOut = false
+        if (!parentID) {
+          return { errorRecords: errorRecordsOut, syntheticBlockSigKeys: syntheticBlockSigKeysOut, hasStopped: hasStoppedOut }
+        }
+        for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
+          if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
+          for (const part of message.parts) {
+            if (part.type !== "tool") continue
+            const loop = toolDiagnostics(part)?.loop
+            if (!loop) continue
+            if (loop.loopAction === "stop") hasStoppedOut = true
+            if (loop.loopAction === "block" && loop.loopSigKey) syntheticBlockSigKeysOut.push(loop.loopSigKey)
+            if (loop.errorFingerprint || loop.loopAction === "block" || loop.loopAction === "stop") {
+              const targetHash = loop.targetHashIsFallback ? undefined : loop.targetHash
+              errorRecordsOut.push({
+                sessionID: ctx.sessionID,
+                parentID,
+                tool: part.tool,
+                inputHash: loop.inputHash ?? "",
+                targetHash,
+                errorFingerprint: loop.errorFingerprint ?? "",
+                lastInput: loop.loopLastInput,
+                lastError: loop.loopLastError,
+                metadata: { diagnostics: { loop } },
+              } satisfies SessionDiagnostics.ToolErrorRecord)
+            }
+          }
+        }
+        return { errorRecords: errorRecordsOut, syntheticBlockSigKeys: syntheticBlockSigKeysOut, hasStopped: hasStoppedOut }
       }
 
       const completeToolCall = Effect.fn("SessionProcessor.completeToolCall")(function* (
@@ -245,13 +347,23 @@ export const layer: Layer.Layer<
 
       const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
         const match = yield* readToolCall(toolCallID)
-        if (!match || match.part.state.status !== "running") return false
+        if (!match) return false
+        if (match.part.state.status !== "running") {
+          yield* settleToolCall(toolCallID)
+          return false
+        }
+        const inflightLoop = toolDiagnostics(match.part)?.loop
+        const inputHash = inflightLoop?.inputHash
+        const targetHash = inflightLoop?.targetHashIsFallback ? undefined : inflightLoop?.targetHash
         const diagnostics: SessionDiagnostics.Metadata["diagnostics"] | undefined = ctx.assistantMessage.parentID
           ? SessionDiagnostics.observeToolError({
               records: errorRecords(ctx.assistantMessage.parentID),
               sessionID: ctx.sessionID,
               parentID: ctx.assistantMessage.parentID,
               tool: match.part.tool,
+              inputHash,
+              targetHash,
+              originalInput: match.part.state.input,
               error,
             }).record.metadata.diagnostics
           : toolDiagnostics(match.part)
@@ -602,7 +714,10 @@ export const layer: Layer.Layer<
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),
-              Stream.takeUntil(() => ctx.needsCompaction),
+              // Stop draining the stream as soon as the loop gate fires a synthetic stop
+              // (ctx.blocked) so any trailing model text after the synthetic stop tool-error
+              // is dropped — the turn ends with the rendered Chinese summary alone.
+              Stream.takeUntil(() => ctx.needsCompaction || ctx.blocked),
               Stream.runDrain,
             )
           }).pipe(
@@ -640,6 +755,142 @@ export const layer: Layer.Layer<
         })
       })
 
+      const recordSyntheticBlock = Effect.fn("SessionProcessor.recordSyntheticBlock")(function* (input: {
+        toolCallId: string
+        tool: string
+        sigKey: string
+        kind: SessionDiagnostics.SignatureKind
+        completedFailures: number
+        errorMessage: string
+      }) {
+        const match = yield* readToolCall(input.toolCallId)
+        if (!match) return
+        // Idempotence guard: if the model emits multiple parallel tool calls of the same
+        // sigKey within one assistant step, applyLoopGate can decide block for several of
+        // them before any has persisted. Re-check existing block sigKeys here so we record
+        // at most one synthetic block per sigKey per parentID. This still has a residual
+        // race window (two parallel writers can both pass this check), but closes the most
+        // likely path. Full fix would need a per-parent Effect.Mutex; deferred as the
+        // residual race only produces extra diagnostic parts, not behavioral drift.
+        const parentID = ctx.assistantMessage.parentID
+        if (parentID) {
+          const existing = syntheticBlockSigKeys(parentID)
+          if (existing.includes(input.sigKey)) {
+            // Still write a terminal `error` state for THIS part — without the loop marker,
+            // so deriveParentLoopState only counts one synthetic block per sigKey. Skipping
+            // the write would leave the part stuck in pending/running forever after settle.
+            const dupEnd = Date.now()
+            const dupStart = "time" in match.part.state ? match.part.state.time.start : dupEnd
+            yield* session.updatePart({
+              ...match.part,
+              state: {
+                status: "error",
+                input: match.part.state.input,
+                error: input.errorMessage,
+                metadata: toolStateMetadata(match.part),
+                time: { start: dupStart, end: dupEnd },
+              },
+            })
+            yield* settleToolCall(input.toolCallId)
+            return
+          }
+        }
+        const existingMeta = toolStateMetadata(match.part)
+        const merged = SessionDiagnostics.mergeMetadata(existingMeta, {
+          diagnostics: {
+            loop: {
+              loopAction: "block",
+              loopType: input.kind,
+              loopSigKey: input.sigKey,
+              loopCompletedFailures: input.completedFailures,
+            },
+          },
+        })
+        const end = Date.now()
+        const startTime = "time" in match.part.state ? match.part.state.time.start : end
+        yield* session.updatePart({
+          ...match.part,
+          state: {
+            status: "error",
+            input: match.part.state.input,
+            error: input.errorMessage,
+            metadata: merged,
+            time: { start: startTime, end },
+          },
+        })
+        yield* settleToolCall(input.toolCallId)
+      })
+
+      const recordSyntheticStop = Effect.fn("SessionProcessor.recordSyntheticStop")(function* (input: {
+        toolCallId: string
+        tool: string
+        sigKey: string
+        kind: SessionDiagnostics.SignatureKind
+        completedFailures: number
+        renderedText: string
+        toolErrorMessage: string
+      }) {
+        const match = yield* readToolCall(input.toolCallId)
+        if (!match) return
+        // Idempotence guard (see recordSyntheticBlock for the full rationale): re-check
+        // hasStopped here. The duplicate-stop case writes two Chinese summaries which is
+        // visible UX noise; this guard closes the most common parallel-call window.
+        const parentID = ctx.assistantMessage.parentID
+        if (parentID && hasStopped(parentID)) {
+          // Same reason as the block-side guard: write a terminal `error` state without the
+          // loop marker (no duplicate stop summary, no second TextPart) so the part can't be
+          // left forever pending/running after settle.
+          const dupEnd = Date.now()
+          const dupStart = "time" in match.part.state ? match.part.state.time.start : dupEnd
+          yield* session.updatePart({
+            ...match.part,
+            state: {
+              status: "error",
+              input: match.part.state.input,
+              error: input.toolErrorMessage,
+              metadata: toolStateMetadata(match.part),
+              time: { start: dupStart, end: dupEnd },
+            },
+          })
+          yield* settleToolCall(input.toolCallId)
+          return
+        }
+        const existingMeta = toolStateMetadata(match.part)
+        const merged = SessionDiagnostics.mergeMetadata(existingMeta, {
+          diagnostics: {
+            loop: {
+              loopAction: "stop",
+              loopType: input.kind,
+              loopSigKey: input.sigKey,
+              loopCompletedFailures: input.completedFailures,
+            },
+          },
+        })
+        const stopEnd = Date.now()
+        const stopStart = "time" in match.part.state ? match.part.state.time.start : stopEnd
+        yield* session.updatePart({
+          ...match.part,
+          state: {
+            status: "error",
+            input: match.part.state.input,
+            error: input.toolErrorMessage,
+            metadata: merged,
+            time: { start: stopStart, end: stopEnd },
+          },
+        })
+        const textPart: MessageV2.TextPart = {
+          id: PartID.ascending(),
+          sessionID: ctx.sessionID,
+          messageID: ctx.assistantMessage.id,
+          type: "text",
+          text: input.renderedText,
+          synthetic: true,
+        }
+        yield* session.updatePart(textPart)
+        yield* settleToolCall(input.toolCallId)
+        ctx.blocked = true
+      })
+
       return {
         get message() {
           return ctx.assistantMessage
@@ -647,6 +898,12 @@ export const layer: Layer.Layer<
         updateToolCall,
         completeToolCall,
         process,
+        errorRecords,
+        syntheticBlockSigKeys,
+        hasStopped,
+        buildLoopContext,
+        recordSyntheticBlock,
+        recordSyntheticStop,
       } satisfies Handle
     })
 
