@@ -522,6 +522,233 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     }
   })
 
+  test("sources() reports ~/.claude/CLAUDE.md as ignored with reason when present in PawWork mode", async () => {
+    // Acceptance criterion #7: diagnostics explain why the global Claude Code fallback
+    // was ignored. Uses OPENCODE_TEST_HOME so Global.Path.home resolves to a tmpdir,
+    // making the test deterministic across CI environments.
+    await using fakeHome = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, ".claude", "CLAUDE.md"), "# Global Claude Instructions")
+      },
+    })
+    await using globalTmp = await tmpdir()
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const sources = yield* svc.sources()
+                const expected = path.resolve(path.join(fakeHome.path, ".claude", "CLAUDE.md"))
+                const ignored = sources.find((s) => s.status === "ignored" && s.path === expected)
+                expect(ignored).toBeDefined()
+                if (ignored?.status === "ignored") {
+                  expect(ignored.reason).toContain("PawWork")
+                  expect(ignored.reason).toContain("Claude")
+                }
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
+  test("sources() reports priority-skipped global instruction file as considered", async () => {
+    // Acceptance criterion #7 covers "considered" sources. When both PAWWORK_CONFIG_DIR
+    // and Global.Path.config have AGENTS.md, only the higher-priority one is loaded; the
+    // other should appear as considered with a priority-skipped reason.
+    await using fakeHome = await tmpdir()
+    await using pawworkConfig = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# PawWork Profile Instructions")
+      },
+    })
+    await using globalTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Global Instructions")
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const sources = yield* svc.sources()
+                const pawworkAgents = path.resolve(path.join(pawworkConfig.path, "AGENTS.md"))
+                const globalAgents = path.resolve(path.join(globalTmp.path, "AGENTS.md"))
+                const loaded = sources.find((s) => s.status === "loaded" && s.path === pawworkAgents)
+                const skipped = sources.find((s) => s.status === "considered" && s.path === globalAgents)
+                expect(loaded).toBeDefined()
+                expect(skipped).toBeDefined()
+                if (skipped?.status === "considered") {
+                  expect(skipped.reason).toContain("higher-priority")
+                }
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
+  test("sources() reports project priority chain as loaded plus considered siblings", async () => {
+    // When both AGENTS.md and CLAUDE.md exist in the project root, system() loads only
+    // AGENTS.md. sources() must surface CLAUDE.md as considered with the priority reason
+    // so debug output can explain the project fallback order from issue #230.
+    await using fakeHome = await tmpdir()
+    await using pawworkConfig = await tmpdir()
+    await using globalTmp = await tmpdir()
+    await using projectTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Project AGENTS")
+        await Bun.write(path.join(dir, "CLAUDE.md"), "# Project CLAUDE")
+      },
+    })
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const sources = yield* svc.sources()
+                const agents = path.resolve(path.join(projectTmp.path, "AGENTS.md"))
+                const claude = path.resolve(path.join(projectTmp.path, "CLAUDE.md"))
+                const loaded = sources.find((s) => s.status === "loaded" && s.path === agents)
+                const skipped = sources.find((s) => s.status === "considered" && s.path === claude)
+                expect(loaded).toBeDefined()
+                expect(skipped).toBeDefined()
+                if (skipped?.status === "considered") {
+                  expect(skipped.reason).toContain("higher-priority project")
+                }
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
+  test("sources() downgrades empty AGENTS.md from loaded to considered", async () => {
+    // system() drops empty/unreadable files from the prompt, so sources() must mirror
+    // that or diagnostics will claim a file is loaded that the model never sees.
+    await using fakeHome = await tmpdir()
+    await using pawworkConfig = await tmpdir()
+    await using globalTmp = await tmpdir()
+    await using projectTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "")
+      },
+    })
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const sources = yield* svc.sources()
+                const projectAgents = path.resolve(path.join(projectTmp.path, "AGENTS.md"))
+                const loaded = sources.find((s) => s.status === "loaded" && s.path === projectAgents)
+                const considered = sources.find((s) => s.status === "considered" && s.path === projectAgents)
+                expect(loaded).toBeUndefined()
+                expect(considered).toBeDefined()
+                if (considered?.status === "considered") {
+                  expect(considered.reason).toMatch(/empty|unreadable/)
+                }
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
+  test("sources() lists loaded project AGENTS.md", async () => {
+    await using fakeHome = await tmpdir()
+    await using pawworkConfig = await tmpdir()
+    await using globalTmp = await tmpdir()
+    await using projectTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Project Instructions")
+      },
+    })
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const sources = yield* svc.sources()
+                const projectAgents = path.resolve(path.join(projectTmp.path, "AGENTS.md"))
+                const loaded = sources.find((s) => s.status === "loaded" && s.path === projectAgents)
+                expect(loaded).toBeDefined()
+                expect(loaded?.status).toBe("loaded")
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
   test("ignores ~/.claude/CLAUDE.md global fallback in PawWork runtime mode", async () => {
     // Verifies acceptance criterion #5 of issue #230: PawWork no longer falls back
     // to global ~/.claude/CLAUDE.md as an instruction source. Project-level CLAUDE.md

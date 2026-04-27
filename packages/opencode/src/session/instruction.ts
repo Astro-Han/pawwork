@@ -73,10 +73,16 @@ function extract(messages: MessageV2.WithParts[]) {
   return paths
 }
 
+export type InstructionSource =
+  | { status: "loaded"; path: string }
+  | { status: "considered"; path: string; reason: string }
+  | { status: "ignored"; path: string; reason: string }
+
 export interface Interface {
   readonly clear: (messageID: MessageID) => Effect.Effect<void>
   readonly systemPaths: () => Effect.Effect<Set<string>, AppFileSystem.Error>
   readonly system: () => Effect.Effect<string[], AppFileSystem.Error>
+  readonly sources: () => Effect.Effect<InstructionSource[], AppFileSystem.Error>
   readonly find: (dir: string) => Effect.Effect<string | undefined, AppFileSystem.Error>
   readonly resolve: (
     messages: MessageV2.WithParts[],
@@ -200,6 +206,91 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         ]
       })
 
+      const sources = Effect.fn("Instruction.sources")(function* () {
+        const result: InstructionSource[] = []
+        const loadedPaths = new Set<string>()
+
+        // Mark a file as loaded only after read() returns non-empty content; system()
+        // already drops empty/unreadable files so a "loaded" entry that the prompt
+        // doesn't see would mislead diagnostics.
+        const recordFileEntry = Effect.fnUntraced(function* (resolved: string) {
+          const content = yield* read(resolved)
+          if (content) {
+            result.push({ status: "loaded", path: resolved })
+            loadedPaths.add(resolved)
+            return true as const
+          }
+          result.push({ status: "considered", path: resolved, reason: "file is empty or unreadable" })
+          return false as const
+        })
+
+        // Project-level walk: emit the full priority chain, not just the winner. First
+        // file whose content reads back non-empty is loaded; later existing matches are
+        // considered with a priority-skipped reason. Absent files are not reported here
+        // because FILES holds basenames, not paths — the directory walk is the search.
+        if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
+          let projectLoaded = false
+          for (const file of FILES()) {
+            const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
+            if (matches.length === 0) continue
+            for (const match of matches) {
+              const resolved = path.resolve(match)
+              if (loadedPaths.has(resolved)) continue
+              if (!projectLoaded) {
+                const ok = yield* recordFileEntry(resolved)
+                if (ok) projectLoaded = true
+              } else {
+                result.push({
+                  status: "considered",
+                  path: resolved,
+                  reason: "skipped because a higher-priority project instruction file was loaded",
+                })
+              }
+            }
+          }
+        }
+
+        // Global instruction file chain: report the full priority chain so debug output
+        // can show why a candidate was skipped (priority) or absent.
+        let globalLoaded = false
+        for (const file of globalInstructionFiles()) {
+          const resolved = path.resolve(file)
+          if (loadedPaths.has(resolved)) continue
+          const exists = yield* fs.existsSafe(file)
+          if (!exists) {
+            result.push({ status: "considered", path: resolved, reason: "absent" })
+            continue
+          }
+          if (globalLoaded) {
+            result.push({
+              status: "considered",
+              path: resolved,
+              reason: "skipped because a higher-priority global instruction file was loaded",
+            })
+            continue
+          }
+          const ok = yield* recordFileEntry(resolved)
+          if (ok) globalLoaded = true
+        }
+
+        // Explicitly ignored ~/.claude/CLAUDE.md: show reason so users understand why
+        // an existing file is not contributing. Covers both PawWork mode (issue #230,
+        // acceptance #5) and the legacy OPENCODE_DISABLE_CLAUDE_CODE_PROMPT opt-out.
+        const claudeFallback = path.resolve(path.join(Global.Path.home, ".claude", "CLAUDE.md"))
+        const ignoreReason = Runtime.isPawWork()
+          ? "PawWork product baseline disables global Claude Code fallback (issue #230)"
+          : Flag.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+            ? "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT environment variable is set"
+            : null
+        if (ignoreReason && !loadedPaths.has(claudeFallback)) {
+          if (yield* fs.existsSafe(claudeFallback)) {
+            result.push({ status: "ignored", path: claudeFallback, reason: ignoreReason })
+          }
+        }
+
+        return result
+      })
+
       const find = Effect.fn("Instruction.find")(function* (dir: string) {
         for (const file of FILES()) {
           const filepath = path.resolve(path.join(dir, file))
@@ -251,7 +342,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         return results
       })
 
-      return Service.of({ clear, systemPaths, system, find, resolve })
+      return Service.of({ clear, systemPaths, system, sources, find, resolve })
     }),
   )
 
