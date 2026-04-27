@@ -19,6 +19,28 @@ import { EffectLogger } from "@/effect"
 import { isMedia } from "@/util/media"
 export { isMedia } from "@/util/media"
 
+function truncateToolOutput(text: string, maxChars?: number) {
+  // `maxChars == null` (undefined) means "unlimited" — but treat an explicit
+  // numeric `0` as a real zero cap, not as "no cap". The previous `!maxChars`
+  // check conflated those.
+  if (maxChars == null || text.length <= maxChars) return text
+  if (maxChars <= 0) return ""
+  // Reserve room for the suffix so the final string respects maxChars instead
+  // of overshooting by ~64 chars per truncated tool result (compounds badly
+  // with many truncated outputs in one compaction payload).
+  const suffixTemplate = (n: number) => `\n[Tool output truncated for compaction: omitted ${n} chars]`
+  // Worst-case suffix length (digits of full text length is an upper bound).
+  const reserve = suffixTemplate(text.length).length
+  // When the budget is smaller than the suffix itself, appending the suffix
+  // would push the result above maxChars. Fall back to a hard slice — the user
+  // loses the "omitted N chars" hint, but the cap is honoured (which matters
+  // when many small budgets are summed in one compaction payload).
+  if (reserve >= maxChars) return text.slice(0, maxChars)
+  const sliceLen = Math.max(0, maxChars - reserve)
+  const omitted = text.length - sliceLen
+  return `${text.slice(0, sliceLen)}${suffixTemplate(omitted)}`
+}
+
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
 interface FetchDecompressionError extends Error {
   code: "ZlibError"
@@ -584,7 +606,7 @@ function providerMeta(metadata: Record<string, any> | undefined) {
 export const toModelMessagesEffect = Effect.fnUntraced(function* (
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean },
+  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
 ) {
   const result: UIMessage[] = []
   const toolNames = new Set<string>()
@@ -723,7 +745,9 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         if (part.type === "tool") {
           toolNames.add(part.tool)
           if (part.state.status === "completed") {
-            const outputText = part.state.time.compacted ? "[Old tool result content cleared]" : part.state.output
+            const outputText = part.state.time.compacted
+              ? "[Old tool result content cleared]"
+              : truncateToolOutput(part.state.output, options?.toolOutputMaxChars)
             const attachments = part.state.time.compacted || options?.stripMedia ? [] : (part.state.attachments ?? [])
 
             // For providers that don't support media in tool results, extract media files
@@ -754,7 +778,15 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             })
           }
           if (part.state.status === "error") {
-            const output = part.state.metadata?.interrupted === true ? part.state.metadata.output : undefined
+            // Mirror the truncate cap in the `completed` branch above —
+            // an interrupted long-running tool (bash/read) can carry a large
+            // partial `metadata.output` that would otherwise sneak past the
+            // compaction budget the cap is supposed to enforce.
+            const interruptedOutput =
+              part.state.metadata?.interrupted === true && typeof part.state.metadata.output === "string"
+                ? truncateToolOutput(part.state.metadata.output, options?.toolOutputMaxChars)
+                : undefined
+            const output = interruptedOutput
             if (typeof output === "string") {
               assistantMessage.parts.push({
                 type: ("tool-" + part.tool) as `tool-${string}`,
@@ -839,7 +871,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
 export function toModelMessages(
   input: WithParts[],
   model: Provider.Model,
-  options?: { stripMedia?: boolean },
+  options?: { stripMedia?: boolean; toolOutputMaxChars?: number },
 ): Promise<ModelMessage[]> {
   return Effect.runPromise(toModelMessagesEffect(input, model, options).pipe(Effect.provide(EffectLogger.layer)))
 }

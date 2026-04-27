@@ -2,21 +2,22 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import * as Session from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
-import { Provider, ProviderTransform } from "../provider"
+import { Provider } from "../provider"
 import { MessageV2 } from "./message-v2"
 import z from "zod"
-import { Token } from "../util/token"
-import { Log } from "@opencode-ai/core/util/log"
+import { Token } from "../util"
+import { Log } from "../util"
 import { SessionProcessor } from "./processor"
 import { Agent } from "@/agent/agent"
 import { Plugin } from "@/plugin"
 import { Config } from "@/config"
-import { NotFoundError } from "@/storage/db"
+import { Storage } from "@/storage/storage"
 import { ModelID, ProviderID } from "@/provider/schema"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Schema } from "effect"
 import { InstanceState } from "@/effect"
-import { isOverflow as overflow } from "./overflow"
+import { isOverflow as overflow, usable } from "./overflow"
 import { makeRuntime } from "@/effect/run-service"
+import { fn } from "@/util/fn"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -31,23 +32,164 @@ export const Event = {
 
 export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
+const TOOL_OUTPUT_MAX_CHARS = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
-// Keep the last exchange pair by default so a resumed session keeps the active request
-// and response intact. The token floor handles small contexts, while the ceiling keeps
-// retained text from crowding out the generated summary on larger models.
 const DEFAULT_TAIL_TURNS = 2
-const MIN_TAIL_TOKENS = 2_000
-const MAX_TAIL_TOKENS = 8_000
-export const CreateInput = z.object({
-  sessionID: SessionID.zod,
-  agent: z.string(),
-  model: z.object({
-    providerID: ProviderID.zod,
-    modelID: ModelID.zod,
-  }),
-  auto: z.boolean(),
-  overflow: z.boolean().optional(),
-})
+const MIN_PRESERVE_RECENT_TOKENS = 2_000
+const MAX_PRESERVE_RECENT_TOKENS = 8_000
+const SUMMARY_TEMPLATE = `Output exactly this Markdown structure and keep the section order unchanged:
+---
+## Goal
+- [single-sentence task summary]
+
+## Constraints & Preferences
+- [user constraints, preferences, specs, or "(none)"]
+
+## Progress
+### Done
+- [completed work or "(none)"]
+
+### In Progress
+- [current work or "(none)"]
+
+### Blocked
+- [blockers or "(none)"]
+
+## Key Decisions
+- [decision and why, or "(none)"]
+
+## Next Steps
+- [ordered next actions or "(none)"]
+
+## Critical Context
+- [important technical facts, errors, open questions, or "(none)"]
+
+## Relevant Files
+- [file or directory path: why it matters, or "(none)"]
+---
+
+Rules:
+- Keep every section, even when empty.
+- Use terse bullets, not prose paragraphs.
+- Preserve exact file paths, commands, error strings, and identifiers when known.
+- Do not mention the summary process or that context was compacted.`
+type Turn = {
+  start: number
+  end: number
+  id: MessageID
+}
+
+type Tail = {
+  start: number
+  id: MessageID
+}
+
+type CompletedCompaction = {
+  userIndex: number
+  assistantIndex: number
+  summary: string | undefined
+  /** `tail_start_id` from the compaction request part — the first message id
+   * that was *not* covered by this compaction's summary. Used to hide the
+   * already-summarised history when computing the next compaction so we don't
+   * re-summarise messages that the prior summary already covers. */
+  tailStartId: MessageID | undefined
+}
+
+function summaryText(message: MessageV2.WithParts) {
+  const text = message.parts
+    .filter((part): part is MessageV2.TextPart => part.type === "text")
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join("\n\n")
+    .trim()
+  return text || undefined
+}
+
+function completedCompactions(messages: MessageV2.WithParts[]) {
+  const users = new Map<MessageID, { index: number; tailStartId: MessageID | undefined }>()
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg.info.role !== "user") continue
+    const compactionPart = msg.parts.find(
+      (part): part is MessageV2.CompactionPart => part.type === "compaction",
+    )
+    if (!compactionPart) continue
+    users.set(msg.info.id, { index: i, tailStartId: compactionPart.tail_start_id })
+  }
+
+  return messages.flatMap((msg, assistantIndex): CompletedCompaction[] => {
+    if (msg.info.role !== "assistant") return []
+    if (!msg.info.summary || !msg.info.finish || msg.info.error) return []
+    const userEntry = users.get(msg.info.parentID)
+    if (userEntry === undefined) return []
+    return [
+      { userIndex: userEntry.index, assistantIndex, summary: summaryText(msg), tailStartId: userEntry.tailStartId },
+    ]
+  })
+}
+
+function buildPrompt(input: { previousSummary?: string; context: string[] }) {
+  const anchor = input.previousSummary
+    ? [
+        "Update the anchored summary below using the conversation history above.",
+        "Preserve still-true details, remove stale details, and merge in the new facts.",
+        "<previous-summary>",
+        input.previousSummary,
+        "</previous-summary>",
+      ].join("\n")
+    : "Create a new anchored summary from the conversation history above."
+  return [anchor, SUMMARY_TEMPLATE, ...input.context].join("\n\n")
+}
+
+function preserveRecentBudget(input: { cfg: Config.Info; model: Provider.Model }) {
+  return (
+    input.cfg.compaction?.preserve_recent_tokens ??
+    Math.min(MAX_PRESERVE_RECENT_TOKENS, Math.max(MIN_PRESERVE_RECENT_TOKENS, Math.floor(usable(input) * 0.25)))
+  )
+}
+
+function turns(messages: MessageV2.WithParts[]) {
+  const result: Turn[] = []
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg.info.role !== "user") continue
+    if (msg.parts.some((part) => part.type === "compaction")) continue
+    result.push({
+      start: i,
+      end: messages.length,
+      id: msg.info.id,
+    })
+  }
+  for (let i = 0; i < result.length - 1; i++) {
+    result[i].end = result[i + 1].start
+  }
+  return result
+}
+
+function splitTurn(input: {
+  messages: MessageV2.WithParts[]
+  turn: Turn
+  model: Provider.Model
+  budget: number
+  estimate: (input: { messages: MessageV2.WithParts[]; model: Provider.Model }) => Effect.Effect<number>
+}) {
+  return Effect.gen(function* () {
+    if (input.budget <= 0) return undefined
+    if (input.turn.end - input.turn.start <= 1) return undefined
+    for (let start = input.turn.start + 1; start < input.turn.end; start++) {
+      const size = yield* input.estimate({
+        messages: input.messages.slice(start, input.turn.end),
+        model: input.model,
+      })
+      if (size > input.budget) continue
+      return {
+        start,
+        id: input.messages[start]!.info.id,
+      } satisfies Tail
+    }
+    return undefined
+  })
+}
 
 export interface Interface {
   readonly isOverflow: (input: {
@@ -72,19 +214,6 @@ export interface Interface {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SessionCompaction") {}
-
-function usable(input: { cfg: Config.Info; model: Provider.Model }) {
-  const reserved = input.cfg.compaction?.reserved ?? Math.min(20_000, ProviderTransform.maxOutputTokens(input.model))
-  const base = input.model.limit.input ?? input.model.limit.context
-  return Math.max(0, base - reserved)
-}
-
-function tailBudget(input: { cfg: Config.Info; model: Provider.Model }) {
-  return (
-    input.cfg.compaction?.preserve_recent_tokens ??
-    Math.min(MAX_TAIL_TOKENS, Math.max(MIN_TAIL_TOKENS, Math.floor(usable(input) * 0.25)))
-  )
-}
 
 export const layer: Layer.Layer<
   Service,
@@ -118,8 +247,14 @@ export const layer: Layer.Layer<
       messages: MessageV2.WithParts[]
       model: Provider.Model
     }) {
-      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model, { stripMedia: true })
-      // JSON adds structural overhead, so this intentionally overestimates instead of risking overflow.
+      // Match the serialization options that processCompaction() actually
+      // applies (see line 405-408). Estimating with full media + un-truncated
+      // tool output overstates the post-compaction size, which makes select()
+      // drop recent turns that would have fit through compaction anyway.
+      const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model, {
+        stripMedia: true,
+        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+      })
       return Token.estimate(JSON.stringify(msgs))
     })
 
@@ -130,42 +265,47 @@ export const layer: Layer.Layer<
     }) {
       const limit = input.cfg.compaction?.tail_turns ?? DEFAULT_TAIL_TURNS
       if (limit <= 0) return { head: input.messages, tail_start_id: undefined }
-      const budget = tailBudget({ cfg: input.cfg, model: input.model })
-      const userStarts = input.messages.flatMap((msg, idx) => (msg.info.role === "user" ? [idx] : []))
-      const turns = input.messages.flatMap((msg, idx) =>
-        msg.info.role === "user" && !msg.parts.some((part) => part.type === "compaction") ? [idx] : [],
+      const budget = preserveRecentBudget({ cfg: input.cfg, model: input.model })
+      const all = turns(input.messages)
+      if (!all.length) return { head: input.messages, tail_start_id: undefined }
+      const recent = all.slice(-limit)
+      const sizes = yield* Effect.forEach(
+        recent,
+        (turn) =>
+          estimate({
+            messages: input.messages.slice(turn.start, turn.end),
+            model: input.model,
+          }),
+        { concurrency: 1 },
       )
-      if (!turns.length) return { head: input.messages, tail_start_id: undefined }
 
       let total = 0
-      let start = input.messages.length
-      let kept = 0
-
-      for (let i = turns.length - 1; i >= 0 && kept < limit; i--) {
-        const idx = turns[i]
-        const userIdx = userStarts.indexOf(idx)
-        const end = userIdx >= 0 && userIdx + 1 < userStarts.length ? userStarts[userIdx + 1] : input.messages.length
-        const size = yield* estimate({
-          messages: input.messages.slice(idx, end),
-          model: input.model,
-        })
-        if (kept === 0 && size > budget) {
-          // The latest turn must stay intact or be summarized with the rest.
-          // Keeping a partial turn would separate tool calls from their prompt.
-          log.info("tail fallback", { budget, size })
-          return { head: input.messages, tail_start_id: undefined }
+      let keep: Tail | undefined
+      for (let i = recent.length - 1; i >= 0; i--) {
+        const turn = recent[i]!
+        const size = sizes[i]
+        if (total + size <= budget) {
+          total += size
+          keep = { start: turn.start, id: turn.id }
+          continue
         }
-        if (total + size > budget) break
-        total += size
-        start = idx
-        kept++
+        const remaining = budget - total
+        const split = yield* splitTurn({
+          messages: input.messages,
+          turn,
+          model: input.model,
+          budget: remaining,
+          estimate,
+        })
+        if (split) keep = split
+        else if (!keep) log.info("tail fallback", { budget, size, total })
+        break
       }
 
-      // If the tail starts at the first message, there is no older head to summarize.
-      if (kept === 0 || start === 0) return { head: input.messages, tail_start_id: undefined }
+      if (!keep || keep.start === 0) return { head: input.messages, tail_start_id: undefined }
       return {
-        head: input.messages.slice(0, start),
-        tail_start_id: input.messages[start]?.info.id,
+        head: input.messages.slice(0, keep.start),
+        tail_start_id: keep.id,
       }
     })
 
@@ -173,12 +313,12 @@ export const layer: Layer.Layer<
     // calls, then erases output of older tool calls to free context space
     const prune = Effect.fn("SessionCompaction.prune")(function* (input: { sessionID: SessionID }) {
       const cfg = yield* config.get()
-      if (cfg.compaction?.prune !== true) return
+      if (!cfg.compaction?.prune) return
       log.info("pruning")
 
       const msgs = yield* session
         .messages({ sessionID: input.sessionID })
-        .pipe(Effect.catchIf(NotFoundError.isInstance, () => Effect.succeed(undefined)))
+        .pipe(Effect.catchIf(Storage.NotFoundError.isInstance, () => Effect.succeed(undefined)))
       if (!msgs) return
 
       let total = 0
@@ -193,17 +333,15 @@ export const layer: Layer.Layer<
         if (msg.info.role === "assistant" && msg.info.summary) break loop
         for (let partIndex = msg.parts.length - 1; partIndex >= 0; partIndex--) {
           const part = msg.parts[partIndex]
-          if (part.type === "tool")
-            if (part.state.status === "completed") {
-              if (PRUNE_PROTECTED_TOOLS.includes(part.tool)) continue
-              if (part.state.time.compacted) break loop
-              const estimate = Token.estimate(part.state.output)
-              total += estimate
-              if (total > PRUNE_PROTECT) {
-                pruned += estimate
-                toPrune.push(part)
-              }
-            }
+          if (part.type !== "tool") continue
+          if (part.state.status !== "completed") continue
+          if (PRUNE_PROTECTED_TOOLS.includes(part.tool)) continue
+          if (part.state.time.compacted) break loop
+          const estimate = Token.estimate(part.state.output)
+          total += estimate
+          if (total <= PRUNE_PROTECT) continue
+          pruned += estimate
+          toPrune.push(part)
         }
       }
 
@@ -263,11 +401,33 @@ export const layer: Layer.Layer<
         ? yield* provider.getModel(agent.model.providerID, agent.model.modelID)
         : yield* provider.getModel(userMessage.model.providerID, userMessage.model.modelID)
       const cfg = yield* config.get()
-      // Drop the new compaction marker itself; otherwise it appears in the final turn's
-      // slice and inflates the retained-tail token estimate.
-      const history = compactionPart ? messages.filter((message) => message.info.id !== input.parentID) : messages
+      const history = compactionPart && messages.at(-1)?.info.id === input.parentID ? messages.slice(0, -1) : messages
+      const prior = completedCompactions(history)
+      const hidden = new Set(prior.flatMap((item) => [item.userIndex, item.assistantIndex]))
+      // Hide all messages already covered by the latest compaction's summary
+      // (everything before its `tail_start_id`). Otherwise repeated compactions
+      // re-summarise the same history each round, growing the prompt and
+      // eventually defeating compaction's purpose.
+      const latestPrior = prior.at(-1)
+      // A completed compaction can carry a `tailStartId` (some history kept
+      // verbatim past the boundary) OR clear it to mark "the summary covered
+      // everything before this compaction's user turn". Both cases need to
+      // hide the now-summarised history; without the second branch a
+      // fully-summarising compaction would silently re-feed all prior turns
+      // to the next round.
+      if (latestPrior?.summary) {
+        if (latestPrior.tailStartId) {
+          const tailIndex = history.findIndex((m) => m.info.id === latestPrior.tailStartId)
+          if (tailIndex > 0) {
+            for (let i = 0; i < tailIndex; i++) hidden.add(i)
+          }
+        } else {
+          for (let i = 0; i < latestPrior.userIndex; i++) hidden.add(i)
+        }
+      }
+      const previousSummary = latestPrior?.summary
       const selected = yield* select({
-        messages: history,
+        messages: history.filter((_, index) => !hidden.has(index)),
         cfg,
         model,
       })
@@ -277,40 +437,13 @@ export const layer: Layer.Layer<
         { sessionID: input.sessionID },
         { context: [], prompt: undefined },
       )
-      const defaultPrompt = `Provide a detailed prompt for continuing our conversation above.
-Focus on information that would be helpful for continuing the conversation, including what we did, what we're doing, which files we're working on, and what we're going to do next.
-The summary that you construct will be used so that another agent can read it and continue the work.
-Do not call any tools. Respond only with the summary text.
-Respond in the same language as the user's messages in the conversation.
-
-When constructing the summary, try to stick to this template:
----
-## Goal
-
-[What goal(s) is the user trying to accomplish?]
-
-## Instructions
-
-- [What important instructions did the user give you that are relevant]
-- [If there is a plan or spec, include information about it so next agent can continue using it]
-
-## Discoveries
-
-[What notable things were learned during this conversation that would be useful for the next agent to know when continuing the work]
-
-## Accomplished
-
-[What work has been completed, what work is still in progress, and what work is left?]
-
-## Relevant files / directories
-
-[Construct a structured list of relevant files that have been read, edited, or created that pertain to the task at hand. If all the files in a directory are relevant, include the path to the directory.]
----`
-
-      const prompt = compacting.prompt ?? [defaultPrompt, ...compacting.context].join("\n\n")
+      const nextPrompt = compacting.prompt ?? buildPrompt({ previousSummary, context: compacting.context })
       const msgs = structuredClone(selected.head)
       yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
-      const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, { stripMedia: true })
+      const modelMessages = yield* MessageV2.toModelMessagesEffect(msgs, model, {
+        stripMedia: true,
+        toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+      })
       const ctx = yield* InstanceState.context
       const msg: MessageV2.Assistant = {
         id: MessageID.ascending(),
@@ -354,7 +487,7 @@ When constructing the summary, try to stick to this template:
           ...modelMessages,
           {
             role: "user",
-            content: [{ type: "text", text: prompt }],
+            content: [{ type: "text", text: nextPrompt }],
           },
         ],
         model,
@@ -371,8 +504,13 @@ When constructing the summary, try to stick to this template:
         return "stop"
       }
 
+      // Persist any change to `tail_start_id` — including a clear back to
+      // `undefined`. The earlier `selected.tail_start_id && ...` guard skipped
+      // the clear-path, so a subsequent compaction whose selection no longer
+      // had a tail boundary kept the stale id and let `completedCompactions()`
+      // (which now treats this field as authoritative) hide unsummarised
+      // history from later compactions.
       if (compactionPart && compactionPart.tail_start_id !== selected.tail_start_id) {
-        // Repeated compactions can move the retained-tail boundary forward as older turns accumulate.
         yield* session.updatePart({
           ...compactionPart,
           tail_start_id: selected.tail_start_id,
@@ -500,7 +638,7 @@ When constructing the summary, try to stick to this template:
   }),
 )
 
-export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(() =>
+export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Session.defaultLayer),
@@ -514,6 +652,23 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
 
 const { runPromise } = makeRuntime(Service, defaultLayer)
 
-export const create = (input: z.infer<typeof CreateInput>) => runPromise((svc) => svc.create(CreateInput.parse(input)))
+export async function isOverflow(input: { tokens: MessageV2.Assistant["tokens"]; model: Provider.Model }) {
+  return runPromise((svc) => svc.isOverflow(input))
+}
+
+export async function prune(input: { sessionID: SessionID }) {
+  return runPromise((svc) => svc.prune(input))
+}
+
+export const create = fn(
+  z.object({
+    sessionID: SessionID.zod,
+    agent: z.string(),
+    model: z.object({ providerID: ProviderID.zod, modelID: ModelID.zod }),
+    auto: z.boolean(),
+    overflow: z.boolean().optional(),
+  }),
+  (input) => runPromise((svc) => svc.create(input)),
+)
 
 export * as SessionCompaction from "./compaction"

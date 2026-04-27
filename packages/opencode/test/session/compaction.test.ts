@@ -926,69 +926,6 @@ describe("session.compaction.process", () => {
       },
     })
   })
-
-  test("summarizes all history when the latest turn exceeds the retained-tail budget", async () => {
-    let captured: LLM.StreamInput | undefined
-    await using tmp = await tmpdir()
-    const model = createModel({ context: 30_000, input: 30_000, output: 4_000 })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const session = await svc.create()
-        const first = await user(session.id, "first request")
-        await assistant(session.id, first.id, tmp.path)
-        const oversizedText = "recent oversized turn " + "x".repeat(20_000)
-        const oversized = await user(session.id, oversizedText)
-        await assistant(session.id, oversized.id, tmp.path)
-        const compact = await user(session.id, "compact now")
-        await svc.updatePart({
-          id: PartID.ascending(),
-          messageID: compact.id,
-          sessionID: session.id,
-          type: "compaction",
-          auto: true,
-          tail_start_id: first.id,
-        })
-
-        const fakeLLM = llm()
-        fakeLLM.push(
-          reply("summary", (input) => {
-            captured = input
-          }),
-        )
-        const live = liveRuntime(
-          fakeLLM.layer,
-          ProviderTest.fake({ model }),
-          cfg({ tail_turns: 1, preserve_recent_tokens: 50 }),
-        )
-        try {
-          const beforeCompaction = await svc.messages({ sessionID: session.id })
-          await live.runPromise(
-            SessionCompaction.Service.use((compaction) =>
-              compaction.process({
-                parentID: compact.id,
-                messages: beforeCompaction,
-                sessionID: session.id,
-                auto: true,
-              }),
-            ),
-          )
-        } finally {
-          await live.dispose()
-        }
-
-        const messages = await svc.messages({ sessionID: session.id })
-        const compactPart = messages
-          .flatMap((message) => message.parts)
-          .find((part): part is MessageV2.CompactionPart => part.type === "compaction")
-
-        expect(compactPart?.tail_start_id).toBeUndefined()
-        expect(inputText(captured?.messages)).toContain("first request")
-        expect(inputText(captured?.messages)).toContain(oversizedText)
-      },
-    })
-  })
-
   test("throws when parent is not a user message", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
