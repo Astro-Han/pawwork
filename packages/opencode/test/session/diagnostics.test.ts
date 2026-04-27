@@ -223,6 +223,40 @@ describe("SessionDiagnostics v1 schema", () => {
   })
 })
 
+describe("SessionDiagnostics.truncateForRenderer", () => {
+  test("returns short strings unchanged", () => {
+    expect(SessionDiagnostics.truncateForRenderer("hello")).toBe("hello")
+  })
+  test("serializes objects via JSON.stringify before truncation", () => {
+    expect(SessionDiagnostics.truncateForRenderer({ url: "https://x.com" })).toBe('{"url":"https://x.com"}')
+  })
+  test("truncates long strings with ellipsis at codepoint boundary", () => {
+    const out = SessionDiagnostics.truncateForRenderer("a".repeat(2000))
+    expect(out.endsWith("…")).toBe(true)
+    expect(Buffer.byteLength(out, "utf8")).toBeLessThanOrEqual(1024 + 4)
+  })
+  test("does not split a percent-encoded sequence", () => {
+    const head = "x".repeat(1022)
+    const out = SessionDiagnostics.truncateForRenderer(head + "%2F" + "y".repeat(100))
+    expect(out.endsWith("%")).toBe(false)
+    expect(/%[0-9A-Fa-f]$/.test(out.replace(/…$/, ""))).toBe(false)
+  })
+  test("does not split a multibyte codepoint", () => {
+    const out = SessionDiagnostics.truncateForRenderer("a".repeat(1023) + "中文")
+    expect(() => Buffer.from(out, "utf8").toString("utf8")).not.toThrow()
+  })
+  test("survives circular structures via String fallback", () => {
+    const o: Record<string, unknown> = { a: 1 }
+    o.self = o
+    expect(() => SessionDiagnostics.truncateForRenderer(o)).not.toThrow()
+    expect(typeof SessionDiagnostics.truncateForRenderer(o)).toBe("string")
+  })
+  test("survives BigInt via String fallback", () => {
+    expect(() => SessionDiagnostics.truncateForRenderer({ big: 10n })).not.toThrow()
+    expect(typeof SessionDiagnostics.truncateForRenderer({ big: 10n })).toBe("string")
+  })
+})
+
 describe("SessionDiagnostics.consumeReminders", () => {
   test("returns one model reminder and marks pending records injected", () => {
     const part: MessageV2.ToolPart = {

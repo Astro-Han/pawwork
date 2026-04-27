@@ -99,6 +99,37 @@ export namespace SessionDiagnostics {
     return createHash("sha256").update(value).digest("hex").slice(0, 16)
   }
 
+  const RENDERER_BYTE_LIMIT = 1024
+
+  export function truncateForRenderer(value: unknown): string {
+    let s: string
+    if (typeof value === "string") s = value
+    else {
+      try {
+        s = JSON.stringify(value) ?? String(value)
+      } catch {
+        // BigInt, circular, or other non-serializable payloads fall back to String coercion.
+        s = String(value)
+      }
+    }
+    const buf = Buffer.from(s, "utf8")
+    if (buf.byteLength <= RENDERER_BYTE_LIMIT) return s
+    let cutByte = RENDERER_BYTE_LIMIT
+    while (cutByte > 0) {
+      const slice = buf.subarray(0, cutByte).toString("utf8")
+      if (slice.charCodeAt(slice.length - 1) === 0xfffd) {
+        cutByte -= 1
+        continue
+      }
+      if (slice.endsWith("%") || /%[0-9A-Fa-f]$/.test(slice)) {
+        cutByte -= 1
+        continue
+      }
+      return slice + "…"
+    }
+    return "…"
+  }
+
   export function normalizeInput(input: unknown): { value: unknown; serialized: string; hash: string } {
     const value = normalizeValue(input)
     const serialized = JSON.stringify(value)
