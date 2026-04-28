@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Cause, Effect, Layer } from "effect"
 import { Session } from "../../src/session"
 import { Instance } from "../../src/project/instance"
 import { Log } from "@opencode-ai/core/util/log"
@@ -8,6 +8,7 @@ import { MessageID } from "../../src/session/schema"
 import type { PartID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SubagentRun } from "../../src/session/subagent-run"
+import { SubagentRunGuardViolation } from "../../src/session/subagent-run-context"
 import { tmpdir } from "../fixture/fixture"
 
 const ref = {
@@ -346,11 +347,20 @@ describe("SubtaskPart backward compat", () => {
             agent: "build",
             model: ref,
           })
-          // Direct write that flips status — should be rejected as a defect.
+          // Direct write that flips status — should be rejected as a defect with the specific
+          // SubagentRunGuardViolation tag and the violating tool_call_id, so this test fails
+          // loudly if updatePart starts failing for an unrelated reason in the future.
           const exit = yield* session
             .updatePart({ ...part, status: "completed" as const })
             .pipe(Effect.exit)
           expect(exit._tag).toBe("Failure")
+          if (exit._tag !== "Failure") return
+          const violation = exit.cause.reasons
+            .filter(Cause.isDieReason)
+            .map((r) => r.defect)
+            .find((d): d is SubagentRunGuardViolation => d instanceof SubagentRunGuardViolation)
+          expect(violation).toBeDefined()
+          expect(violation?.tool_call_id).toBe("call_guard")
         })
         await Effect.runPromise(
           program.pipe(
