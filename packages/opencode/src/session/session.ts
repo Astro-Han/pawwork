@@ -68,6 +68,8 @@ export function fromRow(row: SessionRow): Info {
     workspaceID: row.workspace_id ?? undefined,
     directory: row.directory,
     parentID: row.parent_id ?? undefined,
+    createdByAgentTool: row.created_by_agent_tool ?? false,
+    subagentType: row.subagent_type ?? null,
     title: row.title,
     skill: row.skill ?? undefined,
     version: row.version,
@@ -90,6 +92,8 @@ export function toRow(info: Info) {
     project_id: info.projectID,
     workspace_id: info.workspaceID,
     parent_id: info.parentID,
+    created_by_agent_tool: info.createdByAgentTool,
+    subagent_type: info.subagentType,
     slug: info.slug,
     directory: info.directory,
     title: info.title,
@@ -127,6 +131,8 @@ export const Info = z
     workspaceID: WorkspaceID.zod.optional(),
     directory: z.string(),
     parentID: SessionID.zod.optional(),
+    createdByAgentTool: z.boolean().default(false),
+    subagentType: z.string().nullable().default(null),
     skill: z.string().optional(),
     summary: z
       .object({
@@ -189,6 +195,8 @@ export const CreateInput = z
     skill: z.string().optional(),
     permission: Info.shape.permission,
     workspaceID: WorkspaceID.zod.optional(),
+    createdByAgentTool: z.boolean().optional(),
+    subagentType: z.string().nullable().optional(),
   })
   .optional()
 export type CreateInput = z.output<typeof CreateInput>
@@ -349,6 +357,8 @@ export interface Interface {
     skill?: string
     permission?: Permission.Ruleset
     workspaceID?: WorkspaceID
+    createdByAgentTool?: boolean
+    subagentType?: string | null
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -411,6 +421,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       workspaceID?: WorkspaceID
       directory: string
       permission?: Permission.Ruleset
+      createdByAgentTool?: boolean
+      subagentType?: string | null
     }) {
       const ctx = yield* InstanceState.context
       const result: Info = {
@@ -421,6 +433,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         directory: input.directory,
         workspaceID: input.workspaceID,
         parentID: input.parentID,
+        createdByAgentTool: input.createdByAgentTool ?? false,
+        subagentType: input.subagentType ?? null,
         title: input.title ?? createDefaultTitle(!!input.parentID),
         skill: input.skill,
         permission: input.permission,
@@ -535,6 +549,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       skill?: string
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
+      createdByAgentTool?: boolean
+      subagentType?: string | null
     }) {
       const directory = yield* InstanceState.directory
       const workspace = yield* InstanceState.workspaceID
@@ -545,6 +561,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         skill: input?.skill,
         permission: input?.permission,
         workspaceID: input?.workspaceID ?? (workspace as WorkspaceID | undefined),
+        createdByAgentTool: input?.createdByAgentTool,
+        subagentType: input?.subagentType,
       })
     })
 
