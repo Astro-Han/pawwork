@@ -438,6 +438,8 @@ export const AgentTool = Tool.define(
                 }
                 // Re-fail with the original cause so stack, annotations, and parallel-error
                 // metadata are preserved instead of getting flattened into Effect.fail.
+                // ctx.metadata (set in step 4) keeps subagent_session_id visible to the parent
+                // for resume even when the tool result lands as `error`.
                 return yield* Effect.failCause(cause)
               }),
             ),
