@@ -887,10 +887,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput, ready: Deferred.Deferred<void>) {
       let output = ""
       let aborted = false
-      const { run, msg, part, cmd, finish } = yield* Effect.uninterruptibleMask((restore) =>
+      const { msg, part, cmd, finish } = yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const ctx = yield* InstanceState.context
-          const run = yield* runner()
           const session = yield* sessions.get(input.sessionID)
           if (session.revert) {
             yield* revert.cleanup(session)
@@ -1034,35 +1033,34 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }),
           )
 
-          return { run, msg, part, cmd, finish }
+          return { msg, part, cmd, finish }
         }),
       )
 
       const exit = yield* Effect.gen(function* () {
         const handle = yield* spawner.spawn(cmd)
         yield* Stream.runForEach(Stream.decodeText(handle.all), (chunk) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             output += chunk
             if (part.state.status === "running") {
               part.state.metadata = { ...part.state.metadata, output, description: "" }
-              void run.fork(sessions.updatePart(part))
+              yield* sessions.updatePart(part)
             }
           }),
         )
         yield* handle.exitCode
       }).pipe(
         Effect.scoped,
-        Effect.onInterrupt(() =>
-          Effect.sync(() => {
-            aborted = true
-          }),
-        ),
         Effect.orDie,
-        Effect.ensuring(finish),
         Effect.exit,
       )
 
-      if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) {
+      if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) && !Cause.hasDies(exit.cause)) {
+        aborted = true
+      }
+      yield* finish
+
+      if (Exit.isFailure(exit) && !aborted && !Cause.hasInterruptsOnly(exit.cause)) {
         return yield* Effect.failCause(exit.cause)
       }
 
