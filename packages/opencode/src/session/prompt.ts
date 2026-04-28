@@ -1888,6 +1888,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               command: input.command,
               model: { providerID: taskModel.providerID, modelID: taskModel.modelID },
               prompt: templateParts.find((y) => y.type === "text")?.text ?? "",
+              status: "completed" as const,
+              recent_events: [],
             },
           ]
         : [...templateParts, ...(input.parts ?? [])]

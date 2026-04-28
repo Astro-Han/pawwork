@@ -338,6 +338,8 @@ const addSubtask = (sessionID: SessionID, messageID: MessageID, model = ref) =>
       description: "inspect bug",
       agent: "general",
       model,
+      status: "completed",
+      recent_events: [],
     })
   })
 
