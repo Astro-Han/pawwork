@@ -193,15 +193,17 @@ describe("tool.agent", () => {
     ),
   )
 
-  // Updated in Task 9 — resume validation now requires createdByAgentTool=true on the
-  // existing child session. The seed in this test creates a plain child, which Task 9
-  // replaces with a SubagentRun-created child that satisfies the new invariants.
-  it.live.skip("execute resumes an existing task session from subagent_session_id", () =>
+  it.live("execute resumes an existing subagent session", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
         const { chat, assistant } = yield* seed()
-        const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
+        const child = yield* sessions.create({
+          parentID: chat.id,
+          title: "Existing child",
+          createdByAgentTool: true,
+          subagentType: "general",
+        })
         const tool = yield* AgentTool
         const def = yield* tool.init()
         let seen: SessionPrompt.PromptInput | undefined
@@ -321,8 +323,118 @@ describe("tool.agent", () => {
     ),
   )
 
-  // Updated in Task 9 — agent.ts now fails fast when subagent_session_id refers to a
-  // missing session, so the "creates a child anyway" semantic no longer holds.
+  it.live("execute fails when subagent_session_id refers to a missing session", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "inspect bug",
+              prompt: "x",
+              subagent_type: "general",
+              subagent_session_id: "ses_missing",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              callID: "call_resume_missing",
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.exit)
+        expect(exit._tag).toBe("Failure")
+      }),
+    ),
+  )
+
+  it.live("execute fails when subagent_session_id refers to a non-agent session", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        // Plain child (createdByAgentTool defaults to false) — resume must reject.
+        const plainChild = yield* sessions.create({ parentID: chat.id, title: "Plain" })
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "inspect bug",
+              prompt: "x",
+              subagent_type: "general",
+              subagent_session_id: plainChild.id,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              callID: "call_resume_plain",
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.exit)
+        expect(exit._tag).toBe("Failure")
+      }),
+    ),
+  )
+
+  it.live("execute fails when subagent_type does not match the existing child", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const child = yield* sessions.create({
+          parentID: chat.id,
+          title: "Mismatched",
+          createdByAgentTool: true,
+          subagentType: "reviewer",
+        })
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "inspect bug",
+              prompt: "x",
+              subagent_type: "general",
+              subagent_session_id: child.id,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              callID: "call_resume_mismatch",
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.exit)
+        expect(exit._tag).toBe("Failure")
+      }),
+    ),
+  )
+
   it.live.skip("execute creates a child when subagent_session_id does not exist", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
