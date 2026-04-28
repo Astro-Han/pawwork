@@ -55,4 +55,10 @@ const seed = async () => {
   }
 }
 
-await seed()
+try {
+  await seed()
+  process.exit(0)
+} catch (error) {
+  console.error(error)
+  process.exit(1)
+}

@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { Process } from "../../src/util/process"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
+import { writeInstalledConfigDeps } from "../shared/mock-npm-install"
 
 const packageRoot = path.resolve(import.meta.dir, "../..")
 const repoRoot = path.resolve(import.meta.dir, "../../../../")
@@ -27,6 +28,9 @@ describe("seed e2e script", () => {
       const timer = setTimeout(() => abort.abort(), 20_000)
 
       try {
+        const configDir = path.join(config, "opencode")
+        await writeInstalledConfigDeps(configDir)
+
         const out = await Process.run(["bun", "script/seed-e2e.ts"], {
           cwd: packageRoot,
           abort: abort.signal,

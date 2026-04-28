@@ -2,7 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
-import { writeMockConfigInstall } from "../shared/mock-npm-install"
+import { writeInstalledConfigDeps, writeMockConfigInstall } from "../shared/mock-npm-install"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { Instance } from "../../src/project/instance"
 import { ModelID, ProviderID } from "../../src/provider/schema"
@@ -14,16 +14,29 @@ afterEach(async () => {
   await Instance.disposeAll()
 })
 
+async function withMockedConfigInstall<T>(fn: () => Promise<T>): Promise<T> {
+  return await withConfigDepsLock(async () => {
+    const install = spyOn(Npm, "install").mockImplementation((dir: string) => writeMockConfigInstall(dir))
+    try {
+      return await fn()
+    } finally {
+      install.mockRestore()
+    }
+  })
+}
+
 describe("tool.registry", () => {
   test("exposes trash tool", async () => {
     await using tmp = await tmpdir()
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const ids = await ToolRegistry.ids()
-        expect(ids).toContain("trash")
-      },
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          expect(ids).toContain("trash")
+        },
+      })
     })
   })
 
@@ -52,12 +65,14 @@ describe("tool.registry", () => {
       },
     })
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const ids = await ToolRegistry.ids()
-        expect(ids).toContain("hello")
-      },
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          expect(ids).toContain("hello")
+        },
+      })
     })
   })
 
@@ -86,12 +101,14 @@ describe("tool.registry", () => {
       },
     })
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const ids = await ToolRegistry.ids()
-        expect(ids).toContain("hello")
-      },
+    await withMockedConfigInstall(async () => {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          expect(ids).toContain("hello")
+        },
+      })
     })
   })
 
@@ -105,79 +122,72 @@ describe("tool.registry", () => {
   })
 
   test("loads tools with external dependencies without crashing", async () => {
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        const opencodeDir = path.join(dir, ".opencode")
-        await fs.mkdir(opencodeDir, { recursive: true })
+    await withMockedConfigInstall(async () => {
+      await using tmp = await tmpdir({
+        init: async (dir) => {
+          const opencodeDir = path.join(dir, ".opencode")
+          await fs.mkdir(opencodeDir, { recursive: true })
 
-        const toolsDir = path.join(opencodeDir, "tools")
-        await fs.mkdir(toolsDir, { recursive: true })
+          const toolsDir = path.join(opencodeDir, "tools")
+          await fs.mkdir(toolsDir, { recursive: true })
 
-        await Bun.write(
-          path.join(opencodeDir, "package.json"),
-          JSON.stringify({
-            name: "custom-tools",
-            dependencies: {
-              "@opencode-ai/plugin": "^0.0.0",
-              cowsay: "^1.6.0",
-            },
-          }),
-        )
+          await writeInstalledConfigDeps(opencodeDir, { cowsay: "^1.6.0" })
 
-        await Bun.write(
-          path.join(opencodeDir, "package-lock.json"),
-          JSON.stringify({
-            name: "custom-tools",
-            lockfileVersion: 3,
-            packages: {
-              "": {
-                dependencies: {
-                  "@opencode-ai/plugin": "^0.0.0",
-                  cowsay: "^1.6.0",
+          await Bun.write(
+            path.join(opencodeDir, "package-lock.json"),
+            JSON.stringify({
+              name: "custom-tools",
+              lockfileVersion: 3,
+              packages: {
+                "": {
+                  dependencies: {
+                    "@opencode-ai/plugin": "*",
+                    cowsay: "^1.6.0",
+                  },
                 },
               },
-            },
-          }),
-        )
+            }),
+          )
 
-        const cowsayDir = path.join(opencodeDir, "node_modules", "cowsay")
-        await fs.mkdir(cowsayDir, { recursive: true })
-        await Bun.write(
-          path.join(cowsayDir, "package.json"),
-          JSON.stringify({
-            name: "cowsay",
-            type: "module",
-            exports: "./index.js",
-          }),
-        )
-        await Bun.write(
-          path.join(cowsayDir, "index.js"),
-          ["export function say({ text }) {", "  return `moo ${text}`", "}", ""].join("\n"),
-        )
+          const cowsayDir = path.join(opencodeDir, "node_modules", "cowsay")
+          await fs.mkdir(cowsayDir, { recursive: true })
+          await Bun.write(
+            path.join(cowsayDir, "package.json"),
+            JSON.stringify({
+              name: "cowsay",
+              type: "module",
+              exports: "./index.js",
+            }),
+          )
+          await Bun.write(
+            path.join(cowsayDir, "index.js"),
+            ["export function say({ text }) {", "  return `moo ${text}`", "}", ""].join("\n"),
+          )
 
-        await Bun.write(
-          path.join(toolsDir, "cowsay.ts"),
-          [
-            "import { say } from 'cowsay'",
-            "export default {",
-            "  description: 'tool that imports cowsay at top level',",
-            "  args: { text: { type: 'string' } },",
-            "  execute: async ({ text }: { text: string }) => {",
-            "    return say({ text })",
-            "  },",
-            "}",
-            "",
-          ].join("\n"),
-        )
-      },
-    })
+          await Bun.write(
+            path.join(toolsDir, "cowsay.ts"),
+            [
+              "import { say } from 'cowsay'",
+              "export default {",
+              "  description: 'tool that imports cowsay at top level',",
+              "  args: { text: { type: 'string' } },",
+              "  execute: async ({ text }: { text: string }) => {",
+              "    return say({ text })",
+              "  },",
+              "}",
+              "",
+            ].join("\n"),
+          )
+        },
+      })
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const ids = await ToolRegistry.ids()
-        expect(ids).toContain("cowsay")
-      },
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          expect(ids).toContain("cowsay")
+        },
+      })
     })
   })
 

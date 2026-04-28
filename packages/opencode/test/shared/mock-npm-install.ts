@@ -30,3 +30,21 @@ export async function writeMockConfigInstall(dir: string) {
     indexJs: 'export const ready = "hello"\n',
   })
 }
+
+export async function writeInstalledConfigDeps(dir: string, dependencies: Record<string, string> = {}) {
+  await fs.mkdir(dir, { recursive: true })
+  await Filesystem.write(
+    path.join(dir, "package.json"),
+    JSON.stringify({
+      dependencies: {
+        "@opencode-ai/plugin": "*",
+        ...dependencies,
+      },
+    }),
+  )
+  await Filesystem.write(
+    path.join(dir, ".gitignore"),
+    ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+  )
+  await writeMockConfigInstall(dir)
+}
