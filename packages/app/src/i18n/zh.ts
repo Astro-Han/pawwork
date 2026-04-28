@@ -584,6 +584,7 @@ export const dict = {
   "session.revertDock.expand": "展开已回滚消息",
   "session.revertDock.restore": "恢复消息",
   "session.new.title": "今天想做什么？",
+  // Kept for parity/branding tests; UI usage removed in #300.
   "session.new.subtitle": "爪印可以帮你处理文件、分析信息、撰写内容并完成各类任务。",
   "session.new.reassurance": "文件和对话仅在本机处理",
   "session.new.card.document.title": "处理文档",
