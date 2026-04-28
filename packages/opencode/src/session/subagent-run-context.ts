@@ -24,9 +24,12 @@ const LIFECYCLE_KEYS = [
   "error",
 ] as const
 
-export class SubagentRunGuardViolation {
+export class SubagentRunGuardViolation extends Error {
   readonly _tag = "SubagentRunGuardViolation"
-  constructor(readonly tool_call_id: string | undefined) {}
+  constructor(readonly tool_call_id: string | undefined) {
+    super(`SubagentRun lifecycle field write outside writer context (tool_call_id=${tool_call_id ?? "?"})`)
+    this.name = "SubagentRunGuardViolation"
+  }
 }
 
 /**
@@ -34,6 +37,11 @@ export class SubagentRunGuardViolation {
  * (JSON.stringify) not by reference, so a static-field update that re-clones recent_events /
  * last_activity / error arrays/objects with identical content is NOT rejected. Only genuine
  * lifecycle mutations trip the guard.
+ *
+ * Limitation: JSON.stringify is order-sensitive (`{a:1,b:2}` vs `{b:2,a:1}` produce different
+ * strings) and drops `undefined` values. This is acceptable here because lifecycle field shapes
+ * are produced by SubagentRun writers with stable key order, and `undefined` lifecycle fields
+ * are short-circuited above as "no change".
  */
 export const lifecycleFieldsChanged = (
   existing: Record<string, unknown> | undefined,

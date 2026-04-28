@@ -518,11 +518,13 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         if (part.type === "subtask") {
           const isWriter = yield* SubagentRunWriterContext
           if (!isWriter) {
+            // No catch: getPart's typed error channel is never; defects (e.g. database failure)
+            // should propagate so the guard can't be silently bypassed by a missing read.
             const existing = yield* getPart({
               sessionID: part.sessionID,
               messageID: part.messageID,
               partID: part.id,
-            }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            })
             if (
               lifecycleFieldsChanged(
                 existing as unknown as Record<string, unknown> | undefined,
