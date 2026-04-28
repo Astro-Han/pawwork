@@ -1,9 +1,13 @@
 import path from "node:path"
-import { IMAGE_EXTS } from "@opencode-ai/util/file-extensions"
 
+// Keep image entries in sync with packages/util/src/file-extensions.ts::IMAGE_EXTS.
 export const MIME_BY_EXTENSION = new Map([
-  ...IMAGE_EXTS,
+  ["gif", "image/gif"],
+  ["jpeg", "image/jpeg"],
+  ["jpg", "image/jpeg"],
   ["pdf", "application/pdf"],
+  ["png", "image/png"],
+  ["webp", "image/webp"],
 ])
 
 export function attachmentPathMime(filepath: string, extname = path.extname) {
