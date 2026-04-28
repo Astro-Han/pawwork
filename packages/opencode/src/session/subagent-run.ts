@@ -207,8 +207,36 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Session.Service> =
         }),
       )
 
-    const recordEvent = (toolCallID: string, _event: MessageV2.SubtaskEvent): Effect.Effect<void> =>
-      Effect.die(new Error(`SubagentRun.recordEvent for ${toolCallID}: implemented in Task 5`))
+    const LIFECYCLE_KINDS = new Set<MessageV2.SubtaskEvent["type"]>([
+      "started",
+      "completed",
+      "completed_empty",
+      "canceled_by_user",
+      "failed",
+      "consumed",
+    ])
+
+    const recordEvent = (toolCallID: string, event: MessageV2.SubtaskEvent): Effect.Effect<void> =>
+      getRowLock(toolCallID).withPermits(1)(
+        Effect.gen(function* () {
+          const existing = yield* readPart(toolCallID).pipe(
+            Effect.catch(() => Effect.succeed(undefined)),
+          )
+          if (!existing) return
+          const merged = [...existing.recent_events, event]
+          while (merged.length > 20) {
+            const idx = merged.findIndex((e) => !LIFECYCLE_KINDS.has(e.type))
+            if (idx < 0) break
+            merged.splice(idx, 1)
+          }
+          merged.sort((a, b) => a.at - b.at)
+          yield* session.updatePart({
+            ...existing,
+            recent_events: merged,
+            updated_at: Date.now(),
+          })
+        }),
+      )
 
     const finalize = (
       toolCallID: string,

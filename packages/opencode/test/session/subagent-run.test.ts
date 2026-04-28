@@ -106,6 +106,60 @@ describe("SubtaskPart backward compat", () => {
     })
   })
 
+  test("recent_events ring pins lifecycle events and evicts progress FIFO", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const program = Effect.gen(function* () {
+          const svc = yield* SubagentRun.Service
+          const session = yield* Session.Service
+          const parent = yield* session.create({})
+          const msg = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: parent.id,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          })
+          yield* svc.start({
+            parent_session_id: parent.id,
+            parent_message_id: msg.id,
+            tool_call_id: "call_ring",
+            description: "review",
+            prompt: "hi",
+            agent: "build",
+            subagent_type: "reviewer",
+            model: ref,
+          })
+          for (let i = 0; i < 30; i++) {
+            yield* svc.recordEvent("call_ring", {
+              type: "tool_started",
+              tool: "read",
+              label: `f${i}.ts`,
+              at: Date.now() + i,
+            })
+            yield* svc.recordEvent("call_ring", {
+              type: "tool_completed",
+              tool: "read",
+              at: Date.now() + i + 0.5,
+            })
+          }
+          yield* svc.finalize("call_ring", "completed", { result_text: "done" })
+          const final = yield* svc.read("call_ring")
+          expect(final.recent_events.find((e) => e.type === "started")).toBeDefined()
+          expect(final.recent_events.length).toBeLessThanOrEqual(20)
+        })
+        await Effect.runPromise(
+          program.pipe(
+            Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer)),
+          ),
+        )
+      },
+    })
+  })
+
   test("accepts a row with all new lifecycle fields populated", () => {
     const full = {
       type: "subtask" as const,
