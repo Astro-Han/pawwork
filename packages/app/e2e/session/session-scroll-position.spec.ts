@@ -6,18 +6,33 @@ import { createSdk } from "../utils"
 
 type Sdk = ReturnType<typeof createSdk>
 
+const INITIAL_SESSION_WINDOW_MESSAGES = 10
+
+type TimelineMetrics = {
+  top: number
+  height: number
+  client: number
+  distanceFromBottom: number
+}
+
 function timelineMetrics(page: Page) {
   return page.evaluate((turnListSelector) => {
     const list = document.querySelector(turnListSelector)
     const viewport = list?.closest(".scroll-view__viewport")
-    if (!(viewport instanceof HTMLElement)) throw new Error("session timeline viewport not found")
+    if (!(viewport instanceof HTMLElement)) return null
     return {
       top: viewport.scrollTop,
       height: viewport.scrollHeight,
       client: viewport.clientHeight,
       distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
     }
-  }, sessionTurnListSelector)
+  }, sessionTurnListSelector) as Promise<TimelineMetrics | null>
+}
+
+async function expectTimelineMetrics(page: Page) {
+  const metrics = await timelineMetrics(page)
+  expect(metrics, "session timeline viewport should exist").not.toBeNull()
+  return metrics!
 }
 
 async function scrollTimelineToBottom(page: Page) {
@@ -120,9 +135,11 @@ test("keeps the latest turn in view when sending from an old message hash", asyn
     await seedSessionTurns({ sdk, sessionID: session.id, count: 14 })
 
     await project.gotoSession(session.id)
-    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(10, { timeout: 30_000 })
+    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
+      timeout: 30_000,
+    })
     await scrollTimelineToBottom(page)
-    await expect.poll(async () => (await timelineMetrics(page)).distanceFromBottom).toBeLessThan(20)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(20)
 
     const ids = await page.locator(sessionMessageItemSelector).evaluateAll((items) =>
       items.map((item) => (item instanceof HTMLElement ? item.dataset.messageId : undefined)).filter(Boolean),
@@ -132,7 +149,7 @@ test("keeps the latest turn in view when sending from an old message hash", asyn
 
     await page.goto(`${page.url()}#message-${oldID}`)
     await expect(page.locator(`#message-${oldID}`)).toBeVisible()
-    await expect.poll(async () => (await timelineMetrics(page)).distanceFromBottom).toBeGreaterThan(100)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeGreaterThan(100)
 
     const token = `scroll_latest_${Date.now()}`
     const beforeCount = await page.locator(sessionMessageItemSelector).count()
@@ -140,7 +157,9 @@ test("keeps the latest turn in view when sending from an old message hash", asyn
     await expect(page.locator(sessionMessageItemSelector)).toHaveCount(beforeCount + 1, { timeout: 30_000 })
 
     await expect.poll(() => page.url()).not.toContain("#message-")
-    await expect.poll(async () => (await timelineMetrics(page)).distanceFromBottom, { timeout: 30_000 }).toBeLessThan(40)
+    await expect
+      .poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom, { timeout: 30_000 })
+      .toBeLessThan(40)
     const rendered = await page.locator(sessionMessageItemSelector).evaluateAll((items) =>
       items.map((item) => (item instanceof HTMLElement ? item.dataset.messageId : undefined)).filter(Boolean),
     )
@@ -162,24 +181,32 @@ test("renders the full initial session window when switching sessions", async ({
       await seedSessionTurns({ sdk, sessionID: second.id, count: 14 })
 
       await project.gotoSession(first.id)
-      await expect(page.locator(sessionMessageItemSelector)).toHaveCount(10, { timeout: 30_000 })
+      await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
+        timeout: 30_000,
+      })
       await expect(page.locator(sessionItemSelector(second.id))).toBeVisible({ timeout: 30_000 })
 
       await installMessageCountProbe(page)
       await page.locator(sessionItemSelector(second.id)).click()
       await expect(page).toHaveURL(new RegExp(`/session/${second.id}(?:[?#]|$)`))
-      await expect(page.locator(sessionMessageItemSelector)).toHaveCount(10, { timeout: 30_000 })
+      await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
+        timeout: 30_000,
+      })
       const samples = await stopMessageCountProbe(page)
       const rendered = await page.locator(sessionMessageItemSelector).evaluateAll((items) =>
         items.map((item) => (item instanceof HTMLElement ? item.dataset.messageId : undefined)).filter(Boolean),
       )
       const secondMessages = await sdk.session.messages({ sessionID: second.id, limit: 100 }).then((r) => r.data ?? [])
-      const secondIDs = new Set(secondMessages.filter((item) => item.info.role === "user").map((item) => item.info.id))
+      const secondIDs = new Set(secondMessages.map((item) => item.info.id))
 
       const switched = samples.filter((sample) => sample.url.includes(`/session/${second.id}`))
       expect(switched.length).toBeGreaterThan(0)
       expect(rendered.every((id) => secondIDs.has(id))).toBe(true)
-      expect(switched.filter((sample) => sample.messages > 0 && sample.messages < 10)).toEqual([])
+      expect(
+        switched.filter(
+          (sample) => sample.messages > 0 && sample.messages < INITIAL_SESSION_WINDOW_MESSAGES,
+        ),
+      ).toEqual([])
     })
   })
 })
