@@ -41,7 +41,10 @@ const formatTranscript = (p: MessageV2.SubtaskPart): string => {
   // canceled_by_user rows still surface their preserved partial under detail=transcript.
   const body = p.result_text ?? p.partial_result ?? null
   if (body) {
-    const trimmed = body.length > 1000 ? body.slice(0, 1000) + "…(truncated)" : body
+    const trimmed =
+      body.length > 1000
+        ? `${body.slice(0, 1000)}…(truncated, ${body.length} chars total)`
+        : body
     lines.push(`result: ${trimmed}`)
   }
   return lines.join("\n")
@@ -74,21 +77,28 @@ export const AgentOutputTool = Tool.define(
               new Error("exactly one of subagent_session_id or tool_call_id is required"),
             )
           }
-          const NOT_FOUND = new Error("subagent not found or not accessible from this parent")
+          // Narrow catch: only "row not found" maps to a clean not-found response. Storage errors,
+          // schema decode failures, and other defects propagate via Effect.orDie so the model sees
+          // a real defect instead of a misleading "not found".
           const row = params.tool_call_id
             ? yield* subagentRun
                 .readByToolCallID(ctx.sessionID, params.tool_call_id)
-                .pipe(Effect.catch(() => Effect.succeed(null as MessageV2.SubtaskPart | null)))
+                .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
             : yield* subagentRun
                 .findLatestBySessionID(ctx.sessionID, params.subagent_session_id! as SessionID)
-                .pipe(Effect.catch(() => Effect.succeed(null as MessageV2.SubtaskPart | null)))
-          if (!row || !row.tool_call_id) return yield* Effect.fail(NOT_FOUND)
-          if (row.parent_session_id !== ctx.sessionID) return yield* Effect.fail(NOT_FOUND)
+                .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
+          if (!row || !row.tool_call_id)
+            return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
+          if (row.parent_session_id !== ctx.sessionID)
+            return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
           if (row.subagent_session_id) {
+            // session.get throws NotFoundError, which Effect.gen wraps as a defect (Cause.Die),
+            // not a typed failure. catchCause is required to convert it back to a clean response.
             const child = yield* sessions
               .get(row.subagent_session_id as SessionID)
-              .pipe(Effect.catch(() => Effect.succeed(null)))
-            if (!child || !child.createdByAgentTool) return yield* Effect.fail(NOT_FOUND)
+              .pipe(Effect.catchCause(() => Effect.succeed(null)))
+            if (!child || !child.createdByAgentTool)
+              return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
           }
           if (row.status !== "running" && !row.consumed_at) {
             yield* subagentRun.setConsumed(row.tool_call_id)
