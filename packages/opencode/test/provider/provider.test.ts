@@ -1161,6 +1161,42 @@ test("uses doubao-seed-2.0-code as the Volcano Coding Plan default model", async
   expect(Provider.defaultModelID(Provider.fromModelsDevProvider(provider))).toBe(VOLCENGINE_PLAN_DEFAULT_MODEL_ID)
 })
 
+test("config model overrides preserve existing interleaved metadata", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            zhipuai: {
+              models: {
+                "glm-5": {
+                  name: "GLM 5 Override",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ZHIPU_API_KEY", "test-zhipu-key")
+    },
+    fn: async () => {
+      const providers = await list()
+      const model = providers[ProviderID.make("zhipuai")].models[ModelID.make("glm-5")]
+
+      expect(model.name).toBe("GLM 5 Override")
+      expect(model.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+    },
+  })
+})
+
 test("does not change defaults for non-Volcano providers with the same Doubao model id", () => {
   const providers = {
     "qiniu-ai": {
