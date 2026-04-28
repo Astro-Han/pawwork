@@ -45,14 +45,46 @@ const errorMessage = (e: unknown): string => {
   }
 }
 
-const truncateHead = (s: string, n: number): string => (s.length <= n ? s : s.slice(0, n))
+const truncateHead = (s: string, n: number): string => (s.length <= n ? s : s.slice(0, n) + "…")
 
-// Stub replaced in Task 10. Reads the last completed assistant text from the child session
-// (used for partial_result on cancel). Returns null when no completed text exists.
-const readLastCompletedAssistantText = (_sessionID: SessionID): Effect.Effect<string | null> =>
-  Effect.succeed(null)
+const SANITIZE_LIMIT = 200
+const STACK_RE = /\n\s+at\s+.+/g
+const PATH_RE = /\/(?:Users|home)\/[^\s)]+/g
+// Non-greedy JSON match so legitimate prose containing braces (e.g., a sanitized status header
+// quoted in an error message) is not stripped wholesale. Matches one envelope at a time.
+const JSON_ENVELOPE_RE = /\{[\s\S]+?\}/g
 
-// Stub replaced in Task 10. Renders the SubtaskPart into the tool's text output.
+const sanitizeErrorMessage = (msg: string): string =>
+  msg
+    .replace(STACK_RE, "")
+    .replace(PATH_RE, "<path>")
+    .replace(JSON_ENVELOPE_RE, "<json>")
+    .slice(0, SANITIZE_LIMIT)
+    .trim()
+
+// TextPart in message-v2.ts has no explicit state field; completion is signaled by `time.end`.
+// Conservative default: returns false when `time` or `time.end` is missing → partial_result
+// stays null on mid-token streaming aborts, which is safer than leaking a half-token.
+const isTextPartCompleted = (p: MessageV2.TextPart): boolean => p.time?.end !== undefined
+
+// Reads the child session's most recent assistant text part with stable (completed) content.
+// Used by finalizeAfter for partial_result on cancellation; returns null when no completed text
+// exists (e.g., cancellation during the first tool call or mid-token streaming abort).
+const makeReadLastCompletedAssistantText =
+  (sessions: Session.Service["Service"]) =>
+  (childID: SessionID): Effect.Effect<string | null> =>
+    Effect.gen(function* () {
+      const messages = yield* sessions.messages({ sessionID: childID, limit: 5 })
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i]
+        if (m.info.role !== "assistant") continue
+        const textParts = m.parts.filter((p): p is MessageV2.TextPart => p.type === "text")
+        const completed = textParts.findLast((p) => isTextPartCompleted(p))
+        if (completed?.text && completed.text.trim().length > 0) return completed.text
+      }
+      return null
+    })
+
 const synthesizeOutput = (
   part: MessageV2.SubtaskPart,
   childID: SessionID | undefined,
@@ -61,26 +93,57 @@ const synthesizeOutput = (
   metadata: { sessionId: SessionID | undefined; status: MessageV2.SubtaskPart["status"] }
   output: string
 } => {
-  const lines: string[] = []
-  if (part.status !== "completed") {
-    lines.push(`status: ${part.status}`)
-    if (part.error) lines.push(`error: ${part.error.kind}`)
-    lines.push("")
+  const resumeHint = childID
+    ? `subagent_session_id: ${childID} (pass this to resume the same subagent dispatch)`
+    : null
+  const wrapper = (text: string) => `<subagent_result>\n${text}\n</subagent_result>`
+
+  if (part.status === "completed") {
+    // PRESERVE the EXACT 5-line success format from the original tool: resume hint, blank,
+    // open tag, text, close tag. Existing prompt teaching depends on this shape.
+    return {
+      title: part.description,
+      metadata: { sessionId: childID, status: part.status },
+      output: [
+        resumeHint,
+        "",
+        "<subagent_result>",
+        part.result_text ?? "",
+        "</subagent_result>",
+      ]
+        .filter((x): x is string => x !== null)
+        .join("\n"),
+    }
   }
-  if (childID) {
-    lines.push(`subagent_session_id: ${childID} (pass this to resume the same subagent dispatch)`)
-    lines.push("")
+
+  let header: string
+  let body: string
+  switch (part.status) {
+    case "completed_empty":
+      header = "status: completed_empty"
+      body = wrapper("")
+      break
+    case "canceled_by_user":
+      header = "status: canceled_by_user"
+      body = wrapper(part.partial_result ?? "")
+      break
+    case "failed":
+      header = `status: failed\nerror: ${sanitizeErrorMessage(part.error?.message ?? "")}`
+      body = wrapper("")
+      break
+    case "running":
+      // Defensive: should never be returned to the model since execute waits for terminal state.
+      header = "status: running"
+      body = wrapper("")
+      break
   }
-  lines.push("<subagent_result>")
-  lines.push(part.result_text ?? part.partial_result ?? "")
-  lines.push("</subagent_result>")
+
   return {
     title: part.description,
-    metadata: {
-      sessionId: childID,
-      status: part.status,
-    },
-    output: lines.join("\n"),
+    metadata: { sessionId: childID, status: part.status },
+    output: [resumeHint, "", header, body]
+      .filter((x): x is string => x !== null)
+      .join("\n"),
   }
 }
 
@@ -91,6 +154,7 @@ export const AgentTool = Tool.define(
     const config = yield* Config.Service
     const sessions = yield* Session.Service
     const subagentRun = yield* SubagentRun.Service
+    const readLastCompletedAssistantText = makeReadLastCompletedAssistantText(sessions)
 
     const run = Effect.fn("AgentTool.execute")(function* (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) {
       const cfg = yield* config.get()
