@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "../../src/config/config"
@@ -9,7 +9,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import type { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { AgentTool, type AgentPromptOps } from "../../src/tool/agent"
+import { AgentTool, sanitizeErrorMessage, type AgentPromptOps } from "../../src/tool/agent"
 import { SubagentRun } from "../../src/session/subagent-run"
 import { Truncate } from "../../src/tool/truncate"
 import { ToolRegistry } from "../../src/tool/registry"
@@ -112,6 +112,25 @@ function reply(input: Parameters<typeof SessionPrompt.prompt>[0], text: string):
     ],
   }
 }
+
+describe("sanitizeErrorMessage", () => {
+  // Invariant-style assertions: output must not contain any sensitive substring from the
+  // input. This is what catches regressions when a future field shape (e.g. WSL paths,
+  // Cygwin mounts) leaks through; it does not depend on the literal replacement format.
+  const cases: ReadonlyArray<{ name: string; input: string; sensitive: ReadonlyArray<string> }> = [
+    { name: "POSIX home (Mac)", input: "ENOENT /Users/alice/secret/data.json", sensitive: ["alice", "secret/data.json"] },
+    { name: "POSIX home (Linux)", input: "open /home/alice/.ssh/id_rsa failed", sensitive: ["alice", ".ssh/id_rsa"] },
+    { name: "Windows drive path", input: "Cannot find C:\\Users\\alice\\AppData\\Roaming\\app.json", sensitive: ["alice", "AppData", "app.json"] },
+    { name: "Windows UNC path", input: "Mount failed at \\\\fileserver\\share\\confidential", sensitive: ["fileserver", "confidential"] },
+    { name: "JSON envelope leak", input: 'request failed: {"apiKey":"sk-real-token","trace":"oops"}', sensitive: ["sk-real-token", "apiKey"] },
+  ]
+  for (const { name, input, sensitive } of cases) {
+    test(name, () => {
+      const out = sanitizeErrorMessage(input)
+      for (const s of sensitive) expect(out).not.toContain(s)
+    })
+  }
+})
 
 describe("tool.agent", () => {
   it.live("description sorts subagents by name and is stable across calls", () =>

@@ -7,7 +7,8 @@ import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "../config"
 import { SubagentRun } from "../session/subagent-run"
-import { Effect, Schema } from "effect"
+import { Cause, Effect, Schema } from "effect"
+import { NotFoundError } from "../storage/db"
 
 export interface AgentPromptOps {
   cancel(sessionID: SessionID): void
@@ -39,12 +40,15 @@ const truncateHead = (s: string, n: number): string => (s.length <= n ? s : s.sl
 
 const SANITIZE_LIMIT = 200
 const STACK_RE = /\n\s+at\s+.+/g
-const PATH_RE = /\/(?:Users|home)\/[^\s)]+/g
+// Covers POSIX home paths (/Users/..., /home/...), Windows drive paths (C:\Users\...,
+// D:\projects\...), and UNC paths (\\server\share\...). All collapse to "<path>" so usernames
+// and local layout never leak into persisted SubtaskPart.error.message.
+const PATH_RE = /(?:\/(?:Users|home)\/[^\s)]+|[A-Za-z]:\\[^\s)]+|\\\\[^\s)]+)/g
 // Non-greedy JSON match so legitimate prose containing braces (e.g., a sanitized status header
 // quoted in an error message) is not stripped wholesale. Matches one envelope at a time.
 const JSON_ENVELOPE_RE = /\{[\s\S]+?\}/g
 
-const sanitizeErrorMessage = (msg: string): string =>
+export const sanitizeErrorMessage = (msg: string): string =>
   msg
     .replace(STACK_RE, "")
     .replace(PATH_RE, "<path>")
@@ -207,9 +211,15 @@ export const AgentTool = Tool.define(
           )
         }
       }
+      // sessions.get throws NotFoundError as a defect (Cause.Die). Suppress only that case so the
+      // resume path can fall through to "subagent_session_id not found"; rethrow any other defect
+      // (storage I/O, schema decode) instead of masking it as missing.
       const session = params.subagent_session_id
         ? yield* sessions.get(SessionID.make(params.subagent_session_id)).pipe(
-            Effect.catchCause(() => Effect.succeed(undefined)),
+            Effect.catchCause((cause) => {
+              const err = Cause.squash(cause)
+              return err instanceof NotFoundError ? Effect.succeed(undefined) : Effect.failCause(cause)
+            }),
           )
         : undefined
       if (params.subagent_session_id && !session) {
