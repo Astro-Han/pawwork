@@ -12,6 +12,7 @@ import { routeBrowserFile, routePickedPath, type AttachRoute, type ModelInputSup
 
 function dataUrlMimeCompatible(actual: string, expected: string) {
   if (actual === expected) return true
+  if (!actual || actual === "application/octet-stream") return true
   if (expected !== "text/plain") return false
   return textMime(actual)
 }
@@ -40,7 +41,7 @@ function dataUrl(file: File, mime: string) {
       }
       const actual = header.slice("data:".length, -base64Marker.length).toLowerCase()
       const payload = value.slice(comma + 1)
-      if (!actual || !dataUrlMimeCompatible(actual, mime.toLowerCase()) || !isBase64Payload(payload)) {
+      if (!dataUrlMimeCompatible(actual, mime.toLowerCase()) || !isBase64Payload(payload)) {
         resolve("")
         return
       }
@@ -324,7 +325,10 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     }
 
     const dropped = event.dataTransfer?.files
-    if (!dropped) return
+    if (!dropped || dropped.length === 0) {
+      warn()
+      return
+    }
 
     await addAttachments(Array.from(dropped))
   }

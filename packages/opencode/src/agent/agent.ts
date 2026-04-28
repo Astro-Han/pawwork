@@ -15,9 +15,7 @@ import PROMPT_SUMMARY from "./prompt/summary.txt"
 import PROMPT_TITLE from "./prompt/title.txt"
 import { Permission } from "@/permission"
 import { mergeDeep, pipe, sortBy, values } from "remeda"
-import path from "path"
 import { Plugin } from "@/plugin"
-import { Skill } from "../skill"
 import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -73,44 +71,42 @@ export namespace Agent {
     Effect.gen(function* () {
       const config = yield* Config.Service
       const auth = yield* Auth.Service
-      const skill = yield* Skill.Service
       const provider = yield* Provider.Service
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("Agent.state")(function* (ctx) {
           const cfg = yield* config.get()
-          const skillDirs = yield* skill.dirs()
-          const whitelistedDirs = [Truncate.GLOB, ...skillDirs.map((dir) => path.join(dir, "*"))]
 
-        const defaults = Permission.fromConfig({
-          "*": "allow",
-          doom_loop: "ask",
-          question: "deny",
-          plan_enter: "deny",
-          plan_exit: "deny",
-          read: {
+          const defaults = Permission.fromConfig({
             "*": "allow",
-            "*.env": "ask",
-            "*.env.*": "ask",
-            "*.env.example": "allow",
-          },
-          bash: {
-            "*": "allow",
-            "sudo *": "deny",
-            "dd *": "deny",
+            doom_loop: "ask",
+            question: "deny",
+            plan_enter: "deny",
+            plan_exit: "deny",
+            read: {
+              "*": "allow",
+              "*.env": "ask",
+              "*.env.*": "ask",
+              "*.env.example": "allow",
+            },
+            bash: {
+              "*": "allow",
+              "sudo *": "ask",
+              "dd *": "deny",
               "mkfs*": "deny",
-              "chmod *": "deny",
-              "kill *": "deny",
               "rm *": "deny",
               "rmdir *": "deny",
               "unlink *": "deny",
               "find * -delete*": "deny",
-          },
-          external_directory: {
-            "*": "ask",
-            ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
-          },
-        })
+              "Remove-Item *": "deny",
+              "del *": "deny",
+              "erase *": "deny",
+              "rd *": "deny",
+            },
+            external_directory: {
+              "*": "allow",
+            },
+          })
 
           const user = Permission.fromConfig(cfg.permission ?? {})
 
@@ -160,8 +156,7 @@ export namespace Agent {
                   codesearch: "allow",
                   read: "allow",
                   external_directory: {
-                    "*": "ask",
-                    ...Object.fromEntries(whitelistedDirs.map((dir) => [dir, "allow"])),
+                    "*": "allow",
                   },
                 }),
                 user,
@@ -393,7 +388,6 @@ export namespace Agent {
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Config.defaultLayer),
-    Layer.provide(Skill.defaultLayer),
   )
 
   const { runPromise } = makeRuntime(Service, defaultLayer)

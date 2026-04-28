@@ -378,7 +378,8 @@ export function MessageTimeline(props: {
     return language.t("command.session.new")
   })
   const showHeader = createMemo(() => !!(titleValue() || parentID()))
-  const stageCfg = { init: 1, batch: 3 }
+  // Match the initial window cap so session switches do not reveal the window in partial batches.
+  const stageCfg = { init: 10, batch: 3 }
   const staging = createTimelineStaging({
     sessionKey,
     turnStart: () => props.turnStart,

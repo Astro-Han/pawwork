@@ -64,7 +64,7 @@ test("explore agent denies edit and write", async () => {
   })
 })
 
-test("explore agent asks for external directories and allows Truncate.GLOB", async () => {
+test("explore agent allows external directories and Truncate.GLOB", async () => {
   const { Truncate } = await import("../../src/tool/truncate")
   await using tmp = await tmpdir()
   await Instance.provide({
@@ -72,7 +72,7 @@ test("explore agent asks for external directories and allows Truncate.GLOB", asy
     fn: async () => {
       const explore = await Agent.get("explore")
       expect(explore).toBeDefined()
-      expect(Permission.evaluate("external_directory", "/some/other/path", explore!.permission).action).toBe("ask")
+      expect(Permission.evaluate("external_directory", "/some/other/path", explore!.permission).action).toBe("allow")
       expect(Permission.evaluate("external_directory", Truncate.GLOB, explore!.permission).action).toBe("allow")
     },
   })
@@ -413,14 +413,14 @@ test("Agent.get returns undefined for non-existent agent", async () => {
   })
 })
 
-test("default permission keeps doom_loop and external_directory as ask", async () => {
+test("default permission asks for doom_loop and allows external_directory", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
       const build = await Agent.get("build")
       expect(evalPerm(build, "doom_loop")).toBe("ask")
-      expect(evalPerm(build, "external_directory")).toBe("ask")
+      expect(evalPerm(build, "external_directory")).toBe("allow")
     },
   })
 })

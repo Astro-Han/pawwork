@@ -20,7 +20,7 @@ describe("attachmentPathMime", () => {
     expect(attachmentPathMime("C:\\tmp\\image.PNG", extname)).toBe("image/png")
   })
 
-  test("keeps image MIME entries in sync with the renderer contract", () => {
+  test("derives MIME_BY_EXTENSION from IMAGE_EXTS so they stay in sync", () => {
     const imageEntries = [...MIME_BY_EXTENSION.entries()]
       .filter(([extension]) => extension !== "pdf")
       .sort(([left], [right]) => left.localeCompare(right))

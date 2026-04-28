@@ -27,7 +27,7 @@ export const useSessionHashScroll = (input: {
   const messageById = createMemo(() => new Map(visibleUserMessages().map((m) => [m.id, m])))
   const messageIndex = createMemo(() => new Map(visibleUserMessages().map((m, i) => [m.id, i])))
   let pendingKey = ""
-  let clearing = false
+  let clearingHash: string | undefined
 
   const location = useLocation()
   const navigate = useNavigate()
@@ -50,14 +50,14 @@ export const useSessionHashScroll = (input: {
     input.consumePendingMessage(input.sessionKey())
     if (input.pendingMessage()) input.setPendingMessage(undefined)
     if (!location.hash) return
-    clearing = true
+    clearingHash = location.hash
     navigate(location.pathname + location.search, { replace: true })
   }
 
   const updateHash = (id: string) => {
     const hash = `#${input.anchor(id)}`
     if (location.hash === hash) return
-    clearing = false
+    clearingHash = undefined
     navigate(location.pathname + location.search + hash, {
       replace: true,
     })
@@ -144,7 +144,13 @@ export const useSessionHashScroll = (input: {
 
   createEffect(() => {
     const hash = location.hash
-    if (!hash) clearing = false
+    if (!hash) {
+      clearingHash = undefined
+    } else if (hash === clearingHash) {
+      return
+    } else {
+      clearingHash = undefined
+    }
     if (!input.sessionID() || !input.messagesReady()) return
     cancel()
     queue(() => applyHash("auto"))
@@ -169,7 +175,7 @@ export const useSessionHashScroll = (input: {
       }
     }
 
-    if (!targetId && !clearing) targetId = messageIdFromHash(location.hash)
+    if (!targetId && !clearingHash) targetId = messageIdFromHash(location.hash)
     if (!targetId) return
 
     const pending = input.pendingMessage() === targetId
@@ -191,7 +197,7 @@ export const useSessionHashScroll = (input: {
     visibleUserMessages()
 
     let targetId = input.pendingMessage()
-    if (!targetId && !clearing) targetId = messageIdFromHash(location.hash)
+    if (!targetId && !clearingHash) targetId = messageIdFromHash(location.hash)
     if (!targetId) return
     if (messageById().has(targetId)) return
     if (!input.historyMore() || input.historyLoading()) return

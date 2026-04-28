@@ -382,6 +382,10 @@ export const dict = {
   "dialog.project.edit.worktree.startup": "Workspace startup script",
   "dialog.project.edit.worktree.startup.description": "Runs after creating a new workspace (worktree).",
   "dialog.project.edit.worktree.startup.placeholder": "e.g. bun install",
+  "dialog.project.edit.icon.tooLarge.title": "Image too large",
+  "dialog.project.edit.icon.tooLarge.description": "Please choose an image under 5MB.",
+  "dialog.project.edit.icon.readFailed.title": "Failed to read image",
+  "dialog.project.edit.icon.readFailed.description": "The selected file could not be loaded. Please try another image.",
 
   "dialog.releaseNotes.action.getStarted": "Get started",
   "dialog.releaseNotes.action.next": "Next",

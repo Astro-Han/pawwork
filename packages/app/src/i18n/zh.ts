@@ -388,6 +388,10 @@ export const dict = {
   "dialog.project.edit.worktree.startup": "工作区启动脚本",
   "dialog.project.edit.worktree.startup.description": "在创建新的工作区 (worktree) 后运行。",
   "dialog.project.edit.worktree.startup.placeholder": "例如 bun install",
+  "dialog.project.edit.icon.tooLarge.title": "图片过大",
+  "dialog.project.edit.icon.tooLarge.description": "请选择 5MB 以下的图片。",
+  "dialog.project.edit.icon.readFailed.title": "读取图片失败",
+  "dialog.project.edit.icon.readFailed.description": "无法加载所选文件，请尝试其他图片。",
 
   "context.breakdown.title": "上下文拆分",
   "context.breakdown.note": "输入 token 的大致拆分。“其他”包含工具定义和开销。",

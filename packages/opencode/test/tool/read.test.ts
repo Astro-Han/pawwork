@@ -260,7 +260,7 @@ describe("tool.read env file permissions", () => {
   }
 })
 
-it.live("default build agent asks for external_directory access outside the project", () =>
+it.live("default build agent allows external_directory access outside the project", () =>
   Effect.gen(function* () {
     const dir = yield* tmpdirScoped()
     const rule = yield* provideInstance(dir)(
@@ -270,7 +270,7 @@ it.live("default build agent asks for external_directory access outside the proj
         return Permission.evaluate("external_directory", "/tmp/external/*", info.permission)
       }),
     )
-    expect(rule.action).toBe("ask")
+    expect(rule.action).toBe("allow")
   }),
 )
 
