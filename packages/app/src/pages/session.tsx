@@ -461,8 +461,8 @@ export default function Page() {
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = createSizing()
-  const desktopReviewOpen = createMemo(() => isDesktop() && view().sidePanel.opened())
-  const centered = createMemo(() => isDesktop() && !desktopReviewOpen())
+  const desktopSidePanelOpen = createMemo(() => isDesktop() && view().sidePanel.opened())
+  const centered = createMemo(() => isDesktop())
 
   function normalizeTab(tab: string) {
     if (!tab.startsWith("file://")) return tab
@@ -1124,7 +1124,9 @@ export default function Page() {
 
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
   const wantsReview = createMemo(() =>
-    isDesktop() ? desktopReviewOpen() && view().sidePanel.tab() === "review" && activeTab() === "review" : store.mobileTab === "changes",
+    isDesktop()
+      ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
+      : store.mobileTab === "changes",
   )
 
   createEffect(() => {

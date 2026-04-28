@@ -1,13 +1,15 @@
 import { test, expect } from "../fixtures"
-import { titlebarRightSelector } from "../selectors"
+import { sessionTurnListSelector, titlebarRightSelector } from "../selectors"
+import { withSession } from "../actions"
 
 test("right panel width persists across reload", async ({ page, gotoSession }) => {
   await gotoSession()
 
   // Open the right panel via the titlebar toggle (matches e2e/commands/panels.spec.ts).
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-  await rightToggle.click()
-  const aside = page.locator("#right-panel")
+  const aside = page.getByRole("complementary", { name: "Right utility panel", includeHidden: true })
+  const hiddenBefore = (await aside.getAttribute("aria-hidden")) === "true"
+  if (hiddenBefore) await rightToggle.click()
   await expect(aside).toHaveAttribute("aria-hidden", "false")
 
   // Drive the resize through the exposed layout hook (see packages/app/src/context/layout.tsx DEV block).
@@ -27,7 +29,7 @@ test("right panel width persists across reload", async ({ page, gotoSession }) =
   await page.reload()
   await gotoSession()
 
-  const aside2 = page.locator("#right-panel")
+  const aside2 = page.getByRole("complementary", { name: "Right utility panel", includeHidden: true })
   const toggle2 = page.locator(`${titlebarRightSelector} button`).first()
   const hiddenAfter = (await aside2.getAttribute("aria-hidden")) === "true"
   if (hiddenAfter) await toggle2.click()
@@ -35,4 +37,43 @@ test("right panel width persists across reload", async ({ page, gotoSession }) =
 
   const widthAfter = await aside2.evaluate((el) => (el as HTMLElement).style.width)
   expect(widthAfter).toBe("400px")
+})
+
+test("session chat column stays capped when right panel opens", async ({ page, sdk, gotoSession }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+
+  await withSession(sdk, `e2e panel layout ${Date.now()}`, async (session) => {
+    await gotoSession(session.id)
+
+    const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
+    const aside = page.getByRole("complementary", { name: "Right utility panel", includeHidden: true })
+    const initiallyOpen = (await aside.getAttribute("aria-hidden")) === "false"
+    if (initiallyOpen) {
+      await rightToggle.click()
+      await expect(aside).toHaveAttribute("aria-hidden", "true")
+    }
+
+    const turnList = page.locator(sessionTurnListSelector)
+    await expect(turnList).toBeVisible()
+    const turnListWidth = () => turnList.evaluate((el) => Math.round(el.getBoundingClientRect().width))
+
+    const widthBefore = await turnListWidth()
+    expect(widthBefore).toBe(1000)
+
+    await rightToggle.click()
+
+    await expect(aside).toHaveAttribute("aria-hidden", "false")
+
+    await expect.poll(turnListWidth).toBe(widthBefore)
+
+    await rightToggle.click()
+    await expect(aside).toHaveAttribute("aria-hidden", "true")
+
+    await page.setViewportSize({ width: 1100, height: 1000 })
+    await expect.poll(turnListWidth).toBe(800)
+
+    await rightToggle.click()
+    await expect(aside).toHaveAttribute("aria-hidden", "false")
+    await expect.poll(turnListWidth).toBeLessThan(800)
+  })
 })

@@ -79,7 +79,11 @@ process.env["OPENCODE_DB"] = ":memory:"
 
 // Now safe to import from src/
 const { Log } = await import("@opencode-ai/core/util/log")
+const { Global } = await import("../src/global")
+const { writeInstalledConfigDeps } = await import("./shared/mock-npm-install")
 const { initProjectors } = await import("../src/server/projectors")
+
+await writeInstalledConfigDeps(Global.Path.config)
 
 Log.init({
   print: false,
