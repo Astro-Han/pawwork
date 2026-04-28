@@ -10,7 +10,6 @@ import { AgentTool } from "./agent"
 import { AgentListTool } from "./agent-list"
 import { AgentOutputTool } from "./agent-output"
 import { TodoWriteTool } from "./todo"
-import { TrashTool } from "./trash"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
@@ -139,7 +138,6 @@ export namespace ToolRegistry {
       const greptool = yield* GrepTool
       const patchtool = yield* ApplyPatchTool
       const skilltool = yield* SkillTool
-      const trashtool = yield* TrashTool
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -253,7 +251,6 @@ export namespace ToolRegistry {
             grep: Tool.init(greptool),
             edit: Tool.init(edit),
             write: Tool.init(writetool),
-            trash: Tool.init(trashtool),
             agent: Tool.init(agent),
             agentList: Tool.init(agentList),
             agentOutput: Tool.init(agentOutput),
@@ -279,7 +276,6 @@ export namespace ToolRegistry {
               tool.grep,
               tool.edit,
               tool.write,
-              tool.trash,
               tool.agent,
               tool.agentList,
               tool.agentOutput,

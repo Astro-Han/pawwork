@@ -26,7 +26,7 @@ async function withMockedConfigInstall<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 describe("tool.registry", () => {
-  test("exposes trash tool", async () => {
+  test("does not expose built-in trash tool", async () => {
     await using tmp = await tmpdir()
 
     await withMockedConfigInstall(async () => {
@@ -34,10 +34,27 @@ describe("tool.registry", () => {
         directory: tmp.path,
         fn: async () => {
           const ids = await ToolRegistry.ids()
-          expect(ids).toContain("trash")
+          expect(ids).not.toContain("trash")
         },
       })
     })
+  })
+
+  test("keeps trash removal contract across prompt and package surfaces", async () => {
+    const bashDescription = await Bun.file(new URL("../../src/tool/bash.txt", import.meta.url)).text()
+    expect(bashDescription).not.toContain("trash tool")
+    expect(bashDescription).toContain("Avoid permanent deletion commands")
+    expect(bashDescription).toContain("gio trash")
+    expect(bashDescription).toContain("trash-put")
+
+    const packageJson = (await Bun.file(new URL("../../package.json", import.meta.url)).json()) as {
+      dependencies?: Record<string, string>
+    }
+    expect(Object.hasOwn(packageJson.dependencies ?? {}, "trash")).toBe(false)
+
+    const lockfile = await Bun.file(new URL("../../../../bun.lock", import.meta.url)).text()
+    expect(lockfile).not.toContain('"trash": "10"')
+    expect(lockfile).not.toContain('"trash": ["trash@')
   })
 
   test("loads tools from .opencode/tool (singular)", async () => {
