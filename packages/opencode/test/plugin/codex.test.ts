@@ -5,6 +5,7 @@ import {
   extractAccountIdFromClaims,
   extractAccountId,
   formatOAuthFailure,
+  hasCodexOAuthGpt55Limit,
   shouldKeepCodexOAuthModel,
   type IdTokenClaims,
 } from "../../src/plugin/codex"
@@ -144,6 +145,20 @@ describe("plugin.codex", () => {
     })
   })
 
+  describe("hasCodexOAuthGpt55Limit", () => {
+    test("matches GPT-5.5 API ids and explicit variants", () => {
+      expect(hasCodexOAuthGpt55Limit("gpt-5.5")).toBe(true)
+      expect(hasCodexOAuthGpt55Limit("gpt-5.5-codex")).toBe(true)
+      expect(hasCodexOAuthGpt55Limit("gpt-5.5-mini")).toBe(true)
+    })
+
+    test("does not match unrelated future models", () => {
+      expect(hasCodexOAuthGpt55Limit("gpt-5.50")).toBe(false)
+      expect(hasCodexOAuthGpt55Limit("chatgpt-5.5")).toBe(false)
+      expect(hasCodexOAuthGpt55Limit("gpt-5.6")).toBe(false)
+    })
+  })
+
   describe("CodexAuthPlugin", () => {
     test("overrides GPT-5.5 limits for OAuth Codex plans", async () => {
       const provider = {
@@ -164,6 +179,13 @@ describe("plugin.codex", () => {
           },
         },
       }
+
+      expect(provider.models["gpt-5.5"].limit).toEqual({
+        context: 1_050_000,
+        input: 922_000,
+        output: 128_000,
+      })
+
       const hooks = await CodexAuthPlugin({
         client: {} as never,
         project: {} as never,
