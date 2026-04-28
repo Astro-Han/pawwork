@@ -2607,6 +2607,40 @@ describe("ProviderTransform.variants", () => {
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
     })
+
+    test("keeps DeepSeek v3 excluded and returns max effort for v4 and later", () => {
+      const v3 = createMockModel({
+        id: "custom-provider/deepseek-v3.2",
+        providerID: "custom-provider",
+        api: {
+          id: "deepseek/deepseek-v3.2",
+          url: "https://api.custom.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+      const v4 = createMockModel({
+        id: "custom-provider/deepseek-v4-pro",
+        providerID: "custom-provider",
+        api: {
+          id: "deepseek/deepseek-v4-pro",
+          url: "https://api.custom.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+      const v5 = createMockModel({
+        id: "custom-provider/deepseek-v5",
+        providerID: "custom-provider",
+        api: {
+          id: "deepseek/deepseek-v5",
+          url: "https://api.custom.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+
+      expect(ProviderTransform.variants(v3)).toEqual({})
+      expect(Object.keys(ProviderTransform.variants(v4))).toEqual(["low", "medium", "high", "max"])
+      expect(Object.keys(ProviderTransform.variants(v5))).toEqual(["low", "medium", "high", "max"])
+    })
   })
 
   describe("@ai-sdk/azure", () => {

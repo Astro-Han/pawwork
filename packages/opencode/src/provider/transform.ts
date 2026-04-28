@@ -437,6 +437,12 @@ function anthropicAdaptiveEfforts(apiId: string): string[] | null {
   return null
 }
 
+function deepseekMajorVersion(apiId: string): number | undefined {
+  const match = apiId.toLowerCase().match(/deepseek-v(\d+)/)
+  if (!match) return undefined
+  return Number.parseInt(match[1]!, 10)
+}
+
 export function variants(model: Provider.Model): Record<string, Record<string, any>> {
   if (!model.capabilities.reasoning) return {}
 
@@ -571,12 +577,14 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     // https://v5.ai-sdk.dev/providers/ai-sdk-providers/deepinfra
     case "venice-ai-sdk-provider":
     // https://docs.venice.ai/overview/guides/reasoning-models#reasoning-effort
-    case "@ai-sdk/openai-compatible":
+    case "@ai-sdk/openai-compatible": {
       const efforts = [...WIDELY_SUPPORTED_EFFORTS]
-      if (model.api.id.includes("deepseek-v4")) {
+      const deepseekMajor = deepseekMajorVersion(model.api.id)
+      if (deepseekMajor !== undefined && deepseekMajor >= 4) {
         efforts.push("max")
       }
       return Object.fromEntries(efforts.map((effort) => [effort, { reasoningEffort: effort }]))
+    }
 
     case "@ai-sdk/azure":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/azure
@@ -752,7 +760,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
         ]),
       )
 
-    case "@ai-sdk/mistral":
+    case "@ai-sdk/mistral": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/mistral
       // https://docs.mistral.ai/capabilities/reasoning/adjustable
       if (!model.capabilities.reasoning) return {}
@@ -762,12 +770,13 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
       return {
         high: { reasoningEffort: "high" },
       }
+    }
 
     case "@ai-sdk/cohere":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/cohere
       return {}
 
-    case "@ai-sdk/groq":
+    case "@ai-sdk/groq": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/groq
       const groqEffort = ["none", ...WIDELY_SUPPORTED_EFFORTS]
       return Object.fromEntries(
@@ -778,6 +787,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
           },
         ]),
       )
+    }
 
     case "@ai-sdk/perplexity":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/perplexity
