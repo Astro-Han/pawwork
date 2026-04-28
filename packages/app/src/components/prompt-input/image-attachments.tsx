@@ -49,7 +49,7 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                   <Icon name="close" class="size-3 text-text-weak" />
                 </button>
                 <div class={nameClass}>
-                  <span class="text-10-regular text-white truncate block">{attachment.filename}</span>
+                  <span class="text-13-regular text-white truncate block">{attachment.filename}</span>
                 </div>
               </div>
             </Tooltip>

@@ -283,7 +283,7 @@ export const SettingsGeneral: Component = () => {
           title={
             <div class="flex items-center gap-2">
               <span>{language.t("settings.general.webSearch.title")}</span>
-              <span class="text-11-regular text-text-weaker rounded px-1.5 py-0.5 bg-surface-weak-base">
+              <span class="text-13-regular text-text-weaker rounded px-1.5 py-0.5 bg-surface-weak-base">
                 {webSearchChipText()}
               </span>
             </div>
@@ -292,17 +292,17 @@ export const SettingsGeneral: Component = () => {
             <>
               <span>{language.t("settings.general.webSearch.description")}</span>
               {webSearchStatus()?.source === "saved" && webSearchStatus()?.quotaExceeded && (
-                <span class="block pt-1 text-11-regular text-text-weaker">
+                <span class="block pt-1 text-13-regular text-text-weaker">
                   {language.t("settings.general.webSearch.secondary.savedQuota")}
                 </span>
               )}
               {webSearchStatus()?.source === "saved" && webSearchStatus()?.needsAttention && (
-                <span class="block pt-1 text-11-regular text-text-weaker">
+                <span class="block pt-1 text-13-regular text-text-weaker">
                   {language.t("settings.general.webSearch.secondary.failed")}
                 </span>
               )}
               {webSearchStatus()?.source === "anonymous" && webSearchStatus()?.quotaExceeded && (
-                <span class="block pt-1 text-11-regular text-text-weaker">
+                <span class="block pt-1 text-13-regular text-text-weaker">
                   {language.t("settings.general.webSearch.secondary.exhausted")}
                 </span>
               )}

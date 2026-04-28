@@ -306,7 +306,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                         versionClass="text-13-regular text-text-weak truncate"
                         badge={
                           <Show when={key === defaultServer.key()}>
-                            <span class="text-11-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
+                            <span class="text-13-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
                               {language.t("common.default")}
                             </span>
                           </Show>

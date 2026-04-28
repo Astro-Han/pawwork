@@ -175,7 +175,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
 
   return (
     <div class="flex flex-col">
-      <div class="text-11-medium uppercase tracking-wide text-text-weaker px-4 py-3 pb-1">
+      <div class="text-13-medium uppercase tracking-wide text-text-weaker px-4 py-3 pb-1">
         {language.t("status.connections.title")}
       </div>
 
@@ -242,7 +242,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
                   />
                   <span class="text-13-regular text-text-base truncate min-w-0">{name}</span>
                   <Show when={label()}>
-                    <span class="text-11-regular text-text-weaker ml-auto">{label()}</span>
+                    <span class="text-13-regular text-text-weaker ml-auto">{label()}</span>
                   </Show>
                 </div>
               )

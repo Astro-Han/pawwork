@@ -299,7 +299,7 @@ export function SessionContextTab() {
             <div class="flex flex-wrap gap-x-3 gap-y-1">
               <For each={breakdown()}>
                 {(segment) => (
-                  <div class="flex items-center gap-1 text-11-regular text-text-weak">
+                  <div class="flex items-center gap-1 text-13-regular text-text-weak">
                     <div class="size-2 rounded-sm" style={{ "background-color": BREAKDOWN_COLOR[segment.key] }} />
                     <div>{breakdownLabel(segment.key)}</div>
                     <div class="text-text-weaker">{segment.percent.toLocaleString(language.intl())}%</div>
@@ -307,7 +307,7 @@ export function SessionContextTab() {
                 )}
               </For>
             </div>
-            <div class="hidden text-11-regular text-text-weaker">{language.t("context.breakdown.note")}</div>
+            <div class="hidden text-13-regular text-text-weaker">{language.t("context.breakdown.note")}</div>
           </div>
         </Show>
 

@@ -298,12 +298,12 @@ export const PawworkSidebar = (props: {
             <nav class="flex flex-col gap-0.5">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
-                  <div class="px-2 pb-1 text-11-medium text-text-weak">{language.t("sidebar.pawwork.pinned")}</div>
+                  <div class="px-2 pb-1 text-13-medium text-text-weak">{language.t("sidebar.pawwork.pinned")}</div>
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
               <div class="mt-3 flex items-center justify-between pr-2 pl-2">
-                <span class="text-11-medium text-text-weak">{language.t("sidebar.pawwork.all")}</span>
+                <span class="text-13-medium text-text-weak">{language.t("sidebar.pawwork.all")}</span>
                 <button
                   type="button"
                   data-action="pawwork-sort-mode"
@@ -328,7 +328,7 @@ export const PawworkSidebar = (props: {
                 <For each={groupedRows()}>
                   {(group) => (
                     <section class="flex flex-col gap-0.5">
-                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-1 text-11-medium font-mono text-text-weak">
+                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-1 text-13-medium font-mono text-text-weak">
                         {group.label}
                       </div>
                       <For each={group.items}>{(item) => renderSessionItem({ item })}</For>

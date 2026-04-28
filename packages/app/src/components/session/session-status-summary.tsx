@@ -13,7 +13,7 @@ const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
 function Section(props: { title: string; children: JSX.Element }) {
   return (
     <div class="flex flex-col gap-2 px-4 py-3">
-      <div class="text-11-medium uppercase tracking-wide text-text-weaker">{props.title}</div>
+      <div class="text-13-medium uppercase tracking-wide text-text-weaker">{props.title}</div>
       {props.children}
     </div>
   )
