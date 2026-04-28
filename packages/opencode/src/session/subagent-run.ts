@@ -278,8 +278,43 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Session.Service> =
         ),
       )
 
-    const recordRejected = (_input: RejectedInput): Effect.Effect<MessageV2.SubtaskPart> =>
-      Effect.die(new Error("SubagentRun.recordRejected: implemented in Task 11"))
+    const recordRejected = (input: RejectedInput): Effect.Effect<MessageV2.SubtaskPart> =>
+      withWriter(
+        Effect.gen(function* () {
+          const partID = PartIDNs.ascending() as PartID
+          const now = Date.now()
+          const part = {
+            type: "subtask" as const,
+            id: partID,
+            sessionID: input.parent_session_id,
+            messageID: input.parent_message_id,
+            prompt: input.prompt,
+            description: input.description,
+            agent: input.agent,
+            model: input.model,
+            command: input.command,
+            tool_call_id: input.tool_call_id,
+            parent_session_id: input.parent_session_id,
+            parent_message_id: input.parent_message_id,
+            subagent_session_id: undefined,
+            status: "failed" as const,
+            started_at: now,
+            updated_at: now,
+            ended_at: now,
+            recent_events: [
+              { type: "started" as const, at: now },
+              { type: "failed" as const, kind: "too_many_active", at: now },
+            ],
+            error: { kind: "too_many_active", message: input.reason },
+          } satisfies MessageV2.SubtaskPart
+          partsByToolCall.set(input.tool_call_id, {
+            sessionID: input.parent_session_id,
+            messageID: input.parent_message_id,
+            partID,
+          })
+          return yield* session.updatePart(part)
+        }),
+      )
 
     const setConsumed = (toolCallID: string): Effect.Effect<void> =>
       withWriter(

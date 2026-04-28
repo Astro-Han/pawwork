@@ -160,6 +160,49 @@ describe("SubtaskPart backward compat", () => {
     })
   })
 
+  test("recordRejected writes a failed SubtaskPart with too_many_active error", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const program = Effect.gen(function* () {
+          const svc = yield* SubagentRun.Service
+          const session = yield* Session.Service
+          const parent = yield* session.create({})
+          const msg = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: parent.id,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          })
+          const part = yield* svc.recordRejected({
+            parent_session_id: parent.id,
+            parent_message_id: msg.id,
+            tool_call_id: "call_rej",
+            description: "review",
+            prompt: "hi",
+            agent: "build",
+            subagent_type: "reviewer",
+            model: ref,
+            reason: "Wait or reduce dispatch.",
+          })
+          expect(part.status).toBe("failed")
+          expect(part.error?.kind).toBe("too_many_active")
+          expect(part.error?.message).toBe("Wait or reduce dispatch.")
+          expect(part.subagent_session_id).toBeUndefined()
+          expect(part.recent_events.map((e) => e.type)).toEqual(["started", "failed"])
+        })
+        await Effect.runPromise(
+          program.pipe(
+            Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer)),
+          ),
+        )
+      },
+    })
+  })
+
   test("rejects direct Session.updatePart writes that mutate lifecycle fields", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
