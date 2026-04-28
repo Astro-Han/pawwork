@@ -79,6 +79,8 @@ export const AgentTool = Tool.define(
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
+          createdByAgentTool: true,
+          subagentType: params.subagent_type,
           permission: [
             ...(canTodo
               ? []

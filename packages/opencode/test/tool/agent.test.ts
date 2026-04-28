@@ -274,6 +274,40 @@ describe("tool.agent", () => {
     ),
   )
 
+  it.live("execute marks new child sessions with createdByAgentTool and subagentType", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const result = yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps, bypassAgentCheck: true },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const child = yield* sessions.get(result.metadata.sessionId)
+        expect(child.createdByAgentTool).toBe(true)
+        expect(child.subagentType).toBe("general")
+      }),
+    ),
+  )
+
   it.live("execute creates a child when subagent_session_id does not exist", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
