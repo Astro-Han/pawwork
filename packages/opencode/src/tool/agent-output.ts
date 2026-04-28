@@ -25,6 +25,14 @@ const formatResult = (p: MessageV2.SubtaskPart): string => {
       `error.message: ${p.error?.message ?? ""}`,
     ].join("\n")
   }
+  if (p.status === "canceled_by_user") {
+    // Prefix with the terminal state so the model never mistakes a cancellation for a normal
+    // completion. Body still surfaces partial output when the runner captured it.
+    return [
+      `status: canceled_by_user`,
+      p.partial_result ? `partial_result:\n${p.partial_result}` : `(no partial output)`,
+    ].join("\n")
+  }
   if (p.status === "completed_empty") return "status: completed_empty\n(no output)"
   return p.result_text ?? p.partial_result ?? ""
 }
