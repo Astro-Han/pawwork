@@ -449,6 +449,16 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
             output: 0,
             cache: { read: 0, write: 0 },
           }
+
+          // GPT-5.5 has a smaller effective window when routed through Codex OAuth.
+          if (model.id.includes("gpt-5.5")) {
+            model.limit = {
+              context: 400_000,
+              // @ts-expect-error Provider SDK v1 model limits do not type input, but opencode uses it for compaction.
+              input: 272_000,
+              output: 128_000,
+            }
+          }
         }
 
         return {

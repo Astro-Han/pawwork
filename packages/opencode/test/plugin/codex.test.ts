@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  CodexAuthPlugin,
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
@@ -140,6 +141,60 @@ describe("plugin.codex", () => {
       expect(shouldKeepCodexOAuthModel("gpt-5.3", "gpt-5.3")).toBe(false)
       expect(shouldKeepCodexOAuthModel("gpt-4.1", "gpt-4.1")).toBe(false)
       expect(shouldKeepCodexOAuthModel("custom-model", "custom-model")).toBe(false)
+    })
+  })
+
+  describe("CodexAuthPlugin", () => {
+    test("overrides GPT-5.5 limits for OAuth Codex plans", async () => {
+      const provider = {
+        models: {
+          "gpt-5.5": {
+            id: "gpt-5.5",
+            api: { id: "gpt-5.5" },
+            cost: {
+              input: 2,
+              output: 8,
+              cache: { read: 1, write: 2 },
+            },
+            limit: {
+              context: 1_050_000,
+              input: 922_000,
+              output: 128_000,
+            },
+          },
+        },
+      }
+      const hooks = await CodexAuthPlugin({
+        client: {} as never,
+        project: {} as never,
+        directory: "",
+        worktree: "",
+        experimental_workspace: {
+          register() {},
+        },
+      } as never)
+
+      await hooks.auth!.loader!(
+        async () =>
+          ({
+            type: "oauth",
+            access: "access",
+            refresh: "refresh",
+            expires: Date.now() + 60_000,
+          }) as never,
+        provider as never,
+      )
+
+      expect(provider.models["gpt-5.5"].limit).toEqual({
+        context: 400_000,
+        input: 272_000,
+        output: 128_000,
+      })
+      expect(provider.models["gpt-5.5"].cost).toEqual({
+        input: 0,
+        output: 0,
+        cache: { read: 0, write: 0 },
+      })
     })
   })
 
