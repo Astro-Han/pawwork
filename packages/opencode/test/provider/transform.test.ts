@@ -118,6 +118,24 @@ describe("ProviderTransform.options - setCacheKey", () => {
     })
     expect(result.store).toBe(true)
   })
+
+  test("should disable tool streaming for google vertex anthropic provider", () => {
+    const vertexAnthropicModel = {
+      ...mockModel,
+      providerID: "google-vertex-anthropic",
+      api: {
+        id: "claude-sonnet-4@20250514",
+        url: "https://us-central1-aiplatform.googleapis.com",
+        npm: "@ai-sdk/google-vertex/anthropic",
+      },
+    }
+    const result = ProviderTransform.options({
+      model: vertexAnthropicModel,
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.toolStreaming).toBe(false)
+  })
 })
 
 describe("ProviderTransform.options - zai/zhipuai thinking", () => {
