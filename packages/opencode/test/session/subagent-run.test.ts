@@ -203,6 +203,70 @@ describe("SubtaskPart backward compat", () => {
     })
   })
 
+  test("slot mutex serializes reservations and releases under sequential dispatch", async () => {
+    // The slot semaphore is a Semaphore.makeUnsafe(1) per parent. Lock-ordering
+    // invariant: slot mutex is acquired BEFORE per-row mutex everywhere; row mutex
+    // operations never call back into reserveSlot. This test asserts that 5 sequential
+    // reservations + 1 cap rejection + interleaved releases never deadlock the service.
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const program = Effect.gen(function* () {
+          const svc = yield* SubagentRun.Service
+          const session = yield* Session.Service
+          const parent = yield* session.create({})
+          const msg = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: parent.id,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          })
+
+          // Reserve 5 slots and start a row for each. Row writes (start) acquire the
+          // per-row mutex; if start ever called back into reserveSlot, this loop would
+          // deadlock on iteration 6 (since slot is held while waiting for row, and
+          // row would wait for slot).
+          for (let i = 0; i < 5; i++) {
+            yield* svc.reserveSlot(parent.id)
+            yield* svc.start({
+              parent_session_id: parent.id,
+              parent_message_id: msg.id,
+              tool_call_id: `call_lock_${i}`,
+              description: `dispatch ${i}`,
+              prompt: "x",
+              agent: "build",
+              subagent_type: "reviewer",
+              model: ref,
+            })
+          }
+
+          // 6th reservation is rejected.
+          const sixth = yield* svc.reserveSlot(parent.id).pipe(Effect.flip)
+          expect(sixth._tag).toBe("TooManyActive")
+
+          // Release all 5 slots, then re-reserve to confirm the slot count is back to
+          // zero. Releases interleaved with reads of the row (read acquires no mutex
+          // but reads from the in-memory map populated by start) — proves no implicit
+          // dependency cycle.
+          for (let i = 0; i < 5; i++) {
+            yield* svc.read(`call_lock_${i}`)
+            yield* svc.releaseSlot(parent.id)
+          }
+          yield* svc.reserveSlot(parent.id)
+          yield* svc.releaseSlot(parent.id)
+        })
+        await Effect.runPromise(
+          program.pipe(
+            Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer)),
+          ),
+        )
+      },
+    })
+  })
+
   test("rejects direct Session.updatePart writes that mutate lifecycle fields", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({
