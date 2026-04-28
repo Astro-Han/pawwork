@@ -17,7 +17,9 @@ export const Parameters = Schema.Struct({
 })
 
 const formatElapsed = (ms: number): string => {
-  if (ms <= 0) return "0s"
+  // Negative durations imply clock skew (started_at in the future). Surface "-" so the
+  // anomaly is visible instead of silently rendered as 0s.
+  if (ms < 0) return "-"
   const s = Math.floor(ms / 1000)
   if (s < 3600) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`
   const h = Math.floor(s / 3600)
