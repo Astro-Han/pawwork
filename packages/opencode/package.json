@@ -115,7 +115,7 @@
     "@opencode-ai/sdk": "workspace:*",
     "@opencode-ai/core": "workspace:*",
     "@opencode-ai/util": "workspace:*",
-    "@openrouter/ai-sdk-provider": "2.5.1",
+    "@openrouter/ai-sdk-provider": "2.8.1",
     "@parcel/watcher": "2.5.1",
     "@pierre/diffs": "catalog:",
     "@solid-primitives/event-bus": "1.1.2",
