@@ -172,13 +172,19 @@ describe("tool.registry", () => {
       },
     })
 
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const ids = await ToolRegistry.ids()
-        expect(ids).toContain("cowsay")
-      },
-    })
+    const install = spyOn(Npm, "install").mockResolvedValue(undefined)
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const ids = await ToolRegistry.ids()
+          expect(ids).toContain("cowsay")
+        },
+      })
+    } finally {
+      install.mockRestore()
+    }
   })
 
   test("waits for config-scoped dependencies before importing local tools with bare imports", async () => {
