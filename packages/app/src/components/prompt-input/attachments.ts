@@ -41,7 +41,7 @@ function dataUrl(file: File, mime: string) {
       }
       const actual = header.slice("data:".length, -base64Marker.length).toLowerCase()
       const payload = value.slice(comma + 1)
-      if (!actual || !dataUrlMimeCompatible(actual, mime.toLowerCase()) || !isBase64Payload(payload)) {
+      if (!dataUrlMimeCompatible(actual, mime.toLowerCase()) || !isBase64Payload(payload)) {
         resolve("")
         return
       }

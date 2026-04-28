@@ -252,7 +252,7 @@ describe("createPromptAttachments", () => {
     expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
   })
 
-  test("rejects malformed FileReader data URLs", async () => {
+  test("accepts empty FileReader MIME when the routed MIME is known", async () => {
     fileReaderDataUrl = "data:;base64,aGVsbG8="
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
@@ -272,13 +272,21 @@ describe("createPromptAttachments", () => {
 
     const result = await attachments.addAttachment(new File(["image"], "image.png", { type: "image/png" }))
 
-    expect(result).toBe(false)
-    expect(promptParts).toHaveLength(0)
-    expect(toasts.map((toast) => toast.title)).toEqual(["prompt.toast.pasteUnsupported.title"])
+    expect(result).toBe(true)
+    expect(promptParts).toEqual([
+      {
+        type: "image",
+        id: expect.any(String),
+        filename: "image.png",
+        mime: "image/png",
+        dataUrl: "data:image/png;base64,aGVsbG8=",
+      },
+    ])
+    expect(toasts).toHaveLength(0)
   })
 
   test("reports direct attachment read failures in dropped file batches", async () => {
-    fileReaderDataUrl = "data:;base64,aGVsbG8="
+    fileReaderDataUrl = "data:;base64,not-base64"
     const attachments = createPromptAttachments({
       editor: () => ({}) as HTMLDivElement,
       isDialogActive: () => false,
