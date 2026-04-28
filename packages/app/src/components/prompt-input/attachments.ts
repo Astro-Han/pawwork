@@ -12,6 +12,7 @@ import { routeBrowserFile, routePickedPath, type AttachRoute, type ModelInputSup
 
 function dataUrlMimeCompatible(actual: string, expected: string) {
   if (actual === expected) return true
+  if (!actual || actual === "application/octet-stream") return true
   if (expected !== "text/plain") return false
   return textMime(actual)
 }
