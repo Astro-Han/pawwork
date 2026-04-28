@@ -38,26 +38,19 @@ export class SubagentRunGuardViolation extends Error {
  * last_activity / error arrays/objects with identical content is NOT rejected. Only genuine
  * lifecycle mutations trip the guard.
  *
+ * Caller contract: `existing` must be a real persisted part. First-write paths (no row yet)
+ * are allowed unconditionally upstream — Session.fork / migration / import need to seed
+ * historical lifecycle values without going through SubagentRun writers.
+ *
  * Limitation: JSON.stringify is order-sensitive (`{a:1,b:2}` vs `{b:2,a:1}` produce different
  * strings) and drops `undefined` values. This is acceptable here because lifecycle field shapes
  * are produced by SubagentRun writers with stable key order, and `undefined` lifecycle fields
- * are short-circuited above as "no change".
+ * compare equal to `undefined` on both sides.
  */
 export const lifecycleFieldsChanged = (
-  existing: Record<string, unknown> | undefined,
+  existing: Record<string, unknown>,
   next: Record<string, unknown>,
 ): boolean => {
-  if (!existing) {
-    // First write of this part. Reject only if the writer set a non-default lifecycle value.
-    for (const k of LIFECYCLE_KEYS) {
-      const v = next[k]
-      if (v === undefined) continue
-      if (k === "status" && v === "completed") continue
-      if (k === "recent_events" && Array.isArray(v) && v.length === 0) continue
-      return true
-    }
-    return false
-  }
   for (const k of LIFECYCLE_KEYS) {
     if (JSON.stringify(existing[k]) !== JSON.stringify(next[k])) return true
   }

@@ -525,9 +525,14 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
               messageID: part.messageID,
               partID: part.id,
             })
+            // Only police mutations: first writes (existing === undefined) are allowed so
+            // Session.fork() / migration / import paths can clone historical SubtaskParts with
+            // their persisted lifecycle values. Once a part exists, lifecycle fields are frozen
+            // for non-writers.
             if (
+              existing &&
               lifecycleFieldsChanged(
-                existing as unknown as Record<string, unknown> | undefined,
+                existing as unknown as Record<string, unknown>,
                 part as unknown as Record<string, unknown>,
               )
             ) {

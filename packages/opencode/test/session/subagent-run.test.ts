@@ -5,7 +5,7 @@ import { Instance } from "../../src/project/instance"
 import { Log } from "@opencode-ai/core/util/log"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID } from "../../src/session/schema"
-import type { SessionID } from "../../src/session/schema"
+import type { PartID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SubagentRun } from "../../src/session/subagent-run"
 import { tmpdir } from "../fixture/fixture"
@@ -257,6 +257,63 @@ describe("SubtaskPart backward compat", () => {
           }
           yield* svc.reserveSlot(parent.id)
           yield* svc.releaseSlot(parent.id)
+        })
+        await Effect.runPromise(
+          program.pipe(
+            Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer)),
+          ),
+        )
+      },
+    })
+  })
+
+  test("allows first-write of a SubtaskPart with persisted lifecycle values (Session.fork compatibility)", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const ref = { providerID: "anthropic" as ProviderID, modelID: "claude-3-5-sonnet" as ModelID }
+        const program = Effect.gen(function* () {
+          const session = yield* Session.Service
+          const parent = yield* session.create({})
+          const msg = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: parent.id,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          })
+          const partID = "prt_first_write" as PartID
+          const cloned: MessageV2.SubtaskPart = {
+            type: "subtask",
+            id: partID,
+            sessionID: parent.id,
+            messageID: msg.id,
+            prompt: "review me",
+            description: "review",
+            agent: "build",
+            model: ref,
+            tool_call_id: "call_fork_clone",
+            parent_session_id: parent.id,
+            parent_message_id: msg.id,
+            subagent_session_id: undefined,
+            status: "completed",
+            started_at: Date.now() - 1_000,
+            ended_at: Date.now(),
+            updated_at: Date.now(),
+            recent_events: [
+              { type: "started", at: Date.now() - 1_000 },
+              { type: "completed", at: Date.now() },
+            ],
+            result_text: "looks good",
+            result_summary: "looks good",
+          }
+          // Non-writer path (Session.fork replays parts via updatePart without
+          // SubagentRunWriterContext). Must succeed because this is a first write,
+          // not a lifecycle mutation of an existing row.
+          const exit = yield* session.updatePart(cloned).pipe(Effect.exit)
+          expect(exit._tag).toBe("Success")
         })
         await Effect.runPromise(
           program.pipe(
