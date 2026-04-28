@@ -57,10 +57,6 @@ export interface Interface {
   readonly start: (input: StartInput) => Effect.Effect<MessageV2.SubtaskPart>
   readonly patchSession: (toolCallID: string, sessionID: SessionID) => Effect.Effect<void>
   readonly recordEvent: (toolCallID: string, event: MessageV2.SubtaskEvent) => Effect.Effect<void>
-  readonly recordActivity: (
-    toolCallID: string,
-    activity: NonNullable<MessageV2.SubtaskPart["last_activity"]>,
-  ) => Effect.Effect<void>
   readonly finalize: (
     toolCallID: string,
     status: TerminalStatus,
@@ -90,6 +86,9 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@pawwork/SubagentRun") {}
 
+// Default cap on parallel subagent dispatches per parent. Picked to stay within typical
+// per-conversation token / context budgets while still letting parents fan out useful
+// work. Not currently configurable; promoting to Config is a v1.1 follow-up.
 const MAX_ACTIVE = 5
 
 export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
@@ -137,9 +136,12 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
 
     const releaseSlot = (parentID: SessionID): Effect.Effect<void> =>
       getSlotLock(parentID).withPermits(1)(
-        Effect.sync(() => {
+        Effect.gen(function* () {
           const current = activeCounts.get(parentID) ?? 0
-          if (current > 0) activeCounts.set(parentID, current - 1)
+          // Underflow is always a bug (release without matching reserve). Die so the invariant
+          // violation surfaces instead of silently clipping at 0 and hiding double-release.
+          if (current <= 0) return yield* Effect.die(new Error(`releaseSlot underflow for ${parentID}`))
+          activeCounts.set(parentID, current - 1)
         }),
       )
 
@@ -200,12 +202,15 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
             updated_at: now,
             recent_events: [{ type: "started" as const, at: now }],
           } satisfies MessageV2.SubtaskPart
+          const persisted = yield* session.updatePart(part)
+          // Index after persistence — if updatePart fails, the cache stays clean instead of
+          // pointing at a row that does not exist in storage.
           partsByToolCall.set(input.tool_call_id, {
             sessionID: input.parent_session_id,
             messageID: input.parent_message_id,
             partID,
           })
-          return yield* session.updatePart(part)
+          return persisted
         }),
       )
 
@@ -214,18 +219,6 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
         session.updatePart({
           ...existing,
           subagent_session_id: sessionID,
-          updated_at: Date.now(),
-        }).pipe(Effect.asVoid),
-      )
-
-    const recordActivity = (
-      toolCallID: string,
-      activity: NonNullable<MessageV2.SubtaskPart["last_activity"]>,
-    ): Effect.Effect<void> =>
-      withExistingPart(toolCallID, (existing) =>
-        session.updatePart({
-          ...existing,
-          last_activity: activity,
           updated_at: Date.now(),
         }).pipe(Effect.asVoid),
       )
@@ -252,11 +245,13 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
           // Hard cap: if all 20 entries are lifecycle and a 21st arrives, evict the oldest
           // lifecycle entry so SubtaskEvent.array().max(20) cannot be violated on next decode.
           while (merged.length > 20) merged.shift()
-          // Sort after eviction so chronological order is preserved across lifecycle/progress.
-          merged.sort((a, b) => a.at - b.at)
+          // Stable sort by timestamp, breaking ties on insertion order so events sharing
+          // `Date.now()` (e.g., recordRejected's `started`+`failed` pair) keep deterministic order.
+          const indexed = merged.map((e, i) => ({ e, i }))
+          indexed.sort((a, b) => a.e.at - b.e.at || a.i - b.i)
           yield* session.updatePart({
             ...existing,
-            recent_events: merged,
+            recent_events: indexed.map((x) => x.e),
             updated_at: Date.now(),
           })
         }),
@@ -312,12 +307,14 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
             ],
             error: { kind: "too_many_active", message: input.reason },
           } satisfies MessageV2.SubtaskPart
+          const persisted = yield* session.updatePart(part)
+          // Index after persistence — same rationale as `start`.
           partsByToolCall.set(input.tool_call_id, {
             sessionID: input.parent_session_id,
             messageID: input.parent_message_id,
             partID,
           })
-          return yield* session.updatePart(part)
+          return persisted
         }),
       )
 
@@ -408,7 +405,6 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
       start,
       patchSession,
       recordEvent,
-      recordActivity,
       finalize,
       recordRejected,
       setConsumed,
