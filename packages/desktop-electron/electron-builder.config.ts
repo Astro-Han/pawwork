@@ -52,7 +52,7 @@ async function writeLocalizedMacDisplayName(resourcesDir: string, channel: Chann
 }
 
 const getBase = (): Configuration => ({
-  artifactName: "pawwork-${os}-${arch}.${ext}",
+  artifactName: "pawwork-${os}-${arch}-${version}.${ext}",
   directories: {
     output: "dist",
     buildResources: "resources",

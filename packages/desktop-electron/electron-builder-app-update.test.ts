@@ -45,7 +45,7 @@ describe("electron builder app-update config", () => {
     const config = createConfig("prod")
     expect(config.productName).toBe("PawWork")
     expect(config.appId).toBe("ai.pawwork.desktop")
-    expect(config.artifactName).toBe("pawwork-${os}-${arch}.${ext}")
+    expect(config.artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
     expect(config.publish).toMatchObject({ owner: "Astro-Han", repo: "pawwork" })
     expect(createConfig("prod").mac?.extendInfo).toMatchObject({
       LSHasLocalizedDisplayName: true,

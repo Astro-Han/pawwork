@@ -21,18 +21,28 @@ type VerificationInput = {
 const DEFAULT_REPO = "Astro-Han/pawwork"
 const FETCH_TIMEOUT_MS = 15_000
 
-const REQUIRED_ASSETS = [
-  "pawwork-mac-arm64.dmg",
-  "pawwork-mac-arm64.zip",
-  "pawwork-mac-arm64.zip.blockmap",
-  "pawwork-mac-x64.dmg",
-  "pawwork-mac-x64.zip",
-  "pawwork-mac-x64.zip.blockmap",
-  "pawwork-win-x64.exe",
-  "pawwork-win-x64.exe.blockmap",
-  "latest.yml",
-  "latest-mac.yml",
-]
+export function releaseAssetNames(version: string) {
+  return [
+    `pawwork-mac-arm64-${version}.dmg`,
+    `pawwork-mac-arm64-${version}.zip`,
+    `pawwork-mac-arm64-${version}.zip.blockmap`,
+    `pawwork-mac-x64-${version}.dmg`,
+    `pawwork-mac-x64-${version}.zip`,
+    `pawwork-mac-x64-${version}.zip.blockmap`,
+    `pawwork-win-x64-${version}.exe`,
+    `pawwork-win-x64-${version}.exe.blockmap`,
+    "latest.yml",
+    "latest-mac.yml",
+  ]
+}
+
+function windowsUpdaterAsset(version: string) {
+  return `pawwork-win-x64-${version}.exe`
+}
+
+function macUpdaterAssets(version: string) {
+  return [`pawwork-mac-arm64-${version}.zip`, `pawwork-mac-x64-${version}.zip`]
+}
 
 export function parseUpdaterFileUrls(source: string) {
   const urls: string[] = []
@@ -170,23 +180,25 @@ export function verifyStartupLog(source: string, expectedTag: string) {
 export function verifyReleasePayload(input: VerificationInput) {
   const failures: string[] = []
   const assetNames = new Set(input.release.assets.map((asset) => asset.name))
+  const version = releaseVersion(input.release.tag_name)
 
   if (input.release.draft) failures.push(`Release ${input.release.tag_name} is still a draft`)
   if (input.release.prerelease) failures.push(`Release ${input.release.tag_name} is marked as a prerelease`)
 
-  for (const asset of REQUIRED_ASSETS) {
+  for (const asset of releaseAssetNames(version)) {
     if (!assetNames.has(asset)) failures.push(`Missing release asset: ${asset}`)
   }
 
   const latestUrls = input.latestYml === undefined ? [] : parseUpdaterFileUrls(input.latestYml)
   verifyReferencedAssets("latest.yml", latestUrls, assetNames, failures)
-  if (!hasUpdaterEntry(latestUrls, "pawwork-win-x64.exe")) {
-    failures.push("latest.yml does not include pawwork-win-x64.exe")
+  const winUpdaterAsset = windowsUpdaterAsset(version)
+  if (!hasUpdaterEntry(latestUrls, winUpdaterAsset)) {
+    failures.push(`latest.yml does not include ${winUpdaterAsset}`)
   }
 
   const latestMacUrls = input.latestMacYml === undefined ? [] : parseUpdaterFileUrls(input.latestMacYml)
   verifyReferencedAssets("latest-mac.yml", latestMacUrls, assetNames, failures)
-  for (const asset of ["pawwork-mac-arm64.zip", "pawwork-mac-x64.zip"]) {
+  for (const asset of macUpdaterAssets(version)) {
     if (!hasUpdaterEntry(latestMacUrls, asset)) failures.push(`latest-mac.yml does not include ${asset}`)
   }
 
