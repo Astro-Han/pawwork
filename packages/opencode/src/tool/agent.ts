@@ -35,16 +35,6 @@ export const Parameters = Schema.Struct({
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this dispatch" }),
 })
 
-const errorMessage = (e: unknown): string => {
-  if (e instanceof Error) return e.message
-  if (typeof e === "string") return e
-  try {
-    return JSON.stringify(e)
-  } catch {
-    return String(e)
-  }
-}
-
 const truncateHead = (s: string, n: number): string => (s.length <= n ? s : s.slice(0, n) + "…")
 
 const SANITIZE_LIMIT = 200
@@ -61,6 +51,24 @@ const sanitizeErrorMessage = (msg: string): string =>
     .replace(JSON_ENVELOPE_RE, "<json>")
     .slice(0, SANITIZE_LIMIT)
     .trim()
+
+// Sanitizes at the entry point so persisted SubtaskPart.error.message never contains raw stacks,
+// paths, or JSON envelopes — agent_output reads this field directly without re-sanitizing.
+const errorMessage = (e: unknown): string => {
+  const raw =
+    e instanceof Error
+      ? e.message
+      : typeof e === "string"
+        ? e
+        : (() => {
+            try {
+              return JSON.stringify(e)
+            } catch {
+              return String(e)
+            }
+          })()
+  return sanitizeErrorMessage(raw)
+}
 
 // TextPart in message-v2.ts has no explicit state field; completion is signaled by `time.end`.
 // Conservative default: returns false when `time` or `time.end` is missing → partial_result
@@ -327,13 +335,9 @@ export const AgentTool = Tool.define(
               return synthesizeOutput(part, nextSession.id)
             }
 
-            // Idempotent finalizer. **Source of truth for "child was interrupted" is
-            // `ops.wasInterrupted(child)`** — set by SessionRunState.onInterrupt firing on the
-            // child runner. Do NOT also OR with `ctx.abort.aborted`: a parent abort that lands
-            // AFTER ops.prompt's natural success but BEFORE this handler runs would otherwise
-            // relabel a completed run as canceled_by_user and lose the result_text. The pre-
-            // aborted short-circuit above already covers the case where parent aborted before
-            // ops.prompt was invoked at all.
+            // Idempotent finalizer. `wasInterrupted` is the source of truth for cancellation;
+            // do not OR with `ctx.abort.aborted` (it can flip after natural success and relabel
+            // completed runs as canceled).
             const finalizeAfter = (
               result: { kind: "ok"; r: MessageV2.WithParts } | { kind: "err"; error: unknown },
             ) =>
@@ -404,18 +408,20 @@ export const AgentTool = Tool.define(
             const finalPart = yield* subagentRun.read(ctx.callID!)
             return synthesizeOutput(finalPart, nextSession.id)
           }).pipe(
-            Effect.catch((error) =>
+            Effect.catchCause((cause) =>
               Effect.gen(function* () {
                 const current = yield* subagentRun
                   .read(ctx.callID!)
                   .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
                 if (current?.status === "running") {
                   yield* subagentRun.finalize(ctx.callID!, "failed", {
-                    error: { kind: "execution_error", message: errorMessage(error) },
+                    error: { kind: "execution_error", message: errorMessage(cause) },
                     ended_at: Date.now(),
                   })
                 }
-                return yield* Effect.fail(error)
+                // Re-fail with the original cause so stack, annotations, and parallel-error
+                // metadata are preserved instead of getting flattened into Effect.fail.
+                return yield* Effect.failCause(cause)
               }),
             ),
           )
