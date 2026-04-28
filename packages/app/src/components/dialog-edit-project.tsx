@@ -4,6 +4,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { useMutation } from "@tanstack/solid-query"
 import { Icon } from "@opencode-ai/ui/icon"
+import { showToast } from "@opencode-ai/ui/toast"
 import { createMemo, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -13,6 +14,8 @@ import { getFilename } from "@opencode-ai/util/path"
 import { IMAGE_EXTS, pathSuffix } from "@opencode-ai/util/file-extensions"
 import { Avatar } from "@opencode-ai/ui/avatar"
 import { useLanguage } from "@/context/language"
+
+const MAX_ICON_SIZE = 5 * 1024 * 1024
 
 const AVATAR_COLOR_KEYS = ["pink", "mint", "orange", "purple", "cyan", "lime"] as const
 
@@ -40,9 +43,23 @@ export function DialogEditProject(props: { project: LocalProject }) {
     const suffix = pathSuffix(file.name)
     const isImage = file.type.startsWith("image/") || IMAGE_EXTS.has(suffix)
     if (!isImage) return
+    if (file.size > MAX_ICON_SIZE) {
+      showToast({
+        title: language.t("dialog.project.edit.icon.tooLarge.title"),
+        description: language.t("dialog.project.edit.icon.tooLarge.description"),
+      })
+      return
+    }
     const reader = new FileReader()
     reader.onload = (e) => {
       setStore("iconUrl", e.target?.result as string)
+      setStore("iconHover", false)
+    }
+    reader.onerror = () => {
+      showToast({
+        title: language.t("dialog.project.edit.icon.readFailed.title"),
+        description: language.t("dialog.project.edit.icon.readFailed.description"),
+      })
       setStore("iconHover", false)
     }
     reader.readAsDataURL(file)
