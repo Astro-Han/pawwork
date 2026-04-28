@@ -242,29 +242,34 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
       "consumed",
     ])
 
+    // Append `event` to `existing` and apply ring eviction + stable sort. Shared by recordEvent,
+    // finalize, and setConsumed so every state transition lands in recent_events with consistent
+    // capping behavior. Lifecycle events (started / <terminal> / consumed) are never evicted in
+    // favor of progress events; if the ring is all lifecycle and overflows, the oldest lifecycle
+    // entry yields. Sort breaks ties on insertion index for deterministic ordering.
+    const appendLifecycleEvent = (
+      existing: ReadonlyArray<MessageV2.SubtaskEvent>,
+      event: MessageV2.SubtaskEvent,
+    ): MessageV2.SubtaskEvent[] => {
+      const merged = [...existing, event]
+      while (merged.length > 20) {
+        const idx = merged.findIndex((e) => !LIFECYCLE_KINDS.has(e.type))
+        if (idx < 0) break
+        merged.splice(idx, 1)
+      }
+      while (merged.length > 20) merged.shift()
+      const indexed = merged.map((e, i) => ({ e, i }))
+      indexed.sort((a, b) => a.e.at - b.e.at || a.i - b.i)
+      return indexed.map((x) => x.e)
+    }
+
     const recordEvent = (toolCallID: string, event: MessageV2.SubtaskEvent): Effect.Effect<void> =>
       withExistingPart(toolCallID, (existing) =>
-        Effect.gen(function* () {
-          const merged = [...existing.recent_events, event]
-          // First pass: prefer evicting non-lifecycle (progress) events from the front.
-          while (merged.length > 20) {
-            const idx = merged.findIndex((e) => !LIFECYCLE_KINDS.has(e.type))
-            if (idx < 0) break
-            merged.splice(idx, 1)
-          }
-          // Hard cap: if all 20 entries are lifecycle and a 21st arrives, evict the oldest
-          // lifecycle entry so SubtaskEvent.array().max(20) cannot be violated on next decode.
-          while (merged.length > 20) merged.shift()
-          // Stable sort by timestamp, breaking ties on insertion order so events sharing
-          // `Date.now()` (e.g., recordRejected's `started`+`failed` pair) keep deterministic order.
-          const indexed = merged.map((e, i) => ({ e, i }))
-          indexed.sort((a, b) => a.e.at - b.e.at || a.i - b.i)
-          yield* session.updatePart({
-            ...existing,
-            recent_events: indexed.map((x) => x.e),
-            updated_at: Date.now(),
-          })
-        }),
+        session.updatePart({
+          ...existing,
+          recent_events: appendLifecycleEvent(existing.recent_events, event),
+          updated_at: Date.now(),
+        }).pipe(Effect.asVoid),
       )
 
     const finalize = (
@@ -275,11 +280,20 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
       withExistingPart(toolCallID, (existing) =>
         Effect.gen(function* () {
           if (existing.status !== "running") return
+          const now = Date.now()
+          // Append the matching terminal event so recent_events records the actual transition
+          // (started → <terminal>) instead of leaving the ring stuck at "started".
+          const event: MessageV2.SubtaskEvent =
+            status === "failed"
+              ? { type: "failed", kind: fields.error?.kind ?? "unknown", at: now }
+              : { type: status, at: now }
+          const merged = appendLifecycleEvent(existing.recent_events, event)
           yield* session.updatePart({
             ...existing,
             status,
-            ended_at: fields.ended_at ?? Date.now(),
-            updated_at: Date.now(),
+            ended_at: fields.ended_at ?? now,
+            updated_at: now,
+            recent_events: merged,
             ...(fields.result_text !== undefined ? { result_text: fields.result_text } : {}),
             ...(fields.result_summary !== undefined ? { result_summary: fields.result_summary } : {}),
             ...(fields.partial_result !== undefined ? { partial_result: fields.partial_result } : {}),
@@ -332,10 +346,13 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
       withExistingPart(toolCallID, (existing) =>
         Effect.gen(function* () {
           if (existing.consumed_at) return
+          const now = Date.now()
+          const merged = appendLifecycleEvent(existing.recent_events, { type: "consumed", at: now })
           yield* session.updatePart({
             ...existing,
-            consumed_at: Date.now(),
-            updated_at: Date.now(),
+            consumed_at: now,
+            updated_at: now,
+            recent_events: merged,
           })
         }),
       )
