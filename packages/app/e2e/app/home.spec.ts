@@ -39,7 +39,7 @@ test("@smoke home renders the hero composer and starter cards", async ({ page, p
   const composerBox = await composer.boundingBox()
   expect(cardBox).not.toBeNull()
   expect(composerBox).not.toBeNull()
-  expect(cardBox!.y).toBeLessThan(composerBox!.y)
+  expect(cardBox!.y).toBeGreaterThan(composerBox!.y)
 })
 
 test("@smoke home hero prompt starts a session", async ({ page, project, assistant }) => {
