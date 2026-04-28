@@ -28,7 +28,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
           </div>
         </Show>
 
-        <div class="mt-6 flex w-fit max-w-[640px] flex-wrap items-center justify-center gap-2">
+        <div class="mt-6 flex w-fit max-w-[640px] flex-wrap items-center justify-center gap-3">
           <For each={pawworkSkillCards}>
             {(card) => {
               const isSelected = () => mode() === "normal" && selectedSkill() === card.name
@@ -38,7 +38,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   data-skill-card={card.name}
                   aria-pressed={isSelected()}
                   classList={{
-                    "inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-13-regular transition-colors": true,
+                    "inline-flex h-7 items-center gap-1.5 rounded-xl border px-3 text-13-regular transition-colors": true,
                     "border-border-strong-base bg-transparent text-text-base hover:bg-surface-base-hover":
                       !isSelected(),
                     "border-border-interactive-base bg-surface-interactive-weak text-text-strong":
@@ -46,20 +46,13 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   }}
                   onClick={() => toggleSkill(card.name)}
                 >
-                  <Icon
-                    name={card.homeIcon}
-                    size="small"
-                    class={`shrink-0 ${card.homeIconClass ?? ""}`}
-                    style={card.homeIconStyle}
-                  />
+                  <Icon name={card.homeIcon} size="small" class="shrink-0 text-icon-weak" />
                   <span class="truncate">{language.t(card.titleKey)}</span>
                 </button>
               )
             }}
           </For>
         </div>
-
-        <p class="mt-6 text-13-regular text-text-weaker">{language.t("session.new.reassurance")}</p>
       </div>
     </div>
   )
