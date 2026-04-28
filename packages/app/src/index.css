@@ -38,11 +38,11 @@
     --shell-titlebar-height: 44px;
     --shell-frame-margin: 12px;
     --shell-frame-radius: 12px;
-    --shell-background-base: #F8F7F6;
-    --shell-background-weak: #F0EFEE;
-    --shell-surface-base: #FAF9F9;
-    --shell-surface-raised: #F8F7F7;
-    --shell-surface-strong: #FCFBFB;
+    --shell-background-base: #FFFFFF;
+    --shell-background-weak: #F9F9F9;
+    --shell-surface-base: #F9F9F9;
+    --shell-surface-raised: #F9F9F9;
+    --shell-surface-strong: #FFFFFF;
     --shell-border-base: #D6D2CA;
     --shell-border-weak: #E3DED6;
     --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.72), transparent 52%);
@@ -59,11 +59,11 @@
   }
 
   :root[data-color-scheme="dark"] [data-component="desktop-shell"][data-platform="desktop"] {
-    --shell-background-base: #1E2128;
-    --shell-background-weak: #181A20;
-    --shell-surface-base: #23252C;
-    --shell-surface-raised: #25272E;
-    --shell-surface-strong: #2A2C34;
+    --shell-background-base: #212121;
+    --shell-background-weak: #181818;
+    --shell-surface-base: #181818;
+    --shell-surface-raised: #181818;
+    --shell-surface-strong: #212121;
     --shell-border-base: #2F323A;
     --shell-border-weak: #23252A;
     --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.04), transparent 52%);
@@ -78,23 +78,19 @@
     --accent-brand: #ff5910;
     --accent-brand-hover: #e04e0e;
     --accent-brand-on: #ffffff;
-    --sidebar: #FAF9F9;
+    --sidebar: #F9F9F9;
   }
 
   :root[data-color-scheme="dark"] {
     --accent-brand: #ff5910;
     --accent-brand-hover: #ff7a3a;
     --accent-brand-on: #ffffff;
-    --sidebar: #23252A;
+    --sidebar: #181818;
   }
 
   [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"] {
     padding-inline: 8px;
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--shell-surface-raised) 84%, white 16%) 0%,
-      var(--shell-surface-raised) 100%
-    );
+    background: var(--shell-surface-raised);
     border-bottom: 1px solid var(--shell-titlebar-border);
   }
 

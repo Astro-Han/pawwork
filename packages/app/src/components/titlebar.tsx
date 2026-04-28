@@ -88,7 +88,7 @@ export function Titlebar() {
       data-component="titlebar-shell"
       data-platform={platform.platform}
       data-os={platform.os}
-      class="shrink-0 bg-background-base relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
+      class="shrink-0 relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
       classList={{ "h-11": platform.platform === "desktop" && !mac() }}
       style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}
       data-shell-drag-region={!windows() || undefined}
