@@ -397,7 +397,19 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
         const matches = all.filter((p) => p.subagent_session_id === subagentSessionID)
         if (matches.length === 0) return yield* Effect.fail(new NotFound(subagentSessionID))
         matches.sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
-        return matches[0]
+        const match = matches[0]
+        // Refresh the in-memory index so subsequent `setConsumed` / `recordEvent` on this row
+        // hit the fast path. Without this, `agent_output` finding a row by subagent_session_id
+        // after a host restart would fail to mark it consumed (withExistingPart's NotFound
+        // no-op path swallows the mutation).
+        if (match.tool_call_id) {
+          partsByToolCall.set(match.tool_call_id, {
+            sessionID: match.sessionID,
+            messageID: match.messageID,
+            partID: match.id,
+          })
+        }
+        return match
       })
 
     const list = (
