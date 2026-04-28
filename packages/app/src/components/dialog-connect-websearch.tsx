@@ -258,7 +258,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
                   autocapitalize="off"
                   spellcheck={false}
                 />
-                <div class="text-12-regular text-text-weak">
+                <div class="text-13-regular text-text-weak">
                   {language.t(
                     status()?.quotaExceeded ? "dialog.websearch.status.exhausted" : "dialog.websearch.status.bundled",
                   )}
@@ -273,7 +273,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
                     {language.t("dialog.websearch.action.save")}
                   </Button>
                   <Show when={!saving()}>
-                    <div class="text-12-regular text-text-weak">
+                    <div class="text-13-regular text-text-weak">
                       <Link href="https://exa.ai">{language.t("dialog.websearch.help.getKey")}</Link>
                     </div>
                   </Show>

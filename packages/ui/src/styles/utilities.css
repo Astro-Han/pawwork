@@ -43,7 +43,7 @@
   text-align: left;
 }
 
-.text-12-regular {
+.text-13-regular {
   font-family: var(--font-family-sans);
   font-size: var(--font-size-small);
   font-style: normal;
@@ -52,7 +52,7 @@
   letter-spacing: var(--letter-spacing-normal);
 }
 
-.text-12-medium {
+.text-13-medium {
   font-family: var(--font-family-sans);
   font-size: var(--font-size-small);
   font-style: normal;
@@ -61,7 +61,7 @@
   letter-spacing: var(--letter-spacing-normal);
 }
 
-.text-12-mono {
+.text-13-mono {
   font-family: var(--font-family-mono);
   font-feature-settings: var(--font-feature-settings-mono);
   font-size: var(--font-size-small);
@@ -108,11 +108,29 @@
   letter-spacing: var(--letter-spacing-tight);
 }
 
+.text-16-regular {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-large);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-x-large); /* 150% */
+  letter-spacing: var(--letter-spacing-tight);
+}
+
 .text-20-medium {
   font-family: var(--font-family-sans);
   font-size: var(--font-size-x-large);
   font-style: normal;
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-x-large); /* 120% */
+  letter-spacing: var(--letter-spacing-tightest);
+}
+
+.text-28-regular {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-2x-large);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-x-large); /* 120% — tune in dev:desktop if needed */
   letter-spacing: var(--letter-spacing-tightest);
 }

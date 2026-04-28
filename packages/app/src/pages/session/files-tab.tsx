@@ -65,13 +65,13 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
 
     if (!TEXT_PREVIEW_EXTENSIONS.has(ext) && !IMAGE_EXTENSIONS.has(ext)) {
       return (
-        <div class="text-12-regular text-text-weak">
+        <div class="text-13-regular text-text-weak">
           {OFFICE_EXTENSIONS.has(ext) ? entry.file : language.t("session.files.binaryContent")}
         </div>
       )
     }
 
-    if (state?.loading) return <div class="text-12-regular text-text-weak">{language.t("common.loading")}...</div>
+    if (state?.loading) return <div class="text-13-regular text-text-weak">{language.t("common.loading")}...</div>
     if (!content) return null
 
     if (IMAGE_EXTENSIONS.has(ext) || content.mimeType?.startsWith("image/")) {
@@ -89,7 +89,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
     }
 
     if (content.type !== "text") {
-      return <div class="text-12-regular text-text-weak">{language.t("session.files.binaryContent")}</div>
+      return <div class="text-13-regular text-text-weak">{language.t("session.files.binaryContent")}</div>
     }
 
     return (
@@ -131,7 +131,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
                     <FileIcon node={{ path: entry.path, type: "file" }} class="shrink-0 mt-0.5" />
                     <div class="min-w-0 flex-1">
                       <div class="text-14-medium text-text-strong break-all">{entry.file}</div>
-                      <div class="mt-1 flex items-center gap-2 text-12-regular text-text-weak">
+                      <div class="mt-1 flex items-center gap-2 text-13-regular text-text-weak">
                         <span>{entry.kind === "added" ? "Added" : "Updated"}</span>
                         <span aria-hidden>•</span>
                         <span>{meta().exists ? formatSize(meta().size) : "Missing"}</span>
@@ -141,7 +141,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
 
                   <Switch>
                     <Match when={!meta().exists}>
-                      <div class="text-12-regular text-text-weak">File not found</div>
+                      <div class="text-13-regular text-text-weak">File not found</div>
                     </Match>
                     <Match when={true}>{preview(entry)}</Match>
                   </Switch>

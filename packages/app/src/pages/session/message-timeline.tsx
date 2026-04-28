@@ -918,7 +918,7 @@ export function MessageTimeline(props: {
                   <Button
                     variant="ghost"
                     size="large"
-                    class="text-12-medium opacity-50"
+                    class="text-13-medium opacity-50"
                     disabled={props.historyLoading}
                     onClick={props.onLoadEarlier}
                   >
@@ -967,7 +967,7 @@ export function MessageTimeline(props: {
                                     <Show when={comment()}>
                                       {(c) => (
                                         <div class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2">
-                                          <div class="flex items-center gap-1.5 min-w-0 text-11-medium text-text-strong">
+                                          <div class="flex items-center gap-1.5 min-w-0 text-13-medium text-text-strong">
                                             <FileIcon
                                               node={{ path: c().path, type: "file" }}
                                               class="size-3.5 shrink-0"
@@ -983,7 +983,7 @@ export function MessageTimeline(props: {
                                               )}
                                             </Show>
                                           </div>
-                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
+                                          <div class="pt-1 text-13-regular text-text-strong whitespace-pre-wrap break-words">
                                             {c().comment}
                                           </div>
                                         </div>

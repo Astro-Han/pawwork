@@ -122,14 +122,14 @@ export const DialogSelectMcp: Component = () => {
                 <div class="flex items-center gap-2">
                   <span class="truncate">{i.name}</span>
                   <Show when={statusLabel()}>
-                    <span class="text-11-regular text-text-weaker">{statusLabel()}</span>
+                    <span class="text-13-regular text-text-weaker">{statusLabel()}</span>
                   </Show>
                   <Show when={toggle.isPending && toggle.variables === i.name}>
-                    <span class="text-11-regular text-text-weak">{language.t("common.loading.ellipsis")}</span>
+                    <span class="text-13-regular text-text-weak">{language.t("common.loading.ellipsis")}</span>
                   </Show>
                 </div>
                 <Show when={error()}>
-                  <span class="text-11-regular text-text-weaker truncate">{error()}</span>
+                  <span class="text-13-regular text-text-weaker truncate">{error()}</span>
                 </Show>
               </div>
               <div onClick={(e) => e.stopPropagation()}>

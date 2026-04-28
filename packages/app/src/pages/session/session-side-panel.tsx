@@ -351,7 +351,7 @@ export function SessionSidePanel(props: {
                       <DropdownMenu.Item onSelect={() => openFilePicker(showAllFiles)}>
                         <Icon name="open-file" size="small" />
                         <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
-                        <span class="ml-auto text-12-regular text-text-weaker">{command.keybind("file.open")}</span>
+                        <span class="ml-auto text-13-regular text-text-weaker">{command.keybind("file.open")}</span>
                       </DropdownMenu.Item>
                       <Show when={closableMissingTabs().length > 0}>
                         <DropdownMenu.Separator />
@@ -362,7 +362,7 @@ export function SessionSidePanel(props: {
                               <DropdownMenu.ItemLabel>{tab.label}</DropdownMenu.ItemLabel>
                               <Show when={tab.keybind}>
                                 {(keybind) => (
-                                  <span class="ml-auto text-12-regular text-text-weaker">{keybind()}</span>
+                                  <span class="ml-auto text-13-regular text-text-weaker">{keybind()}</span>
                                 )}
                               </Show>
                             </DropdownMenu.Item>

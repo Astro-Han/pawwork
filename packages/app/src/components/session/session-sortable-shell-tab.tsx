@@ -26,7 +26,7 @@ export function ShellTab(props: {
         class="shrink-0 h-7"
         classes={{
           button:
-            "h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-12-medium text-text-weak gap-1.5 px-2.5",
+            "h-7 min-h-7 inline-flex items-center whitespace-nowrap rounded-md text-13-medium text-text-weak gap-1.5 px-2.5",
         }}
         closeButton={
           props.closable ? (

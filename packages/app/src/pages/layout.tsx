@@ -1755,7 +1755,7 @@ export default function Layout(props: ParentProps) {
             <span class="text-14-regular text-text-strong">
               {language.t("workspace.delete.confirm", { name: name() })}
             </span>
-            <span class="text-12-regular text-text-weak">{description()}</span>
+            <span class="text-13-regular text-text-weak">{description()}</span>
           </div>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
@@ -1829,7 +1829,7 @@ export default function Layout(props: ParentProps) {
             <span class="text-14-regular text-text-strong">
               {language.t("workspace.reset.confirm", { name: name() })}
             </span>
-            <span class="text-12-regular text-text-weak">
+            <span class="text-13-regular text-text-weak">
               {description()} {archivedLabel()} {language.t("workspace.reset.note")}
             </span>
           </div>
@@ -2210,7 +2210,7 @@ export default function Layout(props: ParentProps) {
                       transform: "translate3d(52px, 0, 0)",
                     }}
                   >
-                    <span class="text-12-regular text-text-base truncate select-text">
+                    <span class="text-13-regular text-text-base truncate select-text">
                       {worktree().replace(homedir(), "~")}
                     </span>
                   </Tooltip>

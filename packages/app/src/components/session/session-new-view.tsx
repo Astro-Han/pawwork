@@ -20,10 +20,15 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
   return (
     <div data-component="session-new-home" class="size-full overflow-y-auto">
       <div class="mx-auto flex w-full max-w-200 flex-col items-center px-6 pt-[28vh] pb-10 text-center md:px-8">
-        <h1 class="text-20-medium text-text-strong">{language.t("session.new.title")}</h1>
-        <p class="mt-3 text-14-regular text-text-weak">{language.t("session.new.subtitle")}</p>
+        <h1 class="text-28-regular text-text-strong">{language.t("session.new.title")}</h1>
 
-        <div class="mt-8 grid w-fit max-w-[640px] grid-cols-1 gap-3 sm:grid-cols-3">
+        <Show when={props.composer}>
+          <div class="mt-12 flex w-full max-w-[720px] flex-col items-center">
+            {props.composer!({ onModeChange: setMode, selectedSkill })}
+          </div>
+        </Show>
+
+        <div class="mt-6 flex w-fit max-w-[640px] flex-wrap items-center justify-center gap-3">
           <For each={pawworkSkillCards}>
             {(card) => {
               const isSelected = () => mode() === "normal" && selectedSkill() === card.name
@@ -33,32 +38,21 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   data-skill-card={card.name}
                   aria-pressed={isSelected()}
                   classList={{
-                    "flex items-center justify-center gap-2 rounded-full border px-6 py-3 transition-colors": true,
-                    "border-border-weaker-base bg-surface-base hover:border-border-weak-base hover:bg-surface-raised-base-hover":
+                    "inline-flex h-7 items-center gap-1.5 rounded-xl border px-3 text-13-regular transition-colors": true,
+                    "border-border-strong-base bg-transparent text-text-base hover:bg-surface-base-hover":
                       !isSelected(),
-                    "border-border-interactive-base bg-surface-raised-base shadow-sm": isSelected(),
+                    "border-border-interactive-base bg-surface-interactive-weak text-text-strong":
+                      isSelected(),
                   }}
                   onClick={() => toggleSkill(card.name)}
                 >
-                  <Icon
-                    name={card.homeIcon}
-                    size="normal"
-                    class={`shrink-0 ${card.homeIconClass ?? ""}`}
-                    style={card.homeIconStyle}
-                  />
-                  <span class="text-14-medium text-text-strong">{language.t(card.titleKey)}</span>
+                  <Icon name={card.homeIcon} size="small" class="shrink-0 text-icon-weak" />
+                  <span class="truncate">{language.t(card.titleKey)}</span>
                 </button>
               )
             }}
           </For>
         </div>
-
-        <Show when={props.composer}>
-          <div class="mt-8 flex w-full max-w-[720px] flex-col items-center">
-            {props.composer!({ onModeChange: setMode, selectedSkill })}
-          </div>
-        </Show>
-        <p class="mt-8 text-12-regular text-text-weaker">{language.t("session.new.reassurance")}</p>
       </div>
     </div>
   )

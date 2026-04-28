@@ -200,7 +200,7 @@ export const SettingsProviders: Component = () => {
                       </Show>
                     </div>
                     <Show when={note(item.id)}>
-                      {(key) => <span class="text-12-regular text-text-weak pl-8">{language.t(key())}</span>}
+                      {(key) => <span class="text-13-regular text-text-weak pl-8">{language.t(key())}</span>}
                     </Show>
                   </div>
                   <Button
@@ -227,7 +227,7 @@ export const SettingsProviders: Component = () => {
                   <span class="text-14-medium text-text-strong">{language.t("provider.custom.title")}</span>
                   <Tag>{language.t("settings.providers.tag.custom")}</Tag>
                 </div>
-                <span class="text-12-regular text-text-weak pl-8">
+                <span class="text-13-regular text-text-weak pl-8">
                   {language.t("settings.providers.custom.description")}
                 </span>
               </div>

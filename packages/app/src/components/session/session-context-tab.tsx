@@ -30,8 +30,8 @@ const BREAKDOWN_COLOR: Record<SessionContextBreakdownKey, string> = {
 function Stat(props: { label: string; value: JSX.Element }) {
   return (
     <div class="flex flex-col gap-1">
-      <div class="text-12-regular text-text-weak">{props.label}</div>
-      <div class="text-12-medium text-text-strong">{props.value}</div>
+      <div class="text-13-regular text-text-weak">{props.label}</div>
+      <div class="text-13-medium text-text-strong">{props.value}</div>
     </div>
   )
 }
@@ -73,7 +73,7 @@ function RawMessage(props: {
               {props.message.role} <span class="text-text-base">• {props.message.id}</span>
             </div>
             <div class="flex items-center gap-3">
-              <div class="shrink-0 text-12-regular text-text-weak">{props.time(props.message.time.created)}</div>
+              <div class="shrink-0 text-13-regular text-text-weak">{props.time(props.message.time.created)}</div>
               <Icon name="chevron-grabber-vertical" size="small" class="shrink-0 text-text-weak" />
             </div>
           </div>
@@ -282,7 +282,7 @@ export function SessionContextTab() {
 
         <Show when={breakdown().length > 0}>
           <div class="flex flex-col gap-2">
-            <div class="text-12-regular text-text-weak">{language.t("context.breakdown.title")}</div>
+            <div class="text-13-regular text-text-weak">{language.t("context.breakdown.title")}</div>
             <div class="h-2 w-full rounded-full bg-surface-base overflow-hidden flex">
               <For each={breakdown()}>
                 {(segment) => (
@@ -299,7 +299,7 @@ export function SessionContextTab() {
             <div class="flex flex-wrap gap-x-3 gap-y-1">
               <For each={breakdown()}>
                 {(segment) => (
-                  <div class="flex items-center gap-1 text-11-regular text-text-weak">
+                  <div class="flex items-center gap-1 text-13-regular text-text-weak">
                     <div class="size-2 rounded-sm" style={{ "background-color": BREAKDOWN_COLOR[segment.key] }} />
                     <div>{breakdownLabel(segment.key)}</div>
                     <div class="text-text-weaker">{segment.percent.toLocaleString(language.intl())}%</div>
@@ -307,23 +307,23 @@ export function SessionContextTab() {
                 )}
               </For>
             </div>
-            <div class="hidden text-11-regular text-text-weaker">{language.t("context.breakdown.note")}</div>
+            <div class="hidden text-13-regular text-text-weaker">{language.t("context.breakdown.note")}</div>
           </div>
         </Show>
 
         <Show when={systemPrompt()}>
           {(prompt) => (
             <div class="flex flex-col gap-2">
-              <div class="text-12-regular text-text-weak">{language.t("context.systemPrompt.title")}</div>
+              <div class="text-13-regular text-text-weak">{language.t("context.systemPrompt.title")}</div>
               <div class="border border-border-base rounded-md bg-surface-base px-3 py-2">
-                <Markdown text={prompt()} class="text-12-regular" />
+                <Markdown text={prompt()} class="text-13-regular" />
               </div>
             </div>
           )}
         </Show>
 
         <div class="flex flex-col gap-2">
-          <div class="text-12-regular text-text-weak">{language.t("context.rawMessages.title")}</div>
+          <div class="text-13-regular text-text-weak">{language.t("context.rawMessages.title")}</div>
           <Accordion multiple>
             <For each={messages()}>
               {(message) => (

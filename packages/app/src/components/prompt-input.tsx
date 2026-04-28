@@ -297,7 +297,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       return (
         <div class="flex items-center gap-2">
           <span>{language.t("prompt.action.stop")}</span>
-          <span class="text-icon-base text-12-medium text-[10px]!">{language.t("common.key.esc")}</span>
+          <span class="text-icon-base text-13-medium text-[10px]!">{language.t("common.key.esc")}</span>
         </div>
       )
     }

@@ -283,7 +283,7 @@ export const SettingsGeneral: Component = () => {
           title={
             <div class="flex items-center gap-2">
               <span>{language.t("settings.general.webSearch.title")}</span>
-              <span class="text-11-regular text-text-weaker rounded px-1.5 py-0.5 bg-surface-weak-base">
+              <span class="text-13-regular text-text-weaker rounded px-1.5 py-0.5 bg-surface-weak-base">
                 {webSearchChipText()}
               </span>
             </div>
@@ -292,17 +292,17 @@ export const SettingsGeneral: Component = () => {
             <>
               <span>{language.t("settings.general.webSearch.description")}</span>
               {webSearchStatus()?.source === "saved" && webSearchStatus()?.quotaExceeded && (
-                <span class="block pt-1 text-11-regular text-text-weaker">
+                <span class="block pt-1 text-13-regular text-text-weaker">
                   {language.t("settings.general.webSearch.secondary.savedQuota")}
                 </span>
               )}
               {webSearchStatus()?.source === "saved" && webSearchStatus()?.needsAttention && (
-                <span class="block pt-1 text-11-regular text-text-weaker">
+                <span class="block pt-1 text-13-regular text-text-weaker">
                   {language.t("settings.general.webSearch.secondary.failed")}
                 </span>
               )}
               {webSearchStatus()?.source === "anonymous" && webSearchStatus()?.quotaExceeded && (
-                <span class="block pt-1 text-11-regular text-text-weaker">
+                <span class="block pt-1 text-13-regular text-text-weaker">
                   {language.t("settings.general.webSearch.secondary.exhausted")}
                 </span>
               )}
@@ -455,7 +455,7 @@ export const SettingsGeneral: Component = () => {
               autocorrect="off"
               autocomplete="off"
               autocapitalize="off"
-              class="text-12-regular"
+              class="text-13-regular"
               style={{ "font-family": sansFontFamily(settings.appearance.uiFont()) }}
             />
           </div>
@@ -478,7 +478,7 @@ export const SettingsGeneral: Component = () => {
               autocorrect="off"
               autocomplete="off"
               autocapitalize="off"
-              class="text-12-regular"
+              class="text-13-regular"
               style={{ "font-family": monoFontFamily(settings.appearance.font()) }}
             />
           </div>
@@ -726,7 +726,7 @@ const SettingsRow: Component<SettingsRowProps> = (props) => {
     <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak-base last:border-none sm:flex-nowrap">
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <span class="text-14-medium text-text-strong">{props.title}</span>
-        <span class="text-12-regular text-text-weak">{props.description}</span>
+        <span class="text-13-regular text-text-weak">{props.description}</span>
       </div>
       <div class="flex w-full justify-end sm:w-auto sm:shrink-0">{props.children}</div>
     </div>

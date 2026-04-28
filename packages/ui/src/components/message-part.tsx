@@ -1119,17 +1119,17 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
             <Show when={metaHead() || metaTail()}>
               <span data-slot="user-message-meta-wrap">
                 <Show when={metaHead()}>
-                  <span data-slot="user-message-meta" class="text-12-regular text-text-weak cursor-default">
+                  <span data-slot="user-message-meta" class="text-13-regular text-text-weak cursor-default">
                     {metaHead()}
                   </span>
                 </Show>
                 <Show when={metaHead() && metaTail()}>
-                  <span data-slot="user-message-meta-sep" class="text-12-regular text-text-weak cursor-default">
+                  <span data-slot="user-message-meta-sep" class="text-13-regular text-text-weak cursor-default">
                     {"\u00A0\u00B7\u00A0"}
                   </span>
                 </Show>
                 <Show when={metaTail()}>
-                  <span data-slot="user-message-meta-tail" class="text-12-regular text-text-weak cursor-default">
+                  <span data-slot="user-message-meta-tail" class="text-13-regular text-text-weak cursor-default">
                     {metaTail()}
                   </span>
                 </Show>
@@ -1387,7 +1387,7 @@ export function MessageDivider(props: { label: string }) {
     <div data-component="compaction-part">
       <div data-slot="compaction-part-divider">
         <span data-slot="compaction-part-line" />
-        <span data-slot="compaction-part-label" class="text-12-regular text-text-weak">
+        <span data-slot="compaction-part-label" class="text-13-regular text-text-weak">
           {props.label}
         </span>
         <span data-slot="compaction-part-line" />
@@ -1502,7 +1502,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
               />
             </Tooltip>
             <Show when={meta()}>
-              <span data-slot="text-part-meta" class="text-12-regular text-text-weak cursor-default">
+              <span data-slot="text-part-meta" class="text-13-regular text-text-weak cursor-default">
                 {meta()}
               </span>
             </Show>

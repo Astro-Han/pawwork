@@ -138,7 +138,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
           />
 
           <div class="flex flex-col gap-2">
-            <label class="text-12-medium text-text-weak">{language.t("dialog.project.edit.icon")}</label>
+            <label class="text-13-medium text-text-weak">{language.t("dialog.project.edit.icon")}</label>
             <div class="flex gap-3 items-start">
               <div
                 class="relative"
@@ -211,7 +211,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
                 class="hidden"
                 onChange={handleInputChange}
               />
-              <div class="flex flex-col gap-1.5 text-12-regular text-text-weak self-center">
+              <div class="flex flex-col gap-1.5 text-13-regular text-text-weak self-center">
                 <span>{language.t("dialog.project.edit.icon.hint")}</span>
                 <span>{language.t("dialog.project.edit.icon.recommended")}</span>
               </div>
@@ -220,7 +220,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
 
           <Show when={!store.iconUrl}>
             <div class="flex flex-col gap-2">
-              <label class="text-12-medium text-text-weak">{language.t("dialog.project.edit.color")}</label>
+              <label class="text-13-medium text-text-weak">{language.t("dialog.project.edit.color")}</label>
               <div class="flex gap-1.5">
                 <For each={AVATAR_COLOR_KEYS}>
                   {(color) => (

@@ -13,7 +13,7 @@ const POLL_MS = 10_000
 type CategoryState = "ok" | "warn" | "empty"
 
 function EmptyHint(props: { text: string }) {
-  return <div class="text-12-regular text-text-weaker py-1">{props.text}</div>
+  return <div class="text-13-regular text-text-weaker py-1">{props.text}</div>
 }
 
 function SectionRow(props: {
@@ -39,7 +39,7 @@ function SectionRow(props: {
       >
         <div class={`size-1.5 rounded-full shrink-0 ${dot()}`} aria-hidden />
         <div class="text-13-regular text-text-base">{props.title}</div>
-        <div class="text-12-regular text-text-weaker">{props.count}</div>
+        <div class="text-13-regular text-text-weaker">{props.count}</div>
         <div class="flex-1" />
         <Icon
           name="chevron-down"
@@ -175,7 +175,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
 
   return (
     <div class="flex flex-col">
-      <div class="text-11-medium uppercase tracking-wide text-text-weaker px-4 py-3 pb-1">
+      <div class="text-13-medium uppercase tracking-wide text-text-weaker px-4 py-3 pb-1">
         {language.t("status.connections.title")}
       </div>
 
@@ -242,7 +242,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
                   />
                   <span class="text-13-regular text-text-base truncate min-w-0">{name}</span>
                   <Show when={label()}>
-                    <span class="text-11-regular text-text-weaker ml-auto">{label()}</span>
+                    <span class="text-13-regular text-text-weaker ml-auto">{label()}</span>
                   </Show>
                 </div>
               )

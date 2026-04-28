@@ -489,7 +489,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
                   </div>
                 </div>
                 <Show when={item.updated}>
-                  <span class="text-12-regular text-text-weak whitespace-nowrap ml-2">
+                  <span class="text-13-regular text-text-weak whitespace-nowrap ml-2">
                     {getRelativeTime(new Date(item.updated!).toISOString(), language.t)}
                   </span>
                 </Show>

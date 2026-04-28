@@ -115,7 +115,7 @@ export default function Home() {
         </Match>
         <Match when={!sync.ready}>
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
-            <div class="text-12-regular text-text-weak">{language.t("common.loading")}</div>
+            <div class="text-13-regular text-text-weak">{language.t("common.loading")}</div>
             <Button class="px-3" onClick={chooseProject}>
               {language.t("command.project.open")}
             </Button>
@@ -126,7 +126,7 @@ export default function Home() {
             <Icon name="folder-add-left" size="large" />
             <div class="flex flex-col gap-1 items-center justify-center">
               <div class="text-14-medium text-text-strong">{language.t("home.empty.title")}</div>
-              <div class="text-12-regular text-text-weak">{language.t("home.empty.description")}</div>
+              <div class="text-13-regular text-text-weak">{language.t("home.empty.description")}</div>
             </div>
             <Button class="px-3 mt-1" onClick={chooseProject}>
               {language.t("command.project.open")}
