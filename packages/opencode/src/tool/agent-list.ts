@@ -1,8 +1,20 @@
-import z from "zod"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { SubagentRun } from "../session/subagent-run"
 import type { MessageV2 } from "../session/message-v2"
+
+export const Parameters = Schema.Struct({
+  status: Schema.Literals([
+    "running",
+    "completed",
+    "completed_empty",
+    "failed",
+    "canceled_by_user",
+    "all_active",
+    "all",
+  ]).pipe(Schema.optional, Schema.withDecodingDefault(Effect.succeed("all_active" as const))),
+  limit: Schema.Number.pipe(Schema.optional, Schema.withDecodingDefault(Effect.succeed(5))),
+})
 
 const formatElapsed = (ms: number): string => {
   if (ms <= 0) return "0s"
@@ -38,20 +50,7 @@ export const AgentListTool = Tool.define(
     return {
       description:
         "List subagents launched by this parent session. Filter by lifecycle status; default `all_active` shows running plus unread terminal rows.",
-      parameters: z.object({
-        status: z
-          .enum([
-            "running",
-            "completed",
-            "completed_empty",
-            "failed",
-            "canceled_by_user",
-            "all_active",
-            "all",
-          ])
-          .default("all_active"),
-        limit: z.number().int().min(1).max(50).default(5),
-      }),
+      parameters: Parameters,
       execute: (
         params: { status: SubagentRun.AgentListFilter; limit: number },
         ctx: Tool.Context,

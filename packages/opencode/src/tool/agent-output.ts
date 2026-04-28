@@ -1,10 +1,18 @@
-import z from "zod"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { Session } from "../session"
 import type { SessionID } from "../session/schema"
 import { SubagentRun } from "../session/subagent-run"
 import type { MessageV2 } from "../session/message-v2"
+
+export const Parameters = Schema.Struct({
+  subagent_session_id: Schema.optional(Schema.String),
+  tool_call_id: Schema.optional(Schema.String),
+  detail: Schema.Literals(["result", "transcript"]).pipe(
+    Schema.optional,
+    Schema.withDecodingDefault(Effect.succeed("result" as const)),
+  ),
+})
 
 const formatResult = (p: MessageV2.SubtaskPart): string => {
   if (p.status === "running") {
@@ -29,10 +37,11 @@ const formatTranscript = (p: MessageV2.SubtaskPart): string => {
     `child_session: ${p.subagent_session_id ?? "-"}`,
     `latest: ${p.last_activity?.label ?? "-"}`,
   ]
-  if (p.result_text) {
-    const trimmed = p.result_text.length > 1000
-      ? p.result_text.slice(0, 1000) + "…(truncated)"
-      : p.result_text
+  // Mirror formatResult's fallback chain: prefer result_text, then partial_result, so
+  // canceled_by_user rows still surface their preserved partial under detail=transcript.
+  const body = p.result_text ?? p.partial_result ?? null
+  if (body) {
+    const trimmed = body.length > 1000 ? body.slice(0, 1000) + "…(truncated)" : body
     lines.push(`result: ${trimmed}`)
   }
   return lines.join("\n")
@@ -47,16 +56,7 @@ export const AgentOutputTool = Tool.define(
     return {
       description:
         "Read a subagent's result or transcript preview. Pass exactly one of subagent_session_id or tool_call_id; reading a terminal row marks it consumed.",
-      parameters: z
-        .object({
-          subagent_session_id: z.string().optional(),
-          tool_call_id: z.string().optional(),
-          detail: z.enum(["result", "transcript"]).default("result"),
-        })
-        .refine(
-          (v) => Boolean(v.subagent_session_id) !== Boolean(v.tool_call_id),
-          { message: "exactly one of subagent_session_id or tool_call_id is required" },
-        ),
+      parameters: Parameters,
       execute: (
         params: {
           subagent_session_id?: string
@@ -66,11 +66,19 @@ export const AgentOutputTool = Tool.define(
         ctx: Tool.Context,
       ) =>
         Effect.gen(function* () {
+          // XOR validation on subagent_session_id / tool_call_id. Schema-level filter is awkward
+          // in Effect Schema 4 beta; doing it imperatively at the entry of execute keeps the
+          // error message clear while still rejecting both-or-neither at runtime.
+          if (Boolean(params.subagent_session_id) === Boolean(params.tool_call_id)) {
+            return yield* Effect.fail(
+              new Error("exactly one of subagent_session_id or tool_call_id is required"),
+            )
+          }
           const NOT_FOUND = new Error("subagent not found or not accessible from this parent")
           const row = params.tool_call_id
-            ? yield* subagentRun.read(params.tool_call_id).pipe(
-                Effect.catch(() => Effect.succeed(null as MessageV2.SubtaskPart | null)),
-              )
+            ? yield* subagentRun
+                .readByToolCallID(ctx.sessionID, params.tool_call_id)
+                .pipe(Effect.catch(() => Effect.succeed(null as MessageV2.SubtaskPart | null)))
             : yield* subagentRun
                 .findLatestBySessionID(ctx.sessionID, params.subagent_session_id! as SessionID)
                 .pipe(Effect.catch(() => Effect.succeed(null as MessageV2.SubtaskPart | null)))
