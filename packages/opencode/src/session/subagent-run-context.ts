@@ -10,7 +10,15 @@ export const SubagentRunWriterContext: Context.Reference<boolean> = Context.Refe
   { defaultValue: () => false },
 )
 
+// Includes both lifecycle state (status, timestamps, events, results) and immutable linkage
+// fields (tool_call_id, parent_*_id, subagent_session_id). Linkage fields are set once at
+// `start` / `patchSession` and must never be repointed: rewriting them would corrupt
+// findLatestBySessionID, ownership checks, and the in-memory tool_call_id index.
 const LIFECYCLE_KEYS = [
+  "tool_call_id",
+  "parent_session_id",
+  "parent_message_id",
+  "subagent_session_id",
   "status",
   "started_at",
   "updated_at",
