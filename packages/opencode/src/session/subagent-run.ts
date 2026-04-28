@@ -153,7 +153,7 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
           partID: ref.partID,
         })
         if (!got || got.type !== "subtask") return yield* Effect.fail(new NotFound(toolCallID))
-        return got as MessageV2.SubtaskPart
+        return hydrateSubtask(got as MessageV2.SubtaskPart)
       })
 
     // DRY shell for "read row, no-op if missing, then write under row mutex with writer context".
@@ -382,13 +382,23 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
         ),
       )
 
+    // Coerces lifecycle defaults that the SubtaskPart zod schema would have applied during a
+    // parse pass. Necessary because MessageV2.parts() returns `row.data as Part` without parsing,
+    // so legacy rows persisted before this PR can reach list/output as `status === undefined`.
+    // Without this, agent_list renders "undefined (unread)" for old subtask rows.
+    const hydrateSubtask = (p: MessageV2.SubtaskPart): MessageV2.SubtaskPart => ({
+      ...p,
+      status: p.status ?? "completed",
+      recent_events: p.recent_events ?? [],
+    })
+
     const collectSubtaskParts = (parentID: SessionID): Effect.Effect<MessageV2.SubtaskPart[]> =>
       Effect.gen(function* () {
         const messages = yield* session.messages({ sessionID: parentID })
         const parts: MessageV2.SubtaskPart[] = []
         for (const m of messages) {
           for (const p of m.parts) {
-            if (p.type === "subtask") parts.push(p)
+            if (p.type === "subtask") parts.push(hydrateSubtask(p))
           }
         }
         return parts
