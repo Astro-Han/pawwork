@@ -36,12 +36,14 @@ async function expectTimelineMetrics(page: Page) {
 }
 
 async function scrollTimelineToBottom(page: Page) {
-  await page.evaluate((turnListSelector) => {
+  const found = await page.evaluate((turnListSelector) => {
     const list = document.querySelector(turnListSelector)
     const viewport = list?.closest(".scroll-view__viewport")
-    if (!(viewport instanceof HTMLElement)) throw new Error("session timeline viewport not found")
+    if (!(viewport instanceof HTMLElement)) return false
     viewport.scrollTop = viewport.scrollHeight
+    return true
   }, sessionTurnListSelector)
+  expect(found, "session timeline viewport should exist").toBe(true)
 }
 
 async function sendVisiblePrompt(input: { page: Page; text: string }) {
@@ -188,7 +190,7 @@ test("renders the full initial session window when switching sessions", async ({
 
       await installMessageCountProbe(page)
       await page.locator(sessionItemSelector(second.id)).click()
-      await expect(page).toHaveURL(new RegExp(`/session/${second.id}(?:[?#]|$)`))
+      await expect.poll(() => new URL(page.url()).pathname.endsWith(`/session/${second.id}`)).toBe(true)
       await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
         timeout: 30_000,
       })
