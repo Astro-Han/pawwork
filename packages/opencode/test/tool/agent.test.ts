@@ -363,10 +363,7 @@ describe("tool.agent", () => {
     ),
   )
 
-  // Updated in Task 8 — `agent` is now denied unconditionally in every child session
-  // regardless of whether the caller has canAgent permission, both at the permission
-  // ruleset and the prompt-time tools map.
-  it.live.skip("execute shapes child permissions for task, todowrite, and primary tools", () =>
+  it.live("execute shapes child permissions for task, todowrite, and primary tools", () =>
     provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
@@ -400,6 +397,11 @@ describe("tool.agent", () => {
           expect(child.parentID).toBe(chat.id)
           expect(child.permission).toEqual([
             {
+              permission: "agent",
+              pattern: "*",
+              action: "deny",
+            },
+            {
               permission: "todowrite",
               pattern: "*",
               action: "deny",
@@ -416,6 +418,7 @@ describe("tool.agent", () => {
             },
           ])
           expect(seen?.tools).toEqual({
+            agent: false,
             todowrite: false,
             bash: false,
             read: false,

@@ -114,7 +114,6 @@ export const AgentTool = Tool.define(
         return yield* Effect.fail(new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`))
       }
 
-      const canAgent = next.permission.some((rule) => rule.permission === id)
       const canTodo = next.permission.some((rule) => rule.permission === "todowrite")
 
       const ops = ctx.extra?.promptOps as AgentPromptOps
@@ -213,20 +212,18 @@ export const AgentTool = Tool.define(
                 createdByAgentTool: true,
                 subagentType: params.subagent_type,
                 permission: [
+                  // v1 nested-deny: agent is denied unconditionally so a subagent cannot
+                  // recursively dispatch its own subagents (#283 non-goal: nested subagents).
+                  {
+                    permission: id,
+                    pattern: "*" as const,
+                    action: "deny" as const,
+                  },
                   ...(canTodo
                     ? []
                     : [
                         {
                           permission: "todowrite" as const,
-                          pattern: "*" as const,
-                          action: "deny" as const,
-                        },
-                      ]),
-                  ...(canAgent
-                    ? []
-                    : [
-                        {
-                          permission: id,
                           pattern: "*" as const,
                           action: "deny" as const,
                         },
