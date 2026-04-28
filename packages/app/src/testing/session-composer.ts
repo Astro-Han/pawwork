@@ -3,7 +3,6 @@ import type { Todo } from "@opencode-ai/sdk/v2"
 export const composerEvent = "opencode:e2e:composer"
 
 export type ComposerDriverState = {
-  live?: boolean
   todos?: Array<Pick<Todo, "content" | "status" | "priority">>
 }
 
@@ -30,7 +29,6 @@ export type ComposerWindow = Window & {
 }
 
 const clone = (driver: ComposerDriverState) => ({
-  live: driver.live,
   todos: driver.todos?.map((todo) => ({ ...todo })),
 })
 

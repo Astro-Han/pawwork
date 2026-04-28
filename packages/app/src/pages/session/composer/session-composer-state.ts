@@ -12,20 +12,7 @@ import { useSync } from "@/context/sync"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
 
-export const todoState = (input: {
-  count: number
-  done: boolean
-  live: boolean
-}): "hide" | "clear" | "open" | "close" => {
-  if (input.count === 0) return "hide"
-  if (!input.live) return "clear"
-  if (!input.done) return "open"
-  return "close"
-}
-
-const idle = { type: "idle" as const }
-
-export function createSessionComposerState(options?: { closeMs?: number | (() => number) }) {
+export function createSessionComposerState() {
   const params = useParams()
   const sdk = useSDK()
   const sync = useSync()
@@ -51,26 +38,24 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
 
   const [test, setTest] = createStore({
     on: false,
-    live: undefined as boolean | undefined,
     todos: undefined as Todo[] | undefined,
   })
 
   const pull = () => {
     const id = params.id
     if (!id) {
-      setTest({ on: false, live: undefined, todos: undefined })
+      setTest({ on: false, todos: undefined })
       return
     }
 
     const next = composerDriver(id)
     if (!next) {
-      setTest({ on: false, live: undefined, todos: undefined })
+      setTest({ on: false, todos: undefined })
       return
     }
 
     setTest({
       on: true,
-      live: next.live,
       todos: next.todos?.map((todo) => ({ ...todo })),
     })
   }
@@ -94,29 +79,13 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     if (test.on && test.todos !== undefined) return test.todos
     const id = params.id
     if (!id) return []
+    // Todo visibility follows the backend todo list; keep the dock until the list is explicitly empty.
     return globalSync.data.session_todo[id] ?? []
-  })
-
-  const done = createMemo(
-    () => todos().length > 0 && todos().every((todo) => todo.status === "completed" || todo.status === "cancelled"),
-  )
-
-  const status = createMemo(() => {
-    const id = params.id
-    if (!id) return idle
-    return sync.data.session_status[id] ?? idle
-  })
-
-  const busy = createMemo(() => status().type !== "idle")
-  const live = createMemo(() => {
-    if (test.on && test.live !== undefined) return test.live
-    return busy() || blocked()
   })
 
   const [store, setStore] = createStore({
     responding: undefined as string | undefined,
-    dock: todos().length > 0 && live(),
-    closing: false,
+    dock: todos().length > 0,
     opening: false,
   })
 
@@ -143,90 +112,34 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
       })
   }
 
-  let timer: number | undefined
   let raf: number | undefined
-
-  const closeMs = () => {
-    const value = options?.closeMs
-    if (typeof value === "function") return Math.max(0, value())
-    if (typeof value === "number") return Math.max(0, value)
-    return 400
-  }
-
-  const scheduleClose = () => {
-    if (timer) window.clearTimeout(timer)
-    timer = window.setTimeout(() => {
-      setStore({ dock: false, closing: false })
-      timer = undefined
-    }, closeMs())
-  }
-
-  // Keep stale turn todos from reopening if the model never clears them.
-  const clear = () => {
-    if (test.on && test.todos !== undefined) {
-      setTest("todos", [])
-      return
-    }
-    const id = params.id
-    if (!id) return
-    globalSync.todo.set(id, [])
-    sync.set("todo", id, [])
-  }
 
   createEffect(
     on(
-      () => [todos().length, done(), live()] as const,
-      ([count, complete, active]) => {
+      () => todos().length,
+      (count) => {
         if (raf) cancelAnimationFrame(raf)
         raf = undefined
 
-        const next = todoState({
-          count,
-          done: complete,
-          live: active,
-        })
-
-        if (next === "hide") {
-          if (timer) window.clearTimeout(timer)
-          timer = undefined
-          setStore({ dock: false, closing: false, opening: false })
+        if (count === 0) {
+          setStore({ dock: false, opening: false })
           return
         }
 
-        if (next === "clear") {
-          if (timer) window.clearTimeout(timer)
-          timer = undefined
-          clear()
+        const hidden = !store.dock
+        setStore("dock", true)
+        if (hidden) {
+          setStore("opening", true)
+          raf = requestAnimationFrame(() => {
+            setStore("opening", false)
+            raf = undefined
+          })
           return
         }
-
-        if (next === "open") {
-          if (timer) window.clearTimeout(timer)
-          timer = undefined
-          const hidden = !store.dock || store.closing
-          setStore({ dock: true, closing: false })
-          if (hidden) {
-            setStore("opening", true)
-            raf = requestAnimationFrame(() => {
-              setStore("opening", false)
-              raf = undefined
-            })
-            return
-          }
-          setStore("opening", false)
-          return
-        }
-
-        setStore({ dock: true, opening: false, closing: true })
-        if (!timer) scheduleClose()
+        setStore("opening", false)
       },
     ),
   )
-
-  onCleanup(() => {
-    if (!timer) return
-    window.clearTimeout(timer)
-  })
 
   onCleanup(() => {
     if (!raf) return
@@ -241,7 +154,6 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
     decide,
     todos,
     dock: () => store.dock,
-    closing: () => store.closing,
     opening: () => store.opening,
   }
 }

@@ -145,11 +145,11 @@ async function todoDock(page: any, sessionID: string) {
       return api
     },
     async open(todos: NonNullable<ComposerDriverState["todos"]>) {
-      await write({ live: true, todos })
+      await write({ todos })
       return api
     },
     async finish(todos: NonNullable<ComposerDriverState["todos"]>) {
-      await write({ live: false, todos })
+      await write({ todos })
       return api
     },
     async expectOpen(states: ComposerProbeState["states"]) {
@@ -170,10 +170,6 @@ async function todoDock(page: any, sessionID: string) {
         count: states.length,
         states,
       })
-      return api
-    },
-    async expectClosed() {
-      await expect.poll(read, { timeout: 10_000 }).toMatchObject({ mounted: false })
       return api
     },
     async collapse() {
@@ -600,19 +596,19 @@ test("todo dock transitions and collapse behavior", async ({ page, project }) =>
           { content: "first task", status: "pending", priority: "high" },
           { content: "second task", status: "in_progress", priority: "medium" },
         ])
-        await dock.expectOpen(["pending", "in_progress"])
-
-        await dock.collapse()
         await dock.expectCollapsed(["pending", "in_progress"])
 
         await dock.expand()
         await dock.expectOpen(["pending", "in_progress"])
 
+        await dock.collapse()
+        await dock.expectCollapsed(["pending", "in_progress"])
+
         await dock.finish([
           { content: "first task", status: "completed", priority: "high" },
           { content: "second task", status: "cancelled", priority: "medium" },
         ])
-        await dock.expectClosed()
+        await dock.expectCollapsed(["completed", "cancelled"])
       } finally {
         await dock.clear()
       }
