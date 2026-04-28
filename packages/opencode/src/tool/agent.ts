@@ -327,13 +327,18 @@ export const AgentTool = Tool.define(
               return synthesizeOutput(part, nextSession.id)
             }
 
-            // Idempotent finalizer: latches `interrupted` synchronously at handler entry so a
-            // late parent abort during cleanup of a real model failure cannot misclassify it.
+            // Idempotent finalizer. **Source of truth for "child was interrupted" is
+            // `ops.wasInterrupted(child)`** — set by SessionRunState.onInterrupt firing on the
+            // child runner. Do NOT also OR with `ctx.abort.aborted`: a parent abort that lands
+            // AFTER ops.prompt's natural success but BEFORE this handler runs would otherwise
+            // relabel a completed run as canceled_by_user and lose the result_text. The pre-
+            // aborted short-circuit above already covers the case where parent aborted before
+            // ops.prompt was invoked at all.
             const finalizeAfter = (
               result: { kind: "ok"; r: MessageV2.WithParts } | { kind: "err"; error: unknown },
             ) =>
               Effect.gen(function* () {
-                const interrupted = ops.wasInterrupted(nextSession.id) || ctx.abort.aborted
+                const interrupted = ops.wasInterrupted(nextSession.id)
                 const current = yield* subagentRun.read(ctx.callID!)
                 if (current.status !== "running") return
                 if (interrupted) {
@@ -365,6 +370,16 @@ export const AgentTool = Tool.define(
                 }
               })
 
+            // Wraps the success-path finalize so a transient finalize failure does not
+            // propagate to the next pipe step (Effect.catch) and re-run finalizeAfter as
+            // `kind: "err"`, which would relabel a completed run as failed. Idempotency in
+            // SubagentRun.finalize already protects the row state; this just stops the success
+            // result from being rebranded.
+            const finalizeOk = (r: MessageV2.WithParts) =>
+              finalizeAfter({ kind: "ok", r }).pipe(
+                Effect.catchCause(() => Effect.void),
+              )
+
             const parts = yield* ops.resolvePromptParts(params.prompt)
             yield* ops
               .prompt({
@@ -382,7 +397,7 @@ export const AgentTool = Tool.define(
                 parts,
               })
               .pipe(
-                Effect.tap((r) => finalizeAfter({ kind: "ok", r })),
+                Effect.tap((r) => finalizeOk(r)),
                 Effect.catch((error) => finalizeAfter({ kind: "err", error })),
               )
 
@@ -393,7 +408,7 @@ export const AgentTool = Tool.define(
               Effect.gen(function* () {
                 const current = yield* subagentRun
                   .read(ctx.callID!)
-                  .pipe(Effect.catch(() => Effect.succeed(null as MessageV2.SubtaskPart | null)))
+                  .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
                 if (current?.status === "running") {
                   yield* subagentRun.finalize(ctx.callID!, "failed", {
                     error: { kind: "execution_error", message: errorMessage(error) },
