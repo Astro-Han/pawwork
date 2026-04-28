@@ -432,7 +432,7 @@ export const AgentTool = Tool.define(
                   .pipe(Effect.catchTag("NotFound", () => Effect.succeed(null as MessageV2.SubtaskPart | null)))
                 if (current?.status === "running") {
                   yield* subagentRun.finalize(ctx.callID!, "failed", {
-                    error: { kind: "execution_error", message: errorMessage(cause) },
+                    error: { kind: "execution_error", message: errorMessage(Cause.squash(cause)) },
                     ended_at: Date.now(),
                   })
                 }
