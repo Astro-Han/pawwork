@@ -16,7 +16,12 @@ const ref = {
 }
 
 const setup = (
-  body: (api: { svc: SubagentRun.Interface; sessions: Session.Interface; parent: Session.Info; messageID: MessageID }) => Effect.Effect<void>,
+  body: (api: {
+    svc: SubagentRun.Interface
+    sessions: Session.Interface
+    parent: Session.Info
+    messageID: MessageID
+  }) => Effect.Effect<void, unknown>,
 ) =>
   Effect.gen(function* () {
     const svc = yield* SubagentRun.Service
@@ -35,7 +40,10 @@ const setup = (
 
 const run = (program: Effect.Effect<void, unknown, SubagentRun.Service | Session.Service>) =>
   Effect.runPromise(
-    program.pipe(Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer))),
+    program.pipe(
+      Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer)),
+      Effect.orDie,
+    ),
   )
 
 describe("subagent lifecycle integration", () => {
