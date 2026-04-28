@@ -45,6 +45,18 @@ function sdkKey(npm: string): string | undefined {
   return undefined
 }
 
+function isDeepSeekModelID(id: string) {
+  return /(^|[/:])deepseek(?:[-/]|$)/.test(id.toLowerCase())
+}
+
+function isLegacyDeepSeekVariantID(id: string) {
+  return /(^|[/:])deepseek-(?:chat|reasoner|r1|v3)(?:[-/]|$)/.test(id.toLowerCase())
+}
+
+function isDeepSeekV4ID(id: string) {
+  return /(^|[/:])deepseek-v4(?:[-/]|$)/.test(id.toLowerCase())
+}
+
 function normalizeMessages(
   msgs: ModelMessage[],
   model: Provider.Model,
@@ -175,7 +187,7 @@ function normalizeMessages(
     return result
   }
 
-  if (model.api.id.includes("deepseek")) {
+  if (isDeepSeekModelID(model.api.id)) {
     msgs = msgs.map((msg) => {
       if (msg.role !== "assistant") return msg
       if (Array.isArray(msg.content)) {
@@ -421,10 +433,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
   const id = model.id.toLowerCase()
   const adaptiveEfforts = anthropicAdaptiveEfforts(model.api.id)
   if (
-    id.includes("deepseek-chat") ||
-    id.includes("deepseek-reasoner") ||
-    id.includes("deepseek-r1") ||
-    id.includes("deepseek-v3") ||
+    isLegacyDeepSeekVariantID(id) ||
     id.includes("minimax") ||
     id.includes("glm") ||
     id.includes("mistral") ||
@@ -550,10 +559,11 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     // https://v5.ai-sdk.dev/providers/ai-sdk-providers/deepinfra
     case "venice-ai-sdk-provider":
     // https://docs.venice.ai/overview/guides/reasoning-models#reasoning-effort
-    case "@ai-sdk/openai-compatible":
+    case "@ai-sdk/openai-compatible": {
       const openaiCompatibleEfforts = [...WIDELY_SUPPORTED_EFFORTS]
-      if (model.api.id.includes("deepseek-v4")) openaiCompatibleEfforts.push("max")
+      if (isDeepSeekV4ID(model.api.id)) openaiCompatibleEfforts.push("max")
       return Object.fromEntries(openaiCompatibleEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
+    }
 
     case "@ai-sdk/azure":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/azure

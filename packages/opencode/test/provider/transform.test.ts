@@ -1187,6 +1187,32 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
     ])
   })
 
+  test("DeepSeek-like substrings do not receive empty reasoning", () => {
+    const result = ProviderTransform.message(
+      [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Done." }],
+        },
+      ] as any[],
+      {
+        id: ModelID.make("test/notdeepseek-chat"),
+        providerID: ProviderID.make("test"),
+        api: {
+          id: "notdeepseek-chat",
+          url: "https://api.test.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        capabilities: {
+          interleaved: false,
+        },
+      } as any,
+      {},
+    ) as any[]
+
+    expect(result[0].content).toEqual([{ type: "text", text: "Done." }])
+  })
+
   test("DeepSeek assistant messages keep existing reasoning", () => {
     const result = ProviderTransform.message(
       [
@@ -2353,6 +2379,20 @@ describe("ProviderTransform.variants", () => {
     const result = ProviderTransform.variants(model)
     expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
     expect(result.max).toEqual({ reasoningEffort: "max" })
+  })
+
+  test("DeepSeek-like substrings use standard OpenAI-compatible efforts", () => {
+    const model = createMockModel({
+      id: "test/notdeepseek-v4",
+      providerID: "test",
+      api: {
+        id: "notdeepseek-v4",
+        url: "https://api.test.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(Object.keys(result)).toEqual(["low", "medium", "high"])
   })
 
   test("minimax returns empty object", () => {
