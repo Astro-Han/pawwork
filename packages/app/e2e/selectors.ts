@@ -5,6 +5,7 @@ export const terminalSelector = `${desktopTerminalSelector}, ${mobileTerminalSel
 export const sessionComposerDockSelector = '[data-component="session-prompt-dock"]'
 export const sessionTurnListSelector = '[data-slot="session-turn-list"]'
 export const sessionMessageItemSelector = "[data-message-id]"
+export const scrollViewportSelector = '[data-component="scroll-viewport"]'
 export const questionDockSelector = '[data-component="dock-prompt"][data-kind="question"]'
 export const permissionDockSelector = '[data-component="dock-prompt"][data-kind="permission"]'
 export const sessionTodoToggleButtonSelector = '[data-action="session-todo-toggle-button"]'

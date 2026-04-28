@@ -1,7 +1,13 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
-import { promptSelector, sessionItemSelector, sessionMessageItemSelector, sessionTurnListSelector } from "../selectors"
+import {
+  promptSelector,
+  scrollViewportSelector,
+  sessionItemSelector,
+  sessionMessageItemSelector,
+  sessionTurnListSelector,
+} from "../selectors"
 import { createSdk } from "../utils"
 
 type Sdk = ReturnType<typeof createSdk>
@@ -16,13 +22,14 @@ type TimelineMetrics = {
 }
 
 type TimelineScrollSample = TimelineMetrics & {
+  at: number
   url: string
 }
 
 function timelineMetrics(page: Page) {
-  return page.evaluate((turnListSelector) => {
+  return page.evaluate(({ scrollViewportSelector, turnListSelector }) => {
     const list = document.querySelector(turnListSelector)
-    const viewport = list?.closest(".scroll-view__viewport")
+    const viewport = list?.closest(scrollViewportSelector)
     if (!(viewport instanceof HTMLElement)) return null
     return {
       top: viewport.scrollTop,
@@ -30,7 +37,7 @@ function timelineMetrics(page: Page) {
       client: viewport.clientHeight,
       distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
     }
-  }, sessionTurnListSelector) as Promise<TimelineMetrics | null>
+  }, { scrollViewportSelector, turnListSelector: sessionTurnListSelector }) as Promise<TimelineMetrics | null>
 }
 
 async function expectTimelineMetrics(page: Page) {
@@ -40,24 +47,25 @@ async function expectTimelineMetrics(page: Page) {
 }
 
 async function scrollTimelineToBottom(page: Page) {
-  const found = await page.evaluate((turnListSelector) => {
+  const found = await page.evaluate(({ scrollViewportSelector, turnListSelector }) => {
     const list = document.querySelector(turnListSelector)
-    const viewport = list?.closest(".scroll-view__viewport")
+    const viewport = list?.closest(scrollViewportSelector)
     if (!(viewport instanceof HTMLElement)) return false
     viewport.scrollTop = viewport.scrollHeight
     return true
-  }, sessionTurnListSelector)
+  }, { scrollViewportSelector, turnListSelector: sessionTurnListSelector })
   expect(found, "session timeline viewport should exist").toBe(true)
 }
 
 async function installTimelineScrollProbe(page: Page) {
   await page.evaluate(
-    ({ maxSamples, turnListSelector }) => {
+    ({ maxSamples, scrollViewportSelector, turnListSelector }) => {
       const read = () => {
         const list = document.querySelector(turnListSelector)
-        const viewport = list?.closest(".scroll-view__viewport")
+        const viewport = list?.closest(scrollViewportSelector)
         if (!(viewport instanceof HTMLElement)) return null
         return {
+          at: performance.now(),
           url: window.location.href,
           top: viewport.scrollTop,
           height: viewport.scrollHeight,
@@ -88,7 +96,7 @@ async function installTimelineScrollProbe(page: Page) {
       observer.observe(document.body, { childList: true, subtree: true })
       const first = read()
       const viewport = first
-        ? document.querySelector(turnListSelector)?.closest(".scroll-view__viewport")
+        ? document.querySelector(turnListSelector)?.closest(scrollViewportSelector)
         : undefined
       if (viewport instanceof HTMLElement) viewport.addEventListener("scroll", push, { passive: true })
       const win = window as typeof window & {
@@ -97,7 +105,7 @@ async function installTimelineScrollProbe(page: Page) {
         }
       }
       win.__opencode_e2e = {
-        ...win.__opencode_e2e,
+        ...(win.__opencode_e2e ?? {}),
         timelineScrollProbe: {
           stop() {
             cancelAnimationFrame(frame)
@@ -110,7 +118,7 @@ async function installTimelineScrollProbe(page: Page) {
         },
       }
     },
-    { maxSamples: 256, turnListSelector: sessionTurnListSelector },
+    { maxSamples: 256, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
   )
 }
 
@@ -280,6 +288,7 @@ test("does not jump to the top after sending from an old message hash", async ({
 
     await installTimelineScrollProbe(page)
     let samples: TimelineScrollSample[] = []
+    const sendStartedAt = await page.evaluate(() => performance.now())
     try {
       await sendVisiblePrompt({ page, text: `top guard ${Date.now()}` })
       await expect.poll(() => page.url()).not.toContain("#message-")
@@ -290,7 +299,10 @@ test("does not jump to the top after sending from an old message hash", async ({
       samples = await stopTimelineScrollProbe(page)
     }
 
-    const topJumps = samples.filter(
+    expect(samples.length).toBeGreaterThan(0)
+    const relevantSamples = samples.filter((sample) => sample.at >= sendStartedAt)
+    expect(relevantSamples.length).toBeGreaterThan(0)
+    const topJumps = relevantSamples.filter(
       (sample) =>
         sample.height > sample.client + 100 &&
         sample.top < 20 &&

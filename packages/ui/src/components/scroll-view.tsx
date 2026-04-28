@@ -194,6 +194,7 @@ export function ScrollView(props: ScrollViewProps) {
       {/* Viewport */}
       <div
         ref={viewportRef}
+        data-component="scroll-viewport"
         class="scroll-view__viewport"
         onScroll={(e) => {
           updateThumb()
