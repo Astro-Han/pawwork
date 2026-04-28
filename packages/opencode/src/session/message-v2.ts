@@ -277,15 +277,6 @@ export const SubtaskPart = PartBase.extend({
   updated_at: z.number().optional(),
   ended_at: z.number().optional(),
   consumed_at: z.number().optional(),
-  // progress (NEW)
-  last_activity: z
-    .object({
-      kind: z.enum(["model_waiting", "thinking", "tool"]),
-      label: z.string(),
-      tool: z.string().optional(),
-      at: z.number(),
-    })
-    .optional(),
   recent_events: z.array(SubtaskEvent).max(20).default([]),
   // result (NEW)
   result_summary: z.string().optional(),

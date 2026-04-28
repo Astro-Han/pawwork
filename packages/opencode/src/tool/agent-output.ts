@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect"
+import { Cause, Effect, Schema } from "effect"
+import { NotFoundError } from "../storage/db"
 import * as Tool from "./tool"
 import { Session } from "../session"
 import type { SessionID } from "../session/schema"
@@ -16,7 +17,7 @@ export const Parameters = Schema.Struct({
 
 const formatResult = (p: MessageV2.SubtaskPart): string => {
   if (p.status === "running") {
-    return [`status: running`, `latest: ${p.last_activity?.label ?? "-"}`].join("\n")
+    return [`status: running`, `summary: ${p.result_summary ?? "-"}`].join("\n")
   }
   if (p.status === "failed") {
     return [
@@ -43,7 +44,6 @@ const formatTranscript = (p: MessageV2.SubtaskPart): string => {
     `summary: ${p.result_summary ?? "-"}`,
     `events: ${p.recent_events.length}`,
     `child_session: ${p.subagent_session_id ?? "-"}`,
-    `latest: ${p.last_activity?.label ?? "-"}`,
   ]
   // Mirror formatResult's fallback chain: prefer result_text, then partial_result, so
   // canceled_by_user rows still surface their preserved partial under detail=transcript.
@@ -100,11 +100,19 @@ export const AgentOutputTool = Tool.define(
           if (row.parent_session_id !== ctx.sessionID)
             return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
           if (row.subagent_session_id) {
-            // session.get throws NotFoundError, which Effect.gen wraps as a defect (Cause.Die),
-            // not a typed failure. catchCause is required to convert it back to a clean response.
+            // session.get throws NotFoundError as a defect (Cause.Die). Suppress only that case;
+            // re-raise any other defect (storage I/O, schema decode) so it isn't masked as a clean
+            // not-found response.
             const child = yield* sessions
               .get(row.subagent_session_id as SessionID)
-              .pipe(Effect.catchCause(() => Effect.succeed(null)))
+              .pipe(
+                Effect.catchCause((cause) => {
+                  const err = Cause.squash(cause)
+                  return err instanceof NotFoundError
+                    ? Effect.succeed(null)
+                    : Effect.failCause(cause)
+                }),
+              )
             if (!child || !child.createdByAgentTool)
               return yield* Effect.fail(new Error("subagent not found or not accessible from this parent"))
           }

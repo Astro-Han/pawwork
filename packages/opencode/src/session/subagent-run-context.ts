@@ -24,7 +24,6 @@ const LIFECYCLE_KEYS = [
   "updated_at",
   "ended_at",
   "consumed_at",
-  "last_activity",
   "recent_events",
   "result_summary",
   "result_text",
@@ -43,7 +42,7 @@ export class SubagentRunGuardViolation extends Error {
 /**
  * Returns true if `next` mutates any lifecycle field relative to `existing`. Compares by value
  * (JSON.stringify) not by reference, so a static-field update that re-clones recent_events /
- * last_activity / error arrays/objects with identical content is NOT rejected. Only genuine
+ * recent_events / error arrays/objects with identical content is NOT rejected. Only genuine
  * lifecycle mutations trip the guard.
  *
  * Caller contract: `existing` must be a real persisted part. First-write paths (no row yet)

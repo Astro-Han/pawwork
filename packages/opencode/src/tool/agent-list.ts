@@ -34,7 +34,7 @@ const formatRow = (p: MessageV2.SubtaskPart, now: number): string => {
   const elapsed = isLegacy ? "-" : formatElapsed(now - (p.started_at ?? now))
   const statusLabel =
     p.status === "running" ? "running" : p.consumed_at ? p.status : `${p.status} (unread)`
-  const activity = p.last_activity?.label ?? p.result_summary ?? (isLegacy ? "(legacy)" : "")
+  const activity = p.result_summary ?? (isLegacy ? "(legacy)" : "")
   return [
     p.subagent_session_id ?? "-",
     statusLabel,
