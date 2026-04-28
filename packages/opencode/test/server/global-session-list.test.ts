@@ -221,6 +221,43 @@ describe("session.listGlobal", () => {
     }),
   )
 
+  it.live(
+    "session routes omit undefined optional fields",
+    Effect.promise(async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await svc.create({ title: "route-optional-fields" })
+
+          const app = Server.Default().app
+          const response = await app.request(`/session?directory=${encodeURIComponent(tmp.path)}&roots=true&limit=1`)
+          expect(response.status).toBe(200)
+          const body = (await response.json()) as Array<Record<string, any>>
+          expect(body).toHaveLength(1)
+          const item = body[0]
+
+          expect(Object.hasOwn(item, "parentID")).toBe(false)
+          expect(Object.hasOwn(item, "workspaceID")).toBe(false)
+          expect(Object.hasOwn(item, "summary")).toBe(false)
+          expect(Object.hasOwn(item, "share")).toBe(false)
+          expect(Object.hasOwn(item, "permission")).toBe(false)
+          expect(Object.hasOwn(item, "revert")).toBe(false)
+          expect(Object.hasOwn(item.time, "compacting")).toBe(false)
+          expect(Object.hasOwn(item.time, "archived")).toBe(false)
+
+          const global = await app.request(
+            `/experimental/session?directory=${encodeURIComponent(tmp.path)}&roots=true&limit=1`,
+          )
+          expect(global.status).toBe(200)
+          const globalBody = (await global.json()) as Array<Record<string, any>>
+          expect(globalBody).toHaveLength(1)
+          expect(Object.hasOwn(globalBody[0].project, "name")).toBe(false)
+        },
+      })
+    }),
+  )
+
   test("experimental route round-trips created-order cursor", async () => {
     await using tmp = await tmpdir({ git: true })
     const originalNow = Date.now

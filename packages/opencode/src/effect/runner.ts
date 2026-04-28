@@ -19,6 +19,7 @@ interface RunHandle<A, E> {
 interface ShellHandle<A, E> {
   id: number
   ready: Deferred.Deferred<void>
+  cancelled: Deferred.Deferred<void>
   fiber: Fiber.Fiber<A, E>
 }
 
@@ -99,7 +100,12 @@ export const make = <A, E = never>(
       }),
     ).pipe(Effect.flatten)
 
-  const stopShell = (shell: ShellHandle<A, E>) => Fiber.interrupt(shell.fiber)
+  const stopShell = (shell: ShellHandle<A, E>) =>
+    Effect.gen(function* () {
+      yield* awaitShellReady(shell)
+      yield* Deferred.succeed(shell.cancelled, undefined).pipe(Effect.asVoid)
+      yield* Fiber.interrupt(shell.fiber)
+    })
 
   const awaitShellReady = (shell: ShellHandle<A, E>) =>
     Deferred.await(shell.ready).pipe(Effect.raceFirst(Fiber.await(shell.fiber).pipe(Effect.asVoid)), Effect.ignore)
@@ -149,18 +155,28 @@ export const make = <A, E = never>(
         }
         yield* busy
         const id = next()
+        const cancelled = yield* Deferred.make<void>()
         const ready =
           options?.ready ??
           (yield* Deferred.make<void>().pipe(
             Effect.tap((ready) => Deferred.succeed(ready, undefined)),
           ))
         const fiber = yield* work.pipe(Effect.ensuring(finishShell(id)), Effect.forkChild)
-        const shell = { id, ready, fiber } satisfies ShellHandle<A, E>
+        const shell = { id, ready, cancelled, fiber } satisfies ShellHandle<A, E>
         return [
           Effect.gen(function* () {
             const exit = yield* Fiber.await(fiber)
             if (Exit.isSuccess(exit)) return exit.value
-            if (Cause.hasInterruptsOnly(exit.cause) && onInterrupt) return yield* onInterrupt
+            if (
+              Cause.hasInterruptsOnly(exit.cause) ||
+              ((yield* Deferred.isDone(cancelled)) &&
+                Cause.hasInterrupts(exit.cause) &&
+                !Cause.hasFails(exit.cause) &&
+                !Cause.hasDies(exit.cause))
+            ) {
+              if (onInterrupt) return yield* onInterrupt
+              return yield* Effect.die(new Cancelled())
+            }
             return yield* Effect.failCause(exit.cause)
           }),
           { _tag: "Shell", shell },
@@ -184,7 +200,6 @@ export const make = <A, E = never>(
       case "Shell":
         return [
           Effect.gen(function* () {
-            yield* awaitShellReady(st.shell)
             yield* stopShell(st.shell)
             yield* idleIfCurrent()
           }),
@@ -193,9 +208,8 @@ export const make = <A, E = never>(
       case "ShellThenRun":
         return [
           Effect.gen(function* () {
-            yield* Deferred.fail(st.run.done, new Cancelled()).pipe(Effect.asVoid)
-            yield* awaitShellReady(st.shell)
             yield* stopShell(st.shell)
+            yield* Deferred.fail(st.run.done, new Cancelled()).pipe(Effect.asVoid)
             yield* idleIfCurrent()
           }),
           { _tag: "Idle" } as const,
