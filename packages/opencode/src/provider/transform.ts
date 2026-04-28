@@ -17,6 +17,22 @@ function mimeToModality(mime: string): Modality | undefined {
   return undefined
 }
 
+function filterEmptyMessageContent(msg: ModelMessage): ModelMessage | undefined {
+  if (typeof msg.content === "string") {
+    if (msg.content === "") return undefined
+    return msg
+  }
+  if (!Array.isArray(msg.content)) return msg
+  const filtered = msg.content.filter((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return part.text !== ""
+    }
+    return true
+  })
+  if (filtered.length === 0) return undefined
+  return { ...msg, content: filtered } as ModelMessage
+}
+
 export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
 // Maps npm package to the key the AI SDK expects for providerOptions
@@ -50,11 +66,7 @@ function isDeepSeekModelID(id: string) {
 }
 
 function isLegacyDeepSeekVariantID(id: string) {
-  return /(^|[/:])deepseek-(?:chat|reasoner|r1|v3)(?:[-/]|$)/.test(id.toLowerCase())
-}
-
-function isDeepSeekV4ID(id: string) {
-  return /(^|[/:])deepseek-v4(?:[-/]|$)/.test(id.toLowerCase())
+  return /(^|[/:])deepseek-(?:chat|reasoner|r1|v3)(?:[.\-/]|$)/.test(id.toLowerCase())
 }
 
 function normalizeMessages(
@@ -64,24 +76,13 @@ function normalizeMessages(
 ): ModelMessage[] {
   // Anthropic rejects messages with empty content - filter out empty string messages
   // and remove empty text/reasoning parts from array content
-  if (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock") {
-    msgs = msgs
-      .map((msg) => {
-        if (typeof msg.content === "string") {
-          if (msg.content === "") return undefined
-          return msg
-        }
-        if (!Array.isArray(msg.content)) return msg
-        const filtered = msg.content.filter((part) => {
-          if (part.type === "text" || part.type === "reasoning") {
-            return part.text !== ""
-          }
-          return true
-        })
-        if (filtered.length === 0) return undefined
-        return { ...msg, content: filtered }
-      })
-      .filter((msg): msg is ModelMessage => msg !== undefined && msg.content !== "")
+  if (model.api.npm === "@ai-sdk/anthropic") {
+    msgs = msgs.map(filterEmptyMessageContent).filter((msg): msg is ModelMessage => msg !== undefined)
+  }
+
+  // Bedrock specific transforms
+  if (model.api.npm === "@ai-sdk/amazon-bedrock") {
+    msgs = msgs.map(filterEmptyMessageContent).filter((msg): msg is ModelMessage => msg !== undefined)
   }
 
   if (model.api.id.includes("claude")) {
@@ -187,6 +188,8 @@ function normalizeMessages(
     return result
   }
 
+  // This must run before interleaved-field extraction so the injected empty
+  // reasoning becomes providerOptions.reasoning_content on the next turn.
   if (isDeepSeekModelID(model.api.id)) {
     msgs = msgs.map((msg) => {
       if (msg.role !== "assistant") return msg
@@ -427,6 +430,12 @@ function anthropicAdaptiveEfforts(apiId: string): string[] | null {
   return null
 }
 
+function deepseekMajorVersion(apiId: string): number | undefined {
+  const match = apiId.toLowerCase().match(/(^|[/:])deepseek-v(\d+)(?:[.\-/]|$)/)
+  if (!match) return undefined
+  return Number.parseInt(match[2]!, 10)
+}
+
 export function variants(model: Provider.Model): Record<string, Record<string, any>> {
   if (!model.capabilities.reasoning) return {}
 
@@ -436,7 +445,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     isLegacyDeepSeekVariantID(id) ||
     id.includes("minimax") ||
     id.includes("glm") ||
-    id.includes("mistral") ||
+    (id.includes("mistral") && model.api.npm !== "@ai-sdk/mistral") ||
     id.includes("kimi") ||
     id.includes("k2p5") ||
     id.includes("qwen") ||
@@ -561,7 +570,10 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     // https://docs.venice.ai/overview/guides/reasoning-models#reasoning-effort
     case "@ai-sdk/openai-compatible": {
       const openaiCompatibleEfforts = [...WIDELY_SUPPORTED_EFFORTS]
-      if (isDeepSeekV4ID(model.api.id)) openaiCompatibleEfforts.push("max")
+      const deepseekMajor = deepseekMajorVersion(model.api.id)
+      if (deepseekMajor !== undefined && deepseekMajor >= 4) {
+        openaiCompatibleEfforts.push("max")
+      }
       return Object.fromEntries(openaiCompatibleEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
     }
 
@@ -739,15 +751,23 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
         ]),
       )
 
-    case "@ai-sdk/mistral":
+    case "@ai-sdk/mistral": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/mistral
-      return {}
+      // https://docs.mistral.ai/capabilities/reasoning/adjustable
+      if (!model.capabilities.reasoning) return {}
+      // Only Mistral Small 4 supports reasoning (mistral-small-2603, mistral-small-latest)
+      const mistralId = model.api.id.toLowerCase()
+      if (!mistralId.includes("mistral-small-2603") && !mistralId.includes("mistral-small-latest")) return {}
+      return {
+        high: { reasoningEffort: "high" },
+      }
+    }
 
     case "@ai-sdk/cohere":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/cohere
       return {}
 
-    case "@ai-sdk/groq":
+    case "@ai-sdk/groq": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/groq
       const groqEffort = ["none", ...WIDELY_SUPPORTED_EFFORTS]
       return Object.fromEntries(
@@ -758,6 +778,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
           },
         ]),
       )
+    }
 
     case "@ai-sdk/perplexity":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/perplexity

@@ -118,6 +118,24 @@ describe("ProviderTransform.options - setCacheKey", () => {
     })
     expect(result.store).toBe(true)
   })
+
+  test("should disable tool streaming for google vertex anthropic provider", () => {
+    const vertexAnthropicModel = {
+      ...mockModel,
+      providerID: "google-vertex-anthropic",
+      api: {
+        id: "claude-sonnet-4@20250514",
+        url: "https://us-central1-aiplatform.googleapis.com",
+        npm: "@ai-sdk/google-vertex/anthropic",
+      },
+    }
+    const result = ProviderTransform.options({
+      model: vertexAnthropicModel,
+      sessionID,
+      providerOptions: {},
+    })
+    expect(result.toolStreaming).toBe(false)
+  })
 })
 
 describe("ProviderTransform.options - zai/zhipuai thinking", () => {
@@ -422,6 +440,68 @@ describe("ProviderTransform.options - gateway", () => {
         caching: "auto",
       },
     })
+  })
+})
+
+describe("ProviderTransform.options - Kimi anthropic thinking", () => {
+  const sessionID = "test-session-123"
+
+  const createModel = (apiId: string) =>
+    ({
+      id: `moonshot/${apiId}`,
+      providerID: "moonshot",
+      api: {
+        id: apiId,
+        url: "https://api.moonshot.cn",
+        npm: "@ai-sdk/anthropic",
+      },
+      name: apiId,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: true },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: {
+        input: 0.001,
+        output: 0.002,
+        cache: { read: 0.0001, write: 0.0002 },
+      },
+      limit: {
+        context: 128000,
+        output: 8192,
+      },
+      status: "active",
+      options: {},
+      headers: {},
+    }) as any
+
+  test("enables thinking for the supported Kimi K2.5 anthropic variants", () => {
+    for (const apiId of ["kimi-k2.5", "kimi-k2p5", "k2p5"]) {
+      const result = ProviderTransform.options({
+        model: createModel(apiId),
+        sessionID,
+        providerOptions: {},
+      })
+      expect(result.thinking).toEqual({
+        type: "enabled",
+        budgetTokens: 4095,
+      })
+    }
+  })
+
+  test("does not broaden thinking to unrelated Kimi K2 or K2P variants", () => {
+    for (const apiId of ["kimi-k2.6", "kimi-k2-preview", "kimi-k2p6", "k2p6"]) {
+      const result = ProviderTransform.options({
+        model: createModel(apiId),
+        sessionID,
+        providerOptions: {},
+      })
+      expect(result).not.toHaveProperty("thinking")
+    }
   })
 })
 
@@ -2457,7 +2537,24 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
-  test("mistral returns empty object", () => {
+  test("mistral with reasoning returns variants", () => {
+    const model = createMockModel({
+      id: "mistral/mistral-small-latest",
+      providerID: "mistral",
+      api: {
+        id: "mistral-small-latest",
+        url: "https://api.mistral.com",
+        npm: "@ai-sdk/mistral",
+      },
+      capabilities: { reasoning: true },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(result).toEqual({
+      high: { reasoningEffort: "high" },
+    })
+  })
+
+  test("mistral without reasoning returns empty object", () => {
     const model = createMockModel({
       id: "mistral/mistral-large",
       providerID: "mistral",
@@ -2465,6 +2562,36 @@ describe("ProviderTransform.variants", () => {
         id: "mistral-large-latest",
         url: "https://api.mistral.com",
         npm: "@ai-sdk/mistral",
+      },
+      capabilities: { reasoning: false },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(result).toEqual({})
+  })
+
+  test("mistral large with reasoning returns empty object (only small supports reasoning)", () => {
+    const model = createMockModel({
+      id: "mistral/mistral-large",
+      providerID: "mistral",
+      api: {
+        id: "mistral-large-latest",
+        url: "https://api.mistral.com",
+        npm: "@ai-sdk/mistral",
+      },
+      capabilities: { reasoning: true },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(result).toEqual({})
+  })
+
+  test("proxy-routed mistral models do not receive generic reasoning variants", () => {
+    const model = createMockModel({
+      id: "custom-provider/mistral-large-latest",
+      providerID: "custom-provider",
+      api: {
+        id: "mistral-large-latest",
+        url: "https://api.custom.com",
+        npm: "@ai-sdk/openai-compatible",
       },
     })
     const result = ProviderTransform.variants(model)
@@ -2917,6 +3044,50 @@ describe("ProviderTransform.variants", () => {
       expect(Object.keys(result)).toEqual(["low", "medium", "high"])
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("keeps DeepSeek v3 excluded and returns max effort for v4 and later", () => {
+      const v3 = createMockModel({
+        id: "custom-provider/deepseek-v3.2",
+        providerID: "custom-provider",
+        api: {
+          id: "deepseek/deepseek-v3.2",
+          url: "https://api.custom.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+      const v4 = createMockModel({
+        id: "custom-provider/deepseek-v4-pro",
+        providerID: "custom-provider",
+        api: {
+          id: "deepseek/deepseek-v4-pro",
+          url: "https://api.custom.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+      const v5 = createMockModel({
+        id: "custom-provider/deepseek-v5",
+        providerID: "custom-provider",
+        api: {
+          id: "deepseek/deepseek-v5",
+          url: "https://api.custom.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+      })
+
+      expect(ProviderTransform.variants(v3)).toEqual({})
+      expect(ProviderTransform.variants(v4)).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      })
+      expect(ProviderTransform.variants(v5)).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      })
     })
   })
 

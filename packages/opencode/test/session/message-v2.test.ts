@@ -781,61 +781,6 @@ describe("session.message-v2.toModelMessage", () => {
     ])
   })
 
-  test("splits assistant messages on step-start boundaries", async () => {
-    const assistantID = "m-assistant"
-
-    const input: MessageV2.WithParts[] = [
-      {
-        info: assistantInfo(assistantID, "m-parent"),
-        parts: [
-          {
-            ...basePart(assistantID, "p1"),
-            type: "text",
-            text: "first",
-          },
-          {
-            ...basePart(assistantID, "p2"),
-            type: "step-start",
-          },
-          {
-            ...basePart(assistantID, "p3"),
-            type: "text",
-            text: "second",
-          },
-        ] as MessageV2.Part[],
-      },
-    ]
-
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "first" }],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "second" }],
-      },
-    ])
-  })
-
-  test("drops messages that only contain step-start parts", async () => {
-    const assistantID = "m-assistant"
-
-    const input: MessageV2.WithParts[] = [
-      {
-        info: assistantInfo(assistantID, "m-parent"),
-        parts: [
-          {
-            ...basePart(assistantID, "p1"),
-            type: "step-start",
-          },
-        ] as MessageV2.Part[],
-      },
-    ]
-
-    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
-  })
-
   test("preserves OpenRouter reasoning details through provider transform", async () => {
     const assistantID = "m-assistant"
     const openrouterModel: Provider.Model = {
@@ -907,6 +852,61 @@ describe("session.message-v2.toModelMessage", () => {
         ],
       },
     ])
+  })
+
+  test("splits assistant messages on step-start boundaries", async () => {
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent"),
+        parts: [
+          {
+            ...basePart(assistantID, "p1"),
+            type: "text",
+            text: "first",
+          },
+          {
+            ...basePart(assistantID, "p2"),
+            type: "step-start",
+          },
+          {
+            ...basePart(assistantID, "p3"),
+            type: "text",
+            text: "second",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "first" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "second" }],
+      },
+    ])
+  })
+
+  test("drops messages that only contain step-start parts", async () => {
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent"),
+        parts: [
+          {
+            ...basePart(assistantID, "p1"),
+            type: "step-start",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
   test("converts pending/running tool calls to error results to prevent dangling tool_use", async () => {
@@ -1053,6 +1053,30 @@ describe("session.message-v2.fromError", () => {
           responseBody: JSON.stringify(input),
         },
       })
+    })
+  })
+
+  test("serializes OpenAI response server_error stream chunks as retryable APIError", () => {
+    const body = {
+      type: "error",
+      sequence_number: 2,
+      error: {
+        type: "server_error",
+        code: "server_error",
+        message:
+          "An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_77eccd008d984bf6bf82d1b2c2b68715 in your message.",
+        param: null,
+      },
+    }
+    const result = MessageV2.fromError({ message: JSON.stringify(body) }, { providerID })
+
+    expect(result).toStrictEqual({
+      name: "APIError",
+      data: {
+        message: body.error.message,
+        isRetryable: true,
+        responseBody: JSON.stringify(body),
+      },
     })
   })
 

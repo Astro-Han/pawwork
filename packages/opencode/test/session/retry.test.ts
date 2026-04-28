@@ -300,9 +300,12 @@ describe("session.message-v2.fromError", () => {
       {
         message: JSON.stringify({
           type: "error",
+          sequence_number: 2,
           error: {
+            type: "server_error",
             code: "server_error",
             message: "An error occurred while processing your request.",
+            param: null,
           },
         }),
       },
