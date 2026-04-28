@@ -245,7 +245,14 @@ export const layer = Layer.effect(
         cancel: (sessionID: SessionID) => run.fork(cancel(sessionID)),
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input),
-        wasInterrupted: (sessionID: SessionID) => interruptedSessions.has(sessionID),
+        // Self-cleaning read: each subagent dispatch reads `wasInterrupted` exactly once after
+        // ops.prompt resolves, so deleting on read keeps the Set bounded by concurrent inflight
+        // subagents instead of growing across the whole runtime lifetime.
+        wasInterrupted: (sessionID: SessionID) => {
+          const interrupted = interruptedSessions.has(sessionID)
+          if (interrupted) interruptedSessions.delete(sessionID)
+          return interrupted
+        },
       } satisfies AgentPromptOps
     })
 
