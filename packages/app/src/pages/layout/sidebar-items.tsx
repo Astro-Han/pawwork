@@ -125,7 +125,7 @@ const SessionRow = (props: {
         {indicator()}
       </div>
       <div class="min-w-0 flex-1 flex items-center gap-2">
-        <Show when={props.titleContent} fallback={<span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
+        <Show when={props.titleContent} fallback={<span class="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
           {props.titleContent}
         </Show>
       </div>
@@ -301,7 +301,7 @@ export const NewSessionItem = (props: {
       <div class="shrink-0 size-5 flex items-center justify-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
-      <span class="text-14-regular text-text-strong min-w-0 flex-1 truncate">{label}</span>
+      <span class="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate">{label}</span>
     </A>
   )
 
