@@ -216,11 +216,23 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
 
     const patchSession = (toolCallID: string, sessionID: SessionID): Effect.Effect<void> =>
       withExistingPart(toolCallID, (existing) =>
-        session.updatePart({
-          ...existing,
-          subagent_session_id: sessionID,
-          updated_at: Date.now(),
-        }).pipe(Effect.asVoid),
+        Effect.gen(function* () {
+          // Single-assignment: same id is a no-op, different id is a defect. Re-pointing
+          // a row to a new child would corrupt findLatestBySessionID and ownership checks.
+          if (existing.subagent_session_id === sessionID) return
+          if (existing.subagent_session_id && existing.subagent_session_id !== sessionID) {
+            return yield* Effect.die(
+              new Error(
+                `subagent_session_id already set for ${toolCallID} (have ${existing.subagent_session_id}, got ${sessionID})`,
+              ),
+            )
+          }
+          yield* session.updatePart({
+            ...existing,
+            subagent_session_id: sessionID,
+            updated_at: Date.now(),
+          })
+        }),
       )
 
     const LIFECYCLE_KINDS = new Set<MessageV2.SubtaskEvent["type"]>([
