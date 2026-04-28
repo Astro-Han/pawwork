@@ -107,7 +107,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.11"
+          bun-version: "1.3.13"
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -153,7 +153,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.11"
+          bun-version: "1.3.13"
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -224,7 +224,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.11"
+          bun-version: "1.3.13"
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -295,7 +295,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.11"
+          bun-version: "1.3.13"
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
@@ -463,7 +463,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.11"
+          bun-version: "1.3.13"
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
