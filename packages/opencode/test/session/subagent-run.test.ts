@@ -160,6 +160,48 @@ describe("SubtaskPart backward compat", () => {
     })
   })
 
+  test("rejects direct Session.updatePart writes that mutate lifecycle fields", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const program = Effect.gen(function* () {
+          const svc = yield* SubagentRun.Service
+          const session = yield* Session.Service
+          const parent = yield* session.create({})
+          const msg = yield* session.updateMessage({
+            id: MessageID.ascending(),
+            role: "user",
+            sessionID: parent.id,
+            agent: "build",
+            model: ref,
+            time: { created: Date.now() },
+          })
+          const part = yield* svc.start({
+            parent_session_id: parent.id,
+            parent_message_id: msg.id,
+            tool_call_id: "call_guard",
+            description: "review",
+            prompt: "hi",
+            agent: "build",
+            subagent_type: "reviewer",
+            model: ref,
+          })
+          // Direct write that flips status — should be rejected as a defect.
+          const exit = yield* session
+            .updatePart({ ...part, status: "completed" as const })
+            .pipe(Effect.exit)
+          expect(exit._tag).toBe("Failure")
+        })
+        await Effect.runPromise(
+          program.pipe(
+            Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer)),
+          ),
+        )
+      },
+    })
+  })
+
   test("accepts a row with all new lifecycle fields populated", () => {
     const full = {
       type: "subtask" as const,

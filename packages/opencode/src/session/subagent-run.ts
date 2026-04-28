@@ -4,6 +4,7 @@ import * as Session from "./session"
 import { PartID as PartIDNs, type MessageID, type PartID, type SessionID } from "./schema"
 import type { MessageV2 } from "./message-v2"
 import type { ProviderID, ModelID } from "../provider/schema"
+import { SubagentRunWriterContext } from "./subagent-run-context"
 
 export class TooManyActive {
   readonly _tag = "TooManyActive"
@@ -88,6 +89,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Session.Service> =
   Effect.gen(function* () {
     const session = yield* Session.Service
 
+    const withWriter = <A, E, R>(eff: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+      Effect.provideService(eff, SubagentRunWriterContext, true)
+
     const slotLocks = new Map<SessionID, Semaphore.Semaphore>()
     const activeCounts = new Map<SessionID, number>()
     const rowLocks = new Map<string, Semaphore.Semaphore>()
@@ -144,67 +148,74 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Session.Service> =
         return got as MessageV2.SubtaskPart
       })
 
-    const start = Effect.fn("SubagentRun.start")(function* (input: StartInput) {
-      const partID = PartIDNs.ascending() as PartID
-      const now = Date.now()
-      const part = {
-        type: "subtask" as const,
-        id: partID,
-        sessionID: input.parent_session_id,
-        messageID: input.parent_message_id,
-        prompt: input.prompt,
-        description: input.description,
-        agent: input.agent,
-        model: input.model,
-        command: input.command,
-        tool_call_id: input.tool_call_id,
-        parent_session_id: input.parent_session_id,
-        parent_message_id: input.parent_message_id,
-        subagent_session_id: undefined,
-        status: "running" as const,
-        started_at: now,
-        updated_at: now,
-        recent_events: [{ type: "started" as const, at: now }],
-      } satisfies MessageV2.SubtaskPart
-      partsByToolCall.set(input.tool_call_id, {
-        sessionID: input.parent_session_id,
-        messageID: input.parent_message_id,
-        partID,
-      })
-      return yield* session.updatePart(part)
-    })
+    const start = (input: StartInput): Effect.Effect<MessageV2.SubtaskPart> =>
+      withWriter(
+        Effect.gen(function* () {
+          const partID = PartIDNs.ascending() as PartID
+          const now = Date.now()
+          const part = {
+            type: "subtask" as const,
+            id: partID,
+            sessionID: input.parent_session_id,
+            messageID: input.parent_message_id,
+            prompt: input.prompt,
+            description: input.description,
+            agent: input.agent,
+            model: input.model,
+            command: input.command,
+            tool_call_id: input.tool_call_id,
+            parent_session_id: input.parent_session_id,
+            parent_message_id: input.parent_message_id,
+            subagent_session_id: undefined,
+            status: "running" as const,
+            started_at: now,
+            updated_at: now,
+            recent_events: [{ type: "started" as const, at: now }],
+          } satisfies MessageV2.SubtaskPart
+          partsByToolCall.set(input.tool_call_id, {
+            sessionID: input.parent_session_id,
+            messageID: input.parent_message_id,
+            partID,
+          })
+          return yield* session.updatePart(part)
+        }),
+      )
 
     const patchSession = (toolCallID: string, sessionID: SessionID): Effect.Effect<void> =>
-      getRowLock(toolCallID).withPermits(1)(
-        Effect.gen(function* () {
-          const existing = yield* readPart(toolCallID).pipe(
-            Effect.catch(() => Effect.succeed(undefined)),
-          )
-          if (!existing) return
-          yield* session.updatePart({
-            ...existing,
-            subagent_session_id: sessionID,
-            updated_at: Date.now(),
-          })
-        }),
+      withWriter(
+        getRowLock(toolCallID).withPermits(1)(
+          Effect.gen(function* () {
+            const existing = yield* readPart(toolCallID).pipe(
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
+            if (!existing) return
+            yield* session.updatePart({
+              ...existing,
+              subagent_session_id: sessionID,
+              updated_at: Date.now(),
+            })
+          }),
+        ),
       )
 
     const recordActivity = (
       toolCallID: string,
       activity: NonNullable<MessageV2.SubtaskPart["last_activity"]>,
     ): Effect.Effect<void> =>
-      getRowLock(toolCallID).withPermits(1)(
-        Effect.gen(function* () {
-          const existing = yield* readPart(toolCallID).pipe(
-            Effect.catch(() => Effect.succeed(undefined)),
-          )
-          if (!existing) return
-          yield* session.updatePart({
-            ...existing,
-            last_activity: activity,
-            updated_at: Date.now(),
-          })
-        }),
+      withWriter(
+        getRowLock(toolCallID).withPermits(1)(
+          Effect.gen(function* () {
+            const existing = yield* readPart(toolCallID).pipe(
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
+            if (!existing) return
+            yield* session.updatePart({
+              ...existing,
+              last_activity: activity,
+              updated_at: Date.now(),
+            })
+          }),
+        ),
       )
 
     const LIFECYCLE_KINDS = new Set<MessageV2.SubtaskEvent["type"]>([
@@ -217,25 +228,27 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Session.Service> =
     ])
 
     const recordEvent = (toolCallID: string, event: MessageV2.SubtaskEvent): Effect.Effect<void> =>
-      getRowLock(toolCallID).withPermits(1)(
-        Effect.gen(function* () {
-          const existing = yield* readPart(toolCallID).pipe(
-            Effect.catch(() => Effect.succeed(undefined)),
-          )
-          if (!existing) return
-          const merged = [...existing.recent_events, event]
-          while (merged.length > 20) {
-            const idx = merged.findIndex((e) => !LIFECYCLE_KINDS.has(e.type))
-            if (idx < 0) break
-            merged.splice(idx, 1)
-          }
-          merged.sort((a, b) => a.at - b.at)
-          yield* session.updatePart({
-            ...existing,
-            recent_events: merged,
-            updated_at: Date.now(),
-          })
-        }),
+      withWriter(
+        getRowLock(toolCallID).withPermits(1)(
+          Effect.gen(function* () {
+            const existing = yield* readPart(toolCallID).pipe(
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
+            if (!existing) return
+            const merged = [...existing.recent_events, event]
+            while (merged.length > 20) {
+              const idx = merged.findIndex((e) => !LIFECYCLE_KINDS.has(e.type))
+              if (idx < 0) break
+              merged.splice(idx, 1)
+            }
+            merged.sort((a, b) => a.at - b.at)
+            yield* session.updatePart({
+              ...existing,
+              recent_events: merged,
+              updated_at: Date.now(),
+            })
+          }),
+        ),
       )
 
     const finalize = (
@@ -243,43 +256,47 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Session.Service> =
       status: TerminalStatus,
       fields: FinalizeFields,
     ): Effect.Effect<void> =>
-      getRowLock(toolCallID).withPermits(1)(
-        Effect.gen(function* () {
-          const existing = yield* readPart(toolCallID).pipe(
-            Effect.catch(() => Effect.succeed(undefined)),
-          )
-          if (!existing) return
-          if (existing.status !== "running") return
-          yield* session.updatePart({
-            ...existing,
-            status,
-            ended_at: fields.ended_at ?? Date.now(),
-            updated_at: Date.now(),
-            ...(fields.result_text !== undefined ? { result_text: fields.result_text } : {}),
-            ...(fields.result_summary !== undefined ? { result_summary: fields.result_summary } : {}),
-            ...(fields.partial_result !== undefined ? { partial_result: fields.partial_result } : {}),
-            ...(fields.error !== undefined ? { error: fields.error } : {}),
-          })
-        }),
+      withWriter(
+        getRowLock(toolCallID).withPermits(1)(
+          Effect.gen(function* () {
+            const existing = yield* readPart(toolCallID).pipe(
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
+            if (!existing) return
+            if (existing.status !== "running") return
+            yield* session.updatePart({
+              ...existing,
+              status,
+              ended_at: fields.ended_at ?? Date.now(),
+              updated_at: Date.now(),
+              ...(fields.result_text !== undefined ? { result_text: fields.result_text } : {}),
+              ...(fields.result_summary !== undefined ? { result_summary: fields.result_summary } : {}),
+              ...(fields.partial_result !== undefined ? { partial_result: fields.partial_result } : {}),
+              ...(fields.error !== undefined ? { error: fields.error } : {}),
+            })
+          }),
+        ),
       )
 
     const recordRejected = (_input: RejectedInput): Effect.Effect<MessageV2.SubtaskPart> =>
       Effect.die(new Error("SubagentRun.recordRejected: implemented in Task 11"))
 
     const setConsumed = (toolCallID: string): Effect.Effect<void> =>
-      getRowLock(toolCallID).withPermits(1)(
-        Effect.gen(function* () {
-          const existing = yield* readPart(toolCallID).pipe(
-            Effect.catch(() => Effect.succeed(undefined)),
-          )
-          if (!existing) return
-          if (existing.consumed_at) return
-          yield* session.updatePart({
-            ...existing,
-            consumed_at: Date.now(),
-            updated_at: Date.now(),
-          })
-        }),
+      withWriter(
+        getRowLock(toolCallID).withPermits(1)(
+          Effect.gen(function* () {
+            const existing = yield* readPart(toolCallID).pipe(
+              Effect.catch(() => Effect.succeed(undefined)),
+            )
+            if (!existing) return
+            if (existing.consumed_at) return
+            yield* session.updatePart({
+              ...existing,
+              consumed_at: Date.now(),
+              updated_at: Date.now(),
+            })
+          }),
+        ),
       )
 
     const read = (toolCallID: string): Effect.Effect<MessageV2.SubtaskPart, NotFound> =>

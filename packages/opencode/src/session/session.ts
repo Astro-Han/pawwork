@@ -31,6 +31,11 @@ import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
+import {
+  SubagentRunWriterContext,
+  SubagentRunGuardViolation,
+  lifecycleFieldsChanged,
+} from "./subagent-run-context"
 
 const log = Log.create({ service: "session" })
 
@@ -510,6 +515,26 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
 
     const updatePart = <T extends MessageV2.Part>(part: T): Effect.Effect<T> =>
       Effect.gen(function* () {
+        if (part.type === "subtask") {
+          const isWriter = yield* SubagentRunWriterContext
+          if (!isWriter) {
+            const existing = yield* getPart({
+              sessionID: part.sessionID,
+              messageID: part.messageID,
+              partID: part.id,
+            }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (
+              lifecycleFieldsChanged(
+                existing as unknown as Record<string, unknown> | undefined,
+                part as unknown as Record<string, unknown>,
+              )
+            ) {
+              return yield* Effect.die(
+                new SubagentRunGuardViolation((part as { tool_call_id?: string }).tool_call_id),
+              )
+            }
+          }
+        }
         yield* Effect.sync(() =>
           SyncEvent.run(MessageV2.Event.PartUpdated, {
             sessionID: part.sessionID,
