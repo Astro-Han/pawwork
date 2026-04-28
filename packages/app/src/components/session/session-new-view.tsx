@@ -58,7 +58,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
             {props.composer!({ onModeChange: setMode, selectedSkill })}
           </div>
         </Show>
-        <p class="mt-8 text-12-regular text-text-weaker">{language.t("session.new.reassurance")}</p>
+        <p class="mt-8 text-13-regular text-text-weaker">{language.t("session.new.reassurance")}</p>
       </div>
     </div>
   )

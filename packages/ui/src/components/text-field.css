@@ -31,7 +31,7 @@
     [data-slot="input-label"] {
       color: var(--text-weak);
 
-      /* text-12-medium */
+      /* text-13-medium */
       font-family: var(--font-family-sans);
       font-size: var(--font-size-small);
       font-style: normal;
@@ -122,7 +122,7 @@
     [data-slot="input-error"] {
       color: var(--text-on-critical-base);
 
-      /* text-12-medium */
+      /* text-13-medium */
       font-family: var(--font-family-sans);
       font-size: var(--font-size-small);
       font-style: normal;

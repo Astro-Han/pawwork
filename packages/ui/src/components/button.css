@@ -119,7 +119,7 @@
     line-height: var(--line-height-large);
     gap: 8px;
 
-    /* text-12-medium */
+    /* text-13-medium */
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
     font-style: normal;
@@ -139,7 +139,7 @@
     font-size: var(--font-size-small);
     gap: 8px;
 
-    /* text-12-medium */
+    /* text-13-medium */
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
     font-style: normal;

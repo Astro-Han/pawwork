@@ -918,7 +918,7 @@ export function MessageTimeline(props: {
                   <Button
                     variant="ghost"
                     size="large"
-                    class="text-12-medium opacity-50"
+                    class="text-13-medium opacity-50"
                     disabled={props.historyLoading}
                     onClick={props.onLoadEarlier}
                   >
@@ -983,7 +983,7 @@ export function MessageTimeline(props: {
                                               )}
                                             </Show>
                                           </div>
-                                          <div class="pt-1 text-12-regular text-text-strong whitespace-pre-wrap break-words">
+                                          <div class="pt-1 text-13-regular text-text-strong whitespace-pre-wrap break-words">
                                             {c().comment}
                                           </div>
                                         </div>

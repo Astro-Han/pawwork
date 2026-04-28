@@ -75,7 +75,7 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                     />
                   </div>
                   <Show when={item.comment}>
-                    {(comment) => <div class="text-12-regular text-text-strong ml-5 pr-1 truncate">{comment()}</div>}
+                    {(comment) => <div class="text-13-regular text-text-strong ml-5 pr-1 truncate">{comment()}</div>}
                   </Show>
                 </div>
               </Tooltip>

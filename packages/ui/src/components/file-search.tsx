@@ -35,7 +35,7 @@ export function FileSearchBar(props: {
           onInput={(e) => props.onInput(e.currentTarget.value)}
           onKeyDown={(e) => props.onKeyDown(e as KeyboardEvent)}
         />
-        <div class="shrink-0 text-12-regular text-text-weak tabular-nums text-right" style={{ width: "10ch" }}>
+        <div class="shrink-0 text-13-regular text-text-weak tabular-nums text-right" style={{ width: "10ch" }}>
           {props.count() ? `${props.index() + 1}/${props.count()}` : "0/0"}
         </div>
         <div class="flex items-center">

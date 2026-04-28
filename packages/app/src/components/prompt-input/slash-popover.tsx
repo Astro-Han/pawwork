@@ -110,7 +110,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         </span>
                       </Show>
                       <Show when={props.commandKeybind(cmd.id)}>
-                        <span class="text-12-regular text-text-subtle">{props.commandKeybind(cmd.id)}</span>
+                        <span class="text-13-regular text-text-subtle">{props.commandKeybind(cmd.id)}</span>
                       </Show>
                     </div>
                   </button>

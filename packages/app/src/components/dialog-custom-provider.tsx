@@ -226,7 +226,7 @@ export function DialogCustomProvider(props: Props) {
           </div>
 
           <div class="flex flex-col gap-3">
-            <label class="text-12-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
+            <label class="text-13-medium text-text-weak">{language.t("provider.custom.models.label")}</label>
             <For each={form.models}>
               {(m, i) => (
                 <div class="flex gap-2 items-start" data-row={m.row}>
@@ -270,7 +270,7 @@ export function DialogCustomProvider(props: Props) {
           </div>
 
           <div class="flex flex-col gap-3">
-            <label class="text-12-medium text-text-weak">{language.t("provider.custom.headers.label")}</label>
+            <label class="text-13-medium text-text-weak">{language.t("provider.custom.headers.label")}</label>
             <For each={form.headers}>
               {(h, i) => (
                 <div class="flex gap-2 items-start" data-row={h.row}>
