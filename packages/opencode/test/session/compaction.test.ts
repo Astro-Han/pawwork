@@ -175,7 +175,7 @@ function layer(result: "continue" | "compact") {
 }
 
 function cfg(compaction?: Config.Info["compaction"]) {
-  const base = Config.Info.parse({})
+  const base = Config.Info.zod.parse({})
   return Layer.mock(Config.Service)({
     get: () => Effect.succeed({ ...base, compaction }),
   })

@@ -346,8 +346,12 @@ describe("legacy permission.task config compatibility (#128)", () => {
       task: { "*": "deny" }, // agent-rename:legacy-render
       agent: { "*": "allow" },
     } as any)
-    // Both produce permission: "agent" rules; later rules win in evaluate() via findLast.
-    expect(ruleset.map((r) => r.permission)).toEqual(["agent", "agent"])
+    // The legacy `task` entry is dropped when canonical `agent` is also present
+    // — explicit canonical precedence rather than relying on findLast/insertion
+    // order. Both keys would otherwise emit `permission: "agent"` rules and the
+    // resolution would be order-sensitive (broken once StructWithRest reorders
+    // struct keys before rest keys on decode).
+    expect(ruleset).toEqual([{ permission: "agent", pattern: "*", action: "allow" }])
     expect(Permission.evaluate("agent", "any", ruleset).action).toBe("allow")
   })
 })

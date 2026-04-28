@@ -285,9 +285,25 @@ export namespace Permission {
   }
 
   export function fromConfig(permission: Config.Permission) {
+    // Sort top-level keys so wildcard permissions (`*`, `mcp_*`) come before
+    // specific ones. Combined with `findLast` in `disabled()`, this gives the
+    // intuitive semantic "specific tool rules override the `*` fallback"
+    // regardless of the user's JSON key order — which is now reordered by
+    // ConfigPermission.Info's StructWithRest decoder anyway. Sub-pattern
+    // order inside a single permission key is preserved.
+    const entries = Object.entries(permission).sort(([a], [b]) => {
+      const aWildcard = a.includes("*")
+      const bWildcard = b.includes("*")
+      if (aWildcard !== bWildcard) return aWildcard ? -1 : 1
+      return 0
+    })
     const ruleset: Ruleset = []
-    for (const [rawKey, value] of Object.entries(permission)) {
+    for (const [rawKey, value] of entries) {
       const key = LEGACY_KEY_ALIASES[rawKey] ?? rawKey
+      // If a config sets both the canonical key (`agent`) and its legacy alias
+      // (`task`), drop the legacy entry so the canonical rule isn't silently
+      // overridden by the alias under last-match-wins precedence.
+      if (key !== rawKey && Object.prototype.hasOwnProperty.call(permission, key)) continue
       if (typeof value === "string") {
         ruleset.push({ permission: key, action: value, pattern: "*" })
         continue

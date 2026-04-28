@@ -2103,7 +2103,16 @@ test("permission config wins over legacy tools on conflicts", async () => {
   })
 })
 
-test("permission config preserves key order", async () => {
+test("permission config canonicalises known keys first, preserves rest-key insertion order", async () => {
+  // ConfigPermission.Info is a StructWithRest schema — the decoder reorders
+  // keys into declaration-order for known permission names (read, edit, ...,
+  // external_directory, todowrite are declared in `config/permission.ts`),
+  // followed by rest keys in the user's insertion order.
+  //
+  // Rule precedence is NOT affected by this reordering: `Permission.fromConfig`
+  // sorts wildcards before specifics before iterating. See the
+  // "fromConfig sorts wildcards before specifics" test in
+  // test/permission/next.test.ts for the behavioural guarantee.
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Filesystem.write(
@@ -2131,12 +2140,15 @@ test("permission config preserves key order", async () => {
     fn: async () => {
       const config = await load()
       expect(Object.keys(config.permission!)).toEqual([
-        "*",
-        "edit",
-        "write",
-        "external_directory",
+        // known fields the user provided, in declaration order from
+        // config/permission.ts (read, edit, external_directory, todowrite)
         "read",
+        "edit",
+        "external_directory",
         "todowrite",
+        // rest keys (not in the known list), in user's insertion order
+        "*",
+        "write",
         "thoughts_*",
         "reasoning_model_*",
         "tools_*",
@@ -2947,7 +2959,7 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
 
 test("parseManagedPlist strips MDM metadata keys", async () => {
   const config = ConfigParse.schema(
-    Config.Info,
+    Config.Info.zod,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -2979,7 +2991,7 @@ test("parseManagedPlist rejects malformed JSON", () => {
 
 test("parseManagedPlist parses server settings", async () => {
   const config = ConfigParse.schema(
-    Config.Info,
+    Config.Info.zod,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -2999,7 +3011,7 @@ test("parseManagedPlist parses server settings", async () => {
 
 test("parseManagedPlist parses permission rules", async () => {
   const config = ConfigParse.schema(
-    Config.Info,
+    Config.Info.zod,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -3029,7 +3041,7 @@ test("parseManagedPlist parses permission rules", async () => {
 
 test("parseManagedPlist parses enabled_providers", async () => {
   const config = ConfigParse.schema(
-    Config.Info,
+    Config.Info.zod,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(
         JSON.stringify({
@@ -3046,7 +3058,7 @@ test("parseManagedPlist parses enabled_providers", async () => {
 
 test("parseManagedPlist handles empty config", async () => {
   const config = ConfigParse.schema(
-    Config.Info,
+    Config.Info.zod,
     ConfigParse.jsonc(
       await ConfigManaged.parseManagedPlist(JSON.stringify({ $schema: "https://opencode.ai/config.json" })),
       "test:mobileconfig",

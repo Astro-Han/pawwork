@@ -53,4 +53,4 @@ function generate(schema: z.ZodType) {
 const configFile = process.argv[2]
 
 console.log(configFile)
-await Bun.write(configFile, JSON.stringify(generate(Config.Info), null, 2))
+await Bun.write(configFile, JSON.stringify(generate(Config.Info.zod), null, 2))
