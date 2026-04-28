@@ -22,6 +22,8 @@ export const SessionTable = sqliteTable(
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     workspace_id: text().$type<WorkspaceID>(),
     parent_id: text().$type<SessionID>(),
+    created_by_agent_tool: integer({ mode: "boolean" }).default(false),
+    subagent_type: text(),
     slug: text().notNull(),
     directory: text().notNull(),
     title: text().notNull(),

@@ -239,6 +239,19 @@ export const CompactionPart = PartBase.extend({
 })
 export type CompactionPart = z.infer<typeof CompactionPart>
 
+export const SubtaskEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("started"), at: z.number() }),
+  z.object({ type: z.literal("tool_started"), tool: z.string(), label: z.string(), at: z.number() }),
+  z.object({ type: z.literal("tool_completed"), tool: z.string(), at: z.number() }),
+  z.object({ type: z.literal("model_wait_started"), at: z.number() }),
+  z.object({ type: z.literal("completed"), at: z.number() }),
+  z.object({ type: z.literal("completed_empty"), at: z.number() }),
+  z.object({ type: z.literal("canceled_by_user"), at: z.number() }),
+  z.object({ type: z.literal("failed"), kind: z.string(), at: z.number() }),
+  z.object({ type: z.literal("consumed"), at: z.number() }),
+])
+export type SubtaskEvent = z.infer<typeof SubtaskEvent>
+
 export const SubtaskPart = PartBase.extend({
   type: z.literal("subtask"),
   prompt: z.string(),
@@ -251,6 +264,25 @@ export const SubtaskPart = PartBase.extend({
     })
     .optional(),
   command: z.string().optional(),
+  // identity (NEW; .optional() so legacy decode succeeds without a primary key)
+  tool_call_id: z.string().optional(),
+  parent_session_id: z.string().optional(),
+  parent_message_id: z.string().optional(),
+  subagent_session_id: z.string().optional(),
+  // lifecycle (NEW)
+  status: z
+    .enum(["running", "completed", "completed_empty", "failed", "canceled_by_user"])
+    .default("completed"),
+  started_at: z.number().optional(),
+  updated_at: z.number().optional(),
+  ended_at: z.number().optional(),
+  consumed_at: z.number().optional(),
+  recent_events: z.array(SubtaskEvent).max(20).default([]),
+  // result (NEW)
+  result_summary: z.string().optional(),
+  result_text: z.string().optional(),
+  partial_result: z.string().nullable().optional(),
+  error: z.object({ kind: z.string(), message: z.string() }).optional(),
 }).meta({
   ref: "SubtaskPart",
 })

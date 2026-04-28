@@ -7,6 +7,8 @@ import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { AgentTool } from "./agent"
+import { AgentListTool } from "./agent-list"
+import { AgentOutputTool } from "./agent-output"
 import { TodoWriteTool } from "./todo"
 import { TrashTool } from "./trash"
 import { WebFetchTool } from "./webfetch"
@@ -51,6 +53,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Bus } from "../bus"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
+import { SubagentRun } from "../session/subagent-run"
 import { needsConfigDependencies, usesConfigDependencies } from "../config/dependency"
 
 export function localToolImportSpec(input: string) {
@@ -94,6 +97,7 @@ export namespace ToolRegistry {
     | Agent.Service
     | Skill.Service
     | Session.Service
+    | SubagentRun.Service
     | Provider.Service
     | LSP.Service
     | Settings.Service
@@ -118,6 +122,8 @@ export namespace ToolRegistry {
 
       const invalid = yield* InvalidTool
       const agent = yield* AgentTool
+      const agentList = yield* AgentListTool
+      const agentOutput = yield* AgentOutputTool
       const read = yield* ReadTool
       const question = yield* QuestionTool
       const todo = yield* TodoWriteTool
@@ -249,6 +255,8 @@ export namespace ToolRegistry {
             write: Tool.init(writetool),
             trash: Tool.init(trashtool),
             agent: Tool.init(agent),
+            agentList: Tool.init(agentList),
+            agentOutput: Tool.init(agentOutput),
             fetch: Tool.init(webfetch),
             todo: Tool.init(todo),
             search: Tool.init(websearch),
@@ -273,6 +281,8 @@ export namespace ToolRegistry {
               tool.write,
               tool.trash,
               tool.agent,
+              tool.agentList,
+              tool.agentOutput,
               tool.fetch,
               tool.todo,
               ...(webSearchEnabled ? [tool.search] : []),
@@ -397,6 +407,7 @@ export namespace ToolRegistry {
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
+      Layer.provide(SubagentRun.defaultLayer),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(LSP.defaultLayer),
       Layer.provide(Settings.defaultLayer),

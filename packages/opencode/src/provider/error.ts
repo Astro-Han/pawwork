@@ -102,6 +102,10 @@ function json(input: unknown) {
   return undefined
 }
 
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return typeof input === "object" && input !== null && !Array.isArray(input)
+}
+
 export type ParsedStreamError =
   | {
       type: "context_overflow"
@@ -117,13 +121,18 @@ export type ParsedStreamError =
 
 export function parseStreamError(input: unknown): ParsedStreamError | undefined {
   const raw = json(input)
-  const body = typeof raw?.message === "string" ? (json(raw.message) ?? raw) : raw
-  if (!body) return
+  if (!isRecord(raw)) return
+
+  const inner = typeof raw.message === "string" ? json(raw.message) : undefined
+  // OpenAI stream errors can arrive wrapped in an Error-like object. Use the
+  // inner provider payload so responseBody matches the payload users need.
+  const body = isRecord(inner) && inner.type === "error" ? inner : raw
 
   const responseBody = JSON.stringify(body)
   if (body.type !== "error") return
 
-  switch (body?.error?.code) {
+  const error = isRecord(body.error) ? body.error : undefined
+  switch (error?.code) {
     case "context_length_exceeded":
       return {
         type: "context_overflow",
@@ -147,14 +156,14 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
     case "invalid_prompt":
       return {
         type: "api_error",
-        message: typeof body?.error?.message === "string" ? body?.error?.message : "Invalid prompt.",
+        message: typeof error.message === "string" ? error.message : "Invalid prompt.",
         isRetryable: false,
         responseBody,
       }
     case "server_error":
       return {
         type: "api_error",
-        message: typeof body?.error?.message === "string" ? body?.error?.message : "Server error.",
+        message: typeof error.message === "string" ? error.message : "Server error.",
         isRetryable: true,
         responseBody,
       }

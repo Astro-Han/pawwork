@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "../../src/config/config"
@@ -9,7 +9,8 @@ import { MessageV2 } from "../../src/session/message-v2"
 import type { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { AgentTool, type AgentPromptOps } from "../../src/tool/agent"
+import { AgentTool, sanitizeErrorMessage, type AgentPromptOps } from "../../src/tool/agent"
+import { SubagentRun } from "../../src/session/subagent-run"
 import { Truncate } from "../../src/tool/truncate"
 import { ToolRegistry } from "../../src/tool/registry"
 import { provideTmpdirInstance } from "../fixture/fixture"
@@ -30,6 +31,7 @@ const it = testEffect(
     Config.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
     Session.defaultLayer,
+    SubagentRun.defaultLayer,
     Truncate.defaultLayer,
     ToolRegistry.defaultLayer,
   ),
@@ -64,7 +66,11 @@ const seed = Effect.fn("AgentToolTest.seed")(function* (title = "Pinned") {
   return { chat, assistant }
 })
 
-function stubOps(opts?: { onPrompt?: (input: SessionPrompt.PromptInput) => void; text?: string }): AgentPromptOps {
+function stubOps(opts?: {
+  onPrompt?: (input: SessionPrompt.PromptInput) => void
+  text?: string
+  interruptedSessions?: ReadonlySet<string>
+}): AgentPromptOps {
   return {
     cancel() {},
     resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
@@ -73,6 +79,7 @@ function stubOps(opts?: { onPrompt?: (input: SessionPrompt.PromptInput) => void;
         opts?.onPrompt?.(input)
         return reply(input, opts?.text ?? "done")
       }),
+    wasInterrupted: (id) => opts?.interruptedSessions?.has(id) ?? false,
   }
 }
 
@@ -105,6 +112,25 @@ function reply(input: Parameters<typeof SessionPrompt.prompt>[0], text: string):
     ],
   }
 }
+
+describe("sanitizeErrorMessage", () => {
+  // Invariant-style assertions: output must not contain any sensitive substring from the
+  // input. This is what catches regressions when a future field shape (e.g. WSL paths,
+  // Cygwin mounts) leaks through; it does not depend on the literal replacement format.
+  const cases: ReadonlyArray<{ name: string; input: string; sensitive: ReadonlyArray<string> }> = [
+    { name: "POSIX home (Mac)", input: "ENOENT /Users/alice/secret/data.json", sensitive: ["alice", "secret/data.json"] },
+    { name: "POSIX home (Linux)", input: "open /home/alice/.ssh/id_rsa failed", sensitive: ["alice", ".ssh/id_rsa"] },
+    { name: "Windows drive path", input: "Cannot find C:\\Users\\alice\\AppData\\Roaming\\app.json", sensitive: ["alice", "AppData", "app.json"] },
+    { name: "Windows UNC path", input: "Mount failed at \\\\fileserver\\share\\confidential", sensitive: ["fileserver", "confidential"] },
+    { name: "JSON envelope leak", input: 'request failed: {"apiKey":"sk-real-token","trace":"oops"}', sensitive: ["sk-real-token", "apiKey"] },
+  ]
+  for (const { name, input, sensitive } of cases) {
+    test(name, () => {
+      const out = sanitizeErrorMessage(input)
+      for (const s of sensitive) expect(out).not.toContain(s)
+    })
+  }
+})
 
 describe("tool.agent", () => {
   it.live("description sorts subagents by name and is stable across calls", () =>
@@ -186,12 +212,17 @@ describe("tool.agent", () => {
     ),
   )
 
-  it.live("execute resumes an existing task session from subagent_session_id", () =>
+  it.live("execute resumes an existing subagent session", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
         const { chat, assistant } = yield* seed()
-        const child = yield* sessions.create({ parentID: chat.id, title: "Existing child" })
+        const child = yield* sessions.create({
+          parentID: chat.id,
+          title: "Existing child",
+          createdByAgentTool: true,
+          subagentType: "general",
+        })
         const tool = yield* AgentTool
         const def = yield* tool.init()
         let seen: SessionPrompt.PromptInput | undefined
@@ -209,6 +240,7 @@ describe("tool.agent", () => {
             messageID: assistant.id,
             agent: "build",
             abort: new AbortController().signal,
+            callID: "call_test_" + Math.random().toString(36).slice(2),
             extra: { promptOps },
             messages: [],
             metadata: () => Effect.void,
@@ -247,6 +279,7 @@ describe("tool.agent", () => {
               messageID: assistant.id,
               agent: "build",
               abort: new AbortController().signal,
+              callID: "call_test_" + Math.random().toString(36).slice(2),
               extra: { promptOps, ...extra },
               messages: [],
               metadata: () => Effect.void,
@@ -274,7 +307,154 @@ describe("tool.agent", () => {
     ),
   )
 
-  it.live("execute creates a child when subagent_session_id does not exist", () =>
+  it.live("execute marks new child sessions with createdByAgentTool and subagentType", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const result = yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            callID: "call_test_" + Math.random().toString(36).slice(2),
+            extra: { promptOps, bypassAgentCheck: true },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const child = yield* sessions.get(result.metadata.sessionId!)
+        expect(child.createdByAgentTool).toBe(true)
+        expect(child.subagentType).toBe("general")
+      }),
+    ),
+  )
+
+  it.live("execute fails when subagent_session_id refers to a missing session", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "inspect bug",
+              prompt: "x",
+              subagent_type: "general",
+              subagent_session_id: "ses_missing",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              callID: "call_resume_missing",
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.exit)
+        expect(exit._tag).toBe("Failure")
+      }),
+    ),
+  )
+
+  it.live("execute fails when subagent_session_id refers to a non-agent session", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        // Plain child (createdByAgentTool defaults to false) — resume must reject.
+        const plainChild = yield* sessions.create({ parentID: chat.id, title: "Plain" })
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "inspect bug",
+              prompt: "x",
+              subagent_type: "general",
+              subagent_session_id: plainChild.id,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              callID: "call_resume_plain",
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.exit)
+        expect(exit._tag).toBe("Failure")
+      }),
+    ),
+  )
+
+  it.live("execute fails when subagent_type does not match the existing child", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const child = yield* sessions.create({
+          parentID: chat.id,
+          title: "Mismatched",
+          createdByAgentTool: true,
+          subagentType: "reviewer",
+        })
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const promptOps = stubOps()
+
+        const exit = yield* def
+          .execute(
+            {
+              description: "inspect bug",
+              prompt: "x",
+              subagent_type: "general",
+              subagent_session_id: child.id,
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              callID: "call_resume_mismatch",
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.exit)
+        expect(exit._tag).toBe("Failure")
+      }),
+    ),
+  )
+
+  it.live.skip("execute creates a child when subagent_session_id does not exist", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
@@ -296,6 +476,7 @@ describe("tool.agent", () => {
             messageID: assistant.id,
             agent: "build",
             abort: new AbortController().signal,
+            callID: "call_test_" + Math.random().toString(36).slice(2),
             extra: { promptOps },
             messages: [],
             metadata: () => Effect.void,
@@ -305,10 +486,10 @@ describe("tool.agent", () => {
 
         const kids = yield* sessions.children(chat.id)
         expect(kids).toHaveLength(1)
-        expect(kids[0]?.id).toBe(result.metadata.sessionId)
+        expect(kids[0]?.id).toBe(result.metadata.sessionId!)
         expect(result.metadata.sessionId).not.toBe("ses_missing")
         expect(result.output).toContain(`subagent_session_id: ${result.metadata.sessionId}`)
-        expect(seen?.sessionID).toBe(result.metadata.sessionId)
+        expect(seen?.sessionID).toBe(result.metadata.sessionId!)
       }),
     ),
   )
@@ -335,6 +516,7 @@ describe("tool.agent", () => {
               messageID: assistant.id,
               agent: "build",
               abort: new AbortController().signal,
+              callID: "call_test_" + Math.random().toString(36).slice(2),
               extra: { promptOps },
               messages: [],
               metadata: () => Effect.void,
@@ -342,9 +524,14 @@ describe("tool.agent", () => {
             },
           )
 
-          const child = yield* sessions.get(result.metadata.sessionId)
+          const child = yield* sessions.get(result.metadata.sessionId!)
           expect(child.parentID).toBe(chat.id)
           expect(child.permission).toEqual([
+            {
+              permission: "agent",
+              pattern: "*",
+              action: "deny",
+            },
             {
               permission: "todowrite",
               pattern: "*",
@@ -362,6 +549,7 @@ describe("tool.agent", () => {
             },
           ])
           expect(seen?.tools).toEqual({
+            agent: false,
             todowrite: false,
             bash: false,
             read: false,

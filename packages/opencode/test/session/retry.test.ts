@@ -316,4 +316,41 @@ describe("session.message-v2.fromError", () => {
     expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
     expect(SessionRetry.retryable(result)).toBe("An error occurred while processing your request.")
   })
+
+  test("uses fallback message for OpenAI server_error stream chunks without message", () => {
+    const result = MessageV2.fromError(
+      {
+        message: JSON.stringify({
+          type: "error",
+          error: {
+            code: "server_error",
+          },
+        }),
+      },
+      { providerID: ProviderID.make("openai") },
+    )
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(true)
+    expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
+    expect((result as MessageV2.APIError).data.message).toBe("Server error.")
+    expect(SessionRetry.retryable(result)).toBe("Server error.")
+  })
+
+  test("does not convert unknown OpenAI stream error chunks to retryable APIError", () => {
+    const result = MessageV2.fromError(
+      {
+        message: JSON.stringify({
+          type: "error",
+          error: {
+            code: "bad_request",
+            message: "Bad request",
+          },
+        }),
+      },
+      { providerID: ProviderID.make("openai") },
+    )
+
+    expect(MessageV2.APIError.isInstance(result)).toBe(false)
+    expect(SessionRetry.retryable(result)).toBeUndefined()
+  })
 })

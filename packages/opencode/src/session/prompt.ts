@@ -234,12 +234,25 @@ export const layer = Layer.effect(
     const runner = Effect.fn("SessionPrompt.runner")(function* () {
       return yield* EffectBridge.make()
     })
+    // Tracks subagent sessions whose runner.onInterrupt fired during the most recent prompt run.
+    // Reset at the start of each prompt() call; written when loop()'s onInterrupt arg fires; read
+    // by AgentTool.execute via AgentPromptOps.wasInterrupted to deterministically distinguish
+    // "child runner aborted" from "model returned naturally" without racing ctx.abort.aborted.
+    const interruptedSessions = new Set<SessionID>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       const run = yield* runner()
       return {
         cancel: (sessionID: SessionID) => run.fork(cancel(sessionID)),
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input),
+        // Self-cleaning read: each subagent dispatch reads `wasInterrupted` exactly once after
+        // ops.prompt resolves, so deleting on read keeps the Set bounded by concurrent inflight
+        // subagents instead of growing across the whole runtime lifetime.
+        wasInterrupted: (sessionID: SessionID) => {
+          const interrupted = interruptedSessions.has(sessionID)
+          if (interrupted) interruptedSessions.delete(sessionID)
+          return interrupted
+        },
       } satisfies AgentPromptOps
     })
 
@@ -1469,6 +1482,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
     const prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.prompt")(
       function* (input: PromptInput) {
+        interruptedSessions.delete(input.sessionID)
         const session = yield* sessions.get(input.sessionID)
         yield* revert.cleanup(session)
         const message = yield* createUserMessage(input)
@@ -1793,7 +1807,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>) {
-      return yield* state.ensureRunning(input.sessionID, lastAssistant(input.sessionID), runLoop(input.sessionID))
+      const onInterrupt = Effect.gen(function* () {
+        interruptedSessions.add(input.sessionID)
+        return yield* lastAssistant(input.sessionID)
+      })
+      return yield* state.ensureRunning(input.sessionID, onInterrupt, runLoop(input.sessionID))
     })
 
     const shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.shell")(
@@ -1890,6 +1908,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               command: input.command,
               model: { providerID: taskModel.providerID, modelID: taskModel.modelID },
               prompt: templateParts.find((y) => y.type === "text")?.text ?? "",
+              status: "completed" as const,
+              recent_events: [],
             },
           ]
         : [...templateParts, ...(input.parts ?? [])]

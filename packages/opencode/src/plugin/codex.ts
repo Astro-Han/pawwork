@@ -108,6 +108,10 @@ export function shouldKeepCodexOAuthModel(modelId: string, apiId: string): boole
   return major > 5 || (major === 5 && minor > 4)
 }
 
+export function hasCodexOAuthGpt55Limit(apiId: string): boolean {
+  return /^gpt-5\.5(?:$|-)/.test(apiId)
+}
+
 function buildAuthorizeUrl(redirectUri: string, pkce: PkceCodes, state: string): string {
   const params = new URLSearchParams({
     response_type: "code",
@@ -450,14 +454,13 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
             cache: { read: 0, write: 0 },
           }
 
-          // gpt-5.5 models temporarily have restricted context window size for codex plans
-          if (model.id.includes("gpt-5.5")) {
-            model.limit = {
+          if (hasCodexOAuthGpt55Limit(model.api.id)) {
+            const limit: typeof model.limit & { input: number } = {
               context: 400_000,
-              // @ts-expect-error v1 SDK Model.limit omits input, but Codex plan models use it downstream.
               input: 272_000,
               output: 128_000,
             }
+            model.limit = limit
           }
         }
 

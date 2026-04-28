@@ -29,6 +29,7 @@ import { ProjectID } from "../../src/project/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { ConfigPlugin } from "@/config/plugin"
 import { withConfigDepsLock } from "../shared/config-deps-lock"
+import { writeInstalledConfigDeps } from "../shared/mock-npm-install"
 import { Npm } from "@opencode-ai/core/npm"
 import { Installation } from "../../src/installation"
 
@@ -266,6 +267,7 @@ test("loads and updates global PawWork config aliases", async () => {
     await using tmp = await tmpdir()
     const prev = Global.Path.config
     ;(Global.Path as { config: string }).config = globalTmp.path
+    await writeInstalledConfigDeps(globalTmp.path)
     await clear()
     try {
       await writeConfig(
