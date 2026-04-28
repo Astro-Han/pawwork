@@ -7,6 +7,8 @@ import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
 import { ReadTool } from "./read"
 import { AgentTool } from "./agent"
+import { AgentListTool } from "./agent-list"
+import { AgentOutputTool } from "./agent-output"
 import { TodoWriteTool } from "./todo"
 import { TrashTool } from "./trash"
 import { WebFetchTool } from "./webfetch"
@@ -120,6 +122,8 @@ export namespace ToolRegistry {
 
       const invalid = yield* InvalidTool
       const agent = yield* AgentTool
+      const agentList = yield* AgentListTool
+      const agentOutput = yield* AgentOutputTool
       const read = yield* ReadTool
       const question = yield* QuestionTool
       const todo = yield* TodoWriteTool
@@ -251,6 +255,8 @@ export namespace ToolRegistry {
             write: Tool.init(writetool),
             trash: Tool.init(trashtool),
             agent: Tool.init(agent),
+            agentList: Tool.init(agentList),
+            agentOutput: Tool.init(agentOutput),
             fetch: Tool.init(webfetch),
             todo: Tool.init(todo),
             search: Tool.init(websearch),
@@ -275,6 +281,8 @@ export namespace ToolRegistry {
               tool.write,
               tool.trash,
               tool.agent,
+              tool.agentList,
+              tool.agentOutput,
               tool.fetch,
               tool.todo,
               ...(webSearchEnabled ? [tool.search] : []),
