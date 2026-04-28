@@ -16,6 +16,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
 import { toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
@@ -75,10 +76,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   const status = () => sync.data.session_status[params.id ?? ""] ?? idle
   const messages = () => {
     const id = params.id
-    if (!id) return []
-    return sync.data.message[id] ?? []
+    return readSessionMessages(id ? sync.data.message[id] : undefined)
   }
-  const userMessages = () => messages().filter((m) => m.role === "user") as UserMessage[]
+  const userMessages = () => readUserMessages(messages())
   const visibleUserMessages = () => {
     const revert = info()?.revert?.messageID
     if (!revert) return userMessages()

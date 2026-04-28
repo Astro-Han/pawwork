@@ -10,10 +10,11 @@ import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { File } from "@opencode-ai/ui/file"
 import { Markdown } from "@opencode-ai/ui/markdown"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
-import type { Message, Part, UserMessage } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { emptyMessages, emptyUserMessages, readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
 import { getSessionContextMetrics } from "./session-context-metrics"
 import { estimateSessionContextBreakdown, type SessionContextBreakdownKey } from "./session-context-breakdown"
 import { createSessionContextFormatter } from "./session-context-format"
@@ -87,9 +88,6 @@ function RawMessage(props: {
   )
 }
 
-const emptyMessages: Message[] = []
-const emptyUserMessages: UserMessage[] = []
-
 export function SessionContextTab() {
   const sync = useSync()
   const language = useLanguage()
@@ -101,15 +99,14 @@ export function SessionContextTab() {
   const messages = createMemo(
     () => {
       const id = params.id
-      if (!id) return emptyMessages
-      return (sync.data.message[id] ?? []) as Message[]
+      return readSessionMessages(id ? sync.data.message[id] : undefined)
     },
     emptyMessages,
     { equals: same },
   )
 
   const userMessages = createMemo(
-    () => messages().filter((m) => m.role === "user") as UserMessage[],
+    () => readUserMessages(messages()),
     emptyUserMessages,
     { equals: same },
   )
