@@ -61,6 +61,14 @@ function sdkKey(npm: string): string | undefined {
   return undefined
 }
 
+function isDeepSeekModelID(id: string) {
+  return /(^|[/:])deepseek(?:[-/]|$)/.test(id.toLowerCase())
+}
+
+function isLegacyDeepSeekVariantID(id: string) {
+  return /(^|[/:])deepseek-(?:chat|reasoner|r1|v3)(?:[.\-/]|$)/.test(id.toLowerCase())
+}
+
 function normalizeMessages(
   msgs: ModelMessage[],
   model: Provider.Model,
@@ -182,7 +190,7 @@ function normalizeMessages(
 
   // This must run before interleaved-field extraction so the injected empty
   // reasoning becomes providerOptions.reasoning_content on the next turn.
-  if (model.api.id.includes("deepseek")) {
+  if (isDeepSeekModelID(model.api.id)) {
     msgs = msgs.map((msg) => {
       if (msg.role !== "assistant") return msg
       if (Array.isArray(msg.content)) {
@@ -423,9 +431,9 @@ function anthropicAdaptiveEfforts(apiId: string): string[] | null {
 }
 
 function deepseekMajorVersion(apiId: string): number | undefined {
-  const match = apiId.toLowerCase().match(/deepseek-v(\d+)/)
+  const match = apiId.toLowerCase().match(/(^|[/:])deepseek-v(\d+)(?:[.\-/]|$)/)
   if (!match) return undefined
-  return Number.parseInt(match[1]!, 10)
+  return Number.parseInt(match[2]!, 10)
 }
 
 export function variants(model: Provider.Model): Record<string, Record<string, any>> {
@@ -434,10 +442,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
   const id = model.id.toLowerCase()
   const adaptiveEfforts = anthropicAdaptiveEfforts(model.api.id)
   if (
-    id.includes("deepseek-chat") ||
-    id.includes("deepseek-reasoner") ||
-    id.includes("deepseek-r1") ||
-    id.includes("deepseek-v3") ||
+    isLegacyDeepSeekVariantID(id) ||
     id.includes("minimax") ||
     id.includes("glm") ||
     (id.includes("mistral") && model.api.npm !== "@ai-sdk/mistral") ||
@@ -564,12 +569,12 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     case "venice-ai-sdk-provider":
     // https://docs.venice.ai/overview/guides/reasoning-models#reasoning-effort
     case "@ai-sdk/openai-compatible": {
-      const efforts = [...WIDELY_SUPPORTED_EFFORTS]
+      const openaiCompatibleEfforts = [...WIDELY_SUPPORTED_EFFORTS]
       const deepseekMajor = deepseekMajorVersion(model.api.id)
       if (deepseekMajor !== undefined && deepseekMajor >= 4) {
-        efforts.push("max")
+        openaiCompatibleEfforts.push("max")
       }
-      return Object.fromEntries(efforts.map((effort) => [effort, { reasoningEffort: effort }]))
+      return Object.fromEntries(openaiCompatibleEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
     }
 
     case "@ai-sdk/azure":
@@ -840,7 +845,10 @@ export function options(input: {
 }): Record<string, any> {
   const result: Record<string, any> = {}
 
-  if (input.model.api.npm === "@ai-sdk/google-vertex/anthropic") {
+  if (
+    input.model.api.npm === "@ai-sdk/google-vertex/anthropic" ||
+    (!input.model.api.id.includes("claude") && input.model.api.npm === "@ai-sdk/anthropic")
+  ) {
     result["toolStreaming"] = false
   }
 
@@ -1078,6 +1086,26 @@ export function schema(model: Provider.Model, schema: JSONSchema.BaseSchema | JS
     }
   }
   */
+
+  if (model.providerID === "moonshotai" || model.api.id.toLowerCase().includes("kimi")) {
+    const sanitizeMoonshot = (obj: unknown): unknown => {
+      if (obj === null || typeof obj !== "object") return obj
+      if (Array.isArray(obj)) return obj.map(sanitizeMoonshot)
+      const result = Object.fromEntries(
+        Object.entries(obj).map(([key, value]) => [key, sanitizeMoonshot(value)]),
+      ) as Record<string, unknown>
+      if (typeof result.$ref === "string") {
+        const refOnly: Record<string, unknown> = { $ref: result.$ref }
+        if (result.$defs && typeof result.$defs === "object") refOnly.$defs = result.$defs
+        if (result.definitions && typeof result.definitions === "object") refOnly.definitions = result.definitions
+        return refOnly
+      }
+      if (Array.isArray(result.items)) result.items = result.items[0] ?? {}
+      return result
+    }
+
+    schema = sanitizeMoonshot(schema) as JSONSchema.BaseSchema | JSONSchema7
+  }
 
   // Convert integer enums to string enums for Google/Gemini
   if (model.providerID === "google" || model.api.id.includes("gemini")) {

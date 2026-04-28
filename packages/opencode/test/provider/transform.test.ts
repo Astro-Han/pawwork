@@ -256,6 +256,73 @@ describe("ProviderTransform.options - google thinkingConfig gating", () => {
   })
 })
 
+describe("ProviderTransform.options - Anthropic SDK tool streaming", () => {
+  const sessionID = "test-session-123"
+
+  const createAnthropicSdkModel = (apiId: string, npm: "@ai-sdk/anthropic" | "@ai-sdk/google-vertex/anthropic") =>
+    ({
+      id: `test/${apiId}`,
+      providerID: npm === "@ai-sdk/google-vertex/anthropic" ? "google-vertex-anthropic" : "test",
+      api: {
+        id: apiId,
+        url: "https://api.test.com",
+        npm,
+      },
+      name: apiId,
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: true },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: {
+        input: 0.001,
+        output: 0.002,
+        cache: { read: 0.0001, write: 0.0002 },
+      },
+      limit: {
+        context: 200000,
+        output: 8192,
+      },
+      status: "active",
+      options: {},
+      headers: {},
+    }) as any
+
+  test("disables tool streaming for Google Vertex Anthropic", () => {
+    const result = ProviderTransform.options({
+      model: createAnthropicSdkModel("claude-sonnet-4@20250514", "@ai-sdk/google-vertex/anthropic"),
+      sessionID,
+      providerOptions: {},
+    })
+
+    expect(result.toolStreaming).toBe(false)
+  })
+
+  test("disables tool streaming for non-Claude models using the Anthropic SDK", () => {
+    const result = ProviderTransform.options({
+      model: createAnthropicSdkModel("kimi-k2.5", "@ai-sdk/anthropic"),
+      sessionID,
+      providerOptions: {},
+    })
+
+    expect(result.toolStreaming).toBe(false)
+  })
+
+  test("keeps tool streaming unset for Claude models using the Anthropic SDK", () => {
+    const result = ProviderTransform.options({
+      model: createAnthropicSdkModel("claude-sonnet-4-5", "@ai-sdk/anthropic"),
+      sessionID,
+      providerOptions: {},
+    })
+
+    expect(result.toolStreaming).toBeUndefined()
+  })
+})
+
 describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
   const sessionID = "test-session-123"
 
@@ -935,6 +1002,124 @@ describe("ProviderTransform.schema - gemini non-object properties removal", () =
   })
 })
 
+describe("ProviderTransform.schema - Moonshot/Kimi tool schemas", () => {
+  const moonshotModel = {
+    providerID: "moonshotai",
+    api: {
+      id: "kimi-k2",
+    },
+  } as any
+
+  test("removes sibling keywords from referenced schemas", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        variantOptions: {
+          $ref: "#/$defs/VariantOptions",
+          description: "Moonshot rejects this sibling after ref expansion.",
+        },
+      },
+      $defs: {
+        VariantOptions: {
+          description: "Referenced schema description stays here.",
+          type: "object",
+        },
+      },
+    } as any
+
+    const result = ProviderTransform.schema(moonshotModel, schema) as any
+
+    expect(result.properties.variantOptions).toEqual({
+      $ref: "#/$defs/VariantOptions",
+    })
+    expect(result.$defs.VariantOptions.description).toBe("Referenced schema description stays here.")
+  })
+
+  test("preserves root definitions when sanitizing referenced schemas", () => {
+    const result = ProviderTransform.schema(
+      moonshotModel,
+      {
+        $ref: "#/$defs/VariantOptions",
+        description: "Moonshot rejects this sibling after ref expansion.",
+        $defs: {
+          VariantOptions: {
+            type: "object",
+            properties: {
+              value: {
+                type: "string",
+              },
+            },
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result).toEqual({
+      $ref: "#/$defs/VariantOptions",
+      $defs: {
+        VariantOptions: {
+          type: "object",
+          properties: {
+            value: {
+              type: "string",
+            },
+          },
+        },
+      },
+    })
+  })
+
+  test("also sanitizes Kimi models outside the Moonshot provider", () => {
+    const result = ProviderTransform.schema(
+      {
+        providerID: "openrouter",
+        api: {
+          id: "moonshotai/kimi-k2",
+        },
+      } as any,
+      {
+        type: "object",
+        properties: {
+          value: {
+            $ref: "#/$defs/Value",
+            description: "Moonshot rejects this sibling after ref expansion.",
+          },
+        },
+        $defs: {
+          Value: {
+            type: "object",
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.value).toEqual({
+      $ref: "#/$defs/Value",
+    })
+  })
+
+  test("converts tuple-style array items to a single item schema", () => {
+    const result = ProviderTransform.schema(
+      moonshotModel,
+      {
+        type: "object",
+        properties: {
+          renderedSize: {
+            type: "array",
+            items: [{ type: "number" }, { type: "number" }],
+            minItems: 2,
+            maxItems: 2,
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.renderedSize.items).toEqual({
+      type: "number",
+    })
+  })
+})
+
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
   test("DeepSeek with tool calls includes reasoning_content in providerOptions", () => {
     const msgs = [
@@ -1056,6 +1241,122 @@ describe("ProviderTransform.message - DeepSeek reasoning content", () => {
       { type: "text", text: "Answer" },
     ])
     expect(result[0].providerOptions?.openaiCompatible?.reasoning_content).toBeUndefined()
+  })
+
+  test("DeepSeek assistant array messages include empty reasoning when missing", () => {
+    const result = ProviderTransform.message(
+      [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Done." }],
+        },
+      ] as any[],
+      {
+        id: ModelID.make("deepseek/deepseek-chat"),
+        providerID: ProviderID.make("deepseek"),
+        api: {
+          id: "deepseek-chat",
+          url: "https://api.deepseek.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        capabilities: {
+          interleaved: false,
+        },
+      } as any,
+      {},
+    ) as any[]
+
+    expect(result[0].content).toEqual([
+      { type: "text", text: "Done." },
+      { type: "reasoning", text: "" },
+    ])
+  })
+
+  test("DeepSeek assistant string messages include empty reasoning", () => {
+    const result = ProviderTransform.message(
+      [
+        {
+          role: "assistant",
+          content: "Done.",
+        },
+      ] as any[],
+      {
+        id: ModelID.make("deepseek/deepseek-chat"),
+        providerID: ProviderID.make("deepseek"),
+        api: {
+          id: "deepseek-chat",
+          url: "https://api.deepseek.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        capabilities: {
+          interleaved: false,
+        },
+      } as any,
+      {},
+    ) as any[]
+
+    expect(result[0].content).toEqual([
+      { type: "text", text: "Done." },
+      { type: "reasoning", text: "" },
+    ])
+  })
+
+  test("DeepSeek-like substrings do not receive empty reasoning", () => {
+    const result = ProviderTransform.message(
+      [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Done." }],
+        },
+      ] as any[],
+      {
+        id: ModelID.make("test/notdeepseek-chat"),
+        providerID: ProviderID.make("test"),
+        api: {
+          id: "notdeepseek-chat",
+          url: "https://api.test.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        capabilities: {
+          interleaved: false,
+        },
+      } as any,
+      {},
+    ) as any[]
+
+    expect(result[0].content).toEqual([{ type: "text", text: "Done." }])
+  })
+
+  test("DeepSeek assistant messages keep existing reasoning", () => {
+    const result = ProviderTransform.message(
+      [
+        {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "thinking" },
+            { type: "text", text: "Done." },
+          ],
+        },
+      ] as any[],
+      {
+        id: ModelID.make("deepseek/deepseek-chat"),
+        providerID: ProviderID.make("deepseek"),
+        api: {
+          id: "deepseek-chat",
+          url: "https://api.deepseek.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        capabilities: {
+          interleaved: false,
+        },
+      } as any,
+      {},
+    ) as any[]
+
+    expect(result[0].content).toEqual([
+      { type: "reasoning", text: "thinking" },
+      { type: "text", text: "Done." },
+    ])
   })
 })
 
@@ -2151,7 +2452,7 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
-  test("deepseek returns empty object", () => {
+  test("DeepSeek Chat returns empty object", () => {
     const model = createMockModel({
       id: "deepseek/deepseek-chat",
       providerID: "deepseek",
@@ -2163,6 +2464,49 @@ describe("ProviderTransform.variants", () => {
     })
     const result = ProviderTransform.variants(model)
     expect(result).toEqual({})
+  })
+
+  test("DeepSeek V3 returns empty object", () => {
+    const model = createMockModel({
+      id: "deepseek/deepseek-v3",
+      providerID: "deepseek",
+      api: {
+        id: "deepseek-v3",
+        url: "https://api.deepseek.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(result).toEqual({})
+  })
+
+  test("DeepSeek V4 supports max reasoning effort", () => {
+    const model = createMockModel({
+      id: "deepseek/deepseek-v4",
+      providerID: "deepseek",
+      api: {
+        id: "deepseek-v4",
+        url: "https://api.deepseek.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
+    expect(result.max).toEqual({ reasoningEffort: "max" })
+  })
+
+  test("DeepSeek-like substrings use standard OpenAI-compatible efforts", () => {
+    const model = createMockModel({
+      id: "test/notdeepseek-v4",
+      providerID: "test",
+      api: {
+        id: "notdeepseek-v4",
+        url: "https://api.test.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(Object.keys(result)).toEqual(["low", "medium", "high"])
   })
 
   test("minimax returns empty object", () => {
