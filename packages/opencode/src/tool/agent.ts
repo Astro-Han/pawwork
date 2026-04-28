@@ -82,11 +82,15 @@ const isTextPartCompleted = (p: MessageV2.TextPart): boolean => p.time?.end !== 
 // Reads the child session's most recent assistant text part with stable (completed) content.
 // Used by finalizeAfter for partial_result on cancellation; returns null when no completed text
 // exists (e.g., cancellation during the first tool call or mid-token streaming abort).
+//
+// Scans the full message history rather than a fixed window: tool-heavy children can push the
+// last completed assistant text past any short backscan, and cancellation is a rare path so the
+// extra read cost is acceptable.
 const makeReadLastCompletedAssistantText =
   (sessions: Session.Service["Service"]) =>
   (childID: SessionID): Effect.Effect<string | null> =>
     Effect.gen(function* () {
-      const messages = yield* sessions.messages({ sessionID: childID, limit: 5 })
+      const messages = yield* sessions.messages({ sessionID: childID })
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i]
         if (m.info.role !== "assistant") continue
@@ -382,16 +386,13 @@ export const AgentTool = Tool.define(
                 }
               })
 
-            // Wraps the success-path finalize so a transient finalize failure does not
-            // propagate to the next pipe step (Effect.catch) and re-run finalizeAfter as
-            // `kind: "err"`, which would relabel a completed run as failed. Idempotency in
-            // SubagentRun.finalize already protects the row state; this just stops the success
-            // result from being rebranded.
-            const finalizeOk = (r: MessageV2.WithParts) =>
-              finalizeAfter({ kind: "ok", r }).pipe(
-                Effect.catchCause(() => Effect.void),
-              )
-
+            // Explicit success / failure dispatch so each path runs its matching finalize
+            // exactly once and bugs don't get reclassified across paths:
+            //  - success: ok-finalize runs; if it fails, the failure propagates so the outer
+            //    catchCause sees the storage error instead of read() returning a stale "running"
+            //    row that synthesizeOutput would render as a defective success.
+            //  - failure: err-finalize runs (best-effort row cleanup), then the original cause
+            //    re-raises via failCause so stack/annotations survive.
             const parts = yield* ops.resolvePromptParts(params.prompt)
             yield* ops
               .prompt({
@@ -409,8 +410,16 @@ export const AgentTool = Tool.define(
                 parts,
               })
               .pipe(
-                Effect.tap((r) => finalizeOk(r)),
-                Effect.catch((error) => finalizeAfter({ kind: "err", error })),
+                Effect.matchCauseEffect({
+                  onSuccess: (r) => finalizeAfter({ kind: "ok", r }),
+                  onFailure: (cause) =>
+                    Effect.gen(function* () {
+                      yield* finalizeAfter({ kind: "err", error: Cause.squash(cause) }).pipe(
+                        Effect.catchCause(() => Effect.void),
+                      )
+                      return yield* Effect.failCause(cause)
+                    }),
+                }),
               )
 
             const finalPart = yield* subagentRun.read(ctx.callID!)
