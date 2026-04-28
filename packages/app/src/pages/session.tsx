@@ -530,6 +530,42 @@ export default function Page() {
     emptyMessages,
     { equals: same },
   )
+  const timelineMessagesReady = createMemo(() => {
+    const id = timelineSessionID()
+    if (!id) return true
+    return sync.data.message[id] !== undefined
+  })
+  const timelineUserMessages = createMemo(
+    () => readUserMessages(timelineMessages()),
+    emptyUserMessages,
+    { equals: same },
+  )
+  const timelineRevertMessageID = createMemo(() => {
+    const id = timelineSessionID()
+    if (!id) return
+    return sync.session.get(id)?.revert?.messageID
+  })
+  const timelineVisibleUserMessages = createMemo(
+    () => {
+      const revert = timelineRevertMessageID()
+      if (!revert) return timelineUserMessages()
+      return timelineUserMessages().filter((m) => m.id < revert)
+    },
+    emptyUserMessages,
+    {
+      equals: same,
+    },
+  )
+  const timelineHistoryMore = createMemo(() => {
+    const id = timelineSessionID()
+    if (!id) return false
+    return sync.session.history.more(id)
+  })
+  const timelineHistoryLoading = createMemo(() => {
+    const id = timelineSessionID()
+    if (!id) return false
+    return sync.session.history.loading(id)
+  })
   const historyMore = createMemo(() => {
     const id = params.id
     if (!id) return false
@@ -1603,24 +1639,16 @@ export default function Page() {
   )
 
   const historyWindow = createSessionHistoryWindow({
-    sessionID: () => params.id,
-    messagesReady,
-    loaded: () => messages().length,
-    visibleUserMessages,
-    historyMore,
-    historyLoading,
+    sessionID: timelineSessionID,
+    messagesReady: timelineMessagesReady,
+    loaded: () => timelineMessages().length,
+    visibleUserMessages: timelineVisibleUserMessages,
+    historyMore: timelineHistoryMore,
+    historyLoading: timelineHistoryLoading,
     loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
     userScrolled: autoScroll.userScrolled,
     scroller: () => scroller,
   })
-  const timelineRenderedUserMessages = createMemo(
-    (previous: UserMessage[] = emptyUserMessages) => {
-      if (messagesReady()) return historyWindow.renderedUserMessages()
-      return previous
-    },
-    emptyUserMessages,
-    { equals: same },
-  )
 
   fill = () => {
     if (fillFrame !== undefined) return
@@ -1628,13 +1656,13 @@ export default function Page() {
     fillFrame = requestAnimationFrame(() => {
       fillFrame = undefined
 
-      if (!params.id || !messagesReady()) return
-      if (autoScroll.userScrolled() || historyLoading()) return
+      if (!timelineSessionID() || !timelineMessagesReady()) return
+      if (autoScroll.userScrolled() || timelineHistoryLoading()) return
 
       const el = scroller
       if (!el) return
       if (el.scrollHeight > el.clientHeight + 1) return
-      if (historyWindow.turnStart() <= 0 && !historyMore()) return
+      if (historyWindow.turnStart() <= 0 && !timelineHistoryMore()) return
 
       void historyWindow.loadAndReveal()
     })
@@ -1645,14 +1673,15 @@ export default function Page() {
       () =>
         [
           params.id,
-          messagesReady(),
+          timelineSessionID(),
+          timelineMessagesReady(),
           historyWindow.turnStart(),
-          historyMore(),
-          historyLoading(),
+          timelineHistoryMore(),
+          timelineHistoryLoading(),
           autoScroll.userScrolled(),
-          visibleUserMessages().length,
+          timelineVisibleUserMessages().length,
         ] as const,
-      ([id, ready, start, more, loading, scrolled]) => {
+      ([, id, ready, start, more, loading, scrolled]) => {
         if (!id || !ready || loading || scrolled) return
         if (start <= 0 && !more) return
         fill()
@@ -2129,12 +2158,12 @@ export default function Page() {
                       if (root) scheduleScrollState(root)
                     }}
                     turnStart={historyWindow.turnStart()}
-                    historyMore={historyMore()}
-                    historyLoading={historyLoading()}
+                    historyMore={timelineHistoryMore()}
+                    historyLoading={timelineHistoryLoading()}
                     onLoadEarlier={() => {
                       void historyWindow.loadAndReveal()
                     }}
-                    renderedUserMessages={timelineRenderedUserMessages()}
+                    renderedUserMessages={historyWindow.renderedUserMessages()}
                     anchor={anchor}
                   />
                 </Show>
