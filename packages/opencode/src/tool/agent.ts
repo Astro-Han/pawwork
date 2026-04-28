@@ -12,6 +12,13 @@ export interface AgentPromptOps {
   cancel(sessionID: SessionID): void
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
+  /**
+   * After ops.prompt resolves, returns true iff the child session's runner.onInterrupt
+   * fired during execution (parent abort propagated through `cancel()`, OR a user
+   * canceled the child session directly). Returns false on natural completion or model
+   * failure. Synchronous query.
+   */
+  wasInterrupted(sessionID: SessionID): boolean
 }
 
 const id = "agent"
