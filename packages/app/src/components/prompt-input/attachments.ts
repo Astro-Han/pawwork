@@ -326,10 +326,7 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
 
     const dropped = event.dataTransfer?.files
     if (!dropped || dropped.length === 0) {
-      showToast({
-        title: language.t("prompt.toast.pasteUnsupported.title"),
-        description: language.t("prompt.toast.pasteUnsupported.description"),
-      })
+      warn()
       return
     }
 
