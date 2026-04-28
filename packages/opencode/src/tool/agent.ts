@@ -255,7 +255,6 @@ export const AgentTool = Tool.define(
           description: params.description,
           prompt: params.prompt,
           agent: next.name,
-          subagent_type: params.subagent_type,
           command: params.command,
           model,
           reason:
@@ -281,7 +280,6 @@ export const AgentTool = Tool.define(
               description: params.description,
               prompt: params.prompt,
               agent: next.name,
-              subagent_type: params.subagent_type,
               command: params.command,
               model,
             })

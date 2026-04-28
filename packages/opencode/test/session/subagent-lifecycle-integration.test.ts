@@ -62,7 +62,6 @@ describe("subagent lifecycle integration", () => {
                 description: "review",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.finalize("call_completed", "completed", {
@@ -94,7 +93,6 @@ describe("subagent lifecycle integration", () => {
                 description: "noop",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.finalize("call_empty", "completed_empty", {})
@@ -122,7 +120,6 @@ describe("subagent lifecycle integration", () => {
                 description: "fail",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.finalize("call_failed", "failed", {
@@ -152,7 +149,6 @@ describe("subagent lifecycle integration", () => {
                 description: "review",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
                 reason: "limit exceeded",
               })
@@ -182,7 +178,6 @@ describe("subagent lifecycle integration", () => {
                 description: "cancel",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.finalize("call_canceled", "canceled_by_user", {
@@ -213,7 +208,6 @@ describe("subagent lifecycle integration", () => {
                 description: "first",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.patchSession("call_a", childID)
@@ -227,7 +221,6 @@ describe("subagent lifecycle integration", () => {
                 description: "second",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.patchSession("call_b", childID)
@@ -254,7 +247,6 @@ describe("subagent lifecycle integration", () => {
                 description: "running one",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.start({
@@ -264,7 +256,6 @@ describe("subagent lifecycle integration", () => {
                 description: "completed one",
                 prompt: "x",
                 agent: "build",
-                subagent_type: "reviewer",
                 model: ref,
               })
               yield* svc.finalize("call_done", "completed", { result_text: "ok" })

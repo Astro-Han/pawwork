@@ -25,7 +25,6 @@ export interface StartInput {
   description: string
   prompt: string
   agent: string
-  subagent_type: string
   command?: string
   model?: { providerID: ProviderID; modelID: ModelID }
 }
@@ -45,7 +44,6 @@ export interface RejectedInput {
   description: string
   prompt: string
   agent: string
-  subagent_type: string
   command?: string
   model?: { providerID: ProviderID; modelID: ModelID }
   reason: string

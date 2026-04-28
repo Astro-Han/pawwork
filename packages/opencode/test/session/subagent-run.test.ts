@@ -83,7 +83,6 @@ describe("SubtaskPart backward compat", () => {
             description: "review",
             prompt: "hi",
             agent: "build",
-            subagent_type: "reviewer",
             model: ref,
           })
           expect(part.status).toBe("running")
@@ -130,7 +129,6 @@ describe("SubtaskPart backward compat", () => {
             description: "review",
             prompt: "hi",
             agent: "build",
-            subagent_type: "reviewer",
             model: ref,
           })
           for (let i = 0; i < 30; i++) {
@@ -184,7 +182,6 @@ describe("SubtaskPart backward compat", () => {
             description: "review",
             prompt: "hi",
             agent: "build",
-            subagent_type: "reviewer",
             model: ref,
             reason: "Wait or reduce dispatch.",
           })
@@ -238,7 +235,6 @@ describe("SubtaskPart backward compat", () => {
               description: `dispatch ${i}`,
               prompt: "x",
               agent: "build",
-              subagent_type: "reviewer",
               model: ref,
             })
           }
@@ -348,7 +344,6 @@ describe("SubtaskPart backward compat", () => {
             description: "review",
             prompt: "hi",
             agent: "build",
-            subagent_type: "reviewer",
             model: ref,
           })
           // Direct write that flips status — should be rejected as a defect.
