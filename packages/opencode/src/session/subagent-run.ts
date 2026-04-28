@@ -419,10 +419,18 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
     ): Effect.Effect<MessageV2.SubtaskPart, NotFound> =>
       Effect.gen(function* () {
         const all = yield* collectSubtaskParts(parentID)
-        const matches = all.filter((p) => p.subagent_session_id === subagentSessionID)
+        // Tie-break started_at on insertion index (newer scan order) so two rows started in the
+        // same millisecond — possible under burst dispatch — pick the most recently inserted
+        // row deterministically instead of the first one we happened to see.
+        const matches = all
+          .map((p, index) => ({ p, index }))
+          .filter(({ p }) => p.subagent_session_id === subagentSessionID)
         if (matches.length === 0) return yield* Effect.fail(new NotFound(subagentSessionID))
-        matches.sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
-        const match = matches[0]
+        matches.sort(
+          (a, b) =>
+            (b.p.started_at ?? 0) - (a.p.started_at ?? 0) || b.index - a.index,
+        )
+        const match = matches[0].p
         // Refresh the in-memory index so subsequent `setConsumed` / `recordEvent` on this row
         // hit the fast path. Without this, `agent_output` finding a row by subagent_session_id
         // after a host restart would fail to mark it consumed (withExistingPart's NotFound
@@ -443,9 +451,16 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
     ): Effect.Effect<MessageV2.SubtaskPart[]> =>
       Effect.gen(function* () {
         const all = yield* collectSubtaskParts(parentID)
-        const filtered = all.filter((p) => matchesFilter(p, filter.status))
-        filtered.sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
-        return filtered.slice(0, filter.limit)
+        // Same tie-break rationale as findLatestBySessionID — burst dispatch can collide on
+        // started_at, so secondary-sort on insertion index for deterministic newest-first order.
+        const filtered = all
+          .map((p, index) => ({ p, index }))
+          .filter(({ p }) => matchesFilter(p, filter.status))
+        filtered.sort(
+          (a, b) =>
+            (b.p.started_at ?? 0) - (a.p.started_at ?? 0) || b.index - a.index,
+        )
+        return filtered.slice(0, filter.limit).map(({ p }) => p)
       })
 
     return Service.of({
