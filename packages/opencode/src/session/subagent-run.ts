@@ -337,17 +337,49 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Session.Service> =
     const read = (toolCallID: string): Effect.Effect<MessageV2.SubtaskPart, NotFound> =>
       readPart(toolCallID)
 
+    const collectSubtaskParts = (parentID: SessionID): Effect.Effect<MessageV2.SubtaskPart[]> =>
+      Effect.gen(function* () {
+        const messages = yield* session.messages({ sessionID: parentID })
+        const parts: MessageV2.SubtaskPart[] = []
+        for (const m of messages) {
+          for (const p of m.parts) {
+            if (p.type === "subtask") parts.push(p)
+          }
+        }
+        return parts
+      })
+
+    const matchesFilter = (
+      part: MessageV2.SubtaskPart,
+      filter: AgentListFilter,
+    ): boolean => {
+      if (filter === "all") return true
+      if (filter === "all_active") return part.status === "running" || !part.consumed_at
+      return part.status === filter
+    }
+
     const findLatestBySessionID = (
-      _parentID: SessionID,
-      _subagentSessionID: SessionID,
+      parentID: SessionID,
+      subagentSessionID: SessionID,
     ): Effect.Effect<MessageV2.SubtaskPart, NotFound> =>
-      Effect.die(new Error("SubagentRun.findLatestBySessionID: implemented in Task 13"))
+      Effect.gen(function* () {
+        const all = yield* collectSubtaskParts(parentID)
+        const matches = all.filter((p) => p.subagent_session_id === subagentSessionID)
+        if (matches.length === 0) return yield* Effect.fail(new NotFound(subagentSessionID))
+        matches.sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
+        return matches[0]
+      })
 
     const list = (
-      _parentID: SessionID,
-      _filter: { status: AgentListFilter; limit: number },
+      parentID: SessionID,
+      filter: { status: AgentListFilter; limit: number },
     ): Effect.Effect<MessageV2.SubtaskPart[]> =>
-      Effect.die(new Error("SubagentRun.list: implemented in Task 12"))
+      Effect.gen(function* () {
+        const all = yield* collectSubtaskParts(parentID)
+        const filtered = all.filter((p) => matchesFilter(p, filter.status))
+        filtered.sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
+        return filtered.slice(0, filter.limit)
+      })
 
     return Service.of({
       reserveSlot,
