@@ -51,6 +51,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Bus } from "../bus"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
+import { SubagentRun } from "../session/subagent-run"
 import { needsConfigDependencies, usesConfigDependencies } from "../config/dependency"
 
 export function localToolImportSpec(input: string) {
@@ -94,6 +95,7 @@ export namespace ToolRegistry {
     | Agent.Service
     | Skill.Service
     | Session.Service
+    | SubagentRun.Service
     | Provider.Service
     | LSP.Service
     | Settings.Service
@@ -397,6 +399,7 @@ export namespace ToolRegistry {
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),
+      Layer.provide(SubagentRun.defaultLayer),
       Layer.provide(Provider.defaultLayer),
       Layer.provide(LSP.defaultLayer),
       Layer.provide(Settings.defaultLayer),
