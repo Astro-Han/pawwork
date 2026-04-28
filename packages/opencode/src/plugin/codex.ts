@@ -454,7 +454,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           if (model.id.includes("gpt-5.5")) {
             model.limit = {
               context: 400_000,
-              //@ts-expect-error incorrect type for v1 sdk but works
+              // @ts-expect-error v1 SDK Model.limit omits input, but Codex plan models use it downstream.
               input: 272_000,
               output: 128_000,
             }

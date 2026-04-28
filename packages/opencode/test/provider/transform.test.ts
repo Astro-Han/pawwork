@@ -358,6 +358,68 @@ describe("ProviderTransform.options - gateway", () => {
   })
 })
 
+describe("ProviderTransform.options - Kimi anthropic thinking", () => {
+  const sessionID = "test-session-123"
+
+  const createModel = (apiId: string) =>
+    ({
+      id: `moonshot/${apiId}`,
+      providerID: "moonshot",
+      api: {
+        id: apiId,
+        url: "https://api.moonshot.cn",
+        npm: "@ai-sdk/anthropic",
+      },
+      name: apiId,
+      capabilities: {
+        temperature: true,
+        reasoning: true,
+        attachment: true,
+        toolcall: true,
+        input: { text: true, audio: false, image: true, video: false, pdf: true },
+        output: { text: true, audio: false, image: false, video: false, pdf: false },
+        interleaved: false,
+      },
+      cost: {
+        input: 0.001,
+        output: 0.002,
+        cache: { read: 0.0001, write: 0.0002 },
+      },
+      limit: {
+        context: 128000,
+        output: 8192,
+      },
+      status: "active",
+      options: {},
+      headers: {},
+    }) as any
+
+  test("enables thinking for the supported Kimi K2.5 anthropic variants", () => {
+    for (const apiId of ["kimi-k2.5", "kimi-k2p5", "k2p5"]) {
+      const result = ProviderTransform.options({
+        model: createModel(apiId),
+        sessionID,
+        providerOptions: {},
+      })
+      expect(result.thinking).toEqual({
+        type: "enabled",
+        budgetTokens: 4095,
+      })
+    }
+  })
+
+  test("does not broaden thinking to unrelated Kimi K2 or K2P variants", () => {
+    for (const apiId of ["kimi-k2.6", "kimi-k2-preview", "kimi-k2p6", "k2p6"]) {
+      const result = ProviderTransform.options({
+        model: createModel(apiId),
+        sessionID,
+        providerOptions: {},
+      })
+      expect(result).not.toHaveProperty("thinking")
+    }
+  })
+})
+
 describe("ProviderTransform.providerOptions", () => {
   const createModel = (overrides: Partial<any> = {}) =>
     ({
@@ -2160,6 +2222,20 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
+  test("proxy-routed mistral models do not receive generic reasoning variants", () => {
+    const model = createMockModel({
+      id: "custom-provider/mistral-large-latest",
+      providerID: "custom-provider",
+      api: {
+        id: "mistral-large-latest",
+        url: "https://api.custom.com",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(result).toEqual({})
+  })
+
   describe("@openrouter/ai-sdk-provider", () => {
     test("returns empty object for non-qualifying models", () => {
       const model = createMockModel({
@@ -2638,8 +2714,18 @@ describe("ProviderTransform.variants", () => {
       })
 
       expect(ProviderTransform.variants(v3)).toEqual({})
-      expect(Object.keys(ProviderTransform.variants(v4))).toEqual(["low", "medium", "high", "max"])
-      expect(Object.keys(ProviderTransform.variants(v5))).toEqual(["low", "medium", "high", "max"])
+      expect(ProviderTransform.variants(v4)).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      })
+      expect(ProviderTransform.variants(v5)).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      })
     })
   })
 

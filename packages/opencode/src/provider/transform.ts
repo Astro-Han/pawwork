@@ -17,6 +17,22 @@ function mimeToModality(mime: string): Modality | undefined {
   return undefined
 }
 
+function filterEmptyMessageContent(msg: ModelMessage): ModelMessage | undefined {
+  if (typeof msg.content === "string") {
+    if (msg.content === "") return undefined
+    return msg
+  }
+  if (!Array.isArray(msg.content)) return msg
+  const filtered = msg.content.filter((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return part.text !== ""
+    }
+    return true
+  })
+  if (filtered.length === 0) return undefined
+  return { ...msg, content: filtered } as ModelMessage
+}
+
 export const OUTPUT_TOKEN_MAX = Flag.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
 // Maps npm package to the key the AI SDK expects for providerOptions
@@ -53,44 +69,12 @@ function normalizeMessages(
   // Anthropic rejects messages with empty content - filter out empty string messages
   // and remove empty text/reasoning parts from array content
   if (model.api.npm === "@ai-sdk/anthropic") {
-    msgs = msgs
-      .map((msg) => {
-        if (typeof msg.content === "string") {
-          if (msg.content === "") return undefined
-          return msg
-        }
-        if (!Array.isArray(msg.content)) return msg
-        const filtered = msg.content.filter((part) => {
-          if (part.type === "text" || part.type === "reasoning") {
-            return part.text !== ""
-          }
-          return true
-        })
-        if (filtered.length === 0) return undefined
-        return { ...msg, content: filtered }
-      })
-      .filter((msg): msg is ModelMessage => msg !== undefined && msg.content !== "")
+    msgs = msgs.map(filterEmptyMessageContent).filter((msg): msg is ModelMessage => msg !== undefined)
   }
 
   // Bedrock specific transforms
   if (model.api.npm === "@ai-sdk/amazon-bedrock") {
-    msgs = msgs
-      .map((msg) => {
-        if (typeof msg.content === "string") {
-          if (msg.content === "") return undefined
-          return msg
-        }
-        if (!Array.isArray(msg.content)) return msg
-        const filtered = msg.content.filter((part) => {
-          if (part.type === "text" || part.type === "reasoning") {
-            return part.text !== ""
-          }
-          return true
-        })
-        if (filtered.length === 0) return undefined
-        return { ...msg, content: filtered }
-      })
-      .filter((msg): msg is ModelMessage => msg !== undefined && msg.content !== "")
+    msgs = msgs.map(filterEmptyMessageContent).filter((msg): msg is ModelMessage => msg !== undefined)
   }
 
   if (model.api.id.includes("claude")) {
@@ -196,7 +180,8 @@ function normalizeMessages(
     return result
   }
 
-  // Deepseek requires all assistant messages to have reasoning on them
+  // This must run before interleaved-field extraction so the injected empty
+  // reasoning becomes providerOptions.reasoning_content on the next turn.
   if (model.api.id.includes("deepseek")) {
     msgs = msgs.map((msg) => {
       if (msg.role !== "assistant") return msg
@@ -455,8 +440,9 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     id.includes("deepseek-v3") ||
     id.includes("minimax") ||
     id.includes("glm") ||
+    (id.includes("mistral") && model.api.npm !== "@ai-sdk/mistral") ||
     id.includes("kimi") ||
-    id.includes("k2p") ||
+    id.includes("k2p5") ||
     id.includes("qwen") ||
     id.includes("big-pickle")
   )
@@ -913,11 +899,11 @@ export function options(input: {
     }
   }
 
-  // Enable thinking by default for kimi models using anthropic SDK
+  // Enable thinking by default for kimi-k2.5/k2p5 models using anthropic SDK
   const modelId = input.model.api.id.toLowerCase()
   if (
     (input.model.api.npm === "@ai-sdk/anthropic" || input.model.api.npm === "@ai-sdk/google-vertex/anthropic") &&
-    (modelId.includes("k2p") || modelId.includes("kimi-k2.") || modelId.includes("kimi-k2p"))
+    (modelId.includes("k2p5") || modelId.includes("kimi-k2.5") || modelId.includes("kimi-k2p5"))
   ) {
     result["thinking"] = {
       type: "enabled",
