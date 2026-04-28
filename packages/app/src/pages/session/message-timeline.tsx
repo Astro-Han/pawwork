@@ -209,6 +209,9 @@ function createTimelineStaging(input: TimelineStageInput) {
 }
 
 export function MessageTimeline(props: {
+  sessionID: string
+  sessionKey: string
+  sessionMessages: MessageType[]
   mobileChanges: boolean
   mobileFallback: JSX.Element
   actions?: UserActions
@@ -240,7 +243,7 @@ export function MessageTimeline(props: {
   const dialog = useDialog()
   const language = useLanguage()
   const shellSurface = useShellSurface()
-  const { params, sessionKey } = useSessionKey()
+  const { params } = useSessionKey()
   const platform = usePlatform()
   const server = useServer()
   // Export hits the embedded sidecar via main-process IPC. When the user has switched the
@@ -249,12 +252,9 @@ export function MessageTimeline(props: {
   const exportAvailable = createMemo(() => !!platform.exportSession && server.current?.type === "sidecar")
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
-  const sessionID = createMemo(() => params.id)
-  const sessionMessages = createMemo(() => {
-    const id = sessionID()
-    if (!id) return emptyMessages
-    return sync.data.message[id] ?? emptyMessages
-  })
+  const sessionKey = createMemo(() => props.sessionKey)
+  const sessionID = createMemo(() => props.sessionID)
+  const sessionMessages = createMemo(() => props.sessionMessages)
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
@@ -381,7 +381,7 @@ export function MessageTimeline(props: {
   // Match the initial window cap so session switches do not reveal the window in partial batches.
   const stageCfg = { init: 10, batch: 3 }
   const staging = createTimelineStaging({
-    sessionKey,
+    sessionKey: () => props.sessionKey,
     turnStart: () => props.turnStart,
     messages: () => props.renderedUserMessages,
     config: stageCfg,

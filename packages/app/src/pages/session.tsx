@@ -59,6 +59,7 @@ import { emptyMessages, emptyUserMessages, readSessionMessages, readUserMessages
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
+import { nextTimelineSessionID } from "@/pages/session/timeline-session-state"
 import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
@@ -513,6 +514,22 @@ export default function Page() {
     if (!id) return true
     return sync.data.message[id] !== undefined
   })
+  const timelineSessionID = createMemo((current: string | undefined) =>
+    nextTimelineSessionID({
+      current,
+      route: params.id,
+      routeReady: messagesReady(),
+    }),
+  )
+  const timelineSessionKey = createMemo(() => `${params.dir}${timelineSessionID() ? `/${timelineSessionID()}` : ""}`)
+  const timelineMessages = createMemo(
+    () => {
+      const id = timelineSessionID()
+      return readSessionMessages(id ? sync.data.message[id] : undefined)
+    },
+    emptyMessages,
+    { equals: same },
+  )
   const historyMore = createMemo(() => {
     const id = params.id
     if (!id) return false
@@ -1596,6 +1613,14 @@ export default function Page() {
     userScrolled: autoScroll.userScrolled,
     scroller: () => scroller,
   })
+  const timelineRenderedUserMessages = createMemo(
+    (previous: UserMessage[] = emptyUserMessages) => {
+      if (messagesReady()) return historyWindow.renderedUserMessages()
+      return previous
+    },
+    emptyUserMessages,
+    { equals: same },
+  )
 
   fill = () => {
     if (fillFrame !== undefined) return
@@ -2069,8 +2094,11 @@ export default function Page() {
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
               <Match when={params.id}>
-                <Show when={messagesReady()}>
+                <Show when={timelineSessionID()}>
                   <MessageTimeline
+                    sessionID={timelineSessionID()!}
+                    sessionKey={timelineSessionKey()}
+                    sessionMessages={timelineMessages()}
                     mobileChanges={mobileChanges()}
                     mobileFallback={reviewContent({
                       classes: {
@@ -2106,7 +2134,7 @@ export default function Page() {
                     onLoadEarlier={() => {
                       void historyWindow.loadAndReveal()
                     }}
-                    renderedUserMessages={historyWindow.renderedUserMessages()}
+                    renderedUserMessages={timelineRenderedUserMessages()}
                     anchor={anchor}
                   />
                 </Show>

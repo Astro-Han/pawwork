@@ -177,15 +177,16 @@ test("renders the full initial session window when switching sessions", async ({
 
   await withSession(sdk, `e2e switch source ${Date.now()}`, async (first) => {
     project.trackSession(first.id)
+    await seedSessionTurns({ sdk, sessionID: first.id, count: 14 })
+
+    await project.gotoSession(first.id)
+    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
+      timeout: 30_000,
+    })
+
     await withSession(sdk, `e2e switch target ${Date.now()}`, async (second) => {
       project.trackSession(second.id)
-      await seedSessionTurns({ sdk, sessionID: first.id, count: 14 })
       await seedSessionTurns({ sdk, sessionID: second.id, count: 14 })
-
-      await project.gotoSession(first.id)
-      await expect(page.locator(sessionMessageItemSelector)).toHaveCount(INITIAL_SESSION_WINDOW_MESSAGES, {
-        timeout: 30_000,
-      })
       await expect(page.locator(sessionItemSelector(second.id))).toBeVisible({ timeout: 30_000 })
 
       await installMessageCountProbe(page)
@@ -204,6 +205,7 @@ test("renders the full initial session window when switching sessions", async ({
       const switched = samples.filter((sample) => sample.url.includes(`/session/${second.id}`))
       expect(switched.length).toBeGreaterThan(0)
       expect(rendered.every((id) => secondIDs.has(id))).toBe(true)
+      expect(switched.filter((sample) => sample.messages === 0)).toEqual([])
       expect(
         switched.filter(
           (sample) => sample.messages > 0 && sample.messages < INITIAL_SESSION_WINDOW_MESSAGES,
