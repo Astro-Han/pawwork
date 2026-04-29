@@ -246,9 +246,6 @@ const createPlatform = (): Platform => {
     },
 
     notify: async (title, description, href) => {
-      const focused = await window.api.getWindowFocused().catch(() => document.hasFocus())
-      if (focused) return
-
       // Omit `icon`; macOS/Windows fall back to the packaged app icon, which
       // is the PawWork paw-print. Any explicit URL here would pin us to an
       // external asset and reintroduce OpenCode branding in notifications.
@@ -261,6 +258,9 @@ const createPlatform = (): Platform => {
         handleNotificationClick(href)
         notification.close()
       }
+
+      // Flash Dock/taskbar to attract attention
+      void window.api.flashFrame()
     },
 
     fetch: (input, init) => {
