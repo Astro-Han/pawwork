@@ -249,7 +249,8 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                       <IconButton
                         icon="archive"
                         variant="ghost"
-                        class="size-5 rounded-md"
+                        size="small"
+                        class="rounded-md"
                         aria-label={language.t("common.archive")}
                         onClick={(event) => {
                           event.preventDefault()
