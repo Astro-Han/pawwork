@@ -147,4 +147,61 @@ describe("pty", () => {
       else process.env.PAWWORK_E2E_CUSTOM_ENV = previousCustom
     }
   })
+
+  test("preserves explicit terminal auth env overrides", async () => {
+    if (process.platform === "win32") return
+
+    const previousUsername = process.env.OPENCODE_SERVER_USERNAME
+    const previousPassword = process.env.OPENCODE_SERVER_PASSWORD
+    process.env.OPENCODE_SERVER_USERNAME = "PawWork"
+    process.env.OPENCODE_SERVER_PASSWORD = "secret"
+
+    try {
+      await using dir = await tmpdir({ git: true })
+
+      await Instance.provide({
+        directory: dir.path,
+        fn: async () => {
+          let id: PtyID | undefined
+          try {
+            const info = await Pty.create({
+              command: "/bin/sh",
+              title: "explicit-env",
+              env: {
+                OPENCODE_SERVER_USERNAME: "explicit-user",
+                OPENCODE_SERVER_PASSWORD: "explicit-password",
+              },
+            })
+            id = info.id
+
+            const output: string[] = []
+            await Pty.connect(info.id, {
+              readyState: 1,
+              send: (data: unknown) => output.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8")),
+              close: () => undefined,
+            } as any)
+
+            await Pty.write(
+              info.id,
+              'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD}"\nexit\n',
+            )
+            await wait(() => output.join("").includes("password="))
+
+            const text = output.join("")
+            expect(text).toContain("username=explicit-user")
+            expect(text).toContain("password=explicit-password")
+            expect(text).not.toContain("secret")
+            expect(text).not.toContain("PawWork")
+          } finally {
+            if (id) await Pty.remove(id)
+          }
+        },
+      })
+    } finally {
+      if (previousUsername === undefined) delete process.env.OPENCODE_SERVER_USERNAME
+      else process.env.OPENCODE_SERVER_USERNAME = previousUsername
+      if (previousPassword === undefined) delete process.env.OPENCODE_SERVER_PASSWORD
+      else process.env.OPENCODE_SERVER_PASSWORD = previousPassword
+    }
+  })
 })

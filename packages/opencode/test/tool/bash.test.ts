@@ -156,14 +156,20 @@ describe("tool.bash", () => {
 
   each("does not expose internal server auth env to user commands", async () => {
     const previousUsername = process.env.OPENCODE_SERVER_USERNAME
+    const previousLowerUsername = process.env.opencode_server_username
     const previousPassword = process.env.OPENCODE_SERVER_PASSWORD
+    const previousLowerPassword = process.env.opencode_server_password
     const previousCustom = process.env.PAWWORK_E2E_CUSTOM_ENV
     process.env.OPENCODE_SERVER_USERNAME = "PawWork"
+    process.env.opencode_server_username = "lower-user"
     process.env.OPENCODE_SERVER_PASSWORD = "secret"
+    process.env.opencode_server_password = "lower-secret"
     process.env.PAWWORK_E2E_CUSTOM_ENV = "kept"
     const code = [
       'console.log("username=" + (process.env.OPENCODE_SERVER_USERNAME ?? "unset"))',
+      'console.log("usernameLower=" + (process.env.opencode_server_username ?? "unset"))',
       'console.log("password=" + (process.env.OPENCODE_SERVER_PASSWORD ?? "unset"))',
+      'console.log("passwordLower=" + (process.env.opencode_server_password ?? "unset"))',
       'console.log("custom=" + (process.env.PAWWORK_E2E_CUSTOM_ENV ?? "unset"))',
     ].join(";")
     const command = `${PS.has(sh()) ? "& " : ""}${bin} -e ${evalarg(code)}`
@@ -185,16 +191,24 @@ describe("tool.bash", () => {
 
           expect(result.metadata.exit).toBe(0)
           expect(result.output).toContain("username=unset")
+          expect(result.output).toContain("usernameLower=unset")
           expect(result.output).toContain("password=unset")
+          expect(result.output).toContain("passwordLower=unset")
           expect(result.output).toContain("custom=kept")
           expect(result.output).not.toContain("secret")
+          expect(result.output).not.toContain("lower-user")
+          expect(result.output).not.toContain("lower-secret")
         },
       })
     } finally {
       if (previousUsername === undefined) delete process.env.OPENCODE_SERVER_USERNAME
       else process.env.OPENCODE_SERVER_USERNAME = previousUsername
+      if (previousLowerUsername === undefined) delete process.env.opencode_server_username
+      else process.env.opencode_server_username = previousLowerUsername
       if (previousPassword === undefined) delete process.env.OPENCODE_SERVER_PASSWORD
       else process.env.OPENCODE_SERVER_PASSWORD = previousPassword
+      if (previousLowerPassword === undefined) delete process.env.opencode_server_password
+      else process.env.opencode_server_password = previousLowerPassword
       if (previousCustom === undefined) delete process.env.PAWWORK_E2E_CUSTOM_ENV
       else process.env.PAWWORK_E2E_CUSTOM_ENV = previousCustom
     }

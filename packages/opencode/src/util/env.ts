@@ -6,3 +6,8 @@ export function withoutInternalServerAuthEnv<T extends Record<string, string | u
   }
   return env
 }
+
+export function envValueCaseInsensitive(env: Record<string, string | undefined> | undefined, name: string) {
+  const normalized = name.toLowerCase()
+  return Object.entries(env ?? {}).find(([key]) => key.toLowerCase() === normalized)?.[1]
+}
