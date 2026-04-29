@@ -18,7 +18,7 @@ export function sessionKey(input: { directory: string; sessionID: string | undef
   return `${input.directory}${input.sessionID ? `/${input.sessionID}` : ""}`
 }
 
-export function nextTimelineSessionID(input: {
+export function nextVisibleSessionID(input: {
   current: string | undefined
   route: string | undefined
   routeReady: boolean
@@ -34,7 +34,7 @@ export function nextSessionViewState(input: SessionViewStateInput) {
     input.currentVisibleDirectory && input.currentVisibleDirectory !== input.directory
       ? undefined
       : input.currentVisibleSessionID
-  const visibleSessionID = nextTimelineSessionID({
+  const visibleSessionID = nextVisibleSessionID({
     current: currentVisibleSessionID,
     route: input.routeSessionID,
     routeReady,

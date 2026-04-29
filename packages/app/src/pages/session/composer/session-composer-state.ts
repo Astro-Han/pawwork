@@ -2,7 +2,6 @@ import { createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2"
-import { useParams } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -18,14 +17,13 @@ const todoTerminal = (todo: Todo) => todo.status === "completed" || todo.status 
 
 const todoSignature = (todos: Todo[]) => todos.map((todo) => `${todo.status}:${todo.content}`).join("\u0000")
 
-export function createSessionComposerState(input?: { sessionID: () => string | undefined }) {
-  const params = useParams()
+export function createSessionComposerState(input: { sessionID: () => string | undefined }) {
   const sdk = useSDK()
   const sync = useSync()
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const permission = usePermission()
-  const activeSessionID = input?.sessionID ?? (() => params.id)
+  const activeSessionID = input.sessionID
 
   const questionRequest = createMemo((): QuestionRequest | undefined => {
     return sessionQuestionRequest(sync.data.session, sync.data.question, activeSessionID())
