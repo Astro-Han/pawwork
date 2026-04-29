@@ -113,4 +113,5 @@ export type ElectronAPI = {
   removeExaApiKey: () => Promise<WebSearchStatus>
   getAboutInfo: () => Promise<AboutInfo>
   onAboutOpen: (handler: () => void) => () => void
+  flashFrame: () => Promise<void>
 }
