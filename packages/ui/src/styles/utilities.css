@@ -82,7 +82,7 @@
 
 .text-14-medium {
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-hierarchy);
   font-style: normal;
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-large); /* 171.429% */
@@ -92,7 +92,7 @@
 .text-14-mono {
   font-family: var(--font-family-mono);
   font-feature-settings: var(--font-feature-settings-mono);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-hierarchy);
   font-style: normal;
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-large); /* 171.429% */
