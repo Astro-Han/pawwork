@@ -1,66 +1,77 @@
 # 爪印 PawWork
 
-**让每个人都能用的日常工作 AI Agent。**
+**开箱即用的桌面 AI 智能体。**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![macOS](https://img.shields.io/badge/macOS-supported-black.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
-[![Windows](https://img.shields.io/badge/Windows-supported-blue.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
+[![macOS](https://img.shields.io/badge/macOS-signed_and_notarized-black.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
+[![Windows](https://img.shields.io/badge/Windows_x64-unsigned-blue.svg)](https://github.com/Astro-Han/pawwork/releases/latest)
 
 [English](README.md)
 
----
+爪印 PawWork 是 Codex App 和 Claude Desktop 的开源替代方案。它面向真实的桌面工作场景，在一个极简、优雅的界面里，帮你处理文档、表格、资料整理、写作、代码和本地文件。
 
-PawWork 是一个面向日常工作的开源桌面 AI Agent。它不只是聊天，而是帮你把零散文件、笔记、表格、PDF 和网页资料整理成可以检查和使用的文件、报告、草稿和决策建议。
+无需安装复杂的工具链，无需提前准备 API 密钥，也无需购买付费模型账号。爪印 PawWork 内置来自 OpenCode Zen 的免费额度、内置搜索和任务卡片，下载打开就能开始。
 
-开源、更重视隐私和控制，内置免费模型，下载到电脑上即可开始。
+![爪印 PawWork 首页截图](assets/readme/pawwork-home.png)
 
-## 你可以让 PawWork
+![爪印 PawWork 会话占位图](assets/readme/pawwork-session.svg)
 
-- 把发票里的关键信息整理成一份可检查的表格草稿
-- 汇总一份 CSV，并生成报告
+## 为什么选择爪印 PawWork
+
+爪印 PawWork 不是把聊天框换一个外壳，也不是只面向程序员的命令行工具。它想解决的是更常见的问题：你手里有文件、表格、资料、代码或一堆零散信息，希望 AI 智能体直接帮你推进工作。
+
+- **少配置：** 下载应用，选择工作文件夹，就可以先用 OpenCode Zen 提供的免费额度开始。
+- **处理真实桌面工作：** 面向本地文件、文档、表格、笔记、网页资料、代码和最终产物。
+- **任务卡片：** 不从空白输入框开始，而是用具体任务帮你更快上手。
+- **模型选择更多：** 支持 OpenAI、Claude、DeepSeek、Gemini、Kimi、GLM、OpenAI 兼容提供商，以及可用的 Coding Plan。
+- **开源和可控：** 你可以查看它怎么工作，选择自己的工作文件夹，连接自己信任的账号，并在关键步骤继续前进行检查。
+
+## 你可以让爪印 PawWork 做什么
+
+### 文档和表格
+
+- 从发票中提取关键信息，整理成可以检查的表格草稿
+- 汇总一份 CSV，并生成简短报告
 - 合并几份 PDF，并整理输出文件
 - 根据会议记录和附件起草周报
-- 对比几个产品页面，并整理成决策建议
-- 检查一个代码项目，并说明该改哪里
 
-## PawWork 有什么不同
+### 资料和写作
 
-| 你关心的事 | PawWork | 常见闭源 Agent 应用 |
-|---|---|---|
-| 开始使用 | 内置免费模型，不需要 API Key、不需要终端、不需要配置。 | 通常也容易试用，但往往绑定某个厂商账号、积分体系或默认模型。 |
-| 透明度 | 开源。你可以查看应用如何工作、如何变化。 | 产品行为取决于厂商。 |
-| 隐私和控制 | 你选择工作文件夹，使用 PawWork 免费模型或自己的模型账号，并在继续前查看关键步骤。 | 数据处理和自动化规则取决于厂商平台。 |
-| 模型选择 | 先免费使用；需要更多控制权时，可以接入自己的模型账号。 | 通常围绕厂商默认模型或积分系统优化。 |
-| 真实桌面工作 | 围绕文件夹、表格、PDF、笔记和本地任务设计。 | 很多产品从宽泛聊天或云端任务入口开始。 |
-| 上手引导 | 从具体任务开始，不需要用户自己琢磨怎么写提示词。 | 经常需要用户自己想清楚要让 Agent 做什么。 |
-| 可扩展性 | 基于开放 Skill 和本地工具，可以随着真实工作继续扩展。 | 扩展能力取决于厂商路线图。 |
+- 对比几个产品页面，整理成决策建议
+- 搜索网页资料，并保留可追溯来源
+- 整理会议记录，起草公告草稿
+- 改写零散素材，生成结构清晰的文档
 
-## 它怎么工作
+### 代码和技术工作
 
-1. 选择工作文件夹。
-2. 用日常语言描述任务。
-3. 查看步骤并使用结果。
+- 看懂一个代码项目，并说明应该从哪里改
+- 审查一个 PR，总结主要风险
+- 结合日志和源码排查 API 报错
+- 根据一句自然语言需求做一个小工具
 
-PawWork 会一步步执行任务，展示进展，并帮你生成可以检查和使用的文件、报告、草稿或决策建议。
+## 工作方式
 
-## 当前重点
+1. 选择一个工作文件夹。
+2. 选择任务卡片，或直接用日常语言描述你想做什么。
+3. 爪印 PawWork 根据任务调用文件、工具、模型和搜索。
+4. 你检查执行步骤、输出内容和生成文件，再决定如何使用结果。
 
-PawWork 聚焦真实桌面任务：本地文件、文档、表格、写作、资料整理和小型技术项目。新的任务 Skill 和内置工具会围绕真实用户工作流持续增加。
+## 模型、账号和搜索
+
+爪印 PawWork 内置来自 OpenCode Zen 的免费额度，也内置带免费额度的网页搜索。你不需要先准备自己的 API 密钥才能开始。
+
+如果你需要更多模型选择或更强控制权，可以连接自己的模型账号。爪印 PawWork 支持 API 密钥，也支持可用提供商的 OAuth 登录、OpenAI 兼容提供商和可用的 Coding Plan，包括 OpenAI、Claude、DeepSeek、Gemini、Kimi、GLM 等。
 
 ## 下载
 
-从 [GitHub Releases](https://github.com/Astro-Han/pawwork/releases/latest) 下载最新的 macOS 和 Windows 版本。macOS 下载 `.dmg`，Windows 下载 `.exe`。
+从 [GitHub Releases](https://github.com/Astro-Han/pawwork/releases/latest) 下载最新的 macOS 和 Windows 版本。
 
-### macOS 首次打开
+- **macOS：** 下载 `.dmg`，release 构建已完成 Apple 签名和公证。
+- **Windows：** 下载 Windows x64 `.exe`。该版本目前尚未签名，首次打开时可能会出现 SmartScreen 提示。
 
-GitHub Releases 提供的构建会经过 Apple 签名和公证。
-如果首次打开时 macOS 弹出警告，请右键点击应用并选择“打开”，或者前往“系统设置 > 隐私与安全性”点击“仍要打开”。
+爪印 PawWork 还在快速迭代。每个版本的更新内容可以在发布说明中查看。
 
-### Windows 首次打开
-
-如果 Windows SmartScreen 在首次打开时出现，请点击“更多信息”，然后对下载的 release 构建选择“仍要运行”。
-
-## 从源码构建
+## 从源码运行
 
 需要 [Bun](https://bun.sh) v1.2+。
 
@@ -68,12 +79,14 @@ GitHub Releases 提供的构建会经过 Apple 签名和公证。
 git clone https://github.com/Astro-Han/pawwork.git
 cd pawwork
 bun install
-cd packages/desktop-electron && bun run dev
+bun run dev:desktop
 ```
 
-## 致谢
+## 基于 OpenCode
 
-PawWork fork 自 [OpenCode](https://github.com/anomalyco/opencode)。感谢 OpenCode 项目和社区。
+爪印 PawWork 基于 [OpenCode](https://github.com/anomalyco/opencode) fork 构建。我们保留智能体底座，重建桌面产品体验，并加入爪印 PawWork 的任务入口、模型默认值和日常工作场景。
+
+感谢 OpenCode 项目和社区。
 
 ## License
 
