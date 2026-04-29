@@ -24,7 +24,7 @@ PawWork is built for people who want AI agents to do real desktop work, not only
 - **Real desktop work:** work with local files, documents, spreadsheets, notes, web research, code, and generated outputs.
 - **Task cards:** start from concrete tasks instead of a blank prompt.
 - **Model choice:** connect OpenAI, Claude, DeepSeek, Gemini, Kimi, GLM, OpenAI-compatible providers, and supported coding plans.
-- **Open source control:** inspect the code, choose your workspace, connect the accounts you trust, and keep important actions reviewable.
+- **Open-source control:** inspect the code, choose your workspace, connect the accounts you trust, and keep important actions reviewable.
 
 ## What You Can Ask PawWork To Do
 

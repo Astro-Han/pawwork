@@ -8,9 +8,9 @@
 
 [English](README.md)
 
-爪印 PawWork 是 Codex App 和 Claude Desktop 的开源替代。它面向真实的桌面工作场景，在一个极简、优雅的界面里，帮你处理文档、表格、资料整理、写作、代码和本地文件。
+爪印 PawWork 是 Codex App 和 Claude Desktop 的开源替代方案。它面向真实的桌面工作场景，在一个极简、优雅的界面里，帮你处理文档、表格、资料整理、写作、代码和本地文件。
 
-不用先安装复杂工具链，不用一上来准备 API 密钥，也不用先购买付费模型账号。爪印 PawWork 内置来自 OpenCode Zen 的免费额度、内置搜索和任务卡片，下载打开就能开始。
+无需安装复杂的工具链，无需提前准备 API 密钥，也无需购买付费模型账号。爪印 PawWork 内置来自 OpenCode Zen 的免费额度、内置搜索和任务卡片，下载打开就能开始。
 
 ![爪印 PawWork 首页截图](assets/readme/pawwork-home.png)
 
@@ -39,8 +39,8 @@
 
 - 对比几个产品页面，整理成决策建议
 - 搜索网页资料，并保留可追溯来源
-- 把会议记录整理成公告草稿
-- 把零散素材改写成结构清晰的文档
+- 整理会议记录，起草公告草稿
+- 改写零散素材，生成结构清晰的文档
 
 ### 代码和技术工作
 
@@ -67,7 +67,7 @@
 从 [GitHub Releases](https://github.com/Astro-Han/pawwork/releases/latest) 下载最新的 macOS 和 Windows 版本。
 
 - **macOS：** 下载 `.dmg`，release 构建已完成 Apple 签名和公证。
-- **Windows：** 下载 Windows x64 `.exe`。Windows 构建已经提供，目前还没有正式签名，首次打开时可能会出现 SmartScreen 提示。
+- **Windows：** 下载 Windows x64 `.exe`。该版本目前尚未签名，首次打开时可能会出现 SmartScreen 提示。
 
 爪印 PawWork 还在快速迭代。每个版本的更新内容可以在发布说明中查看。
 
