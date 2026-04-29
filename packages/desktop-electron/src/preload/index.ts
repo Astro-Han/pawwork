@@ -95,6 +95,7 @@ const api: ElectronAPI = {
       ipcRenderer.removeListener("about:open", wrapped)
     }
   },
+  flashFrame: () => ipcRenderer.invoke("flash-frame"),
 }
 
 contextBridge.exposeInMainWorld("api", api)
