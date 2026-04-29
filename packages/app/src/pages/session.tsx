@@ -55,11 +55,16 @@ import {
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { emptyMessages, emptyUserMessages, readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
+import {
+  emptyMessages,
+  emptyUserMessages,
+  readSessionMessages,
+  readUserMessages,
+} from "@/pages/session/session-messages"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
-import { nextTimelineSessionID } from "@/pages/session/timeline-session-state"
+import { createSessionViewController } from "@/pages/session/session-view-controller"
 import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
@@ -419,8 +424,6 @@ export default function Page() {
     },
   })
 
-  const composer = createSessionComposerState()
-
   const workspaceKey = createMemo(() => params.dir ?? "")
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
 
@@ -514,14 +517,14 @@ export default function Page() {
     if (!id) return true
     return sync.data.message[id] !== undefined
   })
-  const timelineSessionID = createMemo((current: string | undefined) =>
-    nextTimelineSessionID({
-      current,
-      route: params.id,
-      routeReady: messagesReady(),
-    }),
-  )
-  const timelineSessionKey = createMemo(() => `${params.dir}${timelineSessionID() ? `/${timelineSessionID()}` : ""}`)
+  const sessionView = createSessionViewController({
+    directory: () => params.dir ?? "",
+    routeSessionID: () => params.id,
+    routeMessagesReady: messagesReady,
+  })
+  const timelineSessionID = sessionView.visible.id
+  const timelineSessionKey = sessionView.visible.key
+  const composer = createSessionComposerState({ sessionID: timelineSessionID })
   const timelineMessages = createMemo(
     () => {
       const id = timelineSessionID()
@@ -530,16 +533,10 @@ export default function Page() {
     emptyMessages,
     { equals: same },
   )
-  const timelineMessagesReady = createMemo(() => {
-    const id = timelineSessionID()
-    if (!id) return true
-    return sync.data.message[id] !== undefined
+  const timelineMessagesReady = sessionView.visible.ready
+  const timelineUserMessages = createMemo(() => readUserMessages(timelineMessages()), emptyUserMessages, {
+    equals: same,
   })
-  const timelineUserMessages = createMemo(
-    () => readUserMessages(timelineMessages()),
-    emptyUserMessages,
-    { equals: same },
-  )
   const timelineRevertMessageID = createMemo(() => {
     const id = timelineSessionID()
     if (!id) return
@@ -576,11 +573,7 @@ export default function Page() {
     if (!id) return false
     return sync.session.history.loading(id)
   })
-  const userMessages = createMemo(
-    () => readUserMessages(messages()),
-    emptyUserMessages,
-    { equals: same },
-  )
+  const userMessages = createMemo(() => readUserMessages(messages()), emptyUserMessages, { equals: same })
   const visibleUserMessages = createMemo(
     () => {
       const revert = revertMessageID()
@@ -669,7 +662,7 @@ export default function Page() {
   )
 
   createComputed((prev) => {
-    const key = sessionKey()
+    const key = timelineSessionKey()
     if (key !== prev) {
       setStore("deferRender", true)
       requestAnimationFrame(() => {
@@ -677,7 +670,7 @@ export default function Page() {
       })
     }
     return key
-  }, sessionKey())
+  }, timelineSessionKey())
 
   let refreshFrame: number | undefined
   let refreshTimer: number | undefined
@@ -753,7 +746,10 @@ export default function Page() {
     () => params.id,
     async (sessionID) => ({
       sessionID,
-      artifacts: await sdk.client.session.artifacts({ sessionID }).then((res) => res.data ?? []).catch(() => []),
+      artifacts: await sdk.client.session
+        .artifacts({ sessionID })
+        .then((res) => res.data ?? [])
+        .catch(() => []),
     }),
     { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
   )
@@ -765,11 +761,10 @@ export default function Page() {
 
     return deriveArtifactFiles(
       sdk.directory,
-      turnDiffs()
-        .flatMap((diff) => {
-          if (diff.status !== "added" && diff.status !== "modified") return []
-          return [{ file: diff.file, kind: diff.status as "added" | "modified" }]
-        }),
+      turnDiffs().flatMap((diff) => {
+        if (diff.status !== "added" && diff.status !== "modified") return []
+        return [{ file: diff.file, kind: diff.status as "added" | "modified" }]
+      }),
     )
   })
   const nogit = createMemo(() => !!sync.project && sync.project.vcs !== "git")
@@ -2038,7 +2033,9 @@ export default function Page() {
     <SessionComposerRegion
       variant={variant}
       state={composer}
-      ready={!store.deferRender && messagesReady()}
+      ready={!store.deferRender && timelineMessagesReady()}
+      displaySessionID={variant === "session" ? timelineSessionID() : undefined}
+      displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}
       inputRef={(el) => {
         inputRef = el
@@ -2174,7 +2171,6 @@ export default function Page() {
             </Switch>
           </div>
           <Show when={params.id}>{renderComposerRegion("session")}</Show>
-
         </div>
 
         <SessionSidePanel
