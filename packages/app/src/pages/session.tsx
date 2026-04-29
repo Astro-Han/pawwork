@@ -55,11 +55,16 @@ import {
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { emptyMessages, emptyUserMessages, readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
+import {
+  emptyMessages,
+  emptyUserMessages,
+  readSessionMessages,
+  readUserMessages,
+} from "@/pages/session/session-messages"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
-import { createSessionRunning } from "@/pages/session/session-running-state"
+import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
-import { nextTimelineSessionID } from "@/pages/session/timeline-session-state"
+import { createSessionViewController } from "@/pages/session/session-view-controller"
 import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
@@ -419,8 +424,6 @@ export default function Page() {
     },
   })
 
-  const composer = createSessionComposerState()
-
   const workspaceKey = createMemo(() => params.dir ?? "")
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
 
@@ -503,25 +506,25 @@ export default function Page() {
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
-  const revertMessageID = createMemo(() => info()?.revert?.messageID)
-  const messages = createMemo(
-    () => readSessionMessages(params.id ? sync.data.message[params.id] : undefined),
-    emptyMessages,
-    { equals: same },
-  )
   const messagesReady = createMemo(() => {
     const id = params.id
     if (!id) return true
     return sync.data.message[id] !== undefined
   })
-  const timelineSessionID = createMemo((current: string | undefined) =>
-    nextTimelineSessionID({
-      current,
-      route: params.id,
-      routeReady: messagesReady(),
-    }),
-  )
-  const timelineSessionKey = createMemo(() => `${params.dir}${timelineSessionID() ? `/${timelineSessionID()}` : ""}`)
+  const sessionView = createSessionViewController({
+    directory: () => params.dir ?? "",
+    routeSessionID: () => params.id,
+    routeMessagesReady: messagesReady,
+  })
+  const timelineSessionID = sessionView.visible.id
+  const timelineSessionKey = sessionView.visible.key
+  const timelineInfo = createMemo(() => {
+    const id = timelineSessionID()
+    if (!id) return
+    return sync.session.get(id)
+  })
+  const timelineIsChildSession = createMemo(() => !!timelineInfo()?.parentID)
+  const composer = createSessionComposerState({ sessionID: timelineSessionID })
   const timelineMessages = createMemo(
     () => {
       const id = timelineSessionID()
@@ -530,16 +533,15 @@ export default function Page() {
     emptyMessages,
     { equals: same },
   )
-  const timelineMessagesReady = createMemo(() => {
+  const timelineMessagesReady = sessionView.visible.ready
+  const timelineDiffs = createMemo(() => {
     const id = timelineSessionID()
-    if (!id) return true
-    return sync.data.message[id] !== undefined
+    if (!id) return []
+    return list(sync.data.session_diff[id])
   })
-  const timelineUserMessages = createMemo(
-    () => readUserMessages(timelineMessages()),
-    emptyUserMessages,
-    { equals: same },
-  )
+  const timelineUserMessages = createMemo(() => readUserMessages(timelineMessages()), emptyUserMessages, {
+    equals: same,
+  })
   const timelineRevertMessageID = createMemo(() => {
     const id = timelineSessionID()
     if (!id) return
@@ -576,23 +578,7 @@ export default function Page() {
     if (!id) return false
     return sync.session.history.loading(id)
   })
-  const userMessages = createMemo(
-    () => readUserMessages(messages()),
-    emptyUserMessages,
-    { equals: same },
-  )
-  const visibleUserMessages = createMemo(
-    () => {
-      const revert = revertMessageID()
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
-    emptyUserMessages,
-    {
-      equals: same,
-    },
-  )
-  const lastUserMessage = createMemo(() => visibleUserMessages().at(-1))
+  const lastUserMessage = createMemo(() => timelineVisibleUserMessages().at(-1))
 
   createEffect(() => {
     const tab = activeFileTab()
@@ -669,7 +655,7 @@ export default function Page() {
   )
 
   createComputed((prev) => {
-    const key = sessionKey()
+    const key = timelineSessionKey()
     if (key !== prev) {
       setStore("deferRender", true)
       requestAnimationFrame(() => {
@@ -677,7 +663,7 @@ export default function Page() {
       })
     }
     return key
-  }, sessionKey())
+  }, timelineSessionKey())
 
   let refreshFrame: number | undefined
   let refreshTimer: number | undefined
@@ -750,26 +736,29 @@ export default function Page() {
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
-    () => params.id,
+    timelineSessionID,
     async (sessionID) => ({
       sessionID,
-      artifacts: await sdk.client.session.artifacts({ sessionID }).then((res) => res.data ?? []).catch(() => []),
+      artifacts: await sdk.client.session
+        .artifacts({ sessionID })
+        .then((res) => res.data ?? [])
+        .catch(() => []),
     }),
     { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
   )
   const artifactFiles = createMemo(() => {
+    const sessionID = timelineSessionID()
     const history = artifactHistory.latest
-    if (history?.sessionID === params.id && history.artifacts.length > 0) {
+    if (history?.sessionID === sessionID && history.artifacts.length > 0) {
       return deriveArtifactFiles(sdk.directory, history.artifacts)
     }
 
     return deriveArtifactFiles(
       sdk.directory,
-      turnDiffs()
-        .flatMap((diff) => {
-          if (diff.status !== "added" && diff.status !== "modified") return []
-          return [{ file: diff.file, kind: diff.status as "added" | "modified" }]
-        }),
+      turnDiffs().flatMap((diff) => {
+        if (diff.status !== "added" && diff.status !== "modified") return []
+        return [{ file: diff.file, kind: diff.status as "added" | "modified" }]
+      }),
     )
   })
   const nogit = createMemo(() => !!sync.project && sync.project.vcs !== "git")
@@ -965,7 +954,7 @@ export default function Page() {
   createEffect(
     on(
       () => {
-        const id = params.id
+        const id = timelineSessionID()
         return [
           sdk.directory,
           id,
@@ -986,7 +975,7 @@ export default function Page() {
           todoFrame = undefined
           todoTimer = window.setTimeout(() => {
             todoTimer = undefined
-            if (sdk.directory !== dir || params.id !== id) return
+            if (sdk.directory !== dir || timelineSessionID() !== id) return
             untrack(() => {
               void sync.session.todo(id, cached ? { force: true } : undefined)
             })
@@ -1170,7 +1159,7 @@ export default function Page() {
     }
 
     if (event.key.length === 1 && event.key !== "Unidentified" && !(event.ctrlKey || event.metaKey)) {
-      if (composer.blocked() || isChildSession()) return
+      if (composer.blocked() || timelineIsChildSession()) return
       inputRef?.focus()
     }
   }
@@ -1183,24 +1172,24 @@ export default function Page() {
   )
 
   createEffect(() => {
-    if (!params.id) return
+    if (!timelineSessionID()) return
     turnDiffs()
     void refetchArtifactHistory()
   })
 
   createEffect(() => {
-    const id = params.id
+    const id = timelineSessionID()
     if (!id) return
     if (sync.data.session_diff[id] === undefined) return
     void refetchArtifactHistory()
   })
 
   createEffect(() => {
-    if (!params.id) return
+    if (!timelineSessionID()) return
 
     // Use Snapshot diffs (SSE-pushed, authoritative) with turnDiffs as fallback
     // for reopened sessions where session_diff hasn't been fetched yet.
-    const source = diffs().length > 0 ? diffs() : turnDiffs()
+    const source = timelineDiffs().length > 0 ? timelineDiffs() : turnDiffs()
     const next = nextFilesPanelAutoOpen(
       {
         seenAdded: view().sidePanel.filesAutoOpenSeen(),
@@ -1274,7 +1263,7 @@ export default function Page() {
   }
 
   const focusInput = () => {
-    if (isChildSession()) return
+    if (timelineIsChildSession()) return
     inputRef?.focus()
   }
 
@@ -1732,20 +1721,26 @@ export default function Page() {
       return out
     })
 
-  const currentRunning = createSessionRunning(
-    () => (params.id ? sync.data.session_status[params.id] : undefined),
-    () => (params.id ? sync.data.message[params.id] : undefined),
+  const timelineRunning = createSessionRunning(
+    () => {
+      const id = timelineSessionID()
+      return id ? sync.data.session_status[id] : undefined
+    },
+    () => {
+      const id = timelineSessionID()
+      return id ? sync.data.message[id] : undefined
+    },
   )
-  const busy = () => currentRunning()
+  const busy = () => timelineRunning()
 
   const queuedFollowups = createMemo(() => {
-    const id = params.id
+    const id = timelineSessionID()
     if (!id) return emptyFollowups
     return followup.items[id] ?? emptyFollowups
   })
 
   const editingFollowup = createMemo(() => {
-    const id = params.id
+    const id = timelineSessionID()
     if (!id) return
     return followup.edit[id]
   })
@@ -1780,16 +1775,16 @@ export default function Page() {
     followupMutation.isPending && followupMutation.variables?.sessionID === sessionID
 
   const sendingFollowup = createMemo(() => {
-    const id = params.id
+    const id = timelineSessionID()
     if (!id) return
     if (!followupBusy(id)) return
     return followupMutation.variables?.id
   })
 
   const queueEnabled = createMemo(() => {
-    const id = params.id
+    const id = timelineSessionID()
     if (!id) return false
-    return settings.general.followup() === "queue" && busy() && !composer.blocked() && !isChildSession()
+    return settings.general.followup() === "queue" && busy() && !composer.blocked() && !timelineIsChildSession()
   })
 
   const followupText = (item: FollowupDraft) => {
@@ -1830,7 +1825,7 @@ export default function Page() {
   }
 
   const editFollowup = (id: string) => {
-    const sessionID = params.id
+    const sessionID = timelineSessionID()
     if (!sessionID) return
     if (followupBusy(sessionID)) return
 
@@ -1847,18 +1842,20 @@ export default function Page() {
   }
 
   const clearFollowupEdit = () => {
-    const id = params.id
+    const id = timelineSessionID()
     if (!id) return
     setFollowup("edit", id, undefined)
   }
 
   const halt = (sessionID: string) =>
-    busy() ? sdk.client.session.abort({ sessionID }).catch(() => {}) : Promise.resolve()
+    isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
+      ? sdk.client.session.abort({ sessionID }).catch(() => {})
+      : Promise.resolve()
 
   const revertMutation = useMutation(() => ({
     mutationFn: async (input: { sessionID: string; messageID: string }) => {
       const prev = prompt.current().slice()
-      const last = info()?.revert
+      const last = sync.session.get(input.sessionID)?.revert
       const value = draft(input.messageID)
       batch(() => {
         roll(input.sessionID, { messageID: input.messageID })
@@ -1880,13 +1877,12 @@ export default function Page() {
   }))
 
   const restoreMutation = useMutation(() => ({
-    mutationFn: async (id: string) => {
-      const sessionID = params.id
-      if (!sessionID) return
+    mutationFn: async (input: { sessionID: string; id: string }) => {
+      const { sessionID, id } = input
 
-      const next = userMessages().find((item) => item.id > id)
+      const next = readUserMessages(readSessionMessages(sync.data.message[sessionID])).find((item) => item.id > id)
       const prev = prompt.current().slice()
-      const last = info()?.revert
+      const last = sync.session.get(sessionID)?.revert
 
       batch(() => {
         roll(sessionID, next ? { messageID: next.id } : undefined)
@@ -1921,7 +1917,12 @@ export default function Page() {
   }))
 
   const reverting = createMemo(() => revertMutation.isPending || restoreMutation.isPending)
-  const restoring = createMemo(() => (restoreMutation.isPending ? restoreMutation.variables : undefined))
+  const restoring = createMemo(() => {
+    if (!restoreMutation.isPending) return
+    const variables = restoreMutation.variables
+    if (variables?.sessionID !== timelineSessionID()) return
+    return variables.id
+  })
 
   const revert = (input: { sessionID: string; messageID: string }) => {
     if (reverting()) return
@@ -1929,14 +1930,15 @@ export default function Page() {
   }
 
   const restore = (id: string) => {
-    if (!params.id || reverting()) return
-    return restoreMutation.mutateAsync(id)
+    const sessionID = timelineSessionID()
+    if (!sessionID || reverting()) return
+    return restoreMutation.mutateAsync({ sessionID, id })
   }
 
   const rolled = createMemo(() => {
-    const id = revertMessageID()
+    const id = timelineRevertMessageID()
     if (!id) return []
-    return userMessages()
+    return timelineUserMessages()
       .filter((item) => item.id >= id)
       .map((item) => ({ id: item.id, text: line(item.id) }))
   })
@@ -1944,7 +1946,7 @@ export default function Page() {
   const actions = { revert }
 
   createEffect(() => {
-    const sessionID = params.id
+    const sessionID = timelineSessionID()
     if (!sessionID) return
 
     const item = queuedFollowups()[0]
@@ -1952,7 +1954,7 @@ export default function Page() {
     if (followupBusy(sessionID)) return
     if (followup.failed[sessionID] === item.id) return
     if (followup.paused[sessionID]) return
-    if (isChildSession()) return
+    if (timelineIsChildSession()) return
     if (composer.blocked()) return
     if (busy()) return
 
@@ -2038,7 +2040,9 @@ export default function Page() {
     <SessionComposerRegion
       variant={variant}
       state={composer}
-      ready={!store.deferRender && messagesReady()}
+      ready={!store.deferRender && timelineMessagesReady()}
+      displaySessionID={variant === "session" ? timelineSessionID() : undefined}
+      displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}
       inputRef={(el) => {
         inputRef = el
@@ -2053,7 +2057,7 @@ export default function Page() {
       onModeChange={ctx?.onModeChange}
       selectedSkill={ctx?.selectedSkill}
       followup={
-        params.id && !isChildSession()
+        variant === "session" && timelineSessionID() && !timelineIsChildSession()
           ? {
               queue: queueEnabled,
               items: followupDock(),
@@ -2061,12 +2065,14 @@ export default function Page() {
               edit: editingFollowup(),
               onQueue: queueFollowup,
               onAbort: () => {
-                const id = params.id
+                const id = timelineSessionID()
                 if (!id) return
                 setFollowup("paused", id, true)
               },
               onSend: (id) => {
-                void sendFollowup(params.id!, id, { manual: true })
+                const sessionID = timelineSessionID()
+                if (!sessionID) return
+                void sendFollowup(sessionID, id, { manual: true })
               },
               onEdit: editFollowup,
               onEditLoaded: clearFollowupEdit,
@@ -2174,7 +2180,6 @@ export default function Page() {
             </Switch>
           </div>
           <Show when={params.id}>{renderComposerRegion("session")}</Show>
-
         </div>
 
         <SessionSidePanel

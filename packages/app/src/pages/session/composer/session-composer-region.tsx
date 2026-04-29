@@ -30,6 +30,8 @@ export function SessionComposerRegion(props: {
   onResponseSubmit: () => void
   onModeChange?: (mode: "normal" | "shell") => void
   selectedSkill?: () => PawworkSkillName | undefined
+  displaySessionID?: string
+  displaySessionKey?: string
   followup?: {
     queue: () => boolean
     items: { id: string; text: string }[]
@@ -54,9 +56,16 @@ export function SessionComposerRegion(props: {
   const language = useLanguage()
   const route = useSessionKey()
   const sync = useSync()
+  const displaySessionID = createMemo(() => (props.variant === "session" ? props.displaySessionID : route.params.id))
+  const displaySessionKey = createMemo(() =>
+    props.variant === "session" ? props.displaySessionKey : route.sessionKey(),
+  )
 
-  const handoffPrompt = createMemo(() => getSessionHandoff(route.sessionKey())?.prompt)
-  const info = createMemo(() => (route.params.id ? sync.session.get(route.params.id) : undefined))
+  const handoffPrompt = createMemo(() => {
+    const key = displaySessionKey()
+    return key ? getSessionHandoff(key)?.prompt : undefined
+  })
+  const info = createMemo(() => (displaySessionID() ? sync.session.get(displaySessionID()!) : undefined))
   const parentID = createMemo(() => info()?.parentID)
   const child = createMemo(() => !!parentID())
   const home = createMemo(() => props.variant === "home")
@@ -76,7 +85,9 @@ export function SessionComposerRegion(props: {
 
   createEffect(() => {
     if (!prompt.ready()) return
-    setSessionHandoff(route.sessionKey(), { prompt: previewPrompt() })
+    const key = displaySessionKey()
+    if (!key) return
+    setSessionHandoff(key, { prompt: previewPrompt() })
   })
 
   const [store, setStore] = createStore({
@@ -99,7 +110,7 @@ export function SessionComposerRegion(props: {
   }
 
   createEffect(() => {
-    route.sessionKey()
+    displaySessionKey()
     const ready = props.ready
     const delay = 140
 
@@ -217,7 +228,7 @@ export function SessionComposerRegion(props: {
               >
                 <div ref={(el) => setStore("body", el)}>
                   <SessionTodoDock
-                    sessionID={route.params.id}
+                    sessionID={displaySessionID()}
                     todos={props.state.todos()}
                     collapseLabel={language.t("session.todo.collapse")}
                     expandLabel={language.t("session.todo.expand")}
@@ -265,6 +276,8 @@ export function SessionComposerRegion(props: {
                     <PromptInput
                       ref={props.inputRef}
                       homeMode={home()}
+                      sessionID={displaySessionID()}
+                      sessionIDControlled={!home()}
                       newSessionWorktree={props.newSessionWorktree}
                       onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
                       edit={props.followup?.edit}

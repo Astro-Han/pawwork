@@ -2,7 +2,6 @@ import { createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2"
-import { useParams } from "@solidjs/router"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -18,26 +17,26 @@ const todoTerminal = (todo: Todo) => todo.status === "completed" || todo.status 
 
 const todoSignature = (todos: Todo[]) => todos.map((todo) => `${todo.status}:${todo.content}`).join("\u0000")
 
-export function createSessionComposerState() {
-  const params = useParams()
+export function createSessionComposerState(input: { sessionID: () => string | undefined }) {
   const sdk = useSDK()
   const sync = useSync()
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const permission = usePermission()
+  const activeSessionID = input.sessionID
 
   const questionRequest = createMemo((): QuestionRequest | undefined => {
-    return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
+    return sessionQuestionRequest(sync.data.session, sync.data.question, activeSessionID())
   })
 
   const permissionRequest = createMemo((): PermissionRequest | undefined => {
-    return sessionPermissionRequest(sync.data.session, sync.data.permission, params.id, (item) => {
+    return sessionPermissionRequest(sync.data.session, sync.data.permission, activeSessionID(), (item) => {
       return !permission.autoResponds(item, sdk.directory)
     })
   })
 
   const blocked = createMemo(() => {
-    const id = params.id
+    const id = activeSessionID()
     if (!id) return false
     return !!permissionRequest() || !!questionRequest()
   })
@@ -48,7 +47,7 @@ export function createSessionComposerState() {
   })
 
   const pull = () => {
-    const id = params.id
+    const id = activeSessionID()
     if (!id) {
       setTest({ on: false, todos: undefined })
       return
@@ -70,11 +69,11 @@ export function createSessionComposerState() {
     if (!composerEnabled()) return
 
     pull()
-    createEffect(on(() => params.id, pull, { defer: true }))
+    createEffect(on(activeSessionID, pull, { defer: true }))
 
     const onEvent = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionID?: string }>).detail
-      if (detail?.sessionID !== params.id) return
+      if (detail?.sessionID !== activeSessionID()) return
       pull()
     }
 
@@ -83,7 +82,7 @@ export function createSessionComposerState() {
 
   const todos = createMemo((): Todo[] => {
     if (test.on && test.todos !== undefined) return test.todos
-    const id = params.id
+    const id = activeSessionID()
     if (!id) return []
     // Todo data follows the backend list. Dock visibility is derived below so terminal todos can remain stored after the dock hides.
     return globalSync.data.session_todo[id] ?? []
@@ -135,8 +134,13 @@ export function createSessionComposerState() {
 
   createEffect(
     on(
-      () => ({ allDone: allDone(), count: todos().length, sessionID: params.id, signature: todoSignature(todos()) }),
-      ({ allDone: done, count, sessionID, signature }) => {
+      () => ({
+        allDone: allDone(),
+        count: todos().length,
+        sessionID: activeSessionID(),
+        signature: todoSignature(todos()),
+      }),
+      ({ allDone: done, count, sessionID: expectedSessionID, signature }) => {
         if (raf) cancelAnimationFrame(raf)
         raf = undefined
 
@@ -150,7 +154,7 @@ export function createSessionComposerState() {
           setStore({ dock: true, opening: false, completing: true })
           clearHideTimeout()
           hideTimeout = window.setTimeout(() => {
-            if (params.id === sessionID && allDone() && todoSignature(todos()) === signature) {
+            if (activeSessionID() === expectedSessionID && allDone() && todoSignature(todos()) === signature) {
               setStore({ dock: false, opening: false, completing: false })
             }
             hideTimeout = undefined
@@ -178,7 +182,7 @@ export function createSessionComposerState() {
 
   createEffect(() => {
     if (!composerEnabled()) return
-    const probe = composerStateProbe(params.id)
+    const probe = composerStateProbe(activeSessionID())
     probe.set({
       dock: store.dock,
       opening: store.opening,

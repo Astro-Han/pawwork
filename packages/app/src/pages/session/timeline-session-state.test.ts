@@ -1,34 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { nextTimelineSessionID } from "./timeline-session-state"
+import { nextSessionViewState, nextTimelineSessionID, nextVisibleSessionID, sessionKey } from "./timeline-session-state"
+import * as controller from "./session-view-controller"
 
-describe("nextTimelineSessionID", () => {
-  test("keeps the rendered timeline session while the target route session is not ready", () => {
-    expect(
-      nextTimelineSessionID({
-        current: "ses_source",
-        route: "ses_target",
-        routeReady: false,
-      }),
-    ).toBe("ses_source")
-  })
-
-  test("switches to the route session once its messages are ready", () => {
-    expect(
-      nextTimelineSessionID({
-        current: "ses_source",
-        route: "ses_target",
-        routeReady: true,
-      }),
-    ).toBe("ses_target")
-  })
-
-  test("clears the rendered timeline when leaving a session route", () => {
-    expect(
-      nextTimelineSessionID({
-        current: "ses_source",
-        route: undefined,
-        routeReady: true,
-      }),
-    ).toBeUndefined()
+describe("timeline-session-state", () => {
+  test("keeps the legacy exports wired to the session view controller", () => {
+    expect(nextSessionViewState).toBe(controller.nextSessionViewState)
+    expect(nextVisibleSessionID).toBe(controller.nextVisibleSessionID)
+    expect(nextTimelineSessionID).toBe(controller.nextVisibleSessionID)
+    expect(sessionKey).toBe(controller.sessionKey)
   })
 })
