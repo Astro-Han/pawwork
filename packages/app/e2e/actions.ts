@@ -318,6 +318,15 @@ export async function openSidebar(page: Page) {
   await expect(button).toHaveAttribute("aria-expanded", "true")
 }
 
+export async function openRightPanel(page: Page) {
+  const panel = page.getByRole("complementary", { name: "Right utility panel" })
+  if (await panel.isVisible().catch(() => false)) return panel
+
+  await page.getByRole("button", { name: "Right utility panel" }).click()
+  await expect(panel).toBeVisible()
+  return panel
+}
+
 export async function closeSidebar(page: Page) {
   if (await isSidebarClosed(page)) return
 

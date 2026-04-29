@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures"
+import { openSidebar } from "../actions"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
 test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
@@ -6,11 +7,12 @@ test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
 
   const home = page.locator('[data-component="session-new-home"]')
 
-  await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
-  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
   await expect(home).toBeVisible()
   await expect(page.getByRole("heading", { name: "Choose what to do" })).toBeVisible()
   await expect(home.locator(sessionComposerDockSelector)).toHaveCount(1)
+  await openSidebar(page)
+  await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
+  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
   await expect(page.getByText("No recent projects")).toHaveCount(0)
   await expect(page.getByText("Get started by opening a local project")).toHaveCount(0)
 })
@@ -23,7 +25,6 @@ test("@smoke home renders the hero composer and starter cards", async ({ page, p
   const firstCard = home.getByRole("button", { name: /Process docs/i })
   const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
   await expect(home).toBeVisible()
-  await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
   await expect(page.getByRole("heading", { name: "Choose what to do" })).toBeVisible()
   await expect(page.locator(sessionComposerDockSelector)).toHaveCount(1)
   await expect(composer).toHaveCount(1)
@@ -34,6 +35,8 @@ test("@smoke home renders the hero composer and starter cards", async ({ page, p
   await expect(page.getByRole("button", { name: /Start writing/i })).toBeVisible()
   await expect(page.getByRole("button", { name: "Right utility panel" })).toBeVisible()
   await expect(workspaceChip).toBeVisible()
+  await openSidebar(page)
+  await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
 
   const cardBox = await firstCard.boundingBox()
   const composerBox = await composer.boundingBox()
