@@ -1,0 +1,12 @@
+{
+  "officecli": {
+    "version": "v1.0.63",
+    "repo": "iOfficeAI/OfficeCLI",
+    "assets": {
+      "darwin-arm64": "officecli-mac-arm64",
+      "darwin-x64": "officecli-mac-x64",
+      "win32-x64": "officecli-win-x64.exe",
+      "win32-arm64": "officecli-win-arm64.exe"
+    }
+  }
+}

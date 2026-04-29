@@ -86,6 +86,8 @@ PawWork is built on a fork of [OpenCode](https://github.com/anomalyco/opencode).
 
 Thanks to the OpenCode project and community.
 
+PawWork bundles [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) by iOfficeAI to handle Word, Excel, and PowerPoint files locally. Thanks to iOfficeAI for the Apache-2.0 open-source OfficeCLI project.
+
 ## License
 
 [Apache License 2.0](LICENSE)

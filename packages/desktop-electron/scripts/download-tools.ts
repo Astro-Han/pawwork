@@ -7,6 +7,8 @@ import { chmodSync, createWriteStream, existsSync, mkdirSync, renameSync, unlink
 import { pipeline } from "node:stream/promises"
 import path from "node:path"
 
+import { officeCliTargetFor, prepareOfficeCli } from "./prepare-officecli"
+
 const TOOLS_DIR = path.resolve(import.meta.dirname, "../resources/tools")
 
 const platform = process.argv.includes("--platform")
@@ -31,22 +33,6 @@ interface Tool {
 }
 
 const tools: Tool[] = [
-  {
-    name: "officecli",
-    getUrl: (p, a) => {
-      const map: Record<string, string> = {
-        "darwin-arm64": "officecli-mac-arm64",
-        "darwin-x64": "officecli-mac-x64",
-        "win32-x64": "officecli-win-x64.exe",
-        "win32-arm64": "officecli-win-arm64.exe",
-      }
-      const file = map[`${p}-${a}`]
-      if (!file) return null
-      return `https://github.com/iOfficeAI/OfficeCLI/releases/latest/download/${file}`
-    },
-    getBinaryName: (p) => (p === "win32" ? "officecli.exe" : "officecli"),
-    extract: "none",
-  },
   {
     name: "lark-cli",
     getUrl: (_p, _a) => {
@@ -200,6 +186,12 @@ async function downloadWecomCli() {
 // --- Main ---
 
 async function main() {
+  const officeCliTarget = officeCliTargetFor(platform, arch)
+  if (officeCliTarget) {
+    await prepareOfficeCli(officeCliTarget.platform, officeCliTarget.arch)
+  } else {
+    console.log(`  Skipping officecli (no URL for ${platform}-${arch})`)
+  }
   for (const tool of tools) {
     if (tool.name === "lark-cli") continue // handled separately
     await downloadTool(tool)

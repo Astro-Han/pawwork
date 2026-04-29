@@ -407,6 +407,7 @@ export const BashTool = Tool.define(
       return withoutInternalServerAuthEnv({
         ...process.env,
         ...extraEnv,
+        OFFICECLI_SKIP_UPDATE: "1",
         PATH: bundledToolsDir ? `${bundledToolsDir}${path.delimiter}${currentPath}` : currentPath,
       })
     })

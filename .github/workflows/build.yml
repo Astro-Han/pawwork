@@ -299,6 +299,21 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Prepare OfficeCLI
+        if: ${{ inputs.phase != 'finalize' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "${{ matrix.target }}" in
+            macos) officecli_platform="darwin" ;;
+            windows) officecli_platform="win32" ;;
+            *) echo "Unsupported OfficeCLI target: ${{ matrix.target }}"; exit 1 ;;
+          esac
+
+          bun ./scripts/prepare-officecli.ts --platform "$officecli_platform" --arch "${{ matrix.arch_label }}"
+        working-directory: packages/desktop-electron
+
       - name: Read desktop package version
         id: package_version
         shell: bash

@@ -65,6 +65,10 @@ const getBase = (): Configuration => ({
       filter: ["**/*"],
     },
     {
+      from: path.join(rootDir, "THIRD_PARTY_NOTICES.md"),
+      to: "THIRD_PARTY_NOTICES.md",
+    },
+    {
       from: "native/",
       to: "native/",
       filter: ["index.js", "index.d.ts", "build/Release/mac_window.node", "swift-build/**"],
