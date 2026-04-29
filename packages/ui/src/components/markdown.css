@@ -23,7 +23,7 @@
   h4,
   h5,
   h6 {
-    font-size: 14px;
+    font-size: var(--font-size-hierarchy);
     color: var(--text-strong);
     font-weight: var(--font-weight-medium);
     margin-top: 0px;

@@ -437,7 +437,7 @@
     gap: 8px;
     min-width: 0;
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-hierarchy);
     font-style: normal;
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
@@ -758,7 +758,7 @@
 
   [data-slot="permission-header-title"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-hierarchy);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     color: var(--text-strong);
@@ -775,7 +775,7 @@
 
   [data-slot="permission-hint"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     color: var(--text-weak);
@@ -855,7 +855,7 @@
 
   [data-slot="question-header-title"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-hierarchy);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     color: var(--text-strong);
@@ -941,7 +941,7 @@
 
   [data-slot="question-text"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     color: var(--text-strong);
@@ -1067,7 +1067,7 @@
 
   [data-slot="option-label"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     color: var(--text-strong);
@@ -1075,7 +1075,7 @@
 
   [data-slot="option-description"] {
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     color: var(--text-base);
@@ -1103,7 +1103,7 @@
     box-shadow: none;
     outline: none;
     font-family: var(--font-family-sans);
-    font-size: 14px;
+    font-size: var(--font-size-base);
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     color: var(--text-base);
