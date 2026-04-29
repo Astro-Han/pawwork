@@ -5,8 +5,9 @@
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --font-family-mono--font-feature-settings: normal;
 
+  --font-size-x-small: 12px;
   --font-size-small: 13px;
-  --font-size-base: 14px;
+  --font-size-base: 13px;
   --font-size-hierarchy: 14px;
   --font-size-large: 16px;
   --font-size-x-large: 20px;
