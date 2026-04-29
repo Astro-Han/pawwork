@@ -63,7 +63,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "h-[32px] px-3 inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-14-medium text-text-base transition-colors hover:bg-surface-base-hover",
+            "h-[28px] px-3 inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-13-medium text-text-base transition-colors hover:bg-surface-base-hover",
           style: props.style,
         } as any
       }
@@ -96,7 +96,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                   type="button"
                   role="menuitemradio"
                   aria-checked={active()}
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-14-medium outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-medium outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
                   onClick={() => {
                     navigate(`/${base64Encode(workspace.path)}/session`)
                     setOpen(false)
@@ -122,13 +122,13 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
             type="button"
             role="menuitem"
             data-action="workspace-chip-add"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-14-medium text-text-base outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-medium text-text-base outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
             onClick={() => {
               setOpen(false)
               layoutPage.openProject()
             }}
           >
-            <Icon name="plus-small" size="small" class="shrink-0 text-text-weak" />
+            <Icon name="folder-add-left" size="small" class="shrink-0 text-text-weak" />
             <span class="min-w-0 flex-1 truncate">{language.t("workspace.chip.add")}</span>
           </button>
         </div>

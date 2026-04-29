@@ -1121,7 +1121,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               as="div"
               variant="ghost"
               size="normal"
-              class="h-[32px]! min-w-0 w-44 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover"
+              class="h-[28px]! min-w-0 w-44 px-3 justify-start! text-13-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover"
               style={triggerStyle()}
               onClick={() => {
                 void import("@/components/dialog-select-model-unpaid").then((x) => {
@@ -1158,7 +1158,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "h-[32px]! min-w-0 w-44 px-3 justify-start! text-14-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover",
+                "h-[28px]! min-w-0 w-44 px-3 justify-start! text-13-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover",
               "data-action": "prompt-model",
             }}
             onClose={restoreFocus}
@@ -1202,7 +1202,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               "aria-haspopup": "menu",
               style: triggerStyle(),
               class:
-                "h-[32px] px-3 max-w-[140px] inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-14-medium text-text-base transition-colors hover:bg-surface-base-hover",
+                "h-[28px] px-3 max-w-[140px] inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-13-medium text-text-base transition-colors hover:bg-surface-base-hover",
             } as any
           }
           trigger={
@@ -1225,7 +1225,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     type="button"
                     role="menuitemradio"
                     aria-checked={active()}
-                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-14-medium text-text-strong outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
+                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-medium text-text-strong outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
                     classList={{ "font-medium": active() }}
                     onClick={() => {
                       local.model.variant.set(variant === "default" ? undefined : variant)
@@ -1561,14 +1561,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   data-action="prompt-attach"
                   type="button"
                   variant="ghost"
-                  class="size-8 shrink-0 p-0"
+                  class="size-7 shrink-0 p-0"
                   style={buttons()}
                   onClick={pick}
                   disabled={store.mode !== "normal"}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   aria-label={language.t("prompt.action.attachFile")}
                 >
-                  <Icon name="plus" class="size-4.5" />
+                  <Icon name="plus" class="size-4" />
                 </Button>
               </TooltipKeybind>
               <Show when={store.mode === "normal"}>
