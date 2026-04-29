@@ -128,6 +128,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Prepare OfficeCLI
+        run: bun ./scripts/prepare-officecli.ts --platform darwin --arch arm64
+        working-directory: packages/desktop-electron
+
       - name: Build desktop app
         run: bun run build
         working-directory: packages/desktop-electron
@@ -164,6 +168,7 @@ jobs:
           EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/PawWork Dev"
           INFO_PLIST_PATH="$APP_PATH/Contents/Info.plist"
           ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
+          OFFICECLI_PATH="$APP_PATH/Contents/Resources/tools/officecli"
           FRAMEWORK_PATH="$APP_PATH/Contents/Frameworks/Electron Framework.framework"
           HELPER_APP_PATH="$APP_PATH/Contents/Frameworks/PawWork Dev Helper.app"
 
@@ -186,6 +191,14 @@ jobs:
             echo "Expected app.asar at $ASAR_PATH"
             exit 1
           fi
+
+          if [ ! -x "$OFFICECLI_PATH" ]; then
+            echo "Expected executable OfficeCLI at $OFFICECLI_PATH"
+            exit 1
+          fi
+
+          file "$OFFICECLI_PATH" | grep -q "arm64"
+          OFFICECLI_SKIP_UPDATE=1 "$OFFICECLI_PATH" --version
 
           if [ ! -d "$FRAMEWORK_PATH" ]; then
             echo "Expected Electron Framework at $FRAMEWORK_PATH"
