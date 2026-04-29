@@ -6,6 +6,7 @@ import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
+import { showToast } from "@opencode-ai/ui/toast"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
 
@@ -60,10 +61,16 @@ const notify: Platform["notify"] = async (title, description, href) => {
       ? await Notification.requestPermission().catch(() => "denied")
       : Notification.permission
 
-  if (permission !== "granted") return
-
-  const inView = document.visibilityState === "visible" && document.hasFocus()
-  if (inView) return
+  if (permission !== "granted") {
+    // Fallback to Toast when OS notification permission is denied
+    console.warn("OS notification permission denied; falling back to in-app toast. Enable notifications in system settings for the best experience.")
+    showToast({
+      title,
+      description,
+      variant: "default",
+    })
+    return
+  }
 
   const notification = new Notification(title, {
     body: description ?? "",
