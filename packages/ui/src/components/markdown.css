@@ -5,7 +5,7 @@
   overflow-wrap: break-word;
   color: var(--text-strong);
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-base); /* 14px */
+  font-size: var(--font-size-base); /* 13px */
   line-height: 160%;
 
   /* Spacing for flow */
