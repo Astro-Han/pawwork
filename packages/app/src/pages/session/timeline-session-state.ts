@@ -1,9 +1,2 @@
-export function nextTimelineSessionID(input: {
-  current: string | undefined
-  route: string | undefined
-  routeReady: boolean
-}) {
-  if (!input.route) return undefined
-  if (input.routeReady) return input.route
-  return input.current
-}
+export { nextSessionViewState, nextTimelineSessionID, sessionKey } from "./session-view-controller"
+export type { SessionViewStateInput } from "./session-view-controller"
