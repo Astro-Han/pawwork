@@ -24,6 +24,9 @@ const syncedDirectories: string[] = []
 const promptAsyncCalls: Array<Record<string, unknown>> = []
 const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
+const abortedSessions: string[] = []
+const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
+const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 
 let params: { id?: string } = {}
 let selected = "/repo/worktree-a"
@@ -66,7 +69,10 @@ const clientFor = (directory: string) => {
         commandCalls.push(input)
         return { data: undefined }
       },
-      abort: async () => ({ data: undefined }),
+      abort: async (input: { sessionID: string }) => {
+        abortedSessions.push(input.sessionID)
+        return { data: undefined }
+      },
     },
     worktree: {
       create: async () => ({ data: { directory: `${directory}/new` } }),
@@ -189,6 +195,10 @@ beforeAll(async () => {
         return [
           { session: storedSessions[directory] },
           (...args: unknown[]) => {
+            if (args[0] === "todo") {
+              childTodoSets.push({ directory, sessionID: String(args[1]), todos: args[2] })
+              return
+            }
             if (args[0] !== "session") return
             const next = args[1]
             if (typeof next === "function") {
@@ -200,6 +210,11 @@ beforeAll(async () => {
             }
           },
         ]
+      },
+      todo: {
+        set(sessionID: string, todos: unknown) {
+          globalTodoSets.push({ sessionID, todos })
+        },
       },
     }),
   }))
@@ -232,6 +247,9 @@ beforeEach(() => {
   promptAsyncCalls.length = 0
   commandCalls.length = 0
   commandDefinitions.length = 0
+  abortedSessions.length = 0
+  globalTodoSets.length = 0
+  childTodoSets.length = 0
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
@@ -243,6 +261,34 @@ beforeEach(() => {
 })
 
 describe("prompt submit worktree selection", () => {
+  test("keeps cached todos when aborting an active session", async () => {
+    params = { id: "session-existing" }
+    const aborts: string[] = []
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => true,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onAbort: () => aborts.push("called"),
+    })
+
+    await submit.abort()
+
+    expect(aborts).toEqual(["called"])
+    expect(abortedSessions).toEqual(["session-existing"])
+    expect(globalTodoSets).toEqual([])
+    expect(childTodoSets).toEqual([])
+  })
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       info: () => undefined,

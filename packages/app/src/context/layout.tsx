@@ -170,6 +170,45 @@ const normalizeStoredSessionTabs = (key: string, tabs: SessionTabs) => {
   }
 }
 
+export function createDefaultLayoutState() {
+  return {
+    sidebar: {
+      opened: false,
+      width: DEFAULT_SIDEBAR_WIDTH,
+      workspaces: {} as Record<string, boolean>,
+      workspacesDefault: false,
+    },
+    terminal: {
+      height: DEFAULT_TERMINAL_HEIGHT,
+      opened: false,
+    },
+    review: {
+      diffStyle: "unified" as ReviewDiffStyle,
+      panelOpened: false,
+    },
+    fileTree: {
+      opened: false,
+      width: DEFAULT_FILE_TREE_WIDTH,
+      tab: "changes" as "changes" | "all",
+    },
+    session: {
+      width: DEFAULT_SESSION_WIDTH,
+    },
+    rightPanel: {
+      width: DEFAULT_RIGHT_PANEL_WIDTH,
+      opened: false,
+    },
+    mobileSidebar: {
+      opened: false,
+    },
+    sessionTabs: {} as Record<string, SessionTabs>,
+    sessionView: {} as Record<string, SessionView>,
+    handoff: {
+      tabs: undefined as TabHandoff | undefined,
+    },
+  }
+}
+
 export function legacyRightPanelOpened(rightPanel: unknown, review: unknown, fileTree: unknown): boolean {
   if (isRecord(rightPanel) && typeof rightPanel.opened === "boolean") return rightPanel.opened
   if (isRecord(review) && typeof review.panelOpened === "boolean") return review.panelOpened
@@ -287,42 +326,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const target = Persist.global("layout", ["layout.v6"])
     const [store, setStore, _, ready] = persisted(
       { ...target, migrate: migrateStoredLayout },
-      createStore({
-        sidebar: {
-          opened: true,
-          width: DEFAULT_SIDEBAR_WIDTH,
-          workspaces: {} as Record<string, boolean>,
-          workspacesDefault: false,
-        },
-        terminal: {
-          height: DEFAULT_TERMINAL_HEIGHT,
-          opened: false,
-        },
-        review: {
-          diffStyle: "unified" as ReviewDiffStyle,
-          panelOpened: false,
-        },
-        fileTree: {
-          opened: false,
-          width: DEFAULT_FILE_TREE_WIDTH,
-          tab: "changes" as "changes" | "all",
-        },
-        session: {
-          width: DEFAULT_SESSION_WIDTH,
-        },
-        rightPanel: {
-          width: DEFAULT_RIGHT_PANEL_WIDTH,
-          opened: true,
-        },
-        mobileSidebar: {
-          opened: false,
-        },
-        sessionTabs: {} as Record<string, SessionTabs>,
-        sessionView: {} as Record<string, SessionView>,
-        handoff: {
-          tabs: undefined as TabHandoff | undefined,
-        },
-      }),
+      createStore(createDefaultLayoutState()),
     )
 
     const MAX_SESSION_KEYS = 50
@@ -818,7 +822,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         const s = createMemo(() => store.sessionView[key()] ?? { scroll: {} })
         const terminalOpened = createMemo(() => store.terminal?.opened ?? false)
         const reviewPanelOpened = createMemo(() => store.review?.panelOpened ?? false)
-        const sidePanelOpened = createMemo(() => store.rightPanel?.opened ?? true)
+        const sidePanelOpened = createMemo(() => store.rightPanel?.opened ?? false)
         const shellTabState = createMemo(() =>
           normalizeShellTabs({
             openShellTabs: legacyOpenShellTabs(s().openShellTabs, s().sidePanelTab),
@@ -857,7 +861,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             return
           }
 
-          const value = current.opened ?? true
+          const value = current.opened ?? false
           if (value === next) return
           setStore("rightPanel", "opened", next)
         }

@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures"
+import { openSidebar } from "../actions"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
 test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
@@ -6,10 +7,11 @@ test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
 
   const home = page.locator('[data-component="session-new-home"]')
 
-  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
   await expect(home).toBeVisible()
   await expect(page.getByRole("heading", { name: "Choose what to do" })).toBeVisible()
   await expect(home.locator(sessionComposerDockSelector)).toHaveCount(1)
+  await openSidebar(page)
+  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
   await expect(page.getByText("No recent projects")).toHaveCount(0)
   await expect(page.getByText("Get started by opening a local project")).toHaveCount(0)
 })
