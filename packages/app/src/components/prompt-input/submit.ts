@@ -178,6 +178,8 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
 }
 
 type PromptSubmitInput = {
+  sessionID?: Accessor<string | undefined>
+  isNewSession?: Accessor<boolean>
   info: Accessor<{ id: string } | undefined>
   imageAttachments: Accessor<ImageAttachmentPart[]>
   commentCount: Accessor<number>
@@ -220,6 +222,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const layout = useLayout()
   const language = useLanguage()
   const params = useParams()
+  const sessionID = input.sessionID ?? (() => params.id)
+  const isNewSession = input.isNewSession ?? (() => !sessionID())
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -231,21 +235,21 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   }
 
   const abort = async () => {
-    const sessionID = params.id
-    if (!sessionID) return Promise.resolve()
+    const activeSessionID = sessionID()
+    if (!activeSessionID) return Promise.resolve()
 
     input.onAbort?.()
 
-    const queued = pending.get(sessionID)
+    const queued = pending.get(activeSessionID)
     if (queued) {
       queued.abort.abort()
       queued.cleanup()
-      pending.delete(sessionID)
+      pending.delete(activeSessionID)
       return Promise.resolve()
     }
     return sdk.client.session
       .abort({
-        sessionID,
+        sessionID: activeSessionID,
       })
       .catch(() => {})
   }
@@ -297,8 +301,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
     const images = input.imageAttachments().slice()
     const mode = input.mode()
-    const isNewSession = !params.id
-    const homeSkill = isNewSession && mode === "normal" ? input.selectedSkill?.() : undefined
+    const creatingNewSession = isNewSession()
+    const homeSkill = creatingNewSession && mode === "normal" ? input.selectedSkill?.() : undefined
 
     if (
       text.trim().length === 0 &&
@@ -313,7 +317,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()
     const variant = local.model.variant.current()
-    if (!currentModel || (!currentAgent && !isNewSession)) {
+    if (!currentModel || (!currentAgent && !creatingNewSession)) {
       showToast({
         title: language.t("prompt.toast.modelAgentRequired.title"),
         description: language.t("prompt.toast.modelAgentRequired.description"),
@@ -328,13 +332,13 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     promptProbe.start()
 
     const projectDirectory = sdk.directory
-    const shouldAutoAccept = isNewSession && input.autoAccept()
+    const shouldAutoAccept = creatingNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
     let sessionDirectory = projectDirectory
     let client = sdk.client
 
-    if (isNewSession) {
+    if (creatingNewSession) {
       if (worktreeSelection === "create") {
         const createdWorktree = await client.worktree
           .create({ directory: projectDirectory })
@@ -374,7 +378,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     let session = input.info()
-    if (!session && isNewSession) {
+    if (!session && creatingNewSession) {
       const created = await client.session
         .create()
         .then((x) => x.data ?? undefined)
@@ -407,7 +411,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       providerID: currentModel.provider.id,
     }
     const locale = language.intl()
-    const agent = isNewSession ? "build" : currentAgent!.name
+    const agent = creatingNewSession ? "build" : currentAgent!.name
     const context = prompt.context.items().slice()
     const outgoingTextOverride = buildHomeOverride(homeSkill, text)
     const draft: FollowupDraft = {
@@ -441,7 +445,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
     }
 
-    if (!isNewSession && mode === "normal" && input.shouldQueue?.()) {
+    if (!creatingNewSession && mode === "normal" && input.shouldQueue?.()) {
       input.onQueue?.(draft)
       clearContext()
       clearInput()

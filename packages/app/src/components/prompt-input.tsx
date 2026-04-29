@@ -73,6 +73,8 @@ interface PromptInputProps {
   onAbort?: () => void
   onSubmit?: () => void
   onModeChange?: (mode: "normal" | "shell") => void
+  sessionID?: string
+  sessionIDControlled?: boolean
   selectedSkill?: () => PawworkSkillName | undefined
 }
 
@@ -121,6 +123,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
   const { params, tabs, view } = useSessionLayout()
+  const activeSessionID = createMemo(() => (props.sessionIDControlled ? props.sessionID : params.id))
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
   let scrollRef!: HTMLDivElement
@@ -177,7 +180,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }).activeFileTab
 
   const commentInReview = (path: string) => {
-    const sessionID = params.id
+    const sessionID = activeSessionID()
     if (!sessionID) return false
 
     const diffs = sync.data.session_diff[sessionID]
@@ -241,10 +244,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
     return paths
   })
-  const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
+  const info = createMemo(() => (activeSessionID() ? sync.session.get(activeSessionID()!) : undefined))
   const status = createMemo(
     () =>
-      sync.data.session_status[params.id ?? ""] ?? {
+      sync.data.session_status[activeSessionID() ?? ""] ?? {
         type: "idle",
       },
   )
@@ -317,7 +320,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   })
 
   const hasUserPrompt = createMemo(() => {
-    const sessionID = params.id
+    const sessionID = activeSessionID()
     if (!sessionID) return false
     const messages = sync.data.message[sessionID]
     if (!messages) return false
@@ -545,8 +548,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   createEffect(() => {
-    params.id
-    if (params.id) return
+    activeSessionID()
+    if (activeSessionID()) return
     if (!suggest()) return
     const interval = setInterval(() => {
       setStore("placeholder", (prev) => (prev + 1) % EXAMPLES.length)
@@ -1075,12 +1078,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const variants = createMemo(() => ["default", ...local.model.variant.list()])
   const accepting = createMemo(() => {
-    const id = params.id
+    const id = activeSessionID()
     if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
     return permission.isAutoAccepting(id, sdk.directory)
   })
 
   const { abort, handleSubmit } = createPromptSubmit({
+    sessionID: activeSessionID,
+    isNewSession: () => props.homeMode === true || (!props.sessionIDControlled && !activeSessionID()),
     info,
     imageAttachments,
     commentCount,

@@ -261,11 +261,13 @@ beforeEach(() => {
 })
 
 describe("prompt submit worktree selection", () => {
-  test("keeps cached todos when aborting an active session", async () => {
-    params = { id: "session-existing" }
+  test("keeps cached todos when aborting the visible session", async () => {
+    params = { id: "session-route" }
     const aborts: string[] = []
     const submit = createPromptSubmit({
-      info: () => ({ id: "session-existing" }),
+      sessionID: () => "session-visible",
+      isNewSession: () => false,
+      info: () => ({ id: "session-visible" }),
       imageAttachments: () => [],
       commentCount: () => 0,
       autoAccept: () => false,
@@ -284,7 +286,7 @@ describe("prompt submit worktree selection", () => {
     await submit.abort()
 
     expect(aborts).toEqual(["called"])
-    expect(abortedSessions).toEqual(["session-existing"])
+    expect(abortedSessions).toEqual(["session-visible"])
     expect(globalTodoSets).toEqual([])
     expect(childTodoSets).toEqual([])
   })
@@ -385,6 +387,35 @@ describe("prompt submit worktree selection", () => {
         model: { providerID: "provider", modelID: "model", variant: "high" },
       },
     })
+  })
+
+  test("submits to the provided visible session instead of the route session", async () => {
+    params = { id: "session-route" }
+
+    const submit = createPromptSubmit({
+      sessionID: () => "session-visible",
+      isNewSession: () => false,
+      info: () => ({ id: "session-visible" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptAsyncCalls.length > 0)
+
+    expect(promptAsyncCalls.at(-1)?.sessionID).toBe("session-visible")
+    expect(optimistic.at(-1)?.sessionID).toBe("session-visible")
   })
 
   test("seeds new sessions before optimistic prompts are added", async () => {
