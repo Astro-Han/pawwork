@@ -100,7 +100,7 @@ export const SettingsModels: Component = () => {
                 <div class="flex flex-col gap-1">
                   <div class="flex items-center gap-2 pb-2">
                     <ProviderIcon id={group.category} class="size-5 shrink-0 icon-strong-base" />
-                    <span class="text-14-medium text-text-strong">{group.items[0].provider.name}</span>
+                    <span class="text-13-medium text-text-strong">{group.items[0].provider.name}</span>
                   </div>
                   <SettingsList>
                     <For each={group.items}>

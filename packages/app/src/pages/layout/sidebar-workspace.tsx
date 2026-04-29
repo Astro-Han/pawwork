@@ -75,7 +75,7 @@ export const WorkspaceDragOverlay = (props: {
 
   return (
     <Show when={label()}>
-      {(value) => <div class="bg-background-base rounded-md px-2 py-1 text-14-medium text-text-strong">{value()}</div>}
+      {(value) => <div class="bg-background-base rounded-md px-2 py-1 text-13-medium text-text-strong">{value()}</div>}
     </Show>
   )
 }
@@ -100,13 +100,13 @@ const WorkspaceHeader = (props: {
         <Spinner class="size-[15px]" />
       </Show>
     </div>
-    <span class="text-14-medium text-text-base shrink-0">
+    <span class="text-13-medium text-text-base shrink-0">
       {props.local() ? props.language.t("workspace.type.local") : props.language.t("workspace.type.sandbox")} :
     </span>
     <Show
       when={!props.local()}
       fallback={
-        <span class="text-14-medium text-text-base min-w-0 truncate">
+        <span class="text-13-medium text-text-base min-w-0 truncate">
           {props.branch() ?? getFilename(props.directory)}
         </span>
       }
@@ -120,8 +120,8 @@ const WorkspaceHeader = (props: {
           props.renameWorkspace(props.directory, trimmed, props.projectId, props.branch())
           props.setEditor("value", props.workspaceValue())
         }}
-        class="text-14-medium text-text-base min-w-0 truncate"
-        displayClass="text-14-medium text-text-base min-w-0 truncate"
+        class="text-13-medium text-text-base min-w-0 truncate"
+        displayClass="text-13-medium text-text-base min-w-0 truncate"
         editing={props.workspaceEditActive()}
         stopPropagation={false}
         openOnDblClick={false}

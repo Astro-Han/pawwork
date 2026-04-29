@@ -1312,7 +1312,7 @@ export default function Page() {
         onSelect={(option) => option && setStore("changes", option)}
         variant="ghost"
         size="small"
-        valueClass="text-14-medium"
+        valueClass="text-13-medium"
       />
     )
   }
@@ -1326,7 +1326,7 @@ export default function Page() {
   const createGit = (input: { emptyClass: string }) => (
     <div class={input.emptyClass}>
       <div class="flex flex-col gap-3">
-        <div class="text-14-medium text-text-strong">{language.t("session.review.noVcs.createGit.title")}</div>
+        <div class="text-13-medium text-text-strong">{language.t("session.review.noVcs.createGit.title")}</div>
         <div class="text-13-regular text-text-base max-w-md" style={{ "line-height": "var(--line-height-normal)" }}>
           {language.t("session.review.noVcs.createGit.description")}
         </div>

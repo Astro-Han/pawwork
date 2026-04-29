@@ -380,7 +380,7 @@ export const SettingsGeneral: Component = () => {
 
   const AppearanceSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.appearance")}</h3>
+      <h3 class="text-13-medium text-text-strong pb-2">{language.t("settings.general.section.appearance")}</h3>
 
       <SettingsList>
         <Show when={theme.canSwitchColorScheme()}>
@@ -489,7 +489,7 @@ export const SettingsGeneral: Component = () => {
 
   const NotificationsSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.notifications")}</h3>
+      <h3 class="text-13-medium text-text-strong pb-2">{language.t("settings.general.section.notifications")}</h3>
 
       <SettingsList>
         <SettingsRow
@@ -533,7 +533,7 @@ export const SettingsGeneral: Component = () => {
 
   const SoundsSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.sounds")}</h3>
+      <h3 class="text-13-medium text-text-strong pb-2">{language.t("settings.general.section.sounds")}</h3>
 
       <SettingsList>
         <SettingsRow
@@ -586,7 +586,7 @@ export const SettingsGeneral: Component = () => {
 
   const UpdatesSection = () => (
     <div class="flex flex-col gap-1">
-      <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.updates")}</h3>
+      <h3 class="text-13-medium text-text-strong pb-2">{language.t("settings.general.section.updates")}</h3>
 
       <SettingsList>
         <SettingsRow
@@ -652,7 +652,7 @@ export const SettingsGeneral: Component = () => {
 
             return (
               <div class="flex flex-col gap-1">
-                <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.desktop.section.wsl")}</h3>
+                <h3 class="text-13-medium text-text-strong pb-2">{language.t("settings.desktop.section.wsl")}</h3>
 
                 <SettingsList>
                   <SettingsRow
@@ -685,7 +685,7 @@ export const SettingsGeneral: Component = () => {
 
             return (
               <div class="flex flex-col gap-1">
-                <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.display")}</h3>
+                <h3 class="text-13-medium text-text-strong pb-2">{language.t("settings.general.section.display")}</h3>
 
                 <SettingsList>
                   <SettingsRow
@@ -725,7 +725,7 @@ const SettingsRow: Component<SettingsRowProps> = (props) => {
   return (
     <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak-base last:border-none sm:flex-nowrap">
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="text-14-medium text-text-strong">{props.title}</span>
+        <span class="text-13-medium text-text-strong">{props.title}</span>
         <span class="text-13-regular text-text-weak">{props.description}</span>
       </div>
       <div class="flex w-full justify-end sm:w-auto sm:shrink-0">{props.children}</div>

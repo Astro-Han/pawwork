@@ -408,7 +408,7 @@ export const SettingsKeybinds: Component = () => {
           {(group) => (
             <Show when={(filtered().get(group) ?? []).length > 0}>
               <div class="flex flex-col gap-1">
-                <h3 class="text-14-medium text-text-strong pb-2">{language.t(groupKey[group])}</h3>
+                <h3 class="text-13-medium text-text-strong pb-2">{language.t(groupKey[group])}</h3>
                 <SettingsList>
                   <For each={filtered().get(group) ?? []}>
                     {(id) => (

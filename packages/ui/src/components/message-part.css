@@ -437,7 +437,7 @@
     gap: 8px;
     min-width: 0;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-hierarchy);
+    font-size: var(--font-size-base);
     font-style: normal;
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);

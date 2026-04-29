@@ -130,7 +130,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
                   <div class="flex items-start gap-3">
                     <FileIcon node={{ path: entry.path, type: "file" }} class="shrink-0 mt-0.5" />
                     <div class="min-w-0 flex-1">
-                      <div class="text-14-medium text-text-strong break-all">{entry.file}</div>
+                      <div class="text-13-medium text-text-strong break-all">{entry.file}</div>
                       <div class="mt-1 flex items-center gap-2 text-13-regular text-text-weak">
                         <span>{entry.kind === "added" ? "Added" : "Updated"}</span>
                         <span aria-hidden>•</span>

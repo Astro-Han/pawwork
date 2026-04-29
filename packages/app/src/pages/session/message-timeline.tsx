@@ -756,14 +756,14 @@ export function MessageTimeline(props: {
                         <button
                           type="button"
                           data-slot="session-title-parent"
-                          class="min-w-0 max-w-[40%] truncate text-14-medium text-text-weak transition-colors hover:text-text-base"
+                          class="min-w-0 max-w-[40%] truncate text-13-medium text-text-weak transition-colors hover:text-text-base"
                           onClick={navigateParent}
                         >
                           {parentTitle()}
                         </button>
                         <span
                           data-slot="session-title-separator"
-                          class="px-2 text-14-medium text-text-weak"
+                          class="px-2 text-13-medium text-text-weak"
                           aria-hidden="true"
                         >
                           /
@@ -792,7 +792,7 @@ export function MessageTimeline(props: {
                           fallback={
                             <h1
                               data-slot="session-title-child"
-                              class="text-14-medium text-text-strong truncate grow-1 min-w-0"
+                              class="text-13-medium text-text-strong truncate grow-1 min-w-0"
                               onDblClick={openTitleEditor}
                             >
                               {childTitle()}
@@ -806,7 +806,7 @@ export function MessageTimeline(props: {
                             data-slot="session-title-child"
                             value={title.draft}
                             disabled={titleMutation.isPending}
-                            class="text-14-medium text-text-strong grow-1 min-w-0 rounded-[6px]"
+                            class="text-13-medium text-text-strong grow-1 min-w-0 rounded-[6px]"
                             style={{ "--inline-input-shadow": "var(--shadow-xs-border-select)" }}
                             onInput={(event) => setTitle("draft", event.currentTarget.value)}
                             onKeyDown={(event) => {
