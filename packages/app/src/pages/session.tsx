@@ -506,12 +506,6 @@ export default function Page() {
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
-  const revertMessageID = createMemo(() => info()?.revert?.messageID)
-  const messages = createMemo(
-    () => readSessionMessages(params.id ? sync.data.message[params.id] : undefined),
-    emptyMessages,
-    { equals: same },
-  )
   const messagesReady = createMemo(() => {
     const id = params.id
     if (!id) return true
@@ -540,6 +534,11 @@ export default function Page() {
     { equals: same },
   )
   const timelineMessagesReady = sessionView.visible.ready
+  const timelineDiffs = createMemo(() => {
+    const id = timelineSessionID()
+    if (!id) return []
+    return list(sync.data.session_diff[id])
+  })
   const timelineUserMessages = createMemo(() => readUserMessages(timelineMessages()), emptyUserMessages, {
     equals: same,
   })
@@ -579,19 +578,7 @@ export default function Page() {
     if (!id) return false
     return sync.session.history.loading(id)
   })
-  const userMessages = createMemo(() => readUserMessages(messages()), emptyUserMessages, { equals: same })
-  const visibleUserMessages = createMemo(
-    () => {
-      const revert = revertMessageID()
-      if (!revert) return userMessages()
-      return userMessages().filter((m) => m.id < revert)
-    },
-    emptyUserMessages,
-    {
-      equals: same,
-    },
-  )
-  const lastUserMessage = createMemo(() => visibleUserMessages().at(-1))
+  const lastUserMessage = createMemo(() => timelineVisibleUserMessages().at(-1))
 
   createEffect(() => {
     const tab = activeFileTab()
@@ -749,7 +736,7 @@ export default function Page() {
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
-    () => params.id,
+    timelineSessionID,
     async (sessionID) => ({
       sessionID,
       artifacts: await sdk.client.session
@@ -760,8 +747,9 @@ export default function Page() {
     { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
   )
   const artifactFiles = createMemo(() => {
+    const sessionID = timelineSessionID()
     const history = artifactHistory.latest
-    if (history?.sessionID === params.id && history.artifacts.length > 0) {
+    if (history?.sessionID === sessionID && history.artifacts.length > 0) {
       return deriveArtifactFiles(sdk.directory, history.artifacts)
     }
 
@@ -1184,24 +1172,24 @@ export default function Page() {
   )
 
   createEffect(() => {
-    if (!params.id) return
+    if (!timelineSessionID()) return
     turnDiffs()
     void refetchArtifactHistory()
   })
 
   createEffect(() => {
-    const id = params.id
+    const id = timelineSessionID()
     if (!id) return
     if (sync.data.session_diff[id] === undefined) return
     void refetchArtifactHistory()
   })
 
   createEffect(() => {
-    if (!params.id) return
+    if (!timelineSessionID()) return
 
     // Use Snapshot diffs (SSE-pushed, authoritative) with turnDiffs as fallback
     // for reopened sessions where session_diff hasn't been fetched yet.
-    const source = diffs().length > 0 ? diffs() : turnDiffs()
+    const source = timelineDiffs().length > 0 ? timelineDiffs() : turnDiffs()
     const next = nextFilesPanelAutoOpen(
       {
         seenAdded: view().sidePanel.filesAutoOpenSeen(),
