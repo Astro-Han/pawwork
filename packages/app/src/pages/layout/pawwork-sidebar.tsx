@@ -242,31 +242,29 @@ export const PawworkSidebar = (props: {
       class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background-weak"
     >
       <div class="shrink-0 px-3 pt-3">
-        <div class="flex flex-col gap-2">
-          <Button
+        <div class="flex flex-col gap-0.5">
+          <button
+            type="button"
             data-action="pawwork-session-new"
-            size="large"
-            icon="new-session"
-            class="w-full"
-            style={{
-              "--button-secondary-base": "var(--surface-interactive-base)",
-              "--button-secondary-hover": "var(--surface-interactive-hover)",
-              "--icon-base": "var(--accent-brand)",
-            }}
             onClick={props.onNew}
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1 rounded-xl bg-surface-interactive-base hover:bg-surface-interactive-hover transition-colors text-left focus:outline-none"
           >
-            {language.t("command.session.new")}
-          </Button>
-          <Button
+            <span data-leading-slot class="shrink-0 w-[14px] h-[14px] flex items-center" style={{ color: "var(--accent-brand)" }}>
+              <Icon name="new-session" size="small" />
+            </span>
+            <span class="text-13-medium text-text-strong min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
+          </button>
+          <button
+            type="button"
             data-action="pawwork-session-search"
-            size="large"
-            variant="ghost"
-            icon="magnifying-glass"
-            class="w-full"
             onClick={props.onSearch}
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1 rounded-xl hover:bg-surface-raised-base-hover transition-colors text-left focus:outline-none"
           >
-            {language.t("sidebar.pawwork.search")}
-          </Button>
+            <span data-leading-slot class="shrink-0 w-[14px] h-[14px] flex items-center">
+              <Icon name="magnifying-glass" size="small" class="text-icon-base" />
+            </span>
+            <span class="text-13-medium text-text-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
+          </button>
         </div>
       </div>
 
