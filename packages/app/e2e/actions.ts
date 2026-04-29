@@ -319,10 +319,11 @@ export async function openSidebar(page: Page) {
 }
 
 export async function openRightPanel(page: Page) {
-  const panel = page.getByRole("complementary", { name: "Right utility panel" })
+  const panelName = "Right utility panel"
+  const panel = page.getByRole("complementary", { name: panelName })
   if (await panel.isVisible().catch(() => false)) return panel
 
-  await page.getByRole("button", { name: "Right utility panel" }).click()
+  await page.getByRole("button", { name: panelName }).click()
   await expect(panel).toBeVisible()
   return panel
 }
