@@ -59,11 +59,11 @@ describe("tool.registry", () => {
     expect(opencodeWorkspaceStart).toBeGreaterThanOrEqual(0)
     const afterOpencodeWorkspaceHeader = lockfile.slice(opencodeWorkspaceStart + opencodeWorkspaceHeader.length)
     const nextWorkspaceOffset = afterOpencodeWorkspaceHeader.search(/\n    "[^"]+": \{/)
-    expect(nextWorkspaceOffset).toBeGreaterThan(0)
-    const opencodeWorkspaceLockfileSection = lockfile.slice(
-      opencodeWorkspaceStart,
-      opencodeWorkspaceStart + opencodeWorkspaceHeader.length + nextWorkspaceOffset,
-    )
+    const opencodeWorkspaceEnd =
+      nextWorkspaceOffset === -1
+        ? lockfile.length
+        : opencodeWorkspaceStart + opencodeWorkspaceHeader.length + nextWorkspaceOffset
+    const opencodeWorkspaceLockfileSection = lockfile.slice(opencodeWorkspaceStart, opencodeWorkspaceEnd)
     expect(opencodeWorkspaceLockfileSection).not.toContain('"trash": "10"')
     expect(opencodeWorkspaceLockfileSection).not.toContain('"trash": ["trash@')
   })
