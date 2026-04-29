@@ -14,8 +14,6 @@ Start without a terminal, API key, or paid model plan. PawWork includes a free p
 
 ![PawWork home screen](assets/readme/pawwork-home.png)
 
-![PawWork session screen placeholder](assets/readme/pawwork-session.svg)
-
 ## Why PawWork
 
 PawWork is built for people who want AI agents to do real desktop work, not only chat in a browser or write code inside an IDE.

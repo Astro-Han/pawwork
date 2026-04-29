@@ -14,8 +14,6 @@
 
 ![爪印 PawWork 首页截图](assets/readme/pawwork-home.png)
 
-![爪印 PawWork 会话占位图](assets/readme/pawwork-session.svg)
-
 ## 为什么选择爪印 PawWork
 
 爪印 PawWork 不是把聊天框换一个外壳，也不是只面向程序员的命令行工具。它想解决的是更常见的问题：你手里有文件、表格、资料、代码或一堆零散信息，希望 AI 智能体直接帮你推进工作。
