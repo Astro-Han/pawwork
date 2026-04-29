@@ -119,15 +119,25 @@ async function todoDock(page: any, sessionID: string) {
         if (!composer?.enabled) throw new Error("Composer e2e driver is not enabled")
         composer.sessions ??= {}
         const prev = composer.sessions[input.sessionID] ?? {}
+        const stateProbe = prev.stateProbe
+        const stateProbeHasValue =
+          stateProbe &&
+          (stateProbe.dock ||
+            stateProbe.opening ||
+            stateProbe.completing ||
+            stateProbe.count > 0 ||
+            stateProbe.states.length > 0)
+        const nextStateProbe = stateProbeHasValue ? stateProbe : undefined
         if (!input.driver) {
-          if (!prev.probe && !prev.stateProbe) {
+          if (!prev.probe && !nextStateProbe) {
             delete composer.sessions[input.sessionID]
           } else {
-            composer.sessions[input.sessionID] = { probe: prev.probe, stateProbe: prev.stateProbe }
+            composer.sessions[input.sessionID] = { probe: prev.probe, stateProbe: nextStateProbe }
           }
         } else {
           composer.sessions[input.sessionID] = {
             ...prev,
+            stateProbe: nextStateProbe,
             driver: input.driver,
           }
         }
