@@ -14,9 +14,18 @@ export type ComposerProbeState = {
   states: Todo["status"][]
 }
 
+export type ComposerStateProbeState = {
+  dock: boolean
+  opening: boolean
+  completing: boolean
+  count: number
+  states: Todo["status"][]
+}
+
 type ComposerState = {
   driver?: ComposerDriverState
   probe?: ComposerProbeState
+  stateProbe?: ComposerStateProbeState
 }
 
 export type ComposerWindow = Window & {
@@ -74,6 +83,35 @@ export const composerProbe = (sessionID?: string) => {
         mounted: false,
         collapsed: false,
         hidden: true,
+        count: 0,
+        states: [],
+      })
+    },
+  }
+}
+
+export const composerStateProbe = (sessionID?: string) => {
+  const set = (next: ComposerStateProbeState) => {
+    if (!sessionID) return
+    const sessions = root()
+    if (!sessions) return
+    const prev = sessions[sessionID] ?? {}
+    sessions[sessionID] = {
+      ...prev,
+      stateProbe: {
+        ...next,
+        states: [...next.states],
+      },
+    }
+  }
+
+  return {
+    set,
+    drop() {
+      set({
+        dock: false,
+        opening: false,
+        completing: false,
         count: 0,
         states: [],
       })

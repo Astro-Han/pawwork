@@ -57,12 +57,17 @@ export function SessionTodoDock(props: {
 
   const total = createMemo(() => props.todos.length)
   const done = createMemo(() => props.todos.filter((todo) => todo.status === "completed").length)
-  const label = createMemo(() => language.t("session.todo.progress", { done: done(), total: total() }))
-  const progress = createMemo(() =>
-    language
+  const allCancelled = createMemo(() => total() > 0 && props.todos.every((todo) => todo.status === "cancelled"))
+  const label = createMemo(() => {
+    if (allCancelled()) return language.t("session.todo.cancelled")
+    return language.t("session.todo.progress", { done: done(), total: total() })
+  })
+  const progress = createMemo(() => {
+    if (allCancelled()) return [language.t("session.todo.cancelled")]
+    return language
       .t("session.todo.progress", { done: doneToken, total: totalToken })
-      .split(/(\u0000done\u0000|\u0000total\u0000)/),
-  )
+      .split(/(\u0000done\u0000|\u0000total\u0000)/)
+  })
 
   const active = createMemo(
     () =>
@@ -135,6 +140,7 @@ export function SessionTodoDock(props: {
           }}
         >
           <span
+            data-slot="session-todo-progress"
             class="text-13-regular text-text-strong cursor-default inline-flex items-baseline shrink-0 overflow-visible"
             aria-label={label()}
             style={{

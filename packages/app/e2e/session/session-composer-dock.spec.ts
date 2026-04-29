@@ -3,6 +3,7 @@ import {
   composerEvent,
   type ComposerDriverState,
   type ComposerProbeState,
+  type ComposerStateProbeState,
   type ComposerWindow,
 } from "../../src/testing/session-composer"
 import { cleanupSession, clearSessionDockSeed, closeSettingsPanel, openSettings, seedSessionQuestion } from "../actions"
@@ -15,6 +16,7 @@ import {
 } from "../selectors"
 import { modKey } from "../utils"
 import { inputMatch } from "../prompt/mock"
+import { dict as enDict } from "../../src/i18n/en"
 
 type Sdk = Parameters<typeof clearSessionDockSeed>[0]
 type PermissionRule = { permission: string; pattern: string; action: "allow" | "deny" | "ask" }
@@ -98,11 +100,13 @@ async function expectPermissionOpen(page: any) {
 async function todoDock(page: any, sessionID: string) {
   await page.addInitScript(() => {
     const win = window as ComposerWindow
+    const saved = window.sessionStorage.getItem("__opencode_e2e_composer_sessions")
+    const sessions = saved ? JSON.parse(saved) : {}
     win.__opencode_e2e = {
       ...win.__opencode_e2e,
       composer: {
         enabled: true,
-        sessions: {},
+        sessions,
       },
     }
   })
@@ -115,31 +119,69 @@ async function todoDock(page: any, sessionID: string) {
         if (!composer?.enabled) throw new Error("Composer e2e driver is not enabled")
         composer.sessions ??= {}
         const prev = composer.sessions[input.sessionID] ?? {}
+        const stateProbe = prev.stateProbe
+        const stateProbeHasValue =
+          stateProbe &&
+          (stateProbe.dock ||
+            stateProbe.opening ||
+            stateProbe.completing ||
+            stateProbe.count > 0 ||
+            stateProbe.states.length > 0)
+        const nextStateProbe = stateProbeHasValue ? stateProbe : undefined
         if (!input.driver) {
-          if (!prev.probe) {
+          if (!prev.probe && !nextStateProbe) {
             delete composer.sessions[input.sessionID]
           } else {
-            composer.sessions[input.sessionID] = { probe: prev.probe }
+            composer.sessions[input.sessionID] = { probe: prev.probe, stateProbe: nextStateProbe }
           }
         } else {
           composer.sessions[input.sessionID] = {
             ...prev,
+            stateProbe: nextStateProbe,
             driver: input.driver,
           }
         }
+        window.sessionStorage.setItem("__opencode_e2e_composer_sessions", JSON.stringify(composer.sessions))
         window.dispatchEvent(new CustomEvent(input.event, { detail: { sessionID: input.sessionID } }))
       },
       { event: composerEvent, sessionID, driver },
     )
   }
 
-  const read = () =>
+  const readUi = () =>
     page.evaluate((sessionID: string) => {
       const win = window as ComposerWindow
       return win.__opencode_e2e?.composer?.sessions?.[sessionID]?.probe ?? null
     }, sessionID) as Promise<ComposerProbeState | null>
 
+  const readState = () =>
+    page.evaluate((sessionID: string) => {
+      const win = window as ComposerWindow
+      return win.__opencode_e2e?.composer?.sessions?.[sessionID]?.stateProbe ?? null
+    }, sessionID) as Promise<ComposerStateProbeState | null>
+
   const api = {
+    async expectUi(expected: Partial<ComposerProbeState>, timeout = 10_000) {
+      await expect.poll(readUi, { timeout }).toMatchObject(expected)
+      return api
+    },
+    async expectState(expected: Partial<ComposerStateProbeState>, timeout = 10_000) {
+      await expect.poll(readState, { timeout }).toMatchObject(expected)
+      return api
+    },
+    async expectUnmounted(timeout = 10_000) {
+      await expect.poll(readUi, { timeout }).toMatchObject({
+        mounted: false,
+        hidden: true,
+        count: 0,
+        states: [],
+      })
+      return api
+    },
+    async expectDockGone(timeout = 10_000) {
+      await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0, { timeout })
+      return api
+    },
     async clear() {
       await write(undefined)
       return api
@@ -153,7 +195,7 @@ async function todoDock(page: any, sessionID: string) {
       return api
     },
     async expectOpen(states: ComposerProbeState["states"]) {
-      await expect.poll(read, { timeout: 10_000 }).toMatchObject({
+      await expect.poll(readUi, { timeout: 10_000 }).toMatchObject({
         mounted: true,
         collapsed: false,
         hidden: false,
@@ -163,7 +205,7 @@ async function todoDock(page: any, sessionID: string) {
       return api
     },
     async expectCollapsed(states: ComposerProbeState["states"]) {
-      await expect.poll(read, { timeout: 10_000 }).toMatchObject({
+      await expect.poll(readUi, { timeout: 10_000 }).toMatchObject({
         mounted: true,
         collapsed: true,
         hidden: true,
@@ -612,6 +654,247 @@ test("todo dock transitions and collapse behavior", async ({ page, project }) =>
       } finally {
         await dock.clear()
       }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock auto-hides after all todos complete", async ({ page, project }) => {
+  await project.open()
+  await page.clock.install()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo complete auto-hide",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      try {
+        await dock.open([
+          { content: "first task", status: "pending", priority: "high" },
+          { content: "second task", status: "in_progress", priority: "medium" },
+        ])
+        await dock.expectCollapsed(["pending", "in_progress"])
+
+        await dock.finish([
+          { content: "first task", status: "completed", priority: "high" },
+          { content: "second task", status: "completed", priority: "medium" },
+        ])
+        await dock.expectState({ dock: true, completing: true, count: 2, states: ["completed", "completed"] })
+        await page.clock.fastForward(3_000)
+        await dock.expectState({ dock: false, completing: false, count: 2, states: ["completed", "completed"] })
+        await dock.expectUnmounted()
+        await dock.expectDockGone()
+      } finally {
+        await dock.clear()
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock treats cancelled todos as terminal and labels all-cancelled progress", async ({ page, project }) => {
+  await project.open()
+  await page.clock.install()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo cancelled auto-hide",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      try {
+        await dock.open([
+          { content: "first task", status: "pending", priority: "high" },
+          { content: "second task", status: "in_progress", priority: "medium" },
+        ])
+        await dock.expectCollapsed(["pending", "in_progress"])
+
+        await dock.finish([
+          { content: "first task", status: "cancelled", priority: "high" },
+          { content: "second task", status: "cancelled", priority: "medium" },
+        ])
+        await expect(page.locator('[data-slot="session-todo-progress"]')).toHaveAttribute(
+          "aria-label",
+          enDict["session.todo.cancelled"],
+        )
+        await dock.expectState({ dock: true, completing: true, count: 2, states: ["cancelled", "cancelled"] })
+        await page.clock.fastForward(3_000)
+        await dock.expectState({ dock: false, completing: false, count: 2, states: ["cancelled", "cancelled"] })
+        await dock.expectUnmounted()
+      } finally {
+        await dock.clear()
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock hides immediately when todos become empty", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo empty hides",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      try {
+        await dock.open([{ content: "active task", status: "in_progress", priority: "high" }])
+        await dock.expectCollapsed(["in_progress"])
+
+        await dock.finish([])
+        await dock.expectState({ dock: false, completing: false, count: 0, states: [] }, 1_000)
+        await dock.expectUnmounted(1_000)
+        await dock.expectDockGone(1_000)
+      } finally {
+        await dock.clear()
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock cancels pending hide when a new active todo arrives", async ({ page, project }) => {
+  await project.open()
+  await page.clock.install()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo hide cancelled",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      try {
+        await dock.open([{ content: "done task", status: "completed", priority: "high" }])
+        await dock.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+
+        await dock.finish([
+          { content: "done task", status: "completed", priority: "high" },
+          { content: "new task", status: "pending", priority: "medium" },
+        ])
+        await dock.expectState({ dock: true, completing: false, count: 2, states: ["completed", "pending"] })
+        await page.clock.fastForward(3_500)
+        await dock.expectState({ dock: true, completing: false, count: 2, states: ["completed", "pending"] })
+      } finally {
+        await dock.clear()
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock restarts the hide timer when todos re-complete", async ({ page, project }) => {
+  await project.open()
+  await page.clock.install()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo timer reset",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      try {
+        await dock.open([{ content: "first task", status: "completed", priority: "high" }])
+        await dock.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+
+        await page.clock.fastForward(2_400)
+        await dock.finish([
+          { content: "first task", status: "completed", priority: "high" },
+          { content: "second task", status: "pending", priority: "medium" },
+        ])
+        await dock.expectState({ dock: true, completing: false, count: 2, states: ["completed", "pending"] })
+
+        await dock.finish([
+          { content: "first task", status: "completed", priority: "high" },
+          { content: "second task", status: "completed", priority: "medium" },
+        ])
+        await dock.expectState({ dock: true, completing: true, count: 2, states: ["completed", "completed"] })
+        await page.clock.fastForward(2_500)
+        await dock.expectState({ dock: true, completing: true, count: 2, states: ["completed", "completed"] })
+        await page.clock.fastForward(500)
+        await dock.expectState({ dock: false, completing: false, count: 2, states: ["completed", "completed"] })
+      } finally {
+        await dock.clear()
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock does not leak a pending hide timeout across sessions", async ({ page, project }) => {
+  await project.open()
+  await page.clock.install()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo session switch source",
+    async (sessionA) => {
+      await withDockSession(
+        project.sdk,
+        "e2e composer dock todo session switch target",
+        async (sessionB) => {
+          const dockA = await todoDock(page, sessionA.id)
+          const dockB = await todoDock(page, sessionB.id)
+          await project.gotoSession(sessionA.id)
+
+          try {
+            await dockA.open([{ content: "done task", status: "completed", priority: "high" }])
+            await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+
+            await project.gotoSession(sessionB.id)
+            await dockB.expectState({ dock: false, completing: false, count: 0, states: [] })
+
+            await page.clock.fastForward(3_500)
+            await project.gotoSession(sessionA.id)
+            await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+          } finally {
+            await dockA.clear()
+            await dockB.clear()
+          }
+        },
+        { trackSession: project.trackSession },
+      )
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock restarts completing delay after same-count terminal session switch", async ({ page, project }) => {
+  await project.open()
+  await page.clock.install()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock terminal switch source",
+    async (sessionA) => {
+      await withDockSession(
+        project.sdk,
+        "e2e composer dock terminal switch target",
+        async (sessionB) => {
+          const dockA = await todoDock(page, sessionA.id)
+          const dockB = await todoDock(page, sessionB.id)
+          await project.gotoSession(sessionA.id)
+
+          try {
+            await dockA.open([{ content: "source done", status: "completed", priority: "high" }])
+            await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+
+            await page.clock.fastForward(2_400)
+
+            await dockB.open([{ content: "target done", status: "completed", priority: "high" }])
+            await project.gotoSession(sessionB.id)
+            await dockB.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+
+            await page.clock.fastForward(900)
+            await dockB.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+            await page.clock.fastForward(2_100)
+            await dockB.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
+          } finally {
+            await dockA.clear()
+            await dockB.clear()
+          }
+        },
+        { trackSession: project.trackSession },
+      )
     },
     { trackSession: project.trackSession },
   )
