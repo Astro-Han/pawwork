@@ -233,7 +233,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
           <Show when={!props.level}>
             <div
-              class="w-6 shrink-0 overflow-hidden transition-opacity"
+              class="w-5 shrink-0 overflow-hidden transition-opacity"
               classList={{
                 "opacity-100 pointer-events-auto": !!props.mobile,
                 "opacity-0 pointer-events-none": !props.mobile,
@@ -249,7 +249,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
                       <IconButton
                         icon="archive"
                         variant="ghost"
-                        class="size-6 rounded-md"
+                        class="size-5 rounded-md"
                         aria-label={language.t("common.archive")}
                         onClick={(event) => {
                           event.preventDefault()

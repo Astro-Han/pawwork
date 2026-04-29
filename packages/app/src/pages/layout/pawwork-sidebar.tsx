@@ -157,7 +157,7 @@ export const PawworkSidebar = (props: {
                   as={IconButton}
                   icon="dot-grid"
                   variant="ghost"
-                  class="size-6 rounded-md"
+                  class="size-5 rounded-md"
                   data-action="session-row-menu"
                   aria-label={language.t("common.moreOptions")}
                   onClick={(event: MouseEvent) => {
@@ -301,7 +301,7 @@ export const PawworkSidebar = (props: {
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
-              <div class="mt-2 flex items-center justify-between pr-2 pl-2 pb-0.5">
+              <div class="mt-2 flex items-center justify-between pr-3 pl-2 pb-0.5">
                 <span class="text-13-medium text-text-weak">{language.t("sidebar.pawwork.all")}</span>
                 <button
                   type="button"
