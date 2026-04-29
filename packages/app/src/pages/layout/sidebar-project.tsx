@@ -226,7 +226,7 @@ const ProjectPreviewPanel = (props: {
             return (
               <div class="flex flex-col gap-1">
                 <div class="px-2 py-0.5 flex items-center gap-1 min-w-0">
-                  <div class="shrink-0 size-6 flex items-center justify-center">
+                  <div data-leading-slot class="shrink-0 size-6 flex items-center justify-center">
                     <Icon name="branch" size="small" class="text-icon-base" />
                   </div>
                   <span class="truncate text-14-medium text-text-base">{props.label(directory)}</span>

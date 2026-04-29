@@ -119,6 +119,7 @@ const SessionRow = (props: {
       }}
     >
       <div
+        data-leading-slot
         class="shrink-0 size-5 flex items-center justify-center"
         style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
       >
@@ -298,7 +299,7 @@ export const NewSessionItem = (props: {
         props.clearHoverProjectSoon()
       }}
     >
-      <div class="shrink-0 size-5 flex items-center justify-center">
+      <div data-leading-slot class="shrink-0 size-5 flex items-center justify-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
       <span class="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate">{label}</span>

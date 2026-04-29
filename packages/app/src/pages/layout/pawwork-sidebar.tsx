@@ -10,6 +10,7 @@ import { useLanguage } from "@/context/language"
 import { createInlineEditorController } from "./inline-editor"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { SessionItem } from "./sidebar-items"
+import "./sidebar.css"
 
 export type PawworkSidebarSession = {
   session: Session

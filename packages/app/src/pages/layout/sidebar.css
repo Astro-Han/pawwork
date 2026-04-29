@@ -1,0 +1,6 @@
+/* sidebar leading-slot icon: 14px (hierarchy-tight) without touching global Icon size="small" */
+[data-leading-slot] [data-size="small"],
+[data-leading-slot] svg {
+  width: 14px;
+  height: 14px;
+}
