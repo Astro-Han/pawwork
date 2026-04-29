@@ -392,6 +392,24 @@ export function registerIpcHandlers(deps: Deps) {
     new Notification({ title, body }).show()
   })
 
+  ipcMain.handle("flash-frame", (event: IpcMainInvokeEvent) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+
+    if (process.platform === "darwin") {
+      // macOS: bounce the Dock icon once
+      app.dock?.bounce()
+    } else {
+      // Windows/Linux: flash the taskbar button
+      win.flashFrame(true)
+      // Stop flashing after 1 second (single flash effect)
+      // Note: This doesn't cancel on window focus — accepted trade-off
+      setTimeout(() => {
+        win.flashFrame(false)
+      }, 1000)
+    }
+  })
+
   ipcMain.handle("get-window-count", () => BrowserWindow.getAllWindows().length)
 
   ipcMain.handle("get-window-focused", (event: IpcMainInvokeEvent) => {
