@@ -77,8 +77,8 @@ export const dict: Record<string, string> = {
   "ui.messagePart.context.read.other": "Read {{count}} files",
   "ui.messagePart.context.search.one": "{{count}} search",
   "ui.messagePart.context.search.other": "{{count}} searches",
-  "ui.messagePart.context.list.one": "Listed {{count}} dir",
-  "ui.messagePart.context.list.other": "Listed {{count}} dirs",
+  "ui.messagePart.context.list.one": "Listed {{count}} directory",
+  "ui.messagePart.context.list.other": "Listed {{count}} directories",
 
   "ui.list.loading": "Loading",
   "ui.list.empty": "No results",
