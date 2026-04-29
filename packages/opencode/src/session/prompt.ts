@@ -47,6 +47,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
+import { withoutInternalServerAuthEnv } from "@/util/env"
 import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
 import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
@@ -1004,15 +1005,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             ),
           )
 
-          const env = {
+          const env = withoutInternalServerAuthEnv({
+            ...process.env,
             ...shellEnv.env,
             TERM: "dumb",
             ...(shellName === "zsh" || shellName === "bash" ? { OPENCODE_SHELL_CWD: cwd } : {}),
-          }
+          })
 
           const cmd = ChildProcess.make(sh, args, {
             cwd,
-            extendEnv: true,
+            extendEnv: false,
             env,
             stdin: "ignore",
             forceKillAfter: "3 seconds",

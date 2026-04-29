@@ -20,6 +20,7 @@ import { Plugin } from "@/plugin"
 import { Effect, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { withoutInternalServerAuthEnv } from "@/util/env"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -403,11 +404,11 @@ export const BashTool = Tool.define(
       const bundledToolsDir = resourcesPath ? path.join(resourcesPath, "tools") : ""
       const extraEnv = extra.env as Record<string, string>
       const currentPath = extraEnv.PATH || process.env.PATH || ""
-      return {
+      return withoutInternalServerAuthEnv({
         ...process.env,
         ...extraEnv,
         PATH: bundledToolsDir ? `${bundledToolsDir}${path.delimiter}${currentPath}` : currentPath,
-      }
+      })
     })
 
     const run = Effect.fn("BashTool.run")(function* (

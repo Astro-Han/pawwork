@@ -1249,6 +1249,45 @@ unix("shell captures stdout and stderr in completed tool output", () =>
   ),
 )
 
+unix("shell does not expose internal server auth env", () =>
+  provideTmpdirInstance(
+    (_dir) =>
+      Effect.gen(function* () {
+        const previousUsername = process.env.OPENCODE_SERVER_USERNAME
+        const previousPassword = process.env.OPENCODE_SERVER_PASSWORD
+        const previousCustom = process.env.PAWWORK_E2E_CUSTOM_ENV
+        process.env.OPENCODE_SERVER_USERNAME = "PawWork"
+        process.env.OPENCODE_SERVER_PASSWORD = "secret"
+        process.env.PAWWORK_E2E_CUSTOM_ENV = "kept"
+
+        try {
+          const { prompt, chat } = yield* boot()
+          const result = yield* prompt.shell({
+            sessionID: chat.id,
+            agent: "build",
+            command:
+              'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME-unset}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD-unset}" && printf "custom=%s\\n" "${PAWWORK_E2E_CUSTOM_ENV-unset}"',
+          })
+          const tool = completedTool(result.parts)
+          if (!tool) return
+
+          expect(tool.state.output).toContain("username=unset")
+          expect(tool.state.output).toContain("password=unset")
+          expect(tool.state.output).toContain("custom=kept")
+          expect(tool.state.output).not.toContain("secret")
+        } finally {
+          if (previousUsername === undefined) delete process.env.OPENCODE_SERVER_USERNAME
+          else process.env.OPENCODE_SERVER_USERNAME = previousUsername
+          if (previousPassword === undefined) delete process.env.OPENCODE_SERVER_PASSWORD
+          else process.env.OPENCODE_SERVER_PASSWORD = previousPassword
+          if (previousCustom === undefined) delete process.env.PAWWORK_E2E_CUSTOM_ENV
+          else process.env.PAWWORK_E2E_CUSTOM_ENV = previousCustom
+        }
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
 unix("shell completes a fast command on the preferred shell", () =>
   provideTmpdirInstance(
     (dir) =>

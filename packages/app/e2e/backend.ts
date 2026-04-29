@@ -58,6 +58,8 @@ async function waitExit(proc: ReturnType<typeof spawn>, timeout = 10_000) {
 
 const LOG_CAP = 100
 
+const INTERNAL_SERVER_AUTH_ENV = new Set(["opencode_server_password", "opencode_server_username"])
+
 function cap(input: string[]) {
   if (input.length > LOG_CAP) input.splice(0, input.length - LOG_CAP)
 }
@@ -66,26 +68,38 @@ function tail(input: string[]) {
   return input.slice(-40).join("")
 }
 
+export function createBackendEnv(input: {
+  base?: NodeJS.ProcessEnv
+  sandbox: string
+  llmUrl?: string
+}): Record<string, string | undefined> {
+  const env = {
+    ...(input.base ?? process.env),
+    OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
+    OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
+    OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true",
+    OPENCODE_TEST_HOME: path.join(input.sandbox, "home"),
+    XDG_DATA_HOME: path.join(input.sandbox, "share"),
+    XDG_CACHE_HOME: path.join(input.sandbox, "cache"),
+    XDG_CONFIG_HOME: path.join(input.sandbox, "config"),
+    XDG_STATE_HOME: path.join(input.sandbox, "state"),
+    OPENCODE_CLIENT: "app",
+    OPENCODE_STRICT_CONFIG_DEPS: "true",
+    OPENCODE_E2E_LLM_URL: input.llmUrl,
+  }
+  for (const key of Object.keys(env)) {
+    if (INTERNAL_SERVER_AUTH_ENV.has(key.toLowerCase())) delete env[key]
+  }
+  return env
+}
+
 export async function startBackend(label: string, input?: { llmUrl?: string }): Promise<Handle> {
   const port = await freePort()
   const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), `opencode-e2e-${label}-`))
   const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
   const repoDir = path.resolve(appDir, "../..")
   const opencodeDir = path.join(repoDir, "packages", "opencode")
-  const env = {
-    ...process.env,
-    OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
-    OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
-    OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "true",
-    OPENCODE_TEST_HOME: path.join(sandbox, "home"),
-    XDG_DATA_HOME: path.join(sandbox, "share"),
-    XDG_CACHE_HOME: path.join(sandbox, "cache"),
-    XDG_CONFIG_HOME: path.join(sandbox, "config"),
-    XDG_STATE_HOME: path.join(sandbox, "state"),
-    OPENCODE_CLIENT: "app",
-    OPENCODE_STRICT_CONFIG_DEPS: "true",
-    OPENCODE_E2E_LLM_URL: input?.llmUrl,
-  } satisfies Record<string, string | undefined>
+  const env = createBackendEnv({ sandbox, llmUrl: input?.llmUrl })
   const out: string[] = []
   const err: string[] = []
   const proc = spawn(

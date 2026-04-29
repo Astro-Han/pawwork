@@ -153,6 +153,52 @@ describe("tool.bash", () => {
       },
     })
   })
+
+  each("does not expose internal server auth env to user commands", async () => {
+    const previousUsername = process.env.OPENCODE_SERVER_USERNAME
+    const previousPassword = process.env.OPENCODE_SERVER_PASSWORD
+    const previousCustom = process.env.PAWWORK_E2E_CUSTOM_ENV
+    process.env.OPENCODE_SERVER_USERNAME = "PawWork"
+    process.env.OPENCODE_SERVER_PASSWORD = "secret"
+    process.env.PAWWORK_E2E_CUSTOM_ENV = "kept"
+    const code = [
+      'console.log("username=" + (process.env.OPENCODE_SERVER_USERNAME ?? "unset"))',
+      'console.log("password=" + (process.env.OPENCODE_SERVER_PASSWORD ?? "unset"))',
+      'console.log("custom=" + (process.env.PAWWORK_E2E_CUSTOM_ENV ?? "unset"))',
+    ].join(";")
+    const command = `${PS.has(sh()) ? "& " : ""}${bin} -e ${evalarg(code)}`
+
+    try {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await initBash()
+          const result = await Effect.runPromise(
+            bash.execute(
+              {
+                command,
+                description: "Print selected environment variables",
+              },
+              ctx,
+            ),
+          )
+
+          expect(result.metadata.exit).toBe(0)
+          expect(result.output).toContain("username=unset")
+          expect(result.output).toContain("password=unset")
+          expect(result.output).toContain("custom=kept")
+          expect(result.output).not.toContain("secret")
+        },
+      })
+    } finally {
+      if (previousUsername === undefined) delete process.env.OPENCODE_SERVER_USERNAME
+      else process.env.OPENCODE_SERVER_USERNAME = previousUsername
+      if (previousPassword === undefined) delete process.env.OPENCODE_SERVER_PASSWORD
+      else process.env.OPENCODE_SERVER_PASSWORD = previousPassword
+      if (previousCustom === undefined) delete process.env.PAWWORK_E2E_CUSTOM_ENV
+      else process.env.PAWWORK_E2E_CUSTOM_ENV = previousCustom
+    }
+  })
 })
 
 describe("tool.bash permissions", () => {
