@@ -1,7 +1,0 @@
-Moves a file or directory to the system Trash.
-
-Use this for file or directory deletion. Trash is reversible; items moved to Trash can be restored from the system Trash UI.
-
-Do not use shell deletion commands. Those are permanent and unrecoverable. PawWork's permission system blocks the `rm`-family commands (`rm`, `rmdir`, `unlink`, `find -delete`) by default; Windows shell deletion (`del`, `erase`, `Remove-Item`) is not yet blocked but should still be avoided.
-
-Accepts a single file or directory path, absolute or relative to the current project directory.

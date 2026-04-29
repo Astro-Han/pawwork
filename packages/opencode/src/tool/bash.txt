@@ -35,7 +35,7 @@ Usage notes:
     - Edit files: Use Edit (NOT sed/awk)
     - Write files: Use Write (NOT echo >/cat <<EOF)
     - Communication: Output text directly (NOT echo/printf)
-    - File deletion: Use the trash tool, NOT `rm`/`del` (rm permanently deletes; trash is reversible)
+    - File deletion: Avoid permanent deletion commands (`rm`, `rmdir`, `unlink`, `find -delete`, `del`, `erase`, `rd`, `Remove-Item`). Prefer a reversible system trash command when available: on macOS use `trash`; on Linux prefer `gio trash`, then `trash-put`. Check availability first: in POSIX shells use `command -v`, and in PowerShell use `Get-Command`. If no reversible command is available, ask the user before deleting.
   - When issuing multiple commands:
     - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two Bash tool calls in parallel.
     - ${chaining}
