@@ -100,7 +100,7 @@ const SessionRow = (props: {
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
   const indicator = () => {
-    if (props.isWorking()) return <Spinner class="size-[15px]" />
+    if (props.isWorking()) return <Spinner class="size-[14px]" />
     if (props.hasPermissions()) return <div class="size-1.5 rounded-full bg-surface-warning-strong" />
     if (props.hasError()) return <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
     if (props.unseenCount() > 0) return <div class="size-1.5 rounded-full bg-text-interactive-base" />
@@ -120,7 +120,7 @@ const SessionRow = (props: {
     >
       <div
         data-leading-slot
-        class="shrink-0 size-5 flex items-center justify-center"
+        class="shrink-0 w-[14px] h-[14px] flex items-center"
         style={{ color: props.tint() ?? "var(--icon-interactive-base)" }}
       >
         {indicator()}
@@ -299,7 +299,7 @@ export const NewSessionItem = (props: {
         props.clearHoverProjectSoon()
       }}
     >
-      <div data-leading-slot class="shrink-0 size-5 flex items-center justify-center">
+      <div data-leading-slot class="shrink-0 w-[14px] h-[14px] flex items-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
       <span class="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate">{label}</span>
