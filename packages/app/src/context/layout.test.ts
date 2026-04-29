@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
 import {
   clampRightPanelWidth,
+  createDefaultLayoutState,
   createSessionKeyReader,
   DEFAULT_RIGHT_PANEL_WIDTH,
   defaultSidePanelTab,
@@ -76,6 +77,15 @@ describe("pruneSessionKeys", () => {
     })
 
     expect(drop).toEqual([])
+  })
+})
+
+describe("default layout state", () => {
+  test("starts clean desktop profiles with both side panels closed", () => {
+    const state = createDefaultLayoutState()
+
+    expect(state.sidebar.opened).toBe(false)
+    expect(state.rightPanel.opened).toBe(false)
   })
 })
 
