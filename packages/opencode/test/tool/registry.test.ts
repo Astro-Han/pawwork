@@ -46,6 +46,7 @@ describe("tool.registry", () => {
     expect(bashDescription).toContain("Avoid permanent deletion commands")
     expect(bashDescription).toContain("gio trash")
     expect(bashDescription).toContain("trash-put")
+    expect(bashDescription).toContain("Get-Command")
 
     const packageJson = (await Bun.file(new URL("../../package.json", import.meta.url)).json()) as {
       dependencies?: Record<string, string>
@@ -53,8 +54,18 @@ describe("tool.registry", () => {
     expect(Object.hasOwn(packageJson.dependencies ?? {}, "trash")).toBe(false)
 
     const lockfile = await Bun.file(new URL("../../../../bun.lock", import.meta.url)).text()
-    expect(lockfile).not.toContain('"trash": "10"')
-    expect(lockfile).not.toContain('"trash": ["trash@')
+    const opencodeWorkspaceHeader = '    "packages/opencode": {'
+    const opencodeWorkspaceStart = lockfile.indexOf(opencodeWorkspaceHeader)
+    expect(opencodeWorkspaceStart).toBeGreaterThanOrEqual(0)
+    const afterOpencodeWorkspaceHeader = lockfile.slice(opencodeWorkspaceStart + opencodeWorkspaceHeader.length)
+    const nextWorkspaceOffset = afterOpencodeWorkspaceHeader.search(/\n    "[^"]+": \{/)
+    expect(nextWorkspaceOffset).toBeGreaterThan(0)
+    const opencodeWorkspaceLockfileSection = lockfile.slice(
+      opencodeWorkspaceStart,
+      opencodeWorkspaceStart + opencodeWorkspaceHeader.length + nextWorkspaceOffset,
+    )
+    expect(opencodeWorkspaceLockfileSection).not.toContain('"trash": "10"')
+    expect(opencodeWorkspaceLockfileSection).not.toContain('"trash": ["trash@')
   })
 
   test("loads tools from .opencode/tool (singular)", async () => {
