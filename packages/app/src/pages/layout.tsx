@@ -479,7 +479,9 @@ export default function Layout(props: ParentProps) {
           if (settings.notifications.permissions()) {
             // Only notify for background sessions, not the one the user is currently viewing
             const currentSession = params.id
-            const isCurrentSession = workspaceKey(directory) === workspaceKey(currentDir()) && 
+            const isCurrentSession =
+              !!currentSession &&
+              workspaceKey(directory) === workspaceKey(currentDir()) &&
               (props.sessionID === currentSession || session?.parentID === currentSession)
             if (!isCurrentSession) {
               void platform.notify(title, description, href)
@@ -491,7 +493,9 @@ export default function Layout(props: ParentProps) {
           if (settings.notifications.agent()) {
             // Only notify for background sessions, not the one the user is currently viewing
             const currentSession = params.id
-            const isCurrentSession = workspaceKey(directory) === workspaceKey(currentDir()) && 
+            const isCurrentSession =
+              !!currentSession &&
+              workspaceKey(directory) === workspaceKey(currentDir()) &&
               (props.sessionID === currentSession || session?.parentID === currentSession)
             if (!isCurrentSession) {
               void platform.notify(title, description, href)
