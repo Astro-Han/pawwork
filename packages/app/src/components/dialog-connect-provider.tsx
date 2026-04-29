@@ -276,7 +276,7 @@ export function DialogConnectProvider(props: { provider: string }) {
           </Match>
           <Match when={item()?.prompt.type === "select"}>
             <div class="w-full flex flex-col gap-1.5">
-              <div class="text-14-regular text-text-base">{select()?.message}</div>
+              <div class="text-13-regular text-text-base">{select()?.message}</div>
               <div>
                 <List
                   items={select()?.options ?? []}
@@ -300,7 +300,7 @@ export function DialogConnectProvider(props: { provider: string }) {
                         <div class="w-2.5 h-0.5 ml-0 bg-icon-strong-base hidden" data-slot="list-item-extra-icon" />
                       </div>
                       <span>{option.label}</span>
-                      <span class="text-14-regular text-text-weak">{option.hint}</span>
+                      <span class="text-13-regular text-text-weak">{option.hint}</span>
                     </div>
                   )}
                 </List>
@@ -361,7 +361,7 @@ export function DialogConnectProvider(props: { provider: string }) {
   function MethodSelection() {
     return (
       <>
-        <div class="text-14-regular text-text-base">
+        <div class="text-13-regular text-text-base">
           {language.t("provider.connect.selectMethod", { provider: provider().name })}
         </div>
         <div>
@@ -424,9 +424,9 @@ export function DialogConnectProvider(props: { provider: string }) {
         <Switch>
           <Match when={provider().id === "opencode"}>
             <div class="flex flex-col gap-4">
-              <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line1")}</div>
-              <div class="text-14-regular text-text-base">{language.t("provider.connect.opencodeZen.line2")}</div>
-              <div class="text-14-regular text-text-base">
+              <div class="text-13-regular text-text-base">{language.t("provider.connect.opencodeZen.line1")}</div>
+              <div class="text-13-regular text-text-base">{language.t("provider.connect.opencodeZen.line2")}</div>
+              <div class="text-13-regular text-text-base">
                 {language.t("provider.connect.opencodeZen.visit.prefix")}
                 <Link href="https://opencode.ai/zen" tabIndex={-1}>
                   {language.t("provider.connect.opencodeZen.visit.link")}
@@ -436,7 +436,7 @@ export function DialogConnectProvider(props: { provider: string }) {
             </div>
           </Match>
           <Match when={true}>
-            <div class="text-14-regular text-text-base">
+            <div class="text-13-regular text-text-base">
               {language.t("provider.connect.apiKey.description", { provider: provider().name })}
             </div>
           </Match>
@@ -497,7 +497,7 @@ export function DialogConnectProvider(props: { provider: string }) {
 
     return (
       <div class="flex flex-col gap-6">
-        <div class="text-14-regular text-text-base">
+        <div class="text-13-regular text-text-base">
           {language.t("provider.connect.oauth.code.visit.prefix")}
           <Link href={store.authorization!.url}>{language.t("provider.connect.oauth.code.visit.link")}</Link>
           {language.t("provider.connect.oauth.code.visit.suffix", { provider: provider().name })}
@@ -555,7 +555,7 @@ export function DialogConnectProvider(props: { provider: string }) {
 
     return (
       <div class="flex flex-col gap-6">
-        <div class="text-14-regular text-text-base">
+        <div class="text-13-regular text-text-base">
           {language.t("provider.connect.oauth.auto.visit.prefix")}
           <Link href={store.authorization!.url}>{language.t("provider.connect.oauth.auto.visit.link")}</Link>
           {language.t("provider.connect.oauth.auto.visit.suffix", { provider: provider().name })}
@@ -567,7 +567,7 @@ export function DialogConnectProvider(props: { provider: string }) {
           readOnly
           copyable
         />
-        <div class="text-14-regular text-text-base flex items-center gap-4">
+        <div class="text-13-regular text-text-base flex items-center gap-4">
           <Spinner />
           <span>{language.t("provider.connect.status.waiting")}</span>
         </div>
@@ -603,7 +603,7 @@ export function DialogConnectProvider(props: { provider: string }) {
           <div onKeyDown={handleKey} tabIndex={0} autofocus={store.methodIndex === undefined ? true : undefined}>
             <Switch>
               <Match when={loading()}>
-                <div class="text-14-regular text-text-base">
+                <div class="text-13-regular text-text-base">
                   <div class="flex items-center gap-x-2">
                     <Spinner />
                     <span>{language.t("provider.connect.status.inProgress")}</span>
@@ -614,7 +614,7 @@ export function DialogConnectProvider(props: { provider: string }) {
                 <MethodSelection />
               </Match>
               <Match when={store.state === "pending"}>
-                <div class="text-14-regular text-text-base">
+                <div class="text-13-regular text-text-base">
                   <div class="flex items-center gap-x-2">
                     <Spinner />
                     <span>{language.t("provider.connect.status.inProgress")}</span>
@@ -625,7 +625,7 @@ export function DialogConnectProvider(props: { provider: string }) {
                 <OAuthPromptsView />
               </Match>
               <Match when={store.state === "error"}>
-                <div class="text-14-regular text-text-base">
+                <div class="text-13-regular text-text-base">
                   <div class="flex items-center gap-x-2">
                     <Icon name="circle-ban-sign" class="text-icon-critical-base" />
                     <span>{language.t("provider.connect.status.failed", { error: store.error ?? "" })}</span>

@@ -341,7 +341,7 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
     <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6">
       <div class="flex flex-col items-center max-w-md text-center">
         <Splash class="w-12 h-15 mb-4" />
-        <p class="text-14-regular text-text-base">
+        <p class="text-13-regular text-text-base">
           {unreachable()[0]}
           <span class="text-text-strong font-medium">{name()}</span>
           {unreachable()[1]}
@@ -361,7 +361,7 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
                     class="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-surface-raised-base-hover transition-colors text-left"
                     onClick={() => props.onServerSelected?.(key)}
                   >
-                    <span class="text-14-regular text-text-strong truncate">{serverName(conn)}</span>
+                    <span class="text-13-regular text-text-strong truncate">{serverName(conn)}</span>
                   </button>
                 )
               }}

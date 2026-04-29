@@ -244,7 +244,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
               <div class="h-10 flex items-center gap-2 px-2 border-b border-border-weaker-base bg-background-stronger overflow-hidden">
                 <For each={handoff()}>
                   {(title) => (
-                    <div class="px-2 py-1 rounded-md bg-surface-base text-14-regular text-text-weak truncate max-w-40">
+                    <div class="px-2 py-1 rounded-md bg-surface-base text-13-regular text-text-weak truncate max-w-40">
                       {title}
                     </div>
                   )}
@@ -325,7 +325,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
                 {(id) => (
                   <Show when={all().find((pty) => pty.id === id)}>
                     {(t) => (
-                      <div class="relative p-1 h-10 flex items-center bg-background-stronger text-14-regular">
+                      <div class="relative p-1 h-10 flex items-center bg-background-stronger text-13-regular">
                         {terminalTabLabel({
                           title: t().title,
                           titleNumber: t().titleNumber,

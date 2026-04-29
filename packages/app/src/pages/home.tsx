@@ -74,7 +74,7 @@ export default function Home() {
       <Button
         size="large"
         variant="ghost"
-        class="mt-4 mx-auto text-14-regular text-text-weak"
+        class="mt-4 mx-auto text-13-regular text-text-weak"
         onClick={() => dialog.show(() => <DialogSelectServer />)}
       >
         <div
@@ -104,7 +104,7 @@ export default function Home() {
                     onClick={() => openProject(project.worktree)}
                   >
                     {project.worktree.replace(homedir(), "~")}
-                    <div class="text-14-regular text-text-weak">
+                    <div class="text-13-regular text-text-weak">
                       {DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()}
                     </div>
                   </Button>

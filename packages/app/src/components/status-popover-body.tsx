@@ -302,7 +302,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                         dimmed={blocked()}
                         status={health[key]}
                         class="flex items-center gap-2 w-full min-w-0"
-                        nameClass="text-14-regular text-text-base truncate"
+                        nameClass="text-13-regular text-text-base truncate"
                         versionClass="text-13-regular text-text-weak truncate"
                         badge={
                           <Show when={key === defaultServer.key()}>
@@ -345,7 +345,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
               <Show
                 when={mcpNames().length > 0}
                 fallback={
-                  <div class="text-14-regular text-text-base text-center my-auto">{language.t("dialog.mcp.empty")}</div>
+                  <div class="text-13-regular text-text-base text-center my-auto">{language.t("dialog.mcp.empty")}</div>
                 }
               >
                 <For each={mcpNames()}>
@@ -372,7 +372,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                               status() === "needs_auth" || status() === "needs_client_registration",
                           }}
                         />
-                        <span class="text-14-regular text-text-base truncate flex-1">{name}</span>
+                        <span class="text-13-regular text-text-base truncate flex-1">{name}</span>
                         <div onClick={(event) => event.stopPropagation()}>
                           <Switch
                             checked={enabled()}
@@ -398,7 +398,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
               <Show
                 when={lspItems().length > 0}
                 fallback={
-                  <div class="text-14-regular text-text-base text-center my-auto">{language.t("dialog.lsp.empty")}</div>
+                  <div class="text-13-regular text-text-base text-center my-auto">{language.t("dialog.lsp.empty")}</div>
                 }
               >
                 <For each={lspItems()}>
@@ -411,7 +411,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                           "bg-icon-critical-base": item.status === "error",
                         }}
                       />
-                      <span class="text-14-regular text-text-base truncate">{item.name || item.id}</span>
+                      <span class="text-13-regular text-text-base truncate">{item.name || item.id}</span>
                     </div>
                   )}
                 </For>
@@ -425,13 +425,13 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
             <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
               <Show
                 when={plugins().length > 0}
-                fallback={<div class="text-14-regular text-text-base text-center my-auto">{pluginEmpty()}</div>}
+                fallback={<div class="text-13-regular text-text-base text-center my-auto">{pluginEmpty()}</div>}
               >
                 <For each={plugins()}>
                   {(plugin) => (
                     <div class="flex items-center gap-2 w-full px-2 py-1">
                       <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" />
-                      <span class="text-14-regular text-text-base truncate">{plugin}</span>
+                      <span class="text-13-regular text-text-base truncate">{plugin}</span>
                     </div>
                   )}
                 </For>

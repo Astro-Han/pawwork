@@ -142,7 +142,7 @@ export const SettingsProviders: Component = () => {
             <Show
               when={connected().length > 0}
               fallback={
-                <div class="py-4 text-14-regular text-text-weak">
+                <div class="py-4 text-13-regular text-text-weak">
                   {language.t("settings.providers.connected.empty")}
                 </div>
               }
@@ -162,7 +162,7 @@ export const SettingsProviders: Component = () => {
                     <Show
                       when={canDisconnect(item)}
                       fallback={
-                        <span class="text-14-regular text-text-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
+                        <span class="text-13-regular text-text-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
                           {language.t("settings.providers.connected.environmentDescription")}
                         </span>
                       }

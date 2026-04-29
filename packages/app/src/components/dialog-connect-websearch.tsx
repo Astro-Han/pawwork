@@ -99,7 +99,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
 
   const renderSavedKeyForm = (statusKey: "dialog.websearch.status.savedQuota" | "dialog.websearch.status.failed") => (
     <div class="flex flex-col gap-4">
-      <div class="text-14-regular text-text-base">{language.t(statusKey)}</div>
+      <div class="text-13-regular text-text-base">{language.t(statusKey)}</div>
       <TextField
         autofocus
         type="password"
@@ -158,7 +158,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
             {/* loading/error state: avoid showing anonymous setup before status is known */}
             <Match when={statusError()}>
               <div class="flex flex-col gap-4">
-                <div class="text-14-regular text-text-base">{language.t("dialog.websearch.status.error")}</div>
+                <div class="text-13-regular text-text-base">{language.t("dialog.websearch.status.error")}</div>
                 <Button size="large" variant="primary" onClick={() => void webSearchStatusActions.refetch()}>
                   {language.t("dialog.websearch.action.retry")}
                 </Button>
@@ -166,18 +166,18 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
             </Match>
 
             <Match when={!status()}>
-              <div class="text-14-regular text-text-base">{language.t("dialog.websearch.status.loading")}</div>
+              <div class="text-13-regular text-text-base">{language.t("dialog.websearch.status.loading")}</div>
             </Match>
 
             {/* env state: read-only, no input, no save/remove */}
             <Match when={status()?.source === "env"}>
-              <div class="text-14-regular text-text-base">{language.t("dialog.websearch.body.env")}</div>
+              <div class="text-13-regular text-text-base">{language.t("dialog.websearch.body.env")}</div>
             </Match>
 
             {/* saved + healthy state */}
             <Match when={status()?.source === "saved" && !status()?.needsAttention && !status()?.quotaExceeded}>
               <div class="flex flex-col gap-4">
-                <div class="text-14-regular text-text-base">{language.t("dialog.websearch.status.active")}</div>
+                <div class="text-13-regular text-text-base">{language.t("dialog.websearch.status.active")}</div>
                 <div class="flex gap-2">
                   <Button size="large" variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
                     {language.t("dialog.websearch.action.remove")}
@@ -226,14 +226,14 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
             {/* anonymous (default) state */}
             <Match when={status()?.source === "anonymous"}>
               <div class="flex flex-col gap-4">
-                <div class="text-14-regular text-text-base">
+                <div class="text-13-regular text-text-base">
                   {language.t(
                     status()?.quotaExceeded
                       ? "dialog.websearch.body.exhausted.line1"
                       : "dialog.websearch.body.default.line1",
                   )}
                 </div>
-                <div class="text-14-regular text-text-base">
+                <div class="text-13-regular text-text-base">
                   {language.t(
                     status()?.quotaExceeded
                       ? "dialog.websearch.body.exhausted.line2"

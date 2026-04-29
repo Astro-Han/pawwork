@@ -74,7 +74,7 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
             <div class="flex items-center gap-2">
               <h1 class="text-16-medium text-text-strong">{feature()?.title ?? ""}</h1>
             </div>
-            <p class="text-14-regular text-text-base">{feature()?.description ?? ""}</p>
+            <p class="text-13-regular text-text-base">{feature()?.description ?? ""}</p>
           </div>
 
           {/* Spacer to push buttons to bottom */}

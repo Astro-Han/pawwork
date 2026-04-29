@@ -135,7 +135,7 @@ export function SessionTodoDock(props: {
           }}
         >
           <span
-            class="text-14-regular text-text-strong cursor-default inline-flex items-baseline shrink-0 overflow-visible"
+            class="text-13-regular text-text-strong cursor-default inline-flex items-baseline shrink-0 overflow-visible"
             aria-label={label()}
             style={{
               "--tool-motion-odometer-ms": "600ms",
@@ -167,7 +167,7 @@ export function SessionTodoDock(props: {
             }}
           >
             <TextReveal
-              class="text-14-regular text-text-base cursor-default"
+              class="text-13-regular text-text-base cursor-default"
               text={store.collapsed ? preview() : undefined}
               duration={600}
               travel={25}
@@ -250,7 +250,7 @@ function TodoList(props: { todos: Todo[] }) {
               <TextStrikethrough
                 active={todo().status === "completed" || todo().status === "cancelled"}
                 text={todo().content}
-                class="text-14-regular min-w-0 break-words"
+                class="text-13-regular min-w-0 break-words"
                 style={{
                   "line-height": "var(--line-height-normal)",
                   transition:

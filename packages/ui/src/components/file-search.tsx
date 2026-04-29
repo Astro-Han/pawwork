@@ -31,7 +31,7 @@ export function FileSearchBar(props: {
           ref={props.setInput}
           placeholder={i18n.t("ui.fileSearch.placeholder")}
           value={props.query()}
-          class="w-40 bg-transparent outline-none text-14-regular text-text-strong placeholder:text-text-weak"
+          class="w-40 bg-transparent outline-none text-13-regular text-text-strong placeholder:text-text-weak"
           onInput={(e) => props.onInput(e.currentTarget.value)}
           onKeyDown={(e) => props.onKeyDown(e as KeyboardEvent)}
         />

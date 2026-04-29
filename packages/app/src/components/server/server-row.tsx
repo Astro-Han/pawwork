@@ -82,7 +82,7 @@ export function ServerRow(props: ServerRowProps) {
                 <Show when={props.status?.version}>
                   <span
                     ref={versionRef}
-                    class={`${props.versionClass ?? "text-text-weak text-14-regular truncate"} min-w-0`}
+                    class={`${props.versionClass ?? "text-text-weak text-13-regular truncate"} min-w-0`}
                   >
                     v{props.status?.version}
                   </span>

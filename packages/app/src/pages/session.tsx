@@ -1319,7 +1319,7 @@ export default function Page() {
 
   const empty = (text: string) => (
     <div class="h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6">
-      <div class="text-14-regular text-text-weak max-w-56">{text}</div>
+      <div class="text-13-regular text-text-weak max-w-56">{text}</div>
     </div>
   )
 
@@ -1327,7 +1327,7 @@ export default function Page() {
     <div class={input.emptyClass}>
       <div class="flex flex-col gap-3">
         <div class="text-14-medium text-text-strong">{language.t("session.review.noVcs.createGit.title")}</div>
-        <div class="text-14-regular text-text-base max-w-md" style={{ "line-height": "var(--line-height-normal)" }}>
+        <div class="text-13-regular text-text-base max-w-md" style={{ "line-height": "var(--line-height-normal)" }}>
           {language.t("session.review.noVcs.createGit.description")}
         </div>
       </div>
@@ -1358,7 +1358,7 @@ export default function Page() {
 
     return (
       <div class={input.emptyClass}>
-        <div class="text-14-regular text-text-weak max-w-56">{reviewEmptyText()}</div>
+        <div class="text-13-regular text-text-weak max-w-56">{reviewEmptyText()}</div>
       </div>
     )
   }

@@ -65,7 +65,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                       onMouseEnter={() => props.setAtActive(key)}
                     >
                       <FileIcon node={{ path: item.path, type: "file" }} class="shrink-0 size-4" />
-                      <div class="flex items-center text-14-regular min-w-0">
+                      <div class="flex items-center text-13-regular min-w-0">
                         <span class="text-text-weak whitespace-nowrap truncate min-w-0">{directory}</span>
                         <Show when={!isDirectory}>
                           <span class="text-text-strong whitespace-nowrap">{filename}</span>
@@ -94,9 +94,9 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                     onMouseEnter={() => props.setSlashActive(cmd.id)}
                   >
                     <div class="flex items-center gap-2 min-w-0">
-                      <span class="text-14-regular text-text-strong whitespace-nowrap">/{cmd.trigger}</span>
+                      <span class="text-13-regular text-text-strong whitespace-nowrap">/{cmd.trigger}</span>
                       <Show when={cmd.description}>
-                        <span class="text-14-regular text-text-weak truncate">{cmd.description}</span>
+                        <span class="text-13-regular text-text-weak truncate">{cmd.description}</span>
                       </Show>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">

@@ -444,7 +444,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
               <div class="w-full flex items-center justify-between rounded-md pl-1">
                 <div class="flex items-center gap-x-3 grow min-w-0">
                   <FileIcon node={{ path: item.path ?? "", type: "file" }} class="shrink-0 size-4" />
-                  <div class="flex items-center text-14-regular">
+                  <div class="flex items-center text-13-regular">
                     <span class="text-text-weak whitespace-nowrap overflow-hidden overflow-ellipsis truncate min-w-0">
                       {getDirectory(item.path ?? "")}
                     </span>
@@ -457,9 +457,9 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
             <Match when={item.type === "command"}>
               <div class="w-full flex items-center justify-between gap-4">
                 <div class="flex items-center gap-2 min-w-0">
-                  <span class="text-14-regular text-text-strong whitespace-nowrap">{item.title}</span>
+                  <span class="text-13-regular text-text-strong whitespace-nowrap">{item.title}</span>
                   <Show when={item.description}>
-                    <span class="text-14-regular text-text-weak truncate">{item.description}</span>
+                    <span class="text-13-regular text-text-weak truncate">{item.description}</span>
                   </Show>
                 </div>
                 <Show when={item.keybind}>
@@ -473,14 +473,14 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
                   <Icon name="bubble-5" size="small" class="shrink-0 text-icon-weak" />
                   <div class="flex items-center gap-2 min-w-0">
                     <span
-                      class="text-14-regular text-text-strong truncate"
+                      class="text-13-regular text-text-strong truncate"
                       classList={{ "opacity-70": !!item.archived }}
                     >
                       {item.title}
                     </span>
                     <Show when={item.description}>
                       <span
-                        class="text-14-regular text-text-weak truncate"
+                        class="text-13-regular text-text-weak truncate"
                         classList={{ "opacity-70": !!item.archived }}
                       >
                         {item.description}

@@ -1502,7 +1502,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               onKeyDown={handleKeyDown}
               classList={{
                 "select-text": true,
-                "w-full pl-4 pr-4 pt-4 text-14-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
+                "w-full pl-4 pr-4 pt-4 text-13-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
@@ -1512,7 +1512,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             <Show when={!prompt.dirty()}>
               <div
                 data-component="prompt-placeholder"
-                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-14-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
+                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-13-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
                 classList={{ "font-mono!": store.mode === "shell" }}
                 style={{ "padding-bottom": space }}
               >

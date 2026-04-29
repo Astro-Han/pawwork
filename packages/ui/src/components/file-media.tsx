@@ -252,7 +252,7 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
           <div class="text-14-semibold text-text-strong">
             {cfg()?.path?.split("/").pop() ?? i18n.t("ui.fileMedia.binary.title")}
           </div>
-          <div class="text-14-regular text-text-weak">
+          <div class="text-13-regular text-text-weak">
             {(() => {
               const path = cfg()?.path
               if (!path) return i18n.t("ui.fileMedia.binary.description.default")

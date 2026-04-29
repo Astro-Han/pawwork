@@ -66,7 +66,7 @@ export const DialogSelectProvider: Component = () => {
             <ProviderIcon data-slot="list-item-extra-icon" id={i.id} />
             <span>{i.name}</span>
             <Show when={i.id === "opencode"}>
-              <div class="text-14-regular text-text-weak">{language.t("dialog.provider.opencode.tagline")}</div>
+              <div class="text-13-regular text-text-weak">{language.t("dialog.provider.opencode.tagline")}</div>
             </Show>
             <Show when={i.id === CUSTOM_ID}>
               <Tag>{language.t("settings.providers.tag.custom")}</Tag>
@@ -74,7 +74,7 @@ export const DialogSelectProvider: Component = () => {
             <Show when={i.id === "opencode"}>
               <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
             </Show>
-            <Show when={note(i.id)}>{(value) => <div class="text-14-regular text-text-weak">{value()}</div>}</Show>
+            <Show when={note(i.id)}>{(value) => <div class="text-13-regular text-text-weak">{value()}</div>}</Show>
             <Show when={i.id === "opencode-go"}>
               <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
             </Show>

@@ -112,7 +112,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
       <Show
         when={props.files.length > 0}
         fallback={
-          <div class="px-6 py-6 text-14-regular text-text-weak">
+          <div class="px-6 py-6 text-13-regular text-text-weak">
             {language.t("session.files.empty")}
           </div>
         }
