@@ -800,7 +800,7 @@
     }
 
     code {
-      font-size: 12px;
+      font-size: var(--font-size-x-small);
       line-height: var(--line-height-large);
     }
   }
