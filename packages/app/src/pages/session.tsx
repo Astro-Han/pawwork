@@ -849,7 +849,7 @@ export default function Page() {
   }
 
   function navigateMessageByOffset(offset: number) {
-    const msgs = visibleUserMessages()
+    const msgs = timelineVisibleUserMessages()
     if (msgs.length === 0) return
 
     const current = store.messageId && messageMark === scrollMark ? store.messageId : cursor()
@@ -999,7 +999,7 @@ export default function Page() {
 
   createEffect(
     on(
-      () => visibleUserMessages().at(-1)?.id,
+      () => timelineVisibleUserMessages().at(-1)?.id,
       (lastId, prevLastId) => {
         if (lastId && prevLastId && lastId > prevLastId) {
           setStore("messageId", undefined)
@@ -1982,12 +1982,12 @@ export default function Page() {
   )
 
   const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
-    sessionKey,
-    sessionID: () => params.id,
-    messagesReady,
-    visibleUserMessages,
-    historyMore,
-    historyLoading,
+    sessionKey: timelineSessionKey,
+    sessionID: timelineSessionID,
+    messagesReady: timelineMessagesReady,
+    visibleUserMessages: timelineVisibleUserMessages,
+    historyMore: timelineHistoryMore,
+    historyLoading: timelineHistoryLoading,
     loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
     turnStart: historyWindow.turnStart,
     currentMessageId: () => store.messageId,
