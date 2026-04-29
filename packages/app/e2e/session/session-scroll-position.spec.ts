@@ -257,6 +257,8 @@ async function installSessionTransitionProbe(page: Page, messageOwners: Record<s
       const routeSessionID = () => window.location.pathname.match(/\/session\/([^/?#]+)/)?.[1]
       const removedMatches = (node: Node, selector: string) =>
         node instanceof Element && (node.matches(selector) || !!node.querySelector(selector))
+      const sameList = (a: string[], b: string[]) =>
+        a.length === b.length && a.every((item, index) => item === b[index])
       const read = (removed?: { composerDock?: boolean; messageList?: boolean }) => {
         const list = document.querySelector(turnListSelector)
         const viewport = list?.closest(scrollViewportSelector)
@@ -297,7 +299,7 @@ async function installSessionTransitionProbe(page: Page, messageOwners: Record<s
         a.height !== b.height ||
         a.client !== b.client ||
         a.distanceFromBottom !== b.distanceFromBottom ||
-        a.messageOwners.join(",") !== b.messageOwners.join(",")
+        !sameList(a.messageOwners, b.messageOwners)
       const samples = [read()]
       const push = () => {
         const next = read()
