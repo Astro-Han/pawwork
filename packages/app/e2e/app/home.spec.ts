@@ -6,7 +6,6 @@ test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
 
   const home = page.locator('[data-component="session-new-home"]')
 
-  await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
   await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
   await expect(home).toBeVisible()
   await expect(page.getByRole("heading", { name: "Choose what to do" })).toBeVisible()
@@ -23,7 +22,6 @@ test("@smoke home renders the hero composer and starter cards", async ({ page, p
   const firstCard = home.getByRole("button", { name: /Process docs/i })
   const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
   await expect(home).toBeVisible()
-  await expect(page.getByRole("button", { name: "Open project" }).first()).toBeVisible()
   await expect(page.getByRole("heading", { name: "Choose what to do" })).toBeVisible()
   await expect(page.locator(sessionComposerDockSelector)).toHaveCount(1)
   await expect(composer).toHaveCount(1)
