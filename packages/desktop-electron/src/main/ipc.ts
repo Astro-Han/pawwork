@@ -392,6 +392,8 @@ export function registerIpcHandlers(deps: Deps) {
     new Notification({ title, body }).show()
   })
 
+  const flashFrameTimers = new Map<number, ReturnType<typeof setTimeout>>()
+
   ipcMain.handle("flash-frame", (event: IpcMainInvokeEvent) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
@@ -401,12 +403,18 @@ export function registerIpcHandlers(deps: Deps) {
       app.dock?.bounce()
     } else {
       // Windows/Linux: flash the taskbar button
+      // Clear any existing timer for this window
+      const existing = flashFrameTimers.get(win.id)
+      if (existing !== undefined) clearTimeout(existing)
+
       win.flashFrame(true)
-      // Stop flashing after 1 second (single flash effect)
-      // Note: This doesn't cancel on window focus — accepted trade-off
-      setTimeout(() => {
-        win.flashFrame(false)
-      }, 1000)
+      flashFrameTimers.set(
+        win.id,
+        setTimeout(() => {
+          flashFrameTimers.delete(win.id)
+          if (!win.isDestroyed()) win.flashFrame(false)
+        }, 1000),
+      )
     }
   })
 

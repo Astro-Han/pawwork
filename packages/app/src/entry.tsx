@@ -61,8 +61,8 @@ const notify: Platform["notify"] = async (title, description, href) => {
       ? await Notification.requestPermission().catch(() => "denied")
       : Notification.permission
 
-  if (permission !== "granted") {
-    // Fallback to Toast when OS notification permission is denied
+  if (permission === "denied") {
+    // Fallback to Toast when OS notification permission is explicitly denied
     console.warn("OS notification permission denied; falling back to in-app toast. Enable notifications in system settings for the best experience.")
     showToast({
       title,
@@ -71,6 +71,8 @@ const notify: Platform["notify"] = async (title, description, href) => {
     })
     return
   }
+
+  if (permission !== "granted") return
 
   const notification = new Notification(title, {
     body: description ?? "",
