@@ -7,7 +7,7 @@ import { chmodSync, createWriteStream, existsSync, mkdirSync, renameSync, unlink
 import { pipeline } from "node:stream/promises"
 import path from "node:path"
 
-import { prepareOfficeCli, type SupportedArch, type SupportedPlatform } from "./prepare-officecli"
+import { officeCliTargetFor, prepareOfficeCli } from "./prepare-officecli"
 
 const TOOLS_DIR = path.resolve(import.meta.dirname, "../resources/tools")
 
@@ -186,7 +186,12 @@ async function downloadWecomCli() {
 // --- Main ---
 
 async function main() {
-  await prepareOfficeCli(platform as SupportedPlatform, arch as SupportedArch)
+  const officeCliTarget = officeCliTargetFor(platform, arch)
+  if (officeCliTarget) {
+    await prepareOfficeCli(officeCliTarget.platform, officeCliTarget.arch)
+  } else {
+    console.log(`  Skipping officecli (no URL for ${platform}-${arch})`)
+  }
   for (const tool of tools) {
     if (tool.name === "lark-cli") continue // handled separately
     await downloadTool(tool)

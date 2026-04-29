@@ -8,10 +8,19 @@ import manifest from "../bundled-tools.json"
 
 export type SupportedPlatform = "darwin" | "win32"
 export type SupportedArch = "arm64" | "x64"
+export interface OfficeCliTarget {
+  platform: SupportedPlatform
+  arch: SupportedArch
+}
 
 const execFileAsync = promisify(execFile)
 const toolsDir = path.resolve(import.meta.dirname, "../resources/tools")
 const officeCli = manifest.officecli
+
+export function officeCliTargetFor(platform: string, arch: string): OfficeCliTarget | null {
+  if (!(`${platform}-${arch}` in officeCli.assets)) return null
+  return { platform: platform as SupportedPlatform, arch: arch as SupportedArch }
+}
 
 export function assetForTarget(platform: SupportedPlatform, arch: SupportedArch) {
   const asset = officeCli.assets[`${platform}-${arch}` as keyof typeof officeCli.assets]
@@ -49,6 +58,15 @@ export function sha256(data: ArrayBuffer) {
   return createHash("sha256").update(Buffer.from(data)).digest("hex")
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+export function officeCliVersionMatches(stdout: string, expectedVersion: string) {
+  const normalized = expectedVersion.replace(/^v/, "")
+  return new RegExp(`\\b${escapeRegExp(normalized)}\\b`).test(stdout)
+}
+
 async function fetchBytes(url: string) {
   const response = await fetch(url, { redirect: "follow" })
   if (!response.ok) throw new Error(`Failed to download ${url}: HTTP ${response.status}`)
@@ -65,8 +83,7 @@ export async function verifyOfficeCliVersion(binaryPath: string, expectedVersion
   const { stdout } = await execFileAsync(binaryPath, ["--version"], {
     env: { ...process.env, OFFICECLI_SKIP_UPDATE: "1" },
   })
-  const normalized = expectedVersion.replace(/^v/, "")
-  if (!stdout.includes(normalized)) {
+  if (!officeCliVersionMatches(stdout, expectedVersion)) {
     throw new Error(`OfficeCLI version mismatch: expected ${expectedVersion}, got ${stdout.trim()}`)
   }
 }

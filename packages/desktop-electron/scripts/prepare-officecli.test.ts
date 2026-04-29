@@ -5,6 +5,8 @@ import {
   assetForTarget,
   binaryNameForPlatform,
   officeCliDownloadUrl,
+  officeCliTargetFor,
+  officeCliVersionMatches,
   officeCliSha256SumsUrl,
   parseSha256Sums,
   runtimeBinaryPath,
@@ -20,6 +22,12 @@ describe("prepare-officecli manifest helpers", () => {
 
   test("rejects unsupported targets", () => {
     expect(() => assetForTarget("linux" as any, "x64")).toThrow("Unsupported OfficeCLI target: linux-x64")
+  })
+
+  test("returns supported targets with narrowed platform and arch", () => {
+    expect(officeCliTargetFor("darwin", "arm64")).toEqual({ platform: "darwin", arch: "arm64" })
+    expect(officeCliTargetFor("win32", "x64")).toEqual({ platform: "win32", arch: "x64" })
+    expect(officeCliTargetFor("linux", "x64")).toBeNull()
   })
 
   test("uses platform runtime binary names", () => {
@@ -46,6 +54,11 @@ describe("prepare-officecli manifest helpers", () => {
 
   test("ignores malformed SHA256SUMS lines", () => {
     expect(parseSha256Sums("not-a-sum  officecli\n").size).toBe(0)
+  })
+
+  test("matches the exact OfficeCLI version token", () => {
+    expect(officeCliVersionMatches("officecli 1.0.63\n", "v1.0.63")).toBe(true)
+    expect(officeCliVersionMatches("officecli 1.0.630\n", "v1.0.63")).toBe(false)
   })
 
   test("resolves runtime binary paths under the tools directory", () => {
