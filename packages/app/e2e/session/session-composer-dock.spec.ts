@@ -16,6 +16,7 @@ import {
 } from "../selectors"
 import { modKey } from "../utils"
 import { inputMatch } from "../prompt/mock"
+import { dict as enDict } from "../../src/i18n/en"
 
 type Sdk = Parameters<typeof clearSessionDockSeed>[0]
 type PermissionRule = { permission: string; pattern: string; action: "allow" | "deny" | "ask" }
@@ -703,7 +704,10 @@ test("todo dock treats cancelled todos as terminal and labels all-cancelled prog
           { content: "first task", status: "cancelled", priority: "high" },
           { content: "second task", status: "cancelled", priority: "medium" },
         ])
-        await expect(page.locator('[data-slot="session-todo-progress"]')).toHaveAttribute("aria-label", /cancelled|已取消/i)
+        await expect(page.locator('[data-slot="session-todo-progress"]')).toHaveAttribute(
+          "aria-label",
+          enDict["session.todo.cancelled"],
+        )
         await dock.expectState({ dock: true, completing: true, count: 2, states: ["cancelled", "cancelled"] })
         await page.clock.fastForward(3_000)
         await dock.expectState({ dock: false, completing: false, count: 2, states: ["cancelled", "cancelled"] })
