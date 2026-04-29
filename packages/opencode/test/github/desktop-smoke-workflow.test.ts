@@ -91,6 +91,8 @@ describe("desktop smoke workflow", () => {
     expect(smokeStep?.run).toContain("Expected helper app at")
     expect(smokeStep?.run).toContain("Expected executable OfficeCLI at")
     expect(smokeStep?.run).toContain('OFFICECLI_SKIP_UPDATE=1 "$OFFICECLI_PATH" --version')
+    expect(smokeStep?.run).toContain("THIRD_PARTY_NOTICES.md")
+    expect(smokeStep?.run).toContain("Expected third-party notices at")
     expect(smokeStep?.run).toContain("codesign -dv --verbose=2")
     expect(smokeStep?.run).toContain('grep -q "Signature=adhoc"')
 

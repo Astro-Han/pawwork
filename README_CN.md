@@ -86,6 +86,8 @@ bun run dev:desktop
 
 感谢 OpenCode 项目和社区。
 
+爪印 PawWork 内置 iOfficeAI 的 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)，用于在本地处理 Word、Excel 和 PowerPoint 文件。感谢 iOfficeAI 以 Apache-2.0 开源 OfficeCLI。
+
 ## License
 
 [Apache License 2.0](LICENSE)

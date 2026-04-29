@@ -62,6 +62,18 @@ describe("electron builder app-update config", () => {
     expect(createConfig("prod").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
   })
 
+  test("packages third-party notices into app resources", () => {
+    const config = createConfig("prod")
+    expect(config.extraResources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: expect.stringContaining("THIRD_PARTY_NOTICES.md"),
+          to: "THIRD_PARTY_NOTICES.md",
+        }),
+      ]),
+    )
+  })
+
   test("afterPack writes app-update.yml to the packager-reported macOS resources path", async () => {
     const root = mkdtempSync(join(tmpdir(), "pawwork-builder-config-"))
     roots.push(root)

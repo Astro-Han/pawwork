@@ -169,6 +169,7 @@ jobs:
           INFO_PLIST_PATH="$APP_PATH/Contents/Info.plist"
           ASAR_PATH="$APP_PATH/Contents/Resources/app.asar"
           OFFICECLI_PATH="$APP_PATH/Contents/Resources/tools/officecli"
+          THIRD_PARTY_NOTICES_PATH="$APP_PATH/Contents/Resources/THIRD_PARTY_NOTICES.md"
           FRAMEWORK_PATH="$APP_PATH/Contents/Frameworks/Electron Framework.framework"
           HELPER_APP_PATH="$APP_PATH/Contents/Frameworks/PawWork Dev Helper.app"
 
@@ -199,6 +200,11 @@ jobs:
 
           file "$OFFICECLI_PATH" | grep -q "arm64"
           OFFICECLI_SKIP_UPDATE=1 "$OFFICECLI_PATH" --version
+
+          if [ ! -f "$THIRD_PARTY_NOTICES_PATH" ]; then
+            echo "Expected third-party notices at $THIRD_PARTY_NOTICES_PATH"
+            exit 1
+          fi
 
           if [ ! -d "$FRAMEWORK_PATH" ]; then
             echo "Expected Electron Framework at $FRAMEWORK_PATH"
