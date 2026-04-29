@@ -758,7 +758,6 @@ export const dict = {
   "sidebar.menu.toggle": "Toggle menu",
   "sidebar.nav.projectsAndSessions": "Projects and sessions",
   "sidebar.settings": "Settings",
-  "sidebar.help": "Help",
   "sidebar.workspaces.enable": "Enable workspaces",
   "sidebar.workspaces.disable": "Disable workspaces",
   "sidebar.gettingStarted.title": "Getting started",

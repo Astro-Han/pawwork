@@ -672,7 +672,6 @@ export const dict = {
   "sidebar.menu.toggle": "切换菜单",
   "sidebar.nav.projectsAndSessions": "项目和会话",
   "sidebar.settings": "设置",
-  "sidebar.help": "帮助",
   "sidebar.workspaces.enable": "启用工作区",
   "sidebar.workspaces.disable": "禁用工作区",
   "sidebar.gettingStarted.title": "入门",
