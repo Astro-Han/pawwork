@@ -114,6 +114,110 @@ describe("Git", () => {
     })
   })
 
+  test("statusUnstaged() excludes staged-only changes and includes untracked files", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet()
+
+    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+    await $`git add staged.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\nunstaged\n", "utf-8")
+
+    await withGit(async (rt) => {
+      const status = await rt.runPromise(Git.Service.use((git) => git.statusUnstaged(tmp.path)))
+      expect(status).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ file: "tracked.txt", status: "modified" }),
+          expect.objectContaining({ file: "unstaged.txt", status: "added" }),
+        ]),
+      )
+      expect(status).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
+    })
+  })
+
+  test("showIndex() reads staged content instead of working tree content", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "file.txt"), "base\n", "utf-8")
+    await $`git add file.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet()
+
+    await fs.writeFile(path.join(tmp.path, "file.txt"), "staged\n", "utf-8")
+    await $`git add file.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "file.txt"), "working\n", "utf-8")
+
+    await withGit(async (rt) => {
+      const text = await rt.runPromise(Git.Service.use((git) => git.showIndex(tmp.path, "file.txt")))
+      expect(text).toBe("staged\n")
+    })
+  })
+
+  test("diffUnstaged(), statsUnstaged(), diffStaged(), and statsStaged() split index from working tree", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet()
+
+    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+    await $`git add staged.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\nstaged\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\nstaged\nworking\n", "utf-8")
+
+    await withGit(async (rt) => {
+      const [unstagedDiff, unstagedStats, stagedDiff, stagedStats] = await Promise.all([
+        rt.runPromise(Git.Service.use((git) => git.diffUnstaged(tmp.path))),
+        rt.runPromise(Git.Service.use((git) => git.statsUnstaged(tmp.path))),
+        rt.runPromise(Git.Service.use((git) => git.diffStaged(tmp.path))),
+        rt.runPromise(Git.Service.use((git) => git.statsStaged(tmp.path))),
+      ])
+
+      expect(unstagedDiff).toEqual(
+        expect.arrayContaining([expect.objectContaining({ file: "tracked.txt", status: "modified" })]),
+      )
+      expect(unstagedDiff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
+      expect(unstagedStats).toEqual(
+        expect.arrayContaining([expect.objectContaining({ file: "tracked.txt", additions: 1, deletions: 0 })]),
+      )
+
+      expect(stagedDiff).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ file: "staged.txt", status: "added" }),
+          expect.objectContaining({ file: "tracked.txt", status: "modified" }),
+        ]),
+      )
+      expect(stagedDiff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
+      expect(stagedStats).toEqual(
+        expect.arrayContaining([expect.objectContaining({ file: "staged.txt", additions: 1, deletions: 0 })]),
+      )
+    })
+  })
+
+  test("diffHead() and statsHead() compare a ref to HEAD without working tree changes", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await $`git branch -M main`.cwd(tmp.path).quiet()
+    await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\n", "utf-8")
+    await $`git add branch.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+
+    await withGit(async (rt) => {
+      const [diff, stats] = await Promise.all([
+        rt.runPromise(Git.Service.use((git) => git.diffHead(tmp.path, "main"))),
+        rt.runPromise(Git.Service.use((git) => git.statsHead(tmp.path, "main"))),
+      ])
+
+      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
+      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
+      expect(stats).toEqual(
+        expect.arrayContaining([expect.objectContaining({ file: "branch.txt", additions: 1, deletions: 0 })]),
+      )
+    })
+  })
+
   test("show() returns empty text for binary blobs", async () => {
     await using tmp = await tmpdir({ git: true })
     await fs.writeFile(path.join(tmp.path, "bin.dat"), new Uint8Array([0, 1, 2, 3]))

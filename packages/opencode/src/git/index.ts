@@ -66,9 +66,17 @@ export namespace Git {
     readonly hasHead: (cwd: string) => Effect.Effect<boolean>
     readonly mergeBase: (cwd: string, base: string, head?: string) => Effect.Effect<string | undefined>
     readonly show: (cwd: string, ref: string, file: string, prefix?: string) => Effect.Effect<string>
+    readonly showIndex: (cwd: string, file: string, prefix?: string) => Effect.Effect<string>
     readonly status: (cwd: string) => Effect.Effect<Item[]>
+    readonly statusUnstaged: (cwd: string) => Effect.Effect<Item[]>
     readonly diff: (cwd: string, ref: string) => Effect.Effect<Item[]>
+    readonly diffUnstaged: (cwd: string) => Effect.Effect<Item[]>
+    readonly diffStaged: (cwd: string) => Effect.Effect<Item[]>
+    readonly diffHead: (cwd: string, ref: string) => Effect.Effect<Item[]>
     readonly stats: (cwd: string, ref: string) => Effect.Effect<Stat[]>
+    readonly statsUnstaged: (cwd: string) => Effect.Effect<Stat[]>
+    readonly statsStaged: (cwd: string) => Effect.Effect<Stat[]>
+    readonly statsHead: (cwd: string, ref: string) => Effect.Effect<Stat[]>
   }
 
   const kind = (code: string): Kind => {
@@ -193,6 +201,14 @@ export namespace Git {
         return result.text()
       })
 
+      const showIndex = Effect.fn("Git.showIndex")(function* (cwd: string, file: string, prefix = "") {
+        const target = prefix ? `${prefix}${file}` : file
+        const result = yield* run(["show", `:${target}`], { cwd })
+        if (result.exitCode !== 0) return ""
+        if (result.stdout.includes(0)) return ""
+        return result.text()
+      })
+
       const status = Effect.fn("Git.status")(function* (cwd: string) {
         return nuls(
           yield* text(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
@@ -206,9 +222,65 @@ export namespace Git {
         })
       })
 
+      const statusUnstaged = Effect.fn("Git.statusUnstaged")(function* (cwd: string) {
+        return nuls(
+          yield* text(["status", "--porcelain=v1", "--untracked-files=all", "--no-renames", "-z", "--", "."], {
+            cwd,
+          }),
+        ).flatMap((item) => {
+          const file = item.slice(3)
+          if (!file) return []
+          const index = item[0] ?? " "
+          const worktree = item[1] ?? " "
+          if (index !== "?" && worktree === " ") return []
+          const code = item.slice(0, 2)
+          return [{ file, code, status: kind(code) } satisfies Item]
+        })
+      })
+
       const diff = Effect.fn("Git.diff")(function* (cwd: string, ref: string) {
         const list = nuls(
           yield* text(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", ref, "--", "."], { cwd }),
+        )
+        return list.flatMap((code, idx) => {
+          if (idx % 2 !== 0) return []
+          const file = list[idx + 1]
+          if (!code || !file) return []
+          return [{ file, code, status: kind(code) } satisfies Item]
+        })
+      })
+
+      const diffUnstaged = Effect.fn("Git.diffUnstaged")(function* (cwd: string) {
+        const list = nuls(
+          yield* text(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", "--", "."], { cwd }),
+        )
+        return list.flatMap((code, idx) => {
+          if (idx % 2 !== 0) return []
+          const file = list[idx + 1]
+          if (!code || !file) return []
+          return [{ file, code, status: kind(code) } satisfies Item]
+        })
+      })
+
+      const diffStaged = Effect.fn("Git.diffStaged")(function* (cwd: string) {
+        const list = nuls(
+          yield* text(["diff", "--no-ext-diff", "--no-renames", "--cached", "--name-status", "-z", "--", "."], {
+            cwd,
+          }),
+        )
+        return list.flatMap((code, idx) => {
+          if (idx % 2 !== 0) return []
+          const file = list[idx + 1]
+          if (!code || !file) return []
+          return [{ file, code, status: kind(code) } satisfies Item]
+        })
+      })
+
+      const diffHead = Effect.fn("Git.diffHead")(function* (cwd: string, ref: string) {
+        const list = nuls(
+          yield* text(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", ref, "HEAD", "--", "."], {
+            cwd,
+          }),
         )
         return list.flatMap((code, idx) => {
           if (idx % 2 !== 0) return []
@@ -241,6 +313,75 @@ export namespace Git {
         })
       })
 
+      const statsUnstaged = Effect.fn("Git.statsUnstaged")(function* (cwd: string) {
+        return nuls(
+          yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", "--", "."], { cwd }),
+        ).flatMap((item) => {
+          const a = item.indexOf("\t")
+          const b = item.indexOf("\t", a + 1)
+          if (a === -1 || b === -1) return []
+          const file = item.slice(b + 1)
+          if (!file) return []
+          const adds = item.slice(0, a)
+          const dels = item.slice(a + 1, b)
+          const additions = adds === "-" ? 0 : Number.parseInt(adds || "0", 10)
+          const deletions = dels === "-" ? 0 : Number.parseInt(dels || "0", 10)
+          return [
+            {
+              file,
+              additions: Number.isFinite(additions) ? additions : 0,
+              deletions: Number.isFinite(deletions) ? deletions : 0,
+            } satisfies Stat,
+          ]
+        })
+      })
+
+      const statsStaged = Effect.fn("Git.statsStaged")(function* (cwd: string) {
+        return nuls(
+          yield* text(["diff", "--no-ext-diff", "--no-renames", "--cached", "--numstat", "-z", "--", "."], { cwd }),
+        ).flatMap((item) => {
+          const a = item.indexOf("\t")
+          const b = item.indexOf("\t", a + 1)
+          if (a === -1 || b === -1) return []
+          const file = item.slice(b + 1)
+          if (!file) return []
+          const adds = item.slice(0, a)
+          const dels = item.slice(a + 1, b)
+          const additions = adds === "-" ? 0 : Number.parseInt(adds || "0", 10)
+          const deletions = dels === "-" ? 0 : Number.parseInt(dels || "0", 10)
+          return [
+            {
+              file,
+              additions: Number.isFinite(additions) ? additions : 0,
+              deletions: Number.isFinite(deletions) ? deletions : 0,
+            } satisfies Stat,
+          ]
+        })
+      })
+
+      const statsHead = Effect.fn("Git.statsHead")(function* (cwd: string, ref: string) {
+        return nuls(
+          yield* text(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", ref, "HEAD", "--", "."], { cwd }),
+        ).flatMap((item) => {
+          const a = item.indexOf("\t")
+          const b = item.indexOf("\t", a + 1)
+          if (a === -1 || b === -1) return []
+          const file = item.slice(b + 1)
+          if (!file) return []
+          const adds = item.slice(0, a)
+          const dels = item.slice(a + 1, b)
+          const additions = adds === "-" ? 0 : Number.parseInt(adds || "0", 10)
+          const deletions = dels === "-" ? 0 : Number.parseInt(dels || "0", 10)
+          return [
+            {
+              file,
+              additions: Number.isFinite(additions) ? additions : 0,
+              deletions: Number.isFinite(deletions) ? deletions : 0,
+            } satisfies Stat,
+          ]
+        })
+      })
+
       return Service.of({
         run,
         branch,
@@ -249,9 +390,17 @@ export namespace Git {
         hasHead,
         mergeBase,
         show,
+        showIndex,
         status,
+        statusUnstaged,
         diff,
+        diffUnstaged,
+        diffStaged,
+        diffHead,
         stats,
+        statsUnstaged,
+        statsStaged,
+        statsHead,
       })
     }),
   )
