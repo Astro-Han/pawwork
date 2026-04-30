@@ -979,9 +979,9 @@ export const dict = {
   "error.server.invalidConfiguration": "配置无效",
   "common.moreCountSuffix": " (还有 {{count}} 个)",
   "common.time.justNow": "刚刚",
-  "common.time.minutesAgo.short": "{{count}}分钟前",
-  "common.time.hoursAgo.short": "{{count}}小时前",
-  "common.time.daysAgo.short": "{{count}}天前",
+  "common.time.minutesAgo.short": "{{count}}分钟",
+  "common.time.hoursAgo.short": "{{count}}小时",
+  "common.time.daysAgo.short": "{{count}}天",
   "settings.providers.connected.environmentDescription": "已通过环境变量连接",
   "settings.providers.custom.description": "通过基础 URL 添加与 OpenAI 兼容的提供商。",
 
