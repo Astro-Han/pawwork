@@ -57,7 +57,7 @@ body:
       placeholder: |
         - I can open a spreadsheet and ask PawWork to summarize it.
         - The report is created in the same workspace.
-        - The flow has a focused regression check or manual verification path.
+        - There is a clear way to check that the result works.
     validations:
       required: true
   - type: textarea

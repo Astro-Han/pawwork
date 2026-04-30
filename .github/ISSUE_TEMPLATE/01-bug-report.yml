@@ -40,7 +40,8 @@ body:
       description: Pick the closest impact. Maintainers can relabel it later.
       options:
         - Not sure
-        - Blocks me from using PawWork or risks data/security
+        - Blocks me from using PawWork
+        - Security or data-loss risk
         - Breaks an important workflow
         - Makes a workflow harder, but there is a workaround
         - Minor issue or polish
