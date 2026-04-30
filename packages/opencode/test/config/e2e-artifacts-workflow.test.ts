@@ -9,8 +9,12 @@ describe("e2e artifacts workflow", () => {
   test("defines a required PR e2e workflow with retained failure artifacts", () => {
     const workflow = readWorkflow(workflowPath)
     const parsed = parseWorkflow(workflowPath)
+    const changes = parsed.jobs?.changes
     const job = parsed.jobs?.["e2e-artifacts"]
+    const changesSteps = changes?.steps ?? []
     const steps = job?.steps ?? []
+    const changesCheckoutStep = changesSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
+    const filterStep = changesSteps.find((step) => step.id === "filter")
     const checkoutStep = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const bunStep = steps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
     const installBrowsersStep = steps.find((step) => step.name === "Install Playwright browsers")
@@ -35,6 +39,19 @@ describe("e2e artifacts workflow", () => {
       "group: e2e-artifacts-${{ github.event.pull_request.number || github.ref }}-${{ inputs.suite || 'pr-smoke' }}",
     )
     expect(parsed.permissions).toEqual({ contents: "read" })
+    expect(Object.keys(parsed.jobs ?? {}).sort()).toEqual(["changes", "e2e-artifacts"])
+    expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
+    expect(changesCheckoutStep?.with).toEqual({
+      "fetch-depth": 0,
+      "persist-credentials": false,
+    })
+    expect(filterStep?.env?.EVENT_NAME).toBe("${{ github.event_name }}")
+    expect(filterStep?.run).toContain(".github/ISSUE_TEMPLATE/*")
+    expect(filterStep?.run).toContain(".github/pull_request_template.md")
+    expect(filterStep?.run).toContain("git diff --name-status --find-renames --find-copies")
+    expect(filterStep?.run).toContain("R*|C*)")
+    expect(job?.needs).toBe("changes")
+    expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(job?.["runs-on"]).toBe("ubuntu-latest")
     expect(job?.["continue-on-error"]).not.toBe(true)
     expect(checkoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")

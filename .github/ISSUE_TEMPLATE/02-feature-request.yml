@@ -18,6 +18,21 @@ body:
       placeholder: I want to summarize a spreadsheet and turn it into a shareable report without leaving the app.
     validations:
       required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area would this change affect?
+      description: Pick the closest area. Maintainers can relabel it later.
+      options:
+        - Not sure
+        - App flow or product behavior
+        - Desktop shell, packaging, updater, signing, paths, or permissions
+        - UI or design system
+        - Model harness, prompts, tools, or session mechanics
+        - CI, release, or developer tooling
+        - Documentation
+    validations:
+      required: false
   - type: textarea
     id: current
     attributes:
@@ -34,6 +49,23 @@ body:
       placeholder: I can open a file, ask for a summary, and get a clean report in one place.
     validations:
       required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: What would count as done?
+      description: List the observable acceptance criteria. Keep this about user-visible behavior and verification, not only implementation details.
+      placeholder: |
+        - I can open a spreadsheet and ask PawWork to summarize it.
+        - The report is created in the same workspace.
+        - There is a clear way to check that the result works.
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: What should stay out of scope?
+      description: Optional, but helpful when the request could grow too broad.
+      placeholder: This does not need to support charts, batch imports, or external publishing in the first version.
   - type: dropdown
     id: audience
     attributes:

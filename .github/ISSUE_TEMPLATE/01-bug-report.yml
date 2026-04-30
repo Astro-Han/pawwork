@@ -18,6 +18,35 @@ body:
       placeholder: When I tried to export a PDF, the app got stuck on loading and never finished.
     validations:
       required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area seems affected?
+      description: Pick the closest area. Maintainers can relabel it later.
+      options:
+        - Not sure
+        - App flow or product behavior
+        - Desktop shell, packaging, updater, signing, paths, or permissions
+        - UI or design system
+        - Model harness, prompts, tools, or session mechanics
+        - CI, release, or developer tooling
+        - Documentation
+    validations:
+      required: false
+  - type: dropdown
+    id: impact
+    attributes:
+      label: How much does this affect you?
+      description: Pick the closest impact. Maintainers can relabel it later.
+      options:
+        - Not sure
+        - Blocks me from using PawWork
+        - Security or data-loss risk
+        - Breaks an important workflow
+        - Makes a workflow harder, but there is a workaround
+        - Minor issue or polish
+    validations:
+      required: false
   - type: textarea
     id: steps
     attributes:
@@ -64,8 +93,8 @@ body:
     validations:
       required: true
   - type: textarea
-    id: attachments
+    id: diagnostics
     attributes:
-      label: Screenshots, recordings, or extra context
-      description: Drag files into the issue, or paste any extra details here.
-      placeholder: Attach screenshots, recordings, logs, or sample files if helpful.
+      label: Diagnostics
+      description: Attach screenshots, recordings, session exports, logs, or sample files if helpful.
+      placeholder: Paste relevant logs, describe attached files, or add links to screenshots and recordings.
