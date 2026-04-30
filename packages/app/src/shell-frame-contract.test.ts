@@ -27,7 +27,6 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(macMainSeamRule).toBeLessThan(wideDesktopQuery)
   expect(layout).toContain('"--shell-titlebar-current-height"')
   expect(layout).toContain('platform.os === "macos"')
-  expect(layout).toContain('top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.75rem))"')
   expect(layout).not.toContain("top-10")
   expect(titlebar).toContain('"h-11": platform.platform === "desktop" && !mac()')
   expect(titlebar).toContain('style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}')

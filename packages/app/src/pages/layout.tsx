@@ -50,7 +50,6 @@ import { usePermission } from "@/context/permission"
 import { Binary } from "@opencode-ai/util/binary"
 import { retry } from "@opencode-ai/util/retry"
 import { playSoundById } from "@/utils/sound"
-import { createAim } from "@/utils/aim"
 import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
@@ -86,7 +85,6 @@ import {
 } from "./layout/pawwork-session-source"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
-import { ProjectDragOverlay, type ProjectSidebarContext } from "./layout/sidebar-project"
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
 import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
@@ -158,12 +156,9 @@ export default function Layout(props: ParentProps) {
   const [state, setState] = createStore({
     autoselect: !initialDirectory,
     busyWorkspaces: {} as Record<string, boolean>,
-    hoverProject: undefined as string | undefined,
     scrollSessionKey: undefined as string | undefined,
     nav: undefined as HTMLElement | undefined,
     sizing: false,
-    peek: undefined as string | undefined,
-    peeked: false,
   })
 
   const editor = createInlineEditorController()
@@ -181,110 +176,19 @@ export default function Layout(props: ParentProps) {
     )
   }
   const isBusy = (directory: string) => !!state.busyWorkspaces[workspaceKey(directory)]
-  const navLeave = { current: undefined as number | undefined }
   let sizet: number | undefined
-
-  const aim = createAim({
-    enabled: () => !layout.sidebar.opened(),
-    active: () => state.hoverProject,
-    el: () => state.nav?.querySelector<HTMLElement>("[data-component='sidebar-rail']") ?? state.nav,
-    onActivate: (directory) => {
-      globalSync.child(directory)
-      setState("hoverProject", directory)
-    },
-  })
 
   onCleanup(() => {
     dialogDead = true
     dialogRun += 1
-    if (navLeave.current !== undefined) clearTimeout(navLeave.current)
     if (sizet !== undefined) clearTimeout(sizet)
-    if (peekt !== undefined) clearTimeout(peekt)
-    aim.reset()
   })
 
   onMount(() => {
     const stop = () => setState("sizing", false)
-    const blur = () => reset()
-    const hide = () => {
-      if (document.visibilityState !== "hidden") return
-      reset()
-    }
     makeEventListener(window, "pointerup", stop)
     makeEventListener(window, "pointercancel", stop)
     makeEventListener(window, "blur", stop)
-    makeEventListener(window, "blur", blur)
-    makeEventListener(document, "visibilitychange", hide)
-  })
-
-  const sidebarHovering = createMemo(() => !layout.sidebar.opened() && state.hoverProject !== undefined)
-  const sidebarExpanded = createMemo(() => layout.sidebar.opened() || sidebarHovering())
-  const setHoverProject = (value: string | undefined) => {
-    setState("hoverProject", value)
-    if (value !== undefined) return
-    aim.reset()
-  }
-  const clearHoverProjectSoon = () => queueMicrotask(() => setHoverProject(undefined))
-
-  const disarm = () => {
-    if (navLeave.current === undefined) return
-    clearTimeout(navLeave.current)
-    navLeave.current = undefined
-  }
-
-  const reset = () => {
-    disarm()
-    setHoverProject(undefined)
-  }
-
-  const arm = () => {
-    if (layout.sidebar.opened()) return
-    if (state.hoverProject === undefined) return
-    disarm()
-    navLeave.current = window.setTimeout(() => {
-      navLeave.current = undefined
-      setHoverProject(undefined)
-    }, 300)
-  }
-
-  let peekt: number | undefined
-
-  const hoverProjectData = createMemo(() => {
-    const id = state.hoverProject
-    if (!id) return
-    return layout.projects.list().find((project) => project.worktree === id)
-  })
-
-  const peekProject = createMemo(() => {
-    const id = state.peek
-    if (!id) return
-    return layout.projects.list().find((project) => project.worktree === id)
-  })
-
-  createEffect(() => {
-    const p = hoverProjectData()
-    if (p) {
-      if (peekt !== undefined) {
-        clearTimeout(peekt)
-        peekt = undefined
-      }
-      setState("peek", p.worktree)
-      setState("peeked", true)
-      return
-    }
-
-    setState("peeked", false)
-    if (state.peek === undefined) return
-    if (peekt !== undefined) clearTimeout(peekt)
-    peekt = window.setTimeout(() => {
-      peekt = undefined
-      setState("peek", undefined)
-    }, 180)
-  })
-
-  createEffect(() => {
-    if (!layout.sidebar.opened()) return
-    setHoverProject(undefined)
   })
 
   createEffect(() => {
@@ -301,16 +205,6 @@ export default function Layout(props: ParentProps) {
   const closeEditor = editor.closeEditor
   const setEditor = editor.setEditor
   const InlineEditor = editor.InlineEditor
-
-  const clearSidebarHoverState = () => {
-    if (layout.sidebar.opened()) return
-    reset()
-  }
-
-  const navigateWithSidebarReset = (href: string) => {
-    clearSidebarHoverState()
-    navigate(href)
-  }
 
   function cycleTheme(direction = 1) {
     const ids = availableThemeEntries().map(([id]) => id)
@@ -667,11 +561,6 @@ export default function Layout(props: ParentProps) {
   }
 
   const pawworkSessions = createMemo(() => collectPawworkSessions(layout.projects.list()))
-  const pawworkPeekSessions = createMemo(() => {
-    const project = peekProject()
-    if (!project) return [] as PawworkSidebarSession[]
-    return collectPawworkSessions([project])
-  })
 
   type PrefetchQueue = {
     inflight: Set<string>
@@ -1430,7 +1319,7 @@ export default function Layout(props: ParentProps) {
       const [data] = globalSync.child(target.directory, { bootstrap: false })
       if (data.session.some((item) => item.id === target.id)) {
         setStore("lastProjectSession", root, { directory: target.directory, id: target.id, at: Date.now() })
-        navigateWithSidebarReset(`/${base64Encode(target.directory)}/session/${target.id}`)
+        navigate(`/${base64Encode(target.directory)}/session/${target.id}`)
         return true
       }
       const resolved = await globalSDK.client.session
@@ -1440,7 +1329,7 @@ export default function Layout(props: ParentProps) {
       if (!resolved?.directory) return false
       if (!canOpen(resolved.directory)) return false
       setStore("lastProjectSession", root, { directory: resolved.directory, id: resolved.id, at: Date.now() })
-      navigateWithSidebarReset(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
+      navigate(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
       return true
     }
 
@@ -1472,12 +1361,12 @@ export default function Layout(props: ParentProps) {
       return
     }
 
-    navigateWithSidebarReset(`/${base64Encode(root)}/session`)
+    navigate(`/${base64Encode(root)}/session`)
   }
 
   function navigateToSession(session: Session | undefined) {
     if (!session) return
-    navigateWithSidebarReset(`/${base64Encode(session.directory)}/session/${session.id}`)
+    navigate(`/${base64Encode(session.directory)}/session/${session.id}`)
   }
 
   function openPawworkHome(directory?: string) {
@@ -1486,7 +1375,7 @@ export default function Layout(props: ParentProps) {
       chooseProject()
       return
     }
-    navigateWithSidebarReset(`/${base64Encode(root)}/session`)
+    navigate(`/${base64Encode(root)}/session`)
   }
 
   function openProject(directory: string, navigate = true) {
@@ -1508,7 +1397,7 @@ export default function Layout(props: ParentProps) {
         setSessionHandoff(slug, { prompt: link.prompt })
       }
       const href = link.prompt ? `/${slug}/session?prompt=${encodeURIComponent(link.prompt)}` : `/${slug}/session`
-      navigateWithSidebarReset(href)
+      navigate(href)
     }
   }
 
@@ -1562,7 +1451,7 @@ export default function Layout(props: ParentProps) {
       return
     }
 
-    navigateWithSidebarReset(`/${base64Encode(next.worktree)}/session`)
+    navigate(`/${base64Encode(next.worktree)}/session`)
     layout.projects.close(directory)
     queueMicrotask(() => {
       void navigateToProject(next.worktree)
@@ -1625,7 +1514,7 @@ export default function Layout(props: ParentProps) {
     const deletedKey = workspaceKey(directory)
     const shouldLeave = leaveDeletedWorkspace || (!!params.dir && currentKey === deletedKey)
     if (!leaveDeletedWorkspace && shouldLeave) {
-      navigateWithSidebarReset(`/${base64Encode(root)}/session`)
+      navigate(`/${base64Encode(root)}/session`)
     }
 
     setBusy(directory, true)
@@ -1673,7 +1562,7 @@ export default function Layout(props: ParentProps) {
     const valid = dirs.some((item) => workspaceKey(item) === nextKey)
 
     if (params.dir && projectRoot(nextCurrent) === root && !valid) {
-      navigateWithSidebarReset(`/${base64Encode(root)}/session`)
+      navigate(`/${base64Encode(root)}/session`)
     }
   }
 
@@ -1777,7 +1666,7 @@ export default function Layout(props: ParentProps) {
     const handleDelete = () => {
       const leaveDeletedWorkspace = !!params.dir && workspaceKey(currentDir()) === workspaceKey(props.directory)
       if (leaveDeletedWorkspace) {
-        navigateWithSidebarReset(`/${base64Encode(props.root)}/session`)
+        navigate(`/${base64Encode(props.root)}/session`)
       }
       dialog.close()
       void deleteWorkspace(props.root, props.directory, leaveDeletedWorkspace)
@@ -1977,7 +1866,6 @@ export default function Layout(props: ParentProps) {
   function handleDragStart(event: unknown) {
     const id = getDraggableId(event)
     if (!id) return
-    setHoverProject(undefined)
     setStore("activeProject", id)
   }
 
@@ -2006,12 +1894,7 @@ export default function Layout(props: ParentProps) {
     })
   }
 
-  const sidebarProject = createMemo(() => {
-    if (layout.sidebar.opened()) return currentProject()
-    const hovered = hoverProjectData()
-    if (hovered) return hovered
-    return currentProject()
-  })
+  const sidebarProject = createMemo(() => currentProject())
 
   function handleWorkspaceDragStart(event: unknown) {
     const id = getDraggableId(event)
@@ -2048,7 +1931,6 @@ export default function Layout(props: ParentProps) {
   }
 
   const createWorkspace = async (project: LocalProject) => {
-    clearSidebarHoverState()
     const created = await globalSDK.client.worktree
       .create({ directory: project.worktree })
       .then((x) => x.data)
@@ -2084,15 +1966,12 @@ export default function Layout(props: ParentProps) {
     })
 
     globalSync.child(created.directory)
-    navigateWithSidebarReset(`/${base64Encode(created.directory)}/session`)
+    navigate(`/${base64Encode(created.directory)}/session`)
   }
 
   const workspaceSidebarCtx: WorkspaceSidebarContext = {
     currentDir,
     navList: currentSessions,
-    sidebarExpanded,
-    sidebarHovering,
-    clearHoverProjectSoon,
     prefetchSession,
     workspaceName,
     renameWorkspace,
@@ -2113,37 +1992,7 @@ export default function Layout(props: ParentProps) {
     },
   }
 
-  const projectSidebarCtx: ProjectSidebarContext = {
-    currentDir,
-    currentProject,
-    sidebarOpened: () => layout.sidebar.opened(),
-    sidebarHovering,
-    hoverProject: () => state.hoverProject,
-    onProjectMouseEnter: (worktree, event) => aim.enter(worktree, event),
-    onProjectMouseLeave: (worktree) => aim.leave(worktree),
-    onProjectFocus: (worktree) => aim.activate(worktree),
-    onHoverOpenChanged: (worktree, hoverOpen) => {
-      if (!hoverOpen && state.hoverProject && state.hoverProject !== worktree) return
-      setState("hoverProject", hoverOpen ? worktree : undefined)
-    },
-    navigateToProject,
-    openSidebar: () => layout.sidebar.open(),
-    closeProject,
-    showEditProjectDialog,
-    toggleProjectWorkspaces,
-    workspacesEnabled: (project) => project.vcs === "git" && layout.sidebar.workspaces(project.worktree)(),
-    workspaceIds,
-    workspaceLabel,
-    sessionProps: {
-      navList: currentSessions,
-      sidebarExpanded,
-      clearHoverProjectSoon,
-      prefetchSession,
-    },
-  }
-
   const projects = () => layout.projects.list()
-  const projectOverlay = () => <ProjectDragOverlay projects={projects} activeProject={() => store.activeProject} />
   const renderPawworkPanel = (
     sessions: Accessor<PawworkSidebarSession[]>,
     options?: { directory?: string; scope?: "main" | "peek" },
@@ -2155,9 +2004,7 @@ export default function Layout(props: ParentProps) {
       activeSessionID={() => params.id}
       pinnedIDs={() => store.pawworkPinnedSessions}
       sortMode={() => store.pawworkSortMode}
-      sidebarExpanded={sidebarExpanded}
       setScrollContainerRef={workspaceSidebarCtx.setScrollContainerRef}
-      clearHoverProjectSoon={clearHoverProjectSoon}
       prefetchSession={prefetchSession}
       onRenameSession={renamePawworkSession}
       onTogglePinnedSession={togglePinnedSession}
@@ -2217,35 +2064,21 @@ export default function Layout(props: ParentProps) {
           <div class="flex-1 min-h-0 min-w-0 flex">
           <div class="flex-1 min-h-0 relative">
             <div class="size-full relative overflow-x-hidden">
-              <nav
-                aria-label={language.t("sidebar.nav.projectsAndSessions")}
-                data-component="sidebar-nav-desktop"
-                classList={{
-                  "hidden": true,
-                  "xl:block": layout.sidebar.opened(),
-                  "absolute inset-y-0 left-0": true,
-                  "z-10": true,
-                }}
-                style={{ width: `${side()}px` }}
-                ref={(el) => {
-                  setState("nav", el)
-                }}
-                onMouseEnter={() => {
-                  disarm()
-                }}
-                onMouseLeave={() => {
-                  aim.reset()
-                  if (!sidebarHovering()) return
-
-                  arm()
-                }}
-              >
-                <div class="@container w-full h-full contain-strict">{sidebarContent()}</div>
-              </nav>
-
               <Show when={layout.sidebar.opened()}>
+                <aside
+                  aria-label={language.t("sidebar.nav.projectsAndSessions")}
+                  data-component="sidebar-nav-desktop"
+                  class="absolute inset-y-0 left-0 z-10"
+                  style={{ width: `${side()}px` }}
+                  ref={(el) => {
+                    setState("nav", el)
+                  }}
+                >
+                  <div class="@container w-full h-full contain-strict">{sidebarContent()}</div>
+                </aside>
+
                 <div
-                  class="hidden xl:block absolute inset-y-0 z-30 w-0 overflow-visible"
+                  class="absolute inset-y-0 z-30 w-0 overflow-visible"
                   style={{ left: `${side()}px` }}
                   onPointerDown={() => setState("sizing", true)}
                 >
@@ -2265,14 +2098,13 @@ export default function Layout(props: ParentProps) {
               </Show>
 
               <div
-                class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
-                style={{ left: "calc(4rem + 12px)" }}
+                class="pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
+                style={{ left: "var(--sidebar-width)" }}
               />
 
               <div
                 classList={{
-                  "absolute inset-0": true,
-                  "xl:inset-y-0 xl:right-0 xl:left-[var(--main-left)]": true,
+                  "absolute inset-y-0 right-0 left-[var(--main-left)]": true,
                   "z-20": true,
                   "transition-[left] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[left] motion-reduce:transition-none":
                     !state.sizing,
@@ -2306,49 +2138,6 @@ export default function Layout(props: ParentProps) {
                     </Show>
                   </div>
                 </main>
-              </div>
-
-              <div
-                classList={{
-                  "hidden xl:flex absolute inset-y-0 left-16 z-30": true,
-                  "opacity-100 translate-x-0 pointer-events-auto": state.peeked && !layout.sidebar.opened(),
-                  "opacity-0 -translate-x-2 pointer-events-none": !state.peeked || layout.sidebar.opened(),
-                  "transition-[opacity,transform] motion-reduce:transition-none": true,
-                  "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
-                  "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
-                }}
-                onMouseMove={disarm}
-                onMouseEnter={() => {
-                  disarm()
-                  aim.reset()
-                }}
-                onPointerDown={disarm}
-                onMouseLeave={() => {
-                  arm()
-                }}
-              >
-                <Show when={peekProject()}>
-                  {(project) =>
-                    renderPawworkPanel(pawworkPeekSessions, {
-                      directory: project().worktree,
-                      scope: "peek",
-                    })
-                  }
-                </Show>
-              </div>
-
-              <div
-                classList={{
-                  "hidden xl:block pointer-events-none absolute inset-y-0 right-0 z-25 overflow-hidden": true,
-                  "opacity-100 translate-x-0": state.peeked && !layout.sidebar.opened(),
-                  "opacity-0 -translate-x-2": !state.peeked || layout.sidebar.opened(),
-                  "transition-[opacity,transform] motion-reduce:transition-none": true,
-                  "duration-180 ease-out": state.peeked && !layout.sidebar.opened(),
-                  "duration-120 ease-in": !state.peeked || layout.sidebar.opened(),
-                }}
-                style={{ left: `calc(4rem + ${panel()}px)` }}
-              >
-                <div class="h-full w-px" style={{ "box-shadow": "var(--shadow-sidebar-overlay)" }} />
               </div>
             </div>
           </div>

@@ -36,9 +36,7 @@ export const PawworkSidebar = (props: {
   activeSessionID?: Accessor<string | undefined>
   pinnedIDs: Accessor<string[]>
   sortMode: Accessor<PawworkSortMode>
-  sidebarExpanded: Accessor<boolean>
   setScrollContainerRef: (el: HTMLDivElement | undefined) => void
-  clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   onRenameSession: (session: Session, next: string) => Promise<void>
   onTogglePinnedSession: (sessionID: string) => void
@@ -107,8 +105,6 @@ export const PawworkSidebar = (props: {
             navList={navList}
             slug={entry.item.slug}
             showChild
-            sidebarExpanded={props.sidebarExpanded}
-            clearHoverProjectSoon={props.clearHoverProjectSoon}
             prefetchSession={props.prefetchSession}
             pinned={() => isPinned()}
             timeText={() =>

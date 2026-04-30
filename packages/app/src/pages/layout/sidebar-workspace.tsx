@@ -33,9 +33,6 @@ type InlineEditorComponent = (props: {
 export type WorkspaceSidebarContext = {
   currentDir: Accessor<string>
   navList: Accessor<Session[]>
-  sidebarExpanded: Accessor<boolean>
-  sidebarHovering: Accessor<boolean>
-  clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   renameWorkspace: (directory: string, next: string, projectId?: string, branch?: string) => void
@@ -140,7 +137,6 @@ const WorkspaceActions = (props: {
   pendingRename: Accessor<boolean>
   setMenuOpen: (open: boolean) => void
   setPendingRename: (value: boolean) => void
-  sidebarHovering: Accessor<boolean>
   touch: Accessor<boolean>
   language: ReturnType<typeof useLanguage>
   workspaceValue: Accessor<string>
@@ -148,7 +144,6 @@ const WorkspaceActions = (props: {
   showResetWorkspaceDialog: WorkspaceSidebarContext["showResetWorkspaceDialog"]
   showDeleteWorkspaceDialog: WorkspaceSidebarContext["showDeleteWorkspaceDialog"]
   root: string
-  clearHoverProjectSoon: WorkspaceSidebarContext["clearHoverProjectSoon"]
   navigateToNewSession: () => void
 }): JSX.Element => (
   <div
@@ -161,7 +156,7 @@ const WorkspaceActions = (props: {
     }}
   >
     <DropdownMenu
-      modal={!props.sidebarHovering()}
+      modal={true}
       open={props.menuOpen()}
       onOpenChange={(open) => props.setMenuOpen(open)}
     >
@@ -221,7 +216,6 @@ const WorkspaceActions = (props: {
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            props.clearHoverProjectSoon()
             props.navigateToNewSession()
           }}
         />
@@ -242,11 +236,7 @@ const WorkspaceSessionList = (props: {
 }): JSX.Element => (
   <nav class="flex flex-col gap-1">
     <Show when={props.showNew()}>
-      <NewSessionItem
-        slug={props.slug()}
-        sidebarExpanded={props.ctx.sidebarExpanded}
-        clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
-      />
+      <NewSessionItem slug={props.slug()} />
     </Show>
     <Show when={props.loading()}>
       <SessionSkeleton />
@@ -259,8 +249,6 @@ const WorkspaceSessionList = (props: {
           navList={props.ctx.navList}
           slug={props.slug()}
           showChild
-          sidebarExpanded={props.ctx.sidebarExpanded}
-          clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
           prefetchSession={props.ctx.prefetchSession}
         />
       )}
@@ -398,7 +386,6 @@ export const SortableWorkspace = (props: {
                 pendingRename={() => menu.pendingRename}
                 setMenuOpen={(open) => setMenu("open", open)}
                 setPendingRename={(value) => setMenu("pendingRename", value)}
-                sidebarHovering={props.ctx.sidebarHovering}
                 touch={touch}
                 language={language}
                 workspaceValue={workspaceValue}
@@ -406,7 +393,6 @@ export const SortableWorkspace = (props: {
                 showResetWorkspaceDialog={props.ctx.showResetWorkspaceDialog}
                 showDeleteWorkspaceDialog={props.ctx.showDeleteWorkspaceDialog}
                 root={props.project.worktree}
-                clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
                 navigateToNewSession={() => navigate(`/${slug()}/session`)}
               />
             </div>
