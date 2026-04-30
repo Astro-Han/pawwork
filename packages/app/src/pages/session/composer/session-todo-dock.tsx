@@ -12,7 +12,7 @@ import { createStore } from "solid-js/store"
 import { composerEnabled, composerProbe } from "@/testing/session-composer"
 import { useLanguage } from "@/context/language"
 
-const doneToken = "\u0000done\u0000"
+const currentToken = "\u0000current\u0000"
 const totalToken = "\u0000total\u0000"
 
 function dot(status: Todo["status"]) {
@@ -56,17 +56,24 @@ export function SessionTodoDock(props: {
   const toggle = () => setStore("collapsed", (value) => !value)
 
   const total = createMemo(() => props.todos.length)
-  const done = createMemo(() => props.todos.filter((todo) => todo.status === "completed").length)
+  // "current" = the step the user is on (1-indexed). It's the first non-finished
+  // item, or `total` once everything is done.
+  const current = createMemo(() => {
+    if (total() === 0) return 0
+    const idx = props.todos.findIndex((todo) => todo.status !== "completed" && todo.status !== "cancelled")
+    if (idx === -1) return total()
+    return idx + 1
+  })
   const allCancelled = createMemo(() => total() > 0 && props.todos.every((todo) => todo.status === "cancelled"))
   const label = createMemo(() => {
     if (allCancelled()) return language.t("session.todo.cancelled")
-    return language.t("session.todo.progress", { done: done(), total: total() })
+    return language.t("session.todo.progress", { current: current(), total: total() })
   })
   const progress = createMemo(() => {
     if (allCancelled()) return [language.t("session.todo.cancelled")]
     return language
-      .t("session.todo.progress", { done: doneToken, total: totalToken })
-      .split(/(\u0000done\u0000|\u0000total\u0000)/)
+      .t("session.todo.progress", { current: currentToken, total: totalToken })
+      .split(/(\u0000current\u0000|\u0000total\u0000)/)
   })
 
   const active = createMemo(
@@ -154,8 +161,8 @@ export function SessionTodoDock(props: {
           >
             <Index each={progress()}>
               {(item) =>
-                item() === doneToken ? (
-                  <AnimatedNumber value={done()} />
+                item() === currentToken ? (
+                  <AnimatedNumber value={current()} />
                 ) : item() === totalToken ? (
                   <AnimatedNumber value={total()} />
                 ) : (

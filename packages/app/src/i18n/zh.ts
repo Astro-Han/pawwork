@@ -999,7 +999,7 @@ export const dict = {
   "session.review.noVcs.createGit.description": "在此项目中跟踪、审查和撤消更改",
   "session.review.noVcs.createGit.actionLoading": "正在创建 Git 仓库...",
   "session.review.noVcs.createGit.action": "创建 Git 仓库",
-  "session.todo.progress": "已完成 {{done}} 个任务（共 {{total}} 个）",
+  "session.todo.progress": "第 {{current}} 项任务 / 共 {{total}} 项",
   "session.todo.cancelled": "已取消",
   "session.question.progress": "{{current}}/{{total}} 个问题",
   "session.header.open.finder": "访达",

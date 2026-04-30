@@ -617,7 +617,7 @@ export const dict = {
   "session.todo.title": "Todos",
   "session.todo.collapse": "Collapse",
   "session.todo.expand": "Expand",
-  "session.todo.progress": "{{done}} of {{total}} todos completed",
+  "session.todo.progress": "Task {{current}} of {{total}}",
   "session.todo.cancelled": "Cancelled",
   "session.question.progress": "{{current}} of {{total}} questions",
   "session.followupDock.summary.one": "{{count}} queued message",
