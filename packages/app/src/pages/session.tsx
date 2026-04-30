@@ -2068,7 +2068,7 @@ export default function Page() {
         </Show>
 
         {/* Session panel */}
-        <div class="@container relative min-w-0 flex flex-col min-h-0 h-full bg-background-stronger flex-1">
+        <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-background-stronger flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
               <Match when={params.id}>
