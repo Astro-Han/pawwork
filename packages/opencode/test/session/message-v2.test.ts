@@ -5,6 +5,9 @@ import { ProviderTransform, type Provider } from "../../src/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
 import { Question } from "../../src/question"
+import { Permission } from "../../src/permission"
+import { fromDeniedRule } from "../../src/permission/diagnostic"
+import { errorMessage } from "../../src/util/error"
 
 const sessionID = SessionID.make("session")
 const providerID = ProviderID.make("test")
@@ -630,6 +633,72 @@ describe("session.message-v2.toModelMessage", () => {
         ],
       },
     ])
+  })
+
+  test("converts permission denial diagnostic into model-facing error text", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const diagnostic = fromDeniedRule({
+      permission: "bash",
+      blockedCommand: "rm file.txt",
+      matchedRule: { permission: "bash", pattern: "rm *", action: "deny" },
+      platform: "darwin",
+    })
+    expect(diagnostic).toBeDefined()
+    if (!diagnostic) return
+
+    const denied = new Permission.DeniedError({
+      ruleset: [
+        { permission: "bash", pattern: "*", action: "allow" },
+        { permission: "bash", pattern: "rm *", action: "deny" },
+      ],
+      diagnostic,
+    })
+    const rendered = errorMessage(denied)
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "remove the file",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-1",
+            tool: "bash",
+            state: {
+              status: "error",
+              input: { cmd: "rm file.txt" },
+              error: rendered,
+              time: { start: 0, end: 1 },
+              metadata: {},
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const messages = await MessageV2.toModelMessages(input, model)
+    const toolResult = messages[2]?.content[0]
+
+    expect(toolResult).toEqual({
+      type: "tool-result",
+      toolCallId: "call-1",
+      toolName: "bash",
+      output: { type: "error-text", value: rendered },
+    })
+    expect(rendered).toContain("Command blocked: rm file.txt")
+    expect(rendered).toContain('Matched rule: bash "rm *" deny')
+    expect(rendered).not.toContain("Here are some of the relevant rules")
   })
 
   test("forwards partial bash output for aborted tool calls", async () => {
