@@ -27,6 +27,7 @@ import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover } from "@/components/dialog-select-model"
 import { WorkspaceChip } from "@/components/prompt-input/workspace-chip"
+import { SessionContextUsage } from "@/components/session-context-usage"
 import { translateVariant } from "./prompt-input/variant-label"
 import { SendButton } from "./prompt-input/send-button"
 import { useProviders } from "@/hooks/use-providers"
@@ -1586,6 +1587,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             </div>
 
             <div class="flex items-center gap-2 pointer-events-auto">
+              <SessionContextUsage placement="top" />
               <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
                 <SendButton
                   stopping={stopping()}
