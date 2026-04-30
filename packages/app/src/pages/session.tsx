@@ -1543,6 +1543,7 @@ export default function Page() {
     scroller = el
     autoScroll.scrollRef(el)
     if (!el) return
+    if (dockHeight > 0) el.style.paddingBottom = `${dockHeight + 16}px`
     scheduleScrollState(el)
     fill()
   }
@@ -1898,10 +1899,13 @@ export default function Page() {
     () => promptDock,
     ({ height }) => {
       const next = Math.ceil(height)
+      const el = scroller
+
+      if (el) el.style.paddingBottom = `${next + 16}px`
+      document.documentElement.style.setProperty("--composer-dock-height", `${next}px`)
 
       if (next === dockHeight) return
 
-      const el = scroller
       const delta = next - dockHeight
       const stick = el
         ? !autoScroll.userScrolled() || el.scrollHeight - el.clientHeight - el.scrollTop < 10 + Math.max(0, delta)

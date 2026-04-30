@@ -635,7 +635,7 @@ export function MessageTimeline(props: {
     >
       <div class="relative w-full h-full min-w-0">
         <div
-          class="absolute left-1/2 -translate-x-1/2 bottom-6 z-[60] pointer-events-none transition-all duration-200 ease-out"
+          class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-[opacity,transform] duration-200 ease-out"
           classList={{
             "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
             "opacity-0 translate-y-2 scale-95 pointer-events-none":
@@ -643,18 +643,13 @@ export function MessageTimeline(props: {
           }}
         >
           <button
-            class="pointer-events-auto flex items-center justify-center w-10 h-8 bg-transparent border-none cursor-pointer p-0 group"
+            type="button"
+            class="pointer-events-auto size-8 rounded-full border border-border-weaker-base bg-surface-raised-stronger-non-alpha flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-surface-raised-base-hover hover:border-border-weak-base hover:[--icon-base:var(--icon-hover)]"
+            style={{ "box-shadow": "var(--shadow-floating)" }}
             onClick={props.onResumeScroll}
+            aria-label={language.t("session.messages.jumpToLatest")}
           >
-            <div
-              class="flex items-center justify-center w-8 h-6 rounded-[6px] border border-border-weaker-base bg-[color-mix(in_srgb,var(--surface-raised-stronger-non-alpha)_80%,transparent)] backdrop-blur-[0.75px] transition-colors group-hover:border-[var(--border-weak-base)] group-hover:[--icon-base:var(--icon-hover)]"
-              style={{
-                "box-shadow":
-                  "0 51px 60px 0 rgba(0,0,0,0.10), 0 15px 18px 0 rgba(0,0,0,0.12), 0 6.386px 7.513px 0 rgba(0,0,0,0.12), 0 2.31px 2.717px 0 rgba(0,0,0,0.20)",
-              }}
-            >
-              <Icon name="arrow-down-to-line" size="small" />
-            </div>
+            <Icon name="chevron-down" size="small" />
           </button>
         </div>
         <ScrollView
