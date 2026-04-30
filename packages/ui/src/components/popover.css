@@ -6,12 +6,11 @@
   z-index: 50;
   min-width: 200px;
   max-width: 320px;
-  border-radius: var(--radius-md);
+  border-radius: 14px;
   background-color: var(--surface-raised-stronger-non-alpha);
 
-  border: 1px solid color-mix(in oklch, var(--border-base) 50%, transparent);
   background-clip: padding-box;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-floating);
 
   transform-origin: var(--kb-popover-content-transform-origin);
 
@@ -67,7 +66,7 @@
   }
 
   [data-slot="popover-body"] {
-    padding: 12px;
+    padding: 4px;
   }
 
   [data-slot="popover-arrow"] {

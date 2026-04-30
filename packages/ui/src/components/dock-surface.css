@@ -1,10 +1,31 @@
 [data-dock-surface="shell"] {
   background-color: var(--surface-raised-stronger-non-alpha);
-  box-shadow: var(--shadow-xs-border-base), var(--shadow-xs);
+  /* Light: 1px ring + drop shadow (ring needed against #FFFFFF main bg). */
+  box-shadow:
+    0 0 0 1px var(--border-weak-base),
+    var(--shadow-raised);
   position: relative;
   z-index: 10;
-  border-radius: 26px;
+  border-radius: 18px;
   overflow: clip;
+
+  &:focus-within {
+    box-shadow:
+      0 0 0 1px var(--border-base),
+      var(--shadow-raised);
+  }
+}
+
+/* Dark: composer bg sits one step above main bg; ring suppressed in both
+   default and focus-within states. The lift + caret are the cue; a focus ring
+   on a #2F2F2F surface (against #626262 border-base) reads as a visual jump
+   on every click. */
+:root[data-color-scheme="dark"] [data-dock-surface="shell"] {
+  box-shadow: var(--shadow-raised);
+
+  &:focus-within {
+    box-shadow: var(--shadow-raised);
+  }
 }
 
 [data-dock-surface="tray"] {

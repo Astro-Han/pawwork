@@ -2,7 +2,9 @@
 """
 Verify PawWork layer ΔL* and composer shadow against ChatGPT targets.
 Takes a 2x retina screenshot of the running app, asserts:
-  - sidebar bg vs main bg ΔL*: light 2.0–4.0, dark 8.0–14.0
+  - sidebar bg vs main bg ΔL*: light 2.0–4.0, dark 2.0–5.0
+    (dark target follows ChatGPT: flat sidebar→main, ~3 ΔL*; the elevation
+    happens at composer level, not at main bg)
   - composer shadow monotonic decay (light only): samples at +1/+5/+10/+20 retina px
     below bottom edge are non-increasing in distance-from-white, with detectable
     shadow at +5 (dist >= 4)
@@ -85,7 +87,7 @@ def assert_layer_delta(img: Image.Image, sb_box, mn_box, mode: str):
     sb = s(sb_box, 20, 80, 80, 140)  # clear strip in sidebar
     mn = s(mn_box, 100, 100, 300, 300)
     delta = abs(lab_l(mn) - lab_l(sb))
-    target = (2.0, 4.0) if mode == "light" else (8.0, 14.0)
+    target = (2.0, 4.0) if mode == "light" else (2.0, 5.0)
     status = "PASS" if target[0] <= delta <= target[1] else "FAIL"
     print(
         f"  {status}  layer ΔL* ({mode}): {delta:.2f}  (target {target[0]}-{target[1]})  "

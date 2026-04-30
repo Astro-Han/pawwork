@@ -3,8 +3,13 @@
 Verify PawWork dark mode renders the expected layer hex values.
 Asserts:
   - Sidebar bg renders as #171717 ± 2 per channel
-  - Main bg renders as #303030 ± 2 per channel
-  - Composer interior renders as #303030 ± 2 per channel
+  - Main bg renders as #212121 ± 2 per channel
+  - Composer interior renders as #2F2F2F ± 2 per channel
+    (one step lighter than main; lift is the boundary cue, no 1px ring)
+
+These targets follow ChatGPT Dark hierarchy: flat sidebar (~#181818), main one
+step above (~#212121), composer two steps above (~#2F2F2F). The combined
+sidebar→main→composer ladder reads as immersion rather than 'lit room'.
 
 Token-level R-B neutrality for dark mode is covered by `token_audit.py --mode dark`.
 This script focuses on layer-level pixel checks specific to dark mode targets.
@@ -20,8 +25,8 @@ from img_sample import median_region, to_hex
 
 TARGETS = {
     "sidebar bg": ((0x17, 0x17, 0x17), 2),
-    "main bg": ((0x30, 0x30, 0x30), 2),
-    "composer interior": ((0x30, 0x30, 0x30), 2),
+    "main bg": ((0x21, 0x21, 0x21), 2),
+    "composer interior": ((0x2F, 0x2F, 0x2F), 2),
 }
 
 

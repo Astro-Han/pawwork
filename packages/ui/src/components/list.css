@@ -197,12 +197,12 @@
 
         color: var(--text-weak);
 
-        /* text-14-medium */
+        /* text-12-regular — aligned with sidebar section headers */
         font-family: var(--font-family-sans);
-        font-size: var(--font-size-hierarchy);
+        font-size: var(--font-size-x-small);
         font-style: normal;
-        font-weight: var(--font-weight-medium);
-        line-height: var(--line-height-large); /* 142.857% */
+        font-weight: var(--font-weight-regular);
+        line-height: var(--line-height-large);
         letter-spacing: var(--letter-spacing-normal);
 
         &::after {

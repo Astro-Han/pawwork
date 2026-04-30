@@ -4,7 +4,7 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  background-color: hsl(from var(--background-base) h s l / 0.2);
+  background-color: light-dark(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.7));
 }
 
 [data-component="dialog"] {
@@ -47,10 +47,10 @@
 
       /* padding: 8px; */
       /* padding: 8px 8px 0 8px; */
-      border-radius: var(--radius-xl);
+      border-radius: 14px;
       background: var(--surface-raised-stronger-non-alpha);
       background-clip: padding-box;
-      box-shadow: var(--shadow-lg-border-base);
+      box-shadow: var(--shadow-modal);
 
       [data-slot="dialog-header"] {
         display: flex;
@@ -136,10 +136,10 @@
 }
 
 [data-component="dialog"][data-transition] [data-slot="dialog-content"] {
-  animation: contentHide 100ms ease-in forwards;
+  animation: contentHide 100ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 
   &[data-expanded] {
-    animation: contentShow 150ms ease-out;
+    animation: contentShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 }
 
