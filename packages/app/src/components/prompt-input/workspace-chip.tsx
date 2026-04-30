@@ -70,7 +70,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
       trigger={
         <>
           <Icon name="folder" size="small" class="shrink-0 text-text-weak" />
-          <span class="max-w-[120px] truncate">{label()}</span>
+          <span class="max-w-[120px] truncate transition-[max-width] duration-200 ease-out @max-[24rem]/composer:max-w-0">{label()}</span>
           <Icon name="chevron-down" size="small" class="shrink-0 text-text-weak" />
         </>
       }

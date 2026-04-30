@@ -1127,7 +1127,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               as="div"
               variant="ghost"
               size="normal"
-              class="h-[28px]! min-w-0 w-44 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover"
+              class="h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover"
               style={triggerStyle()}
               onClick={() => {
                 void import("@/components/dialog-select-model-unpaid").then((x) => {
@@ -1142,7 +1142,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   style={{ "will-change": "opacity", transform: "translateZ(0)" }}
                 />
               </Show>
-              <span class="flex-1 truncate text-center">
+              <span
+                class="truncate text-center max-w-[7rem] transition-[max-width] duration-200 ease-out"
+                classList={{ "@max-[28rem]/composer:max-w-0": !!local.model.current()?.provider?.id }}
+              >
                 {local.model.current()?.name ?? language.t("dialog.model.select.title")}
               </span>
               <Icon name="chevron-down" size="small" class="shrink-0" />
@@ -1164,7 +1167,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "h-[28px]! min-w-0 w-44 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover",
+                "h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover",
               "data-action": "prompt-model",
             }}
             onClose={restoreFocus}
@@ -1176,7 +1179,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 style={{ "will-change": "opacity", transform: "translateZ(0)" }}
               />
             </Show>
-            <span class="flex-1 truncate text-center">
+            <span
+              class="truncate text-center max-w-[7rem] transition-[max-width] duration-200 ease-out"
+              classList={{ "@max-[28rem]/composer:max-w-0": !!local.model.current()?.provider?.id }}
+            >
               {local.model.current()?.name ?? language.t("dialog.model.select.title")}
             </span>
             <Icon name="chevron-down" size="small" class="shrink-0" />
@@ -1208,7 +1214,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               "aria-haspopup": "menu",
               style: triggerStyle(),
               class:
-                "h-[28px] px-2 max-w-[160px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-text-base transition-colors hover:bg-surface-base-hover",
+                "h-[28px] px-2 max-w-[160px] @max-[20rem]/composer:max-w-[80px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-text-base transition-[max-width,colors] duration-200 ease-out hover:bg-surface-base-hover",
             } as any
           }
           trigger={
@@ -1436,7 +1442,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       <DockShellForm
         onSubmit={handleSubmit}
         classList={{
-          "group/prompt-input": true,
+          "group/prompt-input @container/composer": true,
           "border-icon-info-active border-dashed": store.draggingType !== null,
           [props.class ?? ""]: !!props.class,
         }}
@@ -1550,7 +1556,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             }}
           />
 
-          <div class="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-8">
+          <div class="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-3">
             <div
               aria-hidden={store.mode !== "normal"}
               class="pointer-events-auto flex min-w-0 items-center gap-2"
