@@ -109,10 +109,11 @@
   }
 
   /* Mac native unified-chrome pattern: titlebar bg matches whatever surface
-     sits below it on each side. Left of --sidebar-width = sidebar bg (seamless
-     vertical extension of the sidebar panel up through the titlebar). Right
-     = main bg. The only visual seam is the sidebar/main vertical divider,
-     which now runs continuously from window top to bottom. */
+     sits below it. Left of --sidebar-width = sidebar bg (seamless vertical
+     extension of the sidebar panel up through the titlebar). Right = main
+     bg. Right-panel boundary is intentionally NOT drawn into the titlebar
+     (Mail / Finder / Notes do not split their toolbar) so it never overlaps
+     with breadcrumb or center-portal content when the panel is wide. */
   [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"] {
     padding-inline: 8px;
     background: linear-gradient(
@@ -120,10 +121,6 @@
       var(--background-weak) 0,
       var(--background-weak) var(--sidebar-width, 0px),
       var(--background-base) var(--sidebar-width, 0px),
-      var(--background-base) calc(100% - var(--right-panel-width, 0px)),
-      var(--right-panel-divider, transparent) calc(100% - var(--right-panel-width, 0px)),
-      var(--right-panel-divider, transparent) calc(100% - var(--right-panel-width, 0px) + 1px),
-      var(--background-base) calc(100% - var(--right-panel-width, 0px) + 1px),
       var(--background-base) 100%
     );
   }
