@@ -22,19 +22,20 @@ export type DenialDiagnostic = {
   additionalBlockedCommands?: AdditionalBlockedCommand[]
 }
 
-const PERMANENT_DELETE_PATTERNS = new Set([
-  "rm *",
-  "rmdir *",
-  "unlink *",
-  "find * -delete*",
-  "Remove-Item *",
-  "del *",
-  "erase *",
-  "rd *",
-])
+const PERMANENT_DELETE_RULE_PATTERNS = [
+  /^rm(?:\s|$)/,
+  /^rmdir(?:\s|$)/,
+  /^unlink(?:\s|$)/,
+  /^find(?:\s|$).*(?:^|\s)-delete(?:\*|\s|$)/,
+  /^Remove-Item(?:\s|$)/i,
+  /^del(?:\s|$)/i,
+  /^erase(?:\s|$)/i,
+  /^rd(?:\s|$)/i,
+]
 
 export function isPermanentDeleteRule(rule: Permission.Rule) {
-  return PERMANENT_DELETE_PATTERNS.has(rule.pattern)
+  const pattern = rule.pattern.trim()
+  return PERMANENT_DELETE_RULE_PATTERNS.some((matcher) => matcher.test(pattern))
 }
 
 export function fromDeniedRule(input: {
@@ -145,7 +146,10 @@ export function render(diagnostic: DenialDiagnostic): string {
   ]
 
   if (diagnostic.additionalBlockedCommands?.length) {
-    lines.push(`Additional blocked commands: ${diagnostic.additionalBlockedCommands.length}`)
+    const commands = diagnostic.additionalBlockedCommands
+      .map((command) => command.blockedCommand)
+      .join(", ")
+    lines.push(`Additional blocked commands (${diagnostic.additionalBlockedCommands.length}): ${commands}`)
   }
 
   lines.push("", "Recommended next step:", ...diagnostic.suggestions.map((suggestion) => suggestion.text))

@@ -2,7 +2,7 @@ import { afterEach, test, expect } from "bun:test"
 import os from "os"
 import { Bus } from "../../src/bus"
 import { Permission } from "../../src/permission"
-import { fromDeniedRule, permanentDeleteSuggestions } from "../../src/permission/diagnostic"
+import { fromDeniedRule, isPermanentDeleteRule, permanentDeleteSuggestions } from "../../src/permission/diagnostic"
 import { PermissionID } from "../../src/permission/schema"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
@@ -590,10 +590,12 @@ test("ask - throws RejectedError when action is deny", async () => {
 
 const bashDeleteCases = [
   { command: "rm file.txt", rule: "rm *" },
+  { command: "rm -rf folder", rule: "rm -rf *" },
   { command: "rmdir folder", rule: "rmdir *" },
   { command: "unlink file.txt", rule: "unlink *" },
   { command: "find . -delete", rule: "find * -delete*" },
   { command: "Remove-Item file.txt", rule: "Remove-Item *" },
+  { command: "Remove-Item -Recurse folder", rule: "Remove-Item -Recurse *" },
   { command: "del file.txt", rule: "del *" },
   { command: "erase file.txt", rule: "erase *" },
   { command: "rd folder", rule: "rd *" },
@@ -644,6 +646,11 @@ test.each(bashDeleteCases)(
     })
   },
 )
+
+test("isPermanentDeleteRule - excludes allowed open-mode command families", () => {
+  expect(isPermanentDeleteRule({ permission: "bash", pattern: "chmod *", action: "deny" })).toBe(false)
+  expect(isPermanentDeleteRule({ permission: "bash", pattern: "kill *", action: "deny" })).toBe(false)
+})
 
 const bashGenericCases = [
   { command: "dd if=/dev/zero of=disk.img", rule: "dd *" },
@@ -765,6 +772,14 @@ test("fromDeniedRule accepts explicit platform for deterministic tests", () => {
 
   expect(diagnostic?.suggestions.map((item) => item.text).join("\n")).toContain("gio trash")
 })
+
+function expectPermanentDeleteNextStep(message: string) {
+  if (os.platform() === "darwin" || os.platform() === "linux") {
+    expect(message).toContain("trash <path>")
+    return
+  }
+  expect(message).toContain("Recommended next step:")
+}
 
 test("ask - returns pending promise when action is ask", async () => {
   await using tmp = await tmpdir({ git: true })
@@ -1377,7 +1392,7 @@ test("ask - denial diagnostic keeps flags and multiple operands without rewritin
 
       expect(err.diagnostic?.blockedCommand).toBe("rm -rf dir other")
       expect(err.message).toContain("Command blocked: rm -rf dir other")
-      expect(err.message).toContain("trash <path>")
+      expectPermanentDeleteNextStep(err.message)
       expect(err.message).not.toContain("trash dir other")
     },
   })
@@ -1412,7 +1427,7 @@ test("ask - denial diagnostic summarizes additional blocked commands", async () 
         { blockedCommand: "rmdir b", matchedRule: { permission: "bash", pattern: "rmdir *", action: "deny" } },
       ])
       expect(err.message).toContain("Command blocked: rm a")
-      expect(err.message).toContain("Additional blocked commands: 1")
+      expect(err.message).toContain("Additional blocked commands (1): rmdir b")
     },
   })
 })
@@ -1450,8 +1465,8 @@ test("ask - permanent delete denial is primary when a generic denial comes first
         },
       ])
       expect(err.message).toContain("Command blocked: rm file.txt")
-      expect(err.message).toContain("trash <path>")
-      expect(err.message).toContain("Additional blocked commands: 1")
+      expectPermanentDeleteNextStep(err.message)
+      expect(err.message).toContain("Additional blocked commands (1): dd if=/dev/zero of=disk.img")
     },
   })
 })
