@@ -3609,13 +3609,13 @@ export class Vcs extends HeyApiClient {
   /**
    * Get VCS diff
    *
-   * Retrieve the current git diff for the working tree or against the default branch.
+   * Retrieve the current unstaged, staged, or default-branch git diff.
    */
   public diff<ThrowOnError extends boolean = false>(
     parameters: {
       directory?: string
       workspace?: string
-      mode: "git" | "branch"
+      mode: "unstaged" | "staged" | "branch"
     },
     options?: Options<never, ThrowOnError>,
   ) {

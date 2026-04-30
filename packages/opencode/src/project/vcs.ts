@@ -40,24 +40,19 @@ export namespace Vcs {
     return [...out.values()]
   }
 
-  const files = Effect.fnUntraced(function* (
-    fs: AppFileSystem.Interface,
-    git: Git.Interface,
-    cwd: string,
-    ref: string | undefined,
-    list: Git.Item[],
-    map: Map<string, { additions: number; deletions: number }>,
-  ) {
-    const base = ref ? yield* git.prefix(cwd) : ""
+  const staged = Effect.fnUntraced(function* (fs: AppFileSystem.Interface, git: Git.Interface, cwd: string) {
+    const [list, stats] = yield* Effect.all([git.diffStaged(cwd), git.statsStaged(cwd)], { concurrency: 2 })
+    const statMap = nums(stats)
+    const base = yield* git.prefix(cwd)
     const patch = (file: string, before: string, after: string) =>
       formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
     const next = yield* Effect.forEach(
       list,
       (item) =>
         Effect.gen(function* () {
-          const before = item.status === "added" || !ref ? "" : yield* git.show(cwd, ref, item.file, base)
-          const after = item.status === "deleted" ? "" : yield* work(fs, cwd, item.file)
-          const stat = map.get(item.file)
+          const before = item.status === "added" ? "" : yield* git.show(cwd, "HEAD", item.file, base)
+          const after = item.status === "deleted" ? "" : yield* git.showIndex(cwd, item.file, base)
+          const stat = statMap.get(item.file)
           return {
             file: item.file,
             patch: patch(item.file, before, after),
@@ -71,40 +66,75 @@ export namespace Vcs {
     return next.toSorted((a, b) => a.file.localeCompare(b.file))
   })
 
-  const track = Effect.fnUntraced(function* (
+  const unstaged = Effect.fnUntraced(function* (
     fs: AppFileSystem.Interface,
     git: Git.Interface,
     cwd: string,
-    ref: string | undefined,
   ) {
-    if (!ref) return yield* files(fs, git, cwd, ref, yield* git.status(cwd), new Map())
-    const [list, stats] = yield* Effect.all([git.status(cwd), git.stats(cwd, ref)], { concurrency: 2 })
-    return yield* files(fs, git, cwd, ref, list, nums(stats))
+    const [tracked, extra, stats] = yield* Effect.all(
+      [git.diffUnstaged(cwd), git.statusUnstaged(cwd), git.statsUnstaged(cwd)],
+      { concurrency: 3 },
+    )
+    const list = merge(
+      tracked,
+      extra.filter((item) => item.code === "??"),
+    )
+    const statMap = nums(stats)
+    const base = yield* git.prefix(cwd)
+    const patch = (file: string, before: string, after: string) =>
+      formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
+    const next = yield* Effect.forEach(
+      list,
+      (item) =>
+        Effect.gen(function* () {
+          const before = item.code === "??" ? "" : yield* git.showIndex(cwd, item.file, base)
+          const after = item.status === "deleted" ? "" : yield* work(fs, cwd, item.file)
+          const stat = statMap.get(item.file)
+          return {
+            file: item.file,
+            patch: patch(item.file, before, after),
+            additions: stat?.additions ?? (item.status === "added" ? count(after) : 0),
+            deletions: stat?.deletions ?? (item.status === "deleted" ? count(before) : 0),
+            status: item.status,
+          } satisfies FileDiff
+        }),
+      { concurrency: 8 },
+    )
+    return next.toSorted((a, b) => a.file.localeCompare(b.file))
   })
 
-  const compare = Effect.fnUntraced(function* (
+  const branchHead = Effect.fnUntraced(function* (
     fs: AppFileSystem.Interface,
     git: Git.Interface,
     cwd: string,
     ref: string,
   ) {
-    const [list, stats, extra] = yield* Effect.all([git.diff(cwd, ref), git.stats(cwd, ref), git.status(cwd)], {
-      concurrency: 3,
-    })
-    return yield* files(
-      fs,
-      git,
-      cwd,
-      ref,
-      merge(
-        list,
-        extra.filter((item) => item.code === "??"),
-      ),
-      nums(stats),
+    const [list, stats] = yield* Effect.all([git.diffHead(cwd, ref), git.statsHead(cwd, ref)], { concurrency: 2 })
+    const statMap = nums(stats)
+    const base = yield* git.prefix(cwd)
+    const patch = (file: string, before: string, after: string) =>
+      formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
+    const next = yield* Effect.forEach(
+      list,
+      (item) =>
+        Effect.gen(function* () {
+          const before = item.status === "added" ? "" : yield* git.show(cwd, ref, item.file, base)
+          const after = item.status === "deleted" ? "" : yield* git.show(cwd, "HEAD", item.file, base)
+          const stat = statMap.get(item.file)
+          return {
+            file: item.file,
+            patch: patch(item.file, before, after),
+            additions: stat?.additions ?? (item.status === "added" ? count(after) : 0),
+            deletions: stat?.deletions ?? (item.status === "deleted" ? count(before) : 0),
+            status: item.status,
+          } satisfies FileDiff
+        }),
+      { concurrency: 8 },
     )
+    return next.toSorted((a, b) => a.file.localeCompare(b.file))
   })
 
-  export const Mode = z.enum(["git", "branch"])
+  export const Mode = z.enum(["unstaged", "staged", "branch"])
   export type Mode = z.infer<typeof Mode>
 
   export const Event = {
@@ -207,20 +237,19 @@ export namespace Vcs {
         diff: Effect.fn("Vcs.diff")(function* (mode: Mode) {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
-          if (mode === "git") {
-            return yield* track(
-              fs,
-              git,
-              Instance.directory,
-              (yield* git.hasHead(Instance.directory)) ? "HEAD" : undefined,
-            )
+          if (mode === "unstaged") {
+            return yield* unstaged(fs, git, Instance.directory)
+          }
+
+          if (mode === "staged") {
+            return yield* staged(fs, git, Instance.directory)
           }
 
           if (!value.root) return []
           if (value.current && value.current === value.root.name) return []
           const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
           if (!ref) return []
-          return yield* compare(fs, git, Instance.directory, ref)
+          return yield* branchHead(fs, git, Instance.directory, ref)
         }),
       })
     }),
