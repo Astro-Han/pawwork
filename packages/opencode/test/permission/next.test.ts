@@ -2,6 +2,7 @@ import { afterEach, test, expect } from "bun:test"
 import os from "os"
 import { Bus } from "../../src/bus"
 import { Permission } from "../../src/permission"
+import { fromDeniedRule, isPermanentDeleteRule, permanentDeleteSuggestions } from "../../src/permission/diagnostic"
 import { PermissionID } from "../../src/permission/schema"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
@@ -587,6 +588,199 @@ test("ask - throws RejectedError when action is deny", async () => {
   })
 })
 
+const bashDeleteCases = [
+  { command: "rm file.txt", rule: "rm *" },
+  { command: "rm -rf folder", rule: "rm -rf *" },
+  { command: "rmdir folder", rule: "rmdir *" },
+  { command: "unlink file.txt", rule: "unlink *" },
+  { command: "find . -delete", rule: "find * -delete*" },
+  { command: "Remove-Item file.txt", rule: "Remove-Item *" },
+  { command: "Remove-Item -Recurse folder", rule: "Remove-Item -Recurse *" },
+  { command: "del file.txt", rule: "del *" },
+  { command: "erase file.txt", rule: "erase *" },
+  { command: "rd folder", rule: "rd *" },
+]
+
+test.each(bashDeleteCases)(
+  "ask - denied bash permanent delete includes structured diagnostic for $command",
+  async ({ command, rule }) => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const err = await Permission.ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: [command],
+          metadata: {},
+          always: [],
+          ruleset: [
+            { permission: "bash", pattern: "*", action: "allow" },
+            { permission: "bash", pattern: rule, action: "deny" },
+          ],
+        }).then(
+          () => undefined,
+          (err) => err,
+        )
+
+        expect(err).toBeInstanceOf(Permission.DeniedError)
+        if (!(err instanceof Permission.DeniedError)) return
+
+        expect(err.ruleset).toEqual([
+          { permission: "bash", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: rule, action: "deny" },
+        ])
+        expect(err.diagnostic).toMatchObject({
+          code: "permission.bash.permanent_delete_blocked",
+          category: "permanent_delete",
+          blockedCommand: command,
+          matchedRule: { permission: "bash", pattern: rule, action: "deny" },
+          reason: "This command permanently deletes files and is not reversible.",
+        })
+        expect(err.diagnostic?.suggestions.length).toBeGreaterThan(0)
+        expect(err.message).toContain(`Command blocked: ${command}`)
+        expect(err.message).toContain(`Matched rule: bash "${rule}" deny`)
+        expect(err.message).toContain("Recommended next step:")
+        expect(err.message).not.toContain("Here are some of the relevant rules")
+      },
+    })
+  },
+)
+
+test("isPermanentDeleteRule - excludes allowed open-mode command families", () => {
+  expect(isPermanentDeleteRule({ permission: "bash", pattern: "chmod *", action: "deny" })).toBe(false)
+  expect(isPermanentDeleteRule({ permission: "bash", pattern: "kill *", action: "deny" })).toBe(false)
+})
+
+const bashGenericCases = [
+  { command: "dd if=/dev/zero of=disk.img", rule: "dd *" },
+  { command: "mkfs.ext4 /dev/sdb1", rule: "mkfs*" },
+]
+
+test.each(bashGenericCases)(
+  "ask - denied non-delete bash command includes generic diagnostic for $command",
+  async ({ command, rule }) => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const err = await Permission.ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: [command],
+          metadata: {},
+          always: [],
+          ruleset: [
+            { permission: "bash", pattern: "*", action: "allow" },
+            { permission: "bash", pattern: rule, action: "deny" },
+          ],
+        }).then(
+          () => undefined,
+          (err) => err,
+        )
+
+        expect(err).toBeInstanceOf(Permission.DeniedError)
+        if (!(err instanceof Permission.DeniedError)) return
+
+        expect(err.diagnostic).toEqual({
+          code: "permission.bash.denied",
+          category: "generic",
+          blockedCommand: command,
+          matchedRule: { permission: "bash", pattern: rule, action: "deny" },
+          reason: "This command is blocked by PawWork's safety policy.",
+          suggestions: [
+            {
+              applicability: "ask_user",
+              text: "Do not retry with another destructive command. Explain what you were trying to do and ask the user before proceeding.",
+            },
+          ],
+        })
+        expect(err.message).toContain(`Command blocked: ${command}`)
+        expect(err.message).toContain(`Matched rule: bash "${rule}" deny`)
+        expect(err.message).not.toContain("reversible trash command")
+        expect(err.message).not.toContain("Here are some of the relevant rules")
+      },
+    })
+  },
+)
+
+test("ask - non-bash denied permissions keep legacy message without bash diagnostic", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const err = await Permission.ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "edit",
+        patterns: ["secret.txt"],
+        metadata: {},
+        always: [],
+        ruleset: [{ permission: "edit", pattern: "secret.txt", action: "deny" }],
+      }).then(
+        () => undefined,
+        (err) => err,
+      )
+
+      expect(err).toBeInstanceOf(Permission.DeniedError)
+      if (!(err instanceof Permission.DeniedError)) return
+
+      expect(err.diagnostic).toBeUndefined()
+      expect(err.message).toContain("Here are some of the relevant rules")
+    },
+  })
+})
+
+test("permission denial diagnostic suggestions are platform-specific", () => {
+  expect(permanentDeleteSuggestions("darwin")).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ applicability: "retryable", text: expect.stringContaining("command -v trash") }),
+    ]),
+  )
+  expect(permanentDeleteSuggestions("linux")).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ applicability: "retryable", text: expect.stringContaining("command -v gio") }),
+      expect.objectContaining({ applicability: "retryable", text: expect.stringContaining("trash-put") }),
+    ]),
+  )
+
+  const win32 = permanentDeleteSuggestions("win32")
+  expect(win32).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        applicability: "ask_user",
+        text: expect.stringContaining("PowerShell has no simple built-in recycle cmdlet"),
+      }),
+    ]),
+  )
+  expect(win32.map((item) => item.text).join("\n")).not.toContain("Use `Remove-Item`")
+
+  expect(permanentDeleteSuggestions("freebsd")).toEqual([
+    {
+      applicability: "ask_user",
+      text: "No reversible trash command is known for this platform. Ask the user before changing system state or deleting permanently.",
+    },
+  ])
+})
+
+test("fromDeniedRule accepts explicit platform for deterministic tests", () => {
+  const diagnostic = fromDeniedRule({
+    permission: "bash",
+    blockedCommand: "rm file.txt",
+    matchedRule: { permission: "bash", pattern: "rm *", action: "deny" },
+    platform: "linux",
+  })
+
+  expect(diagnostic?.suggestions.map((item) => item.text).join("\n")).toContain("gio trash")
+})
+
+function expectPermanentDeleteNextStep(message: string) {
+  if (os.platform() === "darwin" || os.platform() === "linux") {
+    expect(message).toContain("trash <path>")
+    return
+  }
+  expect(message).toContain("Recommended next step:")
+}
+
 test("ask - returns pending promise when action is ask", async () => {
   await using tmp = await tmpdir({ git: true })
   await Instance.provide({
@@ -1121,7 +1315,7 @@ test("reply - does nothing for unknown requestID", async () => {
   })
 })
 
-test("ask - checks all patterns and stops on first deny", async () => {
+test("ask - denies when any pattern matches a deny rule", async () => {
   await using tmp = await tmpdir({ git: true })
   await Instance.provide({
     directory: tmp.path,
@@ -1141,6 +1335,150 @@ test("ask - checks all patterns and stops on first deny", async () => {
       ).rejects.toBeInstanceOf(Permission.DeniedError)
     },
   })
+})
+
+test("ask - denial diagnostic uses the actual denied pattern in compound commands", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const err = await Permission.ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["echo ok", "rm file.txt"],
+        metadata: {},
+        always: [],
+        ruleset: [
+          { permission: "bash", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: "rm *", action: "deny" },
+        ],
+      }).then(
+        () => undefined,
+        (err) => err,
+      )
+
+      expect(err).toBeInstanceOf(Permission.DeniedError)
+      if (!(err instanceof Permission.DeniedError)) return
+
+      expect(err.diagnostic?.blockedCommand).toBe("rm file.txt")
+      expect(err.message).toContain("Command blocked: rm file.txt")
+      expect(err.message).not.toContain("Command blocked: echo ok")
+    },
+  })
+})
+
+test("ask - denial diagnostic keeps flags and multiple operands without rewriting command", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const err = await Permission.ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["rm -rf dir other"],
+        metadata: {},
+        always: [],
+        ruleset: [
+          { permission: "bash", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: "rm *", action: "deny" },
+        ],
+      }).then(
+        () => undefined,
+        (err) => err,
+      )
+
+      expect(err).toBeInstanceOf(Permission.DeniedError)
+      if (!(err instanceof Permission.DeniedError)) return
+
+      expect(err.diagnostic?.blockedCommand).toBe("rm -rf dir other")
+      expect(err.message).toContain("Command blocked: rm -rf dir other")
+      expectPermanentDeleteNextStep(err.message)
+      expect(err.message).not.toContain("trash dir other")
+    },
+  })
+})
+
+test("ask - denial diagnostic summarizes additional blocked commands", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const err = await Permission.ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["rm a", "rmdir b"],
+        metadata: {},
+        always: [],
+        ruleset: [
+          { permission: "bash", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: "rm *", action: "deny" },
+          { permission: "bash", pattern: "rmdir *", action: "deny" },
+        ],
+      }).then(
+        () => undefined,
+        (err) => err,
+      )
+
+      expect(err).toBeInstanceOf(Permission.DeniedError)
+      if (!(err instanceof Permission.DeniedError)) return
+
+      expect(err.diagnostic?.blockedCommand).toBe("rm a")
+      expect(err.diagnostic?.additionalBlockedCommands).toEqual([
+        { blockedCommand: "rmdir b", matchedRule: { permission: "bash", pattern: "rmdir *", action: "deny" } },
+      ])
+      expect(err.message).toContain("Command blocked: rm a")
+      expect(err.message).toContain("Additional blocked commands (1): rmdir b")
+    },
+  })
+})
+
+test("ask - permanent delete denial is primary when a generic denial comes first", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const err = await Permission.ask({
+        sessionID: SessionID.make("session_test"),
+        permission: "bash",
+        patterns: ["dd if=/dev/zero of=disk.img", "rm file.txt"],
+        metadata: {},
+        always: [],
+        ruleset: [
+          { permission: "bash", pattern: "*", action: "allow" },
+          { permission: "bash", pattern: "dd *", action: "deny" },
+          { permission: "bash", pattern: "rm *", action: "deny" },
+        ],
+      }).then(
+        () => undefined,
+        (err) => err,
+      )
+
+      expect(err).toBeInstanceOf(Permission.DeniedError)
+      if (!(err instanceof Permission.DeniedError)) return
+
+      expect(err.diagnostic?.category).toBe("permanent_delete")
+      expect(err.diagnostic?.blockedCommand).toBe("rm file.txt")
+      expect(err.diagnostic?.additionalBlockedCommands).toEqual([
+        {
+          blockedCommand: "dd if=/dev/zero of=disk.img",
+          matchedRule: { permission: "bash", pattern: "dd *", action: "deny" },
+        },
+      ])
+      expect(err.message).toContain("Command blocked: rm file.txt")
+      expectPermanentDeleteNextStep(err.message)
+      expect(err.message).toContain("Additional blocked commands (1): dd if=/dev/zero of=disk.img")
+    },
+  })
+})
+
+test("ask - denied error remains compatible without diagnostic", () => {
+  const err = new Permission.DeniedError({
+    ruleset: [{ permission: "bash", pattern: "rm *", action: "deny" }],
+  })
+
+  expect(err.ruleset).toEqual([{ permission: "bash", pattern: "rm *", action: "deny" }])
+  expect(err.diagnostic).toBeUndefined()
+  expect(err.message).toContain("Here are some of the relevant rules")
 })
 
 test("ask - allows all patterns when all match allow rules", async () => {
