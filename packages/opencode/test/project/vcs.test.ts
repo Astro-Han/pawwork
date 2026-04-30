@@ -169,32 +169,34 @@ describe("Vcs diff", () => {
     })
   })
 
-  test("diff('git') returns uncommitted changes", async () => {
+  test("diff('unstaged') returns unstaged and untracked changes only", async () => {
     await using tmp = await tmpdir({ git: true })
-    await fs.writeFile(path.join(tmp.path, "file.txt"), "original\n", "utf-8")
-    await $`git add .`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
     await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
-    await fs.writeFile(path.join(tmp.path, "file.txt"), "changed\n", "utf-8")
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "changed\n", "utf-8")
+    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+    await $`git add staged.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
 
     await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("git")
+      const diff = await Vcs.diff("unstaged")
       expect(diff).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            file: "file.txt",
-            status: "modified",
-          }),
+          expect.objectContaining({ file: "tracked.txt", status: "modified" }),
+          expect.objectContaining({ file: "untracked.txt", status: "added" }),
         ]),
       )
+      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
     })
   })
 
-  test("diff('git') handles special filenames", async () => {
+  test("diff('unstaged') handles special filenames", async () => {
     await using tmp = await tmpdir({ git: true })
     await fs.writeFile(path.join(tmp.path, weird), "hello\n", "utf-8")
 
     await withVcsOnly(tmp.path, async () => {
-      const diff = await Vcs.diff("git")
+      const diff = await Vcs.diff("unstaged")
       expect(diff).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -203,6 +205,57 @@ describe("Vcs diff", () => {
           }),
         ]),
       )
+    })
+  })
+
+  test("diff('staged') returns staged changes only", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, "tracked.txt"), "original\n", "utf-8")
+    await $`git add tracked.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+
+    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+    await $`git add staged.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+
+    await withVcsOnly(tmp.path, async () => {
+      const diff = await Vcs.diff("staged")
+      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt", status: "added" })]))
+      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
+    })
+  })
+
+  test("diff('staged') returns staged files before the first commit", async () => {
+    await using tmp = await tmpdir()
+    await $`git init`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "first.txt"), "first\n", "utf-8")
+    await $`git add first.txt`.cwd(tmp.path).quiet()
+
+    await withVcsOnly(tmp.path, async () => {
+      const diff = await Vcs.diff("staged")
+      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "first.txt", status: "added" })]))
+    })
+  })
+
+  test("diff('branch') returns committed branch changes without staged, unstaged, or untracked files", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await $`git branch -M main`.cwd(tmp.path).quiet()
+    await $`git checkout -b feature/test`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\n", "utf-8")
+    await $`git add branch.txt`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet()
+
+    await fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8")
+    await $`git add staged.txt`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8")
+    await fs.writeFile(path.join(tmp.path, "untracked.txt"), "untracked\n", "utf-8")
+
+    await withVcsOnly(tmp.path, async () => {
+      const diff = await Vcs.diff("branch")
+      expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
+      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
+      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
+      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "untracked.txt" })]))
     })
   })
 

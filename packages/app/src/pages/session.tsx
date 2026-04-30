@@ -1,4 +1,4 @@
-import type { Project, UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import type { UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useMutation } from "@tanstack/solid-query"
 import {
@@ -26,7 +26,6 @@ import { Select } from "@opencode-ai/ui/select"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
-import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
 import { checksum } from "@opencode-ai/util/encode"
 import { useLocation, useSearchParams } from "@solidjs/router"
@@ -54,6 +53,17 @@ import {
 } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
+import {
+  coerceReviewChangeMode,
+  DEFAULT_REVIEW_CHANGE_MODE,
+  isVcsReviewMode,
+  nextReviewModeForSessionChange,
+  reviewChangeOptions,
+  reviewDiffsForMode,
+  reviewModeLabelKey,
+  type ReviewChangeMode,
+  type VcsReviewMode,
+} from "@/pages/session/review-change-mode"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import {
   emptyMessages,
@@ -79,9 +89,6 @@ import { formatServerError } from "@/utils/server-errors"
 type FollowupItem = FollowupDraft & { id: string }
 type FollowupEdit = Pick<FollowupItem, "id" | "prompt" | "context">
 const emptyFollowups: FollowupItem[] = []
-
-type ChangeMode = "git" | "branch" | "turn"
-type VcsMode = "git" | "branch"
 
 type SessionHistoryWindowInput = {
   sessionID: () => string | undefined
@@ -614,27 +621,23 @@ export default function Page() {
   const [store, setStore] = createStore({
     messageId: undefined as string | undefined,
     mobileTab: "session" as "session" | "changes",
-    changes: "git" as ChangeMode,
+    changes: DEFAULT_REVIEW_CHANGE_MODE as ReviewChangeMode,
     newSessionWorktree: "main",
     deferRender: false,
   })
 
   const [vcs, setVcs] = createStore<{
-    diff: {
-      git: VcsFileDiff[]
-      branch: VcsFileDiff[]
-    }
-    ready: {
-      git: boolean
-      branch: boolean
-    }
+    diff: Record<VcsReviewMode, VcsFileDiff[]>
+    ready: Record<VcsReviewMode, boolean>
   }>({
     diff: {
-      git: [] as VcsFileDiff[],
+      unstaged: [] as VcsFileDiff[],
+      staged: [] as VcsFileDiff[],
       branch: [] as VcsFileDiff[],
     },
     ready: {
-      git: false,
+      unstaged: false,
+      staged: false,
       branch: false,
     },
   })
@@ -671,18 +674,18 @@ export default function Page() {
   let todoTimer: number | undefined
   let diffFrame: number | undefined
   let diffTimer: number | undefined
-  const vcsTask = new Map<VcsMode, Promise<void>>()
-  const vcsRun = new Map<VcsMode, number>()
+  const vcsTask = new Map<VcsReviewMode, Promise<void>>()
+  const vcsRun = new Map<VcsReviewMode, number>()
 
-  const bumpVcs = (mode: VcsMode) => {
+  const bumpVcs = (mode: VcsReviewMode) => {
     const next = (vcsRun.get(mode) ?? 0) + 1
     vcsRun.set(mode, next)
     return next
   }
 
-  const resetVcs = (mode?: VcsMode) => {
-    const list = mode ? [mode] : (["git", "branch"] as const)
-    list.forEach((item) => {
+  const resetVcs = (mode?: VcsReviewMode) => {
+    const modes = mode ? [mode] : (["unstaged", "staged", "branch"] as const)
+    modes.forEach((item) => {
       bumpVcs(item)
       vcsTask.delete(item)
       setVcs("diff", item, [])
@@ -690,7 +693,7 @@ export default function Page() {
     })
   }
 
-  const loadVcs = (mode: VcsMode, force = false) => {
+  const loadVcs = (mode: VcsReviewMode, force = false) => {
     if (sync.project?.vcs !== "git") return Promise.resolve()
     if (!force && vcs.ready[mode]) return Promise.resolve()
 
@@ -761,34 +764,24 @@ export default function Page() {
       }),
     )
   })
-  const nogit = createMemo(() => !!sync.project && sync.project.vcs !== "git")
-  const changesOptions = createMemo<ChangeMode[]>(() => {
-    const list: ChangeMode[] = []
-    if (sync.project?.vcs === "git") list.push("git")
-    if (
-      sync.project?.vcs === "git" &&
-      sync.data.vcs?.branch &&
-      sync.data.vcs?.default_branch &&
-      sync.data.vcs.branch !== sync.data.vcs.default_branch
-    ) {
-      list.push("branch")
-    }
-    list.push("turn")
-    return list
-  })
-  const vcsMode = createMemo<VcsMode | undefined>(() => {
-    if (store.changes === "git" || store.changes === "branch") return store.changes
+  const changesOptions = createMemo<ReviewChangeMode[]>(() =>
+    reviewChangeOptions({ isGit: sync.project?.vcs === "git" }),
+  )
+  const vcsMode = createMemo<VcsReviewMode | undefined>(() => {
+    if (isVcsReviewMode(store.changes)) return store.changes
   })
   const reviewDiffs = createMemo(() => {
-    if (store.changes === "git") return list(vcs.diff.git)
-    if (store.changes === "branch") return list(vcs.diff.branch)
-    return turnDiffs()
+    return list(
+      reviewDiffsForMode(store.changes, {
+        turn: turnDiffs(),
+        vcs: vcs.diff,
+      }),
+    )
   })
   const reviewCount = createMemo(() => reviewDiffs().length)
   const hasReview = createMemo(() => reviewCount() > 0)
   const reviewReady = createMemo(() => {
-    if (store.changes === "git") return vcs.ready.git
-    if (store.changes === "branch") return vcs.ready.branch
+    if (isVcsReviewMode(store.changes)) return vcs.ready[store.changes]
     return true
   })
 
@@ -854,45 +847,6 @@ export default function Page() {
 
     autoScroll.pause()
     scrollToMessage(msgs[targetIndex], "auto")
-  }
-
-  function upsert(next: Project) {
-    const list = globalSync.data.project
-    sync.set("project", next.id)
-    const idx = list.findIndex((item) => item.id === next.id)
-    if (idx >= 0) {
-      globalSync.set(
-        "project",
-        list.map((item, i) => (i === idx ? { ...item, ...next } : item)),
-      )
-      return
-    }
-    const at = list.findIndex((item) => item.id > next.id)
-    if (at >= 0) {
-      globalSync.set("project", [...list.slice(0, at), next, ...list.slice(at)])
-      return
-    }
-    globalSync.set("project", [...list, next])
-  }
-
-  const gitMutation = useMutation(() => ({
-    mutationFn: () => sdk.client.project.initGit(),
-    onSuccess: (x) => {
-      if (!x.data) return
-      upsert(x.data)
-    },
-    onError: (err) => {
-      showToast({
-        variant: "error",
-        title: language.t("common.requestFailed"),
-        description: formatServerError(err, language.t),
-      })
-    },
-  }))
-
-  function initGit() {
-    if (gitMutation.isPending) return
-    gitMutation.mutate()
   }
 
   let inputRef!: HTMLDivElement
@@ -1003,7 +957,7 @@ export default function Page() {
       sessionKey,
       () => {
         setStore("messageId", undefined)
-        setStore("changes", "git")
+        setStore("changes", nextReviewModeForSessionChange())
         setUi("pendingMessage", undefined)
       },
       { defer: true },
@@ -1207,9 +1161,8 @@ export default function Page() {
 
   createEffect(() => {
     const list = changesOptions()
-    if (list.includes(store.changes)) return
-    const next = list[0]
-    if (!next) return
+    const next = coerceReviewChangeMode(store.changes, list)
+    if (next === store.changes) return
     setStore("changes", next)
   })
 
@@ -1287,11 +1240,7 @@ export default function Page() {
       return null
     }
 
-    const label = (option: ChangeMode) => {
-      if (option === "git") return language.t("ui.sessionReview.title.git")
-      if (option === "branch") return language.t("ui.sessionReview.title.branch")
-      return language.t("ui.sessionReview.title.lastTurn")
-    }
+    const label = (option: ReviewChangeMode) => language.t(reviewModeLabelKey(option))
 
     return (
       <Select
@@ -1312,36 +1261,20 @@ export default function Page() {
     </div>
   )
 
-  const createGit = (input: { emptyClass: string }) => (
-    <div class={input.emptyClass}>
-      <div class="flex flex-col gap-3">
-        <div class="text-13-medium text-text-strong">{language.t("session.review.noVcs.createGit.title")}</div>
-        <div class="text-13-regular text-text-base max-w-md" style={{ "line-height": "var(--line-height-normal)" }}>
-          {language.t("session.review.noVcs.createGit.description")}
-        </div>
-      </div>
-      <Button size="large" disabled={gitMutation.isPending} onClick={initGit}>
-        {gitMutation.isPending
-          ? language.t("session.review.noVcs.createGit.actionLoading")
-          : language.t("session.review.noVcs.createGit.action")}
-      </Button>
-    </div>
-  )
-
   const reviewEmptyText = createMemo(() => {
-    if (store.changes === "git") return language.t("session.review.noUncommittedChanges")
+    if (store.changes === "unstaged") return language.t("session.review.noUnstagedChanges")
+    if (store.changes === "staged") return language.t("session.review.noStagedChanges")
     if (store.changes === "branch") return language.t("session.review.noBranchChanges")
     return language.t("session.review.noChanges")
   })
 
   const reviewEmpty = (input: { loadingClass: string; emptyClass: string }) => {
-    if (store.changes === "git" || store.changes === "branch") {
+    if (isVcsReviewMode(store.changes)) {
       if (!reviewReady()) return <div class={input.loadingClass}>{language.t("session.review.loadingChanges")}</div>
       return empty(reviewEmptyText())
     }
 
     if (store.changes === "turn") {
-      if (nogit()) return createGit(input)
       return empty(reviewEmptyText())
     }
 
