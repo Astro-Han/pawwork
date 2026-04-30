@@ -209,13 +209,12 @@ describe("Git", () => {
       yield* Effect.promise(() => fs.writeFile(path.join(tmp, "branch.txt"), "branch\n", "utf-8"))
       yield* Effect.promise(() => $`git add branch.txt`.cwd(tmp).quiet())
       yield* Effect.promise(() => $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "unstaged.txt"), "unstaged\n", "utf-8"))
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "branch.txt"), "branch\ndirty\n", "utf-8"))
 
       const git = yield* Git.Service
       const [diff, stats] = yield* Effect.all([git.diffHead(tmp, "main"), git.statsHead(tmp, "main")])
 
       expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
-      expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
       expect(stats).toEqual(
         expect.arrayContaining([expect.objectContaining({ file: "branch.txt", additions: 1, deletions: 0 })]),
       )
