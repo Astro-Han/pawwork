@@ -18,6 +18,34 @@ body:
       placeholder: When I tried to export a PDF, the app got stuck on loading and never finished.
     validations:
       required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area seems affected?
+      description: Pick the closest area. Maintainers can relabel it later.
+      options:
+        - App flow or product behavior
+        - Desktop shell, packaging, updater, signing, paths, or permissions
+        - UI or design system
+        - Model harness, prompts, tools, or session mechanics
+        - CI, release, or developer tooling
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: How severe is the impact?
+      description: Pick the closest priority. Maintainers can relabel it later.
+      options:
+        - P0: Blocks normal use or risks data/security
+        - P1: Important workflow is broken
+        - P2: Workflow is degraded but there is a workaround
+        - P3: Minor issue or polish
+        - Not sure
+    validations:
+      required: true
   - type: textarea
     id: steps
     attributes:
@@ -35,6 +63,17 @@ body:
     attributes:
       label: What did you expect to happen?
       placeholder: The file should export successfully.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: What would count as fixed?
+      description: List the observable result that would make this issue complete.
+      placeholder: |
+        - The export finishes without getting stuck.
+        - The user sees a clear error if export cannot continue.
+        - A regression check covers the failing path.
     validations:
       required: true
   - type: input
@@ -64,8 +103,8 @@ body:
     validations:
       required: true
   - type: textarea
-    id: attachments
+    id: diagnostics
     attributes:
-      label: Screenshots, recordings, or extra context
-      description: Drag files into the issue, or paste any extra details here.
-      placeholder: Attach screenshots, recordings, logs, or sample files if helpful.
+      label: Diagnostics
+      description: Attach screenshots, recordings, session exports, logs, or sample files if helpful.
+      placeholder: Paste relevant logs, describe attached files, or add links to screenshots and recordings.
