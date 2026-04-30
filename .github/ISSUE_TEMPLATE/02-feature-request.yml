@@ -24,15 +24,15 @@ body:
       label: Which area would this change affect?
       description: Pick the closest area. Maintainers can relabel it later.
       options:
+        - Not sure
         - App flow or product behavior
         - Desktop shell, packaging, updater, signing, paths, or permissions
         - UI or design system
         - Model harness, prompts, tools, or session mechanics
         - CI, release, or developer tooling
         - Documentation
-        - Not sure
     validations:
-      required: true
+      required: false
   - type: textarea
     id: current
     attributes:

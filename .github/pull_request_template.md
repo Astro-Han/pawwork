@@ -10,6 +10,10 @@ Explain the problem, goal, or context for this pull request.
 
 Link the issue if there is one.
 
+## Human Review Status
+
+Pending. A human should make the final merge decision after reviewing the final diff and verification evidence.
+
 ## Review Focus
 
 What should reviewers pay the most attention to?
@@ -20,14 +24,12 @@ Call out behavior, data, permissions, dependencies, platform, or migration risks
 
 ## How To Verify
 
-List the targeted checks you ran and any manual checks you performed. Prefer the smallest checks that cover the changed surface.
+List the targeted checks you ran and the key result for each one. Prefer the smallest checks that cover the changed surface. Include the result, not just the command.
 
-```bash
-# Examples, choose only what is relevant:
-cd packages/app
-bun test ...
-cd ../opencode
-bun test ...
+```text
+YAML parse: ok for both issue forms
+Diff check: no whitespace errors
+Focused tests: 47 passed
 ```
 
 ## Screenshots or Recordings
@@ -36,10 +38,12 @@ Required for visible UI changes.
 
 ## Checklist
 
+- [ ] Human review status is stated above as pending, approved, or not required
 - [ ] I linked the related issue, or stated why there is no issue
 - [ ] This PR has type, scope, and priority labels, or I requested maintainer labeling
 - [ ] I described the review focus and any meaningful risks
-- [ ] I listed the relevant verification steps, including tests when behavior changed
+- [ ] I listed the relevant verification steps and the key result for each
+- [ ] I did not introduce unrelated refactors, dependencies, generated files, or file changes beyond the stated scope
 - [ ] I manually checked visible UI or copy changes when needed, with screenshots or recordings
 - [ ] I considered macOS and Windows impact for desktop, packaging, updater, signing, paths, shell, or permissions changes
 - [ ] I called out docs, release notes, dependencies, permissions, credentials, deletion behavior, generated content, or local file changes when relevant
