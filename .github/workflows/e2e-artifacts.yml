@@ -49,7 +49,7 @@ jobs:
 
           is_docs_path() {
             case "$1" in
-              README.md|README_CN.md|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|packages/*/README.md|packages/opencode/specs/*|packages/opencode/BUN_SHELL_MIGRATION_PLAN.md|packages/app/create-effect-simplification-spec.md)
+              README.md|README_CN.md|assets/readme/*|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|packages/*/README.md|packages/opencode/specs/*|packages/opencode/BUN_SHELL_MIGRATION_PLAN.md|packages/app/create-effect-simplification-spec.md)
                 return 0
                 ;;
               *)

@@ -24,7 +24,80 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          is_docs_path() {
+            case "$1" in
+              README.md|README_CN.md|assets/readme/*|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|packages/*/README.md|packages/opencode/specs/*|packages/opencode/BUN_SHELL_MIGRATION_PLAN.md|packages/app/create-effect-simplification-spec.md)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          docs_only=false
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+          mapfile -t changes < <(git diff --name-status --find-renames --find-copies "$BASE_SHA" "$HEAD_SHA" --)
+
+          if [ "${#changes[@]}" -gt 0 ]; then
+            docs_only=true
+
+            for change in "${changes[@]}"; do
+              IFS=$'\t' read -r status path1 path2 <<< "$change"
+
+              case "$status" in
+                A*|M*|T*|D*)
+                  if ! is_docs_path "$path1"; then
+                    docs_only=false
+                    break
+                  fi
+                  ;;
+                R*|C*)
+                  if ! is_docs_path "$path1" || ! is_docs_path "$path2"; then
+                    docs_only=false
+                    break
+                  fi
+                  ;;
+                *)
+                  docs_only=false
+                  break
+                  ;;
+              esac
+            done
+          fi
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
   analyze-js-ts:
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
