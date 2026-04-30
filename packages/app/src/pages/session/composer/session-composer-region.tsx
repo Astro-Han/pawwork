@@ -143,13 +143,13 @@ export function SessionComposerRegion(props: {
     navigate(`/${route.params.dir}/session/${id}`)
   }
 
-  createEffect(() => {
-    const el = store.body
-    if (!el) return
-    const update = () => setStore("height", el.getBoundingClientRect().height)
-    createResizeObserver(store.body, update)
-    update()
-  })
+  createResizeObserver(
+    () => store.body,
+    () => {
+      const el = store.body
+      if (el) setStore("height", el.getBoundingClientRect().height)
+    },
+  )
 
   return (
     <div
