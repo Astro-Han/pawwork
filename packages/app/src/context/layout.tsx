@@ -198,9 +198,6 @@ export function createDefaultLayoutState() {
       width: DEFAULT_RIGHT_PANEL_WIDTH,
       opened: false,
     },
-    mobileSidebar: {
-      opened: false,
-    },
     sessionTabs: {} as Record<string, SessionTabs>,
     sessionView: {} as Record<string, SessionView>,
     handoff: {
@@ -293,19 +290,23 @@ export function migrateStoredLayout(value: unknown) {
   const sessionViewMigration = migrateSessionView(value.sessionView, migratedSessionTabs)
   const sessionStateChanged = sessionViewMigration.changed
 
+  const hasMobileSidebar = "mobileSidebar" in value
+
   if (
     migratedSidebar === sidebar &&
     migratedReview === review &&
     migratedFileTree === fileTree &&
     migratedRightPanel === rightPanel &&
     migratedSessionTabs === sessionTabs &&
-    !sessionStateChanged
+    !sessionStateChanged &&
+    !hasMobileSidebar
   ) {
     return value
   }
 
+  const { mobileSidebar: _mobileSidebar, ...rest } = value as Record<string, unknown>
   return {
-    ...value,
+    ...rest,
     sidebar: migratedSidebar,
     review: migratedReview,
     fileTree: migratedFileTree,
@@ -761,18 +762,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         width: createMemo(() => clampRightPanelWidth(store.rightPanel?.width)),
         resize(width: number) {
           setStore("rightPanel", "width", clampRightPanelWidth(width))
-        },
-      },
-      mobileSidebar: {
-        opened: createMemo(() => store.mobileSidebar?.opened ?? false),
-        show() {
-          setStore("mobileSidebar", "opened", true)
-        },
-        hide() {
-          setStore("mobileSidebar", "opened", false)
-        },
-        toggle() {
-          setStore("mobileSidebar", "opened", (x) => !x)
         },
       },
       pendingMessage: {

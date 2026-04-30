@@ -31,7 +31,7 @@ export type ProjectSidebarContext = {
   workspacesEnabled: (project: LocalProject) => boolean
   workspaceIds: (project: LocalProject) => string[]
   workspaceLabel: (directory: string, branch?: string, projectId?: string) => string
-  sessionProps: Omit<SessionItemProps, "session" | "list" | "slug" | "mobile" | "dense">
+  sessionProps: Omit<SessionItemProps, "session" | "list" | "slug" | "dense">
 }
 
 export const ProjectDragOverlay = (props: {
@@ -52,7 +52,6 @@ export const ProjectDragOverlay = (props: {
 
 const ProjectTile = (props: {
   project: LocalProject
-  mobile?: boolean
   sidebarHovering: Accessor<boolean>
   selected: Accessor<boolean>
   active: Accessor<boolean>
@@ -186,7 +185,6 @@ const ProjectTile = (props: {
 
 const ProjectPreviewPanel = (props: {
   project: LocalProject
-  mobile?: boolean
   selected: Accessor<boolean>
   workspaceEnabled: Accessor<boolean>
   workspaces: Accessor<string[]>
@@ -214,7 +212,6 @@ const ProjectPreviewPanel = (props: {
                 slug={base64Encode(props.project.worktree)}
                 dense
                 showTooltip
-                mobile={props.mobile}
               />
             )}
           </For>
@@ -240,7 +237,6 @@ const ProjectPreviewPanel = (props: {
                       slug={base64Encode(directory)}
                       dense
                       showTooltip
-                      mobile={props.mobile}
                     />
                   )}
                 </For>
@@ -269,7 +265,6 @@ const ProjectPreviewPanel = (props: {
 
 export const SortableProject = (props: {
   project: LocalProject
-  mobile?: boolean
   ctx: ProjectSidebarContext
 }): JSX.Element => {
   const globalSync = useGlobalSync()
@@ -285,8 +280,8 @@ export const SortableProject = (props: {
   })
 
   const isHoverProject = () => props.ctx.hoverProject() === props.project.worktree
-  const preview = createMemo(() => !props.mobile && props.ctx.sidebarOpened())
-  const overlay = createMemo(() => !props.mobile && !props.ctx.sidebarOpened())
+  const preview = createMemo(() => props.ctx.sidebarOpened())
+  const overlay = createMemo(() => !props.ctx.sidebarOpened())
   const active = createMemo(() => state.menu || (preview() ? isHoverProject() : overlay() && isHoverProject()))
 
   const hoverOpen = () => isHoverProject() && preview() && !selected() && !state.menu
@@ -308,7 +303,6 @@ export const SortableProject = (props: {
   const tile = () => (
     <ProjectTile
       project={props.project}
-      mobile={props.mobile}
       sidebarHovering={props.ctx.sidebarHovering}
       selected={selected}
       active={active}
@@ -349,7 +343,6 @@ export const SortableProject = (props: {
         >
           <ProjectPreviewPanel
             project={props.project}
-            mobile={props.mobile}
             selected={selected}
             workspaceEnabled={workspaceEnabled}
             workspaces={workspaces}

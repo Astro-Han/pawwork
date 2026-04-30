@@ -31,14 +31,13 @@ const FilterIcon = (props: { size?: number }) => {
 
 export const PawworkSidebar = (props: {
   scope?: "main" | "peek"
-  mobile?: boolean
   sessions: Accessor<PawworkSidebarSession[]>
   showProjectEmptyState: boolean
   activeSessionID?: Accessor<string | undefined>
   pinnedIDs: Accessor<string[]>
   sortMode: Accessor<PawworkSortMode>
   sidebarExpanded: Accessor<boolean>
-  setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
+  setScrollContainerRef: (el: HTMLDivElement | undefined) => void
   clearHoverProjectSoon: () => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   onRenameSession: (session: Session, next: string) => Promise<void>
@@ -107,7 +106,6 @@ export const PawworkSidebar = (props: {
             list={navList()}
             navList={navList}
             slug={entry.item.slug}
-            mobile={props.mobile}
             showChild
             sidebarExpanded={props.sidebarExpanded}
             clearHoverProjectSoon={props.clearHoverProjectSoon}
@@ -231,7 +229,7 @@ export const PawworkSidebar = (props: {
     })
   })
 
-  const tooltipPlacement = () => (props.mobile ? "bottom" : "right")
+  const tooltipPlacement = () => "right" as const
   const sortAriaLabel = () =>
     props.sortMode() === "time" ? language.t("sidebar.pawwork.sort.byProject") : language.t("sidebar.pawwork.sort.byTime")
 
@@ -285,7 +283,7 @@ export const PawworkSidebar = (props: {
         <div
           ref={(el) => {
             scrollEl = el
-            props.setScrollContainerRef(el, props.mobile)
+            props.setScrollContainerRef(el)
           }}
           data-component="pawwork-session-scroll"
           class="flex-1 min-h-0 overflow-y-auto px-3 pb-3"

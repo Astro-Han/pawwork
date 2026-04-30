@@ -1,7 +1,6 @@
 import { createEffect, createMemo, Show, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
-import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Button } from "@opencode-ai/ui/button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -101,32 +100,10 @@ export function Titlebar() {
       >
         <Show when={mac()}>
           <div class="h-full shrink-0" style={{ width: `${72 / zoom()}px` }} />
-          <div class="xl:hidden w-10 shrink-0 flex items-center justify-center">
-            <IconButton
-              icon={layout.mobileSidebar.opened() ? "sidebar-active" : "sidebar"}
-              variant="ghost"
-              class="titlebar-icon rounded-md"
-              onClick={layout.mobileSidebar.toggle}
-              aria-label={language.t("sidebar.menu.toggle")}
-              aria-expanded={layout.mobileSidebar.opened()}
-            />
-          </div>
-        </Show>
-        <Show when={!mac()}>
-          <div class="xl:hidden w-[48px] shrink-0 flex items-center justify-center">
-            <IconButton
-              icon={layout.mobileSidebar.opened() ? "sidebar-active" : "sidebar"}
-              variant="ghost"
-              class="titlebar-icon rounded-md"
-              onClick={layout.mobileSidebar.toggle}
-              aria-label={language.t("sidebar.menu.toggle")}
-              aria-expanded={layout.mobileSidebar.opened()}
-            />
-          </div>
         </Show>
         <div class="flex items-center gap-1 shrink-0">
           <TooltipKeybind
-            class={web() ? "hidden xl:flex shrink-0 ml-14" : "hidden xl:flex shrink-0 ml-2"}
+            class={web() ? "flex shrink-0 ml-14" : "flex shrink-0 ml-2"}
             placement="bottom"
             title={language.t("command.sidebar.toggle")}
             keybind={command.keybind("sidebar.toggle")}

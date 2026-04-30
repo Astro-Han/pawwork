@@ -760,7 +760,6 @@ export const dict = {
   "common.time.hoursAgo.short": "{{count}}h ago",
   "common.time.daysAgo.short": "{{count}}d ago",
 
-  "sidebar.menu.toggle": "Toggle menu",
   "sidebar.nav.projectsAndSessions": "Projects and sessions",
   "sidebar.settings": "Settings",
   "sidebar.workspaces.enable": "Enable workspaces",

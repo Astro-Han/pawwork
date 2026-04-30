@@ -175,4 +175,21 @@ describe("migrateStoredLayout", () => {
     expect(migrated.rightPanel.opened).toBe(false)
     expect(migrated.rightPanel.width).toBe(DEFAULT_RIGHT_PANEL_WIDTH)
   })
+
+  test("strips legacy mobileSidebar key while preserving sibling fields", () => {
+    const migrated = migrateStoredLayout({
+      mobileSidebar: { opened: true },
+      sidebar: { opened: true, width: 280 },
+      rightPanel: { opened: false, width: 380 },
+      sessionView: {},
+      sessionTabs: {},
+    }) as Record<string, unknown> & {
+      sidebar: { opened: boolean; width: number }
+      rightPanel: { opened: boolean; width: number }
+    }
+
+    expect("mobileSidebar" in migrated).toBe(false)
+    expect(migrated.sidebar).toEqual({ opened: true, width: 280 })
+    expect(migrated.rightPanel).toEqual({ opened: false, width: 380 })
+  })
 })

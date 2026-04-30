@@ -310,7 +310,6 @@ export default function Layout(props: ParentProps) {
   const navigateWithSidebarReset = (href: string) => {
     clearSidebarHoverState()
     navigate(href)
-    layout.mobileSidebar.hide()
   }
 
   function cycleTheme(direction = 1) {
@@ -1342,7 +1341,6 @@ export default function Layout(props: ParentProps) {
   function openSettings() {
     setSettingsTab("general")
     setSettingsOpen(true)
-    layout.mobileSidebar.hide()
   }
 
   createEffect(() => {
@@ -1746,7 +1744,6 @@ export default function Layout(props: ParentProps) {
           onClick: () => {
             const href = `/${base64Encode(directory)}/session`
             navigate(href)
-            layout.mobileSidebar.hide()
           },
         },
         {
@@ -2111,8 +2108,8 @@ export default function Layout(props: ParentProps) {
       dialog.show(() => <DialogResetWorkspace root={root} directory={directory} />),
     showDeleteWorkspaceDialog: (root, directory) =>
       dialog.show(() => <DialogDeleteWorkspace root={root} directory={directory} />),
-    setScrollContainerRef: (el, mobile) => {
-      if (!mobile) scrollContainerRef = el
+    setScrollContainerRef: (el) => {
+      scrollContainerRef = el
     },
   }
 
@@ -2149,11 +2146,10 @@ export default function Layout(props: ParentProps) {
   const projectOverlay = () => <ProjectDragOverlay projects={projects} activeProject={() => store.activeProject} />
   const renderPawworkPanel = (
     sessions: Accessor<PawworkSidebarSession[]>,
-    options?: { mobile?: boolean; directory?: string; scope?: "main" | "peek" },
+    options?: { directory?: string; scope?: "main" | "peek" },
   ) => (
     <PawworkSidebar
       scope={options?.scope}
-      mobile={options?.mobile}
       sessions={sessions}
       showProjectEmptyState={projects().length === 0}
       activeSessionID={() => params.id}
@@ -2177,8 +2173,8 @@ export default function Layout(props: ParentProps) {
       settingsKeybind={() => command.keybind("settings.open")}
     />
   )
-  const sidebarContent = (mobile?: boolean) =>
-    renderPawworkPanel(pawworkSessions, { mobile, directory: currentProject()?.worktree, scope: "main" })
+  const sidebarContent = () =>
+    renderPawworkPanel(pawworkSessions, { directory: currentProject()?.worktree, scope: "main" })
 
   return (
     <LayoutPageContext.Provider
@@ -2268,32 +2264,10 @@ export default function Layout(props: ParentProps) {
                 </div>
               </Show>
 
-              <div class="xl:hidden">
-                <div
-                  classList={{
-                    "fixed inset-x-0 bottom-0 z-40 transition-opacity duration-200": true,
-                    "opacity-100 pointer-events-auto": layout.mobileSidebar.opened(),
-                    "opacity-0 pointer-events-none": !layout.mobileSidebar.opened(),
-                  }}
-                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.75rem))" }}
-                  onClick={(e) => {
-                    if (e.target === e.currentTarget) layout.mobileSidebar.hide()
-                  }}
-                />
-                <nav
-                  aria-label={language.t("sidebar.nav.projectsAndSessions")}
-                  data-component="sidebar-nav-mobile"
-                  classList={{
-                    "@container fixed bottom-0 left-0 z-50 w-full max-w-[400px] overflow-hidden border-r border-border-weaker-base bg-background-base transition-transform duration-200 ease-out": true,
-                    "translate-x-0": layout.mobileSidebar.opened(),
-                    "-translate-x-full": !layout.mobileSidebar.opened(),
-                  }}
-                  style={{ top: "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 2.75rem))" }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {sidebarContent(true)}
-                </nav>
-              </div>
+              <div
+                class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
+                style={{ left: "calc(4rem + 12px)" }}
+              />
 
               <div
                 classList={{
@@ -2356,7 +2330,6 @@ export default function Layout(props: ParentProps) {
                 <Show when={peekProject()}>
                   {(project) =>
                     renderPawworkPanel(pawworkPeekSessions, {
-                      mobile: false,
                       directory: project().worktree,
                       scope: "peek",
                     })

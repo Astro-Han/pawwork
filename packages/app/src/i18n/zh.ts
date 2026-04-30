@@ -674,7 +674,6 @@ export const dict = {
   "common.loadMore": "加载更多",
   "common.key.esc": "ESC",
 
-  "sidebar.menu.toggle": "切换菜单",
   "sidebar.nav.projectsAndSessions": "项目和会话",
   "sidebar.settings": "设置",
   "sidebar.workspaces.enable": "启用工作区",

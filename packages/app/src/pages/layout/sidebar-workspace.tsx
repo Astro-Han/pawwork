@@ -49,7 +49,7 @@ export type WorkspaceSidebarContext = {
   setWorkspaceExpanded: (directory: string, value: boolean) => void
   showResetWorkspaceDialog: (root: string, directory: string) => void
   showDeleteWorkspaceDialog: (root: string, directory: string) => void
-  setScrollContainerRef: (el: HTMLDivElement | undefined, mobile?: boolean) => void
+  setScrollContainerRef: (el: HTMLDivElement | undefined) => void
 }
 
 export const WorkspaceDragOverlay = (props: {
@@ -232,7 +232,6 @@ const WorkspaceActions = (props: {
 
 const WorkspaceSessionList = (props: {
   slug: Accessor<string>
-  mobile?: boolean
   ctx: WorkspaceSidebarContext
   showNew: Accessor<boolean>
   loading: Accessor<boolean>
@@ -245,7 +244,6 @@ const WorkspaceSessionList = (props: {
     <Show when={props.showNew()}>
       <NewSessionItem
         slug={props.slug()}
-        mobile={props.mobile}
         sidebarExpanded={props.ctx.sidebarExpanded}
         clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
       />
@@ -260,7 +258,6 @@ const WorkspaceSessionList = (props: {
           list={props.sessions()}
           navList={props.ctx.navList}
           slug={props.slug()}
-          mobile={props.mobile}
           showChild
           sidebarExpanded={props.ctx.sidebarExpanded}
           clearHoverProjectSoon={props.ctx.clearHoverProjectSoon}
@@ -290,7 +287,6 @@ export const SortableWorkspace = (props: {
   ctx: WorkspaceSidebarContext
   directory: string
   project: LocalProject
-  mobile?: boolean
 }): JSX.Element => {
   const navigate = useNavigate()
   const params = useParams()
@@ -420,7 +416,6 @@ export const SortableWorkspace = (props: {
         <Collapsible.Content>
           <WorkspaceSessionList
             slug={slug}
-            mobile={props.mobile}
             ctx={props.ctx}
             showNew={showNew}
             loading={loading}
@@ -438,7 +433,6 @@ export const SortableWorkspace = (props: {
 export const LocalWorkspace = (props: {
   ctx: WorkspaceSidebarContext
   project: LocalProject
-  mobile?: boolean
 }): JSX.Element => {
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -459,12 +453,11 @@ export const LocalWorkspace = (props: {
 
   return (
     <div
-      ref={(el) => props.ctx.setScrollContainerRef(el, props.mobile)}
+      ref={(el) => props.ctx.setScrollContainerRef(el)}
       class="size-full flex flex-col py-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
     >
       <WorkspaceSessionList
         slug={slug}
-        mobile={props.mobile}
         ctx={props.ctx}
         showNew={() => false}
         loading={loading}
