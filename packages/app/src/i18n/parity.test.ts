@@ -18,6 +18,13 @@ const keys = [
   "session.panel.utility",
   "session.panel.files",
   "session.panel.changes",
+  "session.review.noUnstagedChanges",
+  "session.review.noStagedChanges",
+  "session.review.noBranchChanges",
+  "ui.sessionReview.title.unstaged",
+  "ui.sessionReview.title.staged",
+  "ui.sessionReview.title.branch",
+  "ui.sessionReview.title.lastTurn",
 ] as const
 
 describe("i18n parity", () => {

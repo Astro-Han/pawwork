@@ -595,7 +595,13 @@ export const dict = {
   "session.review.noSnapshot": "Snapshot tracking is disabled in config, so session changes are unavailable",
   "session.review.noChanges": "No changes",
   "session.review.noUncommittedChanges": "No uncommitted changes yet",
+  "session.review.noUnstagedChanges": "No unstaged changes yet",
+  "session.review.noStagedChanges": "No staged changes yet",
   "session.review.noBranchChanges": "No branch changes yet",
+  "ui.sessionReview.title.unstaged": "Unstaged",
+  "ui.sessionReview.title.staged": "Staged",
+  "ui.sessionReview.title.branch": "Branch",
+  "ui.sessionReview.title.lastTurn": "Last Turn",
 
   "session.files.selectToOpen": "Select a file to open",
   "session.files.all": "All files",
