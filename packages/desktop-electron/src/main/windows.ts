@@ -71,7 +71,7 @@ export function createMainWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
-    minWidth: 480,
+    minWidth: 768,
     minHeight: 480,
     show: false,
     title: "PawWork",
