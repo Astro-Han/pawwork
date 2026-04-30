@@ -127,7 +127,7 @@ export function Titlebar() {
                 <div
                   class="transition-opacity duration-120 ease-out opacity-100"
                   classList={{
-                    "xl:opacity-0 xl:ease-in xl:delay-0 xl:pointer-events-none": layout.sidebar.opened(),
+                    "opacity-0 ease-in delay-0 pointer-events-none": layout.sidebar.opened(),
                   }}
                 >
                   <TooltipKeybind
