@@ -2482,11 +2482,6 @@ export default function Layout(props: ParentProps) {
                 </div>
               </Show>
 
-              <div
-                class="hidden xl:block pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
-                style={{ left: "calc(4rem + 12px)" }}
-              />
-
               <div class="xl:hidden">
                 <div
                   classList={{
@@ -2531,7 +2526,7 @@ export default function Layout(props: ParentProps) {
                   data-platform={platform.platform}
                   data-os={platform.os}
                   classList={{
-                    "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base xl:border-l xl:rounded-tl-[12px]": true,
+                    "size-full overflow-x-hidden flex flex-col items-start contain-strict border-t border-border-weak-base bg-background-base": true,
                   }}
                 >
                   <div class="relative size-full">

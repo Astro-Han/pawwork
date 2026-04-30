@@ -82,7 +82,7 @@ const ModelList: Component<{
           <div class="w-full min-w-0 flex items-center gap-x-2 text-13-regular text-left">
             <span class="min-w-0 truncate">{i.name}</span>
             <For each={visible}>
-              {(tag) => <Tag class="shrink-0 rounded-full!">{language.t(`model.tag.${tag}`)}</Tag>}
+              {(tag) => <Tag class="shrink-0">{language.t(`model.tag.${tag}`)}</Tag>}
             </For>
           </div>
         )
@@ -166,8 +166,8 @@ export function ModelSelectorPopover(props: {
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="w-72 h-80 flex flex-col p-2 border border-border-base bg-surface-raised-stronger-non-alpha shadow-md z-50 outline-none overflow-hidden"
-          style={{ "border-radius": "16px" }}
+          class="w-72 h-80 flex flex-col bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
+          style={{ "border-radius": "14px", "box-shadow": "var(--shadow-floating)" }}
           onEscapeKeyDown={(event) => {
             close("escape")
             event.preventDefault()
@@ -196,9 +196,9 @@ export function ModelSelectorPopover(props: {
               <div class="flex items-center gap-1">
                 <Tooltip placement="top" value={language.t("command.provider.connect")}>
                   <IconButton
-                    icon="plus-small"
+                    icon="plus"
                     variant="ghost"
-                    iconSize="normal"
+                    iconSize="small"
                     class="size-6"
                     aria-label={language.t("command.provider.connect")}
                     onClick={handleConnectProvider}
@@ -208,7 +208,7 @@ export function ModelSelectorPopover(props: {
                   <IconButton
                     icon="sliders"
                     variant="ghost"
-                    iconSize="normal"
+                    iconSize="small"
                     class="size-6"
                     aria-label={language.t("dialog.model.manage")}
                     onClick={handleManage}

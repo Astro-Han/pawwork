@@ -110,7 +110,7 @@ const SessionRow = (props: {
   return (
     <A
       href={`/${props.slug}/session/${props.session.id}`}
-      class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none ${props.dense ? "py-1" : "py-1.5"}`}
+      class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none leading-[1.4] ${props.dense ? "py-1" : "py-[5px]"}`}
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
       onClick={() => {
@@ -126,7 +126,7 @@ const SessionRow = (props: {
         {indicator()}
       </div>
       <div class="min-w-0 flex-1 flex items-center gap-2">
-        <Show when={props.titleContent} fallback={<span class="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
+        <Show when={props.titleContent} fallback={<span class="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
           {props.titleContent}
         </Show>
       </div>
@@ -209,7 +209,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <>
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full min-w-0 rounded-xl cursor-default pr-3 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-raised-base-hover"
+        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
       >
         <div class="flex min-w-0 items-center gap-1">
@@ -294,7 +294,7 @@ export const NewSessionItem = (props: {
     <A
       href={`/${props.slug}/session`}
       end
-      class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none ${props.dense ? "py-1" : "py-1.5"}`}
+      class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none leading-[1.4] ${props.dense ? "py-1" : "py-[5px]"}`}
       onClick={() => {
         if (layout.sidebar.opened()) return
         props.clearHoverProjectSoon()
@@ -303,12 +303,12 @@ export const NewSessionItem = (props: {
       <div data-leading-slot class="shrink-0 w-[14px] h-[14px] flex items-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
-      <span class="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate">{label}</span>
+      <span class="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate">{label}</span>
     </A>
   )
 
   return (
-    <div class="group/session relative w-full min-w-0 rounded-xl cursor-default transition-colors pl-2 pr-3 hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[.active]:bg-surface-raised-base-hover">
+    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-2 hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active">
       <Show
         when={!tooltip()}
         fallback={
@@ -328,7 +328,7 @@ export const SessionSkeleton = (props: { count?: number }): JSX.Element => {
   return (
     <div class="flex flex-col gap-0.5">
       <For each={items}>
-        {() => <div class="h-8 w-full rounded-xl bg-surface-raised-base opacity-60 animate-pulse" />}
+        {() => <div class="h-8 w-full rounded-md bg-surface-raised-base opacity-60 animate-pulse" />}
       </For>
     </div>
   )

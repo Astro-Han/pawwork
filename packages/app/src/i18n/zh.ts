@@ -1045,6 +1045,7 @@ export const dict = {
   "workspace.chip.empty": "暂无可用工作目录",
   "workspace.chip.popover.title": "工作目录",
   "workspace.chip.add": "添加工作目录",
+  "prompt.variant.popover.title": "思考强度",
   "common.key.ctrl": "Ctrl",
   "common.key.alt": "Alt",
   "common.key.shift": "Shift",

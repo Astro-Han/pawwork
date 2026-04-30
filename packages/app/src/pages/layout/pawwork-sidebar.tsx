@@ -127,7 +127,7 @@ export const PawworkSidebar = (props: {
                   props.onTogglePinnedSession(session.id)
                 }}
                 classList={{
-                  "inline-flex w-[14px] h-[14px] items-center justify-center rounded transition-colors": true,
+                  "inline-flex w-[14px] h-[14px] items-center justify-center rounded-md transition-colors": true,
                   "text-text-strong opacity-100 pointer-events-auto": isPinned(),
                   "text-text-weak opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto hover:text-text-base":
                     !isPinned(),
@@ -143,8 +143,8 @@ export const PawworkSidebar = (props: {
                 onSave={(next) => {
                   void props.onRenameSession(rowSession, next)
                 }}
-                class="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate"
-                displayClass="text-13-regular text-text-base [.active_&]:font-medium [.active_&]:text-text-strong min-w-0 flex-1 truncate"
+                class="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate"
+                displayClass="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate"
               />
             )}
             actionSlot={(rowSession) => (
@@ -244,7 +244,7 @@ export const PawworkSidebar = (props: {
             type="button"
             data-action="pawwork-session-new"
             onClick={props.onNew}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-xl hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="new-session" size="small" class="text-icon-base" />
@@ -255,7 +255,7 @@ export const PawworkSidebar = (props: {
             type="button"
             data-action="pawwork-session-search"
             onClick={props.onSearch}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-xl hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="magnifying-glass" size="small" class="text-icon-base" />
@@ -269,7 +269,7 @@ export const PawworkSidebar = (props: {
         when={!props.showProjectEmptyState}
         fallback={
           <div class="flex flex-1 items-center px-3">
-            <div class="flex w-full flex-col gap-3 rounded-xl border border-border-weak-base bg-surface-base p-4">
+            <div class="flex w-full flex-col gap-3 rounded-xl bg-surface-base p-4">
               <div class="text-13-medium text-text-strong">{language.t("sidebar.empty.title")}</div>
               <p class="text-13-regular text-text-weak">{language.t("sidebar.pawwork.empty.description")}</p>
               <Button data-action="pawwork-open-project" size="large" onClick={props.onOpenProject}>
@@ -285,7 +285,7 @@ export const PawworkSidebar = (props: {
             props.setScrollContainerRef(el, props.mobile)
           }}
           data-component="pawwork-session-scroll"
-          class="flex-1 min-h-0 overflow-y-auto px-3 pt-3 pb-3"
+          class="flex-1 min-h-0 overflow-y-auto px-3 pb-3"
         >
           <Show
             when={props.sessions().length > 0}
@@ -293,13 +293,13 @@ export const PawworkSidebar = (props: {
           >
             <nav class="flex flex-col gap-1">
               <Show when={pinnedRows().length > 0}>
-                <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-1">
-                  <div class="px-2 pb-0.5 text-13-medium text-text-weak">{language.t("sidebar.pawwork.pinned")}</div>
+                <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
+                  <div class="px-2 pt-3 pb-2 text-12-regular text-text-weak">{language.t("sidebar.pawwork.pinned")}</div>
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
-              <div class="mt-2 flex items-center justify-between pr-3 pl-2 pb-0.5">
-                <span class="text-13-medium text-text-weak">{language.t("sidebar.pawwork.all")}</span>
+              <div class="mt-3 flex items-center justify-between pr-2 pl-2 pb-2">
+                <span class="text-12-regular text-text-weak">{language.t("sidebar.pawwork.all")}</span>
                 <button
                   type="button"
                   data-action="pawwork-sort-mode"
@@ -309,22 +309,24 @@ export const PawworkSidebar = (props: {
                   onClick={() => props.onSetSortMode(props.sortMode() === "time" ? "project" : "time")}
                   classList={{
                     "inline-flex items-center justify-center rounded-md p-1 transition-colors": true,
-                    "hover:bg-surface-hovered-base": true,
-                    "text-accent-brand": props.sortMode() === "project",
+                    "hover:bg-surface-raised-base-hover": true,
+                    "text-text-strong": props.sortMode() === "project",
                     "text-text-weak": props.sortMode() !== "project",
                   }}
                 >
-                  <FilterIcon size={14} />
+                  <FilterIcon size={16} />
                 </button>
               </div>
               <Show when={props.sortMode() === "time"}>
-                <For each={rows()}>{(entry) => renderSessionItem(entry)}</For>
+                <div class="flex flex-col gap-0.5">
+                  <For each={rows()}>{(entry) => renderSessionItem(entry)}</For>
+                </div>
               </Show>
               <Show when={props.sortMode() === "project"}>
                 <For each={groupedRows()}>
                   {(group) => (
-                    <section class="flex flex-col gap-1">
-                      <div data-component="pawwork-group-header" class="px-2 pt-2 pb-0.5 text-13-medium text-text-weak">
+                    <section class="flex flex-col gap-0.5">
+                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-2 text-12-regular text-text-weak">
                         {group.label}
                       </div>
                       <For each={group.items}>{(item) => renderSessionItem({ item })}</For>
@@ -351,7 +353,7 @@ export const PawworkSidebar = (props: {
             data-action="pawwork-open-settings"
             onClick={props.onOpenSettings}
             aria-label={props.settingsLabel()}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-xl hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" size="small" class="text-icon-base" />

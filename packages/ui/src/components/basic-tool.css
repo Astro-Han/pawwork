@@ -188,13 +188,9 @@
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border-weak-base, rgba(255, 255, 255, 0.08));
-  background: color-mix(in srgb, var(--background-base) 92%, transparent);
-  transition:
-    border-color 0.15s ease,
-    background-color 0.15s ease,
-    color 0.15s ease;
+  /* Container is spacing-only — no bg, no border, no shadow. Spec: drop card chrome,
+     keep only the inline `param` chip as content distinction. */
+  transition: color 0.15s ease;
 
   [data-slot="basic-tool-tool-info-structured"] {
     flex: 1 1 auto;
@@ -249,9 +245,6 @@
 
   &:hover,
   &:focus-visible {
-    border-color: var(--border-weak-base, rgba(255, 255, 255, 0.08));
-    background: color-mix(in srgb, var(--background-stronger) 88%, transparent);
-
     [data-component="task-tool-action"] {
       opacity: 1;
     }

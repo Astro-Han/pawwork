@@ -1126,7 +1126,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               as="div"
               variant="ghost"
               size="normal"
-              class="h-[28px]! min-w-0 w-44 px-3 justify-start! text-13-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover"
+              class="h-[28px]! min-w-0 w-44 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover"
               style={triggerStyle()}
               onClick={() => {
                 void import("@/components/dialog-select-model-unpaid").then((x) => {
@@ -1163,7 +1163,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "h-[28px]! min-w-0 w-44 px-3 justify-start! text-13-medium! text-text-base group rounded-full! border! border-border-strong-base! transition-colors hover:bg-surface-base-hover",
+                "h-[28px]! min-w-0 w-44 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover",
               "data-action": "prompt-model",
             }}
             onClose={restoreFocus}
@@ -1207,21 +1207,23 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               "aria-haspopup": "menu",
               style: triggerStyle(),
               class:
-                "h-[28px] px-3 max-w-[140px] inline-flex items-center gap-1.5 rounded-full border border-border-strong-base text-13-medium text-text-base transition-colors hover:bg-surface-base-hover",
+                "h-[28px] px-2 max-w-[160px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-text-base transition-colors hover:bg-surface-base-hover",
             } as any
           }
           trigger={
             <>
-              <span class="truncate leading-none">
+              <span class="truncate">
                 {translateVariant(language.t, local.model.variant.current() ?? "default")}
               </span>
               <Icon name="chevron-down" size="small" class="text-text-weak" />
             </>
           }
-          class="min-w-32 border border-border-base bg-surface-raised-stronger-non-alpha p-2 shadow-md"
-          style={{ "border-radius": "16px" }}
+          class="min-w-32 bg-surface-raised-stronger-non-alpha"
         >
           <div role="menu">
+            <div class="px-2 pt-0.5 pb-2 text-13-regular text-text-weak">
+              {language.t("prompt.variant.popover.title")}
+            </div>
             <For each={variants()}>
               {(variant) => {
                 const active = createMemo(() => (local.model.variant.current() ?? "default") === variant)
@@ -1230,8 +1232,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     type="button"
                     role="menuitemradio"
                     aria-checked={active()}
-                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-medium text-text-strong outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
-                    classList={{ "font-medium": active() }}
+                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-text-strong outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
                     onClick={() => {
                       local.model.variant.set(variant === "default" ? undefined : variant)
                       setVariantOpen(false)
@@ -1478,7 +1479,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           }}
         >
           <div
-            class="relative min-h-[120px] max-h-[240px] overflow-y-auto no-scrollbar"
+            class="relative min-h-[100px] max-h-[240px] overflow-y-auto no-scrollbar"
             ref={(el) => (scrollRef = el)}
             style={{ "scroll-padding-bottom": space }}
           >
@@ -1565,7 +1566,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   data-action="prompt-attach"
                   type="button"
                   variant="ghost"
-                  class="size-7 shrink-0 p-0"
+                  class="size-7 shrink-0 p-0 rounded-xl!"
                   style={buttons()}
                   onClick={pick}
                   disabled={store.mode !== "normal"}
