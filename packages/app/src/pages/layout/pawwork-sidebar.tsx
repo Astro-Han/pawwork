@@ -209,11 +209,18 @@ export const PawworkSidebar = (props: {
     )
   }
 
+  // Only react to coarse signals that warrant re-centering the active row:
+  // selection change, sort mode flip, list size change (initial load / add / delete),
+  // or pin/unpin (which moves the active row between sections).
+  // Tracking rows()/pinnedRows()/groupedRows() would re-fire on every session field
+  // update (e.g. time.updated bump on submit), pulling the sidebar back to top.
+  const sessionCount = createMemo(() => props.sessions().length)
+  const pinnedSignature = createMemo(() => props.pinnedIDs().join("\0"))
   createEffect(() => {
     const activeSessionID = props.activeSessionID?.()
-    rows()
-    pinnedRows()
-    groupedRows()
+    props.sortMode()
+    sessionCount()
+    pinnedSignature()
     const el = scrollEl
     if (!activeSessionID || !el) return
 
@@ -264,8 +271,8 @@ export const PawworkSidebar = (props: {
       <Show
         when={!props.showProjectEmptyState}
         fallback={
-          <div class="flex flex-1 items-center px-3">
-            <div class="flex w-full flex-col gap-3 rounded-xl bg-surface-base p-4">
+          <div class="flex flex-1 items-center px-5">
+            <div class="flex w-full flex-col gap-3">
               <div class="text-13-medium text-text-strong">{language.t("sidebar.empty.title")}</div>
               <p class="text-13-regular text-text-weak">{language.t("sidebar.pawwork.empty.description")}</p>
               <Button data-action="pawwork-open-project" size="large" onClick={props.onOpenProject}>
@@ -294,25 +301,27 @@ export const PawworkSidebar = (props: {
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
-              <div class="mt-3 flex items-center justify-between pr-2 pl-2 pb-2">
-                <span class="text-12-regular text-text-weak">{language.t("sidebar.pawwork.all")}</span>
-                <button
-                  type="button"
-                  data-action="pawwork-sort-mode"
-                  data-mode={props.sortMode()}
-                  aria-label={sortAriaLabel()}
-                  title={sortAriaLabel()}
-                  onClick={() => props.onSetSortMode(props.sortMode() === "time" ? "project" : "time")}
-                  classList={{
-                    "inline-flex items-center justify-center size-5 rounded-md transition-colors": true,
-                    "hover:bg-surface-raised-base-hover": true,
-                    "text-text-strong": props.sortMode() === "project",
-                    "text-text-weak": props.sortMode() !== "project",
-                  }}
-                >
-                  <FilterIcon size={14} />
-                </button>
-              </div>
+              <Show when={rows().length > 0 || groupedRows().length > 0}>
+                <div class="mt-3 flex items-center justify-between pr-2 pl-2 pb-2">
+                  <span class="text-12-regular text-text-weak">{language.t("sidebar.pawwork.all")}</span>
+                  <button
+                    type="button"
+                    data-action="pawwork-sort-mode"
+                    data-mode={props.sortMode()}
+                    aria-label={sortAriaLabel()}
+                    title={sortAriaLabel()}
+                    onClick={() => props.onSetSortMode(props.sortMode() === "time" ? "project" : "time")}
+                    classList={{
+                      "inline-flex items-center justify-center size-5 rounded-md transition-colors": true,
+                      "hover:bg-surface-raised-base-hover": true,
+                      "text-text-strong": props.sortMode() === "project",
+                      "text-text-weak": props.sortMode() !== "project",
+                    }}
+                  >
+                    <FilterIcon size={14} />
+                  </button>
+                </div>
+              </Show>
               <Show when={props.sortMode() === "time"}>
                 <div class="flex flex-col gap-0.5">
                   <For each={rows()}>{(entry) => renderSessionItem(entry)}</For>

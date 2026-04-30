@@ -268,7 +268,7 @@ export const NewSessionItem = (props: {
         props.clearHoverProjectSoon()
       }}
     >
-      <div data-leading-slot class="shrink-0 w-[14px] h-[14px] flex items-center">
+      <div data-leading-slot class="shrink-0 w-4 h-4 flex items-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
       <span class="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate">{label}</span>
