@@ -209,6 +209,8 @@ describe("ci workflow", () => {
     expect(filter?.env?.HEAD_SHA).toBe("${{ github.sha }}")
     expect(filter?.run).toContain("workflow_dispatch")
     expect(filter?.run).toContain("docs_only=false")
+    expect(filter?.run).toContain(".github/ISSUE_TEMPLATE/*")
+    expect(filter?.run).toContain(".github/pull_request_template.md")
     expect(filter?.run).toContain("git diff --name-status --find-renames --find-copies")
     expect(filter?.run).toContain("R*|C*)")
     expect(filter?.run).toContain("if ! is_docs_path \"$path1\" || ! is_docs_path \"$path2\"; then")

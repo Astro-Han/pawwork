@@ -36,6 +36,8 @@ describe("desktop smoke workflow", () => {
     expect(smokeCheckoutStep?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
 
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
+    expect(changesSteps.find((step) => step.id === "filter")?.run).toContain(".github/ISSUE_TEMPLATE/*")
+    expect(changesSteps.find((step) => step.id === "filter")?.run).toContain(".github/pull_request_template.md")
     expect(changesCheckoutStep?.with).toEqual({
       "fetch-depth": 0,
       "persist-credentials": false,
