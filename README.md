@@ -12,7 +12,7 @@ PawWork is an open-source alternative to Codex App and Claude Desktop. It brings
 
 Start without a terminal, API key, or paid model plan. PawWork includes a free plan powered by OpenCode Zen, built-in web search, task cards, and support for your own model accounts when you want more choice or control.
 
-![PawWork home screen](assets/readme/pawwork-home.png)
+![PawWork - Open-source AI agent that works out of the box on your desktop](assets/readme/pawwork-cover.png)
 
 ## Why PawWork
 

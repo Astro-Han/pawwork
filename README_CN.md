@@ -12,7 +12,7 @@
 
 无需安装复杂的工具链，无需提前准备 API 密钥，也无需购买付费模型账号。爪印 PawWork 内置来自 OpenCode Zen 的免费额度、内置搜索和任务卡片，下载打开就能开始。
 
-![爪印 PawWork 首页截图](assets/readme/pawwork-home.png)
+![爪印 PawWork - 开箱即用的桌面 AI 智能体](assets/readme/pawwork-cover.png)
 
 ## 为什么选择爪印 PawWork
 
