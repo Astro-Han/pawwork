@@ -633,9 +633,6 @@ export const dict = {
   "session.revertDock.restore": "Restore message",
 
   "session.new.title": "What do you want to do?",
-  // Kept for parity/branding tests; UI usage removed in #300.
-  "session.new.subtitle":
-    "PawWork helps you process files, analyze information, write content, and tackle everyday tasks.",
   "session.new.reassurance": "Files and conversations stay on your computer",
   "session.new.card.document.title": "Process docs",
   "session.new.card.document.description": "Edit, convert, and extract from Word, Excel, PowerPoint, and PDF files.",

@@ -7,7 +7,6 @@ const keys = [
   "command.session.previous.unseen",
   "command.session.next.unseen",
   "session.new.title",
-  "session.new.subtitle",
   "session.new.card.document.title",
   "session.new.card.document.description",
   "session.new.card.analysis.title",
