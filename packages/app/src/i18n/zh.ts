@@ -688,7 +688,6 @@ export const dict = {
   "sidebar.empty.description": "打开一个项目开始使用",
   "sidebar.pawwork.search": "搜索",
   "sidebar.pawwork.empty.description": "打开一个项目后，即可使用以会话为中心的侧边栏。",
-  "sidebar.pawwork.empty.sessions": "还没有会话，先新建一个开始。",
   "sidebar.pawwork.pinned": "已置顶",
   "sidebar.pawwork.all": "全部会话",
   "sidebar.pawwork.pinSession": "置顶会话",

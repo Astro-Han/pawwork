@@ -284,10 +284,7 @@ export const PawworkSidebar = (props: {
           data-component="pawwork-session-scroll"
           class="flex-1 min-h-0 overflow-y-auto px-3 pb-3"
         >
-          <Show
-            when={props.sessions().length > 0}
-            fallback={<div class="px-2 text-13-regular text-text-weak">{language.t("sidebar.pawwork.empty.sessions")}</div>}
-          >
+          <Show when={props.sessions().length > 0}>
             <nav class="flex flex-col gap-1">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
