@@ -473,8 +473,8 @@ export const dict = {
   "toast.update.action.installRestart": "安装并重启",
   "toast.update.action.notYet": "稍后",
 
-  "error.page.title": "出了点问题",
-  "error.page.description": "加载应用程序时发生错误。",
+  "error.page.title": "应用出错了",
+  "error.page.description": "重启通常能解决。如果不行，把错误详情发给我们看看。",
   "error.page.details.label": "错误详情",
   "error.page.action.restart": "重启",
   "error.page.action.checking": "检查中...",

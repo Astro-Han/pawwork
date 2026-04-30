@@ -486,8 +486,8 @@ export const dict = {
   "toast.update.action.installRestart": "Install and restart",
   "toast.update.action.notYet": "Not yet",
 
-  "error.page.title": "Something went wrong",
-  "error.page.description": "An error occurred while loading the application.",
+  "error.page.title": "Something broke",
+  "error.page.description": "A restart usually fixes this. If not, send us the details.",
   "error.page.details.label": "Error Details",
   "error.page.action.restart": "Restart",
   "error.page.action.checking": "Checking...",

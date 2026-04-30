@@ -1,5 +1,4 @@
 import { TextField } from "@opencode-ai/ui/text-field"
-import { Logo } from "@opencode-ai/ui/logo"
 import { Button } from "@opencode-ai/ui/button"
 import { Component, Show, createMemo, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -91,6 +90,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
   async function reportProblem() {
     if (!platform.reportProblem) {
       setStore({
+        reportConfirmOpen: false,
         actionError: undefined,
         actionMessage: language.t("error.page.report.unavailable"),
         feedbackUrl: undefined,
@@ -116,110 +116,163 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         })
       })
       .finally(() => {
-        setStore("reporting", false)
+        setStore({ reporting: false, reportConfirmOpen: false })
       })
   }
 
   return (
-    <div class="relative flex-1 h-screen w-screen min-h-0 flex flex-col items-center justify-center bg-background-base font-sans">
-      <div class="w-2/3 max-w-3xl flex flex-col items-center justify-center gap-8">
-        <Logo class="w-58.5 opacity-12 shrink-0" />
-        <div class="flex flex-col items-center gap-2 text-center">
-          <h1 class="text-lg font-medium text-text-strong">{language.t("error.page.title")}</h1>
-          <p class="text-sm text-text-weak">{language.t("error.page.description")}</p>
+    <div class="relative flex-1 h-screen w-screen min-h-0 overflow-y-auto bg-background-base font-sans">
+      <div class="w-full max-w-[32rem] flex flex-col pt-[28vh] pb-16 pl-[clamp(1.5rem,10vw,6rem)] pr-6">
+        <div class="flex flex-col gap-3">
+          <h1 class="text-28-regular text-text-strong text-balance">{language.t("error.page.title")}</h1>
+          <p class="text-16-regular text-text-base text-balance">{language.t("error.page.description")}</p>
         </div>
+
         <Show when={knownError()}>
           {(known) => (
-            <div class="w-full rounded-lg border border-border-subtle-base bg-background-muted p-4 text-left">
-              <div class="text-sm font-medium text-text-strong">{known().title}</div>
-              <p class="mt-1 text-sm text-text-weak">{known().description}</p>
+            <div class="mt-8 flex flex-col gap-2">
+              <div class="text-13-medium text-text-strong">{known().title}</div>
+              <p class="text-13-regular text-text-weak leading-relaxed">{known().description}</p>
             </div>
           )}
         </Show>
-        <div class="flex items-center gap-3">
-          <Button size="large" onClick={platform.restart}>
-            {language.t("error.page.action.restart")}
-          </Button>
-          <Show when={platform.checkUpdate}>
+
+        <div class="mt-10 flex flex-col items-start gap-5">
+          <Show
+            when={platform.checkUpdate && store.version}
+            fallback={
+              <Button size="large" onClick={platform.restart}>
+                {language.t("error.page.action.restart")}
+              </Button>
+            }
+          >
+            <Button size="large" onClick={installUpdate}>
+              {language.t("error.page.action.updateTo", { version: store.version ?? "" })}
+            </Button>
+          </Show>
+          <div class="flex items-center gap-2 text-13-regular text-text-base">
             <Show
-              when={store.version}
+              when={platform.checkUpdate && store.version}
               fallback={
-                <Button size="large" variant="ghost" onClick={checkForUpdates} disabled={store.checking}>
-                  {store.checking
-                    ? language.t("error.page.action.checking")
-                    : language.t("error.page.action.checkUpdates")}
-                </Button>
+                <Show when={platform.checkUpdate}>
+                  <button
+                    type="button"
+                    class="hover:text-text-strong transition-colors disabled:opacity-50"
+                    onClick={checkForUpdates}
+                    disabled={store.checking}
+                  >
+                    {store.checking
+                      ? language.t("error.page.action.checking")
+                      : language.t("error.page.action.checkUpdates")}
+                  </button>
+                </Show>
               }
             >
-              <Button size="large" onClick={installUpdate}>
-                {language.t("error.page.action.updateTo", { version: store.version ?? "" })}
-              </Button>
+              <button type="button" class="hover:text-text-strong transition-colors" onClick={platform.restart}>
+                {language.t("error.page.action.restart")}
+              </button>
             </Show>
-          </Show>
+            <Show when={platform.checkUpdate}>
+              <span class="text-text-weaker" aria-hidden="true">
+                ·
+              </span>
+            </Show>
+            <button
+              type="button"
+              class="hover:text-text-strong transition-colors disabled:opacity-50"
+              onClick={() => setStore("reportConfirmOpen", true)}
+              disabled={store.reporting}
+            >
+              {store.reporting ? language.t("error.page.report.preparing") : language.t("error.page.report.action")}
+            </button>
+          </div>
         </div>
-        <div class="flex flex-col items-center gap-3 text-center">
-          <Button
-            size="large"
-            variant="secondary"
-            onClick={() => setStore("reportConfirmOpen", true)}
-            disabled={store.reporting}
-          >
-            {store.reporting ? language.t("error.page.report.preparing") : language.t("error.page.report.action")}
-          </Button>
-          <Show when={store.reportConfirmOpen}>
-            <div class="w-full max-w-2xl rounded-lg border border-border-subtle-base bg-background-muted p-4 text-left">
-              <p class="text-sm text-text-strong">{language.t("error.page.report.confirm.description")}</p>
-              <p class="mt-1 text-sm text-text-weak">{language.t("error.page.report.confirm.privacy")}</p>
-              <details class="mt-3 text-sm text-text-weak">
-                <summary class="cursor-pointer text-text-interactive-base">
-                  {language.t("error.page.report.confirm.details")}
-                </summary>
-                <ul class="mt-2 list-disc pl-5">
-                  <li>{language.t("error.page.report.confirm.item.error")}</li>
-                  <li>{language.t("error.page.report.confirm.item.app")}</li>
-                  <li>{language.t("error.page.report.confirm.item.logs")}</li>
-                  <li>{language.t("error.page.report.confirm.item.context")}</li>
-                </ul>
-              </details>
-              <div class="mt-4">
-                <Button size="large" onClick={reportProblem} disabled={store.reporting}>
-                  {language.t("error.page.report.confirm.continue")}
-                </Button>
-              </div>
+
+        <Show when={store.reportConfirmOpen}>
+          <div class="mt-8 flex flex-col gap-3 text-13-regular">
+            <p class="text-text-base leading-relaxed">{language.t("error.page.report.confirm.description")}</p>
+            <p class="text-text-weak leading-relaxed">{language.t("error.page.report.confirm.privacy")}</p>
+            <details class="text-text-weak">
+              <summary class="cursor-pointer text-text-interactive-base select-none">
+                {language.t("error.page.report.confirm.details")}
+              </summary>
+              <ul class="mt-2 list-disc pl-5">
+                <li>{language.t("error.page.report.confirm.item.error")}</li>
+                <li>{language.t("error.page.report.confirm.item.app")}</li>
+                <li>{language.t("error.page.report.confirm.item.logs")}</li>
+                <li>{language.t("error.page.report.confirm.item.context")}</li>
+              </ul>
+            </details>
+            <div class="mt-1 flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="large"
+                onClick={() => setStore("reportConfirmOpen", false)}
+                disabled={store.reporting}
+              >
+                {language.t("common.cancel")}
+              </Button>
+              <Button size="large" onClick={reportProblem} disabled={store.reporting}>
+                {language.t("error.page.report.confirm.continue")}
+              </Button>
             </div>
-          </Show>
-          <button
-            type="button"
-            class="text-xs text-text-weak hover:text-text-interactive-base"
-            onClick={() => platform.openLink(store.feedbackUrl ?? PAWWORK_GITHUB_ISSUE_URL)}
-          >
-            {store.feedbackUrl
-              ? language.t("error.page.report.formFallbackAction")
-              : language.t("error.page.report.githubFallback")}
-          </button>
-        </div>
+          </div>
+        </Show>
+
         <Show when={store.actionError}>
-          {(message) => <p class="text-xs text-text-danger-base text-center max-w-2xl">{message()}</p>}
+          {(message) => <p class="mt-6 text-12-regular text-text-danger-base">{message()}</p>}
         </Show>
         <Show when={store.actionMessage}>
-          {(message) => <p class="text-xs text-text-weak text-center max-w-2xl">{message()}</p>}
+          {(message) => <p class="mt-6 text-12-regular text-text-weak">{message()}</p>}
         </Show>
-        <TextField
-          value={errorDetails()}
-          readOnly
-          copyable
-          multiline
-          class="max-h-96 w-full font-mono text-xs no-scrollbar"
-          label={language.t("error.page.details.label")}
-          hideLabel
-        />
-        <div class="flex flex-col items-center gap-2">
-          <Show when={platform.version}>
-            {(version) => (
-              <p class="text-xs text-text-weak">{language.t("error.page.version", { version: version() })}</p>
-            )}
-          </Show>
-        </div>
+
+        <details class="group mt-16">
+          <summary class="cursor-pointer select-none text-13-regular text-text-weak hover:text-text-base transition-colors list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 10 10"
+              class="transition-transform group-open:rotate-90"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            {language.t("error.page.details.label")}
+          </summary>
+          <div class="mt-4 flex flex-col gap-3">
+            <TextField
+              value={errorDetails()}
+              readOnly
+              copyable
+              multiline
+              class="max-h-72 w-full font-mono text-xs no-scrollbar"
+              label={language.t("error.page.details.label")}
+              hideLabel
+            />
+            <div class="flex items-center gap-2 text-12-regular text-text-weaker">
+              <Show when={platform.version}>
+                {(version) => (
+                  <>
+                    <span>{language.t("error.page.version", { version: version() })}</span>
+                    <span class="text-text-weaker" aria-hidden="true">
+                      ·
+                    </span>
+                  </>
+                )}
+              </Show>
+              <button
+                type="button"
+                class="hover:text-text-weak transition-colors"
+                onClick={() => platform.openLink(store.feedbackUrl ?? PAWWORK_GITHUB_ISSUE_URL)}
+              >
+                {store.feedbackUrl
+                  ? language.t("error.page.report.formFallbackAction")
+                  : language.t("error.page.report.githubFallback")}
+              </button>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
   )
