@@ -113,7 +113,6 @@ const SessionRow = (props: {
 export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const params = useParams()
   const layout = useLayout()
-  const language = useLanguage()
   const notification = useNotification()
   const permission = usePermission()
   const globalSync = useGlobalSync()
