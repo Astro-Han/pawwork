@@ -1,14 +1,15 @@
 import { $ } from "bun"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
-import { Effect, ManagedRuntime } from "effect"
+import { Effect, Layer, ManagedRuntime } from "effect"
 import { Git } from "../../src/git"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const weird = process.platform === "win32" ? "space file.txt" : "tab\tfile.txt"
-const it = testEffect(Git.defaultLayer)
+const it = testEffect(Layer.mergeAll(Git.defaultLayer, CrossSpawnSpawner.defaultLayer))
 
 async function withGit<T>(body: (rt: ManagedRuntime.ManagedRuntime<Git.Service, never>) => Promise<T>) {
   const rt = ManagedRuntime.make(Git.defaultLayer)
@@ -118,21 +119,18 @@ describe("Git", () => {
 
   it.live("statusUnstaged() excludes staged-only changes and includes untracked files", () =>
     Effect.gen(function* () {
-      const tmp = yield* Effect.acquireRelease(
-        Effect.promise(() => tmpdir({ git: true })),
-        (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
-      )
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\n", "utf-8"))
-      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet())
+      const tmp = yield* tmpdirScoped({ git: true })
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\n", "utf-8"))
+      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp).quiet())
 
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8"))
-      yield* Effect.promise(() => $`git add staged.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8"))
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\nunstaged\n", "utf-8"))
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "staged.txt"), "staged\n", "utf-8"))
+      yield* Effect.promise(() => $`git add staged.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "unstaged.txt"), "unstaged\n", "utf-8"))
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\nunstaged\n", "utf-8"))
 
       const git = yield* Git.Service
-      const status = yield* git.statusUnstaged(tmp.path)
+      const status = yield* git.statusUnstaged(tmp)
       expect(status).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ file: "tracked.txt", status: "modified" }),
@@ -145,49 +143,41 @@ describe("Git", () => {
 
   it.live("showIndex() reads staged content instead of working tree content", () =>
     Effect.gen(function* () {
-      const tmp = yield* Effect.acquireRelease(
-        Effect.promise(() => tmpdir({ git: true })),
-        (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
-      )
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "file.txt"), "base\n", "utf-8"))
-      yield* Effect.promise(() => $`git add file.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet())
+      const tmp = yield* tmpdirScoped({ git: true })
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "file.txt"), "base\n", "utf-8"))
+      yield* Effect.promise(() => $`git add file.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp).quiet())
 
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "file.txt"), "staged\n", "utf-8"))
-      yield* Effect.promise(() => $`git add file.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "file.txt"), "working\n", "utf-8"))
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "file.txt"), "staged\n", "utf-8"))
+      yield* Effect.promise(() => $`git add file.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "file.txt"), "working\n", "utf-8"))
 
       const git = yield* Git.Service
-      const text = yield* git.showIndex(tmp.path, "file.txt")
+      const text = yield* git.showIndex(tmp, "file.txt")
       expect(text).toBe("staged\n")
     }),
   )
 
   it.live("diffUnstaged(), statsUnstaged(), diffStaged(), and statsStaged() split index from working tree", () =>
     Effect.gen(function* () {
-      const tmp = yield* Effect.acquireRelease(
-        Effect.promise(() => tmpdir({ git: true })),
-        (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
-      )
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\n", "utf-8"))
-      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp.path).quiet())
+      const tmp = yield* tmpdirScoped({ git: true })
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\n", "utf-8"))
+      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "base"`.cwd(tmp).quiet())
 
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "staged.txt"), "staged\n", "utf-8"))
-      yield* Effect.promise(() => $`git add staged.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8"))
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\nstaged\n", "utf-8"))
-      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() =>
-        fs.writeFile(path.join(tmp.path, "tracked.txt"), "base\nstaged\nworking\n", "utf-8"),
-      )
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "staged.txt"), "staged\n", "utf-8"))
+      yield* Effect.promise(() => $`git add staged.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "unstaged.txt"), "unstaged\n", "utf-8"))
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\nstaged\n", "utf-8"))
+      yield* Effect.promise(() => $`git add tracked.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "tracked.txt"), "base\nstaged\nworking\n", "utf-8"))
 
       const git = yield* Git.Service
       const [unstagedDiff, unstagedStats, stagedDiff, stagedStats] = yield* Effect.all([
-        git.diffUnstaged(tmp.path),
-        git.statsUnstaged(tmp.path),
-        git.diffStaged(tmp.path),
-        git.statsStaged(tmp.path),
+        git.diffUnstaged(tmp),
+        git.statsUnstaged(tmp),
+        git.diffStaged(tmp),
+        git.statsStaged(tmp),
       ])
 
       expect(unstagedDiff).toEqual(
@@ -213,19 +203,16 @@ describe("Git", () => {
 
   it.live("diffHead() and statsHead() compare a ref to HEAD without working tree changes", () =>
     Effect.gen(function* () {
-      const tmp = yield* Effect.acquireRelease(
-        Effect.promise(() => tmpdir({ git: true })),
-        (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
-      )
-      yield* Effect.promise(() => $`git branch -M main`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => $`git checkout -b feature/test`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "branch.txt"), "branch\n", "utf-8"))
-      yield* Effect.promise(() => $`git add branch.txt`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp.path).quiet())
-      yield* Effect.promise(() => fs.writeFile(path.join(tmp.path, "unstaged.txt"), "unstaged\n", "utf-8"))
+      const tmp = yield* tmpdirScoped({ git: true })
+      yield* Effect.promise(() => $`git branch -M main`.cwd(tmp).quiet())
+      yield* Effect.promise(() => $`git checkout -b feature/test`.cwd(tmp).quiet())
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "branch.txt"), "branch\n", "utf-8"))
+      yield* Effect.promise(() => $`git add branch.txt`.cwd(tmp).quiet())
+      yield* Effect.promise(() => $`git commit --no-gpg-sign -m "branch file"`.cwd(tmp).quiet())
+      yield* Effect.promise(() => fs.writeFile(path.join(tmp, "unstaged.txt"), "unstaged\n", "utf-8"))
 
       const git = yield* Git.Service
-      const [diff, stats] = yield* Effect.all([git.diffHead(tmp.path, "main"), git.statsHead(tmp.path, "main")])
+      const [diff, stats] = yield* Effect.all([git.diffHead(tmp, "main"), git.statsHead(tmp, "main")])
 
       expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
       expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
