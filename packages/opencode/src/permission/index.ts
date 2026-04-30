@@ -13,6 +13,7 @@ import { Wildcard } from "@/util/wildcard"
 import { Deferred, Effect, Layer, Schema, Context } from "effect"
 import os from "os"
 import z from "zod"
+import { fromDeniedRule, isPermanentDeleteRule, render, type DenialDiagnostic } from "./diagnostic"
 import { evaluate as evalRule } from "./evaluate"
 import { PermissionID } from "./schema"
 
@@ -96,8 +97,10 @@ export namespace Permission {
 
   export class DeniedError extends Schema.TaggedErrorClass<DeniedError>()("PermissionDeniedError", {
     ruleset: Schema.Any,
+    diagnostic: Schema.optional(Schema.Any),
   }) {
     override get message() {
+      if (this.diagnostic) return render(this.diagnostic as DenialDiagnostic)
       return `The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules ${JSON.stringify(this.ruleset)}`
     }
   }
@@ -168,17 +171,40 @@ export namespace Permission {
         const { approved, pending } = yield* InstanceState.get(state)
         const { ruleset, ...request } = input
         let needsAsk = false
+        const denied: Array<{ pattern: string; rule: Rule }> = []
 
         for (const pattern of request.patterns) {
           const rule = evaluate(request.permission, pattern, ruleset, approved)
           log.info("evaluated", { permission: request.permission, pattern, action: rule })
           if (rule.action === "deny") {
-            return yield* new DeniedError({
-              ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
-            })
+            denied.push({ pattern, rule })
+            continue
           }
           if (rule.action === "allow") continue
           needsAsk = true
+        }
+
+        if (denied.length > 0) {
+          const primaryIndex =
+            request.permission === "bash" ? denied.findIndex((item) => isPermanentDeleteRule(item.rule)) : -1
+          const primary = primaryIndex >= 0 ? denied[primaryIndex] : denied[0]
+          const rest = denied.filter((_, index) => index !== (primaryIndex >= 0 ? primaryIndex : 0))
+          const diagnostic = primary
+            ? fromDeniedRule({
+                permission: request.permission,
+                blockedCommand: primary.pattern,
+                matchedRule: primary.rule,
+                additionalBlockedCommands: rest.map((item) => ({
+                  blockedCommand: item.pattern,
+                  matchedRule: item.rule,
+                })),
+              })
+            : undefined
+
+          return yield* new DeniedError({
+            ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
+            ...(diagnostic ? { diagnostic } : {}),
+          })
         }
 
         if (!needsAsk) return
