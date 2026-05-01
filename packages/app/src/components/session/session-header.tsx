@@ -104,7 +104,7 @@ export function SessionHeader() {
                       type="button"
                       variant="ghost"
                       size="small"
-                      class="h-6 max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-text-weak hover:text-text-strong"
+                      class="group h-6 max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-text-weak hover:text-text-strong"
                       onClick={openProjectDirectory}
                       aria-label={
                         canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined
@@ -116,7 +116,7 @@ export function SessionHeader() {
                       }
                       disabled={!canOpenProjectDirectory()}
                     >
-                      <Icon name="folder" size="small" class="shrink-0 text-text-weaker" />
+                      <Icon name="folder" size="small" class="shrink-0 text-text-weak transition-colors group-hover:text-text-strong" />
                       <span class="min-w-0 truncate">{name()}</span>
                     </Button>
                   </Show>

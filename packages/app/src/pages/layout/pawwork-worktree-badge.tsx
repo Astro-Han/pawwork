@@ -1,3 +1,4 @@
+import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 
 export function PawworkWorktreeBadge(props: {
@@ -8,20 +9,22 @@ export function PawworkWorktreeBadge(props: {
   ariaLabel?: string
   disabled?: boolean
 }) {
-  const title = () => [props.branch, props.directory].filter(Boolean).join(" · ")
+  const title = () => [props.branch, props.directory].filter(Boolean).join(" · ") || props.name
 
   return (
-    <button
+    <Button
       type="button"
-      class="group flex h-6 max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 text-13-regular text-text-weak transition-colors hover:text-text-strong focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-border-active disabled:pointer-events-none disabled:opacity-60"
+      variant="ghost"
+      size="small"
+      class="group h-6 max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-text-weak hover:text-text-strong"
       data-component="pawwork-worktree-badge"
-      title={title() || props.name}
+      title={title()}
       onClick={props.onClick}
       aria-label={props.ariaLabel}
       disabled={props.disabled}
     >
-      <Icon name="worktree" size="small" class="shrink-0 text-text-weaker transition-colors group-hover:text-text-weak" />
+      <Icon name="worktree" size="small" class="shrink-0 text-text-weak transition-colors group-hover:text-text-strong" />
       <span class="min-w-0 truncate">{props.name}</span>
-    </button>
+    </Button>
   )
 }
