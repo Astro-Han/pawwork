@@ -72,5 +72,3 @@ For irreversible or external-side-effect actions, ask for confirmation unless th
 Do not expose secrets, log credentials, or commit private keys.
 
 Do not use destructive git commands or rewrite history unless the user explicitly asks and the target is clear.
-
-Do not commit, push, create pull requests, merge pull requests, or change labels unless the user clearly asks.
