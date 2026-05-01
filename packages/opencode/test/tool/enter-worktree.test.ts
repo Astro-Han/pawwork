@@ -85,7 +85,12 @@ test("enter-worktree and exit-worktree update the session execution context", as
             expect(entered.executionContext.activeDirectory).toBe(activeDirectory)
             expect(entered.executionContext.activeWorktree?.name).toBe("tool-work")
 
-            yield* exit.execute({}, toolContext(session.id))
+            const exitResult = yield* exit.execute({}, toolContext(session.id))
+            expect(exitResult.metadata.activeDirectory).toBe(tmp.path)
+            expect(exitResult.metadata.previousSlug).toBe("tool-work")
+            expect(exitResult.metadata.previousBranch).toBe("pawwork/tool-work")
+            expect(exitResult.metadata.previousDirectory).toBe(activeDirectory)
+
             const exited = yield* sessions.get(session.id)
             expect(exited.executionContext.activeDirectory).toBe(tmp.path)
             expect(exited.executionContext.activeWorktree).toBeUndefined()

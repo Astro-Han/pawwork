@@ -32,23 +32,37 @@ export const ExitWorktreeTool = Tool.define(
 
         const session = yield* sessions.get(ctx.sessionID)
         const exec = session.executionContext
+        type ExitMetadata = {
+          activeDirectory: string
+          previousSlug?: string
+          previousBranch?: string
+          previousDirectory?: string
+        }
         if (exec.activeDirectory === exec.ownerDirectory && exec.activeWorktree === undefined) {
+          const metadata: ExitMetadata = { activeDirectory: exec.ownerDirectory }
           return {
             title: "Already at project root",
             output: `Returned to project root ${exec.ownerDirectory}. Subsequent paths resolve from this directory.`,
-            metadata: { activeDirectory: exec.ownerDirectory },
+            metadata,
           }
         }
 
+        const previous = exec.activeWorktree
         yield* sessions.updateExecutionContext({
           sessionID: ctx.sessionID,
           activeDirectory: exec.ownerDirectory,
           activeWorktree: null,
         })
+        const metadata: ExitMetadata = {
+          activeDirectory: exec.ownerDirectory,
+          previousSlug: previous?.name,
+          previousBranch: previous?.branch,
+          previousDirectory: previous?.directory,
+        }
         return {
           title: "Exited worktree",
           output: `Returned to project root ${exec.ownerDirectory}. Subsequent paths resolve from this directory.`,
-          metadata: { activeDirectory: exec.ownerDirectory },
+          metadata,
         }
       })
 
