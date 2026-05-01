@@ -3,7 +3,7 @@ import z from "zod"
 export const ActiveWorktree = z.object({
   directory: z.string(),
   name: z.string(),
-  branch: z.string().optional(),
+  branch: z.string(),
   source: z.enum(["created", "existing"]),
 })
 export type ActiveWorktree = z.infer<typeof ActiveWorktree>

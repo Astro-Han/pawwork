@@ -983,7 +983,7 @@ export type Session = {
     activeWorktree?: {
       directory: string
       name: string
-      branch?: string
+      branch: string
       source: "created" | "existing"
     }
     lastChangedAt: number
@@ -1158,7 +1158,7 @@ export type SyncEventSessionUpdated = {
         activeWorktree?: {
           directory: string
           name: string
-          branch?: string
+          branch: string
           source: "created" | "existing"
         }
         lastChangedAt: number
@@ -1930,7 +1930,7 @@ export type GlobalSession = {
     activeWorktree?: {
       directory: string
       name: string
-      branch?: string
+      branch: string
       source: "created" | "existing"
     }
     lastChangedAt: number

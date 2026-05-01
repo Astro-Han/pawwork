@@ -1886,13 +1886,13 @@
         "description": "List all sandbox worktrees for the current project.",
         "responses": {
           "200": {
-            "description": "List of worktree directories",
+            "description": "List of worktrees",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/Worktree"
                   }
                 }
               }
@@ -2336,6 +2336,19 @@
                   "workspaceID": {
                     "type": "string",
                     "pattern": "^wrk.*"
+                  },
+                  "createdByAgentTool": {
+                    "type": "boolean"
+                  },
+                  "subagentType": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }
@@ -4998,19 +5011,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "answers": {
-                    "description": "User answers in order of questions (each answer is an array of selected labels)",
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/QuestionAnswer"
-                    }
-                  }
-                },
-                "required": [
-                  "answers"
-                ]
+                "$ref": "#/components/schemas/QuestionReply"
               }
             }
           }
@@ -5494,6 +5495,13 @@
                     },
                     "partial": {
                       "type": "boolean"
+                    },
+                    "partialReason": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_pattern",
+                        "partial_io"
+                      ]
                     }
                   },
                   "required": [
@@ -7704,13 +7712,11 @@
         "properties": {
           "label": {
             "description": "Display text (1–5 words, max 50 chars)",
-            "type": "string",
-            "maxLength": 50
+            "type": "string"
           },
           "description": {
             "description": "One-line explanation of choice (max 50 chars)",
-            "type": "string",
-            "maxLength": 50
+            "type": "string"
           }
         },
         "required": [
@@ -7723,13 +7729,11 @@
         "properties": {
           "question": {
             "description": "Short question (max 200 chars). Stream longer framing as normal output first.",
-            "type": "string",
-            "maxLength": 200
+            "type": "string"
           },
           "header": {
             "description": "Very short label (max 30 chars)",
-            "type": "string",
-            "maxLength": 30
+            "type": "string"
           },
           "options": {
             "description": "Available choices (2–4)",
@@ -7755,6 +7759,22 @@
           "options"
         ]
       },
+      "QuestionTool": {
+        "type": "object",
+        "properties": {
+          "messageID": {
+            "type": "string",
+            "pattern": "^msg.*"
+          },
+          "callID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageID",
+          "callID"
+        ]
+      },
       "QuestionRequest": {
         "type": "object",
         "properties": {
@@ -7767,6 +7787,7 @@
             "pattern": "^ses.*"
           },
           "questions": {
+            "description": "Questions to ask",
             "minItems": 1,
             "maxItems": 4,
             "type": "array",
@@ -7775,20 +7796,7 @@
             }
           },
           "tool": {
-            "type": "object",
-            "properties": {
-              "messageID": {
-                "type": "string",
-                "pattern": "^msg.*"
-              },
-              "callID": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "messageID",
-              "callID"
-            ]
+            "$ref": "#/components/schemas/QuestionTool"
           }
         },
         "required": [
@@ -7819,6 +7827,30 @@
           "type": "string"
         }
       },
+      "QuestionReplied": {
+        "type": "object",
+        "properties": {
+          "sessionID": {
+            "type": "string",
+            "pattern": "^ses.*"
+          },
+          "requestID": {
+            "type": "string",
+            "pattern": "^que.*"
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionAnswer"
+            }
+          }
+        },
+        "required": [
+          "sessionID",
+          "requestID",
+          "answers"
+        ]
+      },
       "Event.question.replied": {
         "type": "object",
         "properties": {
@@ -7827,33 +7859,29 @@
             "const": "question.replied"
           },
           "properties": {
-            "type": "object",
-            "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses.*"
-              },
-              "requestID": {
-                "type": "string",
-                "pattern": "^que.*"
-              },
-              "answers": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/QuestionAnswer"
-                }
-              }
-            },
-            "required": [
-              "sessionID",
-              "requestID",
-              "answers"
-            ]
+            "$ref": "#/components/schemas/QuestionReplied"
           }
         },
         "required": [
           "type",
           "properties"
+        ]
+      },
+      "QuestionRejected": {
+        "type": "object",
+        "properties": {
+          "sessionID": {
+            "type": "string",
+            "pattern": "^ses.*"
+          },
+          "requestID": {
+            "type": "string",
+            "pattern": "^que.*"
+          }
+        },
+        "required": [
+          "sessionID",
+          "requestID"
         ]
       },
       "Event.question.rejected": {
@@ -7864,21 +7892,7 @@
             "const": "question.rejected"
           },
           "properties": {
-            "type": "object",
-            "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses.*"
-              },
-              "requestID": {
-                "type": "string",
-                "pattern": "^que.*"
-              }
-            },
-            "required": [
-              "sessionID",
-              "requestID"
-            ]
+            "$ref": "#/components/schemas/QuestionRejected"
           }
         },
         "required": [
@@ -8571,18 +8585,25 @@
             "type": "string"
           },
           "path": {
-            "type": "object",
-            "properties": {
-              "cwd": {
-                "type": "string"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "cwd": {
+                    "type": "string"
+                  },
+                  "root": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cwd",
+                  "root"
+                ]
               },
-              "root": {
+              {
                 "type": "string"
               }
-            },
-            "required": [
-              "cwd",
-              "root"
             ]
           },
           "summary": {
@@ -8824,6 +8845,241 @@
           },
           "command": {
             "type": "string"
+          },
+          "tool_call_id": {
+            "type": "string"
+          },
+          "parent_session_id": {
+            "type": "string"
+          },
+          "parent_message_id": {
+            "type": "string"
+          },
+          "subagent_session_id": {
+            "type": "string"
+          },
+          "status": {
+            "default": "completed",
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "completed_empty",
+              "failed",
+              "canceled_by_user"
+            ]
+          },
+          "started_at": {
+            "type": "number"
+          },
+          "updated_at": {
+            "type": "number"
+          },
+          "ended_at": {
+            "type": "number"
+          },
+          "consumed_at": {
+            "type": "number"
+          },
+          "recent_events": {
+            "default": [],
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "started"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "tool_started"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "tool",
+                    "label",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "tool_completed"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "tool",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "model_wait_started"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "completed"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "completed_empty"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "canceled_by_user"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "kind",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "consumed"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                }
+              ]
+            }
+          },
+          "result_summary": {
+            "type": "string"
+          },
+          "result_text": {
+            "type": "string"
+          },
+          "partial_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "message"
+            ]
           }
         },
         "required": [
@@ -9807,6 +10063,21 @@
             "type": "string",
             "pattern": "^ses.*"
           },
+          "createdByAgentTool": {
+            "default": false,
+            "type": "boolean"
+          },
+          "subagentType": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "skill": {
             "type": "string"
           },
@@ -9901,21 +10172,48 @@
           "executionContext": {
             "type": "object",
             "properties": {
-              "ownerDirectory": { "type": "string" },
-              "activeDirectory": { "type": "string" },
+              "ownerDirectory": {
+                "type": "string"
+              },
+              "activeDirectory": {
+                "type": "string"
+              },
               "activeWorktree": {
                 "type": "object",
                 "properties": {
-                  "directory": { "type": "string" },
-                  "name": { "type": "string" },
-                  "branch": { "type": "string" },
-                  "source": { "type": "string", "enum": ["created", "existing"] }
+                  "directory": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "created",
+                      "existing"
+                    ]
+                  }
                 },
-                "required": ["directory", "name", "source"]
+                "required": [
+                  "directory",
+                  "name",
+                  "branch",
+                  "source"
+                ]
               },
-              "lastChangedAt": { "type": "number" }
+              "lastChangedAt": {
+                "type": "number"
+              }
             },
-            "required": ["ownerDirectory", "activeDirectory", "lastChangedAt"]
+            "required": [
+              "ownerDirectory",
+              "activeDirectory",
+              "lastChangedAt"
+            ]
           }
         },
         "required": [
@@ -10435,6 +10733,35 @@
                       }
                     ]
                   },
+                  "createdByAgentTool": {
+                    "anyOf": [
+                      {
+                        "default": false,
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "subagentType": {
+                    "anyOf": [
+                      {
+                        "default": null,
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "skill": {
                     "anyOf": [
                       {
@@ -10604,6 +10931,59 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "executionContext": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "ownerDirectory": {
+                            "type": "string"
+                          },
+                          "activeDirectory": {
+                            "type": "string"
+                          },
+                          "activeWorktree": {
+                            "type": "object",
+                            "properties": {
+                              "directory": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "branch": {
+                                "type": "string"
+                              },
+                              "source": {
+                                "type": "string",
+                                "enum": [
+                                  "created",
+                                  "existing"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "directory",
+                              "name",
+                              "branch",
+                              "source"
+                            ]
+                          },
+                          "lastChangedAt": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "ownerDirectory",
+                          "activeDirectory",
+                          "lastChangedAt"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -10613,12 +10993,15 @@
                   "workspaceID",
                   "directory",
                   "parentID",
+                  "createdByAgentTool",
+                  "subagentType",
                   "skill",
                   "summary",
                   "title",
                   "version",
                   "permission",
-                  "revert"
+                  "revert",
+                  "executionContext"
                 ]
               }
             },
@@ -10771,14 +11154,11 @@
       "PermissionConfig": {
         "anyOf": [
           {
+            "$ref": "#/components/schemas/PermissionActionConfig"
+          },
+          {
             "type": "object",
             "properties": {
-              "__originalKeys": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
               "read": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
@@ -10798,6 +11178,9 @@
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
               "agent": {
+                "$ref": "#/components/schemas/PermissionRuleConfig"
+              },
+              "task": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
               "external_directory": {
@@ -10831,9 +11214,6 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/PermissionRuleConfig"
             }
-          },
-          {
-            "$ref": "#/components/schemas/PermissionActionConfig"
           }
         ]
       },
@@ -11703,6 +12083,24 @@
               }
             }
           },
+          "tool_output": {
+            "description": "Thresholds for truncating tool output. When output exceeds either limit, the full text is written to the truncation directory and a preview is returned.",
+            "type": "object",
+            "properties": {
+              "max_lines": {
+                "description": "Maximum lines of tool output before it is truncated and saved to disk (default: 2000)",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "max_bytes": {
+                "description": "Maximum bytes of tool output before it is truncated and saved to disk (default: 51200)",
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          },
           "compaction": {
             "type": "object",
             "properties": {
@@ -12357,6 +12755,14 @@
           },
           "directory": {
             "type": "string"
+          },
+          "source": {
+            "default": "created",
+            "type": "string",
+            "enum": [
+              "created",
+              "existing"
+            ]
           }
         },
         "required": [
@@ -12440,6 +12846,21 @@
           "parentID": {
             "type": "string",
             "pattern": "^ses.*"
+          },
+          "createdByAgentTool": {
+            "default": false,
+            "type": "boolean"
+          },
+          "subagentType": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "skill": {
             "type": "string"
@@ -12532,6 +12953,52 @@
               "messageID"
             ]
           },
+          "executionContext": {
+            "type": "object",
+            "properties": {
+              "ownerDirectory": {
+                "type": "string"
+              },
+              "activeDirectory": {
+                "type": "string"
+              },
+              "activeWorktree": {
+                "type": "object",
+                "properties": {
+                  "directory": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "created",
+                      "existing"
+                    ]
+                  }
+                },
+                "required": [
+                  "directory",
+                  "name",
+                  "branch",
+                  "source"
+                ]
+              },
+              "lastChangedAt": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "ownerDirectory",
+              "activeDirectory",
+              "lastChangedAt"
+            ]
+          },
           "project": {
             "anyOf": [
               {
@@ -12551,6 +13018,7 @@
           "title",
           "version",
           "time",
+          "executionContext",
           "project"
         ]
       },
@@ -12762,6 +13230,241 @@
           },
           "command": {
             "type": "string"
+          },
+          "tool_call_id": {
+            "type": "string"
+          },
+          "parent_session_id": {
+            "type": "string"
+          },
+          "parent_message_id": {
+            "type": "string"
+          },
+          "subagent_session_id": {
+            "type": "string"
+          },
+          "status": {
+            "default": "completed",
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "completed_empty",
+              "failed",
+              "canceled_by_user"
+            ]
+          },
+          "started_at": {
+            "type": "number"
+          },
+          "updated_at": {
+            "type": "number"
+          },
+          "ended_at": {
+            "type": "number"
+          },
+          "consumed_at": {
+            "type": "number"
+          },
+          "recent_events": {
+            "default": [],
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "started"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "tool_started"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "tool",
+                    "label",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "tool_completed"
+                    },
+                    "tool": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "tool",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "model_wait_started"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "completed"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "completed_empty"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "canceled_by_user"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "failed"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "kind",
+                    "at"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "consumed"
+                    },
+                    "at": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "at"
+                  ]
+                }
+              ]
+            }
+          },
+          "result_summary": {
+            "type": "string"
+          },
+          "result_text": {
+            "type": "string"
+          },
+          "partial_result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "message"
+            ]
           }
         },
         "required": [
@@ -12769,6 +13472,21 @@
           "prompt",
           "description",
           "agent"
+        ]
+      },
+      "QuestionReply": {
+        "type": "object",
+        "properties": {
+          "answers": {
+            "description": "User answers in order of questions (each answer is an array of selected labels)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionAnswer"
+            }
+          }
+        },
+        "required": [
+          "answers"
         ]
       },
       "ProviderAuthMethod": {

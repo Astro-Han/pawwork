@@ -33,7 +33,7 @@ export const SessionTable = sqliteTable(
         activeWorktree?: {
           directory: string
           name: string
-          branch?: string
+          branch: string
           source: "created" | "existing"
         }
         lastChangedAt: number
