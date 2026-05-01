@@ -222,7 +222,9 @@ describe("session.created event", () => {
           sessionID: session.id,
           activeDirectory: `${tmp.path}${path.sep}`,
         })
-        expect(canonicalDirectory(clearedByDirectory.executionContext.activeDirectory)).toBe(canonicalDirectory(tmp.path))
+        expect(canonicalDirectory(clearedByDirectory.executionContext.activeDirectory)).toBe(
+          canonicalDirectory(tmp.path),
+        )
         expect(clearedByDirectory.executionContext.activeWorktree).toBeUndefined()
 
         await SessionNs.remove(session.id)
@@ -299,6 +301,14 @@ describe("session.created event", () => {
         expect(loaded.executionContext.ownerDirectory).toBe(expectedRoot)
         expect(loaded.executionContext.activeDirectory).toBe(expectedRoot)
 
+        const listed = Array.from(SessionNs.list()).find((item) => item.id === session.id)
+        expect(listed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(listed?.executionContext.activeDirectory).toBe(expectedRoot)
+
+        const globalListed = Array.from(SessionNs.listGlobal()).find((item) => item.id === session.id)
+        expect(globalListed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(globalListed?.executionContext.activeDirectory).toBe(expectedRoot)
+
         await SessionNs.remove(session.id)
       },
     })
@@ -326,6 +336,14 @@ describe("session.created event", () => {
         expect(loaded.directory).toBe(subdir)
         expect(loaded.executionContext.ownerDirectory).toBe(expectedRoot)
         expect(loaded.executionContext.activeDirectory).toBe(expectedRoot)
+
+        const listed = Array.from(SessionNs.list()).find((item) => item.id === session.id)
+        expect(listed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(listed?.executionContext.activeDirectory).toBe(expectedRoot)
+
+        const globalListed = Array.from(SessionNs.listGlobal()).find((item) => item.id === session.id)
+        expect(globalListed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(globalListed?.executionContext.activeDirectory).toBe(expectedRoot)
 
         await SessionNs.remove(session.id)
       },

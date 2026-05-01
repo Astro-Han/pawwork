@@ -28,6 +28,7 @@ export const SettingsWorktrees: Component = () => {
       const results = await Promise.allSettled(
         projectRoots().map(async (ownerDirectory) => {
           const res = await sdk.client.worktree.list({ directory: ownerDirectory })
+          if (res.error) throw new Error(errorText(res.error))
           return (res.data ?? []).map((worktree) => ({ ...worktree, ownerDirectory }) as WorktreeInfo)
         }),
       )

@@ -3,6 +3,7 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
+import fs from "fs/promises"
 import { pathToFileURL } from "url"
 import { Agent as AgentSvc } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
@@ -1309,6 +1310,88 @@ unix("shell completes a fast command on the preferred shell", () =>
         yield* run.assertNotBusy(chat.id)
       }),
     { git: true, config: cfg },
+  ),
+)
+
+unix("shell uses the session execution context directory", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const { prompt, sessions, chat } = yield* boot()
+        const activeDir = path.join(dir, ".worktrees", "pawwork", "shell-context")
+        yield* Effect.promise(() => fs.mkdir(activeDir, { recursive: true }))
+        yield* sessions.updateExecutionContext({
+          sessionID: chat.id,
+          activeWorktree: {
+            directory: activeDir,
+            name: "shell-context",
+            branch: "pawwork/shell-context",
+            source: "created",
+          },
+        })
+
+        const result = yield* prompt.shell({
+          sessionID: chat.id,
+          agent: "build",
+          command: "pwd",
+        })
+        const tool = completedTool(result.parts)
+        if (!tool) return
+
+        expect(tool.state.output).toContain(activeDir)
+      }),
+    { git: true, config: cfg },
+  ),
+)
+
+unix("bash tool uses the session execution context directory", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Tool cwd",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const activeDir = path.join(dir, ".worktrees", "pawwork", "tool-context")
+        yield* Effect.promise(() => fs.mkdir(activeDir, { recursive: true }))
+        yield* sessions.updateExecutionContext({
+          sessionID: chat.id,
+          activeWorktree: {
+            directory: activeDir,
+            name: "tool-context",
+            branch: "pawwork/tool-context",
+            source: "created",
+          },
+        })
+
+        yield* prompt.prompt({
+          sessionID: chat.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "print cwd" }],
+        })
+        yield* llm.tool("bash", {
+          command: "pwd",
+          description: "Print cwd",
+        })
+        yield* llm.text("done")
+        const result = yield* prompt.loop({ sessionID: chat.id })
+        expect(result.info.role).toBe("assistant")
+
+        const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+        const tool = msgs
+          .flatMap((msg) => msg.parts)
+          .find(
+            (part): part is CompletedToolPart =>
+              part.type === "tool" && part.tool === "bash" && part.state.status === "completed",
+          )
+        if (!tool) return
+
+        expect(tool.state.output).toContain(activeDir)
+      }),
+    { git: true, config: providerCfg },
   ),
 )
 

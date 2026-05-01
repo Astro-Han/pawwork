@@ -16,8 +16,9 @@ function normalize(input: string) {
   return input.replace(/\\/g, "/").toLowerCase()
 }
 
-async function waitReady() {
+async function waitReady(root: string) {
   const { GlobalBus } = await import("../../src/bus/global")
+  const expectedRoot = normalize(root.endsWith(path.sep) ? root : `${root}${path.sep}`)
 
   return await new Promise<{ name: string; branch: string }>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -27,6 +28,7 @@ async function waitReady() {
 
     function on(evt: { directory?: string; payload: { type: string; properties: { name: string; branch: string } } }) {
       if (evt.payload.type !== Worktree.Event.Ready.type) return
+      if (!evt.directory || !normalize(evt.directory).startsWith(expectedRoot)) return
       clearTimeout(timer)
       GlobalBus.off("event", on)
       resolve(evt.payload.properties)
@@ -98,7 +100,7 @@ describe("Worktree", () => {
 
     test("create returns after setup and fires Event.Ready after bootstrap", async () => {
       await using tmp = await tmpdir({ git: true })
-      const ready = waitReady()
+      const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
 
       const info = await withInstance(tmp.path, () => Worktree.create())
 
@@ -125,7 +127,7 @@ describe("Worktree", () => {
 
     test("create with custom name", async () => {
       await using tmp = await tmpdir({ git: true })
-      const ready = waitReady()
+      const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
 
       const info = await withInstance(tmp.path, () => Worktree.create({ name: "test-workspace" }))
 

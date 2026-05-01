@@ -54,7 +54,8 @@ import { InstanceState } from "@/effect"
 import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
 import { EffectBridge } from "@/effect"
-import { makeRuntime } from "@/effect/run-service"
+import { attachWith, makeRuntime } from "@/effect/run-service"
+import { Instance } from "@/project/instance"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -506,6 +507,25 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const tools: Record<string, AITool> = {}
       const run = yield* runner()
       const promptOps = yield* ops()
+      const effectContext = yield* Effect.context()
+      const runInSessionContext = <A>(effect: Effect.Effect<A, any, any>): Effect.Effect<A> =>
+        Effect.gen(function* () {
+          const session = yield* sessions.get(input.session.id)
+          return yield* Effect.promise(
+            async () =>
+              await Instance.activate({
+                activeDirectory: session.executionContext.activeDirectory,
+                ownerDirectory: session.executionContext.ownerDirectory,
+                project: Instance.project,
+                fn: () =>
+                  Effect.runPromise(
+                    attachWith(effect, { instance: Instance.current }).pipe(
+                      Effect.provide(effectContext),
+                    ) as Effect.Effect<A, any, never>,
+                  ),
+              }),
+          )
+        })
       // Locale travels on the user message (set by the UI from `language.intl()`); capture
       // once here and let every applyLoopGate call in this resolveTools scope share it.
       // Falls back to undefined → English in LoopRenderer. Skip user messages without locale
@@ -572,25 +592,30 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 })
                 if (outcome.kind === "block") return yield* Effect.fail(new BlockedLoopError(outcome.userFacing))
                 if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
-                yield* plugin.trigger(
-                  "tool.execute.before",
-                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
-                  { args },
-                )
-                const result = yield* item.execute(args, ctx)
-                const output = {
-                  ...result,
-                  attachments: result.attachments?.map((attachment) => ({
-                    ...attachment,
-                    id: PartID.ascending(),
-                    sessionID: ctx.sessionID,
-                    messageID: input.processor.message.id,
-                  })),
-                }
-                yield* plugin.trigger(
-                  "tool.execute.after",
-                  { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
-                  output,
+                const output = yield* runInSessionContext(
+                  Effect.gen(function* () {
+                    yield* plugin.trigger(
+                      "tool.execute.before",
+                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
+                      { args },
+                    )
+                    const result = yield* item.execute(args, ctx)
+                    const output = {
+                      ...result,
+                      attachments: result.attachments?.map((attachment) => ({
+                        ...attachment,
+                        id: PartID.ascending(),
+                        sessionID: ctx.sessionID,
+                        messageID: input.processor.message.id,
+                      })),
+                    }
+                    yield* plugin.trigger(
+                      "tool.execute.after",
+                      { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID, args },
+                      output,
+                    )
+                    return output
+                  }),
                 )
                 if (options.abortSignal?.aborted) {
                   yield* input.processor.completeToolCall(options.toolCallId, output)
@@ -622,19 +647,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               })
               if (outcome.kind === "block") return yield* Effect.fail(new BlockedLoopError(outcome.userFacing))
               if (outcome.kind === "stop") return yield* Effect.fail(new LoopStopError(outcome.toolErrorMessage))
-              yield* plugin.trigger(
-                "tool.execute.before",
-                { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
-                { args },
-              )
-              yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-              const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
-                execute(args, opts),
-              )
-              yield* plugin.trigger(
-                "tool.execute.after",
-                { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
-                result,
+              const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* runInSessionContext(
+                Effect.gen(function* () {
+                  yield* plugin.trigger(
+                    "tool.execute.before",
+                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
+                    { args },
+                  )
+                  yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                  const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
+                    execute(args, opts),
+                  )
+                  yield* plugin.trigger(
+                    "tool.execute.after",
+                    { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
+                    result,
+                  )
+                  return result
+                }),
               )
 
               const textParts: string[] = []
@@ -704,7 +734,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const ctx = yield* InstanceState.context
       const promptOps = yield* ops()
       const { agent: agentTool } = yield* registry.named()
-      const taskModel = subtask.model ? yield* getModel(subtask.model.providerID, subtask.model.modelID, sessionID) : model
+      const taskModel = subtask.model
+        ? yield* getModel(subtask.model.providerID, subtask.model.modelID, sessionID)
+        : model
       // Re-read live to pick up Enter/Exit transitions made earlier in the same turn.
       const execLive = (yield* sessions.get(sessionID)).executionContext
       const assistantMessage: MessageV2.Assistant = yield* sessions.updateMessage({
@@ -887,12 +919,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       } satisfies MessageV2.TextPart)
     })
 
-    const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (input: ShellInput, ready: Deferred.Deferred<void>) {
+    const shellImpl = Effect.fn("SessionPrompt.shellImpl")(function* (
+      input: ShellInput,
+      ready: Deferred.Deferred<void>,
+    ) {
       let output = ""
       let aborted = false
       const { msg, part, cmd, finish } = yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
-          const ctx = yield* InstanceState.context
           const session = yield* sessions.get(input.sessionID)
           if (session.revert) {
             yield* revert.cleanup(session)
@@ -960,7 +994,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const shellName = (
             process.platform === "win32" ? path.win32.basename(sh, ".exe") : path.basename(sh)
           ).toLowerCase()
-          const cwd = ctx.directory
+          const cwd = session.executionContext.activeDirectory
           const invocations: Record<string, { args: string[] }> = {
             nu: { args: ["-c", input.command] },
             fish: { args: ["-c", input.command] },
@@ -1000,11 +1034,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
           const args = (invocations[shellName] ?? invocations[""]).args
           const shellEnv = yield* restore(
-            plugin.trigger(
-              "shell.env",
-              { cwd, sessionID: input.sessionID, callID: part.callID },
-              { env: {} },
-            ),
+            plugin.trigger("shell.env", { cwd, sessionID: input.sessionID, callID: part.callID }, { env: {} }),
           )
 
           const env = withoutInternalServerAuthEnv({
@@ -1061,11 +1091,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           }),
         )
         yield* handle.exitCode
-      }).pipe(
-        Effect.scoped,
-        Effect.orDie,
-        Effect.exit,
-      )
+      }).pipe(Effect.scoped, Effect.orDie, Effect.exit)
 
       if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) && !Cause.hasDies(exit.cause)) {
         aborted = true
@@ -1531,8 +1557,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       if (!runningTool) return message
 
-      const output = (typeof runningTool.state.metadata?.output === "string" ? runningTool.state.metadata.output : "")
-        .concat("\n\n<metadata>\nUser aborted the command\n</metadata>")
+      const output = (
+        typeof runningTool.state.metadata?.output === "string" ? runningTool.state.metadata.output : ""
+      ).concat("\n\n<metadata>\nUser aborted the command\n</metadata>")
       const info = message.info.time.completed
         ? message.info
         : {

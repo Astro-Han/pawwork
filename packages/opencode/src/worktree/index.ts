@@ -20,6 +20,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { makeRuntime } from "@/effect/run-service"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
+import { Session } from "../session"
 
 export namespace Worktree {
   const log = Log.create({ service: "worktree" })
@@ -218,13 +219,13 @@ export namespace Worktree {
         entry: string | { directory: string; name?: string; branch?: string; source?: "created" | "existing" },
       ) {
         if (typeof entry === "string") {
-          return Info.parse({ directory: entry, name: pathSvc.basename(entry), branch: "", source: "existing" })
+          return Info.parse({ directory: entry, name: pathSvc.basename(entry), branch: "", source: "created" })
         }
         return Info.parse({
           directory: entry.directory,
           name: entry.name ?? pathSvc.basename(entry.directory),
           branch: entry.branch ?? "",
-          source: entry.source ?? "existing",
+          source: entry.source ?? "created",
         })
       }
 
@@ -237,7 +238,7 @@ export namespace Worktree {
       })
 
       const writeRegistry = Effect.fnUntraced(function* (entries: Info[]) {
-        yield* Effect.sync(() =>
+        const result = yield* Effect.sync(() =>
           Database.use((db) =>
             db
               .update(ProjectTable)
@@ -251,9 +252,17 @@ export namespace Worktree {
                 time_updated: Date.now(),
               })
               .where(eq(ProjectTable.id, Instance.project.id))
-              .run(),
+              .returning()
+              .get(),
           ),
         )
+        if (!result) return
+        const data = Project.fromRow(result)
+        GlobalBus.emit("event", {
+          directory: "global",
+          project: data.id,
+          payload: { type: Project.Event.Updated.type, properties: data },
+        })
       })
 
       const upsertRegistry = Effect.fnUntraced(function* (info: Info) {
@@ -520,6 +529,12 @@ export namespace Worktree {
         }
 
         const directory = yield* canonical(input.directory)
+        const bound = yield* Effect.promise(() => Session.findActiveWorktreeBinding(directory))
+        if (bound) {
+          throw new RemoveFailedError({
+            message: `Worktree is in use by session "${bound.title}". Call ExitWorktree from that session first.`,
+          })
+        }
 
         const list = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
         if (list.code !== 0) {

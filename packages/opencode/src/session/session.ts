@@ -238,12 +238,19 @@ export const SetRevertInput = z.object({
   summary: Info.shape.summary,
 })
 export const MessagesInput = z.object({ sessionID: SessionID.zod, limit: z.number().optional() })
+const AbsoluteDirectory = z
+  .string()
+  .min(1, "Expected an absolute directory path")
+  .refine((value) => path.isAbsolute(value), "Expected an absolute directory path")
+const ActiveWorktreeInput = ActiveWorktree.extend({
+  directory: AbsoluteDirectory,
+})
 export const UpdateExecutionContextInput = z.object({
   sessionID: SessionID.zod,
-  activeDirectory: z.string().optional(),
-  activeWorktree: ActiveWorktree.nullable().optional(),
+  activeDirectory: AbsoluteDirectory.optional(),
+  activeWorktree: ActiveWorktreeInput.nullable().optional(),
 })
-export const FindActiveWorktreeBindingInput = z.string()
+export const FindActiveWorktreeBindingInput = AbsoluteDirectory
 export const RemovePartInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod,
@@ -484,7 +491,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         permission: input.permission,
         // ownerDirectory is the project root for git projects and never moves. For non-git
         // projects Instance.worktree is "/" today, so keep the opened directory as the owner.
-        executionContext: input.executionContext ?? rootContext(ctx.project.vcs === "git" ? ctx.worktree : input.directory),
+        executionContext:
+          input.executionContext ?? rootContext(ctx.project.vcs === "git" ? ctx.worktree : input.directory),
         time: {
           created: Date.now(),
           updated: Date.now(),
@@ -1068,7 +1076,12 @@ export function* listGlobal(input?: {
   if (ids.length > 0) {
     const items = Database.use((db) =>
       db
-        .select({ id: ProjectTable.id, name: ProjectTable.name, worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
+        .select({
+          id: ProjectTable.id,
+          name: ProjectTable.name,
+          worktree: ProjectTable.worktree,
+          vcs: ProjectTable.vcs,
+        })
         .from(ProjectTable)
         .where(inArray(ProjectTable.id, ids))
         .all(),

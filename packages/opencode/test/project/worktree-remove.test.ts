@@ -3,6 +3,7 @@ import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
+import { Session } from "../../src/session"
 import { Worktree } from "../../src/worktree"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
@@ -11,6 +12,50 @@ const wintest = process.platform === "win32" ? test : test.skip
 const unixtest = process.platform === "win32" ? test.skip : test
 
 describe("Worktree.remove", () => {
+  unixtest("refuses to remove a worktree bound to an active session", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const root = tmp.path
+
+    const { info, session } = await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const info = await Worktree.makeWorktreeInfo("bound-session")
+        await Worktree.createFromInfo(info)
+        const session = await Session.create({ title: "Bound session" })
+        await Session.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree: info,
+        })
+        return { info, session }
+      },
+    })
+
+    await expect(
+      Instance.provide({
+        directory: root,
+        fn: () => Worktree.remove({ directory: info.directory }),
+      }),
+    ).rejects.toThrow("WorktreeRemoveFailedError")
+    try {
+      await Instance.provide({
+        directory: root,
+        fn: () => Worktree.remove({ directory: info.directory }),
+      })
+    } catch (error) {
+      expect((error as { data?: { message?: string } }).data?.message).toContain("Worktree is in use by session")
+    }
+    expect(await Filesystem.exists(info.directory)).toBe(true)
+
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        await Session.updateExecutionContext({ sessionID: session.id, activeWorktree: null })
+        await Session.remove(session.id)
+        await Worktree.remove({ directory: info.directory })
+      },
+    })
+  })
+
   unixtest("continues when git remove exits non-zero after detaching", async () => {
     await using tmp = await tmpdir({ git: true })
     const root = tmp.path
