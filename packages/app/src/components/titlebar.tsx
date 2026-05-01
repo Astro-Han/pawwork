@@ -38,12 +38,6 @@ export function Titlebar() {
   })
 
   const path = () => `${location.pathname}${location.search}${location.hash}`
-  const creating = createMemo(() => {
-    if (!params.dir) return false
-    if (params.id) return false
-    const parts = location.pathname.replace(/\/+$/, "").split("/")
-    return parts.at(-1) === "session"
-  })
 
   createEffect(() => {
     const current = path()
@@ -122,42 +116,25 @@ export function Titlebar() {
               <Icon size="small" name={layout.sidebar.opened() ? "sidebar-active" : "sidebar"} />
             </Button>
           </TooltipKeybind>
-          <div class="flex items-center shrink-0">
-            <Show when={params.dir}>
-              <div
-                class="flex items-center shrink-0 w-8"
-                aria-hidden={layout.sidebar.opened() ? "true" : undefined}
-              >
-                <div
-                  class="transition-opacity duration-120 ease-out opacity-100"
-                  classList={{
-                    "opacity-0 ease-in delay-0 pointer-events-none": layout.sidebar.opened(),
-                  }}
-                >
-                  <TooltipKeybind
-                    placement="bottom"
-                    title={language.t("command.session.new")}
-                    keybind={command.keybind("session.new")}
-                    openDelay={2000}
-                  >
-                    <Button
-                      variant="ghost"
-                      icon={creating() ? "new-session-active" : "new-session"}
-                      class="titlebar-icon w-8 h-6 p-0 box-border"
-                      disabled={layout.sidebar.opened()}
-                      tabIndex={layout.sidebar.opened() ? -1 : undefined}
-                      onClick={() => {
-                        if (!params.dir) return
-                        navigate(`/${params.dir}/session`)
-                      }}
-                      aria-label={language.t("command.session.new")}
-                      aria-current={creating() ? "page" : undefined}
-                    />
-                  </TooltipKeybind>
-                </div>
-              </div>
-            </Show>
-          </div>
+          <Show when={params.dir && !layout.sidebar.opened()}>
+            <TooltipKeybind
+              placement="bottom"
+              title={language.t("command.session.new")}
+              keybind={command.keybind("session.new")}
+              openDelay={2000}
+            >
+              <Button
+                variant="ghost"
+                icon="new-session"
+                class="titlebar-icon w-8 h-6 p-0 box-border"
+                onClick={() => {
+                  if (!params.dir) return
+                  navigate(`/${params.dir}/session`)
+                }}
+                aria-label={language.t("command.session.new")}
+              />
+            </TooltipKeybind>
+          </Show>
         </div>
       </div>
 
