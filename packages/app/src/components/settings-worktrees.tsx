@@ -2,15 +2,16 @@ import { type Component, createResource, createSignal, For, Show } from "solid-j
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
+import { useGlobalSDK } from "@/context/global-sdk"
+import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { useSDK } from "@/context/sdk"
-import { useSync } from "@/context/sync"
 import { SettingsList } from "./settings-list"
 
 type WorktreeInfo = {
   name: string
   branch: string
   directory: string
+  ownerDirectory: string
   source?: "created" | "existing"
 }
 
@@ -30,23 +31,48 @@ function basename(p: string): string {
  */
 export const SettingsWorktrees: Component = () => {
   const language = useLanguage()
-  const sdk = useSDK()
-  const sync = useSync()
+  const sdk = useGlobalSDK()
+  const sync = useGlobalSync()
 
-  const [data, { refetch }] = createResource(async () => {
-    const res = await sdk.client.worktree.list()
-    return (res.data ?? []) as WorktreeInfo[]
-  })
+  const projectRoots = () =>
+    sync.data.project.filter((project) => project.vcs === "git").map((project) => project.worktree).filter(Boolean)
+
+  const [data, { refetch }] = createResource(
+    () => projectRoots().join("\0"),
+    async () => {
+      const rows = await Promise.all(
+        projectRoots().map(async (ownerDirectory) => {
+          const res = await sdk.client.worktree.list({ directory: ownerDirectory })
+          return (res.data ?? []).map((worktree) => ({ ...worktree, ownerDirectory }) as WorktreeInfo)
+        }),
+      )
+      const byDirectory = new Map<string, WorktreeInfo>()
+      for (const row of rows.flat()) byDirectory.set(row.directory, row)
+      return Array.from(byDirectory.values())
+    },
+  )
 
   // Sessions whose activeDirectory points at a worktree path block its deletion.
   const boundSessions = (): Map<string, string> => {
     const map = new Map<string, string>()
-    const sessions = sync.data.session ?? []
-    for (const s of sessions) {
-      const exec = s.executionContext
-      if (!exec) continue
-      if (exec.activeDirectory && exec.activeDirectory !== exec.ownerDirectory) {
-        map.set(exec.activeDirectory, s.title)
+    const directories = new Set<string>()
+    for (const project of sync.data.project) {
+      directories.add(project.worktree)
+      for (const sandbox of project.sandboxes ?? []) directories.add(sandbox)
+    }
+    for (const worktree of data() ?? []) {
+      directories.add(worktree.ownerDirectory)
+      directories.add(worktree.directory)
+    }
+
+    for (const directory of directories) {
+      const [store] = sync.child(directory, { bootstrap: false })
+      for (const s of store.session ?? []) {
+        const exec = s.executionContext
+        if (!exec) continue
+        if (exec.activeDirectory && exec.activeDirectory !== exec.ownerDirectory) {
+          map.set(exec.activeDirectory, s.title)
+        }
       }
     }
     return map
@@ -58,7 +84,8 @@ export const SettingsWorktrees: Component = () => {
   const handleDelete = async (directory: string) => {
     setDeleting(directory)
     try {
-      const res = await sdk.client.worktree.remove({ worktreeRemoveInput: { directory } })
+      const ownerDirectory = data()?.find((worktree) => worktree.directory === directory)?.ownerDirectory ?? directory
+      const res = await sdk.client.worktree.remove({ directory: ownerDirectory, worktreeRemoveInput: { directory } })
       if (res.error) throw new Error(JSON.stringify(res.error))
       setConfirming(undefined)
       void refetch()
