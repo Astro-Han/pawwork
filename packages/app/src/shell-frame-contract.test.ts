@@ -36,11 +36,12 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
 
 test("session composer is docked outside the scroll-clipped timeline region", () => {
   const session = read("./pages/session.tsx")
+  const sessionMainView = read("./pages/session/session-main-view.tsx")
 
   expect(session).toContain("const renderComposerRegion = (")
   expect(session).toContain('variant: "session" | "home"')
-  expect(session).toContain('<div class="flex-1 min-h-0 overflow-hidden">')
-  expect(session).toContain('</div>\n          <Show when={params.id}>{renderComposerRegion("session")}</Show>')
+  expect(sessionMainView).toContain('<div class="flex-1 min-h-0 overflow-hidden">')
+  expect(sessionMainView).toContain("</div>\n          <Show when={props.activeSessionID}>{props.composerSession}</Show>")
 })
 
 test("session header uses a view title on home and breadcrumb title in sessions", () => {
