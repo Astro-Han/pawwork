@@ -14,6 +14,7 @@ import { usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
+import { PawworkWorktreeBadge } from "@/pages/layout/pawwork-worktree-badge"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { decode64 } from "@/utils/base64"
 import { StatusPopover } from "../status-popover"
@@ -42,6 +43,11 @@ export function SessionHeader() {
   })
   const sessionInfo = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
   const sessionTitle = createMemo(() => sessionInfo()?.title || params.id || "")
+  const activeWorktree = createMemo(() => {
+    const exec = sessionInfo()?.executionContext
+    if (!exec || exec.activeDirectory === exec.ownerDirectory) return
+    return exec.activeWorktree
+  })
   const homeTitle = createMemo(() => language.t("command.session.new"))
   const onSessionRoute = createMemo(() => location.pathname.includes("/session"))
   const fileManagerLabel = createMemo(() => {
@@ -80,7 +86,7 @@ export function SessionHeader() {
       <Show when={!shellSurface.settingsOpen() && centerMount()}>
         {(mount) => (
           <Portal mount={mount()}>
-            <div class="hidden md:flex min-w-0 items-center gap-1.5 text-13-medium">
+            <div class="hidden md:flex max-w-full min-w-0 items-center gap-1.5 text-13-medium">
               <Show
                 when={params.id}
                 fallback={<div class="min-w-0 truncate text-text-strong">{homeTitle()}</div>}
@@ -108,6 +114,18 @@ export function SessionHeader() {
                 </Show>
                 <Show when={projectDirectory()}>
                   <span class="shrink-0 text-text-weaker">/</span>
+                </Show>
+                <Show when={activeWorktree()}>
+                  {(worktree) => (
+                    <>
+                      <PawworkWorktreeBadge
+                        name={worktree().name}
+                        branch={worktree().branch}
+                        directory={worktree().directory}
+                      />
+                      <span class="shrink-0 text-text-weaker">/</span>
+                    </>
+                  )}
                 </Show>
                 <span class="min-w-0 truncate text-text-strong">{sessionTitle()}</span>
               </Show>
