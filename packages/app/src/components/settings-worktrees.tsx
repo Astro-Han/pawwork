@@ -21,6 +21,16 @@ function basename(p: string): string {
   return last || p
 }
 
+function entryDirectory(entry: string | { directory: string }) {
+  return typeof entry === "string" ? entry : entry.directory
+}
+
+function errorText(error: unknown) {
+  if (typeof error === "string") return error
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message
+  return JSON.stringify(error)
+}
+
 /**
  * Settings → Worktrees panel.
  *
@@ -58,7 +68,7 @@ export const SettingsWorktrees: Component = () => {
     const directories = new Set<string>()
     for (const project of sync.data.project) {
       directories.add(project.worktree)
-      for (const sandbox of project.sandboxes ?? []) directories.add(sandbox)
+      for (const sandbox of project.sandboxes ?? []) directories.add(entryDirectory(sandbox))
     }
     for (const worktree of data() ?? []) {
       directories.add(worktree.ownerDirectory)
@@ -86,7 +96,7 @@ export const SettingsWorktrees: Component = () => {
     try {
       const ownerDirectory = data()?.find((worktree) => worktree.directory === directory)?.ownerDirectory ?? directory
       const res = await sdk.client.worktree.remove({ directory: ownerDirectory, worktreeRemoveInput: { directory } })
-      if (res.error) throw new Error(JSON.stringify(res.error))
+      if (res.error) throw new Error(errorText(res.error))
       setConfirming(undefined)
       void refetch()
     } catch (err) {

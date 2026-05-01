@@ -68,3 +68,22 @@ test("branch field is optional (not required when SDK can't resolve)", () => {
 
   expect(result[0].branch === undefined || typeof result[0].branch === "string").toBe(true)
 })
+
+test("workspaceChipChoices preserves branch metadata after workspace ordering", () => {
+  const result = workspaceChipChoices({
+    directory: "/repo/feature-a",
+    projects: [
+      {
+        worktree: "/repo/main",
+        sandboxes: [{ directory: "/repo/feature-a", branch: "pawwork/feature-a" }],
+      },
+    ],
+    listed: [{ directory: "/repo/feature-b", branch: "pawwork/feature-b" }],
+  })
+
+  expect(result).toEqual([
+    { path: "/repo/main", branch: undefined },
+    { path: "/repo/feature-a", branch: "pawwork/feature-a" },
+    { path: "/repo/feature-b", branch: "pawwork/feature-b" },
+  ])
+})

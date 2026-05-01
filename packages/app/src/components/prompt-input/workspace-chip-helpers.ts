@@ -37,13 +37,24 @@ export function workspaceChipChoices(input: {
   const current = findWorkspaceProject(input.projects, directory)
   const seen = new Set<string>()
   const choices: WorkspaceChoice[] = []
+  const branchByPath = new Map<string, string | undefined>()
+
+  const remember = (value: WorkspaceEntry) => {
+    if (typeof value === "string") return
+    branchByPath.set(workspaceKey(value.directory), value.branch)
+  }
+
+  for (const item of input.listed ?? []) remember(item)
+  for (const project of input.projects) {
+    for (const item of project.sandboxes ?? []) remember(item)
+  }
 
   const append = (value: WorkspaceEntry) => {
     const path = workspacePath(value)
     const key = workspaceKey(path)
     if (seen.has(key)) return
     seen.add(key)
-    choices.push({ path, branch: typeof value === "string" ? undefined : value.branch })
+    choices.push({ path, branch: typeof value === "string" ? branchByPath.get(key) : value.branch })
   }
 
   if (!current) append(directory)
