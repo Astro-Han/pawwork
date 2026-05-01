@@ -27,17 +27,9 @@ import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState } from "@/pages/session/composer"
 import { createSizing } from "@/pages/session/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import {
-  emptyMessages,
-  emptyUserMessages,
-  readSessionMessages,
-  readUserMessages,
-} from "@/pages/session/session-messages"
-import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
-import { createSessionViewController } from "@/pages/session/session-view-controller"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
 import { createSessionCommentContext } from "@/pages/session/use-session-comment-context"
@@ -52,10 +44,10 @@ import { createSessionReviewPanel } from "@/pages/session/use-session-review-pan
 import { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import { createSessionRouteTabs } from "@/pages/session/use-session-route-tabs"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
+import { createSessionTimelineData } from "@/pages/session/use-session-timeline-data"
 import { useSessionVcsRefresh } from "@/pages/session/use-session-vcs-refresh"
 import { diffs as list } from "@/utils/diffs"
 import { extractPromptFromParts } from "@/utils/prompt"
-import { same } from "@/utils/same"
 import { formatServerError } from "@/utils/server-errors"
 
 export default function Page() {
@@ -102,15 +94,12 @@ export default function Page() {
   const desktopSidePanelOpen = createMemo(() => isDesktop() && view().sidePanel.opened())
   const centered = createMemo(() => isDesktop())
 
-  const openReviewPanel = () => {
-    view().sidePanel.openTab("review")
-  }
-
-  const info = createMemo(() => (params.id ? sync.session.get(params.id) : undefined))
-  const isChildSession = createMemo(() => !!info()?.parentID)
-  const diffs = createMemo(() => (params.id ? list(sync.data.session_diff[params.id]) : []))
-  const sessionCount = createMemo(() => Math.max(info()?.summary?.files ?? 0, diffs().length))
-  const hasSessionReview = createMemo(() => sessionCount() > 0)
+  const timeline = createSessionTimelineData({
+    directory: () => params.dir ?? "",
+    routeSessionID: () => params.id,
+    sync,
+    local,
+  })
   const canReview = createMemo(() => !!sync.project)
   const reviewTab = createMemo(() => isDesktop())
   const tabState = createSessionRouteTabs({
@@ -126,79 +115,19 @@ export default function Page() {
   const openedTabs = tabState.openedTabs
   const activeTab = tabState.activeTab
   const activeFileTab = tabState.activeFileTab
-  const messagesReady = createMemo(() => {
-    const id = params.id
-    if (!id) return true
-    return sync.data.message[id] !== undefined
-  })
-  const sessionView = createSessionViewController({
-    directory: () => params.dir ?? "",
-    routeSessionID: () => params.id,
-    routeMessagesReady: messagesReady,
-  })
-  const timelineSessionID = sessionView.visible.id
-  const timelineSessionKey = sessionView.visible.key
-  const timelineInfo = createMemo(() => {
-    const id = timelineSessionID()
-    if (!id) return
-    return sync.session.get(id)
-  })
-  const timelineIsChildSession = createMemo(() => !!timelineInfo()?.parentID)
+  const timelineSessionID = timeline.sessionID
+  const timelineSessionKey = timeline.sessionKey
+  const timelineIsChildSession = timeline.isChildSession
   const composer = createSessionComposerState({ sessionID: timelineSessionID })
-  const timelineMessages = createMemo(
-    () => {
-      const id = timelineSessionID()
-      return readSessionMessages(id ? sync.data.message[id] : undefined)
-    },
-    emptyMessages,
-    { equals: same },
-  )
-  const timelineMessagesReady = sessionView.visible.ready
-  const timelineDiffs = createMemo(() => {
-    const id = timelineSessionID()
-    if (!id) return []
-    return list(sync.data.session_diff[id])
-  })
-  const timelineUserMessages = createMemo(() => readUserMessages(timelineMessages()), emptyUserMessages, {
-    equals: same,
-  })
-  const timelineRevertMessageID = createMemo(() => {
-    const id = timelineSessionID()
-    if (!id) return
-    return sync.session.get(id)?.revert?.messageID
-  })
-  const timelineVisibleUserMessages = createMemo(
-    () => {
-      const revert = timelineRevertMessageID()
-      if (!revert) return timelineUserMessages()
-      return timelineUserMessages().filter((m) => m.id < revert)
-    },
-    emptyUserMessages,
-    {
-      equals: same,
-    },
-  )
-  const timelineHistoryMore = createMemo(() => {
-    const id = timelineSessionID()
-    if (!id) return false
-    return sync.session.history.more(id)
-  })
-  const timelineHistoryLoading = createMemo(() => {
-    const id = timelineSessionID()
-    if (!id) return false
-    return sync.session.history.loading(id)
-  })
-  const historyMore = createMemo(() => {
-    const id = params.id
-    if (!id) return false
-    return sync.session.history.more(id)
-  })
-  const historyLoading = createMemo(() => {
-    const id = params.id
-    if (!id) return false
-    return sync.session.history.loading(id)
-  })
-  const lastUserMessage = createMemo(() => timelineVisibleUserMessages().at(-1))
+  const timelineMessages = timeline.messages
+  const timelineMessagesReady = timeline.messagesReady
+  const timelineDiffs = timeline.diffs
+  const timelineUserMessages = timeline.userMessages
+  const timelineRevertMessageID = timeline.revertMessageID
+  const timelineVisibleUserMessages = timeline.visibleUserMessages
+  const timelineHistoryMore = timeline.historyMore
+  const timelineHistoryLoading = timeline.historyLoading
+  const lastUserMessage = timeline.lastUserMessage
 
   createEffect(() => {
     const tab = activeFileTab()
@@ -207,29 +136,6 @@ export default function Page() {
     const path = file.pathFromTab(tab)
     if (path) file.load(path)
   })
-
-  createEffect(
-    on(
-      () => lastUserMessage()?.id,
-      () => {
-        const msg = lastUserMessage()
-        if (!msg) return
-        syncSessionModel(local, msg)
-      },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => ({ dir: params.dir, id: params.id }),
-      (next, prev) => {
-        if (!prev) return
-        if (next.dir === prev.dir && next.id === prev.id) return
-        if (prev.id && !next.id) local.session.reset()
-      },
-      { defer: true },
-    ),
-  )
 
   const [store, setStore] = createStore({
     mobileTab: "session" as "session" | "changes",
@@ -461,7 +367,7 @@ export default function Page() {
     })
   }
 
-  const merge = (next: NonNullable<ReturnType<typeof info>>) =>
+  const merge = (next: NonNullable<ReturnType<typeof timeline.routeInfo>>) =>
     sync.set("session", (list) => {
       const idx = list.findIndex((item) => item.id === next.id)
       if (idx < 0) return list
@@ -470,7 +376,7 @@ export default function Page() {
       return out
     })
 
-  const roll = (sessionID: string, next: NonNullable<ReturnType<typeof info>>["revert"]) =>
+  const roll = (sessionID: string, next: NonNullable<ReturnType<typeof timeline.routeInfo>>["revert"]) =>
     sync.set("session", (list) => {
       const idx = list.findIndex((item) => item.id === sessionID)
       if (idx < 0) return list
