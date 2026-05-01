@@ -8,6 +8,7 @@ import { LocalProvider } from "@/context/local"
 import { SDKProvider } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
+import { PawworkWorktreeBadge } from "./layout/pawwork-worktree-badge"
 
 function DirectoryDataProvider(props: ParentProps<{ directory: string }>) {
   const location = useLocation()
@@ -74,7 +75,10 @@ export default function Layout(props: ParentProps) {
       {(resolved) => (
         <SDKProvider directory={() => resolved}>
           <SyncProvider>
-            <DirectoryDataProvider directory={resolved}>{props.children}</DirectoryDataProvider>
+            <DirectoryDataProvider directory={resolved}>
+              <PawworkWorktreeBadge />
+              {props.children}
+            </DirectoryDataProvider>
           </SyncProvider>
         </SDKProvider>
       )}
