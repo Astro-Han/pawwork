@@ -726,7 +726,7 @@ function isContextGroupTool(part: PartType): part is ToolPart {
 function contextToolDetail(part: ToolPart): string | undefined {
   const info = getToolInfo(part.tool, part.state.input ?? {}, toolStateMetadata(part.state))
   if (info.subtitle) return info.subtitle
-  if (part.state.status === "error") return part.state.error
+  if (part.state.status === "error") return toolStateError(part.state)
   if ((part.state.status === "running" || part.state.status === "completed") && part.state.title)
     return part.state.title
   const description = part.state.input?.description

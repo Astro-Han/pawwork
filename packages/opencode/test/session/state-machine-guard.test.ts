@@ -41,6 +41,22 @@ describe("state-machine guard", () => {
     expect(blocked).toBe(true)
   })
 
+  test("detects pending tool calls except the current call", async () => {
+    const sessions = sessionsWithParts([toolPart("current", "running"), toolPart("other-pending", "pending")])
+
+    const blocked = await Effect.runPromise(hasInFlightToolCallsExcept(sessions, sessionID, "current"))
+
+    expect(blocked).toBe(true)
+  })
+
+  test("detects running tool calls except the current call", async () => {
+    const sessions = sessionsWithParts([toolPart("current", "running"), toolPart("other-running", "running")])
+
+    const blocked = await Effect.runPromise(hasInFlightToolCallsExcept(sessions, sessionID, "current"))
+
+    expect(blocked).toBe(true)
+  })
+
   test("ignores the current call and finished tool calls", async () => {
     const sessions = sessionsWithParts([
       toolPart("current", "running"),

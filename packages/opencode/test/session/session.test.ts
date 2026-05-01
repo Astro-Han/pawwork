@@ -277,6 +277,63 @@ describe("session.created event", () => {
     })
   })
 
+  test("synthesizes invalid executionContext from the project root on read", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const subdir = path.join(tmp.path, "packages", "app")
+    await fs.mkdir(subdir, { recursive: true })
+
+    await Instance.provide({
+      directory: subdir,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "invalid-read-root" })
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ execution_context: { activeDirectory: subdir } as any })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const loaded = await SessionNs.get(session.id)
+        expect(loaded.directory).toBe(subdir)
+        expect(loaded.executionContext.ownerDirectory).toBe(tmp.path)
+        expect(loaded.executionContext.activeDirectory).toBe(tmp.path)
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
+  test("fork preserves the source session executionContext", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const worktree = path.join(tmp.path, ".worktrees", "pawwork", "forked-work")
+    const activeWorktree = {
+      directory: worktree,
+      name: "forked-work",
+      branch: "pawwork/forked-work",
+      source: "created" as const,
+    }
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "fork-source-worktree" })
+        await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree,
+        })
+
+        const forked = await SessionNs.fork({ sessionID: session.id })
+        expect(forked.executionContext.ownerDirectory).toBe(tmp.path)
+        expect(forked.executionContext.activeDirectory).toBe(worktree)
+        expect(forked.executionContext.activeWorktree).toEqual(activeWorktree)
+
+        await SessionNs.remove(forked.id)
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
   test("should emit session.created event when session is created", async () => {
     await Instance.provide({
       directory: projectRoot,

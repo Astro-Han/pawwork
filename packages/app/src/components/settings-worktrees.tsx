@@ -34,6 +34,10 @@ export const SettingsWorktrees: Component = () => {
       const rows = results
         .filter((result): result is PromiseFulfilledResult<WorktreeInfo[]> => result.status === "fulfilled")
         .map((result) => result.value)
+      if (rows.length === 0 && results.some((result) => result.status === "rejected")) {
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
+        throw new Error(errorText(failed?.reason))
+      }
       const byDirectory = new Map<string, WorktreeInfo>()
       for (const row of rows.flat()) byDirectory.set(row.directory, row)
       return Array.from(byDirectory.values())
@@ -112,32 +116,42 @@ export const SettingsWorktrees: Component = () => {
         fallback={<div class="text-13-regular text-text-weak py-6 text-center">{language.t("common.loading")}</div>}
       >
         <Show
-          when={(data() ?? []).length > 0}
+          when={!data.error}
           fallback={
             <div class="flex flex-col items-center gap-2 py-12">
-              <Icon name="worktree" size="medium" class="text-text-weaker" />
-              <div class="text-13-medium text-text-strong">{language.t("settings.worktrees.empty.title")}</div>
-              <div class="text-13-regular text-text-weak">{language.t("settings.worktrees.empty.body")}</div>
+              <div class="text-13-medium text-text-strong">{language.t("common.requestFailed")}</div>
+              <div class="text-13-regular text-text-weak">{errorText(data.error)}</div>
             </div>
           }
         >
-          <ul class="flex flex-col" data-component="settings-worktrees-list">
-            <For each={data() ?? []}>
-              {(worktree) => (
-                <SettingsWorktreeRow
-                  worktree={worktree}
-                  ownerName={ownerName(worktree.ownerDirectory)}
-                  boundSession={boundSessions().get(worktree.directory)}
-                  confirming={confirming() === worktree.directory}
-                  deleting={deleting() === worktree.directory}
-                  onCancelDelete={() => setConfirming(undefined)}
-                  onConfirmDelete={handleDelete}
-                  onRequestDelete={setConfirming}
-                  onOpenSession={openSession}
-                />
-              )}
-            </For>
-          </ul>
+          <Show
+            when={(data() ?? []).length > 0}
+            fallback={
+              <div class="flex flex-col items-center gap-2 py-12">
+                <Icon name="worktree" size="medium" class="text-text-weaker" />
+                <div class="text-13-medium text-text-strong">{language.t("settings.worktrees.empty.title")}</div>
+                <div class="text-13-regular text-text-weak">{language.t("settings.worktrees.empty.body")}</div>
+              </div>
+            }
+          >
+            <ul class="flex flex-col" data-component="settings-worktrees-list">
+              <For each={data() ?? []}>
+                {(worktree) => (
+                  <SettingsWorktreeRow
+                    worktree={worktree}
+                    ownerName={ownerName(worktree.ownerDirectory)}
+                    boundSession={boundSessions().get(worktree.directory)}
+                    confirming={confirming() === worktree.directory}
+                    deleting={deleting() === worktree.directory}
+                    onCancelDelete={() => setConfirming(undefined)}
+                    onConfirmDelete={handleDelete}
+                    onRequestDelete={setConfirming}
+                    onOpenSession={openSession}
+                  />
+                )}
+              </For>
+            </ul>
+          </Show>
         </Show>
       </Show>
     </SettingsList>

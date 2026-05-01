@@ -8,9 +8,10 @@ import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 
 const wintest = process.platform === "win32" ? test : test.skip
+const unixtest = process.platform === "win32" ? test.skip : test
 
 describe("Worktree.remove", () => {
-  test("continues when git remove exits non-zero after detaching", async () => {
+  unixtest("continues when git remove exits non-zero after detaching", async () => {
     await using tmp = await tmpdir({ git: true })
     const root = tmp.path
     const name = `remove-regression-${Date.now().toString(36)}`
@@ -65,7 +66,7 @@ describe("Worktree.remove", () => {
     expect(ref.exitCode).not.toBe(0)
   })
 
-  test("removes registry entry when branch deletion fails after directory cleanup", async () => {
+  unixtest("removes registry entry when branch deletion fails after directory cleanup", async () => {
     await using tmp = await tmpdir({ git: true })
     const root = tmp.path
     const info = await Instance.provide({

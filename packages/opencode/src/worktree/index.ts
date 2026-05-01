@@ -12,7 +12,7 @@ import { errorMessage } from "../util/error"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
-import { Effect, Layer, Path, Scope, Context, Stream } from "effect"
+import { Effect, Layer, Path, Scope, Context, Stream, Semaphore } from "effect"
 import { ensureWorktreesIgnored } from "./gitignore-guard"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodePath } from "@effect/platform-node"
@@ -186,6 +186,15 @@ export namespace Worktree {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const gitSvc = yield* Git.Service
       const project = yield* Project.Service
+      const registryLocks = new Map<ProjectID, Semaphore.Semaphore>()
+
+      const registryLock = (projectID: ProjectID) => {
+        const hit = registryLocks.get(projectID)
+        if (hit) return hit
+        const next = Semaphore.makeUnsafe(1)
+        registryLocks.set(projectID, next)
+        return next
+      }
 
       const git = Effect.fnUntraced(
         function* (args: string[], opts?: { cwd?: string }) {
@@ -248,24 +257,32 @@ export namespace Worktree {
       })
 
       const upsertRegistry = Effect.fnUntraced(function* (info: Info) {
-        const target = yield* canonical(info.directory)
-        const entries = yield* readRegistry()
-        const next: Info[] = []
-        for (const entry of entries) {
-          if ((yield* canonical(entry.directory)) !== target) next.push(entry)
-        }
-        next.push(info)
-        yield* writeRegistry(next)
+        yield* registryLock(Instance.project.id).withPermits(1)(
+          Effect.gen(function* () {
+            const target = yield* canonical(info.directory)
+            const entries = yield* readRegistry()
+            const next: Info[] = []
+            for (const entry of entries) {
+              if ((yield* canonical(entry.directory)) !== target) next.push(entry)
+            }
+            next.push(info)
+            yield* writeRegistry(next)
+          }),
+        )
       })
 
       const removeRegistry = Effect.fnUntraced(function* (directory: string) {
-        const target = yield* canonical(directory)
-        const entries = yield* readRegistry()
-        const next: Info[] = []
-        for (const entry of entries) {
-          if ((yield* canonical(entry.directory)) !== target) next.push(entry)
-        }
-        yield* writeRegistry(next)
+        yield* registryLock(Instance.project.id).withPermits(1)(
+          Effect.gen(function* () {
+            const target = yield* canonical(directory)
+            const entries = yield* readRegistry()
+            const next: Info[] = []
+            for (const entry of entries) {
+              if ((yield* canonical(entry.directory)) !== target) next.push(entry)
+            }
+            yield* writeRegistry(next)
+          }),
+        )
       })
 
       const lookupByDirectory = Effect.fn("Worktree.lookupByDirectory")(function* (directory: string) {

@@ -58,6 +58,18 @@ function legacyExecutionContext(row: SessionRow, project?: ProjectFallback) {
   return rootContext(canonicalDirectory(ownerDirectoryRaw))
 }
 
+function parseExecutionContext(row: SessionRow, project?: ProjectFallback) {
+  if (row.execution_context !== null) {
+    const parsed = SessionExecutionContext.safeParse(row.execution_context)
+    if (parsed.success) return parsed.data
+  }
+  return legacyExecutionContext(row, project)
+}
+
+function needsProjectFallback(row: SessionRow) {
+  return row.execution_context === null || !SessionExecutionContext.safeParse(row.execution_context).success
+}
+
 export function fromRow(row: SessionRow, project?: ProjectFallback): Info {
   const summary =
     row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
@@ -86,8 +98,7 @@ export function fromRow(row: SessionRow, project?: ProjectFallback): Info {
     share,
     revert,
     permission: row.permission ?? undefined,
-    // Legacy rows may still have NULL execution_context; synthesize the root context on read.
-    executionContext: row.execution_context ?? legacyExecutionContext(row, project),
+    executionContext: parseExecutionContext(row, project),
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -452,6 +463,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       parentID?: SessionID
       workspaceID?: WorkspaceID
       directory: string
+      executionContext?: SessionExecutionContext
       permission?: Permission.Ruleset
       createdByAgentTool?: boolean
       subagentType?: string | null
@@ -472,7 +484,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         permission: input.permission,
         // ownerDirectory is the project root for git projects and never moves. For non-git
         // projects Instance.worktree is "/" today, so keep the opened directory as the owner.
-        executionContext: rootContext(ctx.project.vcs === "git" ? ctx.worktree : input.directory),
+        executionContext: input.executionContext ?? rootContext(ctx.project.vcs === "git" ? ctx.worktree : input.directory),
         time: {
           created: Date.now(),
           updated: Date.now(),
@@ -497,15 +509,15 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
       const row = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
       if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
-      const project = row.execution_context
-        ? undefined
-        : yield* db((d) =>
+      const project = needsProjectFallback(row)
+        ? yield* db((d) =>
             d
               .select({ worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
               .from(ProjectTable)
               .where(eq(ProjectTable.id, row.project_id))
               .get(),
           )
+        : undefined
       return fromRow(row, project)
     })
 
@@ -517,7 +529,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
           .where(and(eq(SessionTable.parent_id, parentID)))
           .all(),
       )
-      const ids = [...new Set(rows.filter((row) => row.execution_context === null).map((row) => row.project_id))]
+      const ids = [...new Set(rows.filter(needsProjectFallback).map((row) => row.project_id))]
       const projects = new Map<string, ProjectFallback>()
       if (ids.length > 0) {
         const items = yield* db((d) =>
@@ -656,6 +668,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         workspaceID: original.workspaceID,
         title,
         skill: original.skill,
+        executionContext: original.executionContext,
       })
       const msgs = yield* messages({ sessionID: input.sessionID })
       const idMap = new Map<string, MessageID>()
@@ -956,7 +969,7 @@ export function* list(input?: {
       .limit(limit)
       .all(),
   )
-  const ids = [...new Set(rows.filter((row) => row.execution_context === null).map((row) => row.project_id))]
+  const ids = [...new Set(rows.filter(needsProjectFallback).map((row) => row.project_id))]
   const projects = new Map<string, ProjectFallback>()
   if (ids.length > 0) {
     const items = Database.use((db) =>
