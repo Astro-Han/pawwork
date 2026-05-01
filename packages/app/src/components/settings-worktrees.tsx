@@ -1,17 +1,26 @@
 import { type Component, createMemo, createResource, createSignal, For, Show } from "solid-js"
+import { useNavigate } from "@solidjs/router"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
+import { base64Encode } from "@opencode-ai/util/encode"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
 import { basename, entryDirectory, errorText, sourceKey, type WorktreeInfo } from "./settings-worktrees-helpers"
 
+type BoundSession = {
+  id: string
+  title: string
+  hostDirectory: string
+}
+
 export const SettingsWorktrees: Component = () => {
   const language = useLanguage()
   const sdk = useGlobalSDK()
   const sync = useGlobalSync()
+  const navigate = useNavigate()
 
   const projectRoots = () =>
     sync.data.project
@@ -42,11 +51,10 @@ export const SettingsWorktrees: Component = () => {
     return map
   })
 
-  const ownerName = (ownerDirectory: string) =>
-    projectNameByOwner().get(ownerDirectory) || basename(ownerDirectory)
+  const ownerName = (ownerDirectory: string) => projectNameByOwner().get(ownerDirectory) || basename(ownerDirectory)
 
-  const boundSessions = (): Map<string, string> => {
-    const map = new Map<string, string>()
+  const boundSessions = (): Map<string, BoundSession> => {
+    const map = new Map<string, BoundSession>()
     const directories = new Set<string>()
     for (const project of sync.data.project) {
       directories.add(project.worktree)
@@ -63,11 +71,19 @@ export const SettingsWorktrees: Component = () => {
         const exec = s.executionContext
         if (!exec) continue
         if (exec.activeDirectory && exec.activeDirectory !== exec.ownerDirectory) {
-          map.set(exec.activeDirectory, s.title)
+          map.set(exec.activeDirectory, {
+            id: s.id,
+            title: s.title,
+            hostDirectory: directory,
+          })
         }
       }
     }
     return map
+  }
+
+  const openSession = (entry: BoundSession) => {
+    navigate(`/${base64Encode(entry.hostDirectory)}/session/${entry.id}`)
   }
 
   const [confirming, setConfirming] = createSignal<string | undefined>(undefined)
@@ -118,19 +134,18 @@ export const SettingsWorktrees: Component = () => {
                 const directory = () => worktree.directory
                 const name = () => worktree.name || basename(worktree.directory)
                 const branch = () => worktree.branch || ""
-                const ownerDir = () => worktree.ownerDirectory
                 const owner = () => ownerName(worktree.ownerDirectory)
-                const fullId = () => `${owner()} / ${name()}`
+                const identity = () => branch() || name()
+                const rowTooltip = () =>
+                  [language.t(sourceKey(worktree.source)), directory()].filter(Boolean).join(" · ")
                 const blocker = () => boundSessions().get(worktree.directory)
-                const blocked = () => !!blocker()
                 const isConfirming = () => confirming() === worktree.directory
                 const isDeleting = () => deleting() === worktree.directory
 
                 return (
                   <li
-                    class="flex items-center gap-3 min-h-[72px] py-3 px-2 -mx-2 rounded-md border-b border-border-weak-base last:border-none transition-colors"
+                    class="flex items-center gap-3 min-h-[56px] py-2.5 px-2 -mx-2 rounded-md border-b border-border-weak-base last:border-none transition-colors"
                     classList={{
-                      "hover:bg-surface-base-hover": !isConfirming(),
                       "bg-surface-warning-weak": isConfirming(),
                     }}
                   >
@@ -140,18 +155,11 @@ export const SettingsWorktrees: Component = () => {
                         <>
                           <Icon name="worktree" size="normal" class="shrink-0 text-text-base" />
                           <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
-                            <span class="truncate text-12-regular text-text-weak" title={ownerDir()}>
-                              {owner()}
-                            </span>
                             <span class="truncate text-13-medium text-text-strong">
                               {language.t("settings.worktrees.confirmDelete.question", { name: name() })}
                             </span>
-                            <span class="flex min-w-0 items-center gap-1.5 text-12-regular text-text-weak">
-                              <span class="min-w-0 truncate" title={directory()}>
-                                {directory()}
-                              </span>
-                              <span class="shrink-0 text-text-weaker" aria-hidden="true">·</span>
-                              <span class="shrink-0">{language.t("settings.worktrees.confirmDelete.warning")}</span>
+                            <span class="truncate text-12-regular text-text-weak" title={directory()}>
+                              {language.t("settings.worktrees.confirmDelete.warning")}
                             </span>
                           </div>
                           <div class="flex shrink-0 items-center gap-2">
@@ -175,34 +183,14 @@ export const SettingsWorktrees: Component = () => {
                         </>
                       }
                     >
-                      <span
-                        class="flex shrink-0 items-center"
-                        title={language.t(sourceKey(worktree.source))}
-                      >
-                        <Icon name="worktree" size="normal" class="text-text-weak" />
-                      </span>
-                      <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
-                        <span class="truncate text-12-regular text-text-weak" title={ownerDir()}>
-                          {owner()}
-                        </span>
-                        <span class="truncate text-13-medium text-text-strong" title={fullId()}>
-                          {name()}
-                        </span>
-                        <span class="flex min-w-0 items-center gap-1.5 text-12-regular text-text-weak">
-                          <Show when={branch()}>
-                            <span class="shrink-0 truncate text-text-base" title={branch()}>
-                              {branch()}
-                            </span>
-                            <span class="shrink-0 text-text-weaker" aria-hidden="true">·</span>
-                          </Show>
-                          <span class="min-w-0 truncate" title={directory()}>
-                            {directory()}
-                          </span>
-                        </span>
+                      <Icon name="worktree" size="normal" class="shrink-0 text-text-weak" />
+                      <div class="flex min-w-0 flex-1 flex-col gap-[2px]" title={rowTooltip()}>
+                        <span class="truncate text-12-regular text-text-weak">{owner()}</span>
+                        <span class="truncate text-13-medium text-text-strong">{identity()}</span>
                       </div>
                       <div class="flex shrink-0 items-center">
                         <Show
-                          when={blocked()}
+                          when={blocker()}
                           fallback={
                             <Button
                               variant="ghost"
@@ -214,18 +202,19 @@ export const SettingsWorktrees: Component = () => {
                             </Button>
                           }
                         >
-                          <span
-                            class="inline-flex items-center gap-1.5 rounded-full bg-surface-sunken px-2.5 py-1 text-12-regular text-text-base"
-                            title={language.t("settings.worktrees.deleteDisabled.tooltip", {
-                              session: blocker() ?? "",
-                            })}
-                          >
-                            <span
-                              class="inline-block h-1.5 w-1.5 rounded-full bg-text-weak"
-                              aria-hidden="true"
-                            />
-                            {language.t("settings.worktrees.inUse.short")}
-                          </span>
+                          {(entry) => (
+                            <Button
+                              variant="ghost"
+                              size="small"
+                              icon="bubble-5"
+                              onClick={() => openSession(entry())}
+                              title={language.t("settings.worktrees.inUse", {
+                                session: entry().title,
+                              })}
+                            >
+                              <span class="truncate max-w-[260px]">{entry().title}</span>
+                            </Button>
+                          )}
                         </Show>
                       </div>
                     </Show>
