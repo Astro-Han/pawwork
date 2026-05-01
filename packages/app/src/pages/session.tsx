@@ -39,7 +39,7 @@ import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
-import { buildDesktopContext, type DesktopContext } from "@/utils/desktop-context"
+import { buildDesktopContext } from "@/utils/desktop-context"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
@@ -76,6 +76,7 @@ import { createSessionViewController } from "@/pages/session/session-view-contro
 import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
+import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-context"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
@@ -106,63 +107,16 @@ export default function Page() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
   const { params, sessionKey, tabs, view } = useSessionLayout()
-  // Per Page instance: cleanup below cancels pending retries on unmount.
-  // Five bounded retries cover transient IPC teardown/order races without spinning forever.
-  const desktopContextMaxRetries = 5
-  let lastDesktopContext = ""
-  let pendingDesktopContext = ""
-  let desktopContextRetryTimer: number | undefined
-  let desktopContextRetryCount = 0
-  let disposed = false
 
-  const syncDesktopContext = (context: DesktopContext, serialized: string) => {
-    if (disposed) return
-    const setDesktopContext = window.api?.setDesktopContext
-    if (!setDesktopContext) return
-    void setDesktopContext(context)
-      .then(() => {
-        if (disposed) return
-        if (pendingDesktopContext !== serialized) return
-        lastDesktopContext = serialized
-        pendingDesktopContext = ""
-        desktopContextRetryCount = 0
-        if (desktopContextRetryTimer !== undefined) {
-          window.clearTimeout(desktopContextRetryTimer)
-          desktopContextRetryTimer = undefined
-        }
-      })
-      .catch(() => {
-        if (disposed) return
-        if (pendingDesktopContext !== serialized || lastDesktopContext === serialized) return
-        if (desktopContextRetryCount >= desktopContextMaxRetries) {
-          pendingDesktopContext = ""
-          desktopContextRetryCount = 0
-          return
-        }
-        if (desktopContextRetryTimer !== undefined) window.clearTimeout(desktopContextRetryTimer)
-        desktopContextRetryCount += 1
-        const retryDelay = Math.min(4000, 250 * 2 ** (desktopContextRetryCount - 1))
-        desktopContextRetryTimer = window.setTimeout(() => {
-          desktopContextRetryTimer = undefined
-          if (disposed || pendingDesktopContext !== serialized || lastDesktopContext === serialized) return
-          syncDesktopContext(context, serialized)
-        }, retryDelay)
-      })
-  }
-
-  createEffect(() => {
-    if (!window.api?.setDesktopContext) return
-    const context = buildDesktopContext({
-      directory: sdk.directory,
-      sessionID: params.id ?? null,
-      route: `${location.pathname}${location.search}${location.hash}`,
-      locale: language.locale(),
-    })
-    const serialized = JSON.stringify(context)
-    if (serialized === lastDesktopContext || serialized === pendingDesktopContext) return
-    pendingDesktopContext = serialized
-    desktopContextRetryCount = 0
-    syncDesktopContext(context, serialized)
+  useSessionDesktopContext({
+    context: () =>
+      buildDesktopContext({
+        directory: sdk.directory,
+        sessionID: params.id ?? null,
+        route: `${location.pathname}${location.search}${location.hash}`,
+        locale: language.locale(),
+      }),
+    send: window.api?.setDesktopContext,
   })
 
   createEffect(() => {
@@ -1611,8 +1565,6 @@ export default function Page() {
   })
 
   onCleanup(() => {
-    disposed = true
-    if (desktopContextRetryTimer !== undefined) window.clearTimeout(desktopContextRetryTimer)
     if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
     if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
