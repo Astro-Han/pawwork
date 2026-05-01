@@ -120,7 +120,7 @@ export const Instance = {
   }): Promise<R> {
     return Instance.provide({
       directory: input.activeDirectory,
-      worktree: input.ownerDirectory,
+      worktree: Filesystem.resolve(input.ownerDirectory),
       project: input.project,
       fn: input.fn,
     })

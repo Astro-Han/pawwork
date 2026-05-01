@@ -54,7 +54,7 @@ const windowsOpencodeShards = [
     suffix: "opencode-config-project",
     usesTurbo: false,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml test/config test/project test/file test/github test/settings test/settings.test.ts",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml test/config test/project test/worktree test/file test/github test/settings test/settings.test.ts",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-config-project.xml",
   },
   {

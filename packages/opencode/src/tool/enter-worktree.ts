@@ -9,6 +9,8 @@ import { Instance } from "../project/instance"
 import { hasInFlightToolCallsExcept, hasRunningSubagents } from "../session/state-machine-guard"
 import type { SessionID } from "../session/schema"
 import { SubagentRun } from "../session/subagent-run"
+import { currentBranch, gitCommonDir } from "./enter-worktree-git"
+import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 
 export const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const MAX_SLUG_LEN = 40
@@ -23,36 +25,12 @@ export const Parameters = Schema.Struct({
   }),
 })
 
-// Resolve the canonical git common-dir for a path. Returns undefined for non-git paths or any error.
-async function gitCommonDir(cwd: string): Promise<string | undefined> {
-  try {
-    const proc = Bun.spawn(["git", "rev-parse", "--git-common-dir"], { cwd, stdout: "pipe", stderr: "pipe" })
-    const exit = await proc.exited
-    if (exit !== 0) return undefined
-    const out = (await new Response(proc.stdout).text()).trim()
-    if (!out) return undefined
-    return path.resolve(cwd, out)
-  } catch {
-    return undefined
-  }
-}
-
-async function currentBranch(cwd: string): Promise<string> {
-  try {
-    const proc = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd, stdout: "pipe", stderr: "pipe" })
-    const exit = await proc.exited
-    if (exit !== 0) return ""
-    return (await new Response(proc.stdout).text()).trim()
-  } catch {
-    return ""
-  }
-}
-
 export const EnterWorktreeTool = Tool.define(
   "enter-worktree",
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const subagents = yield* SubagentRun.Service
+    const spawner = yield* ChildProcessSpawner
 
     const guard = (sessionID: SessionID, callID: string | undefined) =>
       Effect.gen(function* () {
@@ -66,9 +44,7 @@ export const EnterWorktreeTool = Tool.define(
         }
         const subs = yield* hasRunningSubagents(subagents, sessionID)
         if (subs) {
-          return yield* Effect.fail(
-            new Error("Cannot enter a worktree while a subagent is running in this session."),
-          )
+          return yield* Effect.fail(new Error("Cannot enter a worktree while a subagent is running in this session."))
         }
       })
 
@@ -125,6 +101,9 @@ export const EnterWorktreeTool = Tool.define(
         const exec = session.executionContext
 
         if (params.path) {
+          if (!path.isAbsolute(params.path)) {
+            return yield* Effect.fail(new Error("path must be an absolute path"))
+          }
           const canonical = yield* Effect.promise(() =>
             fs.realpath(params.path!).catch(() => path.resolve(params.path!)),
           )
@@ -142,14 +121,14 @@ export const EnterWorktreeTool = Tool.define(
               new Error("This session is already inside another worktree. Call ExitWorktree first."),
             )
           }
-          const ownerCommon = yield* Effect.promise(() => gitCommonDir(exec.ownerDirectory))
-          const targetCommon = yield* Effect.promise(() => gitCommonDir(canonical))
+          const ownerCommon = yield* gitCommonDir(spawner, exec.ownerDirectory)
+          const targetCommon = yield* gitCommonDir(spawner, canonical)
           if (!ownerCommon || !targetCommon || ownerCommon !== targetCommon) {
             return yield* Effect.fail(
               new Error(`Path ${canonical} is not part of the same git repository as the project.`),
             )
           }
-          const branch = yield* Effect.promise(() => currentBranch(canonical))
+          const branch = yield* currentBranch(spawner, canonical)
           const info = yield* Effect.promise(() => Worktree.registerExistingByPath(canonical))
           yield* applyEnter(ctx.sessionID, { ...info, branch: info.branch || branch }, "existing")
           return successResult({
@@ -184,6 +163,14 @@ export const EnterWorktreeTool = Tool.define(
         )
         if (!exists) {
           yield* Effect.promise(() => Worktree.createFromInfo(planned))
+        } else {
+          const ownerCommon = yield* gitCommonDir(spawner, exec.ownerDirectory)
+          const targetCommon = yield* gitCommonDir(spawner, planned.directory)
+          if (!ownerCommon || !targetCommon || ownerCommon !== targetCommon) {
+            return yield* Effect.fail(
+              new Error(`Managed worktree directory ${planned.directory} exists but is not a git worktree.`),
+            )
+          }
         }
         yield* applyEnter(ctx.sessionID, planned, planned.source)
         return successResult({

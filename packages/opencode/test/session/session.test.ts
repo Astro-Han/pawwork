@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
+import fs from "fs/promises"
 import path from "path"
 import { Session as SessionNs } from "../../src/session"
 import { Bus } from "../../src/bus"
@@ -7,8 +9,8 @@ import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
-import { Database } from "../../src/storage/db"
-import { MessageTable } from "../../src/session/session.sql"
+import { Database, eq } from "../../src/storage/db"
+import { MessageTable, SessionTable } from "../../src/session/session.sql"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -67,6 +69,7 @@ describe("session.created event", () => {
   test("findActiveWorktreeBinding checks activeWorktree directory without list caps", async () => {
     await using tmp = await tmpdir({ git: true })
     const worktree = path.join(tmp.path, ".worktrees", "pawwork", "feature-a")
+    await fs.mkdir(worktree, { recursive: true })
 
     await Instance.provide({
       directory: tmp.path,
@@ -87,6 +90,60 @@ describe("session.created event", () => {
 
         const found = await SessionNs.findActiveWorktreeBinding(worktree)
         expect(found?.id).toBe(session.id)
+
+        const variant = path.join(worktree, "..", "feature-a")
+        const foundByVariant = await SessionNs.findActiveWorktreeBinding(variant)
+        expect(foundByVariant?.id).toBe(session.id)
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
+  test("updateExecutionContext returns the persisted updated time", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const worktree = path.join(tmp.path, ".worktrees", "pawwork", "feature-b")
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "update-context-time" })
+        const updated = await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeDirectory: worktree,
+          activeWorktree: {
+            directory: worktree,
+            name: "feature-b",
+            branch: "pawwork/feature-b",
+            source: "created",
+          },
+        })
+
+        expect(updated.time.updated).toBe(updated.executionContext.lastChangedAt)
+        expect(updated.time.updated).toBeGreaterThanOrEqual(session.time.updated)
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
+  test("backfills legacy null executionContext rows", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "legacy-execution-context" })
+        Database.use((db) =>
+          db.update(SessionTable).set({ execution_context: null }).where(eq(SessionTable.id, session.id)).run(),
+        )
+
+        const count = await Effect.runPromise(SessionNs.backfillExecutionContext)
+        expect(count).toBeGreaterThanOrEqual(1)
+
+        const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get())
+        expect(row?.execution_context?.ownerDirectory).toBe(tmp.path)
+        expect(row?.execution_context?.activeDirectory).toBe(tmp.path)
 
         await SessionNs.remove(session.id)
       },

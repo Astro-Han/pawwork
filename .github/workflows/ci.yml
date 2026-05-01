@@ -393,6 +393,7 @@ jobs:
               --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml
               test/config
               test/project
+              test/worktree
               test/file
               test/github
               test/settings

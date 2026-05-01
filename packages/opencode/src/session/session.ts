@@ -31,12 +31,9 @@ import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
-import {
-  SubagentRunWriterContext,
-  SubagentRunGuardViolation,
-  lifecycleFieldsChanged,
-} from "./subagent-run-context"
+import { SubagentRunWriterContext, SubagentRunGuardViolation, lifecycleFieldsChanged } from "./subagent-run-context"
 import { SessionExecutionContext, rootContext } from "./execution-context"
+import { backfillExecutionContextRows, canonicalDirectory } from "./execution-context-store"
 
 const log = Log.create({ service: "session" })
 
@@ -83,8 +80,7 @@ export function fromRow(row: SessionRow): Info {
     share,
     revert,
     permission: row.permission ?? undefined,
-    // Backfill at boot guarantees this is non-null on every load (see backfillExecutionContext).
-    // Defensive fallback for the brief window during boot before backfill runs.
+    // Legacy rows may still have NULL execution_context; synthesize the root context on read.
     executionContext: row.execution_context ?? rootContext(row.directory),
     time: {
       created: row.time_created,
@@ -424,11 +420,18 @@ type Patch = z.infer<typeof Event.Updated.schema>["info"]
 const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
   Effect.sync(() => Database.use(fn))
 
+const backfillExecutionContextEffect = Effect.fn("Session.backfillExecutionContext")(function* () {
+  return yield* db(backfillExecutionContextRows)
+})
+
+export const backfillExecutionContext = backfillExecutionContextEffect()
+
 export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
     const storage = yield* Storage.Service
+    yield* backfillExecutionContext
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -551,9 +554,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
                 part as unknown as Record<string, unknown>,
               )
             ) {
-              return yield* Effect.die(
-                new SubagentRunGuardViolation((part as { tool_call_id?: string }).tool_call_id),
-              )
+              return yield* Effect.die(new SubagentRunGuardViolation((part as { tool_call_id?: string }).tool_call_id))
             }
           }
         }
@@ -698,29 +699,34 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       activeWorktree?: SessionExecutionContext["activeWorktree"] | null
     }) {
       const current = yield* get(input.sessionID)
+      const now = Date.now()
       // ownerDirectory is set at session creation and never moves; never taken from patch.
       // Drop activeWorktree when caller passes null (Exit semantics) or omits it explicitly.
       const next: SessionExecutionContext = {
         ownerDirectory: current.executionContext.ownerDirectory,
         activeDirectory: input.activeDirectory ?? current.executionContext.activeDirectory,
         activeWorktree:
-          "activeWorktree" in input
-            ? input.activeWorktree ?? undefined
-            : current.executionContext.activeWorktree,
-        lastChangedAt: Date.now(),
+          "activeWorktree" in input ? (input.activeWorktree ?? undefined) : current.executionContext.activeWorktree,
+        lastChangedAt: now,
       }
-      yield* patch(input.sessionID, { time: { updated: Date.now() }, executionContext: next })
-      return { ...current, executionContext: next }
+      yield* patch(input.sessionID, { time: { updated: now }, executionContext: next })
+      return { ...current, executionContext: next, time: { ...current.time, updated: now } }
     })
 
     const findActiveWorktreeBinding = Effect.fn("Session.findActiveWorktreeBinding")(function* (directory: string) {
       const project = Instance.project
+      const target = canonicalDirectory(directory)
       const rows = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.project_id, project.id)).all())
       for (const row of rows) {
         const session = fromRow(row)
         const exec = session.executionContext
         if (exec.activeDirectory === exec.ownerDirectory) continue
-        if (exec.activeDirectory === directory || exec.activeWorktree?.directory === directory) return session
+        if (
+          canonicalDirectory(exec.activeDirectory) === target ||
+          (exec.activeWorktree?.directory && canonicalDirectory(exec.activeWorktree.directory) === target)
+        ) {
+          return session
+        }
       }
       return undefined
     })
@@ -819,30 +825,6 @@ export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(Storage.defaultLayer),
 )
-
-/**
- * One-shot backfill that fills `execution_context` for every legacy row whose value is NULL.
- * Idempotent (subsequent runs find no NULL rows) and safe to call any number of times. Sources
- * `ownerDirectory` from the existing `directory` column, which captures the directory the user
- * opened at session creation time. Defensive fallback: rows somehow missing both still pass through
- * `fromRow` synthesis on read.
- */
-export const backfillExecutionContext = Effect.sync(() => {
-  Database.use((d) => {
-    const rows = d
-      .select({ id: SessionTable.id, directory: SessionTable.directory, project_id: SessionTable.project_id })
-      .from(SessionTable)
-      .where(isNull(SessionTable.execution_context))
-      .all()
-    for (const row of rows) {
-      const project = d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id)).get()
-      const ownerDirectory = project?.vcs === "git" ? project.worktree : row.directory
-      const ctx = rootContext(ownerDirectory)
-      d.update(SessionTable).set({ execution_context: ctx }).where(eq(SessionTable.id, row.id)).run()
-    }
-    return rows.length
-  })
-})
 
 const { runPromise } = makeRuntime(Service, defaultLayer)
 
@@ -985,7 +967,10 @@ export function* listGlobal(input?: {
             .where(and(...conditions))
         : db.select().from(SessionTable)
     const order = sessionOrder(sort)
-    return query.orderBy(...order).limit(limit).all()
+    return query
+      .orderBy(...order)
+      .limit(limit)
+      .all()
   })
 
   const ids = [...new Set(rows.map((row) => row.project_id))]
