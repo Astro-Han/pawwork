@@ -1,0 +1,5 @@
+Return this session to the project root. After exiting, every subsequent tool call resolves relative paths from inside the project root.
+
+ExitWorktree does not delete, reset, merge, or open pull requests. It only releases the binding.
+
+Use only when the user explicitly asks for worktree usage and is now done with it, or project instructions require it.

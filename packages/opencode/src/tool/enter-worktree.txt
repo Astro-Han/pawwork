@@ -1,0 +1,17 @@
+Bind this session to a git worktree. Once entered, every subsequent tool call resolves relative paths from inside the worktree until ExitWorktree is called.
+
+Use only when the user explicitly asks for worktree usage, or project instructions require it.
+
+Modes:
+- EnterWorktree() with no arguments creates a new worktree on a fresh branch from project HEAD; the slug is auto-generated.
+- EnterWorktree(name="my-feature") creates or reuses a managed worktree of that name on branch opencode/my-feature.
+- EnterWorktree(path="/abs/path/to/existing/worktree") enters a worktree elsewhere on disk that is part of the same git repository as the project.
+
+After entering, run further tools normally; their working directory is now the worktree. Call ExitWorktree to return to the project root.
+
+Constraints:
+- name and path are mutually exclusive.
+- name slug rules: kebab-case, [a-z0-9-]+, max 40 chars, no leading/trailing hyphen.
+- path is canonicalised; same-repo validation is via git common-dir.
+- The transition is rejected if any other tool call is currently running in this session.
+- A→B direct switches are not allowed: call ExitWorktree first.

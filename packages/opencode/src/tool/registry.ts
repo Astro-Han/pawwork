@@ -30,6 +30,8 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncate"
 import { WebSearchAuth } from "./websearch-auth"
 import { ApplyPatchTool } from "./apply_patch"
+import { EnterWorktreeTool } from "./enter-worktree"
+import { ExitWorktreeTool } from "./exit-worktree"
 import { Permission } from "../permission"
 import { Glob } from "../util/glob"
 import path from "path"
@@ -138,6 +140,8 @@ export namespace ToolRegistry {
       const greptool = yield* GrepTool
       const patchtool = yield* ApplyPatchTool
       const skilltool = yield* SkillTool
+      const enterWorktree = yield* EnterWorktreeTool
+      const exitWorktree = yield* ExitWorktreeTool
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -263,6 +267,8 @@ export namespace ToolRegistry {
             question: Tool.init(question),
             lsp: Tool.init(lsptool),
             plan: Tool.init(plan),
+            enterWorktree: Tool.init(enterWorktree),
+            exitWorktree: Tool.init(exitWorktree),
           })
 
           return {
@@ -287,6 +293,8 @@ export namespace ToolRegistry {
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
+              tool.enterWorktree,
+              tool.exitWorktree,
             ],
             agent: tool.agent,
             read: tool.read,

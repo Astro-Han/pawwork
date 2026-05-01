@@ -8,10 +8,13 @@ import type { SessionID } from "./schema"
  * tool call is unresolved (the calling tool's own callID is excluded so the tool can introspect
  * itself).
  */
-export const hasInFlightToolCallsExcept = (sessionID: SessionID, exceptCallID: string) =>
+export const hasInFlightToolCallsExcept = (
+  sessions: Session.Service["Service"],
+  sessionID: SessionID,
+  exceptCallID: string,
+) =>
   Effect.gen(function* () {
-    const svc = yield* Session.Service
-    const messages = yield* svc.messages({ sessionID })
+    const messages = yield* sessions.messages({ sessionID })
     for (const m of messages) {
       for (const part of m.parts) {
         if (part.type !== "tool") continue
@@ -27,6 +30,6 @@ export const hasInFlightToolCallsExcept = (sessionID: SessionID, exceptCallID: s
  *
  * Note: SubagentRun.activeCounts is private to the layer; a public count helper is a follow-up.
  * For now this returns false unconditionally; the parent's running-tool guard above already covers
- * the common case (subagents are always invoked through a parent tool call which shows as running).
+ * the common case since subagents are dispatched through a parent agent tool call.
  */
 export const hasRunningSubagents = (_sessionID: SessionID) => Effect.succeed(false)
