@@ -101,6 +101,7 @@ beforeAll(async () => {
 
   mock.module("@opencode-ai/util/encode", () => ({
     base64Encode: (value: string) => value,
+    checksum: (value: string) => String(value.length),
   }))
 
   mock.module("@/context/local", () => ({
