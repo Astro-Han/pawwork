@@ -7,6 +7,8 @@ import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
+import { Database } from "../../src/storage/db"
+import { MessageTable } from "../../src/session/session.sql"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -58,6 +60,35 @@ describe("session.created event", () => {
         expect(info.executionContext.activeWorktree).toBeUndefined()
 
         await SessionNs.remove(info.id)
+      },
+    })
+  })
+
+  test("findActiveWorktreeBinding checks activeWorktree directory without list caps", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const worktree = path.join(tmp.path, ".worktrees", "pawwork", "feature-a")
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "bound worktree" })
+        await SessionNs.findActiveWorktreeBinding(worktree).then((found) => expect(found).toBeUndefined())
+
+        await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeDirectory: worktree,
+          activeWorktree: {
+            directory: worktree,
+            name: "feature-a",
+            branch: "pawwork/feature-a",
+            source: "created",
+          },
+        })
+
+        const found = await SessionNs.findActiveWorktreeBinding(worktree)
+        expect(found?.id).toBe(session.id)
+
+        await SessionNs.remove(session.id)
       },
     })
   })
@@ -114,6 +145,56 @@ describe("session.created event", () => {
         expect(events.indexOf("created")).toBeLessThan(events.indexOf("updated"))
 
         await SessionNs.remove(info.id)
+      },
+    })
+  })
+})
+
+describe("MessageV2 hydration", () => {
+  test("normalizes legacy assistant string path from database rows", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "legacy-message-path" })
+        const messageID = MessageID.ascending()
+        const parentID = MessageID.ascending()
+        const created = Date.now()
+
+        Database.use((db) =>
+          db
+            .insert(MessageTable)
+            .values({
+              id: messageID,
+              session_id: session.id,
+              time_created: created,
+              data: {
+                role: "assistant",
+                time: { created, completed: created },
+                parentID,
+                modelID: "test-model",
+                providerID: "test-provider",
+                mode: "",
+                agent: "general",
+                path: tmp.path,
+                cost: 0,
+                tokens: {
+                  total: 0,
+                  input: 0,
+                  output: 0,
+                  reasoning: 0,
+                  cache: { read: 0, write: 0 },
+                },
+              } as any,
+            })
+            .run(),
+        )
+
+        const got = MessageV2.get({ sessionID: session.id, messageID })
+        expect((got.info as MessageV2.Assistant).path).toEqual({ cwd: tmp.path, root: tmp.path })
+
+        await SessionNs.remove(session.id)
       },
     })
   })

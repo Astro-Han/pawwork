@@ -389,6 +389,7 @@ export interface Interface {
     activeDirectory?: string
     activeWorktree?: SessionExecutionContext["activeWorktree"] | null
   }) => Effect.Effect<Info>
+  readonly findActiveWorktreeBinding: (directory: string) => Effect.Effect<Info | undefined>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[]>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
@@ -712,6 +713,18 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       return { ...current, executionContext: next }
     })
 
+    const findActiveWorktreeBinding = Effect.fn("Session.findActiveWorktreeBinding")(function* (directory: string) {
+      const project = Instance.project
+      const rows = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.project_id, project.id)).all())
+      for (const row of rows) {
+        const session = fromRow(row)
+        const exec = session.executionContext
+        if (exec.activeDirectory === exec.ownerDirectory) continue
+        if (exec.activeDirectory === directory || exec.activeWorktree?.directory === directory) return session
+      }
+      return undefined
+    })
+
     const diff = Effect.fn("Session.diff")(function* (sessionID: SessionID) {
       return yield* storage
         .read<Snapshot.FileDiff[]>(["session_diff", sessionID])
@@ -786,6 +799,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       clearRevert,
       setSummary,
       updateExecutionContext,
+      findActiveWorktreeBinding,
       diff,
       messages,
       children,
@@ -844,6 +858,13 @@ export const messages = fn(MessagesInput, (input) => runPromise((svc) => svc.mes
 export const removePart = fn(RemovePartInput, (input) => runPromise((svc) => svc.removePart(input)))
 export const updateMessage = fn(MessageV2.Info, (input) => runPromise((svc) => svc.updateMessage(input)))
 export const updatePart = fn(MessageV2.Part, (input) => runPromise((svc) => svc.updatePart(input)))
+export const updateExecutionContext = (input: {
+  sessionID: SessionID
+  activeDirectory?: string
+  activeWorktree?: SessionExecutionContext["activeWorktree"] | null
+}) => runPromise((svc) => svc.updateExecutionContext(input))
+export const findActiveWorktreeBinding = (directory: string) =>
+  runPromise((svc) => svc.findActiveWorktreeBinding(directory))
 
 type ListSort = "updated" | "created"
 type GlobalListCursor =

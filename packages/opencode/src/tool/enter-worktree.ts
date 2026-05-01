@@ -151,6 +151,7 @@ export const EnterWorktreeTool = Tool.define(
           }
           const branch = yield* Effect.promise(() => currentBranch(canonical))
           const info = yield* Effect.promise(() => Worktree.registerExistingByPath(canonical))
+          yield* applyEnter(ctx.sessionID, { ...info, branch: info.branch || branch }, "existing")
           return successResult({
             activeDirectory: canonical,
             slug: info.name,

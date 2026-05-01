@@ -53,6 +53,11 @@ function track(directory: string, next: Promise<InstanceContext>) {
   return task
 }
 
+function matchesOverride(ctx: InstanceContext, input: { worktree?: string; project?: Project.Info }) {
+  if (!input.worktree && !input.project) return true
+  return ctx.worktree === input.worktree && ctx.project.id === input.project?.id
+}
+
 export const Instance = {
   async provide<R>(input: {
     directory: string
@@ -61,6 +66,10 @@ export const Instance = {
     project?: Project.Info
     fn: () => R
   }): Promise<R> {
+    if (!!input.worktree !== !!input.project) {
+      throw new Error("Instance.provide requires both worktree and project when overriding context")
+    }
+
     const directory = Filesystem.resolve(input.directory)
     let existing = cache.get(directory)
     if (!existing) {
@@ -75,7 +84,20 @@ export const Instance = {
         }),
       )
     }
-    const ctx = await existing
+    let ctx = await existing
+    if (!matchesOverride(ctx, input)) {
+      Log.Default.info("recreating instance with explicit context", { directory })
+      existing = track(
+        directory,
+        boot({
+          directory,
+          init: input.init,
+          worktree: input.worktree,
+          project: input.project,
+        }),
+      )
+      ctx = await existing
+    }
     return context.provide(ctx, async () => {
       return input.fn()
     })

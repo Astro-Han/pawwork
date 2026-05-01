@@ -587,12 +587,19 @@ export const cursor = {
   },
 }
 
-const info = (row: typeof MessageTable.$inferSelect) =>
-  ({
+const info = (row: typeof MessageTable.$inferSelect) => {
+  const raw = {
     ...row.data,
     id: row.id,
     sessionID: row.session_id,
-  }) as Info
+  } as Record<string, unknown>
+
+  if (raw.role === "assistant" && typeof raw.path === "string") {
+    raw.path = { cwd: raw.path, root: raw.path }
+  }
+
+  return raw as Info
+}
 
 const part = (row: typeof PartTable.$inferSelect) =>
   ({

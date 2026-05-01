@@ -113,3 +113,34 @@ test("Instance.state dedupes concurrent promise initialization", async () => {
   expect(a).toBe(b)
   expect(n).toBe(1)
 })
+
+test("Instance.provide recreates cached context for explicit worktree overrides", async () => {
+  await using owner = await tmpdir()
+  await using active = await tmpdir()
+  const project = {
+    id: "prj_test",
+    worktree: owner.path,
+    vcs: "git",
+    time: { created: 0, updated: 0 },
+    sandboxes: [],
+  } as any
+
+  await Instance.provide({
+    directory: active.path,
+    worktree: active.path,
+    project,
+    fn: async () => {
+      expect(Instance.worktree).toBe(active.path)
+    },
+  })
+
+  await Instance.provide({
+    directory: active.path,
+    worktree: owner.path,
+    project,
+    fn: async () => {
+      expect(Instance.worktree).toBe(owner.path)
+      expect(Instance.project.id).toBe(project.id)
+    },
+  })
+})
