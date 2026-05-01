@@ -76,16 +76,18 @@ export default function Page() {
     send: window.api?.setDesktopContext,
   })
 
-  createEffect(() => {
-    if (!prompt.ready()) return
-    untrack(() => {
-      if (params.id) return
-      const text = searchParams.prompt
-      if (!text) return
-      prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
-      setSearchParams({ ...searchParams, prompt: undefined })
-    })
-  })
+  createEffect(
+    on(
+      () => [prompt.ready(), params.id, searchParams.prompt] as const,
+      ([ready, sessionID, text]) => {
+        if (!ready || sessionID || !text) return
+        untrack(() => {
+          prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+          setSearchParams({ ...searchParams, prompt: undefined })
+        })
+      },
+    ),
+  )
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = createSizing()

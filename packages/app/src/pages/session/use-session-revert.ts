@@ -71,9 +71,9 @@ export function createSessionRevert(input: {
         input.roll(request.sessionID, next ? { messageID: next.id } : undefined)
         if (next) {
           input.prompt.set(input.draft(next.id))
-          return
+        } else {
+          input.prompt.reset()
         }
-        input.prompt.reset()
       })
 
       const task = !next

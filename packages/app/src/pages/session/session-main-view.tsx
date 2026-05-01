@@ -116,8 +116,11 @@ export function SessionMainView(props: {
                   />
                 )}
               </Match>
-              <Match when={true}>
+              <Match when={!props.activeSessionID}>
                 <NewSessionView composer={props.composerHome} />
+              </Match>
+              <Match when={props.activeSessionID}>
+                <div class="flex-1 min-h-0" />
               </Match>
             </Switch>
           </div>
