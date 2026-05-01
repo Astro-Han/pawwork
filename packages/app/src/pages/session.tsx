@@ -30,13 +30,9 @@ import { SessionPageComposerRegion } from "@/pages/session/session-composer-regi
 import { SessionMainView } from "@/pages/session/session-main-view"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
-import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
 import { createSessionCommentContext } from "@/pages/session/use-session-comment-context"
 import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-context"
 import { createSessionFollowups } from "@/pages/session/use-session-followups"
-import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
-import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
-import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { useSessionKeyboardFocus } from "@/pages/session/use-session-keyboard-focus"
 import { createSessionNewWorktree } from "@/pages/session/use-session-new-worktree"
 import { useSessionRefreshEffects } from "@/pages/session/use-session-refresh-effects"
@@ -44,8 +40,8 @@ import { createSessionRevert } from "@/pages/session/use-session-revert"
 import { createSessionReviewPanel } from "@/pages/session/use-session-review-panel"
 import { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import { createSessionRouteTabs } from "@/pages/session/use-session-route-tabs"
-import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { createSessionTimelineData } from "@/pages/session/use-session-timeline-data"
+import { createSessionTimelineInteraction } from "@/pages/session/use-session-timeline-interaction"
 import { useSessionVcsRefresh } from "@/pages/session/use-session-vcs-refresh"
 import { diffs as list } from "@/utils/diffs"
 import { extractPromptFromParts } from "@/utils/prompt"
@@ -176,8 +172,6 @@ export default function Page() {
     projectWorktree: () => sync.project?.worktree,
   })
 
-  const anchor = (id: string) => `message-${id}`
-
   let inputRef!: HTMLDivElement
 
   useSessionRefreshEffects({
@@ -237,27 +231,25 @@ export default function Page() {
     setActiveTab: tabs().setActive,
   })
 
-  let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
-  let activeMessage!: ReturnType<typeof createSessionActiveMessage>
-
-  const scrollDock = createSessionScrollDock({
-    clearMessageHash: () => clearMessageHash(),
-    clearActiveMessage: () => activeMessage?.clearActiveMessage(),
-    fill: () => historyBackfill?.fill(),
-  })
-  const autoScroll = scrollDock.autoScroll
-  const resumeScroll = scrollDock.resumeScroll
-  const scheduleScrollState = scrollDock.scheduleScrollState
-  const setScrollRef = scrollDock.setScrollRef
-
-  activeMessage = createSessionActiveMessage({
+  const timelineInteraction = createSessionTimelineInteraction({
+    routeSessionID: () => params.id,
     sessionKey,
+    sessionID: timelineSessionID,
+    messagesReady: timelineMessagesReady,
+    loadedMessages: () => timelineMessages().length,
     visibleUserMessages: timelineVisibleUserMessages,
-    lastUserMessageID: () => timelineVisibleUserMessages().at(-1)?.id,
-    scroller: scrollDock.scroller,
-    resumeScroll,
-    pauseAutoScroll: autoScroll.pause,
+    historyMore: timelineHistoryMore,
+    historyLoading: timelineHistoryLoading,
+    loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
+    consumePendingMessage: layout.pendingMessage.consume,
   })
+  const activeMessage = timelineInteraction.activeMessage
+  const autoScroll = timelineInteraction.autoScroll
+  const historyWindow = timelineInteraction.historyWindow
+  const resumeScroll = timelineInteraction.resumeScroll
+  const scheduleScrollState = timelineInteraction.scheduleScrollState
+  const scrollDock = timelineInteraction.scrollDock
+  const setScrollRef = timelineInteraction.setScrollRef
 
   useSessionKeyboardFocus({
     blocked: composer.blocked,
@@ -274,30 +266,6 @@ export default function Page() {
     setActiveMessage: activeMessage.setActiveMessage,
     focusInput,
     review: reviewTab,
-  })
-
-  const historyWindow = createSessionHistoryWindow({
-    sessionID: timelineSessionID,
-    messagesReady: timelineMessagesReady,
-    loaded: () => timelineMessages().length,
-    visibleUserMessages: timelineVisibleUserMessages,
-    historyMore: timelineHistoryMore,
-    historyLoading: timelineHistoryLoading,
-    loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
-    userScrolled: autoScroll.userScrolled,
-    scroller: scrollDock.scroller,
-  })
-
-  historyBackfill = createSessionHistoryBackfill({
-    routeSessionID: () => params.id,
-    sessionID: timelineSessionID,
-    messagesReady: timelineMessagesReady,
-    historyWindow,
-    historyMore: timelineHistoryMore,
-    historyLoading: timelineHistoryLoading,
-    visibleUserMessagesLength: () => timelineVisibleUserMessages().length,
-    userScrolled: autoScroll.userScrolled,
-    scroller: scrollDock.scroller,
   })
 
   const draft = (id: string) =>
@@ -390,28 +358,6 @@ export default function Page() {
   })
 
   const actions = { revert: sessionRevert.revert }
-
-  const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
-    sessionKey: timelineSessionKey,
-    sessionID: timelineSessionID,
-    messagesReady: timelineMessagesReady,
-    visibleUserMessages: timelineVisibleUserMessages,
-    historyMore: timelineHistoryMore,
-    historyLoading: timelineHistoryLoading,
-    loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
-    turnStart: historyWindow.turnStart,
-    currentMessageId: activeMessage.messageId,
-    pendingMessage: activeMessage.pendingMessage,
-    setPendingMessage: activeMessage.setPendingMessage,
-    setActiveMessage: activeMessage.setActiveMessage,
-    setTurnStart: historyWindow.setTurnStart,
-    autoScroll,
-    scroller: scrollDock.scroller,
-    anchor,
-    scheduleScrollState,
-    consumePendingMessage: layout.pendingMessage.consume,
-  })
-  activeMessage.setScrollToMessage(scrollToMessage)
 
   createEffect(
     on(
@@ -511,7 +457,7 @@ export default function Page() {
       setContentRef={scrollDock.setContentRef}
       historyMore={timelineHistoryMore()}
       historyLoading={timelineHistoryLoading()}
-      anchor={anchor}
+      anchor={timelineInteraction.anchor}
       composerSession={renderComposerRegion("session")}
       composerHome={(ctx) => renderComposerRegion("home", ctx)}
       canReview={canReview}
