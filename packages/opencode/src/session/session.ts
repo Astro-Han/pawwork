@@ -384,6 +384,11 @@ export interface Interface {
   }) => Effect.Effect<void>
   readonly clearRevert: (sessionID: SessionID) => Effect.Effect<void>
   readonly setSummary: (input: { sessionID: SessionID; summary: Info["summary"] }) => Effect.Effect<void>
+  readonly updateExecutionContext: (input: {
+    sessionID: SessionID
+    activeDirectory?: string
+    activeWorktree?: SessionExecutionContext["activeWorktree"] | null
+  }) => Effect.Effect<Info>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[]>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
@@ -688,6 +693,27 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       yield* patch(input.sessionID, { time: { updated: Date.now() }, summary: input.summary })
     })
 
+    const updateExecutionContext = Effect.fn("Session.updateExecutionContext")(function* (input: {
+      sessionID: SessionID
+      activeDirectory?: string
+      activeWorktree?: SessionExecutionContext["activeWorktree"] | null
+    }) {
+      const current = yield* get(input.sessionID)
+      // ownerDirectory is set at session creation and never moves; never taken from patch.
+      // Drop activeWorktree when caller passes null (Exit semantics) or omits it explicitly.
+      const next: SessionExecutionContext = {
+        ownerDirectory: current.executionContext.ownerDirectory,
+        activeDirectory: input.activeDirectory ?? current.executionContext.activeDirectory,
+        activeWorktree:
+          "activeWorktree" in input
+            ? input.activeWorktree ?? undefined
+            : current.executionContext.activeWorktree,
+        lastChangedAt: Date.now(),
+      }
+      yield* patch(input.sessionID, { time: { updated: Date.now() }, executionContext: next })
+      return { ...current, executionContext: next }
+    })
+
     const diff = Effect.fn("Session.diff")(function* (sessionID: SessionID) {
       return yield* storage
         .read<Snapshot.FileDiff[]>(["session_diff", sessionID])
@@ -761,6 +787,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       setRevert,
       clearRevert,
       setSummary,
+      updateExecutionContext,
       diff,
       messages,
       children,
