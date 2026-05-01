@@ -454,11 +454,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         title: input.title ?? createDefaultTitle(!!input.parentID),
         skill: input.skill,
         permission: input.permission,
-        // ownerDirectory is the directory the user opened to create the session.
-        // session.directory is what the Instance was scoped to at session creation,
-        // which is the user-opened path (Project.worktree happens to coincide for
-        // git project roots; non-git paths and git subdirectories use this).
-        executionContext: rootContext(input.directory),
+        // ownerDirectory is the project root for git projects and never moves. For non-git
+        // projects Instance.worktree is "/" today, so keep the opened directory as the owner.
+        executionContext: rootContext(ctx.project.vcs === "git" ? ctx.worktree : input.directory),
         time: {
           created: Date.now(),
           updated: Date.now(),
@@ -818,12 +816,14 @@ export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
 export const backfillExecutionContext = Effect.sync(() => {
   Database.use((d) => {
     const rows = d
-      .select({ id: SessionTable.id, directory: SessionTable.directory })
+      .select({ id: SessionTable.id, directory: SessionTable.directory, project_id: SessionTable.project_id })
       .from(SessionTable)
       .where(isNull(SessionTable.execution_context))
       .all()
     for (const row of rows) {
-      const ctx = rootContext(row.directory)
+      const project = d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id)).get()
+      const ownerDirectory = project?.vcs === "git" ? project.worktree : row.directory
+      const ctx = rootContext(ownerDirectory)
       d.update(SessionTable).set({ execution_context: ctx }).where(eq(SessionTable.id, row.id)).run()
     }
     return rows.length

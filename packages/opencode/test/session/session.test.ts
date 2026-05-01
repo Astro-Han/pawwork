@@ -42,6 +42,26 @@ describe("PawWork runtime namespace", () => {
 })
 
 describe("session.created event", () => {
+  test("executionContext for a new git session is rooted at project worktree, not entry directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const subdir = path.join(tmp.path, "packages", "app")
+    await Bun.write(path.join(subdir, ".keep"), "")
+
+    await Instance.provide({
+      directory: subdir,
+      fn: async () => {
+        const info = await SessionNs.create({})
+
+        expect(info.directory).toBe(subdir)
+        expect(info.executionContext.ownerDirectory).toBe(tmp.path)
+        expect(info.executionContext.activeDirectory).toBe(tmp.path)
+        expect(info.executionContext.activeWorktree).toBeUndefined()
+
+        await SessionNs.remove(info.id)
+      },
+    })
+  })
+
   test("should emit session.created event when session is created", async () => {
     await Instance.provide({
       directory: projectRoot,
