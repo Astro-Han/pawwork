@@ -58,10 +58,56 @@ function legacyExecutionContext(row: SessionRow, project?: ProjectFallback) {
   return rootContext(canonicalDirectory(ownerDirectoryRaw))
 }
 
+function recoverExecutionContext(row: SessionRow) {
+  const raw = row.execution_context
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
+  const record = raw as Record<string, unknown>
+  const ownerDirectory = record.ownerDirectory
+  const activeDirectory = record.activeDirectory
+  if (
+    typeof ownerDirectory !== "string" ||
+    typeof activeDirectory !== "string" ||
+    !path.isAbsolute(ownerDirectory) ||
+    !path.isAbsolute(activeDirectory)
+  ) {
+    return undefined
+  }
+
+  const activeWorktreeRaw = record.activeWorktree
+  let activeWorktree: ActiveWorktree | undefined
+  if (activeWorktreeRaw && typeof activeWorktreeRaw === "object" && !Array.isArray(activeWorktreeRaw)) {
+    const worktree = activeWorktreeRaw as Record<string, unknown>
+    const directory = worktree.directory
+    if (typeof directory === "string" && path.isAbsolute(directory)) {
+      const source = worktree.source === "existing" ? "existing" : "created"
+      const parsed = ActiveWorktree.safeParse({
+        directory: canonicalDirectory(directory),
+        name: worktree.name,
+        branch: worktree.branch,
+        source,
+      })
+      if (parsed.success) activeWorktree = parsed.data
+    }
+  }
+
+  const recovered = SessionExecutionContext.safeParse({
+    ownerDirectory: canonicalDirectory(ownerDirectory),
+    activeDirectory: canonicalDirectory(activeDirectory),
+    activeWorktree,
+    lastChangedAt:
+      typeof record.lastChangedAt === "number" && Number.isFinite(record.lastChangedAt)
+        ? record.lastChangedAt
+        : Date.now(),
+  })
+  return recovered.success ? recovered.data : undefined
+}
+
 function parseExecutionContext(row: SessionRow, project?: ProjectFallback) {
   if (row.execution_context !== null) {
     const parsed = SessionExecutionContext.safeParse(row.execution_context)
     if (parsed.success) return parsed.data
+    const recovered = recoverExecutionContext(row)
+    if (recovered) return recovered
   }
   return legacyExecutionContext(row, project)
 }

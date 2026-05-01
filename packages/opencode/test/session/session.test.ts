@@ -350,6 +350,57 @@ describe("session.created event", () => {
     })
   })
 
+  test("recovers partial activeWorktree without dropping active directory", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const subdir = path.join(tmp.path, "packages", "app")
+    const worktree = path.join(tmp.path, ".worktrees", "pawwork", "partial-worktree")
+    await fs.mkdir(subdir, { recursive: true })
+
+    await Instance.provide({
+      directory: subdir,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "partial-active-worktree" })
+        const expectedRoot = canonicalDirectory(tmp.path)
+        const expectedActive = canonicalDirectory(worktree)
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({
+              execution_context: {
+                ownerDirectory: tmp.path,
+                activeDirectory: worktree,
+                activeWorktree: {
+                  directory: worktree,
+                  name: "partial-worktree",
+                  branch: "pawwork/partial-worktree",
+                },
+                lastChangedAt: 123,
+              } as any,
+            })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const loaded = await SessionNs.get(session.id)
+        expect(loaded.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(loaded.executionContext.activeDirectory).toBe(expectedActive)
+        expect(loaded.executionContext.activeWorktree?.source).toBe("created")
+
+        const listed = Array.from(SessionNs.list()).find((item) => item.id === session.id)
+        expect(listed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(listed?.executionContext.activeDirectory).toBe(expectedActive)
+        expect(listed?.executionContext.activeWorktree?.source).toBe("created")
+
+        const globalListed = Array.from(SessionNs.listGlobal()).find((item) => item.id === session.id)
+        expect(globalListed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(globalListed?.executionContext.activeDirectory).toBe(expectedActive)
+        expect(globalListed?.executionContext.activeWorktree?.source).toBe("created")
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
   test("fork preserves the source session executionContext", async () => {
     await using tmp = await tmpdir({ git: true })
     const worktree = path.join(tmp.path, ".worktrees", "pawwork", "forked-work")

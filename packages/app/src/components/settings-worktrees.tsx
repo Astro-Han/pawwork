@@ -88,12 +88,13 @@ export const SettingsWorktrees: Component = () => {
   const [deleting, setDeleting] = createSignal<Set<string>>(new Set())
 
   const handleDelete = async (directory: string) => {
+    if (deleting().has(directory)) return
     setDeleting((current) => new Set(current).add(directory))
     try {
       const ownerDirectory = data()?.find((worktree) => worktree.directory === directory)?.ownerDirectory ?? directory
       const res = await sdk.client.worktree.remove({ directory: ownerDirectory, worktreeRemoveInput: { directory } })
       if (res.error) throw new Error(errorText(res.error))
-      setConfirming(undefined)
+      setConfirming((current) => (current === directory ? undefined : current))
       void refetch()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

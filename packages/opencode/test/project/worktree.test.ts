@@ -179,8 +179,9 @@ describe("Worktree", () => {
   describe("registry source", () => {
     test("created worktrees are slug-addressable, existing worktrees are path-addressable only", async () => {
       await using tmp = await tmpdir({ git: true })
+      const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
       const created = await withInstance(tmp.path, () => Worktree.create({ name: "feature-a" }))
-      await Bun.sleep(1000)
+      await ready
 
       const bySlug = await withInstance(tmp.path, () => Worktree.lookupBySlug("feature-a"))
       expect(bySlug?.directory).toBe(created.directory)

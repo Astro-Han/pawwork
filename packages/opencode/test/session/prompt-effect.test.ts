@@ -1387,7 +1387,7 @@ unix("bash tool uses the session execution context directory", () =>
             (part): part is CompletedToolPart =>
               part.type === "tool" && part.tool === "bash" && part.state.status === "completed",
           )
-        if (!tool) return
+        if (!tool) throw new Error("Missing completed bash tool part")
 
         expect(tool.state.output).toContain(activeDir)
       }),

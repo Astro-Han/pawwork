@@ -12,7 +12,7 @@ const wintest = process.platform === "win32" ? test : test.skip
 const unixtest = process.platform === "win32" ? test.skip : test
 
 describe("Worktree.remove", () => {
-  unixtest("refuses to remove a worktree bound to an active session", async () => {
+  test("refuses to remove a worktree bound to an active session", async () => {
     await using tmp = await tmpdir({ git: true })
     const root = tmp.path
 
