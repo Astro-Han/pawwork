@@ -29,7 +29,7 @@ import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
-import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
+import { createSessionComposerState } from "@/pages/session/composer"
 import { createSessionTabs, createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -40,6 +40,7 @@ import {
   readUserMessages,
 } from "@/pages/session/session-messages"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
+import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
@@ -664,7 +665,7 @@ export default function Page() {
       selectedSkill: () => PawworkSkillName | undefined
     },
   ) => (
-    <SessionComposerRegion
+    <SessionPageComposerRegion
       variant={variant}
       state={composer}
       ready={!store.deferRender && timelineMessagesReady()}
