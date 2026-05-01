@@ -36,7 +36,10 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
           })
 
           const formatted = params.questions
-            .map((q, i) => `"${q.question}"="${answers[i]?.length ? answers[i].join(", ") : "Unanswered"}"`)
+            .map((q, i) => {
+              const answer = answers[i] ?? []
+              return `"${q.question}"="${answer.length ? answer.join(", ") : "Skipped by user"}"`
+            })
             .join(", ")
 
           return {

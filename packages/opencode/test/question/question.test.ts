@@ -283,6 +283,87 @@ test("ask - handles multiple questions", async () => {
   })
 })
 
+test("reply - resolves empty answer arrays as skipped questions", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const questions = [
+        {
+          question: "What would you like to do?",
+          header: "Action",
+          options: [
+            { label: "Build", description: "Build the project" },
+            { label: "Test", description: "Run tests" },
+          ],
+        },
+        {
+          question: "Which environment?",
+          header: "Env",
+          options: [
+            { label: "Dev", description: "Development" },
+            { label: "Prod", description: "Production" },
+          ],
+        },
+      ]
+
+      const promise = ask({
+        sessionID: SessionID.make("ses_test"),
+        questions,
+      })
+
+      const pending = await list()
+      await reply({
+        requestID: pending[0].id,
+        answers: [[], ["Dev"]],
+      })
+
+      const answers = await promise
+      expect(answers).toEqual([[], ["Dev"]])
+      expect(await list()).toEqual([])
+    },
+  })
+})
+
+test("reply - still rejects wrong answer count", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const promise = ask({
+        sessionID: SessionID.make("ses_test"),
+        questions: [
+          {
+            question: "What would you like to do?",
+            header: "Action",
+            options: [
+              { label: "Build", description: "Build the project" },
+              { label: "Test", description: "Run tests" },
+            ],
+          },
+          {
+            question: "Which environment?",
+            header: "Env",
+            options: [
+              { label: "Dev", description: "Development" },
+              { label: "Prod", description: "Production" },
+            ],
+          },
+        ],
+      })
+
+      const pending = await list()
+      await reply({
+        requestID: pending[0].id,
+        answers: [["Build"]],
+      })
+
+      await expect(promise).rejects.toBeInstanceOf(Question.RejectedError)
+      expect(await list()).toEqual([])
+    },
+  })
+})
+
 // list tests
 
 test("list - returns all pending requests", async () => {
