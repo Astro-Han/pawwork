@@ -1,6 +1,6 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
-import { rolledRevertItems } from "./use-session-revert"
+import { nextRestoreTarget, rolledRevertItems } from "./use-session-revert"
 
 const message = (id: string) => ({ id, role: "user" }) as UserMessage
 
@@ -16,5 +16,13 @@ describe("session revert", () => {
       { id: "msg_2", text: "line:msg_2" },
       { id: "msg_30", text: "line:msg_30" },
     ])
+  })
+
+  test("selects the next restore target by timeline position instead of id order", () => {
+    const messages = [message("msg_10"), message("msg_2"), message("msg_30")]
+
+    expect(nextRestoreTarget(messages, "msg_10")?.id).toBe("msg_2")
+    expect(nextRestoreTarget(messages, "msg_30")).toBeUndefined()
+    expect(nextRestoreTarget(messages, "missing")).toBeUndefined()
   })
 })

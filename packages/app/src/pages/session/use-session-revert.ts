@@ -20,6 +20,11 @@ export function rolledRevertItems(input: {
     .map((item) => ({ id: item.id, text: input.lineText(item.id) }))
 }
 
+export function nextRestoreTarget(messages: UserMessage[], id: string) {
+  const index = messages.findIndex((item) => item.id === id)
+  return index >= 0 ? messages[index + 1] : undefined
+}
+
 export function createSessionRevert(input: {
   sessionID: () => string | undefined
   revertMessageID: () => string | undefined
@@ -45,7 +50,7 @@ export function createSessionRevert(input: {
       })
       await input
         .halt(request.sessionID)
-        .then(() => input.client.session.revert(request))
+        .then(() => input.client.session.revert(request, { throwOnError: true }))
         .then((result) => {
           if (result.data) input.merge(result.data)
         })
@@ -61,9 +66,8 @@ export function createSessionRevert(input: {
 
   const restoreMutation = useMutation(() => ({
     mutationFn: async (request: { sessionID: string; id: string }) => {
-      const next = readUserMessages(readSessionMessages(input.sync.data.message[request.sessionID])).find(
-        (item) => item.id > request.id,
-      )
+      const messages = readUserMessages(readSessionMessages(input.sync.data.message[request.sessionID]))
+      const next = nextRestoreTarget(messages, request.id)
       const prev = input.prompt.current().slice()
       const last = input.sync.session.get(request.sessionID)?.revert
 
@@ -77,12 +81,17 @@ export function createSessionRevert(input: {
       })
 
       const task = !next
-        ? input.halt(request.sessionID).then(() => input.client.session.unrevert({ sessionID: request.sessionID }))
+        ? input
+            .halt(request.sessionID)
+            .then(() => input.client.session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
         : input.halt(request.sessionID).then(() =>
-            input.client.session.revert({
-              sessionID: request.sessionID,
-              messageID: next.id,
-            }),
+            input.client.session.revert(
+              {
+                sessionID: request.sessionID,
+                messageID: next.id,
+              },
+              { throwOnError: true },
+            ),
           )
 
       await task
