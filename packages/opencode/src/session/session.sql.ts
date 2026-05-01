@@ -26,6 +26,19 @@ export const SessionTable = sqliteTable(
     subagent_type: text(),
     slug: text().notNull(),
     directory: text().notNull(),
+    execution_context: text({ mode: "json" })
+      .$type<{
+        ownerDirectory: string
+        activeDirectory: string
+        activeWorktree?: {
+          directory: string
+          name: string
+          branch?: string
+          source: "created" | "existing"
+        }
+        lastChangedAt: number
+      } | null>()
+      .default(null),
     title: text().notNull(),
     skill: text(),
     version: text().notNull(),
