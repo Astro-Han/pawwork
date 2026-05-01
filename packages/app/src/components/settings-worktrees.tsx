@@ -6,46 +6,18 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
+import { basename, entryDirectory, errorText, sourceKey, type WorktreeInfo } from "./settings-worktrees-helpers"
 
-type WorktreeInfo = {
-  name: string
-  branch: string
-  directory: string
-  ownerDirectory: string
-  source?: "created" | "existing"
-}
-
-function basename(p: string): string {
-  const trimmed = p.replace(/[/\\]+$/, "")
-  const last = trimmed.split(/[/\\]/).pop()
-  return last || p
-}
-
-function entryDirectory(entry: string | { directory: string }) {
-  return typeof entry === "string" ? entry : entry.directory
-}
-
-function errorText(error: unknown) {
-  if (typeof error === "string") return error
-  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message
-  return JSON.stringify(error)
-}
-
-/**
- * Settings → Worktrees panel.
- *
- * Lists every PawWork-tracked worktree directory for the current project (via
- * `client.worktree.list()`); offers a per-row delete with two-step confirm. Delete is disabled
- * when an open session in this app instance has the worktree as its activeDirectory; the user
- * must call ExitWorktree from that session first.
- */
 export const SettingsWorktrees: Component = () => {
   const language = useLanguage()
   const sdk = useGlobalSDK()
   const sync = useGlobalSync()
 
   const projectRoots = () =>
-    sync.data.project.filter((project) => project.vcs === "git").map((project) => project.worktree).filter(Boolean)
+    sync.data.project
+      .filter((project) => project.vcs === "git")
+      .map((project) => project.worktree)
+      .filter(Boolean)
 
   const [data, { refetch }] = createResource(
     () => projectRoots().join("\0"),
@@ -62,7 +34,6 @@ export const SettingsWorktrees: Component = () => {
     },
   )
 
-  // Sessions whose activeDirectory points at a worktree path block its deletion.
   const boundSessions = (): Map<string, string> => {
     const map = new Map<string, string>()
     const directories = new Set<string>()
@@ -111,17 +82,15 @@ export const SettingsWorktrees: Component = () => {
 
   return (
     <SettingsList>
-      <div class="flex flex-col gap-3 py-4">
+      <div class="flex flex-col gap-4 py-4">
         <div class="flex flex-col gap-1">
           <h2 class="text-16-medium text-text-strong">{language.t("settings.worktrees.title")}</h2>
-          <p class="text-13-regular text-text-weak">{language.t("settings.worktrees.description")}</p>
+          <p class="text-13-regular text-text-weak max-w-[68ch]">{language.t("settings.worktrees.description")}</p>
         </div>
 
         <Show
           when={!data.loading}
-          fallback={
-            <div class="text-13-regular text-text-weak py-6 text-center">{language.t("common.loading")}</div>
-          }
+          fallback={<div class="text-13-regular text-text-weak py-6 text-center">{language.t("common.loading")}</div>}
         >
           <Show
             when={(data() ?? []).length > 0}
@@ -131,10 +100,7 @@ export const SettingsWorktrees: Component = () => {
               </div>
             }
           >
-            <ul
-              class="flex flex-col divide-y divide-line-base rounded border border-line-base"
-              data-component="settings-worktrees-list"
-            >
+            <ul class="flex flex-col gap-1" data-component="settings-worktrees-list">
               <For each={data() ?? []}>
                 {(worktree) => {
                   const directory = () => worktree.directory
@@ -146,38 +112,61 @@ export const SettingsWorktrees: Component = () => {
                   const isDeleting = () => deleting() === worktree.directory
 
                   return (
-                    <li class="flex items-center gap-3 px-3 py-2.5">
-                      <Icon name="worktree" size="small" class="text-text-weak shrink-0" />
-                      <div class="flex flex-col min-w-0 flex-1">
-                        <span class="text-13-medium text-text-strong truncate" title={directory()}>
-                          {name()}
+                    <li class="rounded-md px-2 py-2 transition-colors hover:bg-surface-base-hover">
+                      <div class="flex items-start gap-3">
+                        <span class="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-weak">
+                          <Icon name="worktree" size="small" />
                         </span>
-                        <span class="text-13-regular text-text-weak truncate" title={directory()}>
-                          {branch()} · {worktree.source ?? "created"} · {directory()}
-                        </span>
+                        <div class="flex min-w-0 flex-1 flex-col gap-1">
+                          <div class="flex min-w-0 items-center gap-2">
+                            <span class="truncate text-13-medium text-text-strong" title={directory()}>
+                              {name()}
+                            </span>
+                            <span class="shrink-0 rounded-sm bg-surface-base px-1.5 py-0.5 text-12-regular text-text-weak">
+                              {language.t(sourceKey(worktree.source))}
+                            </span>
+                          </div>
+                          <div class="flex min-w-0 items-center gap-1.5 text-12-regular text-text-weak">
+                            <span class="shrink-0">{language.t("settings.worktrees.column.branch")}</span>
+                            <span class="min-w-0 truncate text-text-strong" title={branch()}>
+                              {branch()}
+                            </span>
+                            <span class="shrink-0 text-text-weaker">/</span>
+                            <span class="min-w-0 truncate" title={directory()}>
+                              {directory()}
+                            </span>
+                          </div>
+                          <Show when={blocker()}>
+                            {(session) => (
+                              <div class="text-12-regular text-text-weak">
+                                {language.t("settings.worktrees.inUse", { session: session() })}
+                              </div>
+                            )}
+                          </Show>
+                        </div>
+                        <div class="shrink-0">
+                          <Show when={!isConfirming()}>
+                            <Button
+                              variant="ghost"
+                              size="small"
+                              disabled={blocked() || isDeleting()}
+                              title={
+                                blocked()
+                                  ? language.t("settings.worktrees.deleteDisabled.tooltip", {
+                                      session: blocker() ?? "",
+                                    })
+                                  : undefined
+                              }
+                              onClick={() => setConfirming(directory())}
+                            >
+                              {language.t("settings.worktrees.delete")}
+                            </Button>
+                          </Show>
+                        </div>
                       </div>
-                      <Show
-                        when={isConfirming()}
-                        fallback={
-                          <Button
-                            variant="ghost"
-                            size="small"
-                            disabled={blocked() || isDeleting()}
-                            title={
-                              blocked()
-                                ? language.t("settings.worktrees.deleteDisabled.tooltip", {
-                                    session: blocker() ?? "",
-                                  })
-                                : undefined
-                            }
-                            onClick={() => setConfirming(directory())}
-                          >
-                            {language.t("settings.worktrees.delete")}
-                          </Button>
-                        }
-                      >
-                        <div class="flex items-center gap-1">
-                          <span class="text-13-regular text-text-weak">
+                      <Show when={isConfirming()}>
+                        <div class="mt-2 flex items-center justify-end gap-2 pl-8">
+                          <span class="min-w-0 flex-1 truncate text-13-regular text-text-weak">
                             {language.t("settings.worktrees.confirmDelete.body", { name: name() })}
                           </span>
                           <Button

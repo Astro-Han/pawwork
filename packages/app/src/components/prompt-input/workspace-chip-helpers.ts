@@ -41,6 +41,7 @@ export function workspaceChipChoices(input: {
 
   const remember = (value: WorkspaceEntry) => {
     if (typeof value === "string") return
+    if (value.branch === undefined && branchByPath.has(workspaceKey(value.directory))) return
     branchByPath.set(workspaceKey(value.directory), value.branch)
   }
 

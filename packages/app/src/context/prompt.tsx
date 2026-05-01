@@ -161,6 +161,53 @@ type PromptCacheEntry = {
   dispose: VoidFunction
 }
 
+type PromptBindingSession = {
+  ready: () => boolean
+  current: () => Prompt
+  cursor: () => number | undefined
+  dirty: () => boolean
+  context: {
+    items: () => (ContextItem & { key: string })[]
+    add: (item: ContextItem) => void
+    remove: (key: string) => void
+    removeComment: (path: string, commentID: string) => void
+    updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) => void
+    replaceComments: (items: FileContextItem[]) => void
+  }
+  set: (prompt: Prompt, cursorPosition?: number) => void
+  reset: () => void
+}
+
+export function createPromptBinding(
+  scope: () => Scope | undefined,
+  load: (dir: string, id: string | undefined) => PromptBindingSession,
+) {
+  const session = () => {
+    const current = scope()
+    if (!current) return
+    return load(current.dir, current.id)
+  }
+  const pick = (target?: Scope) => (target ? load(target.dir, target.id) : session())
+
+  return {
+    ready: () => session()?.ready() ?? false,
+    current: () => session()?.current() ?? clonePrompt(DEFAULT_PROMPT),
+    cursor: () => session()?.cursor(),
+    dirty: () => session()?.dirty() ?? false,
+    context: {
+      items: () => session()?.context.items() ?? [],
+      add: (item: ContextItem) => session()?.context.add(item),
+      remove: (key: string) => session()?.context.remove(key),
+      removeComment: (path: string, commentID: string) => session()?.context.removeComment(path, commentID),
+      updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
+        session()?.context.updateComment(path, commentID, next),
+      replaceComments: (items: FileContextItem[]) => session()?.context.replaceComments(items),
+    },
+    set: (prompt: Prompt, cursorPosition?: number, target?: Scope) => pick(target)?.set(prompt, cursorPosition),
+    reset: (target?: Scope) => pick(target)?.reset(),
+  }
+}
+
 function createPromptSession(dir: string, id: string | undefined) {
   const legacy = `${dir}/prompt${id ? "/" + id : ""}.v2`
 
@@ -273,25 +320,7 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
       return entry.value
     }
 
-    const session = createMemo(() => load(params.dir!, params.id))
-    const pick = (scope?: Scope) => (scope ? load(scope.dir, scope.id) : session())
-
-    return {
-      ready: () => session().ready(),
-      current: () => session().current(),
-      cursor: () => session().cursor(),
-      dirty: () => session().dirty(),
-      context: {
-        items: () => session().context.items(),
-        add: (item: ContextItem) => session().context.add(item),
-        remove: (key: string) => session().context.remove(key),
-        removeComment: (path: string, commentID: string) => session().context.removeComment(path, commentID),
-        updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
-          session().context.updateComment(path, commentID, next),
-        replaceComments: (items: FileContextItem[]) => session().context.replaceComments(items),
-      },
-      set: (prompt: Prompt, cursorPosition?: number, scope?: Scope) => pick(scope).set(prompt, cursorPosition),
-      reset: (scope?: Scope) => pick(scope).reset(),
-    }
+    const scope = createMemo<Scope | undefined>(() => (params.dir ? { dir: params.dir, id: params.id } : undefined))
+    return createPromptBinding(scope, load)
   },
 })

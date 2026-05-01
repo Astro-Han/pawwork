@@ -26,6 +26,10 @@ export function Titlebar() {
   const zoom = () => platform.webviewZoom?.() ?? 1
   const currentTitlebarHeight = () =>
     mac() ? "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 40px))" : undefined
+  const leftPortalStyle = () => ({
+    left: "max(172px, calc(var(--sidebar-width, 0px) + 16px))",
+    right: "calc(var(--right-panel-width, 0px) + 52px)",
+  })
 
   const [history, setHistory] = createStore({
     stack: [] as string[],
@@ -155,8 +159,14 @@ export function Titlebar() {
             </Show>
           </div>
         </div>
-        <div id="opencode-titlebar-left" data-shell-slot="left-portal" class="flex items-center gap-3 min-w-0 px-2" />
       </div>
+
+      <div
+        id="opencode-titlebar-left"
+        data-shell-slot="left-portal"
+        class="@container pointer-events-auto absolute inset-y-0 z-10 flex min-w-0 items-center gap-3 overflow-hidden"
+        style={leftPortalStyle()}
+      />
 
       <div class="min-w-0 flex items-center justify-center pointer-events-none">
         <div id="opencode-titlebar-center" class="pointer-events-auto min-w-0 flex justify-center w-fit max-w-full" />

@@ -30,7 +30,9 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(layout).not.toContain("top-10")
   expect(titlebar).toContain('"h-11": platform.platform === "desktop" && !mac()')
   expect(titlebar).toContain('style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}')
-  expect(sessionHeader).toContain('document.getElementById("opencode-titlebar-center")')
+  expect(titlebar).toContain("--sidebar-width")
+  expect(titlebar).toContain("--right-panel-width")
+  expect(sessionHeader).toContain('document.getElementById("opencode-titlebar-left")')
   expect(sessionHeader).toContain('document.getElementById("opencode-titlebar-right")')
 })
 

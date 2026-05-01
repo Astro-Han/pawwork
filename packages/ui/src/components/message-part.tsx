@@ -308,6 +308,12 @@ function taskAgent(
   }
 }
 
+function worktreeSubtitle(input: Record<string, any>, metadata: Record<string, any> = {}) {
+  const value = input.name ?? metadata.name ?? input.path ?? input.directory ?? metadata.directory ?? metadata.activeDirectory
+  if (typeof value !== "string" || !value) return undefined
+  return value.includes("/") || value.includes("\\") ? getFilename(value) : value
+}
+
 export function getToolInfo(tool: string, input: any = {}): ToolInfo {
   const i18n = useI18n()
   switch (tool) {
@@ -352,6 +358,18 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         icon: "code",
         title: i18n.t("ui.tool.codesearch"),
         subtitle: input.query,
+      }
+    case "enter-worktree":
+      return {
+        icon: "worktree",
+        title: i18n.t("ui.tool.worktree.enter"),
+        subtitle: worktreeSubtitle(input),
+      }
+    case "exit-worktree":
+      return {
+        icon: "worktree",
+        title: i18n.t("ui.tool.worktree.exit"),
+        subtitle: worktreeSubtitle(input),
       }
     case "task": // agent-rename:legacy-render
     case "agent": {
@@ -1736,6 +1754,38 @@ ToolRegistry.register({
       >
         <ExaOutput output={props.output} />
       </BasicTool>
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "enter-worktree",
+  render(props) {
+    const i18n = useI18n()
+    const subtitle = createMemo(() => worktreeSubtitle(props.input, props.metadata))
+    return (
+      <BasicTool
+        {...props}
+        hideDetails
+        icon="worktree"
+        trigger={{ title: i18n.t("ui.tool.worktree.enter"), subtitle: subtitle() }}
+      />
+    )
+  },
+})
+
+ToolRegistry.register({
+  name: "exit-worktree",
+  render(props) {
+    const i18n = useI18n()
+    const subtitle = createMemo(() => worktreeSubtitle(props.input, props.metadata))
+    return (
+      <BasicTool
+        {...props}
+        hideDetails
+        icon="worktree"
+        trigger={{ title: i18n.t("ui.tool.worktree.exit"), subtitle: subtitle() }}
+      />
     )
   },
 })

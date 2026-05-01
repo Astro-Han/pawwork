@@ -9,6 +9,12 @@ export type ToolInfo = {
   subtitle?: string
 }
 
+function worktreeSubtitle(input: Record<string, any>, metadata: Record<string, any> = {}) {
+  const value = input.name ?? metadata.name ?? input.path ?? input.directory ?? metadata.directory ?? metadata.activeDirectory
+  if (typeof value !== "string" || !value) return undefined
+  return value.includes("/") || value.includes("\\") ? getFilename(value) : value
+}
+
 export function agentTitle(i18n: UiI18n, type?: string) {
   if (!type) return i18n.t("ui.tool.agent.default")
   return i18n.t("ui.tool.agent", { type })
@@ -16,6 +22,7 @@ export function agentTitle(i18n: UiI18n, type?: string) {
 
 export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
   const input: any = part.state?.input ?? {}
+  const metadata: any = (part.state as any)?.metadata ?? {}
   switch (part.tool) {
     case "task": // agent-rename:legacy-render
     case "agent": {
@@ -41,6 +48,10 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
       return { icon: "window-cursor", title: i18n.t("ui.tool.websearch"), subtitle: input.query }
     case "codesearch":
       return { icon: "code", title: i18n.t("ui.tool.codesearch"), subtitle: input.query }
+    case "enter-worktree":
+      return { icon: "worktree", title: i18n.t("ui.tool.worktree.enter"), subtitle: worktreeSubtitle(input, metadata) }
+    case "exit-worktree":
+      return { icon: "worktree", title: i18n.t("ui.tool.worktree.exit"), subtitle: worktreeSubtitle(input, metadata) }
     case "bash":
       return { icon: "console", title: i18n.t("ui.tool.shell"), subtitle: input.description }
     case "edit":

@@ -87,3 +87,18 @@ test("workspaceChipChoices preserves branch metadata after workspace ordering", 
     { path: "/repo/feature-b", branch: "pawwork/feature-b" },
   ])
 })
+
+test("workspaceChipChoices does not erase known branch metadata with undefined", () => {
+  const result = workspaceChipChoices({
+    directory: "/repo/feature-a",
+    projects: [
+      {
+        worktree: "/repo/main",
+        sandboxes: [{ directory: "/repo/feature-a" }],
+      },
+    ],
+    listed: [{ directory: "/repo/feature-a", branch: "pawwork/feature-a" }],
+  })
+
+  expect(result.find((item) => item.path === "/repo/feature-a")?.branch).toBe("pawwork/feature-a")
+})
