@@ -705,6 +705,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const promptOps = yield* ops()
       const { agent: agentTool } = yield* registry.named()
       const taskModel = subtask.model ? yield* getModel(subtask.model.providerID, subtask.model.modelID, sessionID) : model
+      // Re-read live to pick up Enter/Exit transitions made earlier in the same turn.
+      const execLive = (yield* sessions.get(sessionID)).executionContext
       const assistantMessage: MessageV2.Assistant = yield* sessions.updateMessage({
         id: MessageID.ascending(),
         role: "assistant",
@@ -713,7 +715,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         mode: subtask.agent,
         agent: subtask.agent,
         variant: lastUser.model.variant,
-        path: { cwd: ctx.directory, root: ctx.worktree },
+        path: { cwd: execLive.activeDirectory, root: execLive.ownerDirectory },
         cost: 0,
         tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
         modelID: taskModel.id,
@@ -930,7 +932,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             mode: input.agent,
             agent: input.agent,
             cost: 0,
-            path: { cwd: ctx.directory, root: ctx.worktree },
+            path: { cwd: session.executionContext.activeDirectory, root: session.executionContext.ownerDirectory },
             time: { created: Date.now() },
             role: "assistant",
             tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -1679,6 +1681,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             discard: true,
           })
 
+          const execLive = (yield* sessions.get(sessionID)).executionContext
           const msg: MessageV2.Assistant = {
             id: MessageID.ascending(),
             parentID: lastUser.id,
@@ -1686,7 +1689,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             mode: agent.name,
             agent: agent.name,
             variant: lastUser.model.variant,
-            path: { cwd: ctx.directory, root: ctx.worktree },
+            path: { cwd: execLive.activeDirectory, root: execLive.ownerDirectory },
             cost: 0,
             tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
             modelID: model.id,
