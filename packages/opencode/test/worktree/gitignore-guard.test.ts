@@ -34,4 +34,12 @@ describe("worktree gitignore guard", () => {
 
     await expect(ensureWorktreesIgnored(tmp.path)).rejects.toThrow("WorktreeGitignoreGuardError")
   })
+
+  test("refuses to append when untracked .gitignore is hidden by git config", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await $`git config status.showUntrackedFiles no`.cwd(tmp.path).quiet()
+    await Bun.write(path.join(tmp.path, ".gitignore"), "node_modules\n")
+
+    await expect(ensureWorktreesIgnored(tmp.path)).rejects.toThrow("WorktreeGitignoreGuardError")
+  })
 })

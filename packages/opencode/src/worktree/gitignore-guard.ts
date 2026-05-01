@@ -40,7 +40,17 @@ export async function ensureWorktreesIgnored(root: string): Promise<{ changed: b
   if (before && hasWorktreesIgnore(before)) return { changed: false, file }
 
   if (before !== undefined) {
-    const status = await git(root, ["-c", "core.fsmonitor=false", "status", "--porcelain=v1", "--", ".gitignore"])
+    const status = await git(root, [
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "status.showUntrackedFiles=all",
+      "status",
+      "--porcelain=v1",
+      "--no-renames",
+      "--",
+      ".gitignore",
+    ])
     if (status.code !== 0) {
       throw new GitignoreGuardError({
         message: status.stderr || status.stdout || "Failed to inspect .gitignore status",
