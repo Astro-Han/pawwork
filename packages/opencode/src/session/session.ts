@@ -53,7 +53,7 @@ export function isDefaultTitle(title: string) {
 type SessionRow = typeof SessionTable.$inferSelect
 type ProjectFallback = { worktree?: string | null; vcs?: string | null }
 
-function legacyExecutionContext(row: SessionRow, project?: ProjectFallback) {
+function legacyExecutionContext(row: SessionRow, project: ProjectFallback | undefined) {
   const ownerDirectoryRaw = project?.vcs === "git" ? (project.worktree ?? row.directory) : row.directory
   return rootContext(canonicalDirectory(ownerDirectoryRaw))
 }
@@ -102,7 +102,7 @@ function recoverExecutionContext(row: SessionRow) {
   return recovered.success ? recovered.data : undefined
 }
 
-function parseExecutionContext(row: SessionRow, project?: ProjectFallback) {
+function parseExecutionContext(row: SessionRow, project: ProjectFallback | undefined) {
   if (row.execution_context !== null) {
     const parsed = SessionExecutionContext.safeParse(row.execution_context)
     if (parsed.success) return parsed.data
@@ -116,7 +116,7 @@ function needsProjectFallback(row: SessionRow) {
   return row.execution_context === null || !SessionExecutionContext.safeParse(row.execution_context).success
 }
 
-export function fromRow(row: SessionRow, project?: ProjectFallback): Info {
+export function fromRow(row: SessionRow, project: ProjectFallback | undefined): Info {
   const summary =
     row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
       ? {

@@ -5,6 +5,7 @@ import { bootstrap } from "../bootstrap"
 import { Database } from "../../storage/db"
 import { SessionTable } from "../../session/session.sql"
 import { Project } from "../../project/project"
+import { ProjectTable } from "../../project/project.sql"
 import { Instance } from "../../project/instance"
 import { AppRuntime } from "@/effect/app-runtime"
 
@@ -90,7 +91,15 @@ async function getCurrentProject(): Promise<Project.Info> {
 
 async function getAllSessions(): Promise<Session.Info[]> {
   const rows = Database.use((db) => db.select().from(SessionTable).all())
-  return rows.map((row) => Session.fromRow(row))
+  const projects = new Map(
+    Database.use((db) =>
+      db
+        .select({ id: ProjectTable.id, worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
+        .from(ProjectTable)
+        .all(),
+    ).map((project) => [project.id, project]),
+  )
+  return rows.map((row) => Session.fromRow(row, projects.get(row.project_id)))
 }
 
 export async function aggregateSessionStats(days?: number, projectFilter?: string): Promise<SessionStats> {
