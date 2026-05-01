@@ -1,8 +1,6 @@
 import type { UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { useMutation } from "@tanstack/solid-query"
 import {
-  batch,
   onCleanup,
   Show,
   Match,
@@ -79,6 +77,7 @@ import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-co
 import { createSessionFollowups } from "@/pages/session/use-session-followups"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
+import { createSessionRevert } from "@/pages/session/use-session-revert"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { diffs as list } from "@/utils/diffs"
 import { extractPromptFromParts } from "@/utils/prompt"
@@ -1301,98 +1300,22 @@ export default function Page() {
       ? sdk.client.session.abort({ sessionID }).catch(() => {})
       : Promise.resolve()
 
-  const revertMutation = useMutation(() => ({
-    mutationFn: async (input: { sessionID: string; messageID: string }) => {
-      const prev = prompt.current().slice()
-      const last = sync.session.get(input.sessionID)?.revert
-      const value = draft(input.messageID)
-      batch(() => {
-        roll(input.sessionID, { messageID: input.messageID })
-        prompt.set(value)
-      })
-      await halt(input.sessionID)
-        .then(() => sdk.client.session.revert(input))
-        .then((result) => {
-          if (result.data) merge(result.data)
-        })
-        .catch((err) => {
-          batch(() => {
-            roll(input.sessionID, last)
-            prompt.set(prev)
-          })
-          fail(err)
-        })
-    },
-  }))
-
-  const restoreMutation = useMutation(() => ({
-    mutationFn: async (input: { sessionID: string; id: string }) => {
-      const { sessionID, id } = input
-
-      const next = readUserMessages(readSessionMessages(sync.data.message[sessionID])).find((item) => item.id > id)
-      const prev = prompt.current().slice()
-      const last = sync.session.get(sessionID)?.revert
-
-      batch(() => {
-        roll(sessionID, next ? { messageID: next.id } : undefined)
-        if (next) {
-          prompt.set(draft(next.id))
-          return
-        }
-        prompt.reset()
-      })
-
-      const task = !next
-        ? halt(sessionID).then(() => sdk.client.session.unrevert({ sessionID }))
-        : halt(sessionID).then(() =>
-            sdk.client.session.revert({
-              sessionID,
-              messageID: next.id,
-            }),
-          )
-
-      await task
-        .then((result) => {
-          if (result.data) merge(result.data)
-        })
-        .catch((err) => {
-          batch(() => {
-            roll(sessionID, last)
-            prompt.set(prev)
-          })
-          fail(err)
-        })
-    },
-  }))
-
-  const reverting = createMemo(() => revertMutation.isPending || restoreMutation.isPending)
-  const restoring = createMemo(() => {
-    if (!restoreMutation.isPending) return
-    const variables = restoreMutation.variables
-    if (variables?.sessionID !== timelineSessionID()) return
-    return variables.id
+  const sessionRevert = createSessionRevert({
+    sessionID: timelineSessionID,
+    revertMessageID: timelineRevertMessageID,
+    timelineUserMessages,
+    lineText: line,
+    prompt,
+    sync,
+    client: sdk.client,
+    halt,
+    draft,
+    fail,
+    merge,
+    roll,
   })
 
-  const revert = (input: { sessionID: string; messageID: string }) => {
-    if (reverting()) return
-    return revertMutation.mutateAsync(input)
-  }
-
-  const restore = (id: string) => {
-    const sessionID = timelineSessionID()
-    if (!sessionID || reverting()) return
-    return restoreMutation.mutateAsync({ sessionID, id })
-  }
-
-  const rolled = createMemo(() => {
-    const id = timelineRevertMessageID()
-    if (!id) return []
-    return timelineUserMessages()
-      .filter((item) => item.id >= id)
-      .map((item) => ({ id: item.id, text: line(item.id) }))
-  })
-
-  const actions = { revert }
+  const actions = { revert: sessionRevert.revert }
 
   const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
     sessionKey: timelineSessionKey,
@@ -1488,12 +1411,12 @@ export default function Page() {
           : undefined
       }
       revert={
-        rolled().length > 0
+        sessionRevert.rolled().length > 0
           ? {
-              items: rolled(),
-              restoring: restoring(),
-              disabled: reverting(),
-              onRestore: restore,
+              items: sessionRevert.rolled(),
+              restoring: sessionRevert.restoring(),
+              disabled: sessionRevert.reverting(),
+              onRestore: sessionRevert.restore,
             }
           : undefined
       }
