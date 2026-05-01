@@ -724,7 +724,7 @@ function isContextGroupTool(part: PartType): part is ToolPart {
 }
 
 function contextToolDetail(part: ToolPart): string | undefined {
-  const info = getToolInfo(part.tool, part.state.input ?? {}, (part.state as any).metadata ?? {})
+  const info = getToolInfo(part.tool, part.state.input ?? {}, toolStateMetadata(part.state))
   if (info.subtitle) return info.subtitle
   if (part.state.status === "error") return part.state.error
   if ((part.state.status === "running" || part.state.status === "completed") && part.state.title)
@@ -776,7 +776,7 @@ function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
       }
     }
     default: {
-      const info = getToolInfo(part.tool, input, (part.state as any).metadata ?? {})
+      const info = getToolInfo(part.tool, input, toolStateMetadata(part.state))
       return {
         title: info.title,
         subtitle: info.subtitle || contextToolDetail(part),
@@ -784,6 +784,17 @@ function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
       }
     }
   }
+}
+
+function toolStateMetadata(state: ToolPart["state"] | undefined): Record<string, any> {
+  if (!state || !("metadata" in state)) return {}
+  const metadata = state.metadata
+  return metadata && typeof metadata === "object" ? metadata : {}
+}
+
+function toolStateError(state: ToolPart["state"] | undefined): string | undefined {
+  if (!state || !("error" in state)) return undefined
+  return typeof state.error === "string" ? state.error : undefined
 }
 
 function contextToolSummary(parts: ToolPart[]) {
@@ -1330,8 +1341,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const emptyMetadata: Record<string, any> = {}
 
   const input = () => part().state?.input ?? emptyInput
-  // @ts-expect-error
-  const partMetadata = () => part().state?.metadata ?? emptyMetadata
+  const partMetadata = () => toolStateMetadata(part().state)
   const taskId = createMemo(() => {
     if (part().tool !== "task" && part().tool !== "agent") return // agent-rename:legacy-render
     const value = partMetadata().sessionId
@@ -1354,7 +1364,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
     <Show when={!hideQuestion()}>
       <div data-component="tool-part-wrapper">
         <Switch>
-          <Match when={part().state.status === "error" && (part().state as any).error}>
+          <Match when={part().state.status === "error" && toolStateError(part().state)}>
             {(error) => {
               const cleaned = error().replace("Error: ", "")
               if (part().tool === "question" && cleaned.includes("dismissed this question")) {
