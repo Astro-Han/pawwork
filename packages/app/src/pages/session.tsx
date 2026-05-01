@@ -38,6 +38,7 @@ import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { useSessionKeyboardFocus } from "@/pages/session/use-session-keyboard-focus"
+import { createSessionNewWorktree } from "@/pages/session/use-session-new-worktree"
 import { useSessionRefreshEffects } from "@/pages/session/use-session-refresh-effects"
 import { createSessionRevert } from "@/pages/session/use-session-revert"
 import { createSessionReviewPanel } from "@/pages/session/use-session-review-panel"
@@ -139,7 +140,6 @@ export default function Page() {
 
   const [store, setStore] = createStore({
     mobileTab: "session" as "session" | "changes",
-    newSessionWorktree: "main",
     deferRender: false,
   })
 
@@ -171,11 +171,9 @@ export default function Page() {
     turnDiffs,
   })
 
-  const newSessionWorktree = createMemo(() => {
-    if (store.newSessionWorktree === "create") return "create"
-    const project = sync.project
-    if (project && sdk.directory !== project.worktree) return sdk.directory
-    return "main"
+  const newSessionWorktree = createSessionNewWorktree({
+    directory: () => sdk.directory,
+    projectWorktree: () => sync.project?.worktree,
   })
 
   const anchor = (id: string) => `message-${id}`
@@ -204,17 +202,6 @@ export default function Page() {
     wantsReview,
     load: reviewState.loadVcs,
   })
-
-  createEffect(
-    on(
-      () => params.dir,
-      (dir) => {
-        if (!dir) return
-        setStore("newSessionWorktree", "main")
-      },
-      { defer: true },
-    ),
-  )
 
   const commentContext = createSessionCommentContext({
     attachmentLabel: () => language.t("common.attachment"),
@@ -452,8 +439,8 @@ export default function Page() {
       inputRef={(el) => {
         inputRef = el
       }}
-      newSessionWorktree={newSessionWorktree()}
-      onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+      newSessionWorktree={newSessionWorktree.selected()}
+      onNewSessionWorktreeReset={newSessionWorktree.reset}
       onSubmit={() => {
         comments.clear()
         resumeScroll()
