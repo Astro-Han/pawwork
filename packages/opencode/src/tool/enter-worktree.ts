@@ -62,6 +62,7 @@ export const EnterWorktreeTool = Tool.define(
 
     const successResult = (input: {
       activeDirectory: string
+      ownerDirectory: string
       slug: string
       branch: string
       state: "created" | "reused"
@@ -70,6 +71,7 @@ export const EnterWorktreeTool = Tool.define(
       output: `Now active in ${input.activeDirectory} (branch ${input.branch}, slug ${input.slug}). Subsequent paths resolve from this directory.`,
       metadata: {
         activeDirectory: input.activeDirectory,
+        ownerDirectory: input.ownerDirectory,
         slug: input.slug,
         branch: input.branch,
         state: input.state,
@@ -111,6 +113,7 @@ export const EnterWorktreeTool = Tool.define(
             const slug = exec.activeWorktree?.name ?? path.basename(canonical)
             return successResult({
               activeDirectory: canonical,
+              ownerDirectory: exec.ownerDirectory,
               slug,
               branch: exec.activeWorktree?.branch ?? "",
               state: "reused",
@@ -133,6 +136,7 @@ export const EnterWorktreeTool = Tool.define(
           yield* applyEnter(ctx.sessionID, { ...info, branch: info.branch || branch }, "existing")
           return successResult({
             activeDirectory: canonical,
+            ownerDirectory: exec.ownerDirectory,
             slug: info.name,
             branch: info.branch || branch,
             state: "reused",
@@ -145,6 +149,7 @@ export const EnterWorktreeTool = Tool.define(
         if (exec.activeDirectory === planned.directory) {
           return successResult({
             activeDirectory: planned.directory,
+            ownerDirectory: exec.ownerDirectory,
             slug: planned.name,
             branch: planned.branch,
             state: "reused",
@@ -175,6 +180,7 @@ export const EnterWorktreeTool = Tool.define(
         yield* applyEnter(ctx.sessionID, planned, planned.source)
         return successResult({
           activeDirectory: planned.directory,
+          ownerDirectory: exec.ownerDirectory,
           slug: planned.name,
           branch: planned.branch,
           state: exists ? "reused" : "created",

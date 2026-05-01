@@ -13,29 +13,50 @@ function pickString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
 }
 
-export function enterWorktreeSubtitle(
-  input: Record<string, any>,
-  metadata: Record<string, any> = {},
-): string | undefined {
-  const slug = pickString(metadata.slug) || pickString(input.name)
-  const branch = pickString(metadata.branch)
-  const path = pickString(metadata.activeDirectory) || pickString(input.path)
-  const name = slug || (path ? getFilename(path) : undefined)
-  if (name && branch) return `${name} · ${branch}`
-  return name || branch
+export function enterWorktreeOwnerProject(metadata: Record<string, any> = {}): string | undefined {
+  const owner = pickString(metadata.ownerDirectory)
+  return owner ? getFilename(owner) : undefined
 }
 
-export function exitWorktreeProjectName(
+export function enterWorktreeTarget(
+  input: Record<string, any> = {},
   metadata: Record<string, any> = {},
 ): string | undefined {
+  const activeDirectory = pickString(metadata.activeDirectory)
+  return (
+    pickString(metadata.branch) ||
+    pickString(metadata.slug) ||
+    pickString(input.name) ||
+    (activeDirectory ? getFilename(activeDirectory) : undefined)
+  )
+}
+
+export function enterWorktreeSubtitle(
+  input: Record<string, any>,
+  metadata: Record<string, any>,
+  i18n: UiI18n,
+): string | undefined {
+  const project = enterWorktreeOwnerProject(metadata)
+  const target = enterWorktreeTarget(input, metadata)
+  if (target && project) return i18n.t("ui.tool.worktree.enter.fromProject", { project, target })
+  return target || project
+}
+
+export function exitWorktreeProjectName(metadata: Record<string, any> = {}): string | undefined {
   const dest = pickString(metadata.activeDirectory)
   return dest ? getFilename(dest) : undefined
 }
 
-export function exitWorktreePreviousBranch(
-  metadata: Record<string, any> = {},
-): string | undefined {
+export function exitWorktreePreviousLabel(metadata: Record<string, any> = {}): string | undefined {
   return pickString(metadata.previousBranch) || pickString(metadata.previousSlug)
+}
+
+export function exitWorktreeSubtitle(metadata: Record<string, any>, i18n: UiI18n): string | undefined {
+  const project = exitWorktreeProjectName(metadata)
+  const previous = exitWorktreePreviousLabel(metadata)
+  if (previous && project) return i18n.t("ui.tool.worktree.exit.fromWorktree", { previous, project })
+  if (project) return i18n.t("ui.tool.worktree.exit.toProject", { project })
+  return previous
 }
 
 export function agentTitle(i18n: UiI18n, type?: string) {
@@ -58,9 +79,17 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
       }
     }
     case "read":
-      return { icon: "glasses", title: i18n.t("ui.tool.read"), subtitle: input.filePath ? getFilename(input.filePath) : undefined }
+      return {
+        icon: "glasses",
+        title: i18n.t("ui.tool.read"),
+        subtitle: input.filePath ? getFilename(input.filePath) : undefined,
+      }
     case "list":
-      return { icon: "bullet-list", title: i18n.t("ui.tool.list"), subtitle: input.path ? getFilename(input.path) : undefined }
+      return {
+        icon: "bullet-list",
+        title: i18n.t("ui.tool.list"),
+        subtitle: input.path ? getFilename(input.path) : undefined,
+      }
     case "glob":
       return { icon: "magnifying-glass-menu", title: i18n.t("ui.tool.glob"), subtitle: input.pattern }
     case "grep":
@@ -71,27 +100,34 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
       return { icon: "window-cursor", title: i18n.t("ui.tool.websearch"), subtitle: input.query }
     case "codesearch":
       return { icon: "code", title: i18n.t("ui.tool.codesearch"), subtitle: input.query }
-    case "enter-worktree":
+    case "enter-worktree": {
       return {
         icon: "worktree",
         title: i18n.t("ui.tool.worktree.enter"),
-        subtitle: enterWorktreeSubtitle(input, metadata),
+        subtitle: enterWorktreeSubtitle(input, metadata, i18n),
       }
+    }
     case "exit-worktree": {
-      const project = exitWorktreeProjectName(metadata)
-      const branch = exitWorktreePreviousBranch(metadata)
-      let subtitle: string | undefined
-      if (branch && project) subtitle = i18n.t("ui.tool.worktree.exit.fromBranch", { branch, project })
-      else if (project) subtitle = i18n.t("ui.tool.worktree.exit.toProject", { project })
-      else if (branch) subtitle = branch
-      return { icon: "worktree", title: i18n.t("ui.tool.worktree.exit"), subtitle }
+      return {
+        icon: "worktree",
+        title: i18n.t("ui.tool.worktree.exit"),
+        subtitle: exitWorktreeSubtitle(metadata, i18n),
+      }
     }
     case "bash":
       return { icon: "console", title: i18n.t("ui.tool.shell"), subtitle: input.description }
     case "edit":
-      return { icon: "code-lines", title: i18n.t("ui.messagePart.title.edit"), subtitle: input.filePath ? getFilename(input.filePath) : undefined }
+      return {
+        icon: "code-lines",
+        title: i18n.t("ui.messagePart.title.edit"),
+        subtitle: input.filePath ? getFilename(input.filePath) : undefined,
+      }
     case "write":
-      return { icon: "code-lines", title: i18n.t("ui.messagePart.title.write"), subtitle: input.filePath ? getFilename(input.filePath) : undefined }
+      return {
+        icon: "code-lines",
+        title: i18n.t("ui.messagePart.title.write"),
+        subtitle: input.filePath ? getFilename(input.filePath) : undefined,
+      }
     case "apply_patch":
       return {
         icon: "code-lines",

@@ -264,14 +264,7 @@ function getDirectory(path: string | undefined) {
 
 import type { IconProps } from "./icon"
 
-import {
-  agentTitle,
-  buildToolInfo,
-  enterWorktreeSubtitle,
-  exitWorktreePreviousBranch,
-  exitWorktreeProjectName,
-  type ToolInfo,
-} from "./tool-info"
+import { agentTitle, buildToolInfo, enterWorktreeSubtitle, exitWorktreeSubtitle, type ToolInfo } from "./tool-info"
 export { buildToolInfo, type ToolInfo }
 
 const agentTones: Record<string, string> = {
@@ -360,20 +353,19 @@ export function getToolInfo(tool: string, input: any = {}, metadata: any = {}): 
         title: i18n.t("ui.tool.codesearch"),
         subtitle: input.query,
       }
-    case "enter-worktree":
+    case "enter-worktree": {
       return {
         icon: "worktree",
         title: i18n.t("ui.tool.worktree.enter"),
-        subtitle: enterWorktreeSubtitle(input, metadata),
+        subtitle: enterWorktreeSubtitle(input, metadata, i18n),
       }
+    }
     case "exit-worktree": {
-      const project = exitWorktreeProjectName(metadata)
-      const branch = exitWorktreePreviousBranch(metadata)
-      let subtitle: string | undefined
-      if (branch && project) subtitle = i18n.t("ui.tool.worktree.exit.fromBranch", { branch, project })
-      else if (project) subtitle = i18n.t("ui.tool.worktree.exit.toProject", { project })
-      else if (branch) subtitle = branch
-      return { icon: "worktree", title: i18n.t("ui.tool.worktree.exit"), subtitle }
+      return {
+        icon: "worktree",
+        title: i18n.t("ui.tool.worktree.exit"),
+        subtitle: exitWorktreeSubtitle(metadata, i18n),
+      }
     }
     case "task": // agent-rename:legacy-render
     case "agent": {
@@ -1766,7 +1758,7 @@ ToolRegistry.register({
   name: "enter-worktree",
   render(props) {
     const i18n = useI18n()
-    const subtitle = createMemo(() => enterWorktreeSubtitle(props.input, props.metadata))
+    const subtitle = createMemo(() => enterWorktreeSubtitle(props.input, props.metadata, i18n))
     return (
       <BasicTool
         {...props}
@@ -1782,13 +1774,7 @@ ToolRegistry.register({
   name: "exit-worktree",
   render(props) {
     const i18n = useI18n()
-    const subtitle = createMemo(() => {
-      const project = exitWorktreeProjectName(props.metadata)
-      const branch = exitWorktreePreviousBranch(props.metadata)
-      if (branch && project) return i18n.t("ui.tool.worktree.exit.fromBranch", { branch, project })
-      if (project) return i18n.t("ui.tool.worktree.exit.toProject", { project })
-      return branch
-    })
+    const subtitle = createMemo(() => exitWorktreeSubtitle(props.metadata, i18n))
     return (
       <BasicTool
         {...props}

@@ -80,6 +80,9 @@ test("enter-worktree and exit-worktree update the session execution context", as
 
             const result = yield* enter.execute({ name: "tool-work" }, toolContext(session.id))
             activeDirectory = result.metadata.activeDirectory
+            expect(result.metadata.ownerDirectory).toBe(tmp.path)
+            expect(result.metadata.branch).toBe("pawwork/tool-work")
+            expect(result.metadata.slug).toBe("tool-work")
 
             const entered = yield* sessions.get(session.id)
             expect(entered.executionContext.activeDirectory).toBe(activeDirectory)
