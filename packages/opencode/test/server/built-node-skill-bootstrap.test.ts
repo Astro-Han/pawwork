@@ -5,6 +5,7 @@ import { pathToFileURL } from "url"
 import { Process } from "../../src/util/process"
 import { tmpdir } from "../fixture/fixture"
 import { withEmbeddedServerArtifactLock } from "../shared/embedded-server-artifact-lock"
+import { expectModelsSnapshotUnchanged, writeCurrentModelsFixture } from "./models-snapshot-fixture"
 
 const root = path.join(import.meta.dir, "../..")
 const distEntry = path.join(root, "dist", "node", "node.js")
@@ -13,10 +14,12 @@ describe("built node server skill bootstrap", () => {
   test("built node server serves /agent and /command when builtin skill roots are resolved implicitly", async () => {
     await withEmbeddedServerArtifactLock(async () => {
       await using tmp = await tmpdir()
+      const modelsFixture = writeCurrentModelsFixture(root, tmp.path)
       const runtimeRoot = path.join(tmp.path, "runtime")
       const runtimeHome = path.join(runtimeRoot, "home")
       const isolatedEnv = {
         ...process.env,
+        MODELS_DEV_API_JSON: modelsFixture.fixture,
         HOME: runtimeHome,
         USERPROFILE: runtimeHome,
         XDG_DATA_HOME: path.join(runtimeRoot, "share"),
@@ -44,6 +47,7 @@ describe("built node server skill bootstrap", () => {
         cwd: root,
         env: isolatedEnv,
       })
+      expectModelsSnapshotUnchanged(modelsFixture)
 
       const script = `
       import { Server, Log } from ${JSON.stringify(pathToFileURL(distEntry).href)}
