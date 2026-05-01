@@ -47,8 +47,9 @@ describe("Worktree", () => {
 
       expect(info.name).toBeDefined()
       expect(typeof info.name).toBe("string")
-      expect(info.branch).toBe(`opencode/${info.name}`)
-      expect(info.directory).toContain(info.name)
+      expect(info.branch).toBe(`pawwork/${info.name}`)
+      expect(info.directory).toBe(path.join(tmp.path, ".worktrees", "pawwork", info.name))
+      expect(info.source).toBe("created")
     })
 
     test("uses provided name as base", async () => {
@@ -57,7 +58,9 @@ describe("Worktree", () => {
       const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("my-feature"))
 
       expect(info.name).toBe("my-feature")
-      expect(info.branch).toBe("opencode/my-feature")
+      expect(info.branch).toBe("pawwork/my-feature")
+      expect(info.directory).toBe(path.join(tmp.path, ".worktrees", "pawwork", "my-feature"))
+      expect(info.source).toBe("created")
     })
 
     test("slugifies the provided name", async () => {
@@ -82,8 +85,9 @@ describe("Worktree", () => {
       const info = await withInstance(tmp.path, () => Worktree.create())
 
       expect(info.name).toBeDefined()
-      expect(info.branch).toStartWith("opencode/")
+      expect(info.branch).toStartWith("pawwork/")
       expect(info.directory).toBeDefined()
+      expect(info.source).toBe("created")
 
       // Wait for bootstrap to complete
       await Bun.sleep(1000)
@@ -100,7 +104,9 @@ describe("Worktree", () => {
 
       // create returns before bootstrap completes, but the worktree already exists
       expect(info.name).toBeDefined()
-      expect(info.branch).toStartWith("opencode/")
+      expect(info.branch).toStartWith("pawwork/")
+      expect(info.directory).toBe(path.join(tmp.path, ".worktrees", "pawwork", info.name))
+      expect(info.source).toBe("created")
 
       const text = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
       const dir = await fs.realpath(info.directory).catch(() => info.directory)
@@ -124,7 +130,9 @@ describe("Worktree", () => {
       const info = await withInstance(tmp.path, () => Worktree.create({ name: "test-workspace" }))
 
       expect(info.name).toBe("test-workspace")
-      expect(info.branch).toBe("opencode/test-workspace")
+      expect(info.branch).toBe("pawwork/test-workspace")
+      expect(info.directory).toBe(path.join(tmp.path, ".worktrees", "pawwork", "test-workspace"))
+      expect(info.source).toBe("created")
 
       // Cleanup
       await ready

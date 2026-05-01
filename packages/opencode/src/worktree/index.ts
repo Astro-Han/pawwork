@@ -1,6 +1,5 @@
 import z from "zod"
 import { NamedError } from "@opencode-ai/util/error"
-import { Global } from "../global"
 import { Instance } from "../project/instance"
 import { InstanceBootstrap } from "../project/bootstrap"
 import { Project } from "../project/project"
@@ -45,6 +44,7 @@ export namespace Worktree {
       name: z.string(),
       branch: z.string(),
       directory: z.string(),
+      source: z.enum(["created", "existing"]).default("created"),
     })
     .meta({
       ref: "Worktree",
@@ -201,11 +201,12 @@ export namespace Worktree {
       )
 
       const MAX_NAME_ATTEMPTS = 26
+      const BRANCH_PREFIX = "pawwork/"
       const candidate = Effect.fn("Worktree.candidate")(function* (root: string, base?: string) {
         const ctx = yield* InstanceState.context
         for (const attempt of Array.from({ length: MAX_NAME_ATTEMPTS }, (_, i) => i)) {
           const name = base ? (attempt === 0 ? base : `${base}-${Slug.create()}`) : Slug.create()
-          const branch = `opencode/${name}`
+          const branch = `${BRANCH_PREFIX}${name}`
           const directory = pathSvc.join(root, name)
 
           if (yield* fs.exists(directory).pipe(Effect.orDie)) continue
@@ -214,7 +215,7 @@ export namespace Worktree {
           const branchCheck = yield* git(["show-ref", "--verify", "--quiet", ref], { cwd: ctx.worktree })
           if (branchCheck.code === 0) continue
 
-          return Info.parse({ name, branch, directory })
+          return Info.parse({ name, branch, directory, source: "created" })
         }
         throw new NameGenerationFailedError({ message: "Failed to generate a unique worktree name" })
       })
@@ -225,7 +226,7 @@ export namespace Worktree {
           throw new NotGitError({ message: "Worktrees are only supported for git projects" })
         }
 
-        const root = pathSvc.join(Global.Path.data, "worktree", ctx.project.id)
+        const root = pathSvc.join(ctx.worktree, ".worktrees", "pawwork")
         yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
         const base = name ? slugify(name) : ""
