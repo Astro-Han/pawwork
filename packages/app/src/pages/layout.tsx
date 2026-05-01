@@ -86,6 +86,7 @@ import {
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
+import { PawworkWorktreeBadge } from "./layout/pawwork-worktree-badge"
 import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 
@@ -2061,6 +2062,7 @@ export default function Layout(props: ParentProps) {
         >
           <Titlebar />
           <PawworkTitlebar visible={settingsOpen} title={() => language.t("sidebar.settings")} />
+          <PawworkWorktreeBadge />
           <div class="flex-1 min-h-0 min-w-0 flex">
           <div class="flex-1 min-h-0 relative">
             <div class="size-full relative overflow-x-hidden">

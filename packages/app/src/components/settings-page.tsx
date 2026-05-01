@@ -17,8 +17,9 @@ import { SettingsGeneral } from "./settings-general"
 import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsModels } from "./settings-models"
 import { SettingsProviders } from "./settings-providers"
+import { SettingsWorktrees } from "./settings-worktrees"
 
-export type SettingsPageTab = "general" | "shortcuts" | "providers" | "models"
+export type SettingsPageTab = "general" | "shortcuts" | "providers" | "models" | "worktrees"
 
 export const SettingsPage: Component<{
   active: SettingsPageTab
@@ -86,7 +87,14 @@ export const SettingsPage: Component<{
         variant="settings"
         value={props.active}
         onChange={(value) => {
-          if (value !== "general" && value !== "shortcuts" && value !== "providers" && value !== "models") return
+          if (
+            value !== "general" &&
+            value !== "shortcuts" &&
+            value !== "providers" &&
+            value !== "models" &&
+            value !== "worktrees"
+          )
+            return
           props.onSelect(value)
         }}
         class="h-full w-full"
@@ -134,6 +142,10 @@ export const SettingsPage: Component<{
                       <Icon name="models" />
                       {language.t("settings.models.title")}
                     </Tabs.Trigger>
+                    <Tabs.Trigger value="worktrees">
+                      <Icon name="worktree" />
+                      {language.t("settings.tab.worktrees")}
+                    </Tabs.Trigger>
                   </div>
                 </div>
               </div>
@@ -163,6 +175,11 @@ export const SettingsPage: Component<{
         <Tabs.Content value="models" class="no-scrollbar">
           <div class="mx-auto w-full max-w-[760px]">
             <SettingsModels />
+          </div>
+        </Tabs.Content>
+        <Tabs.Content value="worktrees" class="no-scrollbar">
+          <div class="mx-auto w-full max-w-[760px]">
+            <SettingsWorktrees />
           </div>
         </Tabs.Content>
       </Tabs>
