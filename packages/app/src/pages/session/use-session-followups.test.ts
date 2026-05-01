@@ -19,6 +19,7 @@ beforeAll(async () => {
     useParams: () => ({}),
   }))
   mock.module("@opencode-ai/util/encode", () => ({
+    base64Decode: (value: string) => value,
     base64Encode: (value: string) => value,
     checksum: (value: string) => String(value.length),
   }))
