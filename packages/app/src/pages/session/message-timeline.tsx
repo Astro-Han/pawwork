@@ -708,7 +708,7 @@ export function MessageTimeline(props: {
             <div
               role="log"
               data-slot="session-turn-list"
-              class="flex flex-col items-start justify-start pb-16 transition-[margin]"
+              class="flex flex-col items-start justify-start pb-8 transition-[margin]"
               classList={{
                 "w-full": true,
                 "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,

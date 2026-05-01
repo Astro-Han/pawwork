@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises"
 import { test, expect } from "../fixtures"
 import {
   composerEvent,
@@ -895,6 +896,99 @@ test("todo dock restarts completing delay after same-count terminal session swit
         },
         { trackSession: project.trackSession },
       )
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("e2e composer dock keeps latest turn visible when dock height changes", async ({ page, project, assistant }) => {
+  const title = `e2e composer scroll dock ${Date.now()}`
+  const longReply = Array.from(
+    { length: 24 },
+    (_, index) =>
+      `Paragraph ${index + 1}. This response creates enough visible timeline height for composer dock scroll testing.`,
+  ).join("\n\n")
+
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    title,
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+      await assistant.reply(longReply)
+
+      await project.prompt("Write a long visible response for scroll dock testing.")
+
+      await dock.open([
+        { content: "first scroll dock task", status: "pending" },
+        { content: "second scroll dock task", status: "pending" },
+        { content: "third scroll dock task", status: "pending" },
+      ])
+
+      const metrics = await page.evaluate(() => {
+        const viewport = document.querySelector('[data-component="scroll-viewport"]')
+        const composer = document.querySelector('[data-component="session-prompt-dock"]')
+        const last = [...document.querySelectorAll("[data-message-id]")].at(-1)
+        if (!(viewport instanceof HTMLElement) || !(composer instanceof HTMLElement) || !(last instanceof HTMLElement)) {
+          return null
+        }
+        viewport.scrollTop = viewport.scrollHeight
+        const composerTop = composer.getBoundingClientRect().top
+        const lastBottom = last.getBoundingClientRect().bottom
+        return {
+          scrollTop: viewport.scrollTop,
+          distance: composerTop - lastBottom,
+        }
+      })
+
+      expect(metrics).not.toBeNull()
+      expect(metrics!.distance).toBeGreaterThanOrEqual(0)
+
+      const before = metrics!.scrollTop
+      const viewport = page.locator('[data-component="scroll-viewport"]').first()
+      await viewport.hover()
+      await page.mouse.wheel(0, -360)
+
+      await expect
+        .poll(async () => {
+          return page.evaluate(() => {
+            const viewport = document.querySelector('[data-component="scroll-viewport"]')
+            if (!(viewport instanceof HTMLElement)) return 0
+            return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+          })
+        })
+        .toBeGreaterThan(120)
+
+      const distanceBeforeExpansion = await page.evaluate(() => {
+        const viewport = document.querySelector('[data-component="scroll-viewport"]')
+        if (!(viewport instanceof HTMLElement)) return 0
+        return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      })
+
+      await dock.open([
+        { content: "first scroll dock task", status: "pending" },
+        { content: "second scroll dock task", status: "pending" },
+        { content: "third scroll dock task", status: "pending" },
+        { content: "fourth scroll dock task expands height", status: "pending" },
+        { content: "fifth scroll dock task expands height", status: "pending" },
+      ])
+
+      const afterUserScroll = await page.evaluate(() => {
+        const viewport = document.querySelector('[data-component="scroll-viewport"]')
+        if (!(viewport instanceof HTMLElement)) return null
+        return {
+          scrollTop: viewport.scrollTop,
+          distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+        }
+      })
+
+      expect(afterUserScroll).not.toBeNull()
+      expect(afterUserScroll!.scrollTop).toBeLessThan(before)
+      expect(afterUserScroll!.distanceFromBottom).toBeGreaterThanOrEqual(distanceBeforeExpansion - 40)
+
+      await mkdir(".artifacts/session-scroll-dock", { recursive: true })
+      await page.screenshot({ path: ".artifacts/session-scroll-dock/latest-visible.png" })
     },
     { trackSession: project.trackSession },
   )
