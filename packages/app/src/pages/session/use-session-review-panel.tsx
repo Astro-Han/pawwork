@@ -216,18 +216,6 @@ export function createSessionReviewPanel(input: {
       emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
     })
 
-  createEffect(
-    on(
-      input.activeFileTab,
-      (active) => {
-        if (!active) return
-        if (fileTreeTab() !== "changes") return
-        showAllFiles()
-      },
-      { defer: true },
-    ),
-  )
-
   const reviewDiffId = (path: string) => {
     const sum = checksum(path)
     if (!sum) return

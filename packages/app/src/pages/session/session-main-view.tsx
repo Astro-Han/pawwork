@@ -84,39 +84,37 @@ export function SessionMainView(props: {
         <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-background-stronger flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
-              <Match when={props.activeSessionID}>
-                <Show when={props.timelineSessionID}>
-                  {(sessionID) => (
-                    <MessageTimeline
-                      sessionID={sessionID()}
-                      sessionKey={props.timelineSessionKey}
-                      sessionMessages={props.timelineMessages}
-                      mobileChanges={props.mobileChanges}
-                      mobileFallback={props.mobileFallback}
-                      actions={props.actions}
-                      scroll={props.scroll}
-                      onResumeScroll={props.resumeScroll}
-                      setScrollRef={props.setScrollRef}
-                      onScheduleScrollState={props.scheduleScrollState}
-                      onAutoScrollHandleScroll={props.autoScroll.handleScroll}
-                      onMarkScrollGesture={props.markScrollGesture}
-                      hasScrollGesture={props.hasScrollGesture}
-                      onUserScroll={props.markUserScroll}
-                      onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
-                      onAutoScrollInteraction={props.autoScroll.handleInteraction}
-                      centered={props.centered}
-                      setContentRef={props.setContentRef}
-                      turnStart={props.historyWindow.turnStart()}
-                      historyMore={props.historyMore}
-                      historyLoading={props.historyLoading}
-                      onLoadEarlier={() => {
-                        void props.historyWindow.loadAndReveal()
-                      }}
-                      renderedUserMessages={props.historyWindow.renderedUserMessages()}
-                      anchor={props.anchor}
-                    />
-                  )}
-                </Show>
+              <Match when={props.activeSessionID && props.timelineSessionID}>
+                {(sessionID) => (
+                  <MessageTimeline
+                    sessionID={sessionID()}
+                    sessionKey={props.timelineSessionKey}
+                    sessionMessages={props.timelineMessages}
+                    mobileChanges={props.mobileChanges}
+                    mobileFallback={props.mobileFallback}
+                    actions={props.actions}
+                    scroll={props.scroll}
+                    onResumeScroll={props.resumeScroll}
+                    setScrollRef={props.setScrollRef}
+                    onScheduleScrollState={props.scheduleScrollState}
+                    onAutoScrollHandleScroll={props.autoScroll.handleScroll}
+                    onMarkScrollGesture={props.markScrollGesture}
+                    hasScrollGesture={props.hasScrollGesture}
+                    onUserScroll={props.markUserScroll}
+                    onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
+                    onAutoScrollInteraction={props.autoScroll.handleInteraction}
+                    centered={props.centered}
+                    setContentRef={props.setContentRef}
+                    turnStart={props.historyWindow.turnStart()}
+                    historyMore={props.historyMore}
+                    historyLoading={props.historyLoading}
+                    onLoadEarlier={() => {
+                      void props.historyWindow.loadAndReveal()
+                    }}
+                    renderedUserMessages={props.historyWindow.renderedUserMessages()}
+                    anchor={props.anchor}
+                  />
+                )}
               </Match>
               <Match when={true}>
                 <NewSessionView composer={props.composerHome} />
