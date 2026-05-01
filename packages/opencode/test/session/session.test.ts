@@ -124,6 +124,31 @@ describe("session.created event", () => {
     })
   })
 
+  test("findActiveWorktreeBinding uses project fallback for invalid executionContext rows", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const worktree = path.join(tmp.path, ".worktrees", "pawwork", "invalid-binding")
+    await fs.mkdir(worktree, { recursive: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "invalid binding" })
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ execution_context: { activeDirectory: worktree } as any })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const found = await SessionNs.findActiveWorktreeBinding(worktree)
+        expect(found).toBeUndefined()
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
   test("updateExecutionContext returns the persisted updated time", async () => {
     await using tmp = await tmpdir({ git: true })
     const worktree = path.join(tmp.path, ".worktrees", "pawwork", "feature-b")
@@ -219,9 +244,10 @@ describe("session.created event", () => {
         const count = await Effect.runPromise(SessionNs.backfillExecutionContext)
         expect(count).toBeGreaterThanOrEqual(1)
 
+        const expectedRoot = canonicalDirectory(tmp.path)
         const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get())
-        expect(row?.execution_context?.ownerDirectory).toBe(tmp.path)
-        expect(row?.execution_context?.activeDirectory).toBe(tmp.path)
+        expect(row?.execution_context?.ownerDirectory).toBe(expectedRoot)
+        expect(row?.execution_context?.activeDirectory).toBe(expectedRoot)
 
         await SessionNs.remove(session.id)
       },
@@ -268,9 +294,10 @@ describe("session.created event", () => {
         )
 
         const loaded = await SessionNs.get(session.id)
+        const expectedRoot = canonicalDirectory(tmp.path)
         expect(loaded.directory).toBe(subdir)
-        expect(loaded.executionContext.ownerDirectory).toBe(tmp.path)
-        expect(loaded.executionContext.activeDirectory).toBe(tmp.path)
+        expect(loaded.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(loaded.executionContext.activeDirectory).toBe(expectedRoot)
 
         await SessionNs.remove(session.id)
       },
@@ -295,9 +322,10 @@ describe("session.created event", () => {
         )
 
         const loaded = await SessionNs.get(session.id)
+        const expectedRoot = canonicalDirectory(tmp.path)
         expect(loaded.directory).toBe(subdir)
-        expect(loaded.executionContext.ownerDirectory).toBe(tmp.path)
-        expect(loaded.executionContext.activeDirectory).toBe(tmp.path)
+        expect(loaded.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(loaded.executionContext.activeDirectory).toBe(expectedRoot)
 
         await SessionNs.remove(session.id)
       },

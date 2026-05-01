@@ -200,6 +200,19 @@ describe("Worktree", () => {
       await withInstance(tmp.path, () => Worktree.remove({ directory: created.directory }))
       await withInstance(tmp.path, () => Worktree.remove({ directory: external }))
     })
+
+    test("rejects existing paths that are not attached git worktrees", async () => {
+      await using tmp = await tmpdir({ git: true })
+      const unrelated = path.join(tmp.path, "not-a-worktree")
+      await fs.mkdir(unrelated, { recursive: true })
+
+      await expect(withInstance(tmp.path, () => Worktree.registerExistingByPath(unrelated))).rejects.toThrow(
+        "WorktreeCreateFailedError",
+      )
+
+      const entry = await withInstance(tmp.path, () => Worktree.lookupByDirectory(unrelated))
+      expect(entry).toBeUndefined()
+    })
   })
 
   describe("remove edge cases", () => {

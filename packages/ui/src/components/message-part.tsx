@@ -794,7 +794,15 @@ function toolStateMetadata(state: ToolPart["state"] | undefined): Record<string,
 
 function toolStateError(state: ToolPart["state"] | undefined): string | undefined {
   if (!state || !("error" in state)) return undefined
-  return typeof state.error === "string" ? state.error : undefined
+  const err: unknown = state.error
+  if (typeof err === "string") return err
+  if (err instanceof Error) return err.message || String(err)
+  if (err == null) return undefined
+  try {
+    return JSON.stringify(err) || String(err)
+  } catch {
+    return String(err)
+  }
 }
 
 function contextToolSummary(parts: ToolPart[]) {

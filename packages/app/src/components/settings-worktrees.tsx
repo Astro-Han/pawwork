@@ -84,10 +84,10 @@ export const SettingsWorktrees: Component = () => {
   }
 
   const [confirming, setConfirming] = createSignal<string | undefined>(undefined)
-  const [deleting, setDeleting] = createSignal<string | undefined>(undefined)
+  const [deleting, setDeleting] = createSignal<Set<string>>(new Set())
 
   const handleDelete = async (directory: string) => {
-    setDeleting(directory)
+    setDeleting((current) => new Set(current).add(directory))
     try {
       const ownerDirectory = data()?.find((worktree) => worktree.directory === directory)?.ownerDirectory ?? directory
       const res = await sdk.client.worktree.remove({ directory: ownerDirectory, worktreeRemoveInput: { directory } })
@@ -100,7 +100,11 @@ export const SettingsWorktrees: Component = () => {
         title: language.t("settings.worktrees.deleteFailed", { message }),
       })
     } finally {
-      setDeleting(undefined)
+      setDeleting((current) => {
+        const next = new Set(current)
+        next.delete(directory)
+        return next
+      })
     }
   }
 
@@ -142,7 +146,7 @@ export const SettingsWorktrees: Component = () => {
                     ownerName={ownerName(worktree.ownerDirectory)}
                     boundSession={boundSessions().get(worktree.directory)}
                     confirming={confirming() === worktree.directory}
-                    deleting={deleting() === worktree.directory}
+                    deleting={deleting().has(worktree.directory)}
                     onCancelDelete={() => setConfirming(undefined)}
                     onConfirmDelete={handleDelete}
                     onRequestDelete={setConfirming}

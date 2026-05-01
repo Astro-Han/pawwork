@@ -782,8 +782,20 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
           )
           .all(),
       )
+      const ids = [...new Set(rows.filter(needsProjectFallback).map((row) => row.project_id))]
+      const projects = new Map<string, ProjectFallback>()
+      if (ids.length > 0) {
+        const items = yield* db((d) =>
+          d
+            .select({ id: ProjectTable.id, worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
+            .from(ProjectTable)
+            .where(inArray(ProjectTable.id, ids))
+            .all(),
+        )
+        for (const item of items) projects.set(item.id, item)
+      }
       for (const row of rows) {
-        const session = fromRow(row)
+        const session = fromRow(row, projects.get(row.project_id))
         const exec = session.executionContext
         if (canonicalDirectory(exec.activeDirectory) === canonicalDirectory(exec.ownerDirectory)) continue
         if (

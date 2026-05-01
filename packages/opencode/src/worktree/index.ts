@@ -304,6 +304,14 @@ export namespace Worktree {
         const target = yield* canonical(directory)
         const existing = yield* lookupByDirectory(target)
         if (existing) return existing
+        const listed = yield* git(["worktree", "list", "--porcelain"], { cwd: Instance.worktree })
+        if (listed.code !== 0) {
+          throw new CreateFailedError({ message: listed.stderr || listed.text || "Failed to read git worktrees" })
+        }
+        const match = yield* locateWorktree(parseWorktreeList(listed.text), target)
+        if (!match?.path) {
+          throw new CreateFailedError({ message: "Directory is not a worktree for this project" })
+        }
         const branch = yield* git(["rev-parse", "--abbrev-ref", "HEAD"], { cwd: target })
         const info = Info.parse({
           directory: target,
