@@ -5,6 +5,7 @@ import {
   createComputed,
   createSignal,
   on,
+  onCleanup,
   untrack,
 } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
@@ -136,13 +137,31 @@ export default function Page() {
 
   const [mobileTab, setMobileTab] = createSignal<"session" | "changes">("session")
   const [deferRender, setDeferRender] = createSignal(false)
+  let deferRenderFrame: number | undefined
+  let deferRenderTimer: number | undefined
+  let deferRenderEpoch = 0
+
+  const clearDeferRenderSchedule = () => {
+    if (deferRenderFrame !== undefined) cancelAnimationFrame(deferRenderFrame)
+    if (deferRenderTimer !== undefined) window.clearTimeout(deferRenderTimer)
+    deferRenderFrame = undefined
+    deferRenderTimer = undefined
+  }
+
+  onCleanup(clearDeferRenderSchedule)
 
   createComputed((prev) => {
     const key = timelineSessionKey()
     if (key !== prev) {
+      const epoch = ++deferRenderEpoch
       setDeferRender(true)
-      requestAnimationFrame(() => {
-        setTimeout(() => setDeferRender(false), 0)
+      clearDeferRenderSchedule()
+      deferRenderFrame = requestAnimationFrame(() => {
+        deferRenderFrame = undefined
+        deferRenderTimer = window.setTimeout(() => {
+          deferRenderTimer = undefined
+          if (epoch === deferRenderEpoch) setDeferRender(false)
+        }, 0)
       })
     }
     return key

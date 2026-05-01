@@ -70,6 +70,8 @@ describe("session followups", () => {
     }
 
     expect(shouldAutoSendFollowup(base)).toBe(true)
+    expect(shouldAutoSendFollowup({ ...base, hasSession: false })).toBe(false)
+    expect(shouldAutoSendFollowup({ ...base, hasItem: false })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, busy: true })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, failed: true })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, paused: true })).toBe(false)

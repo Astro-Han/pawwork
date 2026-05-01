@@ -1,5 +1,5 @@
 import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, createResource, createSignal, on } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
@@ -150,6 +150,21 @@ export function createSessionReviewState(input: {
     }),
     { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
   )
+  let artifactHistoryFrame: number | undefined
+  let artifactHistoryPending = false
+  const queueArtifactHistoryRefetch = () => {
+    artifactHistoryPending = true
+    if (artifactHistoryFrame !== undefined) return
+    artifactHistoryFrame = requestAnimationFrame(() => {
+      artifactHistoryFrame = undefined
+      if (!artifactHistoryPending) return
+      artifactHistoryPending = false
+      void refetchArtifactHistory()
+    })
+  }
+  onCleanup(() => {
+    if (artifactHistoryFrame !== undefined) cancelAnimationFrame(artifactHistoryFrame)
+  })
   const artifactFiles = createMemo(() =>
     deriveReviewArtifactFiles({
       directory: input.directory,
@@ -187,14 +202,14 @@ export function createSessionReviewState(input: {
     const id = input.sessionID()
     if (!id) return
     input.turnDiffs()
-    void refetchArtifactHistory()
+    queueArtifactHistoryRefetch()
   })
 
   createEffect(() => {
     const id = input.sessionID()
     if (!id) return
     if (input.sync.data.session_diff[id] === undefined) return
-    void refetchArtifactHistory()
+    queueArtifactHistoryRefetch()
   })
 
   return {
