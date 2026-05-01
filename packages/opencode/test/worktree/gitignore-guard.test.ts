@@ -42,4 +42,14 @@ describe("worktree gitignore guard", () => {
 
     await expect(ensureWorktreesIgnored(tmp.path)).rejects.toThrow("WorktreeGitignoreGuardError")
   })
+
+  test("refuses to recreate a locally deleted tracked .gitignore", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const file = path.join(tmp.path, ".gitignore")
+    await Bun.write(file, "node_modules\n")
+    await $`git add .gitignore && git commit -m initial-gitignore`.cwd(tmp.path).quiet()
+    await fs.unlink(file)
+
+    await expect(ensureWorktreesIgnored(tmp.path)).rejects.toThrow("WorktreeGitignoreGuardError")
+  })
 })
