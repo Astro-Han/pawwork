@@ -17,11 +17,8 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
 import { createStore } from "solid-js/store"
-import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
-import { Select } from "@opencode-ai/ui/select"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { showToast } from "@opencode-ai/ui/toast"
-import { checksum } from "@opencode-ai/util/encode"
 import { useLocation, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
@@ -38,19 +35,12 @@ import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
 import {
-  createOpenReviewFile,
   createSessionTabs,
   createSizing,
   focusTerminalById,
   shouldFocusTerminalOnKeyDown,
 } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
-import { SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
-import {
-  isVcsReviewMode,
-  reviewModeLabelKey,
-  type ReviewChangeMode,
-} from "@/pages/session/review-change-mode"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import {
   emptyMessages,
@@ -62,7 +52,6 @@ import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
-import { nextFilesPanelAutoOpen } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { createSessionCommentContext } from "@/pages/session/use-session-comment-context"
@@ -71,6 +60,7 @@ import { createSessionFollowups } from "@/pages/session/use-session-followups"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { createSessionRevert } from "@/pages/session/use-session-revert"
+import { createSessionReviewPanel } from "@/pages/session/use-session-review-panel"
 import { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { diffs as list } from "@/utils/diffs"
@@ -331,8 +321,6 @@ export default function Page() {
   let refreshTimer: number | undefined
   let todoFrame: number | undefined
   let todoTimer: number | undefined
-  let diffFrame: number | undefined
-  let diffTimer: number | undefined
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
@@ -644,69 +632,6 @@ export default function Page() {
     }
   }
 
-  createEffect(() => {
-    if (!timelineSessionID()) return
-
-    // Use Snapshot diffs (SSE-pushed, authoritative) with turnDiffs as fallback
-    // for reopened sessions where session_diff hasn't been fetched yet.
-    const source = timelineDiffs().length > 0 ? timelineDiffs() : turnDiffs()
-    const next = nextFilesPanelAutoOpen(
-      {
-        seenAdded: view().sidePanel.filesAutoOpenSeen(),
-        dismissed: view().sidePanel.filesAutoOpenDismissed(),
-      },
-      source,
-    )
-
-    if (next.open) {
-      view().sidePanel.setTab("files")
-      view().sidePanel.open()
-    }
-    view().sidePanel.setAutoOpenState(next)
-  })
-
-  createEffect(
-    on(
-      () => sync.data.session_status[params.id ?? ""]?.type,
-      (next, prev) => {
-        const mode = reviewState.vcsMode()
-        if (!mode) return
-        if (!wantsReview()) return
-        if (next !== "idle" || prev === undefined || prev === "idle") return
-        void reviewState.loadVcs(mode, true)
-      },
-      { defer: true },
-    ),
-  )
-
-  const fileTreeTab = () => view().sidePanel.explorer.tab()
-  const setFileTreeTab = (value: "changes" | "all") => view().sidePanel.explorer.setTab(value)
-
-  const [tree, setTree] = createStore({
-    reviewScroll: undefined as HTMLDivElement | undefined,
-    pendingDiff: undefined as string | undefined,
-    activeDiff: undefined as string | undefined,
-  })
-
-  createEffect(
-    on(
-      sessionKey,
-      () => {
-        setTree({
-          reviewScroll: undefined,
-          pendingDiff: undefined,
-          activeDiff: undefined,
-        })
-      },
-      { defer: true },
-    ),
-  )
-
-  const showAllFiles = () => {
-    if (fileTreeTab() !== "changes") return
-    setFileTreeTab("all")
-  }
-
   const focusInput = () => {
     if (timelineIsChildSession()) return
     inputRef?.focus()
@@ -719,258 +644,27 @@ export default function Page() {
     review: reviewTab,
   })
 
-  const openReviewFile = createOpenReviewFile({
-    showAllFiles,
-    tabForPath: file.tab,
+  const reviewPanel = createSessionReviewPanel({
+    activeFileTab,
+    canReview,
+    comments,
+    commentContext,
+    deferRender: () => store.deferRender,
+    file,
+    isDesktop,
+    language,
+    reviewState,
+    routeSessionID: () => params.id,
+    sdk,
+    sessionKey,
+    sync,
+    timelineDiffs,
+    turnDiffs,
+    view,
+    wantsReview,
     openTab: tabs().open,
-    setActive: tabs().setActive,
-    loadFile: file.load,
+    setActiveTab: tabs().setActive,
   })
-
-  const changesTitle = () => {
-    if (!canReview()) {
-      return null
-    }
-
-    const label = (option: ReviewChangeMode) => language.t(reviewModeLabelKey(option))
-
-    return (
-      <Select
-        options={reviewState.changesOptions()}
-        current={reviewState.changes()}
-        label={label}
-        onSelect={(option) => option && reviewState.setChanges(option)}
-        variant="ghost"
-        size="small"
-        valueClass="text-13-medium"
-      />
-    )
-  }
-
-  const empty = (text: string) => (
-    <div class="h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6">
-      <div class="text-13-regular text-text-weak max-w-56">{text}</div>
-    </div>
-  )
-
-  const reviewEmptyText = createMemo(() => {
-    const changes = reviewState.changes()
-    if (changes === "unstaged") return language.t("session.review.noUnstagedChanges")
-    if (changes === "staged") return language.t("session.review.noStagedChanges")
-    if (changes === "branch") return language.t("session.review.noBranchChanges")
-    return language.t("session.review.noChanges")
-  })
-
-  const reviewEmpty = (input: { loadingClass: string; emptyClass: string }) => {
-    const changes = reviewState.changes()
-    if (isVcsReviewMode(changes)) {
-      if (!reviewState.reviewReady()) return <div class={input.loadingClass}>{language.t("session.review.loadingChanges")}</div>
-      return empty(reviewEmptyText())
-    }
-
-    if (changes === "turn") {
-      return empty(reviewEmptyText())
-    }
-
-    return (
-      <div class={input.emptyClass}>
-        <div class="text-13-regular text-text-weak max-w-56">{reviewEmptyText()}</div>
-      </div>
-    )
-  }
-
-  const reviewContent = (input: {
-    classes?: SessionReviewTabProps["classes"]
-    loadingClass: string
-    emptyClass: string
-  }) => (
-    <Show when={!store.deferRender}>
-      <SessionReviewTab
-        title={changesTitle()}
-        empty={reviewEmpty(input)}
-        diffs={reviewState.reviewDiffs}
-        view={view}
-        onScrollRef={(el) => setTree("reviewScroll", el)}
-        focusedFile={tree.activeDiff}
-        onLineComment={(comment) => commentContext.add({ ...comment, origin: "review" })}
-        onLineCommentUpdate={commentContext.update}
-        onLineCommentDelete={commentContext.remove}
-        lineCommentActions={reviewCommentActions()}
-        commentMentions={{
-          items: file.searchFilesAndDirectories,
-        }}
-        comments={comments.all()}
-        focusedComment={comments.focus()}
-        onFocusedCommentChange={comments.setFocus}
-        onViewFile={openReviewFile}
-        classes={input.classes}
-      />
-    </Show>
-  )
-
-  const reviewPanel = () => (
-    <div class="flex flex-col h-full overflow-hidden bg-background-stronger contain-strict">
-      <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
-        {reviewContent({
-          loadingClass: "px-6 py-4 text-text-weak",
-          emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-        })}
-      </div>
-    </div>
-  )
-
-  createEffect(
-    on(
-      activeFileTab,
-      (active) => {
-        if (!active) return
-        if (fileTreeTab() !== "changes") return
-        showAllFiles()
-      },
-      { defer: true },
-    ),
-  )
-
-  const reviewDiffId = (path: string) => {
-    const sum = checksum(path)
-    if (!sum) return
-    return `session-review-diff-${sum}`
-  }
-
-  const reviewDiffTop = (path: string) => {
-    const root = tree.reviewScroll
-    if (!root) return
-
-    const id = reviewDiffId(path)
-    if (!id) return
-
-    const el = document.getElementById(id)
-    if (!(el instanceof HTMLElement)) return
-    if (!root.contains(el)) return
-
-    const a = el.getBoundingClientRect()
-    const b = root.getBoundingClientRect()
-    return a.top - b.top + root.scrollTop
-  }
-
-  const scrollToReviewDiff = (path: string) => {
-    const root = tree.reviewScroll
-    if (!root) return false
-
-    const top = reviewDiffTop(path)
-    if (top === undefined) return false
-
-    view().setScroll("review", { x: root.scrollLeft, y: top })
-    root.scrollTo({ top, behavior: "auto" })
-    return true
-  }
-
-  createEffect(() => {
-    const pending = tree.pendingDiff
-    if (!pending) return
-    if (!tree.reviewScroll) return
-    if (!reviewState.reviewReady()) return
-
-    const attempt = (count: number) => {
-      if (tree.pendingDiff !== pending) return
-      if (count > 60) {
-        setTree("pendingDiff", undefined)
-        return
-      }
-
-      const root = tree.reviewScroll
-      if (!root) {
-        requestAnimationFrame(() => attempt(count + 1))
-        return
-      }
-
-      if (!scrollToReviewDiff(pending)) {
-        requestAnimationFrame(() => attempt(count + 1))
-        return
-      }
-
-      const top = reviewDiffTop(pending)
-      if (top === undefined) {
-        requestAnimationFrame(() => attempt(count + 1))
-        return
-      }
-
-      if (Math.abs(root.scrollTop - top) <= 1) {
-        setTree("pendingDiff", undefined)
-        return
-      }
-
-      requestAnimationFrame(() => attempt(count + 1))
-    }
-
-    requestAnimationFrame(() => attempt(0))
-  })
-
-  createEffect(() => {
-    const id = params.id
-    if (!id) return
-
-    if (!wantsReview()) return
-    if (sync.data.session_diff[id] !== undefined) return
-    if (sync.status === "loading") return
-
-    void sync.session.diff(id)
-  })
-
-  createEffect(
-    on(
-      () => [sessionKey(), wantsReview()] as const,
-      ([key, wants]) => {
-        if (diffFrame !== undefined) cancelAnimationFrame(diffFrame)
-        if (diffTimer !== undefined) window.clearTimeout(diffTimer)
-        diffFrame = undefined
-        diffTimer = undefined
-        if (!wants) return
-
-        const id = params.id
-        if (!id) return
-        if (!untrack(() => sync.data.session_diff[id] !== undefined)) return
-
-        diffFrame = requestAnimationFrame(() => {
-          diffFrame = undefined
-          diffTimer = window.setTimeout(() => {
-            diffTimer = undefined
-            if (sessionKey() !== key) return
-            void sync.session.diff(id, { force: true })
-          }, 0)
-        })
-      },
-      { defer: true },
-    ),
-  )
-
-  let treeDir: string | undefined
-  createEffect(() => {
-    const dir = sdk.directory
-    if (!isDesktop()) return
-    if (!view().sidePanel.opened()) return
-    if (view().sidePanel.tab() !== "review") return
-    if (sync.status === "loading") return
-
-    fileTreeTab()
-    const refresh = treeDir !== dir
-    treeDir = dir
-    void (refresh ? file.tree.refresh("") : file.tree.list(""))
-  })
-
-  createEffect(
-    on(
-      () => sdk.directory,
-      () => {
-        const tab = activeFileTab()
-        if (!tab) return
-        const path = file.pathFromTab(tab)
-        if (!path) return
-        void file.load(path, { force: true })
-      },
-      { defer: true },
-    ),
-  )
 
   let fillFrame: number | undefined
 
@@ -1172,8 +866,6 @@ export default function Page() {
     if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
     if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
     if (todoTimer !== undefined) window.clearTimeout(todoTimer)
-    if (diffFrame !== undefined) cancelAnimationFrame(diffFrame)
-    if (diffTimer !== undefined) window.clearTimeout(diffTimer)
     if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
   })
 
@@ -1280,15 +972,7 @@ export default function Page() {
                     sessionKey={timelineSessionKey()}
                     sessionMessages={timelineMessages()}
                     mobileChanges={mobileChanges()}
-                    mobileFallback={reviewContent({
-                      classes: {
-                        root: "pb-8",
-                        header: "px-4",
-                        container: "px-4",
-                      },
-                      loadingClass: "px-4 py-4 text-text-weak",
-                      emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                    })}
+                    mobileFallback={reviewPanel.mobileFallback()}
                     actions={actions}
                     scroll={scrollDock.scroll}
                     onResumeScroll={resumeScroll}
@@ -1325,11 +1009,11 @@ export default function Page() {
 
         <SessionSidePanel
           canReview={canReview}
-          diffs={reviewState.reviewDiffs}
-          hasReview={reviewState.hasReview}
-          reviewCount={reviewState.reviewCount}
-          reviewPanel={reviewPanel}
-          files={reviewState.artifactFiles}
+          diffs={reviewPanel.diffs}
+          hasReview={reviewPanel.hasReview}
+          reviewCount={reviewPanel.reviewCount}
+          reviewPanel={reviewPanel.reviewPanel}
+          files={reviewPanel.files}
           terminalPanel={() => <TerminalPanel embedded />}
           size={size}
         />
