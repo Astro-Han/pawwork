@@ -9,10 +9,27 @@ export type ToolInfo = {
   subtitle?: string
 }
 
-function worktreeSubtitle(input: Record<string, any>, metadata: Record<string, any> = {}) {
-  const value = input.name ?? metadata.name ?? input.path ?? input.directory ?? metadata.directory ?? metadata.activeDirectory
-  if (typeof value !== "string" || !value) return undefined
-  return value.includes("/") || value.includes("\\") ? getFilename(value) : value
+function pickString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
+}
+
+export function enterWorktreeSubtitle(
+  input: Record<string, any>,
+  metadata: Record<string, any> = {},
+): string | undefined {
+  const slug = pickString(metadata.slug) || pickString(input.name)
+  const branch = pickString(metadata.branch)
+  const path = pickString(metadata.activeDirectory) || pickString(input.path)
+  const name = slug || (path ? getFilename(path) : undefined)
+  if (name && branch) return `${name} · ${branch}`
+  return name || branch
+}
+
+export function exitWorktreeProjectName(
+  metadata: Record<string, any> = {},
+): string | undefined {
+  const dest = pickString(metadata.activeDirectory)
+  return dest ? getFilename(dest) : undefined
 }
 
 export function agentTitle(i18n: UiI18n, type?: string) {
@@ -49,9 +66,19 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
     case "codesearch":
       return { icon: "code", title: i18n.t("ui.tool.codesearch"), subtitle: input.query }
     case "enter-worktree":
-      return { icon: "worktree", title: i18n.t("ui.tool.worktree.enter"), subtitle: worktreeSubtitle(input, metadata) }
-    case "exit-worktree":
-      return { icon: "worktree", title: i18n.t("ui.tool.worktree.exit"), subtitle: worktreeSubtitle(input, metadata) }
+      return {
+        icon: "worktree",
+        title: i18n.t("ui.tool.worktree.enter"),
+        subtitle: enterWorktreeSubtitle(input, metadata),
+      }
+    case "exit-worktree": {
+      const project = exitWorktreeProjectName(metadata)
+      return {
+        icon: "worktree",
+        title: i18n.t("ui.tool.worktree.exit"),
+        subtitle: project ? i18n.t("ui.tool.worktree.exit.toProject", { project }) : undefined,
+      }
+    }
     case "bash":
       return { icon: "console", title: i18n.t("ui.tool.shell"), subtitle: input.description }
     case "edit":

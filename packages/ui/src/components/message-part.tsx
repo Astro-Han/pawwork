@@ -264,7 +264,13 @@ function getDirectory(path: string | undefined) {
 
 import type { IconProps } from "./icon"
 
-import { agentTitle, buildToolInfo, type ToolInfo } from "./tool-info"
+import {
+  agentTitle,
+  buildToolInfo,
+  enterWorktreeSubtitle,
+  exitWorktreeProjectName,
+  type ToolInfo,
+} from "./tool-info"
 export { buildToolInfo, type ToolInfo }
 
 const agentTones: Record<string, string> = {
@@ -308,13 +314,7 @@ function taskAgent(
   }
 }
 
-function worktreeSubtitle(input: Record<string, any>, metadata: Record<string, any> = {}) {
-  const value = input.name ?? metadata.name ?? input.path ?? input.directory ?? metadata.directory ?? metadata.activeDirectory
-  if (typeof value !== "string" || !value) return undefined
-  return value.includes("/") || value.includes("\\") ? getFilename(value) : value
-}
-
-export function getToolInfo(tool: string, input: any = {}): ToolInfo {
+export function getToolInfo(tool: string, input: any = {}, metadata: any = {}): ToolInfo {
   const i18n = useI18n()
   switch (tool) {
     case "read":
@@ -363,14 +363,16 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
       return {
         icon: "worktree",
         title: i18n.t("ui.tool.worktree.enter"),
-        subtitle: worktreeSubtitle(input),
+        subtitle: enterWorktreeSubtitle(input, metadata),
       }
-    case "exit-worktree":
+    case "exit-worktree": {
+      const project = exitWorktreeProjectName(metadata)
       return {
         icon: "worktree",
         title: i18n.t("ui.tool.worktree.exit"),
-        subtitle: worktreeSubtitle(input),
+        subtitle: project ? i18n.t("ui.tool.worktree.exit.toProject", { project }) : undefined,
       }
+    }
     case "task": // agent-rename:legacy-render
     case "agent": {
       const type =
@@ -728,7 +730,7 @@ function isContextGroupTool(part: PartType): part is ToolPart {
 }
 
 function contextToolDetail(part: ToolPart): string | undefined {
-  const info = getToolInfo(part.tool, part.state.input ?? {})
+  const info = getToolInfo(part.tool, part.state.input ?? {}, (part.state as any).metadata ?? {})
   if (info.subtitle) return info.subtitle
   if (part.state.status === "error") return part.state.error
   if ((part.state.status === "running" || part.state.status === "completed") && part.state.title)
@@ -780,7 +782,7 @@ function contextToolTrigger(part: ToolPart, i18n: ReturnType<typeof useI18n>) {
       }
     }
     default: {
-      const info = getToolInfo(part.tool, input)
+      const info = getToolInfo(part.tool, input, (part.state as any).metadata ?? {})
       return {
         title: info.title,
         subtitle: info.subtitle || contextToolDetail(part),
@@ -1762,7 +1764,7 @@ ToolRegistry.register({
   name: "enter-worktree",
   render(props) {
     const i18n = useI18n()
-    const subtitle = createMemo(() => worktreeSubtitle(props.input, props.metadata))
+    const subtitle = createMemo(() => enterWorktreeSubtitle(props.input, props.metadata))
     return (
       <BasicTool
         {...props}
@@ -1778,7 +1780,10 @@ ToolRegistry.register({
   name: "exit-worktree",
   render(props) {
     const i18n = useI18n()
-    const subtitle = createMemo(() => worktreeSubtitle(props.input, props.metadata))
+    const subtitle = createMemo(() => {
+      const project = exitWorktreeProjectName(props.metadata)
+      return project ? i18n.t("ui.tool.worktree.exit.toProject", { project }) : undefined
+    })
     return (
       <BasicTool
         {...props}

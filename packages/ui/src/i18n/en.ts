@@ -110,6 +110,7 @@ export const dict: Record<string, string> = {
   "ui.tool.codesearch": "Code Search",
   "ui.tool.worktree.enter": "Enter worktree",
   "ui.tool.worktree.exit": "Exit worktree",
+  "ui.tool.worktree.exit.toProject": "Back to {{project}}",
   "ui.tool.shell": "Shell",
   "ui.tool.patch": "Patch",
   "ui.tool.todos": "To-dos",
