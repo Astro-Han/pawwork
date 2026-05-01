@@ -326,12 +326,16 @@ export const AgentTool = Tool.define(
                 ],
               }))
 
+            const childExec = nextSession.executionContext
+            const sameWorktree =
+              parentExec.activeWorktree?.directory === childExec.activeWorktree?.directory &&
+              parentExec.activeWorktree?.name === childExec.activeWorktree?.name &&
+              parentExec.activeWorktree?.branch === childExec.activeWorktree?.branch &&
+              parentExec.activeWorktree?.source === childExec.activeWorktree?.source
+
             // Inherit parent's activeWorktree if any (no-op when parent is at root and child was
             // freshly created at the project root).
-            if (
-              parentExec.activeDirectory !== nextSession.executionContext.activeDirectory ||
-              parentExec.activeWorktree !== nextSession.executionContext.activeWorktree
-            ) {
+            if (parentExec.activeDirectory !== childExec.activeDirectory || !sameWorktree) {
               yield* sessions.updateExecutionContext({
                 sessionID: nextSession.id,
                 activeDirectory: parentExec.activeDirectory,

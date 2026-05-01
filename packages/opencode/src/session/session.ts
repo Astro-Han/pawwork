@@ -8,7 +8,7 @@ import { type ProviderMetadata, type LanguageModelUsage } from "ai"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Installation } from "../installation"
 
-import { Database, NotFoundError, eq, and, or, gte, isNull, desc, asc, like, inArray, lt, gt } from "../storage/db"
+import { Database, NotFoundError, eq, and, or, gte, isNull, desc, asc, like, inArray, lt, gt, sql } from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
 import { PartTable, SessionTable } from "./session.sql"
@@ -32,7 +32,7 @@ import { Permission } from "@/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
 import { SubagentRunWriterContext, SubagentRunGuardViolation, lifecycleFieldsChanged } from "./subagent-run-context"
-import { SessionExecutionContext, rootContext } from "./execution-context"
+import { ActiveWorktree, SessionExecutionContext, rootContext } from "./execution-context"
 import { backfillExecutionContextRows, canonicalDirectory } from "./execution-context-store"
 
 const log = Log.create({ service: "session" })
@@ -227,6 +227,12 @@ export const SetRevertInput = z.object({
   summary: Info.shape.summary,
 })
 export const MessagesInput = z.object({ sessionID: SessionID.zod, limit: z.number().optional() })
+export const UpdateExecutionContextInput = z.object({
+  sessionID: SessionID.zod,
+  activeDirectory: z.string().optional(),
+  activeWorktree: ActiveWorktree.nullable().optional(),
+})
+export const FindActiveWorktreeBindingInput = z.string()
 export const RemovePartInput = z.object({
   sessionID: SessionID.zod,
   messageID: MessageID.zod,
@@ -750,7 +756,19 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     const findActiveWorktreeBinding = Effect.fn("Session.findActiveWorktreeBinding")(function* (directory: string) {
       const project = Instance.project
       const target = canonicalDirectory(directory)
-      const rows = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.project_id, project.id)).all())
+      const rows = yield* db((d) =>
+        d
+          .select()
+          .from(SessionTable)
+          .where(
+            and(
+              eq(SessionTable.project_id, project.id),
+              sql`${SessionTable.execution_context} IS NOT NULL`,
+              sql`json_extract(${SessionTable.execution_context}, '$.activeDirectory') != json_extract(${SessionTable.execution_context}, '$.ownerDirectory')`,
+            ),
+          )
+          .all(),
+      )
       for (const row of rows) {
         const session = fromRow(row)
         const exec = session.executionContext
@@ -874,13 +892,12 @@ export const messages = fn(MessagesInput, (input) => runPromise((svc) => svc.mes
 export const removePart = fn(RemovePartInput, (input) => runPromise((svc) => svc.removePart(input)))
 export const updateMessage = fn(MessageV2.Info, (input) => runPromise((svc) => svc.updateMessage(input)))
 export const updatePart = fn(MessageV2.Part, (input) => runPromise((svc) => svc.updatePart(input)))
-export const updateExecutionContext = (input: {
-  sessionID: SessionID
-  activeDirectory?: string
-  activeWorktree?: SessionExecutionContext["activeWorktree"] | null
-}) => runPromise((svc) => svc.updateExecutionContext(input))
-export const findActiveWorktreeBinding = (directory: string) =>
-  runPromise((svc) => svc.findActiveWorktreeBinding(directory))
+export const updateExecutionContext = fn(UpdateExecutionContextInput, (input) =>
+  runPromise((svc) => svc.updateExecutionContext(input)),
+)
+export const findActiveWorktreeBinding = fn(FindActiveWorktreeBindingInput, (directory) =>
+  runPromise((svc) => svc.findActiveWorktreeBinding(directory)),
+)
 
 type ListSort = "updated" | "created"
 type GlobalListCursor =

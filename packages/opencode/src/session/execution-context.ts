@@ -23,7 +23,3 @@ export function rootContext(ownerDirectory: string): SessionExecutionContext {
     lastChangedAt: Date.now(),
   }
 }
-
-export function isAtRoot(ctx: SessionExecutionContext): boolean {
-  return ctx.activeDirectory === ctx.ownerDirectory && ctx.activeWorktree === undefined
-}

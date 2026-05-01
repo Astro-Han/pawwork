@@ -65,6 +65,62 @@ describe("Worktree.remove", () => {
     expect(ref.exitCode).not.toBe(0)
   })
 
+  test("removes registry entry when branch deletion fails after directory cleanup", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const root = tmp.path
+    const info = await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const info = await Worktree.makeWorktreeInfo("branch-delete-fails")
+        await Worktree.createFromInfo(info)
+        return info
+      },
+    })
+
+    const real = (await $`which git`.quiet().text()).trim()
+    expect(real).toBeTruthy()
+
+    const bin = path.join(root, "bin")
+    const shim = path.join(bin, "git")
+    await fs.mkdir(bin, { recursive: true })
+    await Bun.write(
+      shim,
+      [
+        "#!/bin/bash",
+        `REAL_GIT=${JSON.stringify(real)}`,
+        'if [ "$1" = "branch" ] && [ "$2" = "-D" ]; then',
+        '  echo "fatal: could not delete branch" >&2',
+        "  exit 1",
+        "fi",
+        'exec "$REAL_GIT" "$@"',
+      ].join("\n"),
+    )
+    await fs.chmod(shim, 0o755)
+
+    const prev = process.env.PATH ?? ""
+    process.env.PATH = `${bin}${path.delimiter}${prev}`
+
+    try {
+      await expect(
+        Instance.provide({
+          directory: root,
+          fn: () => Worktree.remove({ directory: info.directory }),
+        }),
+      ).rejects.toThrow("WorktreeRemoveFailedError")
+    } finally {
+      process.env.PATH = prev
+    }
+
+    expect(await Filesystem.exists(info.directory)).toBe(false)
+    const registryEntry = await Instance.provide({
+      directory: root,
+      fn: () => Worktree.lookupByDirectory(info.directory),
+    })
+    expect(registryEntry).toBeUndefined()
+
+    await $`git branch -D ${info.branch}`.cwd(root).quiet().nothrow()
+  })
+
   wintest("stops fsmonitor before removing a worktree", async () => {
     await using tmp = await tmpdir({ git: true })
     const root = tmp.path

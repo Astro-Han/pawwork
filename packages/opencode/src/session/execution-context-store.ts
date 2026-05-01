@@ -1,14 +1,11 @@
 import fs from "node:fs"
 import path from "path"
-import { eq, isNull } from "../storage/db"
+import { Database, eq, isNull } from "../storage/db"
 import { ProjectTable } from "../project/project.sql"
 import { SessionTable } from "./session.sql"
 import { rootContext } from "./execution-context"
 
-type Tx = {
-  select: (...args: any[]) => any
-  update: (...args: any[]) => any
-}
+type Tx = Pick<Database.Transaction, "select" | "update">
 
 export function canonicalDirectory(input: string) {
   const abs = path.resolve(input)

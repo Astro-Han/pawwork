@@ -279,6 +279,7 @@ export namespace Worktree {
 
       const lookupBySlug = Effect.fn("Worktree.lookupBySlug")(function* (slug: string) {
         const entries = yield* readRegistry()
+        // `name` addresses managed PawWork worktrees only. Worktrees joined by absolute path remain path-addressable.
         return entries.find((entry) => entry.name === slug && entry.source === "created")
       })
 
@@ -509,6 +510,7 @@ export namespace Worktree {
             yield* stopFsmonitor(directory)
             yield* cleanDirectory(directory)
           }
+          yield* removeRegistry(input.directory).pipe(Effect.catch(() => Effect.void))
           return true
         }
 
@@ -529,6 +531,7 @@ export namespace Worktree {
         }
 
         yield* cleanDirectory(entry.path)
+        yield* removeRegistry(input.directory).pipe(Effect.catch(() => Effect.void))
 
         const branch = entry.branch?.replace(/^refs\/heads\//, "")
         if (branch) {
@@ -539,8 +542,6 @@ export namespace Worktree {
             })
           }
         }
-
-        yield* removeRegistry(input.directory).pipe(Effect.catch(() => Effect.void))
         return true
       })
 
