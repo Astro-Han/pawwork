@@ -1,6 +1,9 @@
-import type { UserMessage } from "@opencode-ai/sdk/v2"
+import type { Session, UserMessage } from "@opencode-ai/sdk/v2"
 import { useMutation } from "@tanstack/solid-query"
 import { batch, createMemo } from "solid-js"
+import type { Prompt, usePrompt } from "@/context/prompt"
+import type { useSDK } from "@/context/sdk"
+import type { useSync } from "@/context/sync"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
 
 export function rolledRevertItems(input: {
@@ -10,8 +13,10 @@ export function rolledRevertItems(input: {
 }) {
   const id = input.revertMessageID
   if (!id) return []
+  const start = input.messages.findIndex((item) => item.id === id)
+  if (start < 0) return []
   return input.messages
-    .filter((item) => item.id >= id)
+    .slice(start)
     .map((item) => ({ id: item.id, text: input.lineText(item.id) }))
 }
 
@@ -20,28 +25,14 @@ export function createSessionRevert(input: {
   revertMessageID: () => string | undefined
   timelineUserMessages: () => UserMessage[]
   lineText: (id: string) => string
-  prompt: {
-    current: () => any[]
-    set: (value: any[]) => void
-    reset: () => void
-  }
-  sync: {
-    data: { message: Record<string, unknown> }
-    session: {
-      get: (sessionID: string) => { revert?: { messageID: string } } | undefined
-    }
-  }
-  client: {
-    session: {
-      revert: (request: { sessionID: string; messageID: string }) => Promise<{ data?: any }>
-      unrevert: (request: { sessionID: string }) => Promise<{ data?: any }>
-    }
-  }
+  prompt: ReturnType<typeof usePrompt>
+  sync: ReturnType<typeof useSync>
+  client: ReturnType<typeof useSDK>["client"]
   halt: (sessionID: string) => Promise<unknown>
-  draft: (id: string) => any[]
+  draft: (id: string) => Prompt
   fail: (err: unknown) => void
-  merge: (next: any) => void
-  roll: (sessionID: string, next: any) => void
+  merge: (next: Session) => void
+  roll: (sessionID: string, next: Session["revert"]) => void
 }) {
   const revertMutation = useMutation(() => ({
     mutationFn: async (request: { sessionID: string; messageID: string }) => {

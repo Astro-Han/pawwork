@@ -58,7 +58,7 @@ export function createSessionCommentContext(input: {
       input.comments.update(comment.file, comment.id, comment.comment)
       input.promptContext.updateComment(comment.file, comment.id, {
         comment: comment.comment,
-        ...(comment.preview ? { preview: comment.preview } : {}),
+        ...(comment.preview !== undefined ? { preview: comment.preview } : {}),
       })
     },
     remove(comment: { id: string; file: string }) {

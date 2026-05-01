@@ -107,6 +107,7 @@ describe("session scroll dock", () => {
   })
 
   test("syncs composer height through one path and scrolls once when sticky", () => {
+    const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
     const scroller = makeScroller({
       clientHeight: 400,
       scrollHeight: 1000,
@@ -114,25 +115,30 @@ describe("session scroll dock", () => {
     })
     const calls: number[] = []
 
-    const next = syncComposerDockHeight({
-      el: scroller.el,
-      previousDockHeight: 120,
-      nextDockHeight: 180,
-      userScrolled: false,
-      setCssHeight: (height) => {
-        document.documentElement.style.setProperty("--composer-dock-height", `${height}px`)
-      },
-      forceScrollToBottom: () => {
-        calls.push(1)
-        scroller.el.scrollTop = scroller.el.scrollHeight
-      },
-      scheduleScrollState: () => undefined,
-      fill: () => undefined,
-    })
+    try {
+      const next = syncComposerDockHeight({
+        el: scroller.el,
+        previousDockHeight: 120,
+        nextDockHeight: 180,
+        userScrolled: false,
+        setCssHeight: (height) => {
+          document.documentElement.style.setProperty("--composer-dock-height", `${height}px`)
+        },
+        forceScrollToBottom: () => {
+          calls.push(1)
+          scroller.el.scrollTop = scroller.el.scrollHeight
+        },
+        scheduleScrollState: () => undefined,
+        fill: () => undefined,
+      })
 
-    expect(next).toBe(180)
-    expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("180px")
-    expect(calls).toHaveLength(1)
-    expect(scroller.top).toBe(1000)
+      expect(next).toBe(180)
+      expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("180px")
+      expect(calls).toHaveLength(1)
+      expect(scroller.top).toBe(1000)
+    } finally {
+      if (previousDockHeight) document.documentElement.style.setProperty("--composer-dock-height", previousDockHeight)
+      else document.documentElement.style.removeProperty("--composer-dock-height")
+    }
   })
 })

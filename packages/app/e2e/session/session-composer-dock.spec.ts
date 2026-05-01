@@ -974,18 +974,23 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
         { content: "fifth scroll dock task expands height", status: "pending" },
       ])
 
-      const afterUserScroll = await page.evaluate(() => {
-        const viewport = document.querySelector('[data-component="scroll-viewport"]')
-        if (!(viewport instanceof HTMLElement)) return null
-        return {
-          scrollTop: viewport.scrollTop,
-          distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
-        }
-      })
+      let afterUserScroll: { scrollTop: number; distanceFromBottom: number } | null = null
+      await expect
+        .poll(async () => {
+          afterUserScroll = await page.evaluate(() => {
+            const viewport = document.querySelector('[data-component="scroll-viewport"]')
+            if (!(viewport instanceof HTMLElement)) return null
+            return {
+              scrollTop: viewport.scrollTop,
+              distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+            }
+          })
+          return afterUserScroll?.distanceFromBottom ?? -1
+        })
+        .toBeGreaterThanOrEqual(distanceBeforeExpansion - 40)
 
       expect(afterUserScroll).not.toBeNull()
       expect(afterUserScroll!.scrollTop).toBeLessThan(before)
-      expect(afterUserScroll!.distanceFromBottom).toBeGreaterThanOrEqual(distanceBeforeExpansion - 40)
 
       await mkdir(".artifacts/session-scroll-dock", { recursive: true })
       await page.screenshot({ path: ".artifacts/session-scroll-dock/latest-visible.png" })

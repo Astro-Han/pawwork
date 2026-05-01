@@ -72,10 +72,12 @@ describe("session comment context", () => {
     })
 
     controller.update({ id: "c1", file: "src/a.ts", selection: { start: 1, end: 1 }, comment: "new", preview: "one" })
+    controller.update({ id: "c2", file: "src/b.ts", selection: { start: 1, end: 1 }, comment: "blank", preview: "" })
     controller.remove({ id: "c1", file: "src/a.ts" })
 
     expect(updated).toContainEqual({ file: "src/a.ts", id: "c1", comment: "new" })
     expect(updated).toContainEqual({ file: "src/a.ts", id: "c1", patch: { comment: "new", preview: "one" } })
+    expect(updated).toContainEqual({ file: "src/b.ts", id: "c2", patch: { comment: "blank", preview: "" } })
     expect(removed).toEqual([
       { file: "src/a.ts", id: "c1" },
       { file: "src/a.ts", id: "c1" },

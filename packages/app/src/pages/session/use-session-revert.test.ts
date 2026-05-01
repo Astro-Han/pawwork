@@ -8,13 +8,13 @@ describe("session revert", () => {
   test("builds rolled items from the revert message onward using existing line text", () => {
     expect(
       rolledRevertItems({
-        revertMessageID: "b",
-        messages: [message("a"), message("b"), message("c")],
+        revertMessageID: "msg_2",
+        messages: [message("msg_10"), message("msg_2"), message("msg_30")],
         lineText: (id) => `line:${id}`,
       }),
     ).toEqual([
-      { id: "b", text: "line:b" },
-      { id: "c", text: "line:c" },
+      { id: "msg_2", text: "line:msg_2" },
+      { id: "msg_30", text: "line:msg_30" },
     ])
   })
 })

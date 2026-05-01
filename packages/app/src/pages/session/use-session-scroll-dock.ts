@@ -127,10 +127,10 @@ export function createSessionScrollDock(input: {
     input.fill()
   }
 
-  const setContentRef = (el: HTMLDivElement) => {
+  const setContentRef = (el: HTMLDivElement | undefined) => {
     content = el
     autoScroll.contentRef(el)
-    if (scroller) scheduleScrollState(scroller)
+    if (el && scroller) scheduleScrollState(scroller)
   }
 
   const updateDockHeight = (next: number) => {
@@ -146,8 +146,9 @@ export function createSessionScrollDock(input: {
     })
   }
 
-  const setPromptDockRef = (el: HTMLDivElement) => {
+  const setPromptDockRef = (el: HTMLDivElement | undefined) => {
     promptDock = el
+    if (!el) return
     const next = Math.ceil(el.getBoundingClientRect().height)
     if (next > 0) updateDockHeight(next)
   }
@@ -188,6 +189,7 @@ export function createSessionScrollDock(input: {
 
   onCleanup(() => {
     if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
+    document.documentElement.style.removeProperty("--composer-dock-height")
   })
 
   return {
