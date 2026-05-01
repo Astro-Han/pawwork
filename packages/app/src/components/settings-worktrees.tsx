@@ -47,7 +47,7 @@ export const SettingsWorktrees: Component = () => {
 
   const ownerName = (ownerDirectory: string) => projectNameByOwner().get(ownerDirectory) || basename(ownerDirectory)
 
-  const boundSessions = (): Map<string, BoundSession> => {
+  const boundSessions = createMemo((): Map<string, BoundSession> => {
     const map = new Map<string, BoundSession>()
     const directories = new Set<string>()
     for (const project of sync.data.project) {
@@ -74,7 +74,7 @@ export const SettingsWorktrees: Component = () => {
       }
     }
     return map
-  }
+  })
 
   const openSession = (entry: BoundSession) => {
     navigate(`/${base64Encode(entry.hostDirectory)}/session/${entry.id}`)

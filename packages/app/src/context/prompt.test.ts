@@ -22,31 +22,43 @@ beforeAll(async () => {
 function promptSession() {
   let prompt: Prompt = [{ type: "text", content: "hello", start: 0, end: 5 }]
   let cursor = 5
+  let dirty = false
   const items: (ContextItem & { key: string })[] = []
+  const markDirty = () => {
+    dirty = true
+  }
 
   return {
     ready: () => true,
     current: () => prompt,
     cursor: () => cursor,
-    dirty: () => true,
+    dirty: () => dirty,
     context: {
       items: () => items,
-      add: (item: ContextItem) => items.push({ key: item.type, ...item }),
+      add: (item: ContextItem) => {
+        items.push({ key: item.type, ...item })
+        markDirty()
+      },
       remove: (key: string) => {
         const index = items.findIndex((item) => item.key === key)
-        if (index >= 0) items.splice(index, 1)
+        if (index >= 0) {
+          items.splice(index, 1)
+          markDirty()
+        }
       },
-      removeComment: () => undefined,
-      updateComment: () => undefined,
-      replaceComments: () => undefined,
+      removeComment: () => markDirty(),
+      updateComment: () => markDirty(),
+      replaceComments: () => markDirty(),
     },
     set: (next: Prompt, nextCursor?: number) => {
       prompt = next
       cursor = nextCursor ?? cursor
+      markDirty()
     },
     reset: () => {
       prompt = DEFAULT_PROMPT
       cursor = 0
+      dirty = false
     },
   }
 }

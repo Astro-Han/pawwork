@@ -27,7 +27,11 @@ export function errorText(error: unknown) {
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
     return error.message
   }
-  return JSON.stringify(error)
+  try {
+    return JSON.stringify(error) ?? String(error)
+  } catch {
+    return String(error)
+  }
 }
 
 export function sourceKey(source: WorktreeInfo["source"]) {

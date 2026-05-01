@@ -173,6 +173,15 @@ describe("session.created event", () => {
         expect(entered.executionContext.activeDirectory).toBe(worktree)
         expect(entered.executionContext.activeWorktree).toEqual(activeWorktree)
 
+        const nested = path.join(worktree, "nested")
+        const movedByDirectory = await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeDirectory: nested,
+          activeWorktree: undefined,
+        })
+        expect(movedByDirectory.executionContext.activeDirectory).toBe(nested)
+        expect(movedByDirectory.executionContext.activeWorktree).toEqual(activeWorktree)
+
         const clearedByWorktree = await SessionNs.updateExecutionContext({
           sessionID: session.id,
           activeWorktree: null,

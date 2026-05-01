@@ -56,16 +56,21 @@ function find(node: Node | string, predicate: (n: Node) => boolean): Node | unde
 
 describe("PawworkWorktreeBadge", () => {
   test("shows worktree name and branch in the visible titlebar label", () => {
+    const onClick = () => undefined
     const tree = PawworkWorktreeBadge({
       name: "feature-c",
       branch: "pawwork/feature-c",
       directory: "/repo/.worktrees/pawwork/feature-c",
       ariaLabel: "Open worktrees",
-      onClick: () => undefined,
+      onClick,
+      disabled: true,
     }) as unknown as Node
 
     const label = find(tree, (node) => node.type === "span")
     expect(label?.children.join("")).toBe("feature-c (pawwork/feature-c)")
     expect(tree.props.title).toBe("pawwork/feature-c · /repo/.worktrees/pawwork/feature-c")
+    expect(tree.props.onClick).toBe(onClick)
+    expect(tree.props["aria-label"]).toBe("Open worktrees")
+    expect(tree.props.disabled).toBe(true)
   })
 })

@@ -727,7 +727,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     }) {
       const current = yield* get(input.sessionID)
       const now = Date.now()
-      const hasActiveWorktree = "activeWorktree" in input
+      const hasActiveWorktree = input.activeWorktree !== undefined
       const ownerDirectory = current.executionContext.ownerDirectory
       const activeDirectory = hasActiveWorktree
         ? (input.activeWorktree?.directory ?? ownerDirectory)
