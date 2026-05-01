@@ -16,7 +16,7 @@ test("findWorkspaceProject matches sandboxes with normalized workspace keys", ()
   expect(project?.worktree).toBe("/repo/main")
 })
 
-test("workspaceChipChoices lists all known project directories for global switching", () => {
+test("workspaceChipChoices lists project roots for global switching", () => {
   const result = workspaceChipChoices({
     directory: "/repo/main",
     projects: [
@@ -30,7 +30,7 @@ test("workspaceChipChoices lists all known project directories for global switch
     ],
   })
 
-  expect(result.map((c) => c.path)).toEqual(["/repo/main", "/repo/feature-a", "/repo/analytics"])
+  expect(result.map((c) => c.path)).toEqual(["/repo/main", "/repo/analytics"])
 })
 
 test("workspaceChipChoices preserves current directory when it is not part of the known project list", () => {
@@ -47,7 +47,24 @@ test("workspaceChipChoices preserves current directory when it is not part of th
     ],
   })
 
-  expect(result.map((c) => c.path)).toEqual(["/repo/feature-c", "/repo/main", "/repo/feature-a", "/repo/analytics"])
+  expect(result.map((c) => c.path)).toEqual(["/repo/feature-c", "/repo/main", "/repo/analytics"])
+})
+
+test("workspaceChipChoices omits known worktrees from the homepage workspace list", () => {
+  const result = workspaceChipChoices({
+    directory: "/repo/feature-a",
+    projects: [
+      {
+        worktree: "/repo/main",
+        sandboxes: ["/repo/feature-a"],
+      },
+      {
+        worktree: "/repo/analytics",
+      },
+    ],
+  })
+
+  expect(result.map((c) => c.path)).toEqual(["/repo/main", "/repo/analytics"])
 })
 
 test("each choice exposes path field for sub-label rendering", () => {
@@ -60,45 +77,18 @@ test("each choice exposes path field for sub-label rendering", () => {
   expect(typeof result[0].path).toBe("string")
 })
 
-test("branch field is optional (not required when SDK can't resolve)", () => {
+test("workspaceChipChoices ignores listed worktrees", () => {
   const result = workspaceChipChoices({
     directory: "/repo/main",
-    projects: [{ worktree: "/repo/main" }],
-  })
-
-  expect(result[0].branch === undefined || typeof result[0].branch === "string").toBe(true)
-})
-
-test("workspaceChipChoices preserves branch metadata after workspace ordering", () => {
-  const result = workspaceChipChoices({
-    directory: "/repo/feature-a",
     projects: [
       {
         worktree: "/repo/main",
-        sandboxes: [{ directory: "/repo/feature-a", branch: "pawwork/feature-a" }],
+        sandboxes: ["/repo/feature-a"],
       },
     ],
-    listed: [{ directory: "/repo/feature-b", branch: "pawwork/feature-b" }],
+    // @ts-expect-error listed is intentionally no longer part of the public helper input.
+    listed: [{ directory: "/repo/feature-b" }],
   })
 
-  expect(result).toEqual([
-    { path: "/repo/main", branch: undefined },
-    { path: "/repo/feature-a", branch: "pawwork/feature-a" },
-    { path: "/repo/feature-b", branch: "pawwork/feature-b" },
-  ])
-})
-
-test("workspaceChipChoices does not erase known branch metadata with undefined", () => {
-  const result = workspaceChipChoices({
-    directory: "/repo/feature-a",
-    projects: [
-      {
-        worktree: "/repo/main",
-        sandboxes: [{ directory: "/repo/feature-a" }],
-      },
-    ],
-    listed: [{ directory: "/repo/feature-a", branch: "pawwork/feature-a" }],
-  })
-
-  expect(result.find((item) => item.path === "/repo/feature-a")?.branch).toBe("pawwork/feature-a")
+  expect(result.map((c) => c.path)).toEqual(["/repo/main"])
 })

@@ -3,8 +3,7 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { getFilename } from "@opencode-ai/util/path"
 import { useNavigate } from "@solidjs/router"
-import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js"
-import { useGlobalSDK } from "@/context/global-sdk"
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { useLayoutPage } from "@/context/layout-page"
@@ -15,7 +14,6 @@ import { decode64 } from "@/utils/base64"
 
 export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}) {
   const language = useLanguage()
-  const globalSDK = useGlobalSDK()
   const layout = useLayout()
   const layoutPage = useLayoutPage()
   const navigate = useNavigate()
@@ -24,24 +22,10 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
 
   const current = createMemo(() => decode64(params.dir))
   const project = createMemo(() => findWorkspaceProject(layout.projects.list(), current()))
-  const root = createMemo(() => project()?.worktree ?? current())
-  // Fetch on mount (not gated on open) so popover content is ready when clicked.
-  // Previously gated on open() which caused the list to flash empty→full on every click.
-  const [listed] = createResource(
-    () => root(),
-    async (directory) => {
-      if (!directory) return []
-      return globalSDK.client.worktree
-        .list({ directory })
-        .then((x) => x.data ?? [])
-        .catch(() => [])
-    },
-  )
   const workspaces = createMemo(() => {
     return workspaceChipChoices({
       directory: current(),
       projects: layout.projects.list(),
-      listed: listed(),
     })
   })
   const label = createMemo(() => {
