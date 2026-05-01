@@ -412,6 +412,36 @@ test("blocked question flow supports skipping one question before submit", async
   )
 })
 
+test("blocked question flow supports submitting after skipping every question", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock question skip all",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+
+        await llm.toolMatch(inputMatch({ questions: multiQuestions }), "question", { questions: multiQuestions })
+        await seedSessionQuestion(project.sdk, {
+          sessionID: session.id,
+          questions: multiQuestions,
+        })
+
+        const dock = page.locator(questionDockSelector)
+        await expectQuestionBlocked(page)
+
+        await dock.getByRole("button", { name: /skip question/i }).click()
+        await expect(dock.locator('[data-slot="question-header-seq"]')).toContainText("2 of 2")
+        await dock.getByRole("button", { name: /skip question/i }).click()
+        await dock.getByRole("button", { name: /submit/i }).click()
+
+        await expectQuestionOpen(page)
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("blocked question flow supports keyboard shortcuts", async ({ page, llm, project }) => {
   await project.open()
   await withDockSession(
