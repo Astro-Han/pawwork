@@ -484,10 +484,12 @@ export const Assistant = Base.extend({
    */
   mode: z.string(),
   agent: z.string(),
-  path: z.object({
-    cwd: z.string(),
-    root: z.string(),
-  }),
+  // Pre-design messages serialised path as a single absolute string. Readers lift it to
+  // {cwd, root} where cwd === root; writers still emit only the modern object shape.
+  path: z.union([
+    z.object({ cwd: z.string(), root: z.string() }),
+    z.string().transform((s) => ({ cwd: s, root: s })),
+  ]),
   summary: z.boolean().optional(),
   cost: z.number(),
   tokens: z.object({
