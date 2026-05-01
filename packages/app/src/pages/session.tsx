@@ -9,10 +9,8 @@ import {
   createEffect,
   createComputed,
   on,
-  onMount,
   untrack,
 } from "solid-js"
-import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
@@ -34,12 +32,7 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
-import {
-  createSessionTabs,
-  createSizing,
-  focusTerminalById,
-  shouldFocusTerminalOnKeyDown,
-} from "@/pages/session/helpers"
+import { createSessionTabs, createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import {
@@ -59,6 +52,7 @@ import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-co
 import { createSessionFollowups } from "@/pages/session/use-session-followups"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
+import { useSessionKeyboardFocus } from "@/pages/session/use-session-keyboard-focus"
 import { createSessionRevert } from "@/pages/session/use-session-revert"
 import { createSessionReviewPanel } from "@/pages/session/use-session-review-panel"
 import { createSessionReviewState } from "@/pages/session/use-session-review-state"
@@ -579,58 +573,15 @@ export default function Page() {
     saveLabel: language.t("common.save"),
   }))
 
-  const isEditableTarget = (target: EventTarget | null | undefined) => {
-    if (!(target instanceof HTMLElement)) return false
-    return /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName) || target.isContentEditable
-  }
-
-  const deepActiveElement = () => {
-    let current: Element | null = document.activeElement
-    while (current instanceof HTMLElement && current.shadowRoot?.activeElement) {
-      current = current.shadowRoot.activeElement
-    }
-    return current instanceof HTMLElement ? current : undefined
-  }
-
-  const handleKeyDown = (event: KeyboardEvent) => {
-    const path = event.composedPath()
-    const target = path.find((item): item is HTMLElement => item instanceof HTMLElement)
-    const activeElement = deepActiveElement()
-
-    const protectedTarget = path.some(
-      (item) => item instanceof HTMLElement && item.closest("[data-prevent-autofocus]") !== null,
-    )
-    if (protectedTarget || isEditableTarget(target)) return
-
-    if (activeElement) {
-      const isProtected = activeElement.closest("[data-prevent-autofocus]")
-      const isInput = isEditableTarget(activeElement)
-      if (isProtected || isInput) return
-    }
-    if (dialog.active) return
-
-    if (activeElement === inputRef) {
-      if (event.key === "Escape") inputRef?.blur()
-      return
-    }
-
-    // Prefer the open terminal over the composer when it can take focus
-    if (view().terminal.opened()) {
-      const id = terminal.active()
-      if (id && shouldFocusTerminalOnKeyDown(event) && focusTerminalById(id)) return
-    }
-
-    // Only treat explicit scroll keys as potential "user scroll" gestures.
-    if (event.key === "PageUp" || event.key === "PageDown" || event.key === "Home" || event.key === "End") {
-      markScrollGesture()
-      return
-    }
-
-    if (event.key.length === 1 && event.key !== "Unidentified" && !(event.ctrlKey || event.metaKey)) {
-      if (composer.blocked() || timelineIsChildSession()) return
-      inputRef?.focus()
-    }
-  }
+  useSessionKeyboardFocus({
+    blocked: composer.blocked,
+    dialogActive: () => !!dialog.active,
+    inputRef: () => inputRef,
+    isChildSession: timelineIsChildSession,
+    markScrollGesture,
+    terminalActive: terminal.active,
+    terminalOpened: () => view().terminal.opened(),
+  })
 
   const focusInput = () => {
     if (timelineIsChildSession()) return
@@ -856,10 +807,6 @@ export default function Page() {
       },
     ),
   )
-
-  onMount(() => {
-    makeEventListener(document, "keydown", handleKeyDown)
-  })
 
   onCleanup(() => {
     if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
