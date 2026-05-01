@@ -21,7 +21,6 @@ import { useLocation, useSearchParams } from "@solidjs/router"
 import { NewSessionView, SessionHeader } from "@/components/session"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { useComments } from "@/context/comments"
-import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
@@ -53,6 +52,7 @@ import { createSessionFollowups } from "@/pages/session/use-session-followups"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { useSessionKeyboardFocus } from "@/pages/session/use-session-keyboard-focus"
+import { useSessionRefreshEffects } from "@/pages/session/use-session-refresh-effects"
 import { createSessionRevert } from "@/pages/session/use-session-revert"
 import { createSessionReviewPanel } from "@/pages/session/use-session-review-panel"
 import { createSessionReviewState } from "@/pages/session/use-session-review-state"
@@ -311,11 +311,6 @@ export default function Page() {
     return key
   }, timelineSessionKey())
 
-  let refreshFrame: number | undefined
-  let refreshTimer: number | undefined
-  let todoFrame: number | undefined
-  let todoTimer: number | undefined
-
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
   const wantsReview = createMemo(() =>
@@ -424,73 +419,17 @@ export default function Page() {
 
   const hasScrollGesture = () => Date.now() - ui.scrollGesture < scrollGestureWindowMs
 
-  createEffect(
-    on([() => sdk.directory, () => params.id] as const, ([, id]) => {
-      if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
-      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
-      refreshFrame = undefined
-      refreshTimer = undefined
-      if (!id) return
-
-      const cached = untrack(() => sync.data.message[id] !== undefined)
-      const stale = !cached
-        ? false
-        : (() => {
-            const info = getSessionPrefetch(sdk.directory, id)
-            if (!info) return true
-            return Date.now() - info.at > SESSION_PREFETCH_TTL
-          })()
-      untrack(() => {
-        void sync.session.sync(id)
-      })
-
-      refreshFrame = requestAnimationFrame(() => {
-        refreshFrame = undefined
-        refreshTimer = window.setTimeout(() => {
-          refreshTimer = undefined
-          if (params.id !== id) return
-          untrack(() => {
-            if (stale) void sync.session.sync(id, { force: true })
-          })
-        }, 0)
-      })
-    }),
-  )
-
-  createEffect(
-    on(
-      () => {
-        const id = timelineSessionID()
-        return [
-          sdk.directory,
-          id,
-          id ? (sync.data.session_status[id]?.type ?? "idle") : "idle",
-          id ? composer.blocked() : false,
-        ] as const
-      },
-      ([dir, id, status, blocked]) => {
-        if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
-        if (todoTimer !== undefined) window.clearTimeout(todoTimer)
-        todoFrame = undefined
-        todoTimer = undefined
-        if (!id) return
-        if (status === "idle" && !blocked) return
-        const cached = untrack(() => sync.data.todo[id] !== undefined || globalSync.data.session_todo[id] !== undefined)
-
-        todoFrame = requestAnimationFrame(() => {
-          todoFrame = undefined
-          todoTimer = window.setTimeout(() => {
-            todoTimer = undefined
-            if (sdk.directory !== dir || timelineSessionID() !== id) return
-            untrack(() => {
-              void sync.session.todo(id, cached ? { force: true } : undefined)
-            })
-          }, 0)
-        })
-      },
-      { defer: true },
-    ),
-  )
+  useSessionRefreshEffects({
+    directory: () => sdk.directory,
+    routeSessionID: () => params.id,
+    timelineSessionID,
+    statusType: (id) => sync.data.session_status[id]?.type,
+    blocked: composer.blocked,
+    hasMessageCache: (id) => sync.data.message[id] !== undefined,
+    hasTodoCache: (id) => sync.data.todo[id] !== undefined || globalSync.data.session_todo[id] !== undefined,
+    syncSession: (id, options) => sync.session.sync(id, options),
+    syncTodo: (id, options) => sync.session.todo(id, options),
+  })
 
   createEffect(
     on(
@@ -809,10 +748,6 @@ export default function Page() {
   )
 
   onCleanup(() => {
-    if (refreshFrame !== undefined) cancelAnimationFrame(refreshFrame)
-    if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
-    if (todoFrame !== undefined) cancelAnimationFrame(todoFrame)
-    if (todoTimer !== undefined) window.clearTimeout(todoTimer)
     if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
   })
 
