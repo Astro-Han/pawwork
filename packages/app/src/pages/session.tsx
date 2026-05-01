@@ -1,4 +1,3 @@
-import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   onCleanup,
@@ -46,6 +45,7 @@ import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
+import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
 import { createSessionCommentContext } from "@/pages/session/use-session-comment-context"
 import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-context"
 import { createSessionFollowups } from "@/pages/session/use-session-followups"
@@ -99,11 +99,6 @@ export default function Page() {
       prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
       setSearchParams({ ...searchParams, prompt: undefined })
     })
-  })
-
-  const [ui, setUi] = createStore({
-    pendingMessage: undefined as string | undefined,
-    scrollGesture: 0,
   })
 
   const workspaceKey = createMemo(() => params.dir ?? "")
@@ -294,7 +289,6 @@ export default function Page() {
   )
 
   const [store, setStore] = createStore({
-    messageId: undefined as string | undefined,
     mobileTab: "session" as "session" | "changes",
     newSessionWorktree: "main",
     deferRender: false,
@@ -343,81 +337,9 @@ export default function Page() {
     return "main"
   })
 
-  const setActiveMessage = (message: UserMessage | undefined) => {
-    messageMark = scrollMark
-    setStore("messageId", message?.id)
-  }
-
   const anchor = (id: string) => `message-${id}`
 
-  const cursor = () => {
-    const root = scrollDock.scroller()
-    if (!root) return store.messageId
-
-    const box = root.getBoundingClientRect()
-    const line = box.top + 100
-    const list = [...root.querySelectorAll<HTMLElement>("[data-message-id]")]
-      .map((el) => {
-        const id = el.dataset.messageId
-        if (!id) return
-
-        const rect = el.getBoundingClientRect()
-        return { id, top: rect.top, bottom: rect.bottom }
-      })
-      .filter((item): item is { id: string; top: number; bottom: number } => !!item)
-
-    const shown = list.filter((item) => item.bottom > box.top && item.top < box.bottom)
-    const hit = shown.find((item) => item.top <= line && item.bottom >= line)
-    if (hit) return hit.id
-
-    const near = [...shown].sort((a, b) => {
-      const da = Math.abs(a.top - line)
-      const db = Math.abs(b.top - line)
-      if (da !== db) return da - db
-      return a.top - b.top
-    })[0]
-    if (near) return near.id
-
-    return list.filter((item) => item.top <= line).at(-1)?.id ?? list[0]?.id ?? store.messageId
-  }
-
-  function navigateMessageByOffset(offset: number) {
-    const msgs = timelineVisibleUserMessages()
-    if (msgs.length === 0) return
-
-    const current = store.messageId && messageMark === scrollMark ? store.messageId : cursor()
-    const base = current ? msgs.findIndex((m) => m.id === current) : msgs.length
-    const currentIndex = base === -1 ? msgs.length : base
-    const targetIndex = currentIndex + offset
-    if (targetIndex < 0 || targetIndex > msgs.length) return
-
-    if (targetIndex === msgs.length) {
-      resumeScroll()
-      return
-    }
-
-    autoScroll.pause()
-    scrollToMessage(msgs[targetIndex], "auto")
-  }
-
   let inputRef!: HTMLDivElement
-  let scrollMark = 0
-  let messageMark = 0
-
-  const scrollGestureWindowMs = 250
-
-  const markScrollGesture = (target?: EventTarget | null) => {
-    const root = scrollDock.scroller()
-    if (!root) return
-
-    const el = target instanceof Element ? target : undefined
-    const nested = el?.closest("[data-scrollable]")
-    if (nested && nested !== root) return
-
-    setUi("scrollGesture", Date.now())
-  }
-
-  const hasScrollGesture = () => Date.now() - ui.scrollGesture < scrollGestureWindowMs
 
   useSessionRefreshEffects({
     directory: () => sdk.directory,
@@ -430,29 +352,6 @@ export default function Page() {
     syncSession: (id, options) => sync.session.sync(id, options),
     syncTodo: (id, options) => sync.session.todo(id, options),
   })
-
-  createEffect(
-    on(
-      () => timelineVisibleUserMessages().at(-1)?.id,
-      (lastId, prevLastId) => {
-        if (lastId && prevLastId && lastId > prevLastId) {
-          setStore("messageId", undefined)
-        }
-      },
-      { defer: true },
-    ),
-  )
-
-  createEffect(
-    on(
-      sessionKey,
-      () => {
-        setStore("messageId", undefined)
-        setUi("pendingMessage", undefined)
-      },
-      { defer: true },
-    ),
-  )
 
   createEffect(
     on(
@@ -512,27 +411,10 @@ export default function Page() {
     saveLabel: language.t("common.save"),
   }))
 
-  useSessionKeyboardFocus({
-    blocked: composer.blocked,
-    dialogActive: () => !!dialog.active,
-    inputRef: () => inputRef,
-    isChildSession: timelineIsChildSession,
-    markScrollGesture,
-    terminalActive: terminal.active,
-    terminalOpened: () => view().terminal.opened(),
-  })
-
   const focusInput = () => {
     if (timelineIsChildSession()) return
     inputRef?.focus()
   }
-
-  useSessionCommands({
-    navigateMessageByOffset,
-    setActiveMessage,
-    focusInput,
-    review: reviewTab,
-  })
 
   const reviewPanel = createSessionReviewPanel({
     activeFileTab,
@@ -559,10 +441,11 @@ export default function Page() {
   let fillFrame: number | undefined
 
   let fill = () => {}
+  let activeMessage!: ReturnType<typeof createSessionActiveMessage>
 
   const scrollDock = createSessionScrollDock({
     clearMessageHash: () => clearMessageHash(),
-    clearActiveMessage: () => setStore("messageId", undefined),
+    clearActiveMessage: () => activeMessage?.clearActiveMessage(),
     fill: () => fill(),
   })
   const autoScroll = scrollDock.autoScroll
@@ -570,9 +453,31 @@ export default function Page() {
   const scheduleScrollState = scrollDock.scheduleScrollState
   const setScrollRef = scrollDock.setScrollRef
 
-  const markUserScroll = () => {
-    scrollMark += 1
-  }
+  activeMessage = createSessionActiveMessage({
+    sessionKey,
+    visibleUserMessages: timelineVisibleUserMessages,
+    lastUserMessageID: () => timelineVisibleUserMessages().at(-1)?.id,
+    scroller: scrollDock.scroller,
+    resumeScroll,
+    pauseAutoScroll: autoScroll.pause,
+  })
+
+  useSessionKeyboardFocus({
+    blocked: composer.blocked,
+    dialogActive: () => !!dialog.active,
+    inputRef: () => inputRef,
+    isChildSession: timelineIsChildSession,
+    markScrollGesture: activeMessage.markScrollGesture,
+    terminalActive: terminal.active,
+    terminalOpened: () => view().terminal.opened(),
+  })
+
+  useSessionCommands({
+    navigateMessageByOffset: activeMessage.navigateMessageByOffset,
+    setActiveMessage: activeMessage.setActiveMessage,
+    focusInput,
+    review: reviewTab,
+  })
 
   const historyWindow = createSessionHistoryWindow({
     sessionID: timelineSessionID,
@@ -726,10 +631,10 @@ export default function Page() {
     historyLoading: timelineHistoryLoading,
     loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
     turnStart: historyWindow.turnStart,
-    currentMessageId: () => store.messageId,
-    pendingMessage: () => ui.pendingMessage,
-    setPendingMessage: (value) => setUi("pendingMessage", value),
-    setActiveMessage,
+    currentMessageId: activeMessage.messageId,
+    pendingMessage: activeMessage.pendingMessage,
+    setPendingMessage: activeMessage.setPendingMessage,
+    setActiveMessage: activeMessage.setActiveMessage,
     setTurnStart: historyWindow.setTurnStart,
     autoScroll,
     scroller: scrollDock.scroller,
@@ -737,6 +642,7 @@ export default function Page() {
     scheduleScrollState,
     consumePendingMessage: layout.pendingMessage.consume,
   })
+  activeMessage.setScrollToMessage(scrollToMessage)
 
   createEffect(
     on(
@@ -861,9 +767,9 @@ export default function Page() {
                     setScrollRef={setScrollRef}
                     onScheduleScrollState={scheduleScrollState}
                     onAutoScrollHandleScroll={autoScroll.handleScroll}
-                    onMarkScrollGesture={markScrollGesture}
-                    hasScrollGesture={hasScrollGesture}
-                    onUserScroll={markUserScroll}
+                    onMarkScrollGesture={activeMessage.markScrollGesture}
+                    hasScrollGesture={activeMessage.hasScrollGesture}
+                    onUserScroll={activeMessage.markUserScroll}
                     onTurnBackfillScroll={historyWindow.onScrollerScroll}
                     onAutoScrollInteraction={autoScroll.handleInteraction}
                     centered={centered()}
