@@ -86,7 +86,7 @@ export function SessionHeader() {
       <Show when={!shellSurface.settingsOpen() && centerMount()}>
         {(mount) => (
           <Portal mount={mount()}>
-            <div class="hidden md:flex max-w-full min-w-0 items-center gap-1.5 text-13-medium">
+            <div class="hidden md:flex max-w-[min(72vw,760px)] min-w-0 items-center gap-1 text-13-medium">
               <Show
                 when={params.id}
                 fallback={<div class="min-w-0 truncate text-text-strong">{homeTitle()}</div>}
@@ -96,7 +96,7 @@ export function SessionHeader() {
                     type="button"
                     variant="ghost"
                     size="small"
-                    class="max-w-[180px] min-w-0 items-center gap-1 rounded-md px-1.5 shadow-none text-text-weak hover:text-text-strong"
+                    class="h-6 max-w-[180px] min-w-0 items-center gap-1 rounded px-1 shadow-none text-13-medium text-text-weak hover:text-text-strong"
                     onClick={openProjectDirectory}
                     aria-label={
                       canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined
@@ -108,12 +108,11 @@ export function SessionHeader() {
                     }
                     disabled={!canOpenProjectDirectory()}
                   >
-                    <Icon name="folder" size="small" class="shrink-0 text-icon-weak" />
                     <span class="min-w-0 truncate">{name()}</span>
                   </Button>
                 </Show>
                 <Show when={projectDirectory()}>
-                  <span class="shrink-0 text-text-weaker">/</span>
+                  <span class="shrink-0 text-13-regular text-text-weaker">/</span>
                 </Show>
                 <Show when={activeWorktree()}>
                   {(worktree) => (
@@ -123,11 +122,11 @@ export function SessionHeader() {
                         branch={worktree().branch}
                         directory={worktree().directory}
                       />
-                      <span class="shrink-0 text-text-weaker">/</span>
+                      <span class="shrink-0 text-13-regular text-text-weaker">/</span>
                     </>
                   )}
                 </Show>
-                <span class="min-w-0 truncate text-text-strong">{sessionTitle()}</span>
+                <span class="min-w-0 truncate text-13-medium text-text-strong">{sessionTitle()}</span>
               </Show>
             </div>
           </Portal>
