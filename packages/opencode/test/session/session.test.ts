@@ -11,6 +11,8 @@ import { MessageID, PartID } from "../../src/session/schema"
 import { tmpdir } from "../fixture/fixture"
 import { Database, eq } from "../../src/storage/db"
 import { MessageTable, SessionTable } from "../../src/session/session.sql"
+import { ProjectTable } from "../../src/project/project.sql"
+import { canonicalDirectory } from "../../src/session/execution-context-store"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -100,6 +102,28 @@ describe("session.created event", () => {
     })
   })
 
+  test("findActiveWorktreeBinding does not treat path variants of the owner as worktree bindings", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const ownerVariant = `${tmp.path}${path.sep}`
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "root path variant" })
+        await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeDirectory: ownerVariant,
+          activeWorktree: null,
+        })
+
+        const found = await SessionNs.findActiveWorktreeBinding(ownerVariant)
+        expect(found).toBeUndefined()
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
   test("updateExecutionContext returns the persisted updated time", async () => {
     await using tmp = await tmpdir({ git: true })
     const worktree = path.join(tmp.path, ".worktrees", "pawwork", "feature-b")
@@ -144,6 +168,55 @@ describe("session.created event", () => {
         const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get())
         expect(row?.execution_context?.ownerDirectory).toBe(tmp.path)
         expect(row?.execution_context?.activeDirectory).toBe(tmp.path)
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
+  test("backfills legacy executionContext rows with canonical project roots", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const projectLink = path.join(tmp.path, "project-link")
+    await fs.symlink(tmp.path, projectLink)
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "legacy-canonical-root" })
+        Database.use((db) => {
+          db.update(ProjectTable).set({ worktree: projectLink }).where(eq(ProjectTable.id, session.projectID)).run()
+          db.update(SessionTable).set({ execution_context: null }).where(eq(SessionTable.id, session.id)).run()
+        })
+
+        const count = await Effect.runPromise(SessionNs.backfillExecutionContext)
+        expect(count).toBeGreaterThanOrEqual(1)
+
+        const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get())
+        expect(row?.execution_context?.ownerDirectory).toBe(canonicalDirectory(projectLink))
+        expect(row?.execution_context?.activeDirectory).toBe(canonicalDirectory(projectLink))
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
+  test("synthesizes legacy null executionContext from the project root on read", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const subdir = path.join(tmp.path, "packages", "app")
+    await fs.mkdir(subdir, { recursive: true })
+
+    await Instance.provide({
+      directory: subdir,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "legacy-read-root" })
+        Database.use((db) =>
+          db.update(SessionTable).set({ execution_context: null }).where(eq(SessionTable.id, session.id)).run(),
+        )
+
+        const loaded = await SessionNs.get(session.id)
+        expect(loaded.directory).toBe(subdir)
+        expect(loaded.executionContext.ownerDirectory).toBe(tmp.path)
+        expect(loaded.executionContext.activeDirectory).toBe(tmp.path)
 
         await SessionNs.remove(session.id)
       },

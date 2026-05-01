@@ -31,7 +31,8 @@ export function backfillExecutionContextRows(d: Tx) {
     .all()
   for (const row of rows) {
     const project = d.select().from(ProjectTable).where(eq(ProjectTable.id, row.project_id)).get()
-    const ownerDirectory = project?.vcs === "git" ? project.worktree : row.directory
+    const ownerDirectoryRaw = project?.vcs === "git" ? (project.worktree ?? row.directory) : row.directory
+    const ownerDirectory = canonicalDirectory(ownerDirectoryRaw)
     const ctx = rootContext(ownerDirectory)
     d.update(SessionTable).set({ execution_context: ctx }).where(eq(SessionTable.id, row.id)).run()
   }

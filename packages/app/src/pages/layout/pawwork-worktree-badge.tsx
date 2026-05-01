@@ -5,8 +5,8 @@ export function PawworkWorktreeBadge(props: {
   name: string
   branch?: string
   directory?: string
-  onClick?: () => void
-  ariaLabel?: string
+  onClick: () => void
+  ariaLabel: string
   disabled?: boolean
 }) {
   const title = () => [props.branch, props.directory].filter(Boolean).join(" · ") || props.name

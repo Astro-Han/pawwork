@@ -51,8 +51,14 @@ export function isDefaultTitle(title: string) {
 }
 
 type SessionRow = typeof SessionTable.$inferSelect
+type ProjectFallback = { worktree?: string | null; vcs?: string | null }
 
-export function fromRow(row: SessionRow): Info {
+function legacyExecutionContext(row: SessionRow, project?: ProjectFallback) {
+  const ownerDirectoryRaw = project?.vcs === "git" ? (project.worktree ?? row.directory) : row.directory
+  return rootContext(canonicalDirectory(ownerDirectoryRaw))
+}
+
+export function fromRow(row: SessionRow, project?: ProjectFallback): Info {
   const summary =
     row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
       ? {
@@ -81,7 +87,7 @@ export function fromRow(row: SessionRow): Info {
     revert,
     permission: row.permission ?? undefined,
     // Legacy rows may still have NULL execution_context; synthesize the root context on read.
-    executionContext: row.execution_context ?? rootContext(row.directory),
+    executionContext: row.execution_context ?? legacyExecutionContext(row, project),
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -485,7 +491,16 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
       const row = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
       if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
-      return fromRow(row)
+      const project = row.execution_context
+        ? undefined
+        : yield* db((d) =>
+            d
+              .select({ worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
+              .from(ProjectTable)
+              .where(eq(ProjectTable.id, row.project_id))
+              .get(),
+          )
+      return fromRow(row, project)
     })
 
     const children = Effect.fn("Session.children")(function* (parentID: SessionID) {
@@ -496,7 +511,19 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
           .where(and(eq(SessionTable.parent_id, parentID)))
           .all(),
       )
-      return rows.map(fromRow)
+      const ids = [...new Set(rows.filter((row) => row.execution_context === null).map((row) => row.project_id))]
+      const projects = new Map<string, ProjectFallback>()
+      if (ids.length > 0) {
+        const items = yield* db((d) =>
+          d
+            .select({ id: ProjectTable.id, worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
+            .from(ProjectTable)
+            .where(inArray(ProjectTable.id, ids))
+            .all(),
+        )
+        for (const item of items) projects.set(item.id, item)
+      }
+      return rows.map((row) => fromRow(row, projects.get(row.project_id)))
     })
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
@@ -720,7 +747,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       for (const row of rows) {
         const session = fromRow(row)
         const exec = session.executionContext
-        if (exec.activeDirectory === exec.ownerDirectory) continue
+        if (canonicalDirectory(exec.activeDirectory) === canonicalDirectory(exec.ownerDirectory)) continue
         if (
           canonicalDirectory(exec.activeDirectory) === target ||
           (exec.activeWorktree?.directory && canonicalDirectory(exec.activeWorktree.directory) === target)
@@ -905,8 +932,20 @@ export function* list(input?: {
       .limit(limit)
       .all(),
   )
+  const ids = [...new Set(rows.filter((row) => row.execution_context === null).map((row) => row.project_id))]
+  const projects = new Map<string, ProjectFallback>()
+  if (ids.length > 0) {
+    const items = Database.use((db) =>
+      db
+        .select({ id: ProjectTable.id, worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
+        .from(ProjectTable)
+        .where(inArray(ProjectTable.id, ids))
+        .all(),
+    )
+    for (const item of items) projects.set(item.id, item)
+  }
   for (const row of rows) {
-    yield fromRow(row)
+    yield fromRow(row, projects.get(row.project_id))
   }
 }
 
@@ -975,11 +1014,12 @@ export function* listGlobal(input?: {
 
   const ids = [...new Set(rows.map((row) => row.project_id))]
   const projects = new Map<string, ProjectInfo>()
+  const projectFallbacks = new Map<string, ProjectFallback>()
 
   if (ids.length > 0) {
     const items = Database.use((db) =>
       db
-        .select({ id: ProjectTable.id, name: ProjectTable.name, worktree: ProjectTable.worktree })
+        .select({ id: ProjectTable.id, name: ProjectTable.name, worktree: ProjectTable.worktree, vcs: ProjectTable.vcs })
         .from(ProjectTable)
         .where(inArray(ProjectTable.id, ids))
         .all(),
@@ -990,11 +1030,12 @@ export function* listGlobal(input?: {
         name: item.name ?? undefined,
         worktree: item.worktree,
       })
+      projectFallbacks.set(item.id, item)
     }
   }
 
   for (const row of rows) {
     const project = projects.get(row.project_id) ?? null
-    yield { ...fromRow(row), project }
+    yield { ...fromRow(row, projectFallbacks.get(row.project_id)), project }
   }
 }

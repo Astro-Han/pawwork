@@ -20,13 +20,14 @@ beforeAll(async () => {
 })
 
 function promptSession() {
-  const prompt: Prompt = [{ type: "text", content: "hello", start: 0, end: 5 }]
+  let prompt: Prompt = [{ type: "text", content: "hello", start: 0, end: 5 }]
+  let cursor = 5
   const items: (ContextItem & { key: string })[] = []
 
   return {
     ready: () => true,
     current: () => prompt,
-    cursor: () => 5,
+    cursor: () => cursor,
     dirty: () => true,
     context: {
       items: () => items,
@@ -39,8 +40,14 @@ function promptSession() {
       updateComment: () => undefined,
       replaceComments: () => undefined,
     },
-    set: () => undefined,
-    reset: () => undefined,
+    set: (next: Prompt, nextCursor?: number) => {
+      prompt = next
+      cursor = nextCursor ?? cursor
+    },
+    reset: () => {
+      prompt = DEFAULT_PROMPT
+      cursor = 0
+    },
   }
 }
 
@@ -82,5 +89,31 @@ describe("createPromptBinding", () => {
     expect(binding.cursor()).toBe(5)
     expect(binding.dirty()).toBe(true)
     expect(binding.context.items().map((item) => item.path)).toEqual(["a.ts"])
+  })
+
+  test("writes to an explicit target session", () => {
+    const current = promptSession()
+    const target = promptSession()
+    const binding = createPromptBinding(
+      () => ({ dir: "repo", id: "current" }),
+      (dir, id) => {
+        expect(dir).toBe("repo")
+        return id === "fork" ? target : current
+      },
+    )
+
+    const next: Prompt = [{ type: "text", content: "forked", start: 0, end: 6 }]
+    binding.set(next, 6, { dir: "repo", id: "fork" })
+
+    expect(target.current()).toEqual(next)
+    expect(target.cursor()).toBe(6)
+    expect(current.current()).toEqual([{ type: "text", content: "hello", start: 0, end: 5 }])
+    expect(binding.current()).toEqual([{ type: "text", content: "hello", start: 0, end: 5 }])
+
+    binding.reset({ dir: "repo", id: "fork" })
+
+    expect(target.current()).toEqual(DEFAULT_PROMPT)
+    expect(target.cursor()).toBe(0)
+    expect(current.current()).toEqual([{ type: "text", content: "hello", start: 0, end: 5 }])
   })
 })
