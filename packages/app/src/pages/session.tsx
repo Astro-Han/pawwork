@@ -79,6 +79,7 @@ import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile }
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
+import { calculateSessionScrollState, syncComposerDockHeight } from "@/pages/session/use-session-scroll-dock"
 import { Identifier } from "@/utils/id"
 import { diffs as list } from "@/utils/diffs"
 import { Persist, persisted } from "@/utils/persist"
@@ -1487,17 +1488,15 @@ export default function Page() {
   let scrollStateTarget: HTMLDivElement | undefined
   let fillFrame: number | undefined
 
-  const jumpThreshold = (el: HTMLDivElement) => Math.max(400, el.clientHeight)
-
   const updateScrollState = (el: HTMLDivElement) => {
-    const max = el.scrollHeight - el.clientHeight
-    const distance = max - el.scrollTop
-    const overflow = max > 1
-    const bottom = !overflow || distance <= 2
-    const jump = overflow && distance > jumpThreshold(el)
+    const next = calculateSessionScrollState({
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    })
 
-    if (ui.scroll.overflow === overflow && ui.scroll.bottom === bottom && ui.scroll.jump === jump) return
-    setUi("scroll", { overflow, bottom, jump })
+    if (ui.scroll.overflow === next.overflow && ui.scroll.bottom === next.bottom && ui.scroll.jump === next.jump) return
+    setUi("scroll", next)
   }
 
   const scheduleScrollState = (el: HTMLDivElement) => {
@@ -1899,23 +1898,16 @@ export default function Page() {
     () => promptDock,
     ({ height }) => {
       const next = Math.ceil(height)
-      const el = scroller
-
-      document.documentElement.style.setProperty("--composer-dock-height", `${next}px`)
-
-      if (next === dockHeight) return
-
-      const delta = next - dockHeight
-      const stick = el
-        ? !autoScroll.userScrolled() || el.scrollHeight - el.clientHeight - el.scrollTop < 10 + Math.max(0, delta)
-        : false
-
-      dockHeight = next
-
-      if (stick) autoScroll.forceScrollToBottom()
-
-      if (el) scheduleScrollState(el)
-      fill()
+      dockHeight = syncComposerDockHeight({
+        el: scroller,
+        previousDockHeight: dockHeight,
+        nextDockHeight: next,
+        userScrolled: autoScroll.userScrolled(),
+        setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
+        forceScrollToBottom: autoScroll.forceScrollToBottom,
+        scheduleScrollState,
+        fill,
+      })
     },
   )
 
@@ -2030,10 +2022,16 @@ export default function Page() {
         if (!el) return
         const next = Math.ceil(el.getBoundingClientRect().height)
         if (next <= 0) return
-        if (next !== dockHeight) {
-          dockHeight = next
-          document.documentElement.style.setProperty("--composer-dock-height", `${next}px`)
-        }
+        dockHeight = syncComposerDockHeight({
+          el: scroller,
+          previousDockHeight: dockHeight,
+          nextDockHeight: next,
+          userScrolled: autoScroll.userScrolled(),
+          setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
+          forceScrollToBottom: autoScroll.forceScrollToBottom,
+          scheduleScrollState,
+          fill,
+        })
       }}
     />
   )
