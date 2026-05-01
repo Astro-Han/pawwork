@@ -903,11 +903,19 @@ test("todo dock restarts completing delay after same-count terminal session swit
 
 test("e2e composer dock keeps latest turn visible when dock height changes", async ({ page, project, assistant }) => {
   const title = `e2e composer scroll dock ${Date.now()}`
-  const longReply = Array.from(
-    { length: 24 },
-    (_, index) =>
-      `Paragraph ${index + 1}. This response creates enough visible timeline height for composer dock scroll testing.`,
-  ).join("\n\n")
+  const longReply = [
+    "Here's the smoke test message counting from 1 to 100:",
+    "",
+    "```",
+    ...Array.from({ length: 100 }, (_, index) => `${index + 1}`),
+    "```",
+    "",
+    "Smoke test complete! This output demonstrates:",
+    "",
+    "- 100 lines of sequential numeric output",
+    "- No files were created or modified",
+    "- Each number appears on its own line as requested",
+  ].join("\n")
 
   await project.open()
   await withDockSession(
@@ -934,16 +942,29 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
           return null
         }
         viewport.scrollTop = viewport.scrollHeight
+        const walker = document.createTreeWalker(last, NodeFilter.SHOW_TEXT)
+        let tail: Text | null = null
+        while (walker.nextNode()) {
+          const node = walker.currentNode
+          if (node.textContent?.includes("Each number appears on its own line as requested")) tail = node as Text
+        }
+        if (!tail) return null
+        const range = document.createRange()
+        range.selectNodeContents(tail)
         const composerTop = composer.getBoundingClientRect().top
         const lastBottom = last.getBoundingClientRect().bottom
+        const tailBottom = range.getBoundingClientRect().bottom
+        range.detach()
         return {
           scrollTop: viewport.scrollTop,
-          distance: composerTop - lastBottom,
+          messageDistance: composerTop - lastBottom,
+          tailDistance: composerTop - tailBottom,
         }
       })
 
       expect(metrics).not.toBeNull()
-      expect(metrics!.distance).toBeGreaterThanOrEqual(0)
+      expect(metrics!.messageDistance).toBeGreaterThanOrEqual(0)
+      expect(metrics!.tailDistance).toBeGreaterThanOrEqual(0)
 
       const before = metrics!.scrollTop
       const viewport = page.locator('[data-component="scroll-viewport"]').first()

@@ -704,7 +704,11 @@ export function MessageTimeline(props: {
             "--sticky-accordion-top": "0px",
           }}
         >
-          <div ref={props.setContentRef} class="min-w-0 w-full">
+          <div
+            ref={props.setContentRef}
+            class="min-w-0 w-full"
+            style={{ "padding-bottom": "calc(var(--composer-dock-height, 0px) + 16px)" }}
+          >
             <div
               role="log"
               data-slot="session-turn-list"

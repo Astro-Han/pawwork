@@ -122,7 +122,6 @@ export function createSessionScrollDock(input: {
     scroller = el
     autoScroll.scrollRef(el)
     if (!el) return
-    el.style.paddingBottom = "calc(var(--composer-dock-height, 0px) + 16px)"
     scheduleScrollState(el)
     input.fill()
   }
