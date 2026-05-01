@@ -140,6 +140,20 @@ describe("Worktree", () => {
       await Bun.sleep(100)
       await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
     })
+
+    test("refuses to create when .gitignore has local changes", async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Bun.write(path.join(tmp.path, ".gitignore"), "node_modules\n")
+      await $`git add .gitignore && git commit -m initial-gitignore`.cwd(tmp.path).quiet()
+      await Bun.write(path.join(tmp.path, ".gitignore"), "node_modules\ndist\n")
+
+      await expect(withInstance(tmp.path, () => Worktree.create({ name: "blocked" }))).rejects.toThrow(
+        "WorktreeGitignoreGuardError",
+      )
+
+      const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
+      expect(list).not.toContain("pawwork/blocked")
+    })
   })
 
   describe("createFromInfo", () => {
