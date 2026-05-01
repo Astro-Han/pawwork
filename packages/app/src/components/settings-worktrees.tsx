@@ -25,12 +25,15 @@ export const SettingsWorktrees: Component = () => {
   const [data, { refetch }] = createResource(
     () => projectRoots().join("\0"),
     async () => {
-      const rows = await Promise.all(
+      const results = await Promise.allSettled(
         projectRoots().map(async (ownerDirectory) => {
           const res = await sdk.client.worktree.list({ directory: ownerDirectory })
           return (res.data ?? []).map((worktree) => ({ ...worktree, ownerDirectory }) as WorktreeInfo)
         }),
       )
+      const rows = results
+        .filter((result): result is PromiseFulfilledResult<WorktreeInfo[]> => result.status === "fulfilled")
+        .map((result) => result.value)
       const byDirectory = new Map<string, WorktreeInfo>()
       for (const row of rows.flat()) byDirectory.set(row.directory, row)
       return Array.from(byDirectory.values())
