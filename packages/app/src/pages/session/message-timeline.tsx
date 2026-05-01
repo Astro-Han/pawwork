@@ -707,7 +707,10 @@ export function MessageTimeline(props: {
           <div
             ref={props.setContentRef}
             class="min-w-0 w-full"
-            style={{ "padding-bottom": "calc(var(--composer-dock-height, 0px) + 16px)" }}
+            style={{
+              "padding-top": "16px",
+              "padding-bottom": "calc(var(--composer-dock-height, 0px) + 16px)",
+            }}
           >
             <div
               role="log"
