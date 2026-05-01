@@ -148,22 +148,18 @@ export const EnterWorktreeTool = Tool.define(
             )
           }
           const branch = yield* Effect.promise(() => currentBranch(canonical))
-          const info: Worktree.Info = {
-            name: path.basename(canonical),
-            directory: canonical,
-            branch,
-          }
-          yield* applyEnter(ctx.sessionID, info, "existing")
+          const info = yield* Effect.promise(() => Worktree.registerExistingByPath(canonical))
           return successResult({
             activeDirectory: canonical,
             slug: info.name,
-            branch,
+            branch: info.branch || branch,
             state: "reused",
           })
         }
 
         // name= or no-arg branch
-        const planned = yield* Effect.promise(() => Worktree.makeWorktreeInfo(params.name))
+        const existing = params.name ? yield* Effect.promise(() => Worktree.lookupBySlug(params.name!)) : undefined
+        const planned = existing ?? (yield* Effect.promise(() => Worktree.makeWorktreeInfo(params.name)))
         if (exec.activeDirectory === planned.directory) {
           return successResult({
             activeDirectory: planned.directory,
@@ -186,7 +182,7 @@ export const EnterWorktreeTool = Tool.define(
         if (!exists) {
           yield* Effect.promise(() => Worktree.createFromInfo(planned))
         }
-        yield* applyEnter(ctx.sessionID, planned, "created")
+        yield* applyEnter(ctx.sessionID, planned, planned.source)
         return successResult({
           activeDirectory: planned.directory,
           slug: planned.name,

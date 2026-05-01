@@ -48,6 +48,12 @@ export namespace Project {
     })
   export type Info = z.infer<typeof Info>
 
+  function sandboxDirectory(
+    entry: string | { directory: string; name?: string; branch?: string; source?: "created" | "existing" },
+  ) {
+    return typeof entry === "string" ? entry : entry.directory
+  }
+
   export const Event = {
     Updated: BusEvent.define("project.updated", Info),
   }
@@ -70,7 +76,7 @@ export namespace Project {
         updated: row.time_updated,
         initialized: row.time_initialized ?? undefined,
       },
-      sandboxes: row.sandboxes,
+      sandboxes: row.sandboxes.map(sandboxDirectory),
       commands: row.commands ?? undefined,
     }
   }
@@ -248,6 +254,7 @@ export namespace Project {
 
         // Phase 2: upsert
         const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
+        const existingSandboxes = row ? [...row.sandboxes] : []
         const existing = row
           ? fromRow(row)
           : {
@@ -267,17 +274,21 @@ export namespace Project {
           vcs: data.vcs,
           time: { ...existing.time, updated: Date.now() },
         }
-        if (data.sandbox !== result.worktree && !result.sandboxes.includes(data.sandbox))
-          result.sandboxes.push(data.sandbox)
-        result.sandboxes = yield* Effect.forEach(
-          result.sandboxes,
-          (s) =>
-            fs.exists(s).pipe(
+        if (
+          data.sandbox !== result.worktree &&
+          !existingSandboxes.some((entry) => sandboxDirectory(entry) === data.sandbox)
+        )
+          existingSandboxes.push(data.sandbox)
+        const activeSandboxes = yield* Effect.forEach(
+          existingSandboxes,
+          (entry) =>
+            fs.exists(sandboxDirectory(entry)).pipe(
               Effect.orDie,
-              Effect.map((exists) => (exists ? s : undefined)),
+              Effect.map((exists) => (exists ? entry : undefined)),
             ),
           { concurrency: "unbounded" },
-        ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
+        ).pipe(Effect.map((arr) => arr.filter((x): x is (typeof existingSandboxes)[number] => x !== undefined)))
+        result.sandboxes = activeSandboxes.map(sandboxDirectory)
 
         yield* db((d) =>
           d
@@ -292,7 +303,7 @@ export namespace Project {
               time_created: result.time.created,
               time_updated: result.time.updated,
               time_initialized: result.time.initialized,
-              sandboxes: result.sandboxes,
+              sandboxes: activeSandboxes,
               commands: result.commands,
             })
             .onConflictDoUpdate({
@@ -305,7 +316,7 @@ export namespace Project {
                 icon_color: result.icon?.color,
                 time_updated: result.time.updated,
                 time_initialized: result.time.initialized,
-                sandboxes: result.sandboxes,
+                sandboxes: activeSandboxes,
                 commands: result.commands,
               },
             })
@@ -414,7 +425,7 @@ export namespace Project {
         const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
         const sboxes = [...row.sandboxes]
-        if (!sboxes.includes(directory)) sboxes.push(directory)
+        if (!sboxes.some((entry) => sandboxDirectory(entry) === directory)) sboxes.push(directory)
         const result = yield* db((d) =>
           d
             .update(ProjectTable)
@@ -430,7 +441,7 @@ export namespace Project {
       const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectID, directory: string) {
         const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
         if (!row) throw new Error(`Project not found: ${id}`)
-        const sboxes = row.sandboxes.filter((s) => s !== directory)
+        const sboxes = row.sandboxes.filter((entry) => sandboxDirectory(entry) !== directory)
         const result = yield* db((d) =>
           d
             .update(ProjectTable)

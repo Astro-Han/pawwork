@@ -160,6 +160,34 @@ describe("Worktree", () => {
     })
   })
 
+  describe("registry source", () => {
+    test("created worktrees are slug-addressable, existing worktrees are path-addressable only", async () => {
+      await using tmp = await tmpdir({ git: true })
+      const created = await withInstance(tmp.path, () => Worktree.create({ name: "feature-a" }))
+      await Bun.sleep(1000)
+
+      const bySlug = await withInstance(tmp.path, () => Worktree.lookupBySlug("feature-a"))
+      expect(bySlug?.directory).toBe(created.directory)
+      expect(bySlug?.source).toBe("created")
+
+      const external = path.join(tmp.path, "..", path.basename(tmp.path) + "-external")
+      await $`git worktree add ${external} -b external-${Date.now()}`.cwd(tmp.path).quiet()
+
+      const registered = await withInstance(tmp.path, () => Worktree.registerExistingByPath(external))
+      expect(registered.source).toBe("existing")
+      expect(registered.name).toBe(path.basename(external))
+
+      const byDirectory = await withInstance(tmp.path, () => Worktree.lookupByDirectory(external))
+      expect(byDirectory?.source).toBe("existing")
+
+      const notBySlug = await withInstance(tmp.path, () => Worktree.lookupBySlug(path.basename(external)))
+      expect(notBySlug).toBeUndefined()
+
+      await withInstance(tmp.path, () => Worktree.remove({ directory: created.directory }))
+      await withInstance(tmp.path, () => Worktree.remove({ directory: external }))
+    })
+  })
+
   describe("remove edge cases", () => {
     test("remove non-existent directory succeeds silently", async () => {
       await using tmp = await tmpdir({ git: true })

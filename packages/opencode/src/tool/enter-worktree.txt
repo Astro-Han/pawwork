@@ -3,8 +3,8 @@ Bind this session to a git worktree. Once entered, every subsequent tool call re
 Use only when the user explicitly asks for worktree usage, or project instructions require it.
 
 Modes:
-- EnterWorktree() with no arguments creates a new worktree on a fresh branch from project HEAD; the slug is auto-generated.
-- EnterWorktree(name="my-feature") creates or reuses a managed worktree of that name on branch opencode/my-feature.
+- EnterWorktree() with no arguments creates a new worktree under .worktrees/pawwork/<auto-slug> on a fresh branch from project HEAD; the slug is auto-generated.
+- EnterWorktree(name="my-feature") creates or reuses a managed worktree of that name on branch pawwork/my-feature.
 - EnterWorktree(path="/abs/path/to/existing/worktree") enters a worktree elsewhere on disk that is part of the same git repository as the project.
 
 After entering, run further tools normally; their working directory is now the worktree. Call ExitWorktree to return to the project root.

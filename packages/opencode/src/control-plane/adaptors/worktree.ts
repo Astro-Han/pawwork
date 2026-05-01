@@ -26,6 +26,7 @@ export const WorktreeAdaptor: Adaptor = {
       name: config.name,
       directory: config.directory,
       branch: config.branch,
+      source: "created",
     })
   },
   async remove(info) {
