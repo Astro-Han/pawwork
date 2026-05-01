@@ -998,6 +998,7 @@ export const dict = {
   "session.todo.progress": "第 {{current}} 项任务 / 共 {{total}} 项",
   "session.todo.cancelled": "已取消",
   "session.question.progress": "{{current}}/{{total}} 个问题",
+  "session.question.skipCurrent": "跳过此题",
   "session.header.open.finder": "访达",
   "session.header.open.fileExplorer": "文件资源管理器",
   "session.header.open.fileManager": "文件管理器",

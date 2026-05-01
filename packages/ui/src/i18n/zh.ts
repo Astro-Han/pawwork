@@ -147,6 +147,7 @@ export const dict = {
 
   "ui.question.subtitle.answered": "{{count}} 已回答",
   "ui.question.answer.none": "(无答案)",
+  "ui.question.answer.skipped": "用户已跳过",
   "ui.question.review.notAnswered": "(未回答)",
   "ui.question.multiHint": "多选",
   "ui.question.singleHint": "单选",

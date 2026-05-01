@@ -160,6 +160,7 @@ export const dict: Record<string, string> = {
 
   "ui.question.subtitle.answered": "{{count}} answered",
   "ui.question.answer.none": "(no answer)",
+  "ui.question.answer.skipped": "Skipped by user",
   "ui.question.review.notAnswered": "(not answered)",
   "ui.question.multiHint": "Pick multiple",
   "ui.question.singleHint": "Pick 1",

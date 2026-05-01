@@ -50,6 +50,25 @@ const defaultQuestions = [
   },
 ]
 
+const multiQuestions = [
+  {
+    header: "Q1",
+    question: "Pick first option",
+    options: [
+      { label: "First A", description: "Answer first" },
+      { label: "First B", description: "Alternate first" },
+    ],
+  },
+  {
+    header: "Q2",
+    question: "Pick second option",
+    options: [
+      { label: "Second A", description: "Answer second" },
+      { label: "Second B", description: "Alternate second" },
+    ],
+  },
+]
+
 test.setTimeout(120_000)
 
 async function withDockSeed<T>(sdk: Sdk, sessionID: string, fn: () => Promise<T>) {
@@ -353,6 +372,36 @@ test("blocked question flow unblocks after submit", async ({ page, llm, project 
         const dock = page.locator(questionDockSelector)
         await expectQuestionBlocked(page)
 
+        await dock.locator('[data-slot="question-option"]').first().click()
+        await dock.getByRole("button", { name: /submit/i }).click()
+
+        await expectQuestionOpen(page)
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("blocked question flow supports skipping one question before submit", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock question skip",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+
+        await llm.toolMatch(inputMatch({ questions: multiQuestions }), "question", { questions: multiQuestions })
+        await seedSessionQuestion(project.sdk, {
+          sessionID: session.id,
+          questions: multiQuestions,
+        })
+
+        const dock = page.locator(questionDockSelector)
+        await expectQuestionBlocked(page)
+
+        await dock.getByRole("button", { name: /skip question/i }).click()
+        await expect(dock.locator('[data-slot="question-header-seq"]')).toContainText("2 of 2")
         await dock.locator('[data-slot="question-option"]').first().click()
         await dock.getByRole("button", { name: /submit/i }).click()
 
