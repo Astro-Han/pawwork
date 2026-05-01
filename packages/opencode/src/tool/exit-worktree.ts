@@ -37,6 +37,7 @@ export const ExitWorktreeTool = Tool.define(
           previousSlug?: string
           previousBranch?: string
           previousDirectory?: string
+          previousSource?: "created" | "existing"
         }
         if (exec.activeDirectory === exec.ownerDirectory && exec.activeWorktree === undefined) {
           const metadata: ExitMetadata = { activeDirectory: exec.ownerDirectory }
@@ -58,6 +59,7 @@ export const ExitWorktreeTool = Tool.define(
           previousSlug: previous?.name,
           previousBranch: previous?.branch,
           previousDirectory: previous?.directory,
+          previousSource: previous?.source,
         }
         return {
           title: "Exited worktree",

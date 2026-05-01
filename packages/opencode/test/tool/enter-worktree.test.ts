@@ -93,6 +93,7 @@ test("enter-worktree and exit-worktree update the session execution context", as
             expect(exitResult.metadata.previousSlug).toBe("tool-work")
             expect(exitResult.metadata.previousBranch).toBe("pawwork/tool-work")
             expect(exitResult.metadata.previousDirectory).toBe(activeDirectory)
+            expect(exitResult.metadata.previousSource).toBe("created")
 
             const exited = yield* sessions.get(session.id)
             expect(exited.executionContext.activeDirectory).toBe(tmp.path)

@@ -141,7 +141,7 @@ export function Titlebar() {
       <div
         id="opencode-titlebar-left"
         data-shell-slot="left-portal"
-        class="@container pointer-events-auto absolute inset-y-0 z-10 flex min-w-0 items-center gap-3 overflow-hidden"
+        class="@container pointer-events-none absolute inset-y-0 z-10 flex min-w-0 items-center gap-3 overflow-hidden"
         style={leftPortalStyle()}
       />
 

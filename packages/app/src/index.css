@@ -129,6 +129,10 @@
     padding-inline: 12px;
   }
 
+  [data-component="titlebar-shell"] [data-shell-slot="left-portal"] > * {
+    pointer-events: auto;
+  }
+
   [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
     :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"] {
     border-radius: 10px;
