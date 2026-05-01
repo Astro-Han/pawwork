@@ -36,6 +36,7 @@ import {
   SubagentRunGuardViolation,
   lifecycleFieldsChanged,
 } from "./subagent-run-context"
+import { SessionExecutionContext, rootContext } from "./execution-context"
 
 const log = Log.create({ service: "session" })
 
@@ -82,6 +83,9 @@ export function fromRow(row: SessionRow): Info {
     share,
     revert,
     permission: row.permission ?? undefined,
+    // Backfill at boot guarantees this is non-null on every load (see backfillExecutionContext).
+    // Defensive fallback for the brief window during boot before backfill runs.
+    executionContext: row.execution_context ?? rootContext(row.directory),
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -101,6 +105,7 @@ export function toRow(info: Info) {
     subagent_type: info.subagentType,
     slug: info.slug,
     directory: info.directory,
+    execution_context: info.executionContext,
     title: info.title,
     skill: info.skill,
     version: info.version,
@@ -169,6 +174,7 @@ export const Info = z
         diff: z.string().optional(),
       })
       .optional(),
+    executionContext: SessionExecutionContext,
   })
   .meta({
     ref: "Session",
@@ -443,6 +449,11 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         title: input.title ?? createDefaultTitle(!!input.parentID),
         skill: input.skill,
         permission: input.permission,
+        // ownerDirectory is the directory the user opened to create the session.
+        // session.directory is what the Instance was scoped to at session creation,
+        // which is the user-opened path (Project.worktree happens to coincide for
+        // git project roots; non-git paths and git subdirectories use this).
+        executionContext: rootContext(input.directory),
         time: {
           created: Date.now(),
           updated: Date.now(),
@@ -769,6 +780,28 @@ export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
   Layer.provide(Bus.layer),
   Layer.provide(Storage.defaultLayer),
 )
+
+/**
+ * One-shot backfill that fills `execution_context` for every legacy row whose value is NULL.
+ * Idempotent (subsequent runs find no NULL rows) and safe to call any number of times. Sources
+ * `ownerDirectory` from the existing `directory` column, which captures the directory the user
+ * opened at session creation time. Defensive fallback: rows somehow missing both still pass through
+ * `fromRow` synthesis on read.
+ */
+export const backfillExecutionContext = Effect.sync(() => {
+  Database.use((d) => {
+    const rows = d
+      .select({ id: SessionTable.id, directory: SessionTable.directory })
+      .from(SessionTable)
+      .where(isNull(SessionTable.execution_context))
+      .all()
+    for (const row of rows) {
+      const ctx = rootContext(row.directory)
+      d.update(SessionTable).set({ execution_context: ctx }).where(eq(SessionTable.id, row.id)).run()
+    }
+    return rows.length
+  })
+})
 
 const { runPromise } = makeRuntime(Service, defaultLayer)
 
