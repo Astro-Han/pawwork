@@ -34,7 +34,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
       return globalSDK.client.worktree
         .list({ directory })
         .then((x) => x.data ?? [])
-        .catch(() => [] as string[])
+        .catch(() => [])
     },
   )
   const workspaces = createMemo(() => {
@@ -132,4 +132,3 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
     </Popover>
   )
 }
-

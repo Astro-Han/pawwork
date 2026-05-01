@@ -1,15 +1,23 @@
 import { effectiveWorkspaceOrder, workspaceKey } from "@/pages/layout/helpers"
 
+export type WorkspaceEntry = string | { directory: string; branch?: string }
+
 export type WorkspaceProject = {
   worktree: string
-  sandboxes?: string[]
+  sandboxes?: WorkspaceEntry[]
+}
+
+function workspacePath(entry: WorkspaceEntry) {
+  return typeof entry === "string" ? entry : entry.directory
 }
 
 export function findWorkspaceProject(projects: WorkspaceProject[], directory?: string) {
   if (!directory) return
   const key = workspaceKey(directory)
   return projects.find(
-    (item) => workspaceKey(item.worktree) === key || item.sandboxes?.some((sandbox) => workspaceKey(sandbox) === key),
+    (item) =>
+      workspaceKey(item.worktree) === key ||
+      item.sandboxes?.some((sandbox) => workspaceKey(workspacePath(sandbox)) === key),
   )
 }
 
@@ -21,7 +29,7 @@ export type WorkspaceChoice = {
 export function workspaceChipChoices(input: {
   directory?: string
   projects: WorkspaceProject[]
-  listed?: string[]
+  listed?: WorkspaceEntry[]
 }): WorkspaceChoice[] {
   const directory = input.directory
   if (!directory) return []
@@ -30,11 +38,12 @@ export function workspaceChipChoices(input: {
   const seen = new Set<string>()
   const choices: WorkspaceChoice[] = []
 
-  const append = (value: string) => {
-    const key = workspaceKey(value)
+  const append = (value: WorkspaceEntry) => {
+    const path = workspacePath(value)
+    const key = workspaceKey(path)
     if (seen.has(key)) return
     seen.add(key)
-    choices.push({ path: value })
+    choices.push({ path, branch: typeof value === "string" ? undefined : value.branch })
   }
 
   if (!current) append(directory)
@@ -42,7 +51,11 @@ export function workspaceChipChoices(input: {
   for (const project of input.projects) {
     const ordered =
       current && workspaceKey(project.worktree) === workspaceKey(current.worktree)
-        ? effectiveWorkspaceOrder(project.worktree, [project.worktree, ...(project.sandboxes ?? []), ...(input.listed ?? [])])
+        ? effectiveWorkspaceOrder(project.worktree, [
+            project.worktree,
+            ...(project.sandboxes ?? []).map(workspacePath),
+            ...(input.listed ?? []).map(workspacePath),
+          ])
         : [project.worktree, ...(project.sandboxes ?? [])]
 
     for (const item of ordered) append(item)

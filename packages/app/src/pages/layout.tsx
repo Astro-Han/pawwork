@@ -1311,8 +1311,8 @@ export default function Layout(props: ParentProps) {
       const listed = await globalSDK.client.worktree
         .list({ directory: root })
         .then((x) => x.data ?? [])
-        .catch(() => [] as string[])
-      dirs = effectiveWorkspaceOrder(root, [root, ...listed], store.workspaceOrder[root])
+        .catch(() => [])
+      dirs = effectiveWorkspaceOrder(root, [root, ...listed.map((item) => item.directory)], store.workspaceOrder[root])
       return canOpen(target)
     }
     const openSession = async (target: { directory: string; id: string }) => {

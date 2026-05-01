@@ -7,6 +7,13 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { SettingsList } from "./settings-list"
 
+type WorktreeInfo = {
+  name: string
+  branch: string
+  directory: string
+  source?: "created" | "existing"
+}
+
 function basename(p: string): string {
   const trimmed = p.replace(/[/\\]+$/, "")
   const last = trimmed.split(/[/\\]/).pop()
@@ -28,21 +35,21 @@ export const SettingsWorktrees: Component = () => {
 
   const [data, { refetch }] = createResource(async () => {
     const res = await sdk.client.worktree.list()
-    return (res.data ?? []) as string[]
+    return (res.data ?? []) as WorktreeInfo[]
   })
 
   // Sessions whose activeDirectory points at a worktree path block its deletion.
-  const boundDirectories = (): Set<string> => {
-    const set = new Set<string>()
+  const boundSessions = (): Map<string, string> => {
+    const map = new Map<string, string>()
     const sessions = sync.data.session ?? []
     for (const s of sessions) {
       const exec = s.executionContext
       if (!exec) continue
       if (exec.activeDirectory && exec.activeDirectory !== exec.ownerDirectory) {
-        set.add(exec.activeDirectory)
+        map.set(exec.activeDirectory, s.title)
       }
     }
-    return set
+    return map
   }
 
   const [confirming, setConfirming] = createSignal<string | undefined>(undefined)
@@ -92,21 +99,24 @@ export const SettingsWorktrees: Component = () => {
               data-component="settings-worktrees-list"
             >
               <For each={data() ?? []}>
-                {(directory) => {
-                  const name = basename(directory)
-                  const blocked = () => boundDirectories().has(directory)
-                  const isConfirming = () => confirming() === directory
-                  const isDeleting = () => deleting() === directory
+                {(worktree) => {
+                  const directory = () => worktree.directory
+                  const name = () => worktree.name || basename(worktree.directory)
+                  const branch = () => worktree.branch || "-"
+                  const blocker = () => boundSessions().get(worktree.directory)
+                  const blocked = () => !!blocker()
+                  const isConfirming = () => confirming() === worktree.directory
+                  const isDeleting = () => deleting() === worktree.directory
 
                   return (
                     <li class="flex items-center gap-3 px-3 py-2.5">
                       <Icon name="worktree" size="small" class="text-text-weak shrink-0" />
                       <div class="flex flex-col min-w-0 flex-1">
-                        <span class="text-13-medium text-text-strong truncate" title={directory}>
-                          {name}
+                        <span class="text-13-medium text-text-strong truncate" title={directory()}>
+                          {name()}
                         </span>
-                        <span class="text-13-regular text-text-weak truncate" title={directory}>
-                          {directory}
+                        <span class="text-13-regular text-text-weak truncate" title={directory()}>
+                          {branch()} · {worktree.source ?? "created"} · {directory()}
                         </span>
                       </div>
                       <Show
@@ -117,9 +127,13 @@ export const SettingsWorktrees: Component = () => {
                             size="small"
                             disabled={blocked() || isDeleting()}
                             title={
-                              blocked() ? language.t("settings.worktrees.deleteDisabled.tooltip") : undefined
+                              blocked()
+                                ? language.t("settings.worktrees.deleteDisabled.tooltip", {
+                                    session: blocker() ?? "",
+                                  })
+                                : undefined
                             }
-                            onClick={() => setConfirming(directory)}
+                            onClick={() => setConfirming(directory())}
                           >
                             {language.t("settings.worktrees.delete")}
                           </Button>
@@ -127,7 +141,7 @@ export const SettingsWorktrees: Component = () => {
                       >
                         <div class="flex items-center gap-1">
                           <span class="text-13-regular text-text-weak">
-                            {language.t("settings.worktrees.confirmDelete.body", { name })}
+                            {language.t("settings.worktrees.confirmDelete.body", { name: name() })}
                           </span>
                           <Button
                             variant="ghost"
@@ -141,7 +155,7 @@ export const SettingsWorktrees: Component = () => {
                             variant="primary"
                             size="small"
                             disabled={isDeleting()}
-                            onClick={() => handleDelete(directory)}
+                            onClick={() => handleDelete(directory())}
                           >
                             {language.t("settings.worktrees.confirmDelete.confirmLabel")}
                           </Button>

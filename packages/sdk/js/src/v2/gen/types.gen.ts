@@ -86,7 +86,7 @@ export type EventLspUpdated = {
 export type EventLspServerInstallFailed = {
   type: "lsp.server.install.failed"
   properties: {
-    add: string[]
+    add: Array<string>
     dir: string
     error: string
   }
@@ -305,14 +305,19 @@ export type QuestionInfo = {
   custom?: boolean
 }
 
+export type QuestionTool = {
+  messageID: string
+  callID: string
+}
+
 export type QuestionRequest = {
   id: string
   sessionID: string
+  /**
+   * Questions to ask
+   */
   questions: Array<QuestionInfo>
-  tool?: {
-    messageID: string
-    callID: string
-  }
+  tool?: QuestionTool
 }
 
 export type EventQuestionAsked = {
@@ -322,21 +327,25 @@ export type EventQuestionAsked = {
 
 export type QuestionAnswer = Array<string>
 
+export type QuestionReplied = {
+  sessionID: string
+  requestID: string
+  answers: Array<QuestionAnswer>
+}
+
 export type EventQuestionReplied = {
   type: "question.replied"
-  properties: {
-    sessionID: string
-    requestID: string
-    answers: Array<QuestionAnswer>
-  }
+  properties: QuestionReplied
+}
+
+export type QuestionRejected = {
+  sessionID: string
+  requestID: string
 }
 
 export type EventQuestionRejected = {
   type: "question.rejected"
-  properties: {
-    sessionID: string
-    requestID: string
-  }
+  properties: QuestionRejected
 }
 
 export type Todo = {
@@ -538,10 +547,12 @@ export type AssistantMessage = {
   providerID: string
   mode: string
   agent: string
-  path: {
-    cwd: string
-    root: string
-  }
+  path:
+    | {
+        cwd: string
+        root: string
+      }
+    | string
   summary?: boolean
   cost: number
   tokens: {
@@ -607,6 +618,64 @@ export type SubtaskPart = {
     modelID: string
   }
   command?: string
+  tool_call_id?: string
+  parent_session_id?: string
+  parent_message_id?: string
+  subagent_session_id?: string
+  status?: "running" | "completed" | "completed_empty" | "failed" | "canceled_by_user"
+  started_at?: number
+  updated_at?: number
+  ended_at?: number
+  consumed_at?: number
+  recent_events?: Array<
+    | {
+        type: "started"
+        at: number
+      }
+    | {
+        type: "tool_started"
+        tool: string
+        label: string
+        at: number
+      }
+    | {
+        type: "tool_completed"
+        tool: string
+        at: number
+      }
+    | {
+        type: "model_wait_started"
+        at: number
+      }
+    | {
+        type: "completed"
+        at: number
+      }
+    | {
+        type: "completed_empty"
+        at: number
+      }
+    | {
+        type: "canceled_by_user"
+        at: number
+      }
+    | {
+        type: "failed"
+        kind: string
+        at: number
+      }
+    | {
+        type: "consumed"
+        at: number
+      }
+  >
+  result_summary?: string
+  result_text?: string
+  partial_result?: string | null
+  error?: {
+    kind: string
+    message: string
+  }
 }
 
 export type ReasoningPart = {
@@ -881,6 +950,8 @@ export type Session = {
   workspaceID?: string
   directory: string
   parentID?: string
+  createdByAgentTool?: boolean
+  subagentType?: string | null
   skill?: string
   summary?: {
     additions: number
@@ -1054,6 +1125,8 @@ export type SyncEventSessionUpdated = {
       workspaceID: string | null
       directory: string | null
       parentID: string | null
+      createdByAgentTool: boolean | null
+      subagentType: string | null | null
       skill: string | null
       summary: {
         additions: number
@@ -1078,6 +1151,17 @@ export type SyncEventSessionUpdated = {
         partID?: string
         snapshot?: string
         diff?: string
+      } | null
+      executionContext: {
+        ownerDirectory: string
+        activeDirectory: string
+        activeWorktree?: {
+          directory: string
+          name: string
+          branch?: string
+          source: "created" | "existing"
+        }
+        lastChangedAt: number
       } | null
     }
   }
@@ -1151,15 +1235,14 @@ export type PermissionRuleConfig = PermissionActionConfig | PermissionObjectConf
 
 export type PermissionConfig =
   | PermissionActionConfig
-  | ({
-      [key: string]: PermissionRuleConfig
-    } & {
+  | {
       read?: PermissionRuleConfig
       edit?: PermissionRuleConfig
       glob?: PermissionRuleConfig
       grep?: PermissionRuleConfig
       list?: PermissionRuleConfig
       bash?: PermissionRuleConfig
+      agent?: PermissionRuleConfig
       task?: PermissionRuleConfig
       external_directory?: PermissionRuleConfig
       todowrite?: PermissionActionConfig
@@ -1171,7 +1254,7 @@ export type PermissionConfig =
       doom_loop?: PermissionActionConfig
       skill?: PermissionRuleConfig
       [key: string]: PermissionRuleConfig | PermissionActionConfig | undefined
-    })
+    }
 
 export type AgentConfig = {
   model?: string
@@ -1782,6 +1865,7 @@ export type Worktree = {
   name: string
   branch: string
   directory: string
+  source?: "created" | "existing"
 }
 
 export type WorktreeCreateInput = {
@@ -1813,6 +1897,8 @@ export type GlobalSession = {
   workspaceID?: string
   directory: string
   parentID?: string
+  createdByAgentTool?: boolean
+  subagentType?: string | null
   skill?: string
   summary?: {
     additions: number
@@ -1837,6 +1923,17 @@ export type GlobalSession = {
     partID?: string
     snapshot?: string
     diff?: string
+  }
+  executionContext: {
+    ownerDirectory: string
+    activeDirectory: string
+    activeWorktree?: {
+      directory: string
+      name: string
+      branch?: string
+      source: "created" | "existing"
+    }
+    lastChangedAt: number
   }
   project: ProjectSummary | null
 }
@@ -1903,6 +2000,71 @@ export type SubtaskPartInput = {
     modelID: string
   }
   command?: string
+  tool_call_id?: string
+  parent_session_id?: string
+  parent_message_id?: string
+  subagent_session_id?: string
+  status?: "running" | "completed" | "completed_empty" | "failed" | "canceled_by_user"
+  started_at?: number
+  updated_at?: number
+  ended_at?: number
+  consumed_at?: number
+  recent_events?: Array<
+    | {
+        type: "started"
+        at: number
+      }
+    | {
+        type: "tool_started"
+        tool: string
+        label: string
+        at: number
+      }
+    | {
+        type: "tool_completed"
+        tool: string
+        at: number
+      }
+    | {
+        type: "model_wait_started"
+        at: number
+      }
+    | {
+        type: "completed"
+        at: number
+      }
+    | {
+        type: "completed_empty"
+        at: number
+      }
+    | {
+        type: "canceled_by_user"
+        at: number
+      }
+    | {
+        type: "failed"
+        kind: string
+        at: number
+      }
+    | {
+        type: "consumed"
+        at: number
+      }
+  >
+  result_summary?: string
+  result_text?: string
+  partial_result?: string | null
+  error?: {
+    kind: string
+    message: string
+  }
+}
+
+export type QuestionReply = {
+  /**
+   * User answers in order of questions (each answer is an array of selected labels)
+   */
+  answers: Array<QuestionAnswer>
 }
 
 export type ProviderAuthMethod = {
@@ -2967,9 +3129,9 @@ export type WorktreeListData = {
 
 export type WorktreeListResponses = {
   /**
-   * List of worktree directories
+   * List of worktrees
    */
-  200: Array<string>
+  200: Array<Worktree>
 }
 
 export type WorktreeListResponse = WorktreeListResponses[keyof WorktreeListResponses]
@@ -3151,6 +3313,8 @@ export type SessionCreateData = {
     skill?: string
     permission?: PermissionRuleset
     workspaceID?: string
+    createdByAgentTool?: boolean
+    subagentType?: string | null
   }
   path?: never
   query?: {
@@ -4241,12 +4405,7 @@ export type QuestionListResponses = {
 export type QuestionListResponse = QuestionListResponses[keyof QuestionListResponses]
 
 export type QuestionReplyData = {
-  body?: {
-    /**
-     * User answers in order of questions (each answer is an array of selected labels)
-     */
-    answers: Array<QuestionAnswer>
-  }
+  body?: QuestionReply
   path: {
     requestID: string
   }
@@ -4479,6 +4638,7 @@ export type FindTextResponses = {
       }>
     }>
     partial: boolean
+    partialReason?: "invalid_pattern" | "partial_io"
   }
 }
 

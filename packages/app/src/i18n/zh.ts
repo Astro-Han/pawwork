@@ -708,7 +708,7 @@ export const dict = {
   "settings.worktrees.column.branch": "分支",
   "settings.worktrees.column.path": "路径",
   "settings.worktrees.delete": "删除",
-  "settings.worktrees.deleteDisabled.tooltip": "正在被一个会话使用，先在该会话里调用 ExitWorktree。",
+  "settings.worktrees.deleteDisabled.tooltip": "正在被「{session}」使用，先在该会话里调用 ExitWorktree。",
   "settings.worktrees.confirmDelete.title": "删除该工作树？",
   "settings.worktrees.confirmDelete.body": "确定删除「{name}」及其所有文件？这将执行 git worktree remove，操作不可撤销。",
   "settings.worktrees.confirmDelete.confirmLabel": "删除",

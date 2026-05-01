@@ -101,10 +101,10 @@ import type {
   PtyRemoveResponses,
   PtyUpdateErrors,
   PtyUpdateResponses,
-  QuestionAnswer,
   QuestionListResponses,
   QuestionRejectErrors,
   QuestionRejectResponses,
+  QuestionReply,
   QuestionReplyErrors,
   QuestionReplyResponses,
   SessionAbortErrors,
@@ -1577,6 +1577,8 @@ export class Session2 extends HeyApiClient {
       skill?: string
       permission?: PermissionRuleset
       workspaceID?: string
+      createdByAgentTool?: boolean
+      subagentType?: string | null
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1592,6 +1594,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "skill" },
             { in: "body", key: "permission" },
             { in: "body", key: "workspaceID" },
+            { in: "body", key: "createdByAgentTool" },
+            { in: "body", key: "subagentType" },
           ],
         },
       ],
@@ -2781,7 +2785,7 @@ export class Question extends HeyApiClient {
       requestID: string
       directory?: string
       workspace?: string
-      answers?: Array<QuestionAnswer>
+      questionReply?: QuestionReply
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -2793,7 +2797,7 @@ export class Question extends HeyApiClient {
             { in: "path", key: "requestID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "body", key: "answers" },
+            { key: "questionReply", map: "body" },
           ],
         },
       ],

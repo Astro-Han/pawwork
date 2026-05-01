@@ -314,6 +314,12 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.RemoveInput),
       async (c) => {
         const body = c.req.valid("json")
+        for await (const session of Session.list({ limit: 1000 })) {
+          const exec = session.executionContext
+          if (exec.activeDirectory === body.directory && exec.activeDirectory !== exec.ownerDirectory) {
+            throw new Error(`Worktree is in use by session "${session.title}". Call ExitWorktree from that session first.`)
+          }
+        }
         await Worktree.remove(body)
         return c.json(true)
       },

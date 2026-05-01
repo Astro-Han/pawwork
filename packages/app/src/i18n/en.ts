@@ -817,7 +817,7 @@ export const dict = {
   "settings.worktrees.column.branch": "Branch",
   "settings.worktrees.column.path": "Path",
   "settings.worktrees.delete": "Delete",
-  "settings.worktrees.deleteDisabled.tooltip": "In use by an open session. Use ExitWorktree from that session first.",
+  "settings.worktrees.deleteDisabled.tooltip": "In use by {session}. Use ExitWorktree from that session first.",
   "settings.worktrees.confirmDelete.title": "Delete worktree?",
   "settings.worktrees.confirmDelete.body": "Delete \"{name}\" and all of its files? This runs git worktree remove and cannot be undone.",
   "settings.worktrees.confirmDelete.confirmLabel": "Delete",
