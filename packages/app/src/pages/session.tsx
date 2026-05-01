@@ -15,12 +15,11 @@ import {
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
-import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
+import { useFile } from "@/context/file"
 import { createStore } from "solid-js/store"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Select } from "@opencode-ai/ui/select"
 import { Tabs } from "@opencode-ai/ui/tabs"
-import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { showToast } from "@opencode-ai/ui/toast"
 import { checksum } from "@opencode-ai/util/encode"
 import { useLocation, useSearchParams } from "@solidjs/router"
@@ -66,6 +65,7 @@ import { createSessionViewController } from "@/pages/session/session-view-contro
 import { nextFilesPanelAutoOpen } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
+import { createSessionCommentContext } from "@/pages/session/use-session-comment-context"
 import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-context"
 import { createSessionFollowups } from "@/pages/session/use-session-followups"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
@@ -577,55 +577,12 @@ export default function Page() {
     ),
   )
 
-  const selectionPreview = (path: string, selection: FileSelection) => {
-    const content = file.get(path)?.content?.content
-    if (!content) return undefined
-    return previewSelectedLines(content, { start: selection.startLine, end: selection.endLine })
-  }
-
-  const addCommentToContext = (input: {
-    file: string
-    selection: SelectedLineRange
-    comment: string
-    preview?: string
-    origin?: "review" | "file"
-  }) => {
-    const selection = selectionFromLines(input.selection)
-    const preview = input.preview ?? selectionPreview(input.file, selection)
-    const saved = comments.add({
-      file: input.file,
-      selection: input.selection,
-      comment: input.comment,
-    })
-    prompt.context.add({
-      type: "file",
-      path: input.file,
-      selection,
-      comment: input.comment,
-      commentID: saved.id,
-      commentOrigin: input.origin,
-      preview,
-    })
-  }
-
-  const updateCommentInContext = (input: {
-    id: string
-    file: string
-    selection: SelectedLineRange
-    comment: string
-    preview?: string
-  }) => {
-    comments.update(input.file, input.id, input.comment)
-    prompt.context.updateComment(input.file, input.id, {
-      comment: input.comment,
-      ...(input.preview ? { preview: input.preview } : {}),
-    })
-  }
-
-  const removeCommentFromContext = (input: { id: string; file: string }) => {
-    comments.remove(input.file, input.id)
-    prompt.context.removeComment(input.file, input.id)
-  }
+  const commentContext = createSessionCommentContext({
+    attachmentLabel: () => language.t("common.attachment"),
+    getFileContent: (path) => file.get(path)?.content?.content,
+    comments,
+    promptContext: prompt.context,
+  })
 
   const reviewCommentActions = createMemo(() => ({
     moreLabel: language.t("common.moreOptions"),
@@ -835,9 +792,9 @@ export default function Page() {
         view={view}
         onScrollRef={(el) => setTree("reviewScroll", el)}
         focusedFile={tree.activeDiff}
-        onLineComment={(comment) => addCommentToContext({ ...comment, origin: "review" })}
-        onLineCommentUpdate={updateCommentInContext}
-        onLineCommentDelete={removeCommentFromContext}
+        onLineComment={(comment) => commentContext.add({ ...comment, origin: "review" })}
+        onLineCommentUpdate={commentContext.update}
+        onLineCommentDelete={commentContext.remove}
         lineCommentActions={reviewCommentActions()}
         commentMentions={{
           items: file.searchFilesAndDirectories,
