@@ -9897,6 +9897,25 @@
             "required": [
               "messageID"
             ]
+          },
+          "executionContext": {
+            "type": "object",
+            "properties": {
+              "ownerDirectory": { "type": "string" },
+              "activeDirectory": { "type": "string" },
+              "activeWorktree": {
+                "type": "object",
+                "properties": {
+                  "directory": { "type": "string" },
+                  "name": { "type": "string" },
+                  "branch": { "type": "string" },
+                  "source": { "type": "string", "enum": ["created", "existing"] }
+                },
+                "required": ["directory", "name", "source"]
+              },
+              "lastChangedAt": { "type": "number" }
+            },
+            "required": ["ownerDirectory", "activeDirectory", "lastChangedAt"]
           }
         },
         "required": [
@@ -9906,7 +9925,8 @@
           "directory",
           "title",
           "version",
-          "time"
+          "time",
+          "executionContext"
         ]
       },
       "Event.session.created": {

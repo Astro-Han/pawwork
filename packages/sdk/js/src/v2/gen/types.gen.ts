@@ -906,6 +906,17 @@ export type Session = {
     snapshot?: string
     diff?: string
   }
+  executionContext: {
+    ownerDirectory: string
+    activeDirectory: string
+    activeWorktree?: {
+      directory: string
+      name: string
+      branch?: string
+      source: "created" | "existing"
+    }
+    lastChangedAt: number
+  }
 }
 
 export type EventSessionCreated = {
