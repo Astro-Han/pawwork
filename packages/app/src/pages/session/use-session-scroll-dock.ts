@@ -47,6 +47,12 @@ export function syncComposerDockHeight(input: {
   scheduleScrollState: (el: HTMLDivElement) => void
   fill: () => void
 }) {
+  if (input.nextDockHeight <= 0) {
+    if (input.el instanceof HTMLDivElement) input.scheduleScrollState(input.el)
+    input.fill()
+    return input.previousDockHeight
+  }
+
   input.setCssHeight(input.nextDockHeight)
 
   if (input.nextDockHeight === input.previousDockHeight) {
@@ -145,10 +151,12 @@ export function createSessionScrollDock(input: {
     })
   }
 
+  const measurePromptDockHeight = () => Math.ceil(promptDock?.getBoundingClientRect().height ?? 0)
+
   const setPromptDockRef = (el: HTMLDivElement | undefined) => {
     promptDock = el
     if (!el) return
-    const next = Math.ceil(el.getBoundingClientRect().height)
+    const next = measurePromptDockHeight()
     if (next > 0) updateDockHeight(next)
   }
 
@@ -181,8 +189,8 @@ export function createSessionScrollDock(input: {
 
   createResizeObserver(
     () => promptDock,
-    ({ height }) => {
-      updateDockHeight(Math.ceil(height))
+    () => {
+      updateDockHeight(measurePromptDockHeight())
     },
   )
 

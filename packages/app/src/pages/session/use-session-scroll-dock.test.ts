@@ -141,4 +141,33 @@ describe("session scroll dock", () => {
       else document.documentElement.style.removeProperty("--composer-dock-height")
     }
   })
+
+  test("keeps the previous composer height during transient zero measurements", () => {
+    const scroller = makeScroller({
+      clientHeight: 400,
+      scrollHeight: 1000,
+      scrollTop: 600,
+    })
+    const cssHeights: number[] = []
+    const scrolls: number[] = []
+    const schedules: number[] = []
+    const fills: number[] = []
+
+    const next = syncComposerDockHeight({
+      el: scroller.el,
+      previousDockHeight: 180,
+      nextDockHeight: 0,
+      userScrolled: false,
+      setCssHeight: (height) => cssHeights.push(height),
+      forceScrollToBottom: () => scrolls.push(1),
+      scheduleScrollState: () => schedules.push(1),
+      fill: () => fills.push(1),
+    })
+
+    expect(next).toBe(180)
+    expect(cssHeights).toHaveLength(0)
+    expect(scrolls).toHaveLength(0)
+    expect(schedules).toHaveLength(1)
+    expect(fills).toHaveLength(1)
+  })
 })
