@@ -10,6 +10,7 @@ export function PawworkWorktreeBadge(props: {
   disabled?: boolean
 }) {
   const title = () => [props.branch, props.directory].filter(Boolean).join(" · ") || props.name
+  const label = () => (props.branch ? `${props.name} (${props.branch})` : props.name)
 
   return (
     <Button
@@ -24,7 +25,7 @@ export function PawworkWorktreeBadge(props: {
       disabled={props.disabled}
     >
       <Icon name="worktree" size="small" class="shrink-0 text-text-weak transition-colors group-hover:text-text-strong" />
-      <span class="min-w-0 truncate">{props.name}</span>
+      <span class="min-w-0 truncate">{label()}</span>
     </Button>
   )
 }

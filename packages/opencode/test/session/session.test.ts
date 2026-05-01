@@ -151,6 +151,51 @@ describe("session.created event", () => {
     })
   })
 
+  test("updateExecutionContext keeps active directory and worktree metadata synchronized", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const worktree = path.join(tmp.path, ".worktrees", "pawwork", "feature-c")
+    const activeWorktree = {
+      directory: worktree,
+      name: "feature-c",
+      branch: "pawwork/feature-c",
+      source: "created" as const,
+    }
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "update-context-sync" })
+
+        const entered = await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree,
+        })
+        expect(entered.executionContext.activeDirectory).toBe(worktree)
+        expect(entered.executionContext.activeWorktree).toEqual(activeWorktree)
+
+        const clearedByWorktree = await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree: null,
+        })
+        expect(clearedByWorktree.executionContext.activeDirectory).toBe(tmp.path)
+        expect(clearedByWorktree.executionContext.activeWorktree).toBeUndefined()
+
+        await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeWorktree,
+        })
+        const clearedByDirectory = await SessionNs.updateExecutionContext({
+          sessionID: session.id,
+          activeDirectory: `${tmp.path}${path.sep}`,
+        })
+        expect(canonicalDirectory(clearedByDirectory.executionContext.activeDirectory)).toBe(canonicalDirectory(tmp.path))
+        expect(clearedByDirectory.executionContext.activeWorktree).toBeUndefined()
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
   test("backfills legacy null executionContext rows", async () => {
     await using tmp = await tmpdir({ git: true })
 

@@ -727,13 +727,20 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     }) {
       const current = yield* get(input.sessionID)
       const now = Date.now()
-      // ownerDirectory is set at session creation and never moves; never taken from patch.
-      // Drop activeWorktree when caller passes null (Exit semantics) or omits it explicitly.
+      const hasActiveWorktree = "activeWorktree" in input
+      const ownerDirectory = current.executionContext.ownerDirectory
+      const activeDirectory = hasActiveWorktree
+        ? (input.activeWorktree?.directory ?? ownerDirectory)
+        : (input.activeDirectory ?? current.executionContext.activeDirectory)
+      const activeWorktree = hasActiveWorktree
+        ? (input.activeWorktree ?? undefined)
+        : canonicalDirectory(activeDirectory) === canonicalDirectory(ownerDirectory)
+          ? undefined
+          : current.executionContext.activeWorktree
       const next: SessionExecutionContext = {
-        ownerDirectory: current.executionContext.ownerDirectory,
-        activeDirectory: input.activeDirectory ?? current.executionContext.activeDirectory,
-        activeWorktree:
-          "activeWorktree" in input ? (input.activeWorktree ?? undefined) : current.executionContext.activeWorktree,
+        ownerDirectory,
+        activeDirectory,
+        activeWorktree,
         lastChangedAt: now,
       }
       yield* patch(input.sessionID, { time: { updated: now }, executionContext: next })
