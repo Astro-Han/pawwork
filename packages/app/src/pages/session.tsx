@@ -1,11 +1,10 @@
-import type { UserMessage, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   onCleanup,
   Show,
   Match,
   Switch,
-  createResource,
   createMemo,
   createEffect,
   createComputed,
@@ -49,15 +48,9 @@ import {
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
 import {
-  coerceReviewChangeMode,
-  DEFAULT_REVIEW_CHANGE_MODE,
   isVcsReviewMode,
-  nextReviewModeForSessionChange,
-  reviewChangeOptions,
-  reviewDiffsForMode,
   reviewModeLabelKey,
   type ReviewChangeMode,
-  type VcsReviewMode,
 } from "@/pages/session/review-change-mode"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import {
@@ -70,7 +63,7 @@ import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
-import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile } from "@/pages/session/files-tab-state"
+import { nextFilesPanelAutoOpen } from "@/pages/session/files-tab-state"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-context"
@@ -78,6 +71,7 @@ import { createSessionFollowups } from "@/pages/session/use-session-followups"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { createSessionRevert } from "@/pages/session/use-session-revert"
+import { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { diffs as list } from "@/utils/diffs"
 import { extractPromptFromParts } from "@/utils/prompt"
@@ -318,25 +312,8 @@ export default function Page() {
   const [store, setStore] = createStore({
     messageId: undefined as string | undefined,
     mobileTab: "session" as "session" | "changes",
-    changes: DEFAULT_REVIEW_CHANGE_MODE as ReviewChangeMode,
     newSessionWorktree: "main",
     deferRender: false,
-  })
-
-  const [vcs, setVcs] = createStore<{
-    diff: Record<VcsReviewMode, VcsFileDiff[]>
-    ready: Record<VcsReviewMode, boolean>
-  }>({
-    diff: {
-      unstaged: [] as VcsFileDiff[],
-      staged: [] as VcsFileDiff[],
-      branch: [] as VcsFileDiff[],
-    },
-    ready: {
-      unstaged: false,
-      staged: false,
-      branch: false,
-    },
   })
 
   createComputed((prev) => {
@@ -356,116 +333,31 @@ export default function Page() {
   let todoTimer: number | undefined
   let diffFrame: number | undefined
   let diffTimer: number | undefined
-  const vcsTask = new Map<VcsReviewMode, Promise<void>>()
-  const vcsRun = new Map<VcsReviewMode, number>()
-
-  const bumpVcs = (mode: VcsReviewMode) => {
-    const next = (vcsRun.get(mode) ?? 0) + 1
-    vcsRun.set(mode, next)
-    return next
-  }
-
-  const resetVcs = (mode?: VcsReviewMode) => {
-    const modes = mode ? [mode] : (["unstaged", "staged", "branch"] as const)
-    modes.forEach((item) => {
-      bumpVcs(item)
-      vcsTask.delete(item)
-      setVcs("diff", item, [])
-      setVcs("ready", item, false)
-    })
-  }
-
-  const loadVcs = (mode: VcsReviewMode, force = false) => {
-    if (sync.project?.vcs !== "git") return Promise.resolve()
-    if (!force && vcs.ready[mode]) return Promise.resolve()
-
-    if (force) {
-      if (vcsTask.has(mode)) bumpVcs(mode)
-      vcsTask.delete(mode)
-      setVcs("ready", mode, false)
-    }
-
-    const current = vcsTask.get(mode)
-    if (current) return current
-
-    const run = bumpVcs(mode)
-
-    const task = sdk.client.vcs
-      .diff({ mode })
-      .then((result) => {
-        if (vcsRun.get(mode) !== run) return
-        setVcs("diff", mode, list(result.data))
-        setVcs("ready", mode, true)
-      })
-      .catch((error) => {
-        if (vcsRun.get(mode) !== run) return
-        console.debug("[session-review] failed to load vcs diff", { mode, error })
-        setVcs("diff", mode, [])
-        setVcs("ready", mode, true)
-      })
-      .finally(() => {
-        if (vcsTask.get(mode) === task) vcsTask.delete(mode)
-      })
-
-    vcsTask.set(mode, task)
-    return task
-  }
-
-  const refreshVcs = () => {
-    resetVcs()
-    const mode = untrack(vcsMode)
-    if (!mode) return
-    if (!untrack(wantsReview)) return
-    void loadVcs(mode, true)
-  }
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
-  const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
-    timelineSessionID,
-    async (sessionID) => ({
-      sessionID,
-      artifacts: await sdk.client.session
-        .artifacts({ sessionID })
-        .then((res) => res.data ?? [])
-        .catch(() => []),
-    }),
-    { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
+  const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
+  const wantsReview = createMemo(() =>
+    isDesktop()
+      ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
+      : mobileChanges(),
   )
-  const artifactFiles = createMemo(() => {
-    const sessionID = timelineSessionID()
-    const history = artifactHistory.latest
-    if (history?.sessionID === sessionID && history.artifacts.length > 0) {
-      return deriveArtifactFiles(sdk.directory, history.artifacts)
-    }
+  const reviewState = createSessionReviewState({
+    directory: sdk.directory,
+    sessionKey,
+    sessionID: timelineSessionID,
+    sync,
+    sdk,
+    wantsReview,
+    turnDiffs,
+  })
 
-    return deriveArtifactFiles(
-      sdk.directory,
-      turnDiffs().flatMap((diff) => {
-        if (diff.status !== "added" && diff.status !== "modified") return []
-        return [{ file: diff.file, kind: diff.status as "added" | "modified" }]
-      }),
-    )
-  })
-  const changesOptions = createMemo<ReviewChangeMode[]>(() =>
-    reviewChangeOptions({ isGit: sync.project?.vcs === "git" }),
-  )
-  const vcsMode = createMemo<VcsReviewMode | undefined>(() => {
-    if (isVcsReviewMode(store.changes)) return store.changes
-  })
-  const reviewDiffs = createMemo(() => {
-    return list(
-      reviewDiffsForMode(store.changes, {
-        turn: turnDiffs(),
-        vcs: vcs.diff,
-      }),
-    )
-  })
-  const reviewCount = createMemo(() => reviewDiffs().length)
-  const hasReview = createMemo(() => reviewCount() > 0)
-  const reviewReady = createMemo(() => {
-    if (isVcsReviewMode(store.changes)) return vcs.ready[store.changes]
-    return true
-  })
+  const refreshVcs = () => {
+    reviewState.resetVcs()
+    const mode = untrack(reviewState.vcsMode)
+    if (!mode) return
+    if (!untrack(wantsReview)) return
+    void reviewState.loadVcs(mode, true)
+  }
 
   const newSessionWorktree = createMemo(() => {
     if (store.newSessionWorktree === "create") return "create"
@@ -635,7 +527,6 @@ export default function Page() {
       sessionKey,
       () => {
         setStore("messageId", undefined)
-        setStore("changes", nextReviewModeForSessionChange())
         setUi("pendingMessage", undefined)
       },
       { defer: true },
@@ -646,7 +537,7 @@ export default function Page() {
     on(
       () => sdk.directory,
       () => {
-        resetVcs()
+        reviewState.resetVcs()
       },
       { defer: true },
     ),
@@ -796,26 +687,6 @@ export default function Page() {
     }
   }
 
-  const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
-  const wantsReview = createMemo(() =>
-    isDesktop()
-      ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
-      : store.mobileTab === "changes",
-  )
-
-  createEffect(() => {
-    if (!timelineSessionID()) return
-    turnDiffs()
-    void refetchArtifactHistory()
-  })
-
-  createEffect(() => {
-    const id = timelineSessionID()
-    if (!id) return
-    if (sync.data.session_diff[id] === undefined) return
-    void refetchArtifactHistory()
-  })
-
   createEffect(() => {
     if (!timelineSessionID()) return
 
@@ -837,29 +708,15 @@ export default function Page() {
     view().sidePanel.setAutoOpenState(next)
   })
 
-  createEffect(() => {
-    const list = changesOptions()
-    const next = coerceReviewChangeMode(store.changes, list)
-    if (next === store.changes) return
-    setStore("changes", next)
-  })
-
-  createEffect(() => {
-    const mode = vcsMode()
-    if (!mode) return
-    if (!wantsReview()) return
-    void loadVcs(mode)
-  })
-
   createEffect(
     on(
       () => sync.data.session_status[params.id ?? ""]?.type,
       (next, prev) => {
-        const mode = vcsMode()
+        const mode = reviewState.vcsMode()
         if (!mode) return
         if (!wantsReview()) return
         if (next !== "idle" || prev === undefined || prev === "idle") return
-        void loadVcs(mode, true)
+        void reviewState.loadVcs(mode, true)
       },
       { defer: true },
     ),
@@ -922,10 +779,10 @@ export default function Page() {
 
     return (
       <Select
-        options={changesOptions()}
-        current={store.changes}
+        options={reviewState.changesOptions()}
+        current={reviewState.changes()}
         label={label}
-        onSelect={(option) => option && setStore("changes", option)}
+        onSelect={(option) => option && reviewState.setChanges(option)}
         variant="ghost"
         size="small"
         valueClass="text-13-medium"
@@ -940,19 +797,21 @@ export default function Page() {
   )
 
   const reviewEmptyText = createMemo(() => {
-    if (store.changes === "unstaged") return language.t("session.review.noUnstagedChanges")
-    if (store.changes === "staged") return language.t("session.review.noStagedChanges")
-    if (store.changes === "branch") return language.t("session.review.noBranchChanges")
+    const changes = reviewState.changes()
+    if (changes === "unstaged") return language.t("session.review.noUnstagedChanges")
+    if (changes === "staged") return language.t("session.review.noStagedChanges")
+    if (changes === "branch") return language.t("session.review.noBranchChanges")
     return language.t("session.review.noChanges")
   })
 
   const reviewEmpty = (input: { loadingClass: string; emptyClass: string }) => {
-    if (isVcsReviewMode(store.changes)) {
-      if (!reviewReady()) return <div class={input.loadingClass}>{language.t("session.review.loadingChanges")}</div>
+    const changes = reviewState.changes()
+    if (isVcsReviewMode(changes)) {
+      if (!reviewState.reviewReady()) return <div class={input.loadingClass}>{language.t("session.review.loadingChanges")}</div>
       return empty(reviewEmptyText())
     }
 
-    if (store.changes === "turn") {
+    if (changes === "turn") {
       return empty(reviewEmptyText())
     }
 
@@ -972,7 +831,7 @@ export default function Page() {
       <SessionReviewTab
         title={changesTitle()}
         empty={reviewEmpty(input)}
-        diffs={reviewDiffs}
+        diffs={reviewState.reviewDiffs}
         view={view}
         onScrollRef={(el) => setTree("reviewScroll", el)}
         focusedFile={tree.activeDiff}
@@ -1053,7 +912,7 @@ export default function Page() {
     const pending = tree.pendingDiff
     if (!pending) return
     if (!tree.reviewScroll) return
-    if (!reviewReady()) return
+    if (!reviewState.reviewReady()) return
 
     const attempt = (count: number) => {
       if (tree.pendingDiff !== pending) return
@@ -1445,8 +1304,8 @@ export default function Page() {
                 classes={{ button: "w-full" }}
                 onClick={() => setStore("mobileTab", "changes")}
               >
-                {hasReview()
-                  ? language.t("session.review.filesChanged", { count: reviewCount() })
+                  {reviewState.hasReview()
+                  ? language.t("session.review.filesChanged", { count: reviewState.reviewCount() })
                   : language.t("session.review.change.other")}
               </Tabs.Trigger>
             </Tabs.List>
@@ -1509,11 +1368,11 @@ export default function Page() {
 
         <SessionSidePanel
           canReview={canReview}
-          diffs={reviewDiffs}
-          hasReview={hasReview}
-          reviewCount={reviewCount}
+          diffs={reviewState.reviewDiffs}
+          hasReview={reviewState.hasReview}
+          reviewCount={reviewState.reviewCount}
           reviewPanel={reviewPanel}
-          files={artifactFiles}
+          files={reviewState.artifactFiles}
           terminalPanel={() => <TerminalPanel embedded />}
           size={size}
         />
