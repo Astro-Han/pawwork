@@ -9,7 +9,9 @@ import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
-const cache = new Map<string, { tab: number; answers: QuestionAnswer[]; custom: string[]; customOn: boolean[] }>()
+type DraftAnswer = QuestionAnswer | undefined
+
+const cache = new Map<string, { tab: number; answers: DraftAnswer[]; custom: string[]; customOn: boolean[] }>()
 
 function Mark(props: { multi: boolean; picked: boolean; onClick?: (event: MouseEvent) => void }) {
   return (
@@ -66,7 +68,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   const cached = cache.get(props.request.id)
   const [store, setStore] = createStore({
     tab: cached?.tab ?? 0,
-    answers: cached?.answers ?? ([] as QuestionAnswer[]),
+    answers: cached?.answers ?? ([] as DraftAnswer[]),
     custom: cached?.custom ?? ([] as string[]),
     customOn: cached?.customOn ?? ([] as boolean[]),
     editing: false,
@@ -107,14 +109,14 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     if (multi()) {
       setStore("answers", store.tab, (current = []) => {
         const removed = prev ? current.filter((item) => item.trim() !== prev) : current
-        if (!next) return removed
+        if (!next) return removed.length ? removed : undefined
         if (removed.some((item) => item.trim() === next)) return removed
         return [...removed, next]
       })
       return
     }
 
-    setStore("answers", store.tab, next ? [next] : [])
+    setStore("answers", store.tab, next ? [next] : undefined)
   }
 
   const clamp = (i: number) => Math.max(0, Math.min(count() - 1, i))
@@ -151,7 +153,9 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     const customByTab = (i: number) => questions()[i]?.custom !== false
     cache.set(props.request.id, {
       tab: store.tab,
-      answers: store.answers.map((a) => (a ? [...a] : [])),
+      answers: Array.from({ length: total() }, (_, i) =>
+        store.answers[i] === undefined ? undefined : [...store.answers[i]],
+      ),
       // Iterate by total() to avoid leaving stale entries when a tab was never visited.
       custom: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.custom[i] ?? "" : "")),
       customOn: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.customOn[i] ?? false : false)),
@@ -199,11 +203,18 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     await rejectMutation.mutateAsync()
   }
 
-  const submit = () => void reply(questions().map((_, i) => store.answers[i] ?? []))
+  const settled = (i: number) => store.answers[i] !== undefined
+  const firstUnsettled = () => questions().findIndex((_, i) => !settled(i))
 
-  const answered = (i: number) => {
-    if ((store.answers[i]?.length ?? 0) > 0) return true
-    return store.customOn[i] === true && (store.custom[i] ?? "").trim().length > 0
+  const submit = () => {
+    const pending = firstUnsettled()
+    if (pending >= 0) {
+      setStore("tab", pending)
+      setStore("editing", false)
+      focus(pickFocus(pending))
+      return
+    }
+    void reply(questions().map((_, i) => store.answers[i] ?? []))
   }
 
   const picked = (answer: string) => store.answers[store.tab]?.includes(answer) ?? false
@@ -217,7 +228,10 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
 
   const toggle = (answer: string) => {
     setStore("answers", store.tab, (current = []) => {
-      if (current.includes(answer)) return current.filter((item) => item !== answer)
+      if (current.includes(answer)) {
+        const next = current.filter((item) => item !== answer)
+        return next.length ? next : undefined
+      }
       return [...current, answer]
     })
   }
@@ -242,7 +256,12 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     }
 
     const value = input().trim()
-    if (value) setStore("answers", store.tab, (current = []) => current.filter((item) => item.trim() !== value))
+    if (value) {
+      setStore("answers", store.tab, (current = []) => {
+        const next = current.filter((item) => item.trim() !== value)
+        return next.length ? next : undefined
+      })
+    }
     setStore("editing", false)
     focus(options().length)
   }
@@ -373,6 +392,24 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     focus(pickFocus(tab))
   }
 
+  const skipCurrent = () => {
+    if (sending()) return
+    setStore("answers", store.tab, [])
+    setStore("custom", store.tab, "")
+    setStore("customOn", store.tab, false)
+    setStore("editing", false)
+
+    const nextUnsettled = questions().findIndex((_, i) => i > store.tab && !settled(i))
+    const target = nextUnsettled >= 0 ? nextUnsettled : firstUnsettled()
+    if (target >= 0) {
+      setStore("tab", target)
+      focus(pickFocus(target))
+      return
+    }
+
+    focus(pickFocus(store.tab))
+  }
+
   const jump = (tab: number) => {
     if (sending()) return
     setStore("tab", tab)
@@ -401,7 +438,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
                   type="button"
                   data-slot="question-progress-segment"
                   data-active={i() === store.tab}
-                  data-answered={answered(i())}
+                  data-answered={settled(i())}
                   disabled={sending()}
                   onClick={() => jump(i())}
                   aria-label={`${language.t("ui.tool.questions")} ${i() + 1}`}
@@ -413,8 +450,8 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       }
       footer={
         <>
-          <Button variant="ghost" size="large" disabled={sending()} onClick={reject} aria-keyshortcuts="Escape">
-            {language.t("ui.common.dismiss")}
+          <Button variant="ghost" size="large" disabled={sending()} onClick={skipCurrent}>
+            {language.t("session.question.skipCurrent")}
           </Button>
           <div data-slot="question-footer-actions">
             <Show when={store.tab > 0}>

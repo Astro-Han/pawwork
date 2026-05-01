@@ -289,19 +289,12 @@ export namespace Question {
           // bogus blank selection.
           const answer = rawAnswer.filter((label) => label.length > 0)
           trimmedAnswers[i] = answer
-          // An empty answer array means "no choice was made" — that path
-          // belongs to reject(), not reply(). Allowing it here would resolve
-          // the deferred with `[]` so callers see a "successful" reply with
-          // no selection, indistinguishable from a real answer that happens
-          // to be empty.
           if (answer.length === 0) {
-            log.warn("empty or whitespace-only answer for question", {
+            log.info("skipped question answer", {
               requestID: input.requestID,
               index: i,
             })
-            pending.delete(input.requestID)
-            yield* Deferred.fail(existing.deferred, new RejectedError())
-            return
+            continue
           }
           if (!q.multiple && answer.length > 1) {
             log.warn("multiple answers to single-select question", {
