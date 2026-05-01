@@ -1,4 +1,6 @@
 import { createEffect, createMemo, on } from "solid-js"
+import type { useLocal } from "@/context/local"
+import type { useSync } from "@/context/sync"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
 import {
   emptyMessages,
@@ -13,8 +15,8 @@ import { same } from "@/utils/same"
 export function createSessionTimelineData(input: {
   directory: () => string
   routeSessionID: () => string | undefined
-  sync: any
-  local: any
+  sync: ReturnType<typeof useSync>
+  local: ReturnType<typeof useLocal>
 }) {
   const routeInfo = createMemo(() => {
     const id = input.routeSessionID()

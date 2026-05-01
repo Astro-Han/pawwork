@@ -3,13 +3,13 @@ import {
   createMemo,
   createEffect,
   createComputed,
+  createSignal,
   on,
   untrack,
 } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
-import { createStore } from "solid-js/store"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLocation, useSearchParams } from "@solidjs/router"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
@@ -134,24 +134,22 @@ export default function Page() {
     if (path) file.load(path)
   })
 
-  const [store, setStore] = createStore({
-    mobileTab: "session" as "session" | "changes",
-    deferRender: false,
-  })
+  const [mobileTab, setMobileTab] = createSignal<"session" | "changes">("session")
+  const [deferRender, setDeferRender] = createSignal(false)
 
   createComputed((prev) => {
     const key = timelineSessionKey()
     if (key !== prev) {
-      setStore("deferRender", true)
+      setDeferRender(true)
       requestAnimationFrame(() => {
-        setTimeout(() => setStore("deferRender", false), 0)
+        setTimeout(() => setDeferRender(false), 0)
       })
     }
     return key
   }, timelineSessionKey())
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
-  const mobileChanges = createMemo(() => !isDesktop() && store.mobileTab === "changes")
+  const mobileChanges = createMemo(() => !isDesktop() && mobileTab() === "changes")
   const wantsReview = createMemo(() =>
     isDesktop()
       ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
@@ -214,7 +212,7 @@ export default function Page() {
     canReview,
     comments,
     commentContext,
-    deferRender: () => store.deferRender,
+    deferRender,
     file,
     isDesktop,
     language,
@@ -378,7 +376,7 @@ export default function Page() {
     <SessionPageComposerRegion
       variant={variant}
       state={composer}
-      ready={!store.deferRender && timelineMessagesReady()}
+      ready={!deferRender() && timelineMessagesReady()}
       displaySessionID={variant === "session" ? timelineSessionID() : undefined}
       displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}
@@ -435,8 +433,8 @@ export default function Page() {
     <SessionMainView
       activeSessionID={params.id}
       isDesktop={isDesktop()}
-      mobileTab={store.mobileTab}
-      setMobileTab={(tab) => setStore("mobileTab", tab)}
+      mobileTab={mobileTab()}
+      setMobileTab={setMobileTab}
       language={language}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}

@@ -1,4 +1,5 @@
 import { createEffect, on, onCleanup, untrack } from "solid-js"
+import type { VcsReviewMode } from "@/pages/session/review-change-mode"
 import { same } from "@/utils/same"
 
 export function useSessionVcsRefresh(input: {
@@ -6,12 +7,12 @@ export function useSessionVcsRefresh(input: {
   event: {
     listen: (handler: (event: { details: { type: string; properties?: unknown } }) => void) => () => void
   }
-  branch: () => unknown
-  defaultBranch: () => unknown
+  branch: () => string | undefined
+  defaultBranch: () => string | undefined
   reset: () => void
-  mode: () => string | undefined
+  mode: () => VcsReviewMode | undefined
   wantsReview: () => boolean
-  load: (mode: any, force: true) => void | Promise<void>
+  load: (mode: VcsReviewMode, force: true) => void | Promise<void>
 }) {
   const refresh = () => {
     input.reset()

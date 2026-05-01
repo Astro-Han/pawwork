@@ -1,11 +1,13 @@
 import { createEffect, createMemo, on } from "solid-js"
+import type { useLayout } from "@/context/layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import type { useSessionLayout } from "@/pages/session/session-layout"
 
 export function createSessionRouteTabs(input: {
   directory: () => string
   sessionID: () => string | undefined
-  layout: any
-  tabs: any
+  layout: ReturnType<typeof useLayout>
+  tabs: ReturnType<typeof useSessionLayout>["tabs"]
   pathFromTab: (tab: string) => string | undefined
   tabForPath: (path: string) => string
   review: () => boolean

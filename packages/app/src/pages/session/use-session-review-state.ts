@@ -1,6 +1,8 @@
-import type { VcsFileDiff } from "@opencode-ai/sdk/v2"
-import { createEffect, createMemo, createResource, on } from "solid-js"
+import type { SnapshotFileDiff, VcsFileDiff } from "@opencode-ai/sdk/v2"
+import { createEffect, createMemo, createResource, createSignal, on } from "solid-js"
 import { createStore } from "solid-js/store"
+import type { useSDK } from "@/context/sdk"
+import type { useSync } from "@/context/sync"
 import { deriveArtifactFiles, type SessionArtifactFile } from "@/pages/session/files-tab-state"
 import {
   coerceReviewChangeMode,
@@ -13,11 +15,13 @@ import {
 } from "@/pages/session/review-change-mode"
 import { diffs as list } from "@/utils/diffs"
 
+type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
+
 export function deriveReviewArtifactFiles(input: {
   directory: string
   sessionID: string | undefined
   history: { sessionID: string; artifacts: SessionArtifactFile[] } | undefined
-  turnDiffs: Array<{ file: string; status: string }>
+  turnDiffs: Array<{ file: string; status?: string }>
 }) {
   const history = input.history
   if (history && history.sessionID === input.sessionID && history.artifacts.length > 0) {
@@ -37,16 +41,14 @@ export function createSessionReviewState(input: {
   directory: string
   sessionKey: () => string
   sessionID: () => string | undefined
-  sync: any
-  sdk: any
+  sync: ReturnType<typeof useSync>
+  sdk: ReturnType<typeof useSDK>
   wantsReview: () => boolean
-  turnDiffs: () => any[]
+  turnDiffs: () => SessionReviewDiff[]
 }) {
-  const [store, setStore] = createStore({
-    changes: "turn" as ReviewChangeMode,
-  })
+  const [changes, setChanges] = createSignal<ReviewChangeMode>("turn")
   const [vcs, setVcs] = createStore<{
-    diff: Record<VcsReviewMode, VcsFileDiff[]>
+    diff: Record<VcsReviewMode, SessionReviewDiff[]>
     ready: Record<VcsReviewMode, boolean>
   }>({
     diff: {
@@ -96,7 +98,7 @@ export function createSessionReviewState(input: {
 
     const task = input.sdk.client.vcs
       .diff({ mode })
-      .then((result: any) => {
+      .then((result) => {
         if (vcsRun.get(mode) !== run) return
         setVcs("diff", mode, list(result.data))
         setVcs("ready", mode, true)
@@ -119,11 +121,12 @@ export function createSessionReviewState(input: {
     reviewChangeOptions({ isGit: input.sync.project?.vcs === "git" }),
   )
   const vcsMode = createMemo<VcsReviewMode | undefined>(() => {
-    if (isVcsReviewMode(store.changes)) return store.changes
+    const value = changes()
+    if (isVcsReviewMode(value)) return value
   })
   const reviewDiffs = createMemo(() =>
     list(
-      reviewDiffsForMode(store.changes, {
+      reviewDiffsForMode(changes(), {
         turn: input.turnDiffs(),
         vcs: vcs.diff,
       }),
@@ -131,7 +134,10 @@ export function createSessionReviewState(input: {
   )
   const reviewCount = createMemo(() => reviewDiffs().length)
   const hasReview = createMemo(() => reviewCount() > 0)
-  const reviewReady = createMemo(() => (isVcsReviewMode(store.changes) ? vcs.ready[store.changes] : true))
+  const reviewReady = createMemo(() => {
+    const value = changes()
+    return isVcsReviewMode(value) ? vcs.ready[value] : true
+  })
 
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
     input.sessionID,
@@ -139,7 +145,7 @@ export function createSessionReviewState(input: {
       sessionID,
       artifacts: await input.sdk.client.session
         .artifacts({ sessionID })
-        .then((res: any) => res.data ?? [])
+        .then((res) => res.data ?? [])
         .catch(() => []),
     }),
     { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
@@ -157,7 +163,7 @@ export function createSessionReviewState(input: {
     on(
       input.sessionKey,
       () => {
-        setStore("changes", nextReviewModeForSessionChange())
+        setChanges(nextReviewModeForSessionChange())
       },
       { defer: true },
     ),
@@ -165,8 +171,9 @@ export function createSessionReviewState(input: {
 
   createEffect(() => {
     const options = changesOptions()
-    const next = coerceReviewChangeMode(store.changes, options)
-    if (next !== store.changes) setStore("changes", next)
+    const current = changes()
+    const next = coerceReviewChangeMode(current, options)
+    if (next !== current) setChanges(next)
   })
 
   createEffect(() => {
@@ -191,8 +198,8 @@ export function createSessionReviewState(input: {
   })
 
   return {
-    changes: () => store.changes,
-    setChanges: (value: ReviewChangeMode) => setStore("changes", value),
+    changes,
+    setChanges,
     changesOptions,
     vcsMode,
     reviewDiffs,

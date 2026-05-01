@@ -1,22 +1,19 @@
-import { createEffect, createMemo, on } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createEffect, createMemo, createSignal, on } from "solid-js"
 
 export function createSessionNewWorktree(input: {
   directory: () => string
   projectWorktree: () => string | undefined
 }) {
-  const [store, setStore] = createStore({
-    value: "main",
-  })
+  const [value, setValue] = createSignal("main")
 
   const selected = createMemo(() => {
-    if (store.value === "create") return "create"
+    if (value() === "create") return "create"
     const worktree = input.projectWorktree()
     if (worktree && input.directory() !== worktree) return input.directory()
     return "main"
   })
 
-  const reset = () => setStore("value", "main")
+  const reset = () => setValue("main")
 
   createEffect(
     on(
