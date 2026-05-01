@@ -6,6 +6,12 @@ export type WorktreeInfo = {
   source?: "created" | "existing"
 }
 
+export type BoundSession = {
+  id: string
+  title: string
+  hostDirectory: string
+}
+
 export function basename(p: string): string {
   const trimmed = p.replace(/[/\\]+$/, "")
   const last = trimmed.split(/[/\\]/).pop()

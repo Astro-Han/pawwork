@@ -1,6 +1,5 @@
 import { type Component, createMemo, createResource, createSignal, For, Show } from "solid-js"
 import { useNavigate } from "@solidjs/router"
-import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
 import { base64Encode } from "@opencode-ai/util/encode"
@@ -8,13 +7,8 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
-import { basename, entryDirectory, errorText, sourceKey, type WorktreeInfo } from "./settings-worktrees-helpers"
-
-type BoundSession = {
-  id: string
-  title: string
-  hostDirectory: string
-}
+import { SettingsWorktreeRow } from "./settings-worktree-row"
+import { basename, entryDirectory, errorText, type BoundSession, type WorktreeInfo } from "./settings-worktrees-helpers"
 
 export const SettingsWorktrees: Component = () => {
   const language = useLanguage()
@@ -130,97 +124,19 @@ export const SettingsWorktrees: Component = () => {
         >
           <ul class="flex flex-col" data-component="settings-worktrees-list">
             <For each={data() ?? []}>
-              {(worktree) => {
-                const directory = () => worktree.directory
-                const name = () => worktree.name || basename(worktree.directory)
-                const branch = () => worktree.branch || ""
-                const owner = () => ownerName(worktree.ownerDirectory)
-                const identity = () => branch() || name()
-                const rowTooltip = () =>
-                  [language.t(sourceKey(worktree.source)), directory()].filter(Boolean).join(" · ")
-                const blocker = () => boundSessions().get(worktree.directory)
-                const isConfirming = () => confirming() === worktree.directory
-                const isDeleting = () => deleting() === worktree.directory
-
-                return (
-                  <li
-                    class="flex items-center gap-3 min-h-[56px] py-2.5 px-2 -mx-2 rounded-md border-b border-border-weak-base last:border-none transition-colors"
-                    classList={{
-                      "bg-surface-warning-weak": isConfirming(),
-                    }}
-                  >
-                    <Show
-                      when={!isConfirming()}
-                      fallback={
-                        <>
-                          <Icon name="worktree" size="normal" class="shrink-0 text-text-base" />
-                          <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
-                            <span class="truncate text-13-medium text-text-strong">
-                              {language.t("settings.worktrees.confirmDelete.question", { name: name() })}
-                            </span>
-                            <span class="truncate text-12-regular text-text-weak" title={directory()}>
-                              {language.t("settings.worktrees.confirmDelete.warning")}
-                            </span>
-                          </div>
-                          <div class="flex shrink-0 items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="small"
-                              disabled={isDeleting()}
-                              onClick={() => setConfirming(undefined)}
-                            >
-                              {language.t("settings.worktrees.confirmDelete.cancelLabel")}
-                            </Button>
-                            <Button
-                              variant="primary"
-                              size="small"
-                              disabled={isDeleting()}
-                              onClick={() => handleDelete(directory())}
-                            >
-                              {language.t("settings.worktrees.confirmDelete.confirmLabel")}
-                            </Button>
-                          </div>
-                        </>
-                      }
-                    >
-                      <Icon name="worktree" size="normal" class="shrink-0 text-text-weak" />
-                      <div class="flex min-w-0 flex-1 flex-col gap-[2px]" title={rowTooltip()}>
-                        <span class="truncate text-12-regular text-text-weak">{owner()}</span>
-                        <span class="truncate text-13-medium text-text-strong">{identity()}</span>
-                      </div>
-                      <div class="flex shrink-0 items-center">
-                        <Show
-                          when={blocker()}
-                          fallback={
-                            <Button
-                              variant="ghost"
-                              size="small"
-                              disabled={isDeleting()}
-                              onClick={() => setConfirming(directory())}
-                            >
-                              {language.t("settings.worktrees.delete")}
-                            </Button>
-                          }
-                        >
-                          {(entry) => (
-                            <Button
-                              variant="ghost"
-                              size="small"
-                              icon="bubble-5"
-                              onClick={() => openSession(entry())}
-                              title={language.t("settings.worktrees.inUse", {
-                                session: entry().title,
-                              })}
-                            >
-                              <span class="truncate max-w-[260px]">{entry().title}</span>
-                            </Button>
-                          )}
-                        </Show>
-                      </div>
-                    </Show>
-                  </li>
-                )
-              }}
+              {(worktree) => (
+                <SettingsWorktreeRow
+                  worktree={worktree}
+                  ownerName={ownerName(worktree.ownerDirectory)}
+                  boundSession={boundSessions().get(worktree.directory)}
+                  confirming={confirming() === worktree.directory}
+                  deleting={deleting() === worktree.directory}
+                  onCancelDelete={() => setConfirming(undefined)}
+                  onConfirmDelete={handleDelete}
+                  onRequestDelete={setConfirming}
+                  onOpenSession={openSession}
+                />
+              )}
             </For>
           </ul>
         </Show>
