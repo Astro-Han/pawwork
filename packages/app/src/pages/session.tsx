@@ -25,7 +25,7 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState } from "@/pages/session/composer"
-import { createSessionTabs, createSizing } from "@/pages/session/helpers"
+import { createSizing } from "@/pages/session/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import {
   emptyMessages,
@@ -50,7 +50,9 @@ import { useSessionRefreshEffects } from "@/pages/session/use-session-refresh-ef
 import { createSessionRevert } from "@/pages/session/use-session-revert"
 import { createSessionReviewPanel } from "@/pages/session/use-session-review-panel"
 import { createSessionReviewState } from "@/pages/session/use-session-review-state"
+import { createSessionRouteTabs } from "@/pages/session/use-session-route-tabs"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
+import { useSessionVcsRefresh } from "@/pages/session/use-session-vcs-refresh"
 import { diffs as list } from "@/utils/diffs"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { same } from "@/utils/same"
@@ -95,66 +97,10 @@ export default function Page() {
     })
   })
 
-  const workspaceKey = createMemo(() => params.dir ?? "")
-  const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
-
-  createEffect(
-    on(
-      () => params.id,
-      (id, prev) => {
-        if (!id) return
-        if (prev) return
-
-        const pending = layout.handoff.tabs()
-        if (!pending) return
-        if (Date.now() - pending.at > 60_000) {
-          layout.handoff.clearTabs()
-          return
-        }
-
-        if (pending.id !== id) return
-        layout.handoff.clearTabs()
-        if (pending.dir !== (params.dir ?? "")) return
-
-        const from = workspaceTabs().tabs()
-        if (from.all.length === 0 && !from.active) return
-
-        const current = tabs().tabs()
-        if (current.all.length > 0 || current.active) return
-
-        const all = normalizeTabs(from.all)
-        const active = from.active ? normalizeTab(from.active) : undefined
-        tabs().setAll(all)
-        tabs().setActive(active && all.includes(active) ? active : all[0])
-
-        workspaceTabs().setAll([])
-        workspaceTabs().setActive(undefined)
-      },
-      { defer: true },
-    ),
-  )
-
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = createSizing()
   const desktopSidePanelOpen = createMemo(() => isDesktop() && view().sidePanel.opened())
   const centered = createMemo(() => isDesktop())
-
-  function normalizeTab(tab: string) {
-    if (!tab.startsWith("file://")) return tab
-    return file.tab(tab)
-  }
-
-  function normalizeTabs(list: string[]) {
-    const seen = new Set<string>()
-    const next: string[] = []
-    for (const item of list) {
-      const value = normalizeTab(item)
-      if (seen.has(value)) continue
-      seen.add(value)
-      next.push(value)
-    }
-    return next
-  }
 
   const openReviewPanel = () => {
     view().sidePanel.openTab("review")
@@ -167,10 +113,13 @@ export default function Page() {
   const hasSessionReview = createMemo(() => sessionCount() > 0)
   const canReview = createMemo(() => !!sync.project)
   const reviewTab = createMemo(() => isDesktop())
-  const tabState = createSessionTabs({
+  const tabState = createSessionRouteTabs({
+    directory: () => params.dir ?? "",
+    sessionID: () => params.id,
+    layout,
     tabs,
     pathFromTab: file.pathFromTab,
-    normalizeTab,
+    tabForPath: file.tab,
     review: reviewTab,
     hasReview: canReview,
   })
@@ -316,14 +265,6 @@ export default function Page() {
     turnDiffs,
   })
 
-  const refreshVcs = () => {
-    reviewState.resetVcs()
-    const mode = untrack(reviewState.vcsMode)
-    if (!mode) return
-    if (!untrack(wantsReview)) return
-    void reviewState.loadVcs(mode, true)
-  }
-
   const newSessionWorktree = createMemo(() => {
     if (store.newSessionWorktree === "create") return "create"
     const project = sync.project
@@ -347,38 +288,16 @@ export default function Page() {
     syncTodo: (id, options) => sync.session.todo(id, options),
   })
 
-  createEffect(
-    on(
-      () => sdk.directory,
-      () => {
-        reviewState.resetVcs()
-      },
-      { defer: true },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => [sync.data.vcs?.branch, sync.data.vcs?.default_branch] as const,
-      (next, prev) => {
-        if (prev === undefined || same(next, prev)) return
-        refreshVcs()
-      },
-      { defer: true },
-    ),
-  )
-
-  const stopVcs = sdk.event.listen((evt) => {
-    if (evt.details.type !== "file.watcher.updated") return
-    const props =
-      typeof evt.details.properties === "object" && evt.details.properties
-        ? (evt.details.properties as Record<string, unknown>)
-        : undefined
-    const file = typeof props?.file === "string" ? props.file : undefined
-    if (!file || file.startsWith(".git/")) return
-    refreshVcs()
+  useSessionVcsRefresh({
+    directory: () => sdk.directory,
+    event: sdk.event,
+    branch: () => sync.data.vcs?.branch,
+    defaultBranch: () => sync.data.vcs?.default_branch,
+    reset: reviewState.resetVcs,
+    mode: reviewState.vcsMode,
+    wantsReview,
+    load: reviewState.loadVcs,
   })
-  onCleanup(stopVcs)
 
   createEffect(
     on(
@@ -397,13 +316,6 @@ export default function Page() {
     comments,
     promptContext: prompt.context,
   })
-
-  const reviewCommentActions = createMemo(() => ({
-    moreLabel: language.t("common.moreOptions"),
-    editLabel: language.t("common.edit"),
-    deleteLabel: language.t("common.delete"),
-    saveLabel: language.t("common.save"),
-  }))
 
   const focusInput = () => {
     if (timelineIsChildSession()) return
