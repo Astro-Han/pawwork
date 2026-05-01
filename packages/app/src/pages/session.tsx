@@ -1,9 +1,6 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
   onCleanup,
-  Show,
-  Match,
-  Switch,
   createMemo,
   createEffect,
   createComputed,
@@ -14,10 +11,8 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
 import { createStore } from "solid-js/store"
-import { Tabs } from "@opencode-ai/ui/tabs"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLocation, useSearchParams } from "@solidjs/router"
-import { NewSessionView, SessionHeader } from "@/components/session"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { useComments } from "@/context/comments"
 import { useGlobalSync } from "@/context/global-sync"
@@ -31,7 +26,6 @@ import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState } from "@/pages/session/composer"
 import { createSessionTabs, createSizing } from "@/pages/session/helpers"
-import { MessageTimeline } from "@/pages/session/message-timeline"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import {
   emptyMessages,
@@ -41,10 +35,9 @@ import {
 } from "@/pages/session/session-messages"
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
+import { SessionMainView } from "@/pages/session/session-main-view"
 import { createSessionRunning, isSessionRunning } from "@/pages/session/session-running-state"
-import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
-import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
 import { createSessionCommentContext } from "@/pages/session/use-session-comment-context"
@@ -722,95 +715,41 @@ export default function Page() {
   )
 
   return (
-    <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
-      <SessionHeader />
-      <div class="flex-1 min-h-0 flex flex-col md:flex-row">
-        <Show when={!isDesktop() && !!params.id}>
-          <Tabs value={store.mobileTab} class="h-auto">
-            <Tabs.List>
-              <Tabs.Trigger
-                value="session"
-                class="!w-1/2 !max-w-none"
-                classes={{ button: "w-full" }}
-                onClick={() => setStore("mobileTab", "session")}
-              >
-                {language.t("session.tab.session")}
-              </Tabs.Trigger>
-              <Tabs.Trigger
-                value="changes"
-                class="!w-1/2 !max-w-none !border-r-0"
-                classes={{ button: "w-full" }}
-                onClick={() => setStore("mobileTab", "changes")}
-              >
-                  {reviewState.hasReview()
-                  ? language.t("session.review.filesChanged", { count: reviewState.reviewCount() })
-                  : language.t("session.review.change.other")}
-              </Tabs.Trigger>
-            </Tabs.List>
-          </Tabs>
-        </Show>
-
-        {/* Session panel */}
-        <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-background-stronger flex-1">
-          <div class="flex-1 min-h-0 overflow-hidden">
-            <Switch>
-              <Match when={params.id}>
-                <Show when={timelineSessionID()}>
-                  <MessageTimeline
-                    sessionID={timelineSessionID()!}
-                    sessionKey={timelineSessionKey()}
-                    sessionMessages={timelineMessages()}
-                    mobileChanges={mobileChanges()}
-                    mobileFallback={reviewPanel.mobileFallback()}
-                    actions={actions}
-                    scroll={scrollDock.scroll}
-                    onResumeScroll={resumeScroll}
-                    setScrollRef={setScrollRef}
-                    onScheduleScrollState={scheduleScrollState}
-                    onAutoScrollHandleScroll={autoScroll.handleScroll}
-                    onMarkScrollGesture={activeMessage.markScrollGesture}
-                    hasScrollGesture={activeMessage.hasScrollGesture}
-                    onUserScroll={activeMessage.markUserScroll}
-                    onTurnBackfillScroll={historyWindow.onScrollerScroll}
-                    onAutoScrollInteraction={autoScroll.handleInteraction}
-                    centered={centered()}
-                    setContentRef={(el) => {
-                      scrollDock.setContentRef(el)
-                    }}
-                    turnStart={historyWindow.turnStart()}
-                    historyMore={timelineHistoryMore()}
-                    historyLoading={timelineHistoryLoading()}
-                    onLoadEarlier={() => {
-                      void historyWindow.loadAndReveal()
-                    }}
-                    renderedUserMessages={historyWindow.renderedUserMessages()}
-                    anchor={anchor}
-                  />
-                </Show>
-              </Match>
-              <Match when={true}>
-                <NewSessionView composer={(ctx) => renderComposerRegion("home", ctx)} />
-              </Match>
-            </Switch>
-          </div>
-          <Show when={params.id}>{renderComposerRegion("session")}</Show>
-        </div>
-
-        <SessionSidePanel
-          canReview={canReview}
-          diffs={reviewPanel.diffs}
-          hasReview={reviewPanel.hasReview}
-          reviewCount={reviewPanel.reviewCount}
-          reviewPanel={reviewPanel.reviewPanel}
-          files={reviewPanel.files}
-          terminalPanel={() => <TerminalPanel embedded />}
-          size={size}
-        />
-      </div>
-
-      <Show when={!isDesktop()}>
-        <TerminalPanel />
-      </Show>
-    </div>
+    <SessionMainView
+      activeSessionID={params.id}
+      isDesktop={isDesktop()}
+      mobileTab={store.mobileTab}
+      setMobileTab={(tab) => setStore("mobileTab", tab)}
+      language={language}
+      timelineSessionID={timelineSessionID()}
+      timelineSessionKey={timelineSessionKey()}
+      timelineMessages={timelineMessages()}
+      mobileChanges={mobileChanges()}
+      mobileFallback={reviewPanel.mobileFallback()}
+      actions={actions}
+      scroll={scrollDock.scroll}
+      resumeScroll={resumeScroll}
+      setScrollRef={setScrollRef}
+      scheduleScrollState={scheduleScrollState}
+      autoScroll={autoScroll}
+      markScrollGesture={activeMessage.markScrollGesture}
+      hasScrollGesture={activeMessage.hasScrollGesture}
+      markUserScroll={activeMessage.markUserScroll}
+      historyWindow={historyWindow}
+      centered={centered()}
+      setContentRef={scrollDock.setContentRef}
+      historyMore={timelineHistoryMore()}
+      historyLoading={timelineHistoryLoading()}
+      anchor={anchor}
+      composerSession={renderComposerRegion("session")}
+      composerHome={(ctx) => renderComposerRegion("home", ctx)}
+      canReview={canReview}
+      reviewDiffs={reviewPanel.diffs}
+      hasReview={reviewPanel.hasReview}
+      reviewCount={reviewPanel.reviewCount}
+      reviewPanel={reviewPanel.reviewPanel}
+      files={reviewPanel.files}
+      size={size}
+    />
   )
 }
