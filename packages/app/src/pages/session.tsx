@@ -1,6 +1,5 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import {
-  onCleanup,
   createMemo,
   createEffect,
   createComputed,
@@ -36,6 +35,7 @@ import { createSessionCommentContext } from "@/pages/session/use-session-comment
 import { useSessionDesktopContext } from "@/pages/session/use-session-desktop-context"
 import { createSessionFollowups } from "@/pages/session/use-session-followups"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
+import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { useSessionKeyboardFocus } from "@/pages/session/use-session-keyboard-focus"
 import { useSessionRefreshEffects } from "@/pages/session/use-session-refresh-effects"
@@ -250,15 +250,13 @@ export default function Page() {
     setActiveTab: tabs().setActive,
   })
 
-  let fillFrame: number | undefined
-
-  let fill = () => {}
+  let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
   let activeMessage!: ReturnType<typeof createSessionActiveMessage>
 
   const scrollDock = createSessionScrollDock({
     clearMessageHash: () => clearMessageHash(),
     clearActiveMessage: () => activeMessage?.clearActiveMessage(),
-    fill: () => fill(),
+    fill: () => historyBackfill?.fill(),
   })
   const autoScroll = scrollDock.autoScroll
   const resumeScroll = scrollDock.resumeScroll
@@ -303,45 +301,17 @@ export default function Page() {
     scroller: scrollDock.scroller,
   })
 
-  fill = () => {
-    if (fillFrame !== undefined) return
-
-    fillFrame = requestAnimationFrame(() => {
-      fillFrame = undefined
-
-      if (!timelineSessionID() || !timelineMessagesReady()) return
-      if (autoScroll.userScrolled() || timelineHistoryLoading()) return
-
-      const el = scrollDock.scroller()
-      if (!el) return
-      if (el.scrollHeight > el.clientHeight + 1) return
-      if (historyWindow.turnStart() <= 0 && !timelineHistoryMore()) return
-
-      void historyWindow.loadAndReveal()
-    })
-  }
-
-  createEffect(
-    on(
-      () =>
-        [
-          params.id,
-          timelineSessionID(),
-          timelineMessagesReady(),
-          historyWindow.turnStart(),
-          timelineHistoryMore(),
-          timelineHistoryLoading(),
-          autoScroll.userScrolled(),
-          timelineVisibleUserMessages().length,
-        ] as const,
-      ([, id, ready, start, more, loading, scrolled]) => {
-        if (!id || !ready || loading || scrolled) return
-        if (start <= 0 && !more) return
-        fill()
-      },
-      { defer: true },
-    ),
-  )
+  historyBackfill = createSessionHistoryBackfill({
+    routeSessionID: () => params.id,
+    sessionID: timelineSessionID,
+    messagesReady: timelineMessagesReady,
+    historyWindow,
+    historyMore: timelineHistoryMore,
+    historyLoading: timelineHistoryLoading,
+    visibleUserMessagesLength: () => timelineVisibleUserMessages().length,
+    userScrolled: autoScroll.userScrolled,
+    scroller: scrollDock.scroller,
+  })
 
   const draft = (id: string) =>
     extractPromptFromParts(sync.data.part[id] ?? [], {
@@ -464,10 +434,6 @@ export default function Page() {
       },
     ),
   )
-
-  onCleanup(() => {
-    if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
-  })
 
   const renderComposerRegion = (
     variant: "session" | "home",
