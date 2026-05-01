@@ -136,23 +136,7 @@
 
   [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
     :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"]:hover:not(:disabled) {
-    background-color: color-mix(in srgb, var(--shell-surface-strong) 90%, var(--shell-background-base) 10%);
-  }
-
-  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
-    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-expanded="true"],
-  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
-    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-current="page"] {
-    background-color: color-mix(in srgb, var(--shell-surface-strong) 82%, var(--shell-background-base) 18%);
-  }
-
-  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
-    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-expanded="true"]
-    [data-slot="icon-svg"],
-  [data-component="titlebar-shell"][data-platform="desktop"][data-os="macos"]
-    :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"][aria-current="page"]
-    [data-slot="icon-svg"] {
-    color: var(--color-text-strong);
+    background-color: var(--surface-base-hover);
   }
 
   [data-component="desktop-shell-main"][data-platform="desktop"][data-os="macos"] {
