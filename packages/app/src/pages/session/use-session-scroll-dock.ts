@@ -1,3 +1,8 @@
+import { createResizeObserver } from "@solid-primitives/resize-observer"
+import { createAutoScroll } from "@opencode-ai/ui/hooks"
+import { createEffect, on, onCleanup } from "solid-js"
+import { createStore } from "solid-js/store"
+
 export type SessionScrollState = {
   overflow: boolean
   bottom: boolean
@@ -64,4 +69,135 @@ export function syncComposerDockHeight(input: {
   input.fill()
 
   return input.nextDockHeight
+}
+
+export function createSessionScrollDock(input: {
+  clearMessageHash: () => void
+  clearActiveMessage: () => void
+  fill: () => void
+}) {
+  const autoScroll = createAutoScroll({
+    working: () => true,
+    overflowAnchor: "dynamic",
+  })
+
+  const [scroll, setScroll] = createStore<SessionScrollState>({
+    overflow: false,
+    bottom: true,
+    jump: false,
+  })
+
+  let scroller: HTMLDivElement | undefined
+  let content: HTMLDivElement | undefined
+  let promptDock: HTMLDivElement | undefined
+  let dockHeight = 0
+  let scrollStateFrame: number | undefined
+  let scrollStateTarget: HTMLDivElement | undefined
+
+  const updateScrollState = (el: HTMLDivElement) => {
+    const next = calculateSessionScrollState({
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    })
+
+    if (scroll.overflow === next.overflow && scroll.bottom === next.bottom && scroll.jump === next.jump) return
+    setScroll(next)
+  }
+
+  const scheduleScrollState = (el: HTMLDivElement) => {
+    scrollStateTarget = el
+    if (scrollStateFrame !== undefined) return
+
+    scrollStateFrame = requestAnimationFrame(() => {
+      scrollStateFrame = undefined
+
+      const target = scrollStateTarget
+      scrollStateTarget = undefined
+      if (target) updateScrollState(target)
+    })
+  }
+
+  const setScrollRef = (el: HTMLDivElement | undefined) => {
+    scroller = el
+    autoScroll.scrollRef(el)
+    if (!el) return
+    el.style.paddingBottom = "calc(var(--composer-dock-height, 0px) + 16px)"
+    scheduleScrollState(el)
+    input.fill()
+  }
+
+  const setContentRef = (el: HTMLDivElement) => {
+    content = el
+    autoScroll.contentRef(el)
+    if (scroller) scheduleScrollState(scroller)
+  }
+
+  const updateDockHeight = (next: number) => {
+    dockHeight = syncComposerDockHeight({
+      el: scroller,
+      previousDockHeight: dockHeight,
+      nextDockHeight: next,
+      userScrolled: autoScroll.userScrolled(),
+      setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
+      forceScrollToBottom: autoScroll.forceScrollToBottom,
+      scheduleScrollState,
+      fill: input.fill,
+    })
+  }
+
+  const setPromptDockRef = (el: HTMLDivElement) => {
+    promptDock = el
+    const next = Math.ceil(el.getBoundingClientRect().height)
+    if (next > 0) updateDockHeight(next)
+  }
+
+  const resumeScroll = () => {
+    input.clearActiveMessage()
+    autoScroll.forceScrollToBottom()
+    input.clearMessageHash()
+    if (scroller) scheduleScrollState(scroller)
+  }
+
+  createEffect(
+    on(
+      autoScroll.userScrolled,
+      (scrolled) => {
+        if (scrolled) return
+        input.clearActiveMessage()
+        input.clearMessageHash()
+      },
+      { defer: true },
+    ),
+  )
+
+  createResizeObserver(
+    () => content,
+    () => {
+      if (scroller) scheduleScrollState(scroller)
+      input.fill()
+    },
+  )
+
+  createResizeObserver(
+    () => promptDock,
+    ({ height }) => {
+      updateDockHeight(Math.ceil(height))
+    },
+  )
+
+  onCleanup(() => {
+    if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
+  })
+
+  return {
+    autoScroll,
+    scroll,
+    scroller: () => scroller,
+    setScrollRef,
+    setContentRef,
+    setPromptDockRef,
+    scheduleScrollState,
+    resumeScroll,
+  }
 }

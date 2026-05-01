@@ -17,14 +17,12 @@ import {
 } from "solid-js"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createMediaQuery } from "@solid-primitives/media"
-import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLocal } from "@/context/local"
 import { selectionFromLines, useFile, type FileSelection, type SelectedLineRange } from "@/context/file"
 import { createStore } from "solid-js/store"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Select } from "@opencode-ai/ui/select"
 import { Tabs } from "@opencode-ai/ui/tabs"
-import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { showToast } from "@opencode-ai/ui/toast"
 import { checksum } from "@opencode-ai/util/encode"
@@ -79,7 +77,7 @@ import { deriveArtifactFiles, nextFilesPanelAutoOpen, type SessionArtifactFile }
 import { TerminalPanel } from "@/pages/session/terminal-panel"
 import { useSessionCommands } from "@/pages/session/use-session-commands"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
-import { calculateSessionScrollState, syncComposerDockHeight } from "@/pages/session/use-session-scroll-dock"
+import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
 import { Identifier } from "@/utils/id"
 import { diffs as list } from "@/utils/diffs"
 import { Persist, persisted } from "@/utils/persist"
@@ -425,11 +423,6 @@ export default function Page() {
   const [ui, setUi] = createStore({
     pendingMessage: undefined as string | undefined,
     scrollGesture: 0,
-    scroll: {
-      overflow: false,
-      bottom: true,
-      jump: false,
-    },
   })
 
   const workspaceKey = createMemo(() => params.dir ?? "")
@@ -801,7 +794,7 @@ export default function Page() {
   const anchor = (id: string) => `message-${id}`
 
   const cursor = () => {
-    const root = scroller
+    const root = scrollDock.scroller()
     if (!root) return store.messageId
 
     const box = root.getBoundingClientRect()
@@ -851,17 +844,13 @@ export default function Page() {
   }
 
   let inputRef!: HTMLDivElement
-  let promptDock: HTMLDivElement | undefined
-  let dockHeight = 0
-  let scroller: HTMLDivElement | undefined
-  let content: HTMLDivElement | undefined
   let scrollMark = 0
   let messageMark = 0
 
   const scrollGestureWindowMs = 250
 
   const markScrollGesture = (target?: EventTarget | null) => {
-    const root = scroller
+    const root = scrollDock.scroller()
     if (!root) return
 
     const el = target instanceof Element ? target : undefined
@@ -1479,86 +1468,23 @@ export default function Page() {
     ),
   )
 
-  const autoScroll = createAutoScroll({
-    working: () => true,
-    overflowAnchor: "dynamic",
-  })
-
-  let scrollStateFrame: number | undefined
-  let scrollStateTarget: HTMLDivElement | undefined
   let fillFrame: number | undefined
-
-  const updateScrollState = (el: HTMLDivElement) => {
-    const next = calculateSessionScrollState({
-      clientHeight: el.clientHeight,
-      scrollHeight: el.scrollHeight,
-      scrollTop: el.scrollTop,
-    })
-
-    if (ui.scroll.overflow === next.overflow && ui.scroll.bottom === next.bottom && ui.scroll.jump === next.jump) return
-    setUi("scroll", next)
-  }
-
-  const scheduleScrollState = (el: HTMLDivElement) => {
-    scrollStateTarget = el
-    if (scrollStateFrame !== undefined) return
-
-    scrollStateFrame = requestAnimationFrame(() => {
-      scrollStateFrame = undefined
-
-      const target = scrollStateTarget
-      scrollStateTarget = undefined
-      if (!target) return
-
-      updateScrollState(target)
-    })
-  }
-
-  const resumeScroll = () => {
-    setStore("messageId", undefined)
-    autoScroll.forceScrollToBottom()
-    clearMessageHash()
-
-    const el = scroller
-    if (el) scheduleScrollState(el)
-  }
-
-  // When the user returns to the bottom, treat the active message as "latest".
-  createEffect(
-    on(
-      autoScroll.userScrolled,
-      (scrolled) => {
-        if (scrolled) return
-        setStore("messageId", undefined)
-        clearMessageHash()
-      },
-      { defer: true },
-    ),
-  )
 
   let fill = () => {}
 
-  const setScrollRef = (el: HTMLDivElement | undefined) => {
-    scroller = el
-    autoScroll.scrollRef(el)
-    if (!el) return
-    el.style.paddingBottom = "calc(var(--composer-dock-height, 0px) + 16px)"
-    scheduleScrollState(el)
-    fill()
-  }
+  const scrollDock = createSessionScrollDock({
+    clearMessageHash: () => clearMessageHash(),
+    clearActiveMessage: () => setStore("messageId", undefined),
+    fill: () => fill(),
+  })
+  const autoScroll = scrollDock.autoScroll
+  const resumeScroll = scrollDock.resumeScroll
+  const scheduleScrollState = scrollDock.scheduleScrollState
+  const setScrollRef = scrollDock.setScrollRef
 
   const markUserScroll = () => {
     scrollMark += 1
   }
-
-  createResizeObserver(
-    () => content,
-    () => {
-      const el = scroller
-      if (el) scheduleScrollState(el)
-      fill()
-    },
-  )
 
   const historyWindow = createSessionHistoryWindow({
     sessionID: timelineSessionID,
@@ -1569,7 +1495,7 @@ export default function Page() {
     historyLoading: timelineHistoryLoading,
     loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
     userScrolled: autoScroll.userScrolled,
-    scroller: () => scroller,
+    scroller: scrollDock.scroller,
   })
 
   fill = () => {
@@ -1581,7 +1507,7 @@ export default function Page() {
       if (!timelineSessionID() || !timelineMessagesReady()) return
       if (autoScroll.userScrolled() || timelineHistoryLoading()) return
 
-      const el = scroller
+      const el = scrollDock.scroller()
       if (!el) return
       if (el.scrollHeight > el.clientHeight + 1) return
       if (historyWindow.turnStart() <= 0 && !timelineHistoryMore()) return
@@ -1894,23 +1820,6 @@ export default function Page() {
     void sendFollowup(sessionID, item.id)
   })
 
-  createResizeObserver(
-    () => promptDock,
-    ({ height }) => {
-      const next = Math.ceil(height)
-      dockHeight = syncComposerDockHeight({
-        el: scroller,
-        previousDockHeight: dockHeight,
-        nextDockHeight: next,
-        userScrolled: autoScroll.userScrolled(),
-        setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
-        forceScrollToBottom: autoScroll.forceScrollToBottom,
-        scheduleScrollState,
-        fill,
-      })
-    },
-  )
-
   const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
     sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
@@ -1926,7 +1835,7 @@ export default function Page() {
     setActiveMessage,
     setTurnStart: historyWindow.setTurnStart,
     autoScroll,
-    scroller: () => scroller,
+    scroller: scrollDock.scroller,
     anchor,
     scheduleScrollState,
     consumePendingMessage: layout.pendingMessage.consume,
@@ -1954,7 +1863,6 @@ export default function Page() {
     if (todoTimer !== undefined) window.clearTimeout(todoTimer)
     if (diffFrame !== undefined) cancelAnimationFrame(diffFrame)
     if (diffTimer !== undefined) window.clearTimeout(diffTimer)
-    if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
     if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
   })
 
@@ -2017,22 +1925,7 @@ export default function Page() {
             }
           : undefined
       }
-      setPromptDockRef={(el) => {
-        promptDock = el
-        if (!el) return
-        const next = Math.ceil(el.getBoundingClientRect().height)
-        if (next <= 0) return
-        dockHeight = syncComposerDockHeight({
-          el: scroller,
-          previousDockHeight: dockHeight,
-          nextDockHeight: next,
-          userScrolled: autoScroll.userScrolled(),
-          setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
-          forceScrollToBottom: autoScroll.forceScrollToBottom,
-          scheduleScrollState,
-          fill,
-        })
-      }}
+      setPromptDockRef={scrollDock.setPromptDockRef}
     />
   )
 
@@ -2086,7 +1979,7 @@ export default function Page() {
                       emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
                     })}
                     actions={actions}
-                    scroll={ui.scroll}
+                    scroll={scrollDock.scroll}
                     onResumeScroll={resumeScroll}
                     setScrollRef={setScrollRef}
                     onScheduleScrollState={scheduleScrollState}
@@ -2098,11 +1991,7 @@ export default function Page() {
                     onAutoScrollInteraction={autoScroll.handleInteraction}
                     centered={centered()}
                     setContentRef={(el) => {
-                      content = el
-                      autoScroll.contentRef(el)
-
-                      const root = scroller
-                      if (root) scheduleScrollState(root)
+                      scrollDock.setContentRef(el)
                     }}
                     turnStart={historyWindow.turnStart()}
                     historyMore={timelineHistoryMore()}
