@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import * as Session from "./session"
+import * as SubagentRun from "./subagent-run"
 import type { SessionID } from "./schema"
 
 /**
@@ -27,9 +28,8 @@ export const hasInFlightToolCallsExcept = (
 
 /**
  * Returns true when this session has at least one active subagent run.
- *
- * Note: SubagentRun.activeCounts is private to the layer; a public count helper is a follow-up.
- * For now this returns false unconditionally; the parent's running-tool guard above already covers
- * the common case since subagents are dispatched through a parent agent tool call.
  */
-export const hasRunningSubagents = (_sessionID: SessionID) => Effect.succeed(false)
+export const hasRunningSubagents = (
+  subagents: SubagentRun.Service["Service"],
+  sessionID: SessionID,
+) => subagents.activeForSession(sessionID)

@@ -52,6 +52,7 @@ export interface RejectedInput {
 export interface Interface {
   readonly reserveSlot: (parentID: SessionID) => Effect.Effect<void, TooManyActive>
   readonly releaseSlot: (parentID: SessionID) => Effect.Effect<void>
+  readonly activeForSession: (parentID: SessionID) => Effect.Effect<boolean>
   readonly start: (input: StartInput) => Effect.Effect<MessageV2.SubtaskPart>
   readonly patchSession: (toolCallID: string, sessionID: SessionID) => Effect.Effect<void>
   readonly recordEvent: (toolCallID: string, event: MessageV2.SubtaskEvent) => Effect.Effect<void>
@@ -142,6 +143,9 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
           activeCounts.set(parentID, current - 1)
         }),
       )
+
+    const activeForSession = (parentID: SessionID): Effect.Effect<boolean> =>
+      Effect.succeed((activeCounts.get(parentID) ?? 0) > 0)
 
     const readPart = (toolCallID: string) =>
       Effect.gen(function* () {
@@ -466,6 +470,7 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
     return Service.of({
       reserveSlot,
       releaseSlot,
+      activeForSession,
       start,
       patchSession,
       recordEvent,

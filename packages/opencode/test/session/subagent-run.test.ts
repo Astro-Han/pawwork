@@ -60,6 +60,26 @@ describe("SubtaskPart backward compat", () => {
     })
   })
 
+  test("reports whether a parent has active subagent slots", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const program = Effect.gen(function* () {
+          const svc = yield* SubagentRun.Service
+          const parentID = "ses_parent_active" as SessionID
+
+          expect(yield* svc.activeForSession(parentID)).toBe(false)
+          yield* svc.reserveSlot(parentID)
+          expect(yield* svc.activeForSession(parentID)).toBe(true)
+          yield* svc.releaseSlot(parentID)
+          expect(yield* svc.activeForSession(parentID)).toBe(false)
+        })
+        await Effect.runPromise(program.pipe(Effect.provide(Layer.mergeAll(SubagentRun.defaultLayer, Session.defaultLayer))))
+      },
+    })
+  })
+
   test("start writes a running SubtaskPart on the parent message", async () => {
     await using tmp = await tmpdir({ git: true })
     await Instance.provide({

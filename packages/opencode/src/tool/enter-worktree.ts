@@ -8,6 +8,7 @@ import { Worktree } from "../worktree"
 import { Instance } from "../project/instance"
 import { hasInFlightToolCallsExcept, hasRunningSubagents } from "../session/state-machine-guard"
 import type { SessionID } from "../session/schema"
+import { SubagentRun } from "../session/subagent-run"
 
 export const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const MAX_SLUG_LEN = 40
@@ -51,6 +52,7 @@ export const EnterWorktreeTool = Tool.define(
   "enter-worktree",
   Effect.gen(function* () {
     const sessions = yield* Session.Service
+    const subagents = yield* SubagentRun.Service
 
     const guard = (sessionID: SessionID, callID: string | undefined) =>
       Effect.gen(function* () {
@@ -62,7 +64,7 @@ export const EnterWorktreeTool = Tool.define(
             )
           }
         }
-        const subs = yield* hasRunningSubagents(sessionID)
+        const subs = yield* hasRunningSubagents(subagents, sessionID)
         if (subs) {
           return yield* Effect.fail(
             new Error("Cannot enter a worktree while a subagent is running in this session."),
