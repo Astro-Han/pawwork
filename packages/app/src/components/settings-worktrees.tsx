@@ -8,7 +8,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { SettingsList } from "./settings-list"
 import { SettingsWorktreeRow } from "./settings-worktree-row"
-import { basename, entryDirectory, errorText, type BoundSession, type WorktreeInfo } from "./settings-worktrees-helpers"
+import { basename, errorText, type BoundSession, type WorktreeInfo } from "./settings-worktrees-helpers"
 
 export const SettingsWorktrees: Component = () => {
   const language = useLanguage()
@@ -53,10 +53,6 @@ export const SettingsWorktrees: Component = () => {
   const boundSessions = createMemo((): Map<string, BoundSession> => {
     const map = new Map<string, BoundSession>()
     const directories = new Set<string>()
-    for (const project of sync.data.project) {
-      directories.add(project.worktree)
-      for (const sandbox of project.sandboxes ?? []) directories.add(entryDirectory(sandbox))
-    }
     for (const worktree of data() ?? []) {
       directories.add(worktree.ownerDirectory)
       directories.add(worktree.directory)

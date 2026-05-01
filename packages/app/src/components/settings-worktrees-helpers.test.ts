@@ -7,3 +7,7 @@ test("errorText falls back safely for circular payloads", () => {
 
   expect(errorText(circular)).toBe("[object Object]")
 })
+
+test("errorText avoids empty JSON object fallback", () => {
+  expect(errorText({})).toBe("[object Object]")
+})

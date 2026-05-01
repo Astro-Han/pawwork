@@ -28,7 +28,9 @@ export function errorText(error: unknown) {
     return error.message
   }
   try {
-    return JSON.stringify(error) ?? String(error)
+    const json = JSON.stringify(error)
+    if (json && json !== "{}") return json
+    return String(error)
   } catch {
     return String(error)
   }
