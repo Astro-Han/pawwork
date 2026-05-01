@@ -105,6 +105,7 @@ export const dict = {
   "ui.tool.worktree.enter": "进入工作树",
   "ui.tool.worktree.exit": "退出工作树",
   "ui.tool.worktree.exit.toProject": "回到 {{project}}",
+  "ui.tool.worktree.exit.fromBranch": "{{branch}} → {{project}}",
   "ui.tool.shell": "执行命令",
   "ui.tool.patch": "批量修改",
   "ui.tool.todos": "待办",

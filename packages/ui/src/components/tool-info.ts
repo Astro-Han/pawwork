@@ -32,6 +32,12 @@ export function exitWorktreeProjectName(
   return dest ? getFilename(dest) : undefined
 }
 
+export function exitWorktreePreviousBranch(
+  metadata: Record<string, any> = {},
+): string | undefined {
+  return pickString(metadata.previousBranch) || pickString(metadata.previousSlug)
+}
+
 export function agentTitle(i18n: UiI18n, type?: string) {
   if (!type) return i18n.t("ui.tool.agent.default")
   return i18n.t("ui.tool.agent", { type })
@@ -73,11 +79,12 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
       }
     case "exit-worktree": {
       const project = exitWorktreeProjectName(metadata)
-      return {
-        icon: "worktree",
-        title: i18n.t("ui.tool.worktree.exit"),
-        subtitle: project ? i18n.t("ui.tool.worktree.exit.toProject", { project }) : undefined,
-      }
+      const branch = exitWorktreePreviousBranch(metadata)
+      let subtitle: string | undefined
+      if (branch && project) subtitle = i18n.t("ui.tool.worktree.exit.fromBranch", { branch, project })
+      else if (project) subtitle = i18n.t("ui.tool.worktree.exit.toProject", { project })
+      else if (branch) subtitle = branch
+      return { icon: "worktree", title: i18n.t("ui.tool.worktree.exit"), subtitle }
     }
     case "bash":
       return { icon: "console", title: i18n.t("ui.tool.shell"), subtitle: input.description }
