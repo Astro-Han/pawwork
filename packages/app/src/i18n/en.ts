@@ -812,7 +812,7 @@ export const dict = {
   "settings.tab.shortcuts": "Shortcuts",
   "settings.tab.worktrees": "Worktrees",
   "settings.worktrees.title": "Worktrees",
-  "settings.worktrees.description": "Worktrees created or registered by PawWork. Active sessions keep their worktree until ExitWorktree is used.",
+  "settings.worktrees.description": "Worktrees PawWork has created or registered. An active session keeps its worktree bound; run ExitWorktree before you can delete it.",
   "settings.worktrees.empty.title": "No worktrees yet",
   "settings.worktrees.empty.body": "Run EnterWorktree from a session to create one",
   "settings.worktrees.column.name": "Name",
