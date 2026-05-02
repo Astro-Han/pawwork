@@ -24,7 +24,7 @@
     },
     "packages/app": {
       "name": "@opencode-ai/app",
-      "version": "2026.5.2",
+      "version": "2026.5.3",
       "dependencies": {
         "@kobalte/core": "catalog:",
         "@opencode-ai/sdk": "workspace:*",
@@ -97,7 +97,7 @@
     },
     "packages/desktop-electron": {
       "name": "@opencode-ai/desktop-electron",
-      "version": "2026.5.2",
+      "version": "2026.5.3",
       "dependencies": {
         "@opencode-ai/util": "workspace:*",
         "electron-context-menu": "4.1.2",
@@ -145,7 +145,7 @@
     },
     "packages/opencode": {
       "name": "opencode",
-      "version": "2026.5.2",
+      "version": "2026.5.3",
       "bin": {
         "opencode": "./bin/opencode",
       },
@@ -371,7 +371,7 @@
     },
     "packages/util": {
       "name": "@opencode-ai/util",
-      "version": "2026.5.2",
+      "version": "2026.5.3",
       "dependencies": {
         "@opencode-ai/core": "workspace:*",
         "zod": "catalog:",
