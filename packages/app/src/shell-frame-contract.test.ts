@@ -13,8 +13,12 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   const sessionHeader = read("./components/session/session-header.tsx")
   const pawworkTitlebar = read("./pages/layout/pawwork-titlebar.tsx")
   const wideDesktopQuery = css.indexOf("@media (min-width: 1280px)")
-  const macMainSeamRule = css.indexOf('[data-component="desktop-shell-main"][data-platform="desktop"][data-os="macos"] {')
-  const wideFrameRule = css.indexOf('[data-component="desktop-shell-frame"][data-platform="desktop"][data-os="linux"] {')
+  const macMainSeamRule = css.indexOf(
+    '[data-component="desktop-shell-main"][data-platform="desktop"][data-os="macos"] {',
+  )
+  const wideFrameRule = css.indexOf(
+    '[data-component="desktop-shell-frame"][data-platform="desktop"][data-os="linux"] {',
+  )
 
   expect(css).toContain('[data-component="desktop-shell"][data-platform="desktop"] {')
   expect(css).toContain("--shell-titlebar-height: 44px;")
@@ -44,18 +48,22 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
 test("session composer is docked outside the scroll-clipped timeline region", () => {
   const session = read("./pages/session.tsx")
   const sessionMainView = read("./pages/session/session-main-view.tsx")
+  const messageTimeline = read("./pages/session/message-timeline.tsx")
 
   expect(session).toContain("const renderComposerRegion = (")
   expect(session).toContain('variant: "session" | "home"')
   expect(sessionMainView).toContain('<div class="flex-1 min-h-0 overflow-hidden">')
-  expect(sessionMainView).toContain("</div>\n          <Show when={props.activeSessionID}>{props.composerSession}</Show>")
+  expect(sessionMainView).toContain(
+    "</div>\n          <Show when={props.activeSessionID}>{props.composerSession}</Show>",
+  )
+  expect(messageTimeline).toContain('"padding-bottom": "calc(var(--composer-dock-height, 0px) + 32px)"')
 })
 
 test("session header uses a view title on home and breadcrumb title in sessions", () => {
   const sessionHeader = read("./components/session/session-header.tsx")
 
   expect(sessionHeader).toContain('language.t("command.session.new")')
-  expect(sessionHeader).toContain('sync.session.get(params.id)')
+  expect(sessionHeader).toContain("sync.session.get(params.id)")
   expect(sessionHeader).not.toContain('language.t("session.header.searchFiles")')
   expect(sessionHeader).not.toContain('language.t("session.header.search.placeholder"')
 })
@@ -63,5 +71,5 @@ test("session header uses a view title on home and breadcrumb title in sessions"
 test("titlebar drops Windows-only 138px placeholder and conditional drag region", () => {
   const titlebar = read("./components/titlebar.tsx")
   expect(titlebar).not.toContain('class="w-36 shrink-0"')
-  expect(titlebar).toContain('data-shell-drag-region={!windows() || undefined}')
+  expect(titlebar).toContain("data-shell-drag-region={!windows() || undefined}")
 })

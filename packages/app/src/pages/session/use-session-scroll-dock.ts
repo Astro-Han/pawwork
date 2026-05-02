@@ -1,4 +1,3 @@
-import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
 import { createEffect, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -96,6 +95,8 @@ export function createSessionScrollDock(input: {
   let scroller: HTMLDivElement | undefined
   let content: HTMLDivElement | undefined
   let promptDock: HTMLDivElement | undefined
+  let contentObserver: ResizeObserver | undefined
+  let promptDockObserver: ResizeObserver | undefined
   let dockHeight = 0
   let scrollStateFrame: number | undefined
   let scrollStateTarget: HTMLDivElement | undefined
@@ -133,9 +134,17 @@ export function createSessionScrollDock(input: {
   }
 
   const setContentRef = (el: HTMLDivElement | undefined) => {
+    contentObserver?.disconnect()
+    contentObserver = undefined
     content = el
     autoScroll.contentRef(el)
     if (el && scroller) scheduleScrollState(scroller)
+    if (!el) return
+    contentObserver = new ResizeObserver(() => {
+      if (scroller) scheduleScrollState(scroller)
+      input.fill()
+    })
+    contentObserver.observe(el)
   }
 
   const updateDockHeight = (next: number) => {
@@ -154,10 +163,16 @@ export function createSessionScrollDock(input: {
   const measurePromptDockHeight = () => Math.ceil(promptDock?.getBoundingClientRect().height ?? 0)
 
   const setPromptDockRef = (el: HTMLDivElement | undefined) => {
+    promptDockObserver?.disconnect()
+    promptDockObserver = undefined
     promptDock = el
     if (!el) return
     const next = measurePromptDockHeight()
     if (next > 0) updateDockHeight(next)
+    promptDockObserver = new ResizeObserver(() => {
+      updateDockHeight(measurePromptDockHeight())
+    })
+    promptDockObserver.observe(el)
   }
 
   const resumeScroll = () => {
@@ -179,22 +194,9 @@ export function createSessionScrollDock(input: {
     ),
   )
 
-  createResizeObserver(
-    () => content,
-    () => {
-      if (scroller) scheduleScrollState(scroller)
-      input.fill()
-    },
-  )
-
-  createResizeObserver(
-    () => promptDock,
-    () => {
-      updateDockHeight(measurePromptDockHeight())
-    },
-  )
-
   onCleanup(() => {
+    contentObserver?.disconnect()
+    promptDockObserver?.disconnect()
     if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
     document.documentElement.style.removeProperty("--composer-dock-height")
   })
