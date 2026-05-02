@@ -14,6 +14,23 @@ type SessionLike = {
   projectLabel: string
 }
 
+type SessionTimeLike = {
+  time?: {
+    created?: number
+    updated?: number
+  }
+}
+
+type MessageTimeLike = {
+  id?: string
+  role?: string
+  time?: {
+    created?: number
+  }
+}
+
+const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value)
+
 const shortenHome = (value: string, home?: string) => {
   if (!home) return value
   const normalized = home.endsWith("/") ? home : `${home}/`
@@ -44,6 +61,17 @@ export function sortPawworkSidebarSessions<T extends SessionLike>(sessions: T[])
     if (project !== 0) return project
     return a.id.localeCompare(b.id)
   })
+}
+
+export function pawworkSidebarSessionTime(session: SessionTimeLike, messages?: MessageTimeLike[]) {
+  for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) {
+    const message = messages?.[i]
+    if (message?.role !== "user") continue
+    const created = message.time?.created
+    if (isFiniteNumber(created)) return created
+  }
+  const sessionCreated = session.time?.created
+  return isFiniteNumber(sessionCreated) ? sessionCreated : 0
 }
 
 export function pawworkSessionDirectories(input: {
