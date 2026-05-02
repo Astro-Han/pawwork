@@ -1,19 +1,23 @@
-Launch a new agent to handle complex, multistep tasks autonomously.
+Launch a new agent to handle a self-contained task autonomously when doing so is clearly more efficient than direct tool calls in the current thread.
 
 When using the agent tool, you must specify a subagent_type parameter to select which agent type to use.
 
 When to use the agent tool:
 - When you are instructed to execute custom slash commands. Use the agent tool with the slash command invocation as the entire prompt. The slash command can take arguments. For example: Agent(description="Check the file", prompt="/check-file path/to/file.py")
+- When one broad, independent investigation can be delegated and summarized without requiring continuous parent judgment.
+- When multiple hypotheses are genuinely independent and parallel investigation will reduce latency; each subagent should have a distinct scope and stopping condition.
 
 When NOT to use the agent tool:
 - If you want to read a specific file path, use the Read or Glob tool instead of the agent tool, to find the match more quickly
 - If you are searching for a specific class definition like "class Foo", use the Glob tool instead, to find the match more quickly
 - If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the agent tool, to find the match more quickly
+- If you are checking package scripts, test setup, config files, or another small known area, inspect it directly in the current thread
+- If you are debugging a bug and already have a plausible next file or command to inspect, continue directly instead of delegating that single step
 - Other tasks that are not related to the available agents
 
 
 Usage notes:
 1. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result. The output includes a subagent_session_id you can reuse later to continue the same subagent session.
-2. Each agent invocation starts with a fresh context unless you provide subagent_session_id to resume the same subagent session (which continues with its previous messages and tool outputs). When starting fresh, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.
+2. Each agent invocation starts with a fresh context unless you provide subagent_session_id to resume the same subagent session (which continues with its previous messages and tool outputs). When starting fresh, your prompt should be specific and bounded: state the goal, relevant paths or keywords, what to ignore, and exactly what information the agent should return in its final and only message.
 3. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
-4. If the proactive trigger applies to the available agents, you should try your best to use it without the user having to ask for it first. Use your judgement.
+4. Do not use this tool just because an agent is available. Prefer the current thread for small or sequential work; use agent only when it has a clear advantage.
