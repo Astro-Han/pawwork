@@ -28,6 +28,33 @@ const base = {
       },
     ],
   },
+  rendererDiagnostics: {
+    status: "ok" as const,
+    source: "renderer-diagnostics" as const,
+    generated_at: "2026-04-23T01:02:03.004Z",
+    events: [
+      {
+        ts: "2026-04-23T01:02:03.004Z",
+        "event.name": "session.action.submit",
+        level: "info" as const,
+        app_launch_id: "launch_1",
+        window_id: "1",
+        monotonic_ms: 10,
+        route_session_id: "ses_1",
+        visible_session_id: "ses_1",
+        timeline_session_id: "ses_1",
+        trace_id: "msg_1",
+        data: { action: "submit", endpoint_kind: "prompt" },
+      },
+    ],
+    summary: {
+      event_count: 1,
+      incident_count: 0,
+      statuses: ["ok" as const],
+      omitted_event_count: 0,
+      omitted_bytes: 0,
+    },
+  },
 }
 
 describe("problem report", () => {
@@ -54,6 +81,24 @@ describe("problem report", () => {
     expect(payload.reportId).toBe(report.reportId)
     expect(payload.diagnostics.sessionID).toBe("ses_1")
     expect(payload.sessionExport.status).toBe("ok")
+    expect(payload.rendererDiagnostics?.status).toBe("ok")
+    expect(payload.rendererDiagnostics?.summary.event_count).toBe(1)
+  })
+
+  test("summarizes renderer diagnostics without exposing event payloads", () => {
+    const summary = buildProblemReportSummary({
+      reportId: "pwr_20260423_abc123",
+      generatedAt: "2026-04-23T01:02:03.004Z",
+      diagnostics: base.diagnostics,
+      reportFileName: "pawwork-problem-report.md",
+      reportLocationHint: "PawWork app data/.../problem-reports/pawwork-problem-report.md",
+      fullReportStatus: "ready",
+      recentErrors: [],
+      rendererDiagnostics: base.rendererDiagnostics,
+    })
+
+    expect(summary).toContain("Renderer diagnostics: ok, events=1, incidents=0")
+    expect(summary).not.toContain("session.action.submit")
   })
 
   test("builds a short summary without full logs, paths, session export, tool output, or snippets", () => {
@@ -315,6 +360,44 @@ describe("problem report", () => {
     expect(payload.rendererError?.details.length).toBeLessThan(details.length)
   })
 
+  test("truncates renderer diagnostics events to honor max bytes", () => {
+    const report = buildProblemReport(
+      {
+        ...base,
+        logTail: "",
+        sessionExport: { status: "none" },
+        rendererDiagnostics: {
+          ...base.rendererDiagnostics,
+          events: [
+            ...Array.from({ length: 50 }, (_, index) => ({
+              ...base.rendererDiagnostics.events[0],
+              trace_id: `msg_${index}`,
+              data: { action: "submit", endpoint_kind: "prompt", prompt_length: index },
+            })),
+            {
+              ...base.rendererDiagnostics.events[0],
+              "event.name": "incident.session_scroll_jump_to_top",
+              data: { scroll_top: 0, distance_from_bottom: 500, client_height: 400, user_scrolled: false },
+            },
+          ],
+          summary: {
+            ...base.rendererDiagnostics.summary,
+            event_count: 51,
+            incident_count: 1,
+          },
+        },
+      },
+      { maxBytes: 5_000 },
+    )
+
+    expect(Buffer.byteLength(report.markdown, "utf8")).toBeLessThanOrEqual(5_000)
+    const payload = parseProblemReportPayload(report.markdown)
+    expect(payload.rendererDiagnostics?.status).toBe("truncated")
+    expect(payload.rendererDiagnostics?.truncation).toBeUndefined()
+    expect(payload.rendererDiagnostics?.summary.omitted_event_count).toBeGreaterThan(0)
+    expect(payload.truncation.omittedRendererDiagnosticsBytes).toBeGreaterThan(0)
+  })
+
   test("sanitizes non-json session export values", () => {
     const circular: Record<string, unknown> = { id: "root" }
     circular.self = circular
@@ -415,6 +498,7 @@ describe("problem report", () => {
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
       }),
@@ -443,6 +527,7 @@ describe("problem report", () => {
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
       }),
@@ -470,6 +555,7 @@ describe("problem report", () => {
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
       }),
@@ -495,6 +581,7 @@ describe("problem report", () => {
           omittedLogBytes: 0,
           omittedSessionInfoBytes: 0,
           omittedFailedExportErrorBytes: 0,
+          omittedRendererDiagnosticsBytes: 0,
           omittedDiagnosticsBytes: 0,
         },
       }),
@@ -513,7 +600,14 @@ describe("problem report", () => {
         diagnostics: base.diagnostics,
         logTail: "",
         sessionExport: { status: "none" },
-        truncation: { omittedMessages: 0, omittedLogBytes: 0, omittedSessionInfoBytes: 0, omittedDiagnosticsBytes: 0 },
+        truncation: {
+          omittedMessages: 0,
+          omittedLogBytes: 0,
+          omittedSessionInfoBytes: 0,
+          omittedFailedExportErrorBytes: 0,
+          omittedRendererDiagnosticsBytes: 0,
+          omittedDiagnosticsBytes: 0,
+        },
       }),
       "```",
     ].join("\n")

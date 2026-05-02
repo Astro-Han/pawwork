@@ -17,7 +17,12 @@ import type {
 } from "../preload/types"
 import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
-import { fetchExport } from "./server-client"
+import { attachRendererDiagnosticsToSessionExport, fetchExport } from "./server-client"
+import {
+  emptyRendererDiagnosticsSlice,
+  SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+  type RendererDiagnosticsSlice,
+} from "./renderer-diagnostics"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -63,6 +68,12 @@ type Deps = {
   setDesktopContext: (context: DesktopContext, win: BrowserWindow) => Promise<void> | void
   recordRendererDiagnostic: (event: unknown, context: { windowID: number }) => Promise<unknown> | unknown
   exportRendererDiagnostics: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>
+  rendererDiagnosticsSlice: (input: {
+    sessionID: string
+    directory: string
+    windowID?: number
+    maxBytes: number
+  }) => Promise<RendererDiagnosticsSlice>
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -333,7 +344,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "export-session",
     async (
-      _event: IpcMainInvokeEvent,
+      event: IpcMainInvokeEvent,
       sessionID: string,
       directory: string,
       defaultName?: string,
@@ -345,6 +356,19 @@ export function registerIpcHandlers(deps: Deps) {
       const server = await deps.getServerReadyData()
       const fetched = await fetchExport(server, directory, sessionID)
       if (!fetched.ok) return fetched
+      let rendererDiagnostics: RendererDiagnosticsSlice
+      try {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        rendererDiagnostics = await deps.rendererDiagnosticsSlice({
+          sessionID,
+          directory,
+          windowID: win?.id,
+          maxBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+        })
+      } catch {
+        rendererDiagnostics = emptyRendererDiagnosticsSlice("write_failed", new Date())
+      }
+      const exportBody = attachRendererDiagnosticsToSessionExport(fetched.body, rendererDiagnostics)
 
       const fallbackStamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
       const result = await dialog.showSaveDialog({
@@ -355,7 +379,7 @@ export function registerIpcHandlers(deps: Deps) {
       if (result.canceled || !result.filePath) return { ok: false, error: "cancelled" } as const
 
       try {
-        await fs.writeFile(result.filePath, fetched.body, "utf8")
+        await fs.writeFile(result.filePath, exportBody, "utf8")
         return { ok: true, path: result.filePath } as const
       } catch (err) {
         return { ok: false, error: (err as Error).message } as const

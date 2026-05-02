@@ -22,5 +22,6 @@ describe("desktop startup IPC", () => {
     expect(source).toContain('"renderer-diagnostics:export"')
     expect(source).toContain("recordRendererDiagnostic")
     expect(source).toContain("exportRendererDiagnostics")
+    expect(source).toContain("rendererDiagnosticsSlice")
   })
 })

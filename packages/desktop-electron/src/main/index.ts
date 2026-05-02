@@ -67,6 +67,7 @@ import {
   createRendererDiagnosticsRecorder,
   exportRendererDiagnosticsLog,
   rendererDiagnosticsRoot,
+  SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
 } from "./renderer-diagnostics"
 import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
@@ -229,14 +230,39 @@ function currentDesktopContext() {
   return desktopContexts.current(BrowserWindow.getFocusedWindow()?.id)
 }
 
+type FeedbackRuntimeContext = {
+  desktop: DesktopContext
+  windowID?: number
+}
+
+function currentFeedbackRuntimeContext(): FeedbackRuntimeContext {
+  const win = BrowserWindow.getFocusedWindow()
+  return {
+    desktop: desktopContexts.current(win?.id),
+    windowID: win?.id,
+  }
+}
+
+function isFeedbackRuntimeContext(value: unknown): value is FeedbackRuntimeContext {
+  return Boolean(value && typeof value === "object" && "desktop" in value)
+}
+
+function feedbackRuntimeContext(context: unknown): FeedbackRuntimeContext {
+  if (context === undefined) return currentFeedbackRuntimeContext()
+  if (isFeedbackRuntimeContext(context)) return context
+  return {
+    desktop: normalizeDesktopContextPayload(context, menuLocale),
+  }
+}
+
 function feedbackContext(context: unknown): DesktopContext {
-  return context === undefined ? currentDesktopContext() : normalizeDesktopContextPayload(context, menuLocale)
+  return feedbackRuntimeContext(context).desktop
 }
 
 const reportProblem = createFeedbackHandler({
   feedbackUrl: FEEDBACK_FORM_URL,
   reportRoot: problemReportRoot,
-  context: currentDesktopContext,
+  context: currentFeedbackRuntimeContext,
   confirm: async (context) => {
     const labels = feedbackDialogLabels(context === undefined ? menuLocale : feedbackContext(context).locale)
     const response = await dialog.showMessageBox({
@@ -270,6 +296,14 @@ const reportProblem = createFeedbackHandler({
   diagnostics: (context) => diagnostics(feedbackContext(context)),
   logTail: tail,
   sessionExport: (context, signal) => sessionExport(feedbackContext(context), signal),
+  rendererDiagnostics: (context) => {
+    const runtimeContext = feedbackRuntimeContext(context)
+    return rendererDiagnostics.slice({
+      sessionID: runtimeContext.desktop.sessionID,
+      windowID: runtimeContext.windowID,
+      maxBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+    })
+  },
   onHandledError: (message, error) => logger.error(message, error),
   onError: async (error) => {
     logger.error("problem report failed", error)
@@ -551,6 +585,12 @@ registerIpcHandlers({
   reportProblem: (input) => reportProblem(input),
   recordRendererDiagnostic: (event, context) => rendererDiagnostics.record(event, context),
   exportRendererDiagnostics: exportDiagnosticsFromMenu,
+  rendererDiagnosticsSlice: ({ sessionID, windowID, maxBytes }) =>
+    rendererDiagnostics.slice({
+      sessionID,
+      windowID,
+      maxBytes,
+    }),
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
   reportDeepLinkReady: (win) => reportDeepLinkReady(win),

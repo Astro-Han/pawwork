@@ -8,6 +8,7 @@ import {
   type RendererErrorDetails,
   type SessionExport,
 } from "./problem-report"
+import { emptyRendererDiagnosticsSlice, type RendererDiagnosticsSlice } from "./renderer-diagnostics"
 import type { MenuLocale } from "./menu-labels"
 import { errorMessage } from "./error"
 
@@ -39,6 +40,7 @@ type FeedbackDeps = {
   diagnostics: (context?: unknown) => ProblemReportDiagnostics
   logTail: () => string
   sessionExport: (context?: unknown, signal?: AbortSignal) => Promise<SessionExport>
+  rendererDiagnostics: (context?: unknown) => Promise<RendererDiagnosticsSlice>
   onHandledError?: (message: string, error: unknown) => void
   onError?: (error: unknown) => Promise<void> | void
 }
@@ -193,6 +195,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
     let diagnostics: ProblemReportDiagnostics
     let logTail = ""
     let sessionExport: SessionExport = { status: "none" }
+    let rendererDiagnostics: RendererDiagnosticsSlice = emptyRendererDiagnosticsSlice("missing", new Date(generatedAt))
     let savedReport: SavedReport | undefined
     let fullReportFailure: string | undefined
 
@@ -215,10 +218,17 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       sessionExport = { status: "failed", error: errorMessage(error) }
     }
 
+    try {
+      rendererDiagnostics = await deps.rendererDiagnostics(context)
+    } catch (error) {
+      deps.onHandledError?.("renderer diagnostics slice failed", error)
+      rendererDiagnostics = emptyRendererDiagnosticsSlice("write_failed", new Date(generatedAt))
+    }
+
     if (!fullReportFailure) {
       try {
         const report = buildProblemReport(
-          { diagnostics, logTail, sessionExport, rendererError: input.rendererError },
+          { diagnostics, logTail, sessionExport, rendererDiagnostics, rendererError: input.rendererError },
           { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES },
         )
         savedReport = await deps.saveReport({ reportId: id, generatedAt, markdown: report.markdown })
@@ -236,6 +246,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       fullReportStatus: savedReport ? "ready" : "failed",
       failureReason: fullReportFailure,
       recentErrors: recentKeyErrors(logTail),
+      rendererDiagnostics,
       rendererError: input.rendererError,
     })
 
