@@ -24,6 +24,12 @@ beforeAll(async () => {
         props: props ?? {},
         children: Array.isArray(props?.children) ? props.children : [props?.children].filter(Boolean),
       }) as Node,
+    TooltipKeybind: (props: any) =>
+      ({
+        type: "TooltipKeybind",
+        props: props ?? {},
+        children: Array.isArray(props?.children) ? props.children : [props?.children].filter(Boolean),
+      }) as Node,
   }))
   PawworkWorktreeBadge = (await import("./pawwork-worktree-badge")).PawworkWorktreeBadge
 })
