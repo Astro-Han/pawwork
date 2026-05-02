@@ -100,7 +100,16 @@ export function createInlineEditorController() {
             event.stopPropagation()
             editorKeyDown(event, props.onSave)
           }}
-          onBlur={closeEditor}
+          onBlur={() => {
+            if (editor.active !== props.id) return
+            const next = editorValue().trim()
+            const current = props.value().trim()
+            if (!next || next === current) {
+              closeEditor()
+              return
+            }
+            saveEditor(props.onSave)
+          }}
           onPointerDown={stopPropagation}
           onClick={stopPropagation}
           onDblClick={stopPropagation}
