@@ -84,7 +84,6 @@ export function createSessionComposerState(input: { sessionID: () => string | un
             questionRefetchInflight = false
           })
       },
-      { defer: true },
     ),
   )
 
