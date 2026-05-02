@@ -21,6 +21,7 @@ import { makeRuntime } from "@/effect/run-service"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { Session } from "../session"
+import { sameDirectory } from "../session/execution-context"
 
 export namespace Worktree {
   const log = Log.create({ service: "worktree" })
@@ -272,7 +273,7 @@ export namespace Worktree {
             const entries = yield* readRegistry()
             const next: Info[] = []
             for (const entry of entries) {
-              if ((yield* canonical(entry.directory)) !== target) next.push(entry)
+              if (!sameDirectory(yield* canonical(entry.directory), target)) next.push(entry)
             }
             next.push(info)
             yield* writeRegistry(next)
@@ -287,7 +288,7 @@ export namespace Worktree {
             const entries = yield* readRegistry()
             const next: Info[] = []
             for (const entry of entries) {
-              if ((yield* canonical(entry.directory)) !== target) next.push(entry)
+              if (!sameDirectory(yield* canonical(entry.directory), target)) next.push(entry)
             }
             yield* writeRegistry(next)
           }),
@@ -298,15 +299,16 @@ export namespace Worktree {
         const target = yield* canonical(directory)
         const entries = yield* readRegistry()
         for (const entry of entries) {
-          if ((yield* canonical(entry.directory)) === target) return entry
+          if (sameDirectory(yield* canonical(entry.directory), target)) return entry
         }
         return undefined
       })
 
       const lookupBySlug = Effect.fn("Worktree.lookupBySlug")(function* (slug: string) {
+        const normalizedSlug = slugify(slug)
         const entries = yield* readRegistry()
         // `name` addresses managed PawWork worktrees only. Worktrees joined by absolute path remain path-addressable.
-        return entries.find((entry) => entry.name === slug && entry.source === "created")
+        return entries.find((entry) => entry.name === normalizedSlug && entry.source === "created")
       })
 
       const registerExistingByPath = Effect.fn("Worktree.registerExistingByPath")(function* (directory: string) {
@@ -463,8 +465,7 @@ export namespace Worktree {
       const canonical = Effect.fnUntraced(function* (input: string) {
         const abs = pathSvc.resolve(input)
         const real = yield* fs.realPath(abs).pipe(Effect.catch(() => Effect.succeed(abs)))
-        const normalized = pathSvc.normalize(real)
-        return process.platform === "win32" ? normalized.toLowerCase() : normalized
+        return pathSvc.normalize(real)
       })
 
       function parseWorktreeList(text: string) {
@@ -493,7 +494,7 @@ export namespace Worktree {
         for (const item of entries) {
           if (!item.path) continue
           const key = yield* canonical(item.path)
-          if (key === directory) return item
+          if (sameDirectory(key, directory)) return item
         }
         return undefined
       })
@@ -645,7 +646,7 @@ export namespace Worktree {
           (entry) =>
             Effect.gen(function* () {
               const target = yield* canonical(pathSvc.resolve(root, entry))
-              if (target === base) return
+              if (sameDirectory(target, base)) return
               if (!target.startsWith(`${base}${pathSvc.sep}`)) return
               yield* fs.remove(target, { recursive: true }).pipe(Effect.ignore)
             }),
@@ -671,7 +672,7 @@ export namespace Worktree {
 
         const directory = yield* canonical(input.directory)
         const primary = yield* canonical(Instance.worktree)
-        if (directory === primary) {
+        if (sameDirectory(directory, primary)) {
           throw new ResetFailedError({ message: "Cannot reset the primary workspace" })
         }
 

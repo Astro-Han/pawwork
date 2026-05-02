@@ -4,7 +4,7 @@ import DESCRIPTION from "./exit-worktree.txt"
 import * as Session from "../session/session"
 import { hasInFlightToolCallsExcept, hasRunningSubagents } from "../session/state-machine-guard"
 import { SubagentRun } from "../session/subagent-run"
-import { canonicalDirectory } from "../session/execution-context"
+import { sameDirectory } from "../session/execution-context"
 
 export const Parameters = Schema.Struct({})
 
@@ -40,10 +40,7 @@ export const ExitWorktreeTool = Tool.define(
           previousDirectory?: string
           previousSource?: "created" | "existing"
         }
-        if (
-          canonicalDirectory(exec.activeDirectory) === canonicalDirectory(exec.ownerDirectory) &&
-          exec.activeWorktree === undefined
-        ) {
+        if (sameDirectory(exec.activeDirectory, exec.ownerDirectory) && exec.activeWorktree === undefined) {
           const metadata: ExitMetadata = { activeDirectory: exec.ownerDirectory }
           return {
             title: "Already at project root",

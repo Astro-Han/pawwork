@@ -32,7 +32,7 @@ import { Permission } from "@/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
 import { SubagentRunWriterContext, SubagentRunGuardViolation, lifecycleFieldsChanged } from "./subagent-run-context"
-import { ActiveWorktree, SessionExecutionContext, canonicalDirectory, rootContext } from "./execution-context"
+import { ActiveWorktree, SessionExecutionContext, canonicalDirectory, rootContext, sameDirectory } from "./execution-context"
 import { backfillExecutionContextRows } from "./execution-context-store"
 
 const log = Log.create({ service: "session" })
@@ -98,7 +98,7 @@ function recoverExecutionContext(row: SessionRow) {
         ? record.lastChangedAt
         : row.time_updated,
   })
-  return recovered.success ? recovered.data : undefined
+  return recovered.success ? normalizeExecutionContext(recovered.data) : undefined
 }
 
 function isPersistedExecutionContextUsable(ctx: SessionExecutionContext) {
@@ -117,7 +117,7 @@ function normalizeExecutionContext(ctx: SessionExecutionContext): SessionExecuti
     ownerDirectory,
     activeDirectory,
     activeWorktree:
-      ctx.activeWorktree && activeDirectory !== ownerDirectory
+      ctx.activeWorktree && !sameDirectory(activeDirectory, ownerDirectory)
         ? {
             ...ctx.activeWorktree,
             directory: canonicalDirectory(ctx.activeWorktree.directory),
@@ -836,7 +836,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         ? input.activeWorktree
           ? { ...input.activeWorktree, directory: canonicalDirectory(input.activeWorktree.directory) }
           : undefined
-        : activeDirectory === ownerDirectory
+        : sameDirectory(activeDirectory, ownerDirectory)
           ? undefined
           : current.executionContext.activeWorktree
             ? {
@@ -885,10 +885,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       for (const row of rows) {
         const session = fromRow(row, projects.get(row.project_id))
         const exec = session.executionContext
-        if (canonicalDirectory(exec.activeDirectory) === canonicalDirectory(exec.ownerDirectory)) continue
+        if (sameDirectory(exec.activeDirectory, exec.ownerDirectory)) continue
         if (
-          canonicalDirectory(exec.activeDirectory) === target ||
-          (exec.activeWorktree?.directory && canonicalDirectory(exec.activeWorktree.directory) === target)
+          sameDirectory(exec.activeDirectory, target) ||
+          (exec.activeWorktree?.directory && sameDirectory(exec.activeWorktree.directory, target))
         ) {
           return session
         }

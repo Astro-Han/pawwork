@@ -205,6 +205,9 @@ describe("Worktree", () => {
       expect(bySlug?.directory).toBe(created.directory)
       expect(bySlug?.source).toBe("created")
 
+      const byRawName = await withInstance(tmp.path, () => Worktree.lookupBySlug("Feature A"))
+      expect(byRawName?.directory).toBe(created.directory)
+
       const external = path.join(tmp.path, "..", path.basename(tmp.path) + "-external")
       await $`git worktree add ${external} -b external-${Date.now()}`.cwd(tmp.path).quiet()
 

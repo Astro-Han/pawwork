@@ -481,8 +481,8 @@ describe("session.created event", () => {
                   branch: "pawwork/stale-worktree",
                   source: "created",
                 },
-                lastChangedAt: 123,
-              },
+                lastChangedAt: "invalid",
+              } as any,
             })
             .where(eq(SessionTable.id, session.id))
             .run(),

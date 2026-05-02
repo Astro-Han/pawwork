@@ -27,8 +27,15 @@ export function canonicalDirectory(input: string) {
       return abs
     }
   })()
-  const normalized = path.normalize(real)
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized
+  return path.normalize(real)
+}
+
+export function sameDirectory(left: string, right: string) {
+  const leftDirectory = canonicalDirectory(left)
+  const rightDirectory = canonicalDirectory(right)
+  return process.platform === "win32"
+    ? leftDirectory.localeCompare(rightDirectory, undefined, { sensitivity: "accent" }) === 0
+    : leftDirectory === rightDirectory
 }
 
 export function rootContext(ownerDirectory: string): SessionExecutionContext {
