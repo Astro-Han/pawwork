@@ -1514,8 +1514,7 @@ const layer: Layer.Layer<
           }
 
           if (model.api.npm.includes("@ai-sdk/openai-compatible") && opts.body && opts.method === "POST") {
-            const body = JSON.parse(opts.body as string)
-            opts.body = JSON.stringify(ProviderTransform.openAICompatibleRequestBody(model, body))
+            opts.body = ProviderTransform.openAICompatibleRequestBodyText(model, opts.body) ?? opts.body
           }
 
           const res = await fetchFn(input, {

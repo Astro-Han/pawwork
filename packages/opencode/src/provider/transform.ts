@@ -1289,12 +1289,22 @@ export function openAICompatibleRequestBody(model: Provider.Model, body: Record<
   }
 }
 
+export function openAICompatibleRequestBodyText(model: Provider.Model, body: unknown): string | undefined {
+  if (typeof body !== "string") return undefined
+  try {
+    return JSON.stringify(openAICompatibleRequestBody(model, JSON.parse(body)))
+  } catch {
+    return undefined
+  }
+}
+
 const ProviderTransformOptionsValue = options
 const ProviderTransformMessageValue = message
 const ProviderTransformVariantsValue = variants
 const ProviderTransformProviderOptionsValue = providerOptions
 const ProviderTransformSchemaValue = schema
 const ProviderTransformOpenAICompatibleRequestBodyValue = openAICompatibleRequestBody
+const ProviderTransformOpenAICompatibleRequestBodyTextValue = openAICompatibleRequestBodyText
 const ProviderTransformOutputTokenMaxValue = OUTPUT_TOKEN_MAX
 const ProviderTransformMaxOutputTokensValue = maxOutputTokens
 const ProviderTransformTemperatureValue = temperature
@@ -1310,6 +1320,7 @@ export namespace ProviderTransform {
   export const providerOptions = ProviderTransformProviderOptionsValue
   export const schema = ProviderTransformSchemaValue
   export const openAICompatibleRequestBody = ProviderTransformOpenAICompatibleRequestBodyValue
+  export const openAICompatibleRequestBodyText = ProviderTransformOpenAICompatibleRequestBodyTextValue
   export const maxOutputTokens = ProviderTransformMaxOutputTokensValue
   export const temperature = ProviderTransformTemperatureValue
   export const topP = ProviderTransformTopPValue

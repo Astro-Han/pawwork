@@ -2077,6 +2077,35 @@ describe("ProviderTransform.message - Kimi/Moonshot empty content filtering", ()
 
     expect(result.messages[0].content).toBe("")
   })
+
+  test("rewrites OpenAI-compatible request body text only when it is valid JSON", () => {
+    const result = ProviderTransform.openAICompatibleRequestBodyText(
+      kimiModel,
+      JSON.stringify({
+        model: "k2p6",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call_1",
+                type: "function",
+                function: { name: "bash", arguments: "{\"command\":\"pwd\"}" },
+              },
+            ],
+          },
+        ],
+      }),
+    )
+
+    expect(JSON.parse(result ?? "{}").messages[0]).not.toHaveProperty("content")
+  })
+
+  test("leaves invalid or non-string OpenAI-compatible request bodies unchanged", () => {
+    expect(ProviderTransform.openAICompatibleRequestBodyText(kimiModel, "not json")).toBeUndefined()
+    expect(ProviderTransform.openAICompatibleRequestBodyText(kimiModel, new Uint8Array([1, 2, 3]))).toBeUndefined()
+  })
 })
 
 describe("ProviderTransform.message - strip openai metadata when store=false", () => {
