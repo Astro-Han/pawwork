@@ -773,6 +773,77 @@ test("todo dock auto-hides after all todos complete", async ({ page, project }) 
   )
 })
 
+test("todo dock appears from real todowrite tool parts", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock real todowrite",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      await llm.tool("todowrite", {
+        todos: [
+          { content: "count to 0", status: "completed", priority: "high" },
+          { content: "count to 1", status: "in_progress", priority: "medium" },
+          { content: "count to 2", status: "pending", priority: "medium" },
+        ],
+      })
+      await llm.text("counting started")
+
+      await project.prompt("Create a todo list and start counting.")
+
+      await dock.expectCollapsed(["completed", "in_progress", "pending"])
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock stays hidden when landing on an already completed session", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo completed landing source",
+    async (sessionA) => {
+      await withDockSession(
+        project.sdk,
+        "e2e composer dock todo completed landing target",
+        async (sessionB) => {
+          const dockA = await todoDock(page, sessionA.id)
+          const dockB = await todoDock(page, sessionB.id)
+          await project.gotoSession(sessionA.id)
+
+          try {
+            await dockB.finish([
+              { content: "first task", status: "completed", priority: "high" },
+              { content: "second task", status: "completed", priority: "medium" },
+              { content: "third task", status: "completed", priority: "medium" },
+              { content: "fourth task", status: "completed", priority: "low" },
+            ])
+            await project.gotoSession(sessionB.id)
+
+            await dockB.expectState(
+              {
+                dock: false,
+                completing: false,
+                count: 4,
+                states: ["completed", "completed", "completed", "completed"],
+              },
+              1_000,
+            )
+            await dockB.expectDockGone(1_000)
+          } finally {
+            await dockA.clear()
+            await dockB.clear()
+          }
+        },
+        { trackSession: project.trackSession },
+      )
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("todo dock treats cancelled todos as terminal and labels all-cancelled progress", async ({ page, project }) => {
   await project.open()
   await page.clock.install()
@@ -835,6 +906,33 @@ test("todo dock hides immediately when todos become empty", async ({ page, proje
   )
 })
 
+test("todo dock does not treat completed-only todos as recent after clearing", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo empty clears active history",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      try {
+        await dock.open([{ content: "active task", status: "in_progress", priority: "high" }])
+        await dock.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
+
+        await dock.finish([])
+        await dock.expectState({ dock: false, completing: false, count: 0, states: [] }, 1_000)
+
+        await dock.finish([{ content: "historical done task", status: "completed", priority: "high" }])
+        await dock.expectState({ dock: false, completing: false, count: 1, states: ["completed"] }, 1_000)
+        await dock.expectDockGone(1_000)
+      } finally {
+        await dock.clear()
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("todo dock cancels pending hide when a new active todo arrives", async ({ page, project }) => {
   await project.open()
   await page.clock.install()
@@ -846,7 +944,10 @@ test("todo dock cancels pending hide when a new active todo arrives", async ({ p
       await project.gotoSession(session.id)
 
       try {
-        await dock.open([{ content: "done task", status: "completed", priority: "high" }])
+        await dock.open([{ content: "done task", status: "in_progress", priority: "high" }])
+        await dock.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
+
+        await dock.finish([{ content: "done task", status: "completed", priority: "high" }])
         await dock.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
 
         await dock.finish([
@@ -875,7 +976,10 @@ test("todo dock restarts the hide timer when todos re-complete", async ({ page, 
       await project.gotoSession(session.id)
 
       try {
-        await dock.open([{ content: "first task", status: "completed", priority: "high" }])
+        await dock.open([{ content: "first task", status: "in_progress", priority: "high" }])
+        await dock.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
+
+        await dock.finish([{ content: "first task", status: "completed", priority: "high" }])
         await dock.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
 
         await page.clock.fastForward(2_400)
@@ -918,7 +1022,10 @@ test("todo dock does not leak a pending hide timeout across sessions", async ({ 
           await project.gotoSession(sessionA.id)
 
           try {
-            await dockA.open([{ content: "done task", status: "completed", priority: "high" }])
+            await dockA.open([{ content: "done task", status: "in_progress", priority: "high" }])
+            await dockA.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
+
+            await dockA.finish([{ content: "done task", status: "completed", priority: "high" }])
             await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
 
             await project.gotoSession(sessionB.id)
@@ -926,7 +1033,7 @@ test("todo dock does not leak a pending hide timeout across sessions", async ({ 
 
             await page.clock.fastForward(3_500)
             await project.gotoSession(sessionA.id)
-            await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+            await dockA.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
           } finally {
             await dockA.clear()
             await dockB.clear()
@@ -939,7 +1046,7 @@ test("todo dock does not leak a pending hide timeout across sessions", async ({ 
   )
 })
 
-test("todo dock restarts completing delay after same-count terminal session switch", async ({ page, project }) => {
+test("todo dock stays hidden after same-count terminal session switch", async ({ page, project }) => {
   await project.open()
   await page.clock.install()
   await withDockSession(
@@ -955,17 +1062,20 @@ test("todo dock restarts completing delay after same-count terminal session swit
           await project.gotoSession(sessionA.id)
 
           try {
-            await dockA.open([{ content: "source done", status: "completed", priority: "high" }])
+            await dockA.open([{ content: "source done", status: "in_progress", priority: "high" }])
+            await dockA.expectState({ dock: true, completing: false, count: 1, states: ["in_progress"] })
+
+            await dockA.finish([{ content: "source done", status: "completed", priority: "high" }])
             await dockA.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
 
             await page.clock.fastForward(2_400)
 
             await dockB.open([{ content: "target done", status: "completed", priority: "high" }])
             await project.gotoSession(sessionB.id)
-            await dockB.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+            await dockB.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
 
             await page.clock.fastForward(900)
-            await dockB.expectState({ dock: true, completing: true, count: 1, states: ["completed"] })
+            await dockB.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
             await page.clock.fastForward(2_100)
             await dockB.expectState({ dock: false, completing: false, count: 1, states: ["completed"] })
           } finally {
@@ -1017,7 +1127,11 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
         const viewport = document.querySelector('[data-component="scroll-viewport"]')
         const composer = document.querySelector('[data-component="session-prompt-dock"]')
         const last = [...document.querySelectorAll("[data-message-id]")].at(-1)
-        if (!(viewport instanceof HTMLElement) || !(composer instanceof HTMLElement) || !(last instanceof HTMLElement)) {
+        if (
+          !(viewport instanceof HTMLElement) ||
+          !(composer instanceof HTMLElement) ||
+          !(last instanceof HTMLElement)
+        ) {
           return null
         }
         viewport.scrollTop = viewport.scrollHeight

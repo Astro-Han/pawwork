@@ -9,6 +9,7 @@ import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { composerDriver, composerEnabled, composerEvent, composerStateProbe } from "@/testing/session-composer"
+import { selectSessionTodos } from "@/pages/session/session-todos"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
 
 const TODO_DOCK_COMPLETING_DELAY_MS = 3000
@@ -17,7 +18,10 @@ const todoTerminal = (todo: Todo) => todo.status === "completed" || todo.status 
 
 const todoSignature = (todos: Todo[]) => todos.map((todo) => `${todo.status}:${todo.content}`).join("\u0000")
 
-export function createSessionComposerState(input: { sessionID: () => string | undefined }) {
+export function createSessionComposerState(input: {
+  sessionID: () => string | undefined
+  fallbackSessionID?: () => string | undefined
+}) {
   const sdk = useSDK()
   const sync = useSync()
   const globalSync = useGlobalSync()
@@ -143,7 +147,16 @@ export function createSessionComposerState(input: { sessionID: () => string | un
     const id = activeSessionID()
     if (!id) return []
     // Todo data follows the backend list. Dock visibility is derived below so terminal todos can remain stored after the dock hides.
-    return globalSync.data.session_todo[id] ?? []
+    const messages = sync.data.message[id] ?? []
+    const parts = messages.flatMap((message) => sync.data.part[message.id] ?? [])
+    const fallbackID = input.fallbackSessionID?.()
+    const fallbackMessages = fallbackID && fallbackID !== id ? (sync.data.message[fallbackID] ?? []) : []
+    const fallbackParts = fallbackMessages.flatMap((message) => sync.data.part[message.id] ?? [])
+    return selectSessionTodos({
+      backend: globalSync.data.session_todo[id],
+      parts,
+      fallback: { backend: fallbackID ? globalSync.data.session_todo[fallbackID] : undefined, parts: fallbackParts },
+    })
   })
 
   const allDone = createMemo(() => {
@@ -183,6 +196,8 @@ export function createSessionComposerState(input: { sessionID: () => string | un
 
   let raf: number | undefined
   let hideTimeout: number | undefined
+  let lastTodoSessionID: string | undefined
+  const sessionsWithActiveTodos = new Set<string>()
 
   const clearHideTimeout = () => {
     if (hideTimeout === undefined) return
@@ -201,14 +216,23 @@ export function createSessionComposerState(input: { sessionID: () => string | un
       ({ allDone: done, count, sessionID: expectedSessionID, signature }) => {
         if (raf) cancelAnimationFrame(raf)
         raf = undefined
+        const sessionChanged = expectedSessionID !== lastTodoSessionID
+        lastTodoSessionID = expectedSessionID
 
         if (count === 0) {
+          if (expectedSessionID) sessionsWithActiveTodos.delete(expectedSessionID)
           clearHideTimeout()
           setStore({ dock: false, opening: false, completing: false })
           return
         }
 
         if (done) {
+          if (sessionChanged || !expectedSessionID || !sessionsWithActiveTodos.has(expectedSessionID)) {
+            clearHideTimeout()
+            setStore({ dock: false, opening: false, completing: false })
+            return
+          }
+
           setStore({ dock: true, opening: false, completing: true })
           clearHideTimeout()
           hideTimeout = window.setTimeout(() => {
@@ -220,6 +244,7 @@ export function createSessionComposerState(input: { sessionID: () => string | un
           return
         }
 
+        if (expectedSessionID) sessionsWithActiveTodos.add(expectedSessionID)
         clearHideTimeout()
         setStore("completing", false)
 
