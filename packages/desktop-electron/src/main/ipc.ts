@@ -61,6 +61,8 @@ type Deps = {
   reportDeepLinkReady: (win: BrowserWindow | null) => void
   reportCiSmokeReady: () => Promise<void> | void
   setDesktopContext: (context: DesktopContext, win: BrowserWindow) => Promise<void> | void
+  recordRendererDiagnostic: (event: unknown, context: { windowID: number }) => Promise<unknown> | unknown
+  exportRendererDiagnostics: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -139,6 +141,12 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle("report-problem", (_event: IpcMainInvokeEvent, input?: ReportProblemInput) =>
     deps.reportProblem(input),
   )
+  ipcMain.handle("renderer-diagnostics:record", (event: IpcMainInvokeEvent, input: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    return deps.recordRendererDiagnostic(input, { windowID: win.id })
+  })
+  ipcMain.handle("renderer-diagnostics:export", () => deps.exportRendererDiagnostics())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
   ipcMain.handle("report-deep-link-ready", (event: IpcMainInvokeEvent) =>

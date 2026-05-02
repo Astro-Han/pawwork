@@ -16,4 +16,11 @@ describe("desktop startup IPC", () => {
     expect(source).toContain('"report-problem"')
     expect(source).toContain("reportProblem")
   })
+
+  test("registers renderer diagnostics channels for sandboxed renderers", () => {
+    expect(source).toContain('"renderer-diagnostics:record"')
+    expect(source).toContain('"renderer-diagnostics:export"')
+    expect(source).toContain("recordRendererDiagnostic")
+    expect(source).toContain("exportRendererDiagnostics")
+  })
 })
