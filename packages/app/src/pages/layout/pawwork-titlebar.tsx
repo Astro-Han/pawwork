@@ -5,7 +5,7 @@ export function PawworkTitlebar(props: { visible: Accessor<boolean>; title: Acce
   const [centerMount, setCenterMount] = createSignal<HTMLElement>()
 
   onMount(() => {
-    setCenterMount(document.getElementById("opencode-titlebar-center") ?? undefined)
+    setCenterMount(document.getElementById("pawwork-titlebar-center") ?? undefined)
   })
 
   return (

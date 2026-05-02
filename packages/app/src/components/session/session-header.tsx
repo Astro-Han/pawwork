@@ -82,8 +82,8 @@ export function SessionHeader() {
     openDirectory(activeWorktreeDirectory())
   }
 
-  const leftMount = createMemo(() => document.getElementById("opencode-titlebar-left"))
-  const rightMount = createMemo(() => document.getElementById("opencode-titlebar-right"))
+  const leftMount = createMemo(() => document.getElementById("pawwork-titlebar-left"))
+  const rightMount = createMemo(() => document.getElementById("pawwork-titlebar-right"))
 
   return (
     <>

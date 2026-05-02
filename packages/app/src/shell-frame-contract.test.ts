@@ -32,8 +32,11 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(titlebar).toContain('style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}')
   expect(titlebar).toContain("--sidebar-width")
   expect(titlebar).toContain("--right-panel-width")
-  expect(sessionHeader).toContain('document.getElementById("opencode-titlebar-left")')
-  expect(sessionHeader).toContain('document.getElementById("opencode-titlebar-right")')
+  expect(titlebar).toContain('id="pawwork-titlebar-left"')
+  expect(titlebar).toContain('id="pawwork-titlebar-center"')
+  expect(titlebar).toContain('id="pawwork-titlebar-right"')
+  expect(sessionHeader).toContain('document.getElementById("pawwork-titlebar-left")')
+  expect(sessionHeader).toContain('document.getElementById("pawwork-titlebar-right")')
 })
 
 test("session composer is docked outside the scroll-clipped timeline region", () => {

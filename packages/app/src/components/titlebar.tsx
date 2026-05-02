@@ -139,14 +139,14 @@ export function Titlebar() {
       </div>
 
       <div
-        id="opencode-titlebar-left"
+        id="pawwork-titlebar-left"
         data-shell-slot="left-portal"
         class="@container pointer-events-none absolute inset-y-0 z-10 flex min-w-0 items-center gap-3 overflow-hidden"
         style={leftPortalStyle()}
       />
 
       <div class="min-w-0 flex items-center justify-center pointer-events-none">
-        <div id="opencode-titlebar-center" class="pointer-events-auto min-w-0 flex justify-center w-fit max-w-full" />
+        <div id="pawwork-titlebar-center" class="pointer-events-auto min-w-0 flex justify-center w-fit max-w-full" />
       </div>
 
       <div
@@ -156,7 +156,7 @@ export function Titlebar() {
         }}
       >
         <div
-          id="opencode-titlebar-right"
+          id="pawwork-titlebar-right"
           data-shell-slot="right-portal"
           class="flex items-center gap-1 shrink-0 justify-end"
         />
