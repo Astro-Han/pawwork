@@ -29,6 +29,8 @@ type MessageTimeLike = {
   }
 }
 
+const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value)
+
 const shortenHome = (value: string, home?: string) => {
   if (!home) return value
   const normalized = home.endsWith("/") ? home : `${home}/`
@@ -66,9 +68,10 @@ export function pawworkSidebarSessionTime(session: SessionTimeLike, messages?: M
     const message = messages?.[i]
     if (message?.role !== "user") continue
     const created = message.time?.created
-    if (typeof created === "number") return created
+    if (isFiniteNumber(created)) return created
   }
-  return session.time?.created ?? 0
+  const sessionCreated = session.time?.created
+  return isFiniteNumber(sessionCreated) ? sessionCreated : 0
 }
 
 export function pawworkSessionDirectories(input: {

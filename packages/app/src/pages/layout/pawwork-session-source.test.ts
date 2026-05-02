@@ -166,6 +166,24 @@ describe("pawworkSidebarSessionTime", () => {
     ).toBe(300)
   })
 
+  test("ignores user messages with non-finite created times", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [
+          { id: "msg_1", role: "user", time: { created: 300 } },
+          { id: "msg_2", role: "user", time: { created: Number.NaN } },
+          { id: "msg_3", role: "user", time: { created: Number.POSITIVE_INFINITY } },
+        ],
+      ),
+    ).toBe(300)
+  })
+
   test("uses the session creation time instead of last update time when messages are missing", () => {
     expect(
       pawworkSidebarSessionTime(
@@ -178,6 +196,10 @@ describe("pawworkSidebarSessionTime", () => {
         undefined,
       ),
     ).toBe(100)
+  })
+
+  test("falls back to 0 when creation time is non-finite", () => {
+    expect(pawworkSidebarSessionTime({ time: { created: Number.NaN, updated: 300 } })).toBe(0)
   })
 
   test("falls back to 0 when creation time is missing", () => {
