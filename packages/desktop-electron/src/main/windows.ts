@@ -87,6 +87,9 @@ export function createMainWindow() {
   })
 
   state.manage(win)
+
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }))
+
   loadWindow(win, "index.html")
   wireZoom(win)
 
