@@ -26,8 +26,8 @@ export function resolveSkipAction(
   for (let i = currentTab + 1; i < total; i++) {
     if (!isSettled(i)) return { type: "navigate", tab: i }
   }
-  // Then, look for any unsettled question from the start.
-  for (let i = 0; i < total; i++) {
+  // Then, look for any unsettled question before the current tab.
+  for (let i = 0; i < currentTab; i++) {
     if (!isSettled(i)) return { type: "navigate", tab: i }
   }
   // All settled — time to submit.
@@ -178,8 +178,8 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
         store.answers[i] === undefined ? undefined : [...store.answers[i]],
       ),
       // Iterate by total() to avoid leaving stale entries when a tab was never visited.
-      custom: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.custom[i] ?? "" : "")),
-      customOn: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.customOn[i] ?? false : false)),
+      custom: Array.from({ length: total() }, (_, i) => (customByTab(i) ? (store.custom[i] ?? "") : "")),
+      customOn: Array.from({ length: total() }, (_, i) => (customByTab(i) ? (store.customOn[i] ?? false) : false)),
     })
   })
 
@@ -447,7 +447,9 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
         <>
           <div data-slot="question-header-title">
             <span data-slot="question-header-seq">{summary()}</span>
-            <span data-slot="question-header-separator" aria-hidden="true">·</span>
+            <span data-slot="question-header-separator" aria-hidden="true">
+              ·
+            </span>
             <span data-slot="question-header-mode">
               {multi() ? language.t("ui.question.multiHint") : language.t("ui.question.singleHint")}
             </span>
