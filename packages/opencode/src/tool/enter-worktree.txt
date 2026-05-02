@@ -1,6 +1,6 @@
 Bind this session to a git worktree. Once entered, every subsequent tool call resolves relative paths from inside the worktree until ExitWorktree is called.
 
-Use this tool whenever the user asks to create, start, enter, open, switch to, or move current work into a worktree.
+Use this tool whenever the user asks to create, start, enter, open, or switch the session to a worktree.
 
 This is the authoritative PawWork mechanism for session worktrees. Prefer it over skill-based worktree workflows and over shell-based `git worktree` commands, because only this tool binds the session execution context and makes subsequent tool calls resolve inside the worktree.
 
