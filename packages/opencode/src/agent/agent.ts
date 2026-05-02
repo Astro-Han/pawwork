@@ -161,7 +161,7 @@ export namespace Agent {
                 }),
                 user,
               ),
-              description: `Fast agent specialized for broad codebase exploration when the parent does not yet know the right files or symbols to inspect. Use this for unknown-entry searches, cross-directory pattern discovery, or independent research that can return one concise summary. Do not use it when the parent already knows the target file, symbol, or 1-3 likely files; read/search directly instead. When calling this agent, specify the desired thoroughness level and budget: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" only for genuinely broad analysis across multiple locations and naming conventions.`,
+              description: `Fast agent specialized for broad codebase exploration when the parent does not yet know the right files or symbols to inspect. Use this for unknown-entry searches, cross-directory pattern discovery, or independent research that can return one concise summary. Do not use it when the parent already knows the target file, symbol, or 1-3 likely files; read/search directly instead. When calling this agent, specify the desired thoroughness level (retrieval budget): "quick" for basic searches, "medium" for moderate exploration, or "very thorough" only for genuinely broad analysis across multiple locations and naming conventions.`,
               prompt: PROMPT_EXPLORE,
               options: {},
               mode: "subagent",
