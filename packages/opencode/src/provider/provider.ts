@@ -1513,6 +1513,11 @@ const layer: Layer.Layer<
             }
           }
 
+          if (model.api.npm === "@ai-sdk/openai-compatible" && opts.body && opts.method === "POST") {
+            const body = JSON.parse(opts.body as string)
+            opts.body = JSON.stringify(ProviderTransform.openAICompatibleRequestBody(model, body))
+          }
+
           const res = await fetchFn(input, {
             ...opts,
             // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682

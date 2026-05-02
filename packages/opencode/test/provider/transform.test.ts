@@ -1191,6 +1191,43 @@ describe("ProviderTransform.schema - Moonshot/Kimi tool schemas", () => {
     expect(result.properties.referenced).toEqual({ $ref: "#/$defs/Referenced" })
     expect(result.$defs.Referenced.type).toBe("object")
   })
+
+  test("infers missing property types for consts, numeric constraints, and nested schema positions", () => {
+    const result = ProviderTransform.schema(
+      moonshotModel,
+      {
+        type: "object",
+        properties: {
+          limit: {
+            minimum: 1,
+          },
+          enabled: {
+            const: true,
+          },
+          metadata: {
+            additionalProperties: {
+              enum: ["small", "large"],
+            },
+          },
+          choice: {
+            anyOf: [{ enum: [1, 2] }, { const: "auto" }],
+          },
+          flexible: {
+            anyOf: [{ type: "string" }, { type: "number" }],
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.limit.type).toBe("number")
+    expect(result.properties.enabled.type).toBe("boolean")
+    expect(result.properties.metadata.type).toBe("object")
+    expect(result.properties.metadata.additionalProperties.type).toBe("string")
+    expect(result.properties.choice.type).toBeUndefined()
+    expect(result.properties.choice.anyOf[0].type).toBe("integer")
+    expect(result.properties.choice.anyOf[1].type).toBe("string")
+    expect(result.properties.flexible.type).toBeUndefined()
+  })
 })
 
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
@@ -1905,6 +1942,40 @@ describe("ProviderTransform.message - Kimi/Moonshot empty content filtering", ()
     expect(result[0].content).toEqual([
       { type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { command: "pwd" } },
     ])
+  })
+
+  test("omits empty content from final OpenAI-compatible assistant tool-call payloads", () => {
+    const result = ProviderTransform.openAICompatibleRequestBody(kimiModel, {
+      model: "k2p6",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "bash", arguments: "{\"command\":\"pwd\"}" },
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "not empty" }],
+          tool_calls: [
+            {
+              id: "call_2",
+              type: "function",
+              function: { name: "bash", arguments: "{\"command\":\"ls\"}" },
+            },
+          ],
+        },
+      ],
+    }) as any
+
+    expect(result.messages[0]).not.toHaveProperty("content")
+    expect(result.messages[0].tool_calls).toHaveLength(1)
+    expect(result.messages[1].content).toEqual([{ type: "text", text: "not empty" }])
   })
 })
 
