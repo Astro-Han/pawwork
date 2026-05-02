@@ -9,6 +9,7 @@ import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
 const CHANGELOG_URL = "https://api.github.com/repos/Astro-Han/pawwork/releases"
+const MAX_RELEASE_HIGHLIGHTS = 15
 
 type Store = {
   version?: string
@@ -88,24 +89,44 @@ function findChineseUpdateNotice(body: string) {
   return findHeadingSection(chinese, /^#{3,6}\s+主要更新\s*$/) ?? chinese
 }
 
-function summarizeNotice(notice: string | undefined): string | undefined {
-  if (!notice) return
+function trimNoticeItem(value: string) {
+  const text = value.trim()
+  return text.length > 200 ? text.slice(0, 200).trimEnd() + "…" : text
+}
+
+function parseNoticeDescriptions(notice: string | undefined): string[] {
+  if (!notice) return []
 
   const lines = notice
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"))
-  if (lines.length === 0) return
-  const first = lines[0].replace(/^[-*+]\s+/, "").replace(/^\d+\.\s+/, "")
-  return first.length > 200 ? first.slice(0, 200).trimEnd() + "…" : first
+
+  const bullets: string[] = []
+  let currentBullet: string | undefined
+  for (const line of lines) {
+    const match = line.match(/^(?:[-*+]\s+|\d+\.\s+)(.+)$/)
+    if (match) {
+      if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
+      currentBullet = match[1].trim()
+      continue
+    }
+    if (currentBullet) currentBullet += ` ${line}`
+  }
+  if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
+
+  if (bullets.length > 0) return bullets
+
+  const summary = trimNoticeItem(lines.join(" "))
+  return summary ? [summary] : []
 }
 
-function summarizeReleaseBody(body: string, locale: ReleaseLocale) {
+function parseReleaseBodyDescriptions(body: string, locale: ReleaseLocale) {
   if (locale === "zh") {
-    const chinese = summarizeNotice(findChineseUpdateNotice(body))
-    if (chinese) return chinese
+    const chinese = parseNoticeDescriptions(findChineseUpdateNotice(body))
+    if (chinese.length > 0) return chinese
   }
-  return summarizeNotice(findAppUpdateNotice(body))
+  return parseNoticeDescriptions(findAppUpdateNotice(body))
 }
 
 function releaseTitle(tag: string, locale: ReleaseLocale) {
@@ -138,11 +159,11 @@ function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | un
 
   const body = getText(value.body)
   if (tag && body) {
-    const summary = summarizeReleaseBody(body, locale)
-    if (summary) {
+    const descriptions = parseReleaseBodyDescriptions(body, locale)
+    if (descriptions.length > 0) {
       return {
         tag,
-        highlights: [{ title: releaseTitle(tag, locale), description: summary }],
+        highlights: descriptions.map((description) => ({ title: releaseTitle(tag, locale), description })),
       }
     }
   }
@@ -190,7 +211,7 @@ function sliceHighlights(input: { releases: ParsedRelease[]; current?: string; p
     seen.add(key)
     return true
   })
-  return unique.slice(0, 5)
+  return unique.slice(0, MAX_RELEASE_HIGHLIGHTS)
 }
 
 function dedupeKey(highlight: Highlight) {
