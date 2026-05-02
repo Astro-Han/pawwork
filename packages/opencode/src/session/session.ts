@@ -79,12 +79,11 @@ function recoverExecutionContext(row: SessionRow) {
     const worktree = activeWorktreeRaw as Record<string, unknown>
     const directory = worktree.directory
     if (typeof directory === "string" && path.isAbsolute(directory)) {
-      const source = worktree.source === "existing" ? "existing" : "created"
       const parsed = ActiveWorktree.safeParse({
         directory: canonicalDirectory(directory),
         name: worktree.name,
         branch: worktree.branch,
-        source,
+        source: worktree.source,
       })
       if (parsed.success) activeWorktree = parsed.data
     }
@@ -102,10 +101,32 @@ function recoverExecutionContext(row: SessionRow) {
   return recovered.success ? recovered.data : undefined
 }
 
+function isPersistedExecutionContextUsable(ctx: SessionExecutionContext) {
+  return (
+    path.isAbsolute(ctx.ownerDirectory) &&
+    path.isAbsolute(ctx.activeDirectory) &&
+    (!ctx.activeWorktree || path.isAbsolute(ctx.activeWorktree.directory))
+  )
+}
+
+function normalizeExecutionContext(ctx: SessionExecutionContext): SessionExecutionContext {
+  return {
+    ...ctx,
+    ownerDirectory: canonicalDirectory(ctx.ownerDirectory),
+    activeDirectory: canonicalDirectory(ctx.activeDirectory),
+    activeWorktree: ctx.activeWorktree
+      ? {
+          ...ctx.activeWorktree,
+          directory: canonicalDirectory(ctx.activeWorktree.directory),
+        }
+      : undefined,
+  }
+}
+
 function parseExecutionContext(row: SessionRow, project: ProjectFallback | undefined) {
   if (row.execution_context !== null) {
     const parsed = SessionExecutionContext.safeParse(row.execution_context)
-    if (parsed.success) return parsed.data
+    if (parsed.success && isPersistedExecutionContextUsable(parsed.data)) return normalizeExecutionContext(parsed.data)
     const recovered = recoverExecutionContext(row)
     if (recovered) return recovered
   }
@@ -113,7 +134,8 @@ function parseExecutionContext(row: SessionRow, project: ProjectFallback | undef
 }
 
 function needsProjectFallback(row: SessionRow) {
-  return row.execution_context === null || !SessionExecutionContext.safeParse(row.execution_context).success
+  const parsed = SessionExecutionContext.safeParse(row.execution_context)
+  return !parsed.success || !isPersistedExecutionContextUsable(parsed.data)
 }
 
 export function fromRow(row: SessionRow, project: ProjectFallback | undefined): Info {

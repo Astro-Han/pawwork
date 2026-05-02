@@ -350,7 +350,7 @@ describe("session.created event", () => {
     })
   })
 
-  test("recovers partial activeWorktree without dropping active directory", async () => {
+  test("recovers partial activeWorktree by preserving active directory only", async () => {
     await using tmp = await tmpdir({ git: true })
     const subdir = path.join(tmp.path, "packages", "app")
     const worktree = path.join(tmp.path, ".worktrees", "pawwork", "partial-worktree")
@@ -384,17 +384,67 @@ describe("session.created event", () => {
         const loaded = await SessionNs.get(session.id)
         expect(loaded.executionContext.ownerDirectory).toBe(expectedRoot)
         expect(loaded.executionContext.activeDirectory).toBe(expectedActive)
-        expect(loaded.executionContext.activeWorktree?.source).toBe("created")
+        expect(loaded.executionContext.activeWorktree).toBeUndefined()
 
         const listed = Array.from(SessionNs.list()).find((item) => item.id === session.id)
         expect(listed?.executionContext.ownerDirectory).toBe(expectedRoot)
         expect(listed?.executionContext.activeDirectory).toBe(expectedActive)
-        expect(listed?.executionContext.activeWorktree?.source).toBe("created")
+        expect(listed?.executionContext.activeWorktree).toBeUndefined()
 
         const globalListed = Array.from(SessionNs.listGlobal()).find((item) => item.id === session.id)
         expect(globalListed?.executionContext.ownerDirectory).toBe(expectedRoot)
         expect(globalListed?.executionContext.activeDirectory).toBe(expectedActive)
-        expect(globalListed?.executionContext.activeWorktree?.source).toBe("created")
+        expect(globalListed?.executionContext.activeWorktree).toBeUndefined()
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
+  test("synthesizes relative executionContext from the project root on read", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const subdir = path.join(tmp.path, "packages", "app")
+    await fs.mkdir(subdir, { recursive: true })
+
+    await Instance.provide({
+      directory: subdir,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "relative-read-root" })
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({
+              execution_context: {
+                ownerDirectory: ".",
+                activeDirectory: "relative-worktree",
+                activeWorktree: {
+                  directory: "relative-worktree",
+                  name: "relative-worktree",
+                  branch: "pawwork/relative-worktree",
+                  source: "created",
+                },
+                lastChangedAt: 123,
+              } as any,
+            })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const expectedRoot = canonicalDirectory(tmp.path)
+        const loaded = await SessionNs.get(session.id)
+        expect(loaded.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(loaded.executionContext.activeDirectory).toBe(expectedRoot)
+        expect(loaded.executionContext.activeWorktree).toBeUndefined()
+
+        const listed = Array.from(SessionNs.list()).find((item) => item.id === session.id)
+        expect(listed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(listed?.executionContext.activeDirectory).toBe(expectedRoot)
+        expect(listed?.executionContext.activeWorktree).toBeUndefined()
+
+        const globalListed = Array.from(SessionNs.listGlobal()).find((item) => item.id === session.id)
+        expect(globalListed?.executionContext.ownerDirectory).toBe(expectedRoot)
+        expect(globalListed?.executionContext.activeDirectory).toBe(expectedRoot)
+        expect(globalListed?.executionContext.activeWorktree).toBeUndefined()
 
         await SessionNs.remove(session.id)
       },
