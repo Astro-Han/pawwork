@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import {
   createRendererDiagnosticsEmitter,
@@ -9,6 +9,14 @@ import {
 import type { RendererDiagnosticInput } from "./platform"
 
 describe("renderer diagnostics", () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame
+  const originalApi = window.api
+
+  afterEach(() => {
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame
+    window.api = originalApi
+  })
+
   test("emits through the desktop API with monotonic time", async () => {
     const events: RendererDiagnosticInput[] = []
     const emit = createRendererDiagnosticsEmitter({
@@ -48,6 +56,27 @@ describe("renderer diagnostics", () => {
       timeline_session_id: "timeline-session",
     })
   })
+
+  test("session performance diagnostics does not start timers without a diagnostics target", () => {
+    let frames = 0
+    window.api = undefined
+    globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      frames += 1
+      return originalRequestAnimationFrame(callback)
+    }) as typeof requestAnimationFrame
+
+    createRoot((dispose) => {
+      createSessionPerformanceDiagnostics({
+        routeSessionID: () => "route-session",
+        visibleSessionID: () => "visible-session",
+        timelineSessionID: () => "timeline-session",
+      })
+      dispose()
+    })
+
+    expect(frames).toBe(0)
+  })
+
 
   test("detects automatic scroll jumps to top", () => {
     const incident = detectSessionScrollJumpToTop({
@@ -97,10 +126,11 @@ describe("renderer diagnostics", () => {
     expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 5 } })).toEqual(
       [],
     )
-    expect(detect({ name: "session.timeline.unmount", timeline_session_id: "session-1", data: {} })).toEqual([
+    expect(detect({ name: "session.timeline.unmount", timeline_session_id: "session-1", data: {} })).toEqual([])
+    expect(detect({ name: "session.timeline.mount", timeline_session_id: "session-1", data: {} })).toEqual([
       expect.objectContaining({
         name: "incident.session_timeline_remount",
-        data: { timeline_mount_count: 1, timeline_unmount_count: 1 },
+        data: { timeline_mount_count: 2, timeline_unmount_count: 1 },
       }),
     ])
     expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 0 } })).toEqual([

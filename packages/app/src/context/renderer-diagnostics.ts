@@ -81,7 +81,7 @@ export function createRendererIncidentDetector() {
       if (event.name === "session.timeline.mount") counts.mounts += 1
       else counts.unmounts += 1
       timelineMounts.set(sessionKey, counts)
-      if (counts.mounts > 1 || counts.unmounts > 0) {
+      if (event.name === "session.timeline.mount" && counts.mounts > 1 && counts.unmounts > 0) {
         incidents.push({
           name: "incident.session_timeline_remount",
           level: "warn",
@@ -137,6 +137,7 @@ export function createSessionPerformanceDiagnostics(input: {
   timelineSessionID: Accessor<string | undefined>
   emit?: (event: RendererDiagnosticInput) => Promise<void> | void
 }) {
+  if (!input.emit && (typeof window === "undefined" || !window.api?.emitRendererDiagnostic)) return
   const emit = input.emit ?? emitRendererDiagnostic
   let running = true
   let frame: number | undefined
