@@ -127,14 +127,14 @@ export const EnterWorktreeTool = Tool.define(
           }
           const ownerCommon = yield* gitCommonDir(spawner, exec.ownerDirectory)
           const targetCommon = yield* gitCommonDir(spawner, canonical)
-          if (!ownerCommon || !targetCommon || ownerCommon !== targetCommon) {
+          if (!ownerCommon || !targetCommon || !sameDirectory(ownerCommon, targetCommon)) {
             return yield* Effect.fail(
               new Error(`Path ${canonical} is not part of the same git repository as the project.`),
             )
           }
           const branch = yield* currentBranch(spawner, canonical)
           const info = yield* Effect.promise(() => Worktree.registerExistingByPath(canonical))
-          yield* applyEnter(ctx.sessionID, { ...info, branch: info.branch || branch }, "existing")
+          yield* applyEnter(ctx.sessionID, { ...info, branch: info.branch || branch }, info.source)
           return successResult({
             activeDirectory: canonical,
             ownerDirectory: exec.ownerDirectory,
@@ -172,7 +172,7 @@ export const EnterWorktreeTool = Tool.define(
         } else {
           const ownerCommon = yield* gitCommonDir(spawner, exec.ownerDirectory)
           const targetCommon = yield* gitCommonDir(spawner, planned.directory)
-          if (!ownerCommon || !targetCommon || ownerCommon !== targetCommon) {
+          if (!ownerCommon || !targetCommon || !sameDirectory(ownerCommon, targetCommon)) {
             return yield* Effect.fail(
               new Error(`Managed worktree directory ${planned.directory} exists but is not a git worktree.`),
             )

@@ -95,6 +95,10 @@ it.live("enter-worktree and exit-worktree update the session execution context",
         })
         const alreadyRoot = yield* exit.execute({}, toolContext(session.id))
         expect(alreadyRoot.title).toBe("Already at project root")
+
+        yield* enter.execute({ path: activeDirectory }, toolContext(session.id))
+        const pathExit = yield* exit.execute({}, toolContext(session.id))
+        expect(pathExit.metadata.previousSource).toBe("created")
       }),
     { git: true },
   ),
