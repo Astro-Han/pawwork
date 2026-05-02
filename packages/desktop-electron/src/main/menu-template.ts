@@ -19,6 +19,7 @@ export type MenuTemplateDeps = {
   reload: () => void
   relaunch: () => void
   reportProblem: () => void
+  exportDiagnosticsLog: () => void
   openExternal: (url: string) => void
   newWindow: () => void
   triggerAbout: (browserWindow?: BrowserWindow) => void
@@ -45,6 +46,7 @@ export function buildMacosMenuTemplate(options: BuildMenuOptions): MenuItemTempl
     helpSubmenu.push({ label: t("reportProblem"), click: () => deps.reportProblem() })
   }
 
+  helpSubmenu.push({ label: t("exportDiagnosticsLog"), click: () => deps.exportDiagnosticsLog() })
   helpSubmenu.push({ label: t("openGithubIssue"), click: () => deps.openExternal(PAWWORK_GITHUB_ISSUE_URL) })
 
   return [
@@ -157,6 +159,7 @@ export function buildWindowsMenuTemplate(options: BuildMenuOptions): MenuItemTem
   if (feedbackEnabled) {
     helpSubmenu.push({ label: t("reportProblem"), click: () => deps.reportProblem() })
   }
+  helpSubmenu.push({ label: t("exportDiagnosticsLog"), click: () => deps.exportDiagnosticsLog() })
   helpSubmenu.push({ label: t("openGithubIssue"), click: () => deps.openExternal(PAWWORK_GITHUB_ISSUE_URL) })
   helpSubmenu.push({ type: "separator" })
   helpSubmenu.push({ label: t("checkForUpdates"), click: () => deps.checkForUpdates() })

@@ -63,6 +63,11 @@ import { createMenu } from "./menu"
 import { type MenuLocale } from "./menu-labels"
 import { readStoredMenuLocale, writeStoredMenuLocale } from "./menu-i18n"
 import { cleanupProblemReports, problemReportsRoot, writeProblemReportFile } from "./problem-report-files"
+import {
+  createRendererDiagnosticsRecorder,
+  exportRendererDiagnosticsLog,
+  rendererDiagnosticsRoot,
+} from "./renderer-diagnostics"
 import { getDefaultServerUrl, getWslConfig, setDefaultServerUrl, setWslConfig, spawnLocalServer } from "./server"
 import { PAWWORK_RUNTIME } from "./runtime-namespace"
 import { createUpdaterController } from "./updater"
@@ -128,6 +133,10 @@ const pendingDeepLinks: string[] = []
 const serverReady = defer<ServerReadyData>()
 const logger = initLogging()
 const problemReportRoot = problemReportsRoot(app.getPath("userData"))
+const rendererDiagnostics = createRendererDiagnosticsRecorder({
+  root: rendererDiagnosticsRoot(app.getPath("userData")),
+  appLaunchID: randomUUID(),
+})
 const updater = createUpdaterController({
   enabled: UPDATER_ENABLED,
   currentVersion: () => app.getVersion(),
@@ -192,6 +201,27 @@ async function sessionExport(context = currentDesktopContext(), signal?: AbortSi
     status: "ok" as const,
     info: context,
     messages: (await res.json()) as unknown[],
+  }
+}
+
+async function exportDiagnosticsFromMenu() {
+  const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
+  const result = await dialog.showSaveDialog({
+    title: "Export diagnostics log",
+    defaultPath: `pawwork-renderer-diagnostics-${stamp}.jsonl`,
+    filters: [{ name: "JSONL", extensions: ["jsonl"] }],
+  })
+  if (result.canceled || !result.filePath) return { ok: false as const, error: "cancelled" }
+
+  try {
+    await exportRendererDiagnosticsLog({
+      path: rendererDiagnostics.path,
+      destination: result.filePath,
+    })
+    return { ok: true as const, path: result.filePath }
+  } catch (error) {
+    logger.error("renderer diagnostics export failed", error)
+    return { ok: false as const, error: error instanceof Error ? error.message : "export_failed" }
   }
 }
 
@@ -477,6 +507,9 @@ function wireMenu() {
     reportProblem: () => {
       void reportProblem()
     },
+    exportDiagnosticsLog: () => {
+      void exportDiagnosticsFromMenu()
+    },
     triggerAbout: (win) => triggerAbout(win),
   }, focusedMenuLocale())
 }
@@ -516,6 +549,8 @@ registerIpcHandlers({
   runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
   checkUpdate: async () => checkUpdate(),
   reportProblem: (input) => reportProblem(input),
+  recordRendererDiagnostic: (event, context) => rendererDiagnostics.record(event, context),
+  exportRendererDiagnostics: exportDiagnosticsFromMenu,
   installUpdate: async () => installUpdate(),
   setBackgroundColor: (color) => setBackgroundColor(color),
   reportDeepLinkReady: (win) => reportDeepLinkReady(win),

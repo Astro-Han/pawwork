@@ -7,6 +7,7 @@ const stubDeps: MenuTemplateDeps = {
   reload: () => {},
   relaunch: () => {},
   reportProblem: () => {},
+  exportDiagnosticsLog: () => {},
   openExternal: () => {},
   newWindow: () => {},
   triggerAbout: () => {},
@@ -33,6 +34,17 @@ test("Windows Help submenu contains 'Check for Updates' and 'About PawWork'", ()
   const labels = (help?.submenu ?? []).map((s) => s.label)
   expect(labels).toContain("Check for Updates...")
   expect(labels).toContain("About PawWork")
+})
+
+test("Help submenu exposes diagnostics export", () => {
+  const windows = buildWindowsMenuTemplate(baseOptions)
+  const macos = buildMacosMenuTemplate(baseOptions)
+  expect((windows.find((m) => m.label === "Help")?.submenu ?? []).map((s) => s.label)).toContain(
+    "Export Diagnostics Log...",
+  )
+  expect((macos.find((m) => m.label === "Help")?.submenu ?? []).map((s) => s.label)).toContain(
+    "Export Diagnostics Log...",
+  )
 })
 
 test("Windows New Session accelerator matches macOS (CmdOrCtrl+Shift+S)", () => {
