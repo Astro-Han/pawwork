@@ -12,6 +12,7 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
+import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { promptProbe } from "@/testing/prompt"
@@ -521,6 +522,22 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     removeCommentItems(commentItems)
     clearInput()
+    void emitRendererDiagnostic({
+      name: "session.action.submit",
+      trace_id: messageID,
+      route_session_id: session.id,
+      visible_session_id: session.id,
+      timeline_session_id: session.id,
+      data: {
+        action: "submit",
+        provider: model.providerID,
+        model: model.modelID,
+        endpoint_kind: "prompt",
+        prompt_length: input.promptLength(currentPrompt),
+        image_count: images.length,
+        comment_count: input.commentCount(),
+      },
+    })
 
     const waitForWorktree = async () => {
       const worktree = WorktreeState.get(sessionDirectory)

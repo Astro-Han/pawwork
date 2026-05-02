@@ -11,6 +11,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
+import { createSessionPerformanceDiagnostics, emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
@@ -120,6 +121,42 @@ export default function Page() {
   const timelineHistoryMore = timeline.historyMore
   const timelineHistoryLoading = timeline.historyLoading
   const lastUserMessage = timeline.lastUserMessage
+  const countMessageParts = (message: unknown) => {
+    if (!message || typeof message !== "object" || !("parts" in message)) return 0
+    const parts = (message as { parts?: unknown }).parts
+    return Array.isArray(parts) ? parts.length : 0
+  }
+
+  createEffect(() => {
+    const routeSessionID = params.id
+    const visibleSessionID = timelineSessionID()
+    const messages = timelineMessages()
+    void emitRendererDiagnostic({
+      name: "session.view.state",
+      route_session_id: routeSessionID,
+      visible_session_id: visibleSessionID,
+      timeline_session_id: visibleSessionID,
+      data: {
+        route_session_id: routeSessionID,
+        visible_session_id: visibleSessionID,
+        timeline_session_id: visibleSessionID,
+        route_ready: timelineMessagesReady(),
+        visible_ready: timelineMessagesReady(),
+        transitioning: !!routeSessionID && !!visibleSessionID && routeSessionID !== visibleSessionID,
+        message_count: messages.length,
+        part_count: messages.reduce((count, message) => count + countMessageParts(message), 0),
+        history_more: timelineHistoryMore(),
+        history_loading: timelineHistoryLoading(),
+      },
+    })
+  })
+
+  createSessionPerformanceDiagnostics({
+    routeSessionID: () => params.id,
+    visibleSessionID: timelineSessionID,
+    timelineSessionID,
+    emit: emitRendererDiagnostic,
+  })
 
   createEffect(() => {
     const tab = activeFileTab()

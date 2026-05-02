@@ -1,4 +1,5 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
+import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
@@ -26,6 +27,20 @@ export function createSessionTimelineInteraction(input: {
     clearMessageHash: () => clearMessageHash(),
     clearActiveMessage: () => activeMessage?.clearActiveMessage(),
     fill: () => historyBackfill?.fill(),
+    onDockHeightChange: (event) => {
+      void emitRendererDiagnostic({
+        name: "session.layout.composer_dock",
+        route_session_id: input.routeSessionID(),
+        visible_session_id: input.sessionID(),
+        timeline_session_id: input.sessionID(),
+        data: {
+          composer_height: event.composerHeight,
+          previous_composer_height: event.previousComposerHeight,
+          scroll_top: event.scrollTop,
+          distance_from_bottom: event.distanceFromBottom,
+        },
+      })
+    },
   })
   const autoScroll = scrollDock.autoScroll
   const resumeScroll = scrollDock.resumeScroll
