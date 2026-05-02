@@ -7,7 +7,12 @@ type Tx = Pick<Database.Transaction, "select" | "update">
 
 export function backfillExecutionContextRows(d: Tx) {
   const rows = d
-    .select({ id: SessionTable.id, directory: SessionTable.directory, project_id: SessionTable.project_id })
+    .select({
+      id: SessionTable.id,
+      directory: SessionTable.directory,
+      project_id: SessionTable.project_id,
+      time_updated: SessionTable.time_updated,
+    })
     .from(SessionTable)
     .where(isNull(SessionTable.execution_context))
     .all()
@@ -16,7 +21,10 @@ export function backfillExecutionContextRows(d: Tx) {
     const ownerDirectoryRaw = project?.vcs === "git" ? (project.worktree ?? row.directory) : row.directory
     const ownerDirectory = canonicalDirectory(ownerDirectoryRaw)
     const ctx = rootContext(ownerDirectory)
-    d.update(SessionTable).set({ execution_context: ctx }).where(eq(SessionTable.id, row.id)).run()
+    d.update(SessionTable)
+      .set({ execution_context: ctx, time_updated: row.time_updated })
+      .where(eq(SessionTable.id, row.id))
+      .run()
   }
   return rows.length
 }
