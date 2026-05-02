@@ -823,15 +823,23 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       const current = yield* get(input.sessionID)
       const now = Date.now()
       const hasActiveWorktree = input.activeWorktree !== undefined
-      const ownerDirectory = current.executionContext.ownerDirectory
-      const activeDirectory = hasActiveWorktree
+      const ownerDirectory = canonicalDirectory(current.executionContext.ownerDirectory)
+      const activeDirectoryInput = hasActiveWorktree
         ? (input.activeWorktree?.directory ?? ownerDirectory)
         : (input.activeDirectory ?? current.executionContext.activeDirectory)
+      const activeDirectory = canonicalDirectory(activeDirectoryInput)
       const activeWorktree = hasActiveWorktree
-        ? (input.activeWorktree ?? undefined)
-        : canonicalDirectory(activeDirectory) === canonicalDirectory(ownerDirectory)
+        ? input.activeWorktree
+          ? { ...input.activeWorktree, directory: canonicalDirectory(input.activeWorktree.directory) }
+          : undefined
+        : activeDirectory === ownerDirectory
           ? undefined
           : current.executionContext.activeWorktree
+            ? {
+                ...current.executionContext.activeWorktree,
+                directory: canonicalDirectory(current.executionContext.activeWorktree.directory),
+              }
+            : undefined
       const next: SessionExecutionContext = {
         ownerDirectory,
         activeDirectory,

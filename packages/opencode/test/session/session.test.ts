@@ -51,6 +51,7 @@ describe("session.created event", () => {
   test("executionContext for a new git session is rooted at project worktree, not entry directory", async () => {
     await using tmp = await tmpdir({ git: true })
     const subdir = path.join(tmp.path, "packages", "app")
+    await fs.mkdir(subdir, { recursive: true })
     await Bun.write(path.join(subdir, ".keep"), "")
 
     await Instance.provide({
@@ -179,8 +180,9 @@ describe("session.created event", () => {
   test("updateExecutionContext keeps active directory and worktree metadata synchronized", async () => {
     await using tmp = await tmpdir({ git: true })
     const worktree = path.join(tmp.path, ".worktrees", "pawwork", "feature-c")
+    const worktreeInput = `${worktree}${path.sep}`
     const activeWorktree = {
-      directory: worktree,
+      directory: worktreeInput,
       name: "feature-c",
       branch: "pawwork/feature-c",
       source: "created" as const,
@@ -195,17 +197,24 @@ describe("session.created event", () => {
           sessionID: session.id,
           activeWorktree,
         })
-        expect(entered.executionContext.activeDirectory).toBe(worktree)
-        expect(entered.executionContext.activeWorktree).toEqual(activeWorktree)
+        expect(entered.executionContext.activeDirectory).toBe(canonicalDirectory(worktree))
+        expect(entered.executionContext.activeWorktree).toEqual({
+          ...activeWorktree,
+          directory: canonicalDirectory(worktree),
+        })
 
         const nested = path.join(worktree, "nested")
+        const nestedInput = `${nested}${path.sep}`
         const movedByDirectory = await SessionNs.updateExecutionContext({
           sessionID: session.id,
-          activeDirectory: nested,
+          activeDirectory: nestedInput,
           activeWorktree: undefined,
         })
-        expect(movedByDirectory.executionContext.activeDirectory).toBe(nested)
-        expect(movedByDirectory.executionContext.activeWorktree).toEqual(activeWorktree)
+        expect(movedByDirectory.executionContext.activeDirectory).toBe(canonicalDirectory(nested))
+        expect(movedByDirectory.executionContext.activeWorktree).toEqual({
+          ...activeWorktree,
+          directory: canonicalDirectory(worktree),
+        })
 
         const clearedByWorktree = await SessionNs.updateExecutionContext({
           sessionID: session.id,
