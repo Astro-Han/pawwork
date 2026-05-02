@@ -1,0 +1,70 @@
+name: Task
+description: Track maintainer or agent execution work
+title: "[Task] "
+labels:
+  - task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for maintainer or agent execution work that is not a user-facing bug report or feature request.
+
+        Keep the issue concrete enough that an agent can understand the target, scope, and verification path.
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should be true when this task is done?
+      placeholder: The session page controller is split so scroll behavior is easier to verify without changing user-visible behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What is in scope and what should stay out of scope?
+      placeholder: |
+        In scope:
+        - Split the controller logic used by the session page.
+        - Preserve current UI behavior.
+
+        Out of scope:
+        - Redesigning the right panel.
+        - Changing message rendering.
+    validations:
+      required: true
+  - type: textarea
+    id: pointers
+    attributes:
+      label: Relevant files or context
+      description: Point to likely files, issues, PRs, logs, screenshots, or existing patterns.
+      placeholder: |
+        Likely files:
+        - packages/app/src/...
+
+        Related issues:
+        - #123
+    validations:
+      required: false
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: How should the result be checked?
+      placeholder: |
+        - Run the targeted unit test for ...
+        - Manually verify the session page still scrolls correctly.
+        - Confirm no unrelated UI copy changed.
+    validations:
+      required: true
+  - type: dropdown
+    id: execution_mode
+    attributes:
+      label: Execution mode
+      description: Pick the safest starting mode.
+      options:
+        - Agent can implement directly
+        - Agent should investigate and propose a plan first
+        - Human review required before code changes
+    validations:
+      required: true
