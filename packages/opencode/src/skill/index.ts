@@ -21,7 +21,7 @@ import { Discovery } from "./discovery"
 export namespace Skill {
   const log = Log.create({ service: "skill" })
   const processWithResourcesPath = process as NodeJS.Process & { resourcesPath?: string }
-  const EXTERNAL_DIRS = [".claude", ".agents"]
+  const EXTERNAL_DIRS = [".agents"]
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
   const BUILTIN_SKILL_PATTERN = "*/SKILL.md"
   const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
