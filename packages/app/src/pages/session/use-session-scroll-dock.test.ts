@@ -256,10 +256,10 @@ describe("session scroll dock", () => {
 
           expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("220px")
         } finally {
+          dispose()
           if (previousDockHeight)
             document.documentElement.style.setProperty("--composer-dock-height", previousDockHeight)
           else document.documentElement.style.removeProperty("--composer-dock-height")
-          dispose()
         }
       })
     })
