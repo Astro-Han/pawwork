@@ -13,7 +13,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Env") {}
 
-export const layer = Layer.effect(
+const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const state = yield* InstanceState.make<State>(Effect.fn("Env.state")(() => Effect.succeed({ ...process.env })))
@@ -33,7 +33,7 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer
+const defaultLayer = layer
 
 const { runSync } = makeRuntime(Service, defaultLayer)
 
