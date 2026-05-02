@@ -1128,6 +1128,65 @@ describe("ProviderTransform.schema - Moonshot/Kimi tool schemas", () => {
     })
   })
 
+  test("sanitizes k2p aliases from canonical api ids", () => {
+    const result = ProviderTransform.schema(
+      {
+        id: "custom-provider/model",
+        providerID: "custom-provider",
+        api: {
+          id: "k2p6",
+        },
+      } as any,
+      {
+        type: "object",
+        properties: {
+          value: {
+            $ref: "#/$defs/Value",
+            description: "Moonshot rejects this sibling after ref expansion.",
+          },
+        },
+        $defs: {
+          Value: {
+            type: "object",
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.value).toEqual({
+      $ref: "#/$defs/Value",
+    })
+  })
+
+  test("does not opt in based on display name alone", () => {
+    const result = ProviderTransform.schema(
+      {
+        id: "custom-provider/model",
+        providerID: "custom-provider",
+        name: "Kimi-compatible proxy",
+        api: {
+          id: "model",
+        },
+      } as any,
+      {
+        type: "object",
+        properties: {
+          value: {
+            $ref: "#/$defs/Value",
+            description: "should remain",
+          },
+        },
+        $defs: {
+          Value: {
+            type: "object",
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.value.description).toBe("should remain")
+  })
+
   test("converts tuple-style array items to a single item schema", () => {
     const result = ProviderTransform.schema(
       moonshotModel,
@@ -1215,6 +1274,12 @@ describe("ProviderTransform.schema - Moonshot/Kimi tool schemas", () => {
           flexible: {
             anyOf: [{ type: "string" }, { type: "number" }],
           },
+          mixedEnum: {
+            enum: [1, "1"],
+          },
+          described: {
+            description: "optional field",
+          },
         },
       } as any,
     ) as any
@@ -1227,6 +1292,8 @@ describe("ProviderTransform.schema - Moonshot/Kimi tool schemas", () => {
     expect(result.properties.choice.anyOf[0].type).toBe("integer")
     expect(result.properties.choice.anyOf[1].type).toBe("string")
     expect(result.properties.flexible.type).toBeUndefined()
+    expect(result.properties.mixedEnum.type).toBeUndefined()
+    expect(result.properties.described.type).toBeUndefined()
   })
 })
 
@@ -1976,6 +2043,39 @@ describe("ProviderTransform.message - Kimi/Moonshot empty content filtering", ()
     expect(result.messages[0]).not.toHaveProperty("content")
     expect(result.messages[0].tool_calls).toHaveLength(1)
     expect(result.messages[1].content).toEqual([{ type: "text", text: "not empty" }])
+  })
+
+  test("does not omit empty content from non-Kimi OpenAI-compatible payloads", () => {
+    const result = ProviderTransform.openAICompatibleRequestBody(
+      {
+        ...kimiModel,
+        id: "custom-provider/model",
+        providerID: "custom-provider",
+        name: "Kimi-compatible proxy",
+        api: {
+          ...kimiModel.api,
+          id: "model",
+        },
+      },
+      {
+        model: "model",
+        messages: [
+          {
+            role: "assistant",
+            content: "",
+            tool_calls: [
+              {
+                id: "call_1",
+                type: "function",
+                function: { name: "bash", arguments: "{\"command\":\"pwd\"}" },
+              },
+            ],
+          },
+        ],
+      },
+    ) as any
+
+    expect(result.messages[0].content).toBe("")
   })
 })
 

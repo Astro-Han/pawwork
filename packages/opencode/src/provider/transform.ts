@@ -70,8 +70,8 @@ function isLegacyDeepSeekVariantID(id: string) {
 }
 
 function isKimiMoonshotModel(model: Provider.Model) {
-  const ids = [model.id, model.providerID, model.name, model.api.id].filter(Boolean).join(" ").toLowerCase()
-  return ids.includes("moonshot") || ids.includes("kimi") || /(^|[/:])k2p\d*(?:[.\-/]|$)/.test(ids)
+  const ids = [model.id, model.providerID, model.api.id].filter(Boolean).map((id) => id.toLowerCase())
+  return ids.some((id) => id.includes("moonshot") || id.includes("kimi") || /(^|[/:])k2p\d*(?:[.\-/]|$)/.test(id))
 }
 
 function isPlainObject(node: unknown): node is Record<string, unknown> {
@@ -92,7 +92,7 @@ const ARRAY_SCHEMA_KEYS = ["items", "prefixItems", "minItems", "maxItems", "uniq
 const STRING_SCHEMA_KEYS = ["minLength", "maxLength", "pattern", "format"]
 const NUMBER_SCHEMA_KEYS = ["minimum", "maximum", "multipleOf", "exclusiveMinimum", "exclusiveMaximum"]
 
-function schemaTypeFromValues(values: unknown[]): string {
+function schemaTypeFromValues(values: unknown[]): string | undefined {
   const types = new Set(
     values.map((value) => {
       if (typeof value === "number") return Number.isInteger(value) ? "integer" : "number"
@@ -101,12 +101,12 @@ function schemaTypeFromValues(values: unknown[]): string {
       return typeof value
     }),
   )
-  if (types.size === 1) return types.values().next().value ?? "string"
+  if (types.size === 1) return types.values().next().value
   if (types.size === 2 && types.has("integer") && types.has("number")) return "number"
-  return "string"
+  return undefined
 }
 
-function inferSchemaType(node: Record<string, unknown>): string {
+function inferSchemaType(node: Record<string, unknown>): string | undefined {
   const enumValues = node.enum
   if (Array.isArray(enumValues) && enumValues.length > 0) return schemaTypeFromValues(enumValues)
   if ("const" in node) return schemaTypeFromValues([node.const])
@@ -114,7 +114,7 @@ function inferSchemaType(node: Record<string, unknown>): string {
   if (ARRAY_SCHEMA_KEYS.some((key) => key in node)) return "array"
   if (STRING_SCHEMA_KEYS.some((key) => key in node)) return "string"
   if (NUMBER_SCHEMA_KEYS.some((key) => key in node)) return "number"
-  return "string"
+  return undefined
 }
 
 function shouldSkipSchemaType(node: Record<string, unknown>) {
@@ -1179,7 +1179,8 @@ export function schema(model: Provider.Model, schema: JSONSchema.BaseSchema | JS
       }
       if (Array.isArray(result.items)) result.items = result.items[0] ?? {}
       if (schemaPosition && !("type" in result) && !shouldSkipSchemaType(result)) {
-        result.type = inferSchemaType(result)
+        const inferredType = inferSchemaType(result)
+        if (inferredType) result.type = inferredType
       }
       return result
     }
