@@ -145,7 +145,7 @@ export const layer: Layer.Layer<Service, never, Session.Service> = Layer.effect(
       )
 
     const activeForSession = (parentID: SessionID): Effect.Effect<boolean> =>
-      Effect.succeed((activeCounts.get(parentID) ?? 0) > 0)
+      getSlotLock(parentID).withPermits(1)(Effect.succeed((activeCounts.get(parentID) ?? 0) > 0))
 
     const readPart = (toolCallID: string) =>
       Effect.gen(function* () {

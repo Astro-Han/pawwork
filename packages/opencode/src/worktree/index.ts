@@ -13,7 +13,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
 import { Effect, Layer, Path, Scope, Context, Stream, Semaphore } from "effect"
-import { ensureWorktreesIgnored } from "./gitignore-guard"
+import { ensureWorktreesIgnored, restoreWorktreesIgnored } from "./gitignore-guard"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodePath } from "@effect/platform-node"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -380,11 +380,12 @@ export namespace Worktree {
 
       const setup = Effect.fnUntraced(function* (info: Info) {
         const ctx = yield* InstanceState.context
-        yield* Effect.promise(() => ensureWorktreesIgnored(ctx.worktree))
+        const ignoreChange = yield* Effect.promise(() => ensureWorktreesIgnored(ctx.worktree))
         const created = yield* git(["worktree", "add", "--no-checkout", "-b", info.branch, info.directory], {
           cwd: ctx.worktree,
         })
         if (created.code !== 0) {
+          yield* Effect.promise(() => restoreWorktreesIgnored(ignoreChange))
           throw new CreateFailedError({ message: created.stderr || created.text || "Failed to create git worktree" })
         }
 

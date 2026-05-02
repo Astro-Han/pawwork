@@ -736,7 +736,7 @@
       "type": "text",
       "notNull": false,
       "autoincrement": false,
-      "default": "'null'",
+      "default": null,
       "generated": null,
       "name": "execution_context",
       "entityType": "columns",

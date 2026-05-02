@@ -425,6 +425,8 @@ export const AgentTool = Tool.define(
                 agent: next.name,
                 tools: {
                   agent: false,
+                  "enter-worktree": false,
+                  "exit-worktree": false,
                   ...(canTodo ? {} : { todowrite: false }),
                   ...Object.fromEntries(
                     (cfg.experimental?.primary_tools ?? []).map((item) => [item, false]),

@@ -27,10 +27,14 @@ function hasWorktreesIgnore(text: string) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#"))
-    .some((line) => line === ".worktrees" || line === ".worktrees/" || line === "/.worktrees" || line === "/.worktrees/")
+    .some(
+      (line) => line === ".worktrees" || line === ".worktrees/" || line === "/.worktrees" || line === "/.worktrees/",
+    )
 }
 
-export async function ensureWorktreesIgnored(root: string): Promise<{ changed: boolean; file: string }> {
+export async function ensureWorktreesIgnored(
+  root: string,
+): Promise<{ changed: boolean; file: string; before?: string }> {
   const file = path.join(root, ".gitignore")
   const before = await fs.readFile(file, "utf8").catch((error: unknown) => {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return undefined
@@ -64,5 +68,14 @@ export async function ensureWorktreesIgnored(root: string): Promise<{ changed: b
   const prefix = before && before.length > 0 && !before.endsWith("\n") ? "\n" : ""
   const next = `${before ?? ""}${prefix}${ENTRY}\n`
   await fs.writeFile(file, next)
-  return { changed: true, file }
+  return { changed: true, file, before }
+}
+
+export async function restoreWorktreesIgnored(change: { changed: boolean; file: string; before?: string }) {
+  if (!change.changed) return
+  if (change.before === undefined) {
+    await fs.rm(change.file, { force: true })
+    return
+  }
+  await fs.writeFile(change.file, change.before)
 }

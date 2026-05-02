@@ -1,3 +1,5 @@
+import fs from "node:fs"
+import path from "path"
 import z from "zod"
 
 export const ActiveWorktree = z.object({
@@ -16,10 +18,24 @@ export const SessionExecutionContext = z.object({
 })
 export type SessionExecutionContext = z.infer<typeof SessionExecutionContext>
 
+export function canonicalDirectory(input: string) {
+  const abs = path.resolve(input)
+  const real = (() => {
+    try {
+      return fs.realpathSync.native(abs)
+    } catch {
+      return abs
+    }
+  })()
+  const normalized = path.normalize(real)
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized
+}
+
 export function rootContext(ownerDirectory: string): SessionExecutionContext {
+  const directory = canonicalDirectory(ownerDirectory)
   return {
-    ownerDirectory,
-    activeDirectory: ownerDirectory,
+    ownerDirectory: directory,
+    activeDirectory: directory,
     lastChangedAt: Date.now(),
   }
 }

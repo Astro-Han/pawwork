@@ -32,8 +32,8 @@ import { Permission } from "@/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
 import { SubagentRunWriterContext, SubagentRunGuardViolation, lifecycleFieldsChanged } from "./subagent-run-context"
-import { ActiveWorktree, SessionExecutionContext, rootContext } from "./execution-context"
-import { backfillExecutionContextRows, canonicalDirectory } from "./execution-context-store"
+import { ActiveWorktree, SessionExecutionContext, canonicalDirectory, rootContext } from "./execution-context"
+import { backfillExecutionContextRows } from "./execution-context-store"
 
 const log = Log.create({ service: "session" })
 
@@ -96,7 +96,7 @@ function recoverExecutionContext(row: SessionRow) {
     lastChangedAt:
       typeof record.lastChangedAt === "number" && Number.isFinite(record.lastChangedAt)
         ? record.lastChangedAt
-        : Date.now(),
+        : row.time_updated,
   })
   return recovered.success ? recovered.data : undefined
 }
@@ -110,16 +110,19 @@ function isPersistedExecutionContextUsable(ctx: SessionExecutionContext) {
 }
 
 function normalizeExecutionContext(ctx: SessionExecutionContext): SessionExecutionContext {
+  const ownerDirectory = canonicalDirectory(ctx.ownerDirectory)
+  const activeDirectory = canonicalDirectory(ctx.activeDirectory)
   return {
     ...ctx,
-    ownerDirectory: canonicalDirectory(ctx.ownerDirectory),
-    activeDirectory: canonicalDirectory(ctx.activeDirectory),
-    activeWorktree: ctx.activeWorktree
-      ? {
-          ...ctx.activeWorktree,
-          directory: canonicalDirectory(ctx.activeWorktree.directory),
-        }
-      : undefined,
+    ownerDirectory,
+    activeDirectory,
+    activeWorktree:
+      ctx.activeWorktree && activeDirectory !== ownerDirectory
+        ? {
+            ...ctx.activeWorktree,
+            directory: canonicalDirectory(ctx.activeWorktree.directory),
+          }
+        : undefined,
   }
 }
 
@@ -529,7 +532,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
   Effect.gen(function* () {
     const bus = yield* Bus.Service
     const storage = yield* Storage.Service
-    yield* backfillExecutionContext
+    yield* backfillExecutionContextEffect()
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -559,8 +562,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         permission: input.permission,
         // ownerDirectory is the project root for git projects and never moves. For non-git
         // projects Instance.worktree is "/" today, so keep the opened directory as the owner.
-        executionContext:
-          input.executionContext ?? rootContext(ctx.project.vcs === "git" ? ctx.worktree : input.directory),
+        executionContext: input.executionContext
+          ? normalizeExecutionContext(input.executionContext)
+          : rootContext(ctx.project.vcs === "git" ? ctx.worktree : input.directory),
         time: {
           created: Date.now(),
           updated: Date.now(),

@@ -550,6 +550,8 @@ describe("tool.agent", () => {
           ])
           expect(seen?.tools).toEqual({
             agent: false,
+            "enter-worktree": false,
+            "exit-worktree": false,
             todowrite: false,
             bash: false,
             read: false,

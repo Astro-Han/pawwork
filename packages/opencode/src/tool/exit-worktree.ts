@@ -4,7 +4,7 @@ import DESCRIPTION from "./exit-worktree.txt"
 import * as Session from "../session/session"
 import { hasInFlightToolCallsExcept, hasRunningSubagents } from "../session/state-machine-guard"
 import { SubagentRun } from "../session/subagent-run"
-import { canonicalDirectory } from "../session/execution-context-store"
+import { canonicalDirectory } from "../session/execution-context"
 
 export const Parameters = Schema.Struct({})
 

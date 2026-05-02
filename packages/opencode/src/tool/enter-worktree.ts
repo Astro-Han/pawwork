@@ -11,6 +11,7 @@ import type { SessionID } from "../session/schema"
 import { SubagentRun } from "../session/subagent-run"
 import { currentBranch, gitCommonDir } from "./enter-worktree-git"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { canonicalDirectory } from "../session/execution-context"
 
 export const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const MAX_SLUG_LEN = 40
@@ -109,7 +110,7 @@ export const EnterWorktreeTool = Tool.define(
           const canonical = yield* Effect.promise(() =>
             fs.realpath(params.path!).catch(() => path.resolve(params.path!)),
           )
-          if (exec.activeDirectory === canonical) {
+          if (canonicalDirectory(exec.activeDirectory) === canonicalDirectory(canonical)) {
             const slug = exec.activeWorktree?.name ?? path.basename(canonical)
             return successResult({
               activeDirectory: canonical,
@@ -119,7 +120,7 @@ export const EnterWorktreeTool = Tool.define(
               state: "reused",
             })
           }
-          if (exec.activeDirectory !== exec.ownerDirectory) {
+          if (canonicalDirectory(exec.activeDirectory) !== canonicalDirectory(exec.ownerDirectory)) {
             return yield* Effect.fail(
               new Error("This session is already inside another worktree. Call ExitWorktree first."),
             )
@@ -146,7 +147,7 @@ export const EnterWorktreeTool = Tool.define(
         // name= or no-arg branch
         const existing = params.name ? yield* Effect.promise(() => Worktree.lookupBySlug(params.name!)) : undefined
         const planned = existing ?? (yield* Effect.promise(() => Worktree.makeWorktreeInfo(params.name)))
-        if (exec.activeDirectory === planned.directory) {
+        if (canonicalDirectory(exec.activeDirectory) === canonicalDirectory(planned.directory)) {
           return successResult({
             activeDirectory: planned.directory,
             ownerDirectory: exec.ownerDirectory,
@@ -155,7 +156,7 @@ export const EnterWorktreeTool = Tool.define(
             state: "reused",
           })
         }
-        if (exec.activeDirectory !== exec.ownerDirectory) {
+        if (canonicalDirectory(exec.activeDirectory) !== canonicalDirectory(exec.ownerDirectory)) {
           return yield* Effect.fail(
             new Error("This session is already inside another worktree. Call ExitWorktree first."),
           )

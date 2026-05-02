@@ -1,1 +1,1 @@
-ALTER TABLE `session` ADD `execution_context` text DEFAULT 'null';
+ALTER TABLE `session` ADD `execution_context` text DEFAULT NULL;

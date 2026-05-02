@@ -5,6 +5,8 @@ const wintest = process.platform !== "win32" ? test : test.skip
 import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
+import { ProjectTable } from "../../src/project/project.sql"
+import { Database, eq } from "../../src/storage/db"
 import { Worktree } from "../../src/worktree"
 import { tmpdir } from "../fixture/fixture"
 
@@ -156,6 +158,22 @@ describe("Worktree", () => {
       const list = await $`git worktree list --porcelain`.cwd(tmp.path).quiet().text()
       expect(list).not.toContain("pawwork/blocked")
     })
+
+    test("restores .gitignore when git worktree add fails", async () => {
+      await using tmp = await tmpdir({ git: true })
+      const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("bad-branch"))
+
+      await expect(
+        withInstance(tmp.path, () =>
+          Worktree.createFromInfo({
+            ...info,
+            branch: "bad branch name",
+          }),
+        ),
+      ).rejects.toThrow("WorktreeCreateFailedError")
+
+      await expect(Bun.file(path.join(tmp.path, ".gitignore")).text()).rejects.toThrow()
+    })
   })
 
   describe("createFromInfo", () => {
@@ -202,6 +220,33 @@ describe("Worktree", () => {
 
       await withInstance(tmp.path, () => Worktree.remove({ directory: created.directory }))
       await withInstance(tmp.path, () => Worktree.remove({ directory: external }))
+    })
+
+    test("legacy string registry entries remain slug-addressable", async () => {
+      await using tmp = await tmpdir({ git: true })
+      const legacy = path.join(tmp.path, "..", path.basename(tmp.path) + "-legacy")
+      await $`git worktree add ${legacy} -b legacy-${Date.now()}`.cwd(tmp.path).quiet()
+
+      await withInstance(tmp.path, async () => {
+        Database.use((db) =>
+          db
+            .update(ProjectTable)
+            .set({ sandboxes: [legacy] })
+            .where(eq(ProjectTable.id, Instance.project.id))
+            .run(),
+        )
+
+        const bySlug = await Worktree.lookupBySlug(path.basename(legacy))
+        expect(bySlug?.directory).toBe(legacy)
+        expect(bySlug?.source).toBe("created")
+
+        const listed = await Worktree.list()
+        expect(listed.some((entry) => entry.directory === legacy)).toBe(true)
+
+        await Worktree.remove({ directory: legacy })
+        const afterRemove = await Worktree.lookupBySlug(path.basename(legacy))
+        expect(afterRemove).toBeUndefined()
+      })
     })
 
     test("rejects existing paths that are not attached git worktrees", async () => {

@@ -1,24 +1,9 @@
-import fs from "node:fs"
-import path from "path"
 import { Database, eq, isNull } from "../storage/db"
 import { ProjectTable } from "../project/project.sql"
 import { SessionTable } from "./session.sql"
-import { rootContext } from "./execution-context"
+import { canonicalDirectory, rootContext } from "./execution-context"
 
 type Tx = Pick<Database.Transaction, "select" | "update">
-
-export function canonicalDirectory(input: string) {
-  const abs = path.resolve(input)
-  const real = (() => {
-    try {
-      return fs.realpathSync.native(abs)
-    } catch {
-      return abs
-    }
-  })()
-  const normalized = path.normalize(real)
-  return process.platform === "win32" ? normalized.toLowerCase() : normalized
-}
 
 export function backfillExecutionContextRows(d: Tx) {
   const rows = d

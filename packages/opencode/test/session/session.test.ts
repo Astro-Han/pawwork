@@ -12,7 +12,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Database, eq } from "../../src/storage/db"
 import { MessageTable, SessionTable } from "../../src/session/session.sql"
 import { ProjectTable } from "../../src/project/project.sql"
-import { canonicalDirectory } from "../../src/session/execution-context-store"
+import { canonicalDirectory } from "../../src/session/execution-context"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -454,6 +454,44 @@ describe("session.created event", () => {
         expect(globalListed?.executionContext.ownerDirectory).toBe(expectedRoot)
         expect(globalListed?.executionContext.activeDirectory).toBe(expectedRoot)
         expect(globalListed?.executionContext.activeWorktree).toBeUndefined()
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
+  test("drops stale activeWorktree metadata when active directory is the project root", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const worktree = path.join(tmp.path, ".worktrees", "pawwork", "stale-worktree")
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "stale-active-worktree" })
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({
+              execution_context: {
+                ownerDirectory: tmp.path,
+                activeDirectory: `${tmp.path}${path.sep}`,
+                activeWorktree: {
+                  directory: worktree,
+                  name: "stale-worktree",
+                  branch: "pawwork/stale-worktree",
+                  source: "created",
+                },
+                lastChangedAt: 123,
+              },
+            })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const loaded = await SessionNs.get(session.id)
+        expect(loaded.executionContext.ownerDirectory).toBe(canonicalDirectory(tmp.path))
+        expect(loaded.executionContext.activeDirectory).toBe(canonicalDirectory(tmp.path))
+        expect(loaded.executionContext.activeWorktree).toBeUndefined()
 
         await SessionNs.remove(session.id)
       },
