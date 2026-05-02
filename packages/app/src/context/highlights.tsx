@@ -9,6 +9,7 @@ import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
 const CHANGELOG_URL = "https://api.github.com/repos/Astro-Han/pawwork/releases"
+const MAX_RELEASE_HIGHLIGHTS = 15
 
 type Store = {
   version?: string
@@ -109,7 +110,8 @@ function parseNoticeDescriptions(notice: string | undefined): string[] {
   })
   if (bullets.length > 0) return bullets
 
-  return lines.length > 0 ? [trimNoticeItem(lines[0])] : []
+  const summary = trimNoticeItem(lines.join(" "))
+  return summary ? [summary] : []
 }
 
 function parseReleaseBodyDescriptions(body: string, locale: ReleaseLocale) {
@@ -202,7 +204,7 @@ function sliceHighlights(input: { releases: ParsedRelease[]; current?: string; p
     seen.add(key)
     return true
   })
-  return unique
+  return unique.slice(0, MAX_RELEASE_HIGHLIGHTS)
 }
 
 function dedupeKey(highlight: Highlight) {
