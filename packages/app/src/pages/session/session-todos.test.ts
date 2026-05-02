@@ -33,11 +33,11 @@ const todo = (content: string, status: Todo["status"] = "pending"): Todo => ({
 })
 
 describe("selectSessionTodos", () => {
-  test("prefers backend todos over message-derived todos", () => {
+  test("prefers message-derived todos over lagging backend todos", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
     expect(selectSessionTodos({ backend: [todo("from backend", "pending")], parts })).toEqual([
-      todo("from backend", "pending"),
+      todo("from parts", "in_progress"),
     ])
   })
 

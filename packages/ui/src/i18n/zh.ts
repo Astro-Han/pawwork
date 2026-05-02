@@ -108,7 +108,7 @@ export const dict = {
   "ui.tool.worktree.exit.toProject": "回到 {{project}}",
   "ui.tool.worktree.exit.fromWorktree": "{{previous}} → {{project}}",
   "ui.tool.shell": "执行命令",
-  "ui.tool.patch": "批量修改",
+  "ui.tool.patch": "修改文件",
   "ui.tool.todos": "待办",
   "ui.tool.todos.read": "查看待办",
   "ui.tool.questions": "提出问题",

@@ -114,7 +114,7 @@ export const dict: Record<string, string> = {
   "ui.tool.worktree.exit.toProject": "Back to {{project}}",
   "ui.tool.worktree.exit.fromWorktree": "{{previous}} → {{project}}",
   "ui.tool.shell": "Shell",
-  "ui.tool.patch": "Patch",
+  "ui.tool.patch": "Edit files",
   "ui.tool.todos": "To-dos",
   "ui.tool.todos.read": "Read to-dos",
   "ui.tool.questions": "Questions",
