@@ -25,6 +25,7 @@ export type MenuLabelKey =
   | "pawworkOnGithub"
   | "reportProblem"
   | "exportDiagnosticsLog"
+  | "exportDiagnosticsLogTitle"
   | "openGithubIssue"
 
 export type MenuRoleLabelKey =
@@ -76,6 +77,7 @@ const labels: Record<MenuLocale, Record<MenuLabelKey, string>> = {
     pawworkOnGithub: "PawWork on GitHub",
     reportProblem: "Report a Problem",
     exportDiagnosticsLog: "Export Diagnostics Log...",
+    exportDiagnosticsLogTitle: "Export Diagnostics Log",
     openGithubIssue: "Open GitHub Issue",
   },
   zh: {
@@ -103,6 +105,7 @@ const labels: Record<MenuLocale, Record<MenuLabelKey, string>> = {
     pawworkOnGithub: "在 GitHub 上查看爪印",
     reportProblem: "报告问题",
     exportDiagnosticsLog: "导出诊断日志...",
+    exportDiagnosticsLogTitle: "导出诊断日志",
     openGithubIssue: "打开 GitHub Issue",
   },
 }

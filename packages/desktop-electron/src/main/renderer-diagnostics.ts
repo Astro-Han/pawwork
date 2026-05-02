@@ -390,6 +390,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
   const path = rendererDiagnosticsPath(options.root)
   const lastHighFrequency = new Map<string, number>()
   let writeFailed = false
+  let writeQueue = Promise.resolve()
 
   const readEventReport = async () => {
     try {
@@ -433,6 +434,15 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     })
   }
 
+  const enqueueWrite = async <T>(operation: () => Promise<T>) => {
+    const next = writeQueue.then(operation, operation)
+    writeQueue = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }
+
   const record = async (input: unknown, context: RecordContext) => {
     try {
       const sanitized = sanitizeRendererDiagnosticEvent(input, {
@@ -450,9 +460,11 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
         }
         lastHighFrequency.set(key, current)
       }
-      await mkdir(options.root, { recursive: true })
-      await appendFile(path, `${JSON.stringify(sanitized)}\n`, "utf8")
-      await flushRetention()
+      await enqueueWrite(async () => {
+        await mkdir(options.root, { recursive: true })
+        await appendFile(path, `${JSON.stringify(sanitized)}\n`, "utf8")
+        await flushRetention()
+      })
       return { ok: true as const }
     } catch {
       writeFailed = true

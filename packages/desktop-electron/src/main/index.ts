@@ -60,7 +60,7 @@ import { registerAboutIpc, triggerAbout } from "./ipc/about"
 import { filePath, initLogging, tail } from "./logging"
 import { parseMarkdown } from "./markdown"
 import { createMenu } from "./menu"
-import { type MenuLocale } from "./menu-labels"
+import { menuLabel, type MenuLocale } from "./menu-labels"
 import { readStoredMenuLocale, writeStoredMenuLocale } from "./menu-i18n"
 import { cleanupProblemReports, problemReportsRoot, writeProblemReportFile } from "./problem-report-files"
 import {
@@ -208,7 +208,7 @@ async function sessionExport(context = currentDesktopContext(), signal?: AbortSi
 async function exportDiagnosticsFromMenu() {
   const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
   const result = await dialog.showSaveDialog({
-    title: "Export diagnostics log",
+    title: menuLabel(focusedMenuLocale(), "exportDiagnosticsLogTitle"),
     defaultPath: `pawwork-renderer-diagnostics-${stamp}.jsonl`,
     filters: [{ name: "JSONL", extensions: ["jsonl"] }],
   })

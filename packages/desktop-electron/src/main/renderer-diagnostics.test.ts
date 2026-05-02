@@ -173,6 +173,32 @@ describe("renderer diagnostics recorder", () => {
     expect(lines).toHaveLength(1)
   })
 
+  test("serializes concurrent writes so retention does not lose accepted events", async () => {
+    const root = await tempRoot()
+    const recorder = createRendererDiagnosticsRecorder({
+      root,
+      appLaunchID: "launch_1",
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+    })
+
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        recorder.record(
+          {
+            name: "session.action.submit",
+            trace_id: `msg_${index}`,
+            data: { action: "submit_prompt", prompt_length: index },
+          },
+          { windowID: 1 },
+        ),
+      ),
+    )
+
+    const lines = (await readFile(recorder.path, "utf8")).trim().split("\n")
+    expect(lines).toHaveLength(20)
+    expect(new Set(lines.map((line) => JSON.parse(line).trace_id)).size).toBe(20)
+  })
+
   test("retention keeps recent entries and caps bytes", async () => {
     const root = await tempRoot()
     const recorder = createRendererDiagnosticsRecorder({
