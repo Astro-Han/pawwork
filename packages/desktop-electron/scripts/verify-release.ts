@@ -231,8 +231,10 @@ export function verifyReleasePayload(input: VerificationInput) {
 
 export function normalizeTag(raw: string) {
   const normalized = raw.startsWith("v") ? raw : `v${raw}`
-  if (!/^v\d{4}\.\d{1,2}\.\d{1,2}$/.test(normalized)) {
-    throw new Error(`Invalid release tag: ${raw}. Expected vYYYY.M.D or YYYY.M.D.`)
+  if (!/^v\d{4}\.\d{1,2}\.\d{1,2}(\.\d{1,3})?$/.test(normalized)) {
+    throw new Error(
+      `Invalid release tag: ${raw}. Expected vYYYY.M.D or YYYY.M.D, with optional build number (vYYYY.M.D.N).`,
+    )
   }
   return normalized
 }

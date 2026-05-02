@@ -79,7 +79,10 @@ describe("verify-release", () => {
     expect(() => normalizeTag("")).toThrow("Invalid release tag")
     expect(() => normalizeTag("v")).toThrow("Invalid release tag")
     expect(() => normalizeTag("abc")).toThrow("Invalid release tag")
-    expect(() => normalizeTag("2026.4.28.1")).toThrow("Invalid release tag")
+    expect(normalizeTag("2026.4.28.1")).toBe("v2026.4.28.1")
+    expect(normalizeTag("v2026.4.28.2")).toBe("v2026.4.28.2")
+    expect(normalizeTag("2026.4.28.0")).toBe("v2026.4.28.0")
+    expect(() => normalizeTag("2026.4.28.1234")).toThrow("Invalid release tag")
     expect(() => normalizeTag("2026.4.28-hotfix.1")).toThrow("Invalid release tag")
   })
 
@@ -255,11 +258,13 @@ path: pawwork-win-x64-2026.4.28.exe
   test("reports invalid release tags in release payloads without throwing", () => {
     expect(
       verifyReleasePayload({
-        release: { ...baseRelease, tag_name: "v2026.4.28.1" },
+        release: { ...baseRelease, tag_name: "v2026.4.28.1.1" },
         latestYml: "",
         latestMacYml: "",
       }),
-    ).toEqual(["Invalid release tag: v2026.4.28.1. Expected vYYYY.M.D or YYYY.M.D."])
+    ).toEqual([
+      "Invalid release tag: v2026.4.28.1.1. Expected vYYYY.M.D or YYYY.M.D, with optional build number (vYYYY.M.D.N).",
+    ])
   })
 
   test("accepts a complete startup log for the release version", () => {
@@ -380,7 +385,7 @@ path: pawwork-win-x64-2026.4.28.exe
 `,
         "v",
       ),
-    ).toEqual(["Invalid release tag: v. Expected vYYYY.M.D or YYYY.M.D."])
+    ).toEqual(["Invalid release tag: v. Expected vYYYY.M.D or YYYY.M.D, with optional build number (vYYYY.M.D.N)."])
   })
 
   test("reports invalid release tags with other startup failures", () => {
@@ -391,7 +396,7 @@ path: pawwork-win-x64-2026.4.28.exe
         "v",
       ),
     ).toEqual([
-      "Invalid release tag: v. Expected vYYYY.M.D or YYYY.M.D.",
+      "Invalid release tag: v. Expected vYYYY.M.D or YYYY.M.D, with optional build number (vYYYY.M.D.N).",
       "Latest startup log does not include server ready",
       "Latest startup log does not include loading task finished",
       "Latest startup log does not include init step done",
