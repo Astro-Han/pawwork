@@ -63,8 +63,8 @@ body:
       label: Execution mode
       description: Pick the safest starting mode.
       options:
-        - Agent can implement directly
-        - Agent should investigate and propose a plan first
         - Human review required before code changes
+        - Agent should investigate and propose a plan first
+        - Agent can implement directly
     validations:
       required: true
