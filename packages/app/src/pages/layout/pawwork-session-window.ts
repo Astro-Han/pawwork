@@ -41,7 +41,13 @@ export function buildPawworkSessionWindow(input: {
   hasMore: boolean
 }) {
   const limit = Math.min(PAWWORK_SESSION_WINDOW_MAX, Math.max(PAWWORK_SESSION_WINDOW_INITIAL, input.limit))
-  const normal = sortPawworkSessionWindowSessions(input.normal).slice(0, limit)
+  const reservedIDs = new Set([
+    ...input.pinned.map((item) => item.id),
+    ...(input.active?.id ? [input.active.id] : []),
+  ])
+  const normal = sortPawworkSessionWindowSessions(input.normal)
+    .filter((item) => !reservedIDs.has(item.id))
+    .slice(0, limit)
   const normalIDs = normal.map((item) => item.id)
   const sessions = mergeSessionsByID(normal, input.pinned, input.active ? [input.active] : [])
   const capReached = limit >= PAWWORK_SESSION_WINDOW_MAX && input.hasMore

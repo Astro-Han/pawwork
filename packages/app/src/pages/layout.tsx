@@ -650,17 +650,19 @@ export default function Layout(props: ParentProps) {
 
   const upsertPawworkWindowSession = (info: Session) => {
     if (info.parentID || info.time?.archived) return
-    setPawworkSessionWindowState("normal", (current) =>
-      sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), info]),
-    )
-    if (store.pawworkPinnedSessions.includes(info.id)) {
-      setPawworkSessionWindowState("pinned", (current) =>
+    batch(() => {
+      setPawworkSessionWindowState("normal", (current) =>
         sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), info]),
       )
-    }
-    if (params.id === info.id) {
-      setPawworkSessionWindowState("active", info)
-    }
+      if (store.pawworkPinnedSessions.includes(info.id)) {
+        setPawworkSessionWindowState("pinned", (current) =>
+          sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), info]),
+        )
+      }
+      if (params.id === info.id) {
+        setPawworkSessionWindowState("active", info)
+      }
+    })
   }
 
   const removePawworkWindowSession = (sessionID: string) => {

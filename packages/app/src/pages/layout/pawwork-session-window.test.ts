@@ -61,6 +61,29 @@ describe("buildPawworkSessionWindow", () => {
     expect(result.capReached).toBe(false)
   })
 
+  test("does not count pinned or active sessions against the normal window", () => {
+    const normal = Array.from({ length: 32 }, (_, index) => session(`ses_${index}`, 10_000 - index))
+    const pinned = normal[0]!
+    const active = normal[1]!
+
+    const result = buildPawworkSessionWindow({
+      normal,
+      pinned: [pinned],
+      active,
+      limit: 30,
+      hasMore: true,
+    })
+
+    expect(result.normalIDs).toHaveLength(30)
+    expect(result.normalIDs).not.toContain(pinned.id)
+    expect(result.normalIDs).not.toContain(active.id)
+    expect(result.sessions.map((item) => item.id)).toEqual([
+      ...result.normalIDs,
+      active.id,
+      pinned.id,
+    ].sort())
+  })
+
   test("shows search prompt instead of show more at the cap", () => {
     const normal = Array.from({ length: 90 }, (_, index) => session(`ses_${index}`, 10_000 - index))
 
