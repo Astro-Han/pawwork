@@ -12,6 +12,7 @@ import {
   settingsSoundsPermissionsSelector,
   settingsUIFontSelector,
   settingsUpdatesStartupSelector,
+  titlebarCenterSelector,
 } from "../selectors"
 
 test("@smoke new installs start with the PawWork theme", async ({ page, gotoSession }) => {
@@ -46,7 +47,7 @@ test('@smoke PawWork settings opens as a full-pane surface, not a dialog', async
   await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
   await expect(page.locator('[data-component="dialog-overlay"]')).toHaveCount(0)
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible()
-  await expect(page.locator("#pawwork-titlebar-center")).toContainText("Settings")
+  await expect(page.locator(titlebarCenterSelector)).toContainText("Settings")
 })
 
 test("changing language updates settings labels", async ({ page, gotoSession }) => {

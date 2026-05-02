@@ -4,7 +4,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { getFilename } from "@opencode-ai/util/path"
 import { createMediaQuery } from "@solid-primitives/media"
-import { createMemo, Show } from "solid-js"
+import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { useLocation } from "@solidjs/router"
 import { Portal } from "solid-js/web"
 import { useLanguage } from "@/context/language"
@@ -82,8 +82,13 @@ export function SessionHeader() {
     openDirectory(activeWorktreeDirectory())
   }
 
-  const leftMount = createMemo(() => document.getElementById("pawwork-titlebar-left"))
-  const rightMount = createMemo(() => document.getElementById("pawwork-titlebar-right"))
+  const [leftMount, setLeftMount] = createSignal<HTMLElement>()
+  const [rightMount, setRightMount] = createSignal<HTMLElement>()
+
+  onMount(() => {
+    setLeftMount(document.getElementById("pawwork-titlebar-left") ?? undefined)
+    setRightMount(document.getElementById("pawwork-titlebar-right") ?? undefined)
+  })
 
   return (
     <>
