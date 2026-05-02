@@ -2045,6 +2045,20 @@ describe("ProviderTransform.message - Kimi/Moonshot empty content filtering", ()
     expect(result.messages[1].content).toEqual([{ type: "text", text: "not empty" }])
   })
 
+  test("does not omit empty content from assistant messages without tool calls", () => {
+    const result = ProviderTransform.openAICompatibleRequestBody(kimiModel, {
+      model: "k2p6",
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+        },
+      ],
+    }) as any
+
+    expect(result.messages[0].content).toBe("")
+  })
+
   test("does not omit empty content from non-Kimi OpenAI-compatible payloads", () => {
     const result = ProviderTransform.openAICompatibleRequestBody(
       {
