@@ -10,13 +10,12 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { composerDriver, composerEnabled, composerEvent, composerStateProbe } from "@/testing/session-composer"
 import { selectSessionTodos } from "@/pages/session/session-todos"
+import { refetchPendingQuestions, todoCompletionSignature } from "./session-composer-state-helpers"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
 
 const TODO_DOCK_COMPLETING_DELAY_MS = 3000
 
 const todoTerminal = (todo: Todo) => todo.status === "completed" || todo.status === "cancelled"
-
-const todoSignature = (todos: Todo[]) => todos.map((todo) => `${todo.status}:${todo.content}`).join("\u0000")
 
 export function createSessionComposerState(input: {
   sessionID: () => string | undefined
@@ -37,58 +36,42 @@ export function createSessionComposerState(input: {
   // question request was received (e.g. the question.asked SSE event was lost),
   // re-fetch the pending question list from the backend.
   let questionRefetchInflight = false
-  createEffect(
-    on(
-      () => {
-        const sessionID = activeSessionID()
-        if (!sessionID) return undefined
-        if (questionRequest()) return undefined
-        const messages = sync.data.message[sessionID]
-        if (!messages?.length) return undefined
-        for (let i = messages.length - 1; i >= Math.max(0, messages.length - 5); i--) {
-          const parts = sync.data.part[messages[i].id]
-          if (!parts) continue
-          for (const p of parts) {
-            if (p.type === "tool" && p.tool === "question" && p.state.status === "running") {
-              return sessionID
-            }
-          }
+  const questionFallbackSessionID = () => {
+    const sessionID = activeSessionID()
+    if (!sessionID) return undefined
+    if (questionRequest()) return undefined
+    const messages = sync.data.message[sessionID]
+    if (!messages?.length) return undefined
+    for (let i = messages.length - 1; i >= Math.max(0, messages.length - 5); i--) {
+      const parts = sync.data.part[messages[i].id]
+      if (!parts) continue
+      for (const p of parts) {
+        if (p.type === "tool" && p.tool === "question" && p.state.status === "running") {
+          return sessionID
         }
-        return undefined
-      },
-      (sessionID) => {
-        if (!sessionID || questionRefetchInflight) return
-        questionRefetchInflight = true
-        sdk.client.question
-          .list()
-          .then((result) => {
-            const questions = (result.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID)
-            if (questions.length === 0) return
-            const grouped = new Map<string, QuestionRequest[]>()
-            for (const q of questions) {
-              const list = grouped.get(q.sessionID)
-              if (list) list.push(q)
-              else grouped.set(q.sessionID, [q])
-            }
-            batch(() => {
-              for (const [sid, qs] of grouped) {
-                sync.set(
-                  "question",
-                  sid,
-                  reconcile(
-                    qs.sort((a, b) => (a.id < b.id ? -1 : 1)),
-                    { key: "id" },
-                  ),
-                )
-              }
-            })
+      }
+    }
+    return undefined
+  }
+
+  createEffect(
+    on(questionFallbackSessionID, (sessionID) => {
+      if (!sessionID || questionRefetchInflight) return
+      questionRefetchInflight = true
+      refetchPendingQuestions({
+        shouldContinue: () => questionFallbackSessionID() === sessionID,
+        list: () => sdk.client.question.list().then((result) => result.data ?? []),
+        apply(sid, qs) {
+          batch(() => {
+            sync.set("question", sid, reconcile(qs, { key: "id" }))
           })
-          .catch(() => {})
-          .finally(() => {
-            questionRefetchInflight = false
-          })
-      },
-    ),
+        },
+      })
+        .catch(() => {})
+        .finally(() => {
+          questionRefetchInflight = false
+        })
+    }),
   )
 
   const permissionRequest = createMemo((): PermissionRequest | undefined => {
@@ -211,7 +194,7 @@ export function createSessionComposerState(input: {
         allDone: allDone(),
         count: todos().length,
         sessionID: activeSessionID(),
-        signature: todoSignature(todos()),
+        signature: todoCompletionSignature(todos()),
       }),
       ({ allDone: done, count, sessionID: expectedSessionID, signature }) => {
         if (raf) cancelAnimationFrame(raf)
@@ -236,7 +219,11 @@ export function createSessionComposerState(input: {
           setStore({ dock: true, opening: false, completing: true })
           clearHideTimeout()
           hideTimeout = window.setTimeout(() => {
-            if (activeSessionID() === expectedSessionID && allDone() && todoSignature(todos()) === signature) {
+            if (
+              activeSessionID() === expectedSessionID &&
+              allDone() &&
+              todoCompletionSignature(todos()) === signature
+            ) {
               setStore({ dock: false, opening: false, completing: false })
             }
             hideTimeout = undefined
