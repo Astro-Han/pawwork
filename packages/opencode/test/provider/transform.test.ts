@@ -1098,6 +1098,36 @@ describe("ProviderTransform.schema - Moonshot/Kimi tool schemas", () => {
     })
   })
 
+  test("also sanitizes Kimi for Coding aliases that do not include kimi in api id", () => {
+    const result = ProviderTransform.schema(
+      {
+        id: "kimi-for-coding/k2p6",
+        providerID: "kimi-for-coding",
+        api: {
+          id: "k2p6",
+        },
+      } as any,
+      {
+        type: "object",
+        properties: {
+          value: {
+            $ref: "#/$defs/Value",
+            description: "Moonshot rejects this sibling after ref expansion.",
+          },
+        },
+        $defs: {
+          Value: {
+            type: "object",
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.value).toEqual({
+      $ref: "#/$defs/Value",
+    })
+  })
+
   test("converts tuple-style array items to a single item schema", () => {
     const result = ProviderTransform.schema(
       moonshotModel,
@@ -1117,6 +1147,49 @@ describe("ProviderTransform.schema - Moonshot/Kimi tool schemas", () => {
     expect(result.properties.renderedSize.items).toEqual({
       type: "number",
     })
+  })
+
+  test("fills missing property types using conservative schema intent", () => {
+    const result = ProviderTransform.schema(
+      moonshotModel,
+      {
+        type: "object",
+        properties: {
+          options: {
+            properties: {
+              enabled: { type: "boolean" },
+            },
+          },
+          tags: {
+            items: { type: "string" },
+          },
+          mode: {
+            enum: ["read", "write"],
+          },
+          count: {
+            type: "integer",
+            enum: [1, 2],
+          },
+          referenced: {
+            $ref: "#/$defs/Referenced",
+          },
+        },
+        $defs: {
+          Referenced: {
+            properties: {
+              value: { type: "string" },
+            },
+          },
+        },
+      } as any,
+    ) as any
+
+    expect(result.properties.options.type).toBe("object")
+    expect(result.properties.tags.type).toBe("array")
+    expect(result.properties.mode.type).toBe("string")
+    expect(result.properties.count.type).toBe("integer")
+    expect(result.properties.referenced).toEqual({ $ref: "#/$defs/Referenced" })
+    expect(result.$defs.Referenced.type).toBe("object")
   })
 })
 
@@ -1771,6 +1844,67 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
         { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
       ],
     })
+  })
+})
+
+describe("ProviderTransform.message - Kimi/Moonshot empty content filtering", () => {
+  const kimiModel = {
+    id: "kimi-for-coding/k2p6",
+    providerID: "kimi-for-coding",
+    api: {
+      id: "k2p6",
+      url: "https://api.moonshot.cn",
+      npm: "@ai-sdk/openai-compatible",
+    },
+    name: "Kimi K2.6",
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: true,
+      toolcall: true,
+      input: { text: true, audio: false, image: true, video: true, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 262144, output: 32768 },
+    status: "active",
+    options: {},
+    headers: {},
+  } as any
+
+  test("drops empty string and empty array messages for Kimi-compatible requests", () => {
+    const msgs = [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "" },
+      { role: "assistant", content: [] },
+      { role: "user", content: "World" },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, kimiModel, {})
+
+    expect(result).toHaveLength(2)
+    expect(result.map((msg) => msg.content)).toEqual(["Hello", "World"])
+  })
+
+  test("removes empty text around assistant tool calls while preserving the tool call", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "" },
+          { type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { command: "pwd" } },
+          { type: "reasoning", text: "" },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, kimiModel, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toEqual([
+      { type: "tool-call", toolCallId: "call_1", toolName: "bash", input: { command: "pwd" } },
+    ])
   })
 })
 

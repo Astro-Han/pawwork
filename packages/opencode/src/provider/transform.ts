@@ -69,6 +69,11 @@ function isLegacyDeepSeekVariantID(id: string) {
   return /(^|[/:])deepseek-(?:chat|reasoner|r1|v3)(?:[.\-/]|$)/.test(id.toLowerCase())
 }
 
+function isKimiMoonshotModel(model: Provider.Model) {
+  const ids = [model.id, model.providerID, model.name, model.api.id].filter(Boolean).join(" ").toLowerCase()
+  return ids.includes("moonshot") || ids.includes("kimi") || /(^|[/:])k2p\d*(?:[.\-/]|$)/.test(ids)
+}
+
 function normalizeMessages(
   msgs: ModelMessage[],
   model: Provider.Model,
@@ -82,6 +87,10 @@ function normalizeMessages(
 
   // Bedrock specific transforms
   if (model.api.npm === "@ai-sdk/amazon-bedrock") {
+    msgs = msgs.map(filterEmptyMessageContent).filter((msg): msg is ModelMessage => msg !== undefined)
+  }
+
+  if (isKimiMoonshotModel(model)) {
     msgs = msgs.map(filterEmptyMessageContent).filter((msg): msg is ModelMessage => msg !== undefined)
   }
 
@@ -1087,7 +1096,7 @@ export function schema(model: Provider.Model, schema: JSONSchema.BaseSchema | JS
   }
   */
 
-  if (model.providerID === "moonshotai" || model.api.id.toLowerCase().includes("kimi")) {
+  if (isKimiMoonshotModel(model)) {
     const sanitizeMoonshot = (obj: unknown): unknown => {
       if (obj === null || typeof obj !== "object") return obj
       if (Array.isArray(obj)) return obj.map(sanitizeMoonshot)
@@ -1101,6 +1110,13 @@ export function schema(model: Provider.Model, schema: JSONSchema.BaseSchema | JS
         return refOnly
       }
       if (Array.isArray(result.items)) result.items = result.items[0] ?? {}
+      if (!("type" in result)) {
+        if (result.properties && typeof result.properties === "object") result.type = "object"
+        else if (result.items && typeof result.items === "object") result.type = "array"
+        else if (Array.isArray(result.enum) && result.enum.every((value) => typeof value === "string")) {
+          result.type = "string"
+        }
+      }
       return result
     }
 
