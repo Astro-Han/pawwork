@@ -5,6 +5,11 @@ export const PAWWORK_SESSION_WINDOW_STEP = 30
 export const PAWWORK_SESSION_WINDOW_MAX = 90
 
 const byID = (a: Session, b: Session) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+const byCreatedDesc = (a: Session, b: Session) => {
+  const created = b.time.created - a.time.created
+  if (created !== 0) return created
+  return byID(a, b)
+}
 
 export function nextPawworkSessionWindowLimit(current: number) {
   return Math.min(
@@ -24,6 +29,10 @@ export function mergeSessionsByID(...lists: Array<Session[] | undefined>) {
   return [...map.values()].sort(byID)
 }
 
+export function sortPawworkSessionWindowSessions(sessions: Session[]) {
+  return sessions.filter((item) => !!item?.id && !item.time?.archived).slice().sort(byCreatedDesc)
+}
+
 export function buildPawworkSessionWindow(input: {
   normal: Session[]
   pinned: Session[]
@@ -32,7 +41,7 @@ export function buildPawworkSessionWindow(input: {
   hasMore: boolean
 }) {
   const limit = Math.min(PAWWORK_SESSION_WINDOW_MAX, Math.max(PAWWORK_SESSION_WINDOW_INITIAL, input.limit))
-  const normal = input.normal.slice(0, limit)
+  const normal = sortPawworkSessionWindowSessions(input.normal).slice(0, limit)
   const normalIDs = normal.map((item) => item.id)
   const sessions = mergeSessionsByID(normal, input.pinned, input.active ? [input.active] : [])
   const capReached = limit >= PAWWORK_SESSION_WINDOW_MAX && input.hasMore

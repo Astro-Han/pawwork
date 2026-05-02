@@ -24,7 +24,7 @@ import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
-import { Session, type Message } from "@opencode-ai/sdk/v2/client"
+import { Session, type GlobalSession, type Message } from "@opencode-ai/sdk/v2/client"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce, reconcile } from "solid-js/store"
@@ -79,11 +79,15 @@ import {
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
 import {
-  pawworkSidebarSessionTime,
   pawworkSessionDirectories,
-  resolvePawworkProjectLabels,
   sortPawworkSidebarSessions,
 } from "./layout/pawwork-session-source"
+import {
+  buildPawworkSessionWindow,
+  nextPawworkSessionWindowLimit,
+  PAWWORK_SESSION_WINDOW_INITIAL,
+  sortPawworkSessionWindowSessions,
+} from "./layout/pawwork-session-window"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
@@ -526,33 +530,168 @@ export default function Layout(props: ParentProps) {
     return result
   })
 
-  const collectPawworkSessions = (projects: LocalProject[]) => {
-    const seen = new Set<string>()
-    const result: PawworkSidebarSession[] = []
-    const labels = resolvePawworkProjectLabels(projects, globalSync.data.path.home)
+  const [pawworkSessionWindowState, setPawworkSessionWindowState] = createStore({
+    limit: PAWWORK_SESSION_WINDOW_INITIAL,
+    normal: [] as Session[],
+    pinned: [] as Session[],
+    active: undefined as Session | undefined,
+    hasMore: false,
+    loading: false,
+  })
+  let pawworkSessionWindowRev = 0
 
-    for (const project of projects) {
-      for (const directory of workspaceIds(project)) {
-        const key = workspaceKey(directory)
-        if (seen.has(key)) continue
-        seen.add(key)
-
-        const [dirStore] = globalSync.child(directory, { bootstrap: true })
-        for (const session of sortedRootSessions(dirStore)) {
-          result.push({
-            session,
-            slug: base64Encode(session.directory),
-            projectLabel: labels.get(project.worktree) ?? displayName(project),
-            created: pawworkSidebarSessionTime(session, dirStore.message[session.id]),
-          })
-        }
-      }
+  const findLoadedSession = (sessionID: string | undefined) => {
+    if (!sessionID) return
+    for (const directory of visibleSessionDirs()) {
+      const [dirStore] = globalSync.child(directory, { bootstrap: false })
+      const found = dirStore.session.find((session) => session.id === sessionID)
+      if (found && !found.time?.archived) return found
     }
-
-    return sortPawworkSidebarSessions(result.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
+    return pawworkSessionWindowState.normal.find((session) => session.id === sessionID)
   }
 
-  const pawworkSessions = createMemo(() => collectPawworkSessions(layout.projects.list()))
+  const loadSessionByID = async (sessionID: string | undefined) => {
+    if (!sessionID) return
+    const loaded = findLoadedSession(sessionID)
+    if (loaded) return loaded
+    try {
+      const response = await globalSDK.client.session.get({ sessionID })
+      return response.data && !response.data.time?.archived ? response.data : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const projectLabelForSession = (session: Session | GlobalSession) => {
+    const project = "project" in session ? session.project : undefined
+    if (project?.name) return project.name
+    if (project?.worktree) return getFilename(project.worktree)
+    const localProject = layout.projects.list().find((item) => workspaceKey(item.worktree) === workspaceKey(session.directory))
+    if (localProject) return displayName(localProject)
+    return getFilename(session.directory)
+  }
+
+  const pawworkSessionWindow = createMemo(() =>
+    buildPawworkSessionWindow({
+      normal: pawworkSessionWindowState.normal,
+      pinned: pawworkSessionWindowState.pinned,
+      active: pawworkSessionWindowState.active,
+      limit: pawworkSessionWindowState.limit,
+      hasMore: pawworkSessionWindowState.hasMore,
+    }),
+  )
+
+  const pawworkSessions = createMemo(() => {
+    const rows = pawworkSessionWindow().sessions.map((session) => ({
+      session,
+      slug: base64Encode(session.directory),
+      projectLabel: projectLabelForSession(session),
+      created: session.time.created,
+    }))
+    return sortPawworkSidebarSessions(rows.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
+  })
+
+  async function loadPawworkSessionWindow() {
+    if (!pageReady()) return
+    if (!layoutReady()) return
+    if (!globalSync.ready) return
+    const rev = ++pawworkSessionWindowRev
+    setPawworkSessionWindowState("loading", true)
+    try {
+      const response = await globalSDK.client.experimental.session.list({
+        roots: true,
+        limit: pawworkSessionWindowState.limit,
+        sort: "created",
+      })
+      if (rev !== pawworkSessionWindowRev) return
+      const normal = ((response.data ?? []) as Session[]).filter((session) => !session.time?.archived)
+      const loaded = new Map(normal.map((session) => [session.id, session]))
+      const pinned = (
+        await Promise.all(
+          store.pawworkPinnedSessions.map(async (id) => loaded.get(id) ?? (await loadSessionByID(id))),
+        )
+      ).filter((session): session is Session => !!session)
+      const active = params.id ? (loaded.get(params.id) ?? (await loadSessionByID(params.id))) : undefined
+
+      if (rev !== pawworkSessionWindowRev) return
+      batch(() => {
+        setPawworkSessionWindowState("normal", reconcile(sortPawworkSessionWindowSessions(normal), { key: "id" }))
+        setPawworkSessionWindowState("pinned", reconcile(pinned, { key: "id" }))
+        setPawworkSessionWindowState("active", active)
+        setPawworkSessionWindowState("hasMore", !!response.response.headers.get("x-next-cursor"))
+        setPawworkSessionWindowState("loading", false)
+      })
+    } catch (error) {
+      if (rev !== pawworkSessionWindowRev) return
+      setPawworkSessionWindowState("loading", false)
+      showToast({
+        title: language.t("toast.session.listFailed.title", { project: "PawWork" }),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      })
+    }
+  }
+
+  createEffect(
+    on(
+      () => [
+        pageReady(),
+        layoutReady(),
+        globalSync.ready,
+        globalSDK.url,
+        pawworkSessionWindowState.limit,
+        store.pawworkPinnedSessions.join("\0"),
+        params.id,
+      ] as const,
+      () => {
+        void loadPawworkSessionWindow()
+      },
+    ),
+  )
+
+  const upsertPawworkWindowSession = (info: Session) => {
+    if (info.parentID || info.time?.archived) return
+    setPawworkSessionWindowState("normal", (current) =>
+      sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), info]),
+    )
+    if (store.pawworkPinnedSessions.includes(info.id)) {
+      setPawworkSessionWindowState("pinned", (current) =>
+        sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), info]),
+      )
+    }
+    if (params.id === info.id) {
+      setPawworkSessionWindowState("active", info)
+    }
+  }
+
+  const removePawworkWindowSession = (sessionID: string) => {
+    setPawworkSessionWindowState("normal", (current) => current.filter((session) => session.id !== sessionID))
+    setPawworkSessionWindowState("pinned", (current) => current.filter((session) => session.id !== sessionID))
+    if (pawworkSessionWindowState.active?.id === sessionID) {
+      setPawworkSessionWindowState("active", undefined)
+    }
+  }
+
+  onCleanup(
+    globalSDK.event.listen((event) => {
+      const details = event.details
+      if (details.type === "session.created") {
+        upsertPawworkWindowSession(details.properties.info)
+        return
+      }
+      if (details.type === "session.updated") {
+        const info = details.properties.info
+        if (info.time?.archived) {
+          removePawworkWindowSession(info.id)
+          return
+        }
+        upsertPawworkWindowSession(info)
+        return
+      }
+      if (details.type === "session.deleted") {
+        removePawworkWindowSession(details.properties.info.id)
+      }
+    }),
+  )
 
   type PrefetchQueue = {
     inflight: Set<string>
@@ -1996,6 +2135,10 @@ export default function Layout(props: ParentProps) {
   }
 
   const projects = () => layout.projects.list()
+  const showMorePawworkSessions = () => {
+    if (pawworkSessionWindowState.loading) return
+    setPawworkSessionWindowState("limit", (limit) => nextPawworkSessionWindowLimit(limit))
+  }
   const renderPawworkPanel = (
     sessions: Accessor<PawworkSidebarSession[]>,
     options?: { directory?: string; scope?: "main" | "peek" },
@@ -2003,6 +2146,11 @@ export default function Layout(props: ParentProps) {
     <PawworkSidebar
       scope={options?.scope}
       sessions={sessions}
+      sessionWindow={() => ({
+        canShowMore: pawworkSessionWindow().canShowMore,
+        capReached: pawworkSessionWindow().capReached,
+        loading: pawworkSessionWindowState.loading,
+      })}
       showProjectEmptyState={projects().length === 0}
       activeSessionID={() => params.id}
       pinnedIDs={() => store.pawworkPinnedSessions}
@@ -2015,6 +2163,8 @@ export default function Layout(props: ParentProps) {
       onExportSession={exportSession}
       onDeleteSession={confirmDeleteSession}
       onSetSortMode={setPawworkSortMode}
+      onShowMore={showMorePawworkSessions}
+      onSearchOlderSessions={() => command.show()}
       onNew={() => openPawworkHome(options?.directory)}
       onSearch={() => command.show()}
       onOpenProject={chooseProject}

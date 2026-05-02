@@ -246,6 +246,7 @@ export const dict = {
   "common.goForward": "前进",
   "common.loading": "加载中",
   "common.loading.ellipsis": "...",
+  "common.showMore": "显示更多",
   "common.cancel": "取消",
   "common.connect": "连接",
   "common.disconnect": "断开连接",
@@ -693,6 +694,7 @@ export const dict = {
   "sidebar.pawwork.unpinSession": "取消置顶",
   "sidebar.pawwork.sort.byProject": "按项目分组",
   "sidebar.pawwork.sort.byTime": "按时间排序",
+  "sidebar.pawwork.searchHistory": "搜索历史会话",
 
   "app.name.desktop": "爪印",
 

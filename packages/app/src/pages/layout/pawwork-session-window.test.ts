@@ -6,6 +6,7 @@ import {
   PAWWORK_SESSION_WINDOW_STEP,
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
+  sortPawworkSessionWindowSessions,
 } from "./pawwork-session-window"
 
 const session = (id: string, created: number, directory = "/repo") =>
@@ -28,6 +29,18 @@ describe("nextPawworkSessionWindowLimit", () => {
 })
 
 describe("buildPawworkSessionWindow", () => {
+  test("sorts the normal window by creation time before applying the limit", () => {
+    const result = buildPawworkSessionWindow({
+      normal: [session("old", 1), session("new", 3), session("middle", 2)],
+      pinned: [],
+      active: undefined,
+      limit: 30,
+      hasMore: false,
+    })
+
+    expect(result.normalIDs).toEqual(["new", "middle", "old"])
+  })
+
   test("keeps the normal window capped while preserving pinned and active sessions", () => {
     const normal = Array.from({ length: 35 }, (_, index) => session(`ses_${index}`, 10_000 - index))
     const pinned = session("pinned_old", 1)
@@ -61,5 +74,14 @@ describe("buildPawworkSessionWindow", () => {
 
     expect(result.canShowMore).toBe(false)
     expect(result.capReached).toBe(true)
+  })
+})
+
+describe("sortPawworkSessionWindowSessions", () => {
+  test("uses id as the creation-time tiebreaker", () => {
+    expect(sortPawworkSessionWindowSessions([session("z", 1), session("a", 1)]).map((item) => item.id)).toEqual([
+      "a",
+      "z",
+    ])
   })
 })

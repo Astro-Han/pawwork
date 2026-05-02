@@ -227,6 +227,7 @@ export const dict = {
   "common.goForward": "Navigate forward",
   "common.loading": "Loading",
   "common.loading.ellipsis": "...",
+  "common.showMore": "Show more",
   "common.cancel": "Cancel",
   "common.open": "Open",
   "common.connect": "Connect",
@@ -779,6 +780,7 @@ export const dict = {
   "sidebar.pawwork.unpinSession": "Unpin session",
   "sidebar.pawwork.sort.byProject": "Group by project",
   "sidebar.pawwork.sort.byTime": "Sort by time",
+  "sidebar.pawwork.searchHistory": "Use Search for older sessions",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",
