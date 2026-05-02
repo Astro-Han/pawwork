@@ -19,16 +19,116 @@ export function createRendererDiagnosticsEmitter(input: {
   return async (event: RendererDiagnosticInput) => {
     const emit = input.api?.emitRendererDiagnostic
     if (!emit) return
-    await emit({
-      ...event,
-      monotonic_ms: event.monotonic_ms ?? input.now?.() ?? performance.now(),
-    })
+    try {
+      await emit({
+        ...event,
+        monotonic_ms: event.monotonic_ms ?? input.now?.() ?? performance.now(),
+      })
+    } catch {}
   }
 }
 
+function numericData(event: RendererDiagnosticInput, key: string) {
+  const value = event.data?.[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function booleanData(event: RendererDiagnosticInput, key: string) {
+  const value = event.data?.[key]
+  return typeof value === "boolean" ? value : undefined
+}
+
+function renderedCount(event: RendererDiagnosticInput) {
+  return numericData(event, "rendered_count") ?? 0
+}
+
+export function detectSessionScrollJumpToTop(event: RendererDiagnosticInput): RendererDiagnosticInput | undefined {
+  if (event.name !== "session.scroll.sample") return
+  const scrollTop = numericData(event, "scroll_top")
+  const distanceFromBottom = numericData(event, "distance_from_bottom")
+  const clientHeight = numericData(event, "client_height")
+  const userScrolled = booleanData(event, "user_scrolled")
+  if (scrollTop === undefined || distanceFromBottom === undefined || clientHeight === undefined) return
+  if (scrollTop > 4 || distanceFromBottom < Math.max(100, clientHeight / 2) || userScrolled) return
+  return {
+    name: "incident.session_scroll_jump_to_top",
+    level: "warn",
+    route_session_id: event.route_session_id,
+    visible_session_id: event.visible_session_id,
+    timeline_session_id: event.timeline_session_id,
+    trace_id: event.trace_id,
+    data: {
+      scroll_top: scrollTop,
+      distance_from_bottom: distanceFromBottom,
+      client_height: clientHeight,
+      user_scrolled: userScrolled ?? false,
+    },
+  }
+}
+
+export function createRendererIncidentDetector() {
+  const timelineMounts = new Map<string, { mounts: number; unmounts: number }>()
+  const visibleCounts = new Map<string, number>()
+
+  return (event: RendererDiagnosticInput) => {
+    const incidents: RendererDiagnosticInput[] = []
+    const scrollIncident = detectSessionScrollJumpToTop(event)
+    if (scrollIncident) incidents.push(scrollIncident)
+
+    const sessionKey = event.timeline_session_id ?? event.visible_session_id ?? event.route_session_id
+    if (sessionKey && (event.name === "session.timeline.mount" || event.name === "session.timeline.unmount")) {
+      const counts = timelineMounts.get(sessionKey) ?? { mounts: 0, unmounts: 0 }
+      if (event.name === "session.timeline.mount") counts.mounts += 1
+      else counts.unmounts += 1
+      timelineMounts.set(sessionKey, counts)
+      if (counts.mounts > 1 || counts.unmounts > 0) {
+        incidents.push({
+          name: "incident.session_timeline_remount",
+          level: "warn",
+          route_session_id: event.route_session_id,
+          visible_session_id: event.visible_session_id,
+          timeline_session_id: event.timeline_session_id,
+          data: {
+            timeline_mount_count: counts.mounts,
+            timeline_unmount_count: counts.unmounts,
+          },
+        })
+      }
+    }
+
+    if (sessionKey && event.name === "session.timeline.visible") {
+      const before = visibleCounts.get(sessionKey) ?? 0
+      const during = renderedCount(event)
+      visibleCounts.set(sessionKey, during)
+      if (before > 0 && during === 0) {
+        incidents.push({
+          name: "incident.session_visible_messages_cleared",
+          level: "warn",
+          route_session_id: event.route_session_id,
+          visible_session_id: event.visible_session_id,
+          timeline_session_id: event.timeline_session_id,
+          data: {
+            before_count: before,
+            during_count: during,
+            after_count: during,
+          },
+        })
+      }
+    }
+
+    return incidents
+  }
+}
+
+const globalIncidentDetector = createRendererIncidentDetector()
+
 export async function emitRendererDiagnostic(event: RendererDiagnosticInput) {
   const api = typeof window === "undefined" ? undefined : window.api
-  await createRendererDiagnosticsEmitter({ api })(event)
+  const emit = createRendererDiagnosticsEmitter({ api })
+  await emit(event)
+  for (const incident of globalIncidentDetector(event)) {
+    await emit(incident)
+  }
 }
 
 export function createSessionPerformanceDiagnostics(input: {
