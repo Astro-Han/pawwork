@@ -1,5 +1,5 @@
-import { createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
-import { createStore } from "solid-js/store"
+import { batch, createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -28,6 +28,65 @@ export function createSessionComposerState(input: { sessionID: () => string | un
   const questionRequest = createMemo((): QuestionRequest | undefined => {
     return sessionQuestionRequest(sync.data.session, sync.data.question, activeSessionID())
   })
+
+  // Fallback: if a running "question" tool part exists in message parts but no
+  // question request was received (e.g. the question.asked SSE event was lost),
+  // re-fetch the pending question list from the backend.
+  let questionRefetchInflight = false
+  createEffect(
+    on(
+      () => {
+        const sessionID = activeSessionID()
+        if (!sessionID) return undefined
+        if (questionRequest()) return undefined
+        const messages = sync.data.message[sessionID]
+        if (!messages?.length) return undefined
+        for (let i = messages.length - 1; i >= Math.max(0, messages.length - 5); i--) {
+          const parts = sync.data.part[messages[i].id]
+          if (!parts) continue
+          for (const p of parts) {
+            if (p.type === "tool" && p.tool === "question" && p.state.status === "running") {
+              return sessionID
+            }
+          }
+        }
+        return undefined
+      },
+      (sessionID) => {
+        if (!sessionID || questionRefetchInflight) return
+        questionRefetchInflight = true
+        sdk.client.question
+          .list()
+          .then((result) => {
+            const questions = (result.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID)
+            if (questions.length === 0) return
+            const grouped = new Map<string, QuestionRequest[]>()
+            for (const q of questions) {
+              const list = grouped.get(q.sessionID)
+              if (list) list.push(q)
+              else grouped.set(q.sessionID, [q])
+            }
+            batch(() => {
+              for (const [sid, qs] of grouped) {
+                sync.set(
+                  "question",
+                  sid,
+                  reconcile(
+                    qs.sort((a, b) => (a.id < b.id ? -1 : 1)),
+                    { key: "id" },
+                  ),
+                )
+              }
+            })
+          })
+          .catch(() => {})
+          .finally(() => {
+            questionRefetchInflight = false
+          })
+      },
+      { defer: true },
+    ),
+  )
 
   const permissionRequest = createMemo((): PermissionRequest | undefined => {
     return sessionPermissionRequest(sync.data.session, sync.data.permission, activeSessionID(), (item) => {
