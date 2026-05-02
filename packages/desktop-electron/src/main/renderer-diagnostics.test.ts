@@ -315,13 +315,66 @@ describe("renderer diagnostics recorder", () => {
     ).toBe("expired")
   })
 
-  test("global export caps old JSONL content", async () => {
+  test("global export wraps diagnostics as JSON and caps old events", async () => {
     const root = await tempRoot()
     const source = join(root, "renderer-diagnostics.jsonl")
-    const destination = join(root, "exported.jsonl")
-    await writeFile(source, `${"a".repeat(200)}\n${"b".repeat(40)}\n`, "utf8")
-    await exportRendererDiagnosticsLog({ path: source, destination, maxBytes: 80 })
-    const exported = await readFile(destination, "utf8")
-    expect(exported).toBe(`${"b".repeat(40)}\n`)
+    const destination = join(root, "exported.json")
+    const first = sanitizeRendererDiagnosticEvent(
+      {
+        name: "session.scroll.sample",
+        data: { scroll_top: 1, scroll_height: 100, client_height: 50 },
+      },
+      { appLaunchID: "launch_1", windowID: 1, now: () => new Date("2026-05-02T10:00:00.000Z") },
+    )
+    const second = sanitizeRendererDiagnosticEvent(
+      {
+        name: "incident.session_timeline_remount",
+        data: { mounts: 2, unmounts: 1 },
+      },
+      { appLaunchID: "launch_1", windowID: 1, now: () => new Date("2026-05-02T10:01:00.000Z") },
+    )
+    await writeFile(source, `${JSON.stringify(first)}\nnot-json\n${JSON.stringify(second)}\n`, "utf8")
+    await exportRendererDiagnosticsLog({
+      path: source,
+      destination,
+      maxBytes: JSON.stringify([second]).length + 4,
+      now: new Date("2026-05-02T10:02:00.000Z"),
+    })
+    const exported = JSON.parse(await readFile(destination, "utf8"))
+    expect(exported).toMatchObject({
+      schema_version: 1,
+      format: "pawwork-renderer-diagnostics",
+      source: "renderer-diagnostics",
+      generated_at: "2026-05-02T10:02:00.000Z",
+      diagnostics: {
+        status: "truncated",
+        event_count: 1,
+        incident_count: 1,
+        corrupt_line_count: 1,
+        omitted_event_count: 1,
+      },
+    })
+    expect(exported.events.map((event: { "event.name": string }) => event["event.name"])).toEqual([
+      "incident.session_timeline_remount",
+    ])
+  })
+
+  test("global export writes a JSON report when the diagnostics log is missing", async () => {
+    const root = await tempRoot()
+    const destination = join(root, "exported.json")
+    await exportRendererDiagnosticsLog({
+      path: join(root, "missing.jsonl"),
+      destination,
+      now: new Date("2026-05-02T10:02:00.000Z"),
+    })
+    const exported = JSON.parse(await readFile(destination, "utf8"))
+    expect(exported).toMatchObject({
+      format: "pawwork-renderer-diagnostics",
+      diagnostics: {
+        status: "missing",
+        event_count: 0,
+      },
+      events: [],
+    })
   })
 })

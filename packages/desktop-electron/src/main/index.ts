@@ -209,8 +209,8 @@ async function exportDiagnosticsFromMenu() {
   const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
   const result = await dialog.showSaveDialog({
     title: menuLabel(focusedMenuLocale(), "exportDiagnosticsLogTitle"),
-    defaultPath: `pawwork-renderer-diagnostics-${stamp}.jsonl`,
-    filters: [{ name: "JSONL", extensions: ["jsonl"] }],
+    defaultPath: `pawwork-renderer-diagnostics-${stamp}.json`,
+    filters: [{ name: "JSON", extensions: ["json"] }],
   })
   if (result.canceled || !result.filePath) return { ok: false as const, error: "cancelled" }
 

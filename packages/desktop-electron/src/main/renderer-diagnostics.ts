@@ -1,4 +1,4 @@
-import { appendFile, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 
 export const DEFAULT_RENDERER_DIAGNOSTICS_MAX_BYTES = 20 * 1024 * 1024
@@ -57,6 +57,22 @@ export type RendererDiagnosticsSlice = {
     omitted_event_count: number
     omitted_bytes: number
   }
+}
+
+export type RendererDiagnosticsExport = {
+  schema_version: 1
+  format: "pawwork-renderer-diagnostics"
+  source: "renderer-diagnostics"
+  generated_at: string
+  diagnostics: {
+    status: RendererDiagnosticsStatus
+    event_count: number
+    incident_count: number
+    corrupt_line_count: number
+    omitted_event_count: number
+    omitted_bytes: number
+  }
+  events: RendererDiagnosticEvent[]
 }
 
 type SanitizeContext = {
@@ -367,19 +383,43 @@ export async function exportRendererDiagnosticsLog(input: {
   path: string
   destination: string
   maxBytes?: number
+  now?: Date
 }) {
   const maxBytes = input.maxBytes ?? GLOBAL_RENDERER_DIAGNOSTICS_EXPORT_MAX_BYTES
-  await copyFile(input.path, input.destination)
-  let content = await readFile(input.destination, "utf8")
-  while (Buffer.byteLength(content, "utf8") > maxBytes) {
-    const nextLine = content.indexOf("\n")
-    if (nextLine < 0) {
-      content = ""
-      break
-    }
-    content = content.slice(nextLine + 1)
+  let content = ""
+  let status: RendererDiagnosticsStatus = "ok"
+  try {
+    content = await readFile(input.path, "utf8")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    status = "missing"
   }
-  await writeFile(input.destination, content, "utf8")
+  const lines = content.split(/\r?\n/).filter(Boolean)
+  const events: RendererDiagnosticEvent[] = []
+  let corruptLineCount = 0
+  for (const line of lines) {
+    const event = parseEventLine(line)
+    if (event) events.push(event)
+    else corruptLineCount++
+  }
+  const capped = capEvents(events, maxBytes)
+  if (status === "ok" && capped.omittedEventCount > 0) status = "truncated"
+  const output: RendererDiagnosticsExport = {
+    schema_version: 1,
+    format: "pawwork-renderer-diagnostics",
+    source: "renderer-diagnostics",
+    generated_at: (input.now ?? new Date()).toISOString(),
+    diagnostics: {
+      status,
+      event_count: capped.events.length,
+      incident_count: capped.events.filter(isIncident).length,
+      corrupt_line_count: corruptLineCount,
+      omitted_event_count: capped.omittedEventCount,
+      omitted_bytes: capped.omittedBytes,
+    },
+    events: capped.events,
+  }
+  await writeFile(input.destination, `${JSON.stringify(output, null, 2)}\n`, "utf8")
 }
 
 export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
