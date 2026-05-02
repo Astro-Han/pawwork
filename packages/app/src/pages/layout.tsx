@@ -79,6 +79,7 @@ import {
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
 import {
+  pawworkSidebarSessionTime,
   pawworkSessionDirectories,
   resolvePawworkProjectLabels,
   sortPawworkSidebarSessions,
@@ -538,21 +539,11 @@ export default function Layout(props: ParentProps) {
 
         const [dirStore] = globalSync.child(directory, { bootstrap: true })
         for (const session of sortedRootSessions(dirStore)) {
-          const messages = dirStore.message[session.id]
-          let lastUserAt = 0
-          if (messages?.length) {
-            for (let i = messages.length - 1; i >= 0; i--) {
-              if (messages[i].role === "user") {
-                lastUserAt = messages[i].time?.created ?? 0
-                break
-              }
-            }
-          }
           result.push({
             session,
             slug: base64Encode(session.directory),
             projectLabel: labels.get(project.worktree) ?? displayName(project),
-            created: lastUserAt || session.time?.updated || session.time?.created || 0,
+            created: pawworkSidebarSessionTime(session, dirStore.message[session.id]),
           })
         }
       }

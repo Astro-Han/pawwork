@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { resolvePawworkProjectLabels, sortPawworkSidebarSessions } from "./pawwork-session-source"
+import {
+  pawworkSidebarSessionTime,
+  resolvePawworkProjectLabels,
+  sortPawworkSidebarSessions,
+} from "./pawwork-session-source"
 
 describe("resolvePawworkProjectLabels", () => {
   test("keeps unique project names unchanged", () => {
@@ -48,5 +52,135 @@ describe("sortPawworkSidebarSessions", () => {
     ])
 
     expect(result.map((item) => item.id)).toEqual(["alpha", "zebra", "zeta"])
+  })
+
+  test("sorts by the latest loaded user message time", () => {
+    const result = sortPawworkSidebarSessions([
+      {
+        id: "older-session-with-new-user-message",
+        created: pawworkSidebarSessionTime(
+          { time: { created: 100, updated: 400 } },
+          [
+            { id: "msg_1", role: "user", time: { created: 300 } },
+            { id: "msg_2", role: "assistant", time: { created: 500 } },
+          ],
+        ),
+        projectLabel: "pawwork",
+      },
+      {
+        id: "newer-session-with-older-user-message",
+        created: pawworkSidebarSessionTime(
+          { time: { created: 200, updated: 600 } },
+          [
+            { id: "msg_3", role: "user", time: { created: 250 } },
+            { id: "msg_4", role: "assistant", time: { created: 700 } },
+          ],
+        ),
+        projectLabel: "opencli",
+      },
+    ])
+
+    expect(result.map((item) => item.id)).toEqual([
+      "older-session-with-new-user-message",
+      "newer-session-with-older-user-message",
+    ])
+  })
+
+  test("falls back to creation time instead of update time when user messages are not loaded", () => {
+    const result = sortPawworkSidebarSessions([
+      {
+        id: "old-recently-updated",
+        created: pawworkSidebarSessionTime(
+          { time: { created: 1777610000000, updated: 1777689073008 } },
+          undefined,
+        ),
+        projectLabel: "pawwork",
+      },
+      {
+        id: "newer-session",
+        created: pawworkSidebarSessionTime(
+          { time: { created: 1777680000000, updated: 1777681000000 } },
+          undefined,
+        ),
+        projectLabel: "opencli",
+      },
+    ])
+
+    expect(result.map((item) => item.id)).toEqual(["newer-session", "old-recently-updated"])
+  })
+
+  test("does not promote sessions from assistant-only message caches", () => {
+    const result = sortPawworkSidebarSessions([
+      {
+        id: "old-with-new-assistant",
+        created: pawworkSidebarSessionTime(
+          { time: { created: 100, updated: 900 } },
+          [{ id: "msg_1", role: "assistant", time: { created: 800 } }],
+        ),
+        projectLabel: "pawwork",
+      },
+      {
+        id: "newer-session",
+        created: pawworkSidebarSessionTime({ time: { created: 200, updated: 300 } }, undefined),
+        projectLabel: "opencli",
+      },
+    ])
+
+    expect(result.map((item) => item.id)).toEqual(["newer-session", "old-with-new-assistant"])
+  })
+})
+
+describe("pawworkSidebarSessionTime", () => {
+  test("uses the latest loaded user message time", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [
+          { id: "msg_1", role: "assistant", time: { created: 700 } },
+          { id: "msg_2", role: "user", time: { created: 300 } },
+          { id: "msg_3", role: "user", time: { created: 500 } },
+        ],
+      ),
+    ).toBe(500)
+  })
+
+  test("ignores user messages without a valid created time", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [
+          { id: "msg_1", role: "user", time: { created: 300 } },
+          { id: "msg_2", role: "user", time: {} },
+        ],
+      ),
+    ).toBe(300)
+  })
+
+  test("uses the session creation time instead of last update time when messages are missing", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          time: {
+            created: 100,
+            updated: 300,
+          },
+        },
+        undefined,
+      ),
+    ).toBe(100)
+  })
+
+  test("falls back to 0 when creation time is missing", () => {
+    expect(pawworkSidebarSessionTime({ time: { updated: 300 } })).toBe(0)
   })
 })

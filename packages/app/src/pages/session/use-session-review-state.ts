@@ -21,16 +21,17 @@ export function deriveReviewArtifactFiles(input: {
   directory: string
   sessionID: string | undefined
   history: { sessionID: string; artifacts: SessionArtifactFile[] } | undefined
-  turnDiffs: Array<{ file: string; status?: string }>
+  turnDiffs?: Array<{ file: string; status?: string }>
 }) {
   const history = input.history
   if (history && history.sessionID === input.sessionID && history.artifacts.length > 0) {
     return deriveArtifactFiles(input.directory, history.artifacts)
   }
 
+  const turnDiffs = input.turnDiffs ?? []
   return deriveArtifactFiles(
     input.directory,
-    input.turnDiffs.flatMap((diff) => {
+    turnDiffs.flatMap((diff) => {
       if (diff.status !== "added" && diff.status !== "modified") return []
       return [{ file: diff.file, kind: diff.status as "added" | "modified" }]
     }),

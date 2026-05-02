@@ -31,4 +31,26 @@ describe("session review state", () => {
 
     expect(files.map((file) => file.path)).toEqual(["/repo/created.md", "/repo/updated.md"])
   })
+
+  test("treats missing turn diffs as no files while a session is loading", () => {
+    const files = deriveReviewArtifactFiles({
+      directory: "/repo",
+      sessionID: "ses_1",
+      history: { sessionID: "ses_2", artifacts: [{ file: "stale.md", kind: "added" }] },
+      turnDiffs: undefined,
+    })
+
+    expect(files).toEqual([])
+  })
+
+  test("does not throw before turn diffs arrive for the selected session", () => {
+    expect(() =>
+      deriveReviewArtifactFiles({
+        directory: "/repo",
+        sessionID: "ses_1",
+        history: { sessionID: "ses_1", artifacts: [] },
+        turnDiffs: undefined,
+      }),
+    ).not.toThrow()
+  })
 })
