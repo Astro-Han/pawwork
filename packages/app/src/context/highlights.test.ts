@@ -105,6 +105,20 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     expect(highlights.map((highlight) => highlight.description)).toEqual(["Added dark theme", "Fixed dock icon"])
   })
 
+  test("keeps wrapped bullet continuation lines", () => {
+    const payload = [
+      {
+        tag_name: "v0.3.0",
+        body: ["## App Update Notice", "", "- Fixed first-message crash", "  when startup takes longer", "- Added update notice parser"].join("\n"),
+      },
+    ]
+    const highlights = loadReleaseHighlights(payload, "0.3.0", "0.2.3", "en")
+    expect(highlights.map((highlight) => highlight.description)).toEqual([
+      "Fixed first-message crash when startup takes longer",
+      "Added update notice parser",
+    ])
+  })
+
   test("keeps all localized update notice bullets", () => {
     const payload = [
       {

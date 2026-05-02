@@ -102,12 +102,19 @@ function parseNoticeDescriptions(notice: string | undefined): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"))
 
-  const bullets = lines.flatMap((line) => {
+  const bullets: string[] = []
+  let currentBullet: string | undefined
+  for (const line of lines) {
     const match = line.match(/^(?:[-*+]\s+|\d+\.\s+)(.+)$/)
-    if (!match) return []
-    const item = trimNoticeItem(match[1])
-    return item ? [item] : []
-  })
+    if (match) {
+      if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
+      currentBullet = match[1].trim()
+      continue
+    }
+    if (currentBullet) currentBullet += ` ${line}`
+  }
+  if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
+
   if (bullets.length > 0) return bullets
 
   const summary = trimNoticeItem(lines.join(" "))
