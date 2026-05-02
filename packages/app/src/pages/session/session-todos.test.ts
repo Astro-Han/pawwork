@@ -41,6 +41,12 @@ describe("selectSessionTodos", () => {
     ])
   })
 
+  test("does not reopen completed-only historical parts over an empty backend", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
+
+    expect(selectSessionTodos({ backend: [], parts })).toEqual([])
+  })
+
   test("falls back to latest todowrite parts when backend todos are empty", () => {
     const parts = [
       toolPart("todowrite", completedState({ input: { todos: [todo("old", "pending")] } })),

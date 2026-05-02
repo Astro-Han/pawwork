@@ -6,9 +6,11 @@ export type SessionTodoSource = {
   parts: Part[]
 }
 
+const active = (todos: Todo[]) => todos.some((todo) => todo.status !== "completed" && todo.status !== "cancelled")
+
 export function selectSessionTodos(input: SessionTodoSource & { fallback?: SessionTodoSource }): Todo[] {
   const fromParts = extractTodos(input.parts)
-  if (fromParts.length > 0) return fromParts as Todo[]
+  if (fromParts.length > 0 && active(fromParts as Todo[])) return fromParts as Todo[]
 
   if (input.backend && input.backend.length > 0) return input.backend
 
