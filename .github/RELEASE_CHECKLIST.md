@@ -28,9 +28,9 @@ Create or update the GitHub Release body before publishing the release. Use Engl
 ```md
 ## Downloads
 
-- [macOS Apple Silicon](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-arm64.dmg)
-- [macOS Intel](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-x64.dmg)
-- [Windows](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-win-x64.exe)
+- [macOS Apple Silicon](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-arm64-X.Y.Z.dmg)
+- [macOS Intel](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-x64-X.Y.Z.dmg)
+- [Windows](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-win-x64-X.Y.Z.exe)
 
 ## App Update Notice
 
@@ -55,9 +55,9 @@ Create or update the GitHub Release body before publishing the release. Use Engl
 
 ### 下载
 
-- [macOS Apple 芯片](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-arm64.dmg)
-- [macOS Intel 芯片](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-x64.dmg)
-- [Windows](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-win-x64.exe)
+- [macOS Apple 芯片](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-arm64-X.Y.Z.dmg)
+- [macOS Intel 芯片](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-mac-x64-X.Y.Z.dmg)
+- [Windows](https://github.com/Astro-Han/pawwork/releases/download/vX.Y.Z/pawwork-win-x64-X.Y.Z.exe)
 
 ### 主要更新
 
@@ -133,12 +133,12 @@ The helper verifies:
 
 - The GitHub Release is not a draft.
 - The GitHub Release is not a prerelease.
-- `pawwork-mac-arm64.dmg` exists.
-- `pawwork-mac-x64.dmg` exists.
-- `pawwork-win-x64.exe` exists.
-- updater `.zip` and `.blockmap` assets exist.
-- `latest.yml` points to `pawwork-win-x64.exe`.
-- `latest-mac.yml` includes both `pawwork-mac-arm64.zip` and `pawwork-mac-x64.zip`.
+- `pawwork-mac-arm64-X.Y.Z.dmg` exists.
+- `pawwork-mac-x64-X.Y.Z.dmg` exists.
+- `pawwork-win-x64-X.Y.Z.exe` exists.
+- versioned updater `.zip` and `.blockmap` assets exist.
+- `latest.yml` points to `pawwork-win-x64-X.Y.Z.exe`.
+- `latest-mac.yml` includes both `pawwork-mac-arm64-X.Y.Z.zip` and `pawwork-mac-x64-X.Y.Z.zip`.
 
 Also verify a fresh packaged startup before closing startup-blocking issues. The command below is for macOS; override `PAWWORK_RELEASE_APP_PATH` and `PAWWORK_RELEASE_STARTUP_LOG` if the app or log is in a custom location.
 
