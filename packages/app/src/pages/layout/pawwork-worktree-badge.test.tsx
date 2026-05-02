@@ -105,6 +105,7 @@ describe("PawworkWorktreeBadge", () => {
     expect(button?.props.class).toContain("max-w-[280px]")
     expect(label?.children.join("")).toBe("very-long-worktree-name-used-for-titlebar-regression")
     expect(tooltip?.props.placement).toBe("bottom")
+    expect(tooltip?.props.class).toBe("shrink min-w-0")
     expect(tooltip?.props.value).toMatchObject({
       type: "div",
       props: { "data-component": "pawwork-worktree-tooltip" },
@@ -120,5 +121,27 @@ describe("PawworkWorktreeBadge", () => {
         }),
       ],
     })
+  })
+
+  test("does not duplicate fallback text in the structured tooltip", () => {
+    const tree = PawworkWorktreeBadge({
+      name: "",
+      branch: "pawwork/fallback-branch",
+      directory: "/repo/.worktrees/pawwork/fallback-branch",
+      ariaLabel: "Open worktrees",
+      onClick: () => undefined,
+    }) as unknown as Node
+
+    const tooltip = find(tree, (node) => node.type === "Tooltip")
+    const rows = (tooltip?.props.value as Node).children as Node[]
+    const worktreeRow = rows[0]
+    const branchRow = rows[1]
+
+    expect(worktreeRow.children).toEqual(
+      expect.arrayContaining([expect.objectContaining({ children: ["Not available"] })]),
+    )
+    expect(branchRow.children).toEqual(
+      expect.arrayContaining([expect.objectContaining({ children: ["pawwork/fallback-branch"] })]),
+    )
   })
 })

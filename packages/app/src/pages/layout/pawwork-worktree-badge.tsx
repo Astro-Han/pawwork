@@ -30,14 +30,14 @@ export function PawworkWorktreeBadge(props: {
   const label = () => props.name || props.branch || props.directory || "Worktree"
   const tooltip = () => (
     <div data-component="pawwork-worktree-tooltip" class="grid min-w-0 gap-1.5 py-1 text-left">
-      <WorktreeTooltipRow label="Worktree" value={label()} emphasis />
+      <WorktreeTooltipRow label="Worktree" value={props.name} emphasis />
       <WorktreeTooltipRow label="Branch" value={props.branch} />
       <WorktreeTooltipRow label="Location" value={props.directory} />
     </div>
   )
 
   return (
-    <Tooltip placement="bottom" value={tooltip()} contentClass="max-w-[420px] px-3 py-2">
+    <Tooltip placement="bottom" value={tooltip()} contentClass="max-w-[420px] px-3 py-2" class="shrink min-w-0">
       <Button
         type="button"
         variant="ghost"
