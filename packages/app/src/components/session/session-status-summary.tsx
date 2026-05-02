@@ -1,7 +1,8 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
 import type { Part } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
-import { extractTodos, extractSources, type TodoItem } from "@/pages/session/session-status-extractors"
+import { extractSources, type TodoItem } from "@/pages/session/session-status-extractors"
+import { selectSessionTodos } from "@/pages/session/session-todos"
 
 const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
   completed: { dot: "bg-icon-success-base", text: "" },
@@ -43,7 +44,7 @@ function SourceRow(props: { url: string }) {
 
 export function SessionStatusSummary(props: { parts: Accessor<Part[]> }) {
   const language = useLanguage()
-  const todos = createMemo(() => extractTodos(props.parts()))
+  const todos = createMemo(() => selectSessionTodos({ parts: props.parts() }))
   const sources = createMemo(() => extractSources(props.parts()))
 
   return (

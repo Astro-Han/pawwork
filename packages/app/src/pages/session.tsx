@@ -1,13 +1,5 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import {
-  createMemo,
-  createEffect,
-  createComputed,
-  createSignal,
-  on,
-  onCleanup,
-  untrack,
-} from "solid-js"
+import { createMemo, createEffect, createComputed, createSignal, on, onCleanup, untrack } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
@@ -118,7 +110,7 @@ export default function Page() {
   const timelineSessionID = timeline.sessionID
   const timelineSessionKey = timeline.sessionKey
   const timelineIsChildSession = timeline.isChildSession
-  const composer = createSessionComposerState({ sessionID: timelineSessionID })
+  const composer = createSessionComposerState({ sessionID: timelineSessionID, fallbackSessionID: () => params.id })
   const timelineMessages = timeline.messages
   const timelineMessagesReady = timeline.messagesReady
   const timelineDiffs = timeline.diffs
