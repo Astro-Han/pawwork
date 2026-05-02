@@ -412,6 +412,7 @@ export const ExperimentalRoutes = lazy(() =>
         const hasMore = sessions.length > limit
         const list = hasMore ? sessions.slice(0, limit) : sessions
         if (hasMore && list.length > 0) {
+          c.header("Access-Control-Expose-Headers", "X-Next-Cursor")
           c.header(
             "x-next-cursor",
             query.sort === "created"

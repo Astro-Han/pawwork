@@ -32,6 +32,7 @@ const FilterIcon = (props: { size?: number }) => {
 export const PawworkSidebar = (props: {
   scope?: "main" | "peek"
   sessions: Accessor<PawworkSidebarSession[]>
+  sessionWindow: Accessor<{ canShowMore: boolean; capReached: boolean; loading: boolean }>
   showProjectEmptyState: boolean
   activeSessionID?: Accessor<string | undefined>
   pinnedIDs: Accessor<string[]>
@@ -44,6 +45,8 @@ export const PawworkSidebar = (props: {
   onExportSession: (session: Session) => Promise<void>
   onDeleteSession: (session: Session) => void
   onSetSortMode: (mode: PawworkSortMode) => void
+  onShowMore: () => void
+  onSearchOlderSessions: () => void
   onNew: () => void
   onSearch: () => void
   onOpenProject: () => void
@@ -329,6 +332,27 @@ export const PawworkSidebar = (props: {
                     </section>
                   )}
                 </For>
+              </Show>
+              <Show when={props.sessionWindow().canShowMore}>
+                <button
+                  type="button"
+                  data-action="pawwork-session-show-more"
+                  disabled={props.sessionWindow().loading}
+                  onClick={props.onShowMore}
+                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-text-weak transition-colors hover:bg-surface-raised-base-hover hover:text-text-base focus:outline-none focus-visible:bg-surface-raised-base-hover disabled:opacity-50"
+                >
+                  {props.sessionWindow().loading ? language.t("common.loading") : language.t("common.showMore")}
+                </button>
+              </Show>
+              <Show when={props.sessionWindow().capReached}>
+                <button
+                  type="button"
+                  data-action="pawwork-session-search-history"
+                  onClick={props.onSearchOlderSessions}
+                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-text-weak transition-colors hover:bg-surface-raised-base-hover hover:text-text-base focus:outline-none focus-visible:bg-surface-raised-base-hover"
+                >
+                  {language.t("sidebar.pawwork.searchHistory")}
+                </button>
               </Show>
             </nav>
           </Show>

@@ -284,6 +284,7 @@ describe("session.listGlobal", () => {
         expect(first.status).toBe(200)
         const cursor = first.headers.get("x-next-cursor")
         expect(cursor).toBeTruthy()
+        expect(first.headers.get("Access-Control-Expose-Headers")).toContain("X-Next-Cursor")
         const firstBody = (await first.json()) as SessionNs.GlobalInfo[]
         expect(firstBody).toHaveLength(1)
 

@@ -265,6 +265,33 @@ describe("session.created event", () => {
     })
   })
 
+  test("backfill preserves legacy session updated time", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "legacy-updated-time" })
+        const originalUpdated = session.time.updated - 10_000
+        Database.use((db) =>
+          db
+            .update(SessionTable)
+            .set({ execution_context: null, time_updated: originalUpdated })
+            .where(eq(SessionTable.id, session.id))
+            .run(),
+        )
+
+        const count = await Effect.runPromise(SessionNs.backfillExecutionContext)
+        expect(count).toBeGreaterThanOrEqual(1)
+
+        const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, session.id)).get())
+        expect(row?.time_updated).toBe(originalUpdated)
+
+        await SessionNs.remove(session.id)
+      },
+    })
+  })
+
   test("backfills legacy executionContext rows with canonical project roots", async () => {
     await using tmp = await tmpdir({ git: true })
     const projectLink = path.join(tmp.path, "project-link")
