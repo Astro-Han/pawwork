@@ -45,6 +45,7 @@ export const Logo = (props: { class?: string }) => {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
+      data-component="logo"
       viewBox="0 0 64 64"
       fill="none"
       classList={{ [props.class ?? ""]: !!props.class }}
