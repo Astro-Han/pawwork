@@ -1,15 +1,13 @@
 import { describe, expect, test } from "bun:test"
+import { createRoot } from "solid-js"
 import {
   calculateSessionScrollState,
+  createSessionScrollDock,
   shouldStickToBottomAfterDockResize,
   syncComposerDockHeight,
 } from "./use-session-scroll-dock"
 
-function makeScroller(input: {
-  clientHeight: number
-  scrollHeight: number
-  scrollTop: number
-}) {
+function makeScroller(input: { clientHeight: number; scrollHeight: number; scrollTop: number }) {
   const el = document.createElement("div") as HTMLDivElement
   let top = input.scrollTop
   let height = input.scrollHeight
@@ -40,6 +38,72 @@ function makeScroller(input: {
     setScrollHeight(value: number) {
       height = value
     },
+  }
+}
+
+function makeMeasuredDiv(height: number) {
+  const el = document.createElement("div") as HTMLDivElement
+  let current = height
+
+  Object.defineProperty(el, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      width: 720,
+      height: current,
+      top: 0,
+      right: 720,
+      bottom: current,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }),
+  })
+
+  return {
+    el,
+    setHeight(value: number) {
+      current = value
+    },
+  }
+}
+
+function withResizeObserver(callback: (trigger: (target: Element) => void) => void) {
+  const original = globalThis.ResizeObserver
+  const observed = new Map<Element, Set<(entries: ResizeObserverEntry[]) => void>>()
+
+  class TestResizeObserver {
+    private callback: (entries: ResizeObserverEntry[]) => void
+
+    constructor(callback: (entries: ResizeObserverEntry[]) => void) {
+      this.callback = callback
+    }
+
+    observe = (target: Element) => {
+      const callbacks = observed.get(target) ?? new Set()
+      callbacks.add(this.callback)
+      observed.set(target, callbacks)
+    }
+
+    unobserve = (target: Element) => {
+      observed.get(target)?.delete(this.callback)
+    }
+
+    disconnect = () => {
+      for (const callbacks of observed.values()) callbacks.delete(this.callback)
+    }
+  }
+
+  globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver
+
+  try {
+    callback((target) => {
+      const rect = target.getBoundingClientRect()
+      const entry = { target, contentRect: rect } as ResizeObserverEntry
+      for (const item of observed.get(target) ?? []) item([entry])
+    })
+  } finally {
+    globalThis.ResizeObserver = original
   }
 }
 
@@ -169,5 +233,35 @@ describe("session scroll dock", () => {
     expect(scrolls).toHaveLength(0)
     expect(schedules).toHaveLength(1)
     expect(fills).toHaveLength(1)
+  })
+
+  test("updates composer CSS height when the prompt dock resizes after mount", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
+        const promptDock = makeMeasuredDiv(120)
+
+        try {
+          const scrollDock = createSessionScrollDock({
+            clearMessageHash: () => undefined,
+            clearActiveMessage: () => undefined,
+            fill: () => undefined,
+          })
+
+          scrollDock.setPromptDockRef(promptDock.el)
+          expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("120px")
+
+          promptDock.setHeight(220)
+          triggerResize(promptDock.el)
+
+          expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("220px")
+        } finally {
+          dispose()
+          if (previousDockHeight)
+            document.documentElement.style.setProperty("--composer-dock-height", previousDockHeight)
+          else document.documentElement.style.removeProperty("--composer-dock-height")
+        }
+      })
+    })
   })
 })

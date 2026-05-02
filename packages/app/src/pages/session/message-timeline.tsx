@@ -709,7 +709,7 @@ export function MessageTimeline(props: {
             class="min-w-0 w-full"
             style={{
               "padding-top": "1rem",
-              "padding-bottom": "calc(var(--composer-dock-height, 0px) + 16px)",
+              "padding-bottom": "calc(var(--composer-dock-height, 0px) + 32px)",
             }}
           >
             <div
