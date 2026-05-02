@@ -13,6 +13,27 @@ type DraftAnswer = QuestionAnswer | undefined
 
 const cache = new Map<string, { tab: number; answers: DraftAnswer[]; custom: string[]; customOn: boolean[] }>()
 
+/**
+ * After skipping a question (setting its answer to []), decide the next action.
+ * Returns either the tab to navigate to, or a submit signal when all questions are settled.
+ */
+export function resolveSkipAction(
+  currentTab: number,
+  isSettled: (i: number) => boolean,
+  total: number,
+): { type: "navigate"; tab: number } | { type: "submit" } {
+  // First, look for an unsettled question after the current tab.
+  for (let i = currentTab + 1; i < total; i++) {
+    if (!isSettled(i)) return { type: "navigate", tab: i }
+  }
+  // Then, look for any unsettled question before the current tab.
+  for (let i = 0; i < currentTab; i++) {
+    if (!isSettled(i)) return { type: "navigate", tab: i }
+  }
+  // All settled — time to submit.
+  return { type: "submit" }
+}
+
 function Mark(props: { multi: boolean; picked: boolean; onClick?: (event: MouseEvent) => void }) {
   return (
     <span data-slot="question-option-check" aria-hidden="true" onClick={props.onClick}>
@@ -157,8 +178,8 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
         store.answers[i] === undefined ? undefined : [...store.answers[i]],
       ),
       // Iterate by total() to avoid leaving stale entries when a tab was never visited.
-      custom: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.custom[i] ?? "" : "")),
-      customOn: Array.from({ length: total() }, (_, i) => (customByTab(i) ? store.customOn[i] ?? false : false)),
+      custom: Array.from({ length: total() }, (_, i) => (customByTab(i) ? (store.custom[i] ?? "") : "")),
+      customOn: Array.from({ length: total() }, (_, i) => (customByTab(i) ? (store.customOn[i] ?? false) : false)),
     })
   })
 
@@ -400,15 +421,14 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     setStore("customOn", store.tab, false)
     setStore("editing", false)
 
-    const nextUnsettled = questions().findIndex((_, i) => i > store.tab && !settled(i))
-    const target = nextUnsettled >= 0 ? nextUnsettled : firstUnsettled()
-    if (target >= 0) {
-      setStore("tab", target)
-      focus(pickFocus(target))
+    const action = resolveSkipAction(store.tab, settled, total())
+    if (action.type === "navigate") {
+      setStore("tab", action.tab)
+      focus(pickFocus(action.tab))
       return
     }
 
-    focus(pickFocus(store.tab))
+    submit()
   }
 
   const jump = (tab: number) => {
@@ -427,7 +447,9 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
         <>
           <div data-slot="question-header-title">
             <span data-slot="question-header-seq">{summary()}</span>
-            <span data-slot="question-header-separator" aria-hidden="true">·</span>
+            <span data-slot="question-header-separator" aria-hidden="true">
+              ·
+            </span>
             <span data-slot="question-header-mode">
               {multi() ? language.t("ui.question.multiHint") : language.t("ui.question.singleHint")}
             </span>

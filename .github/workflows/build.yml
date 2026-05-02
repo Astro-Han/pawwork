@@ -359,7 +359,7 @@ jobs:
             if gh release download "$tag" --pattern "$pattern" --dir "$existing_dir" --repo "$GITHUB_REPOSITORY" 2>"$err"; then
               return 0
             fi
-            if grep -qiE 'no assets to download|no matches found|no assets match|could not find any assets' "$err"; then
+            if grep -qiE 'no assets to download|no matches found|no assets match|could not find any assets|release not found' "$err"; then
               echo "No existing $pattern found; expected for first release."
               return 0
             fi
