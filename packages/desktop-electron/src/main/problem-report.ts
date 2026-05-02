@@ -495,6 +495,7 @@ function isTruncation(value: unknown): value is Payload["truncation"] {
     isFiniteNumber(value.omittedLogBytes) &&
     isFiniteNumber(value.omittedSessionInfoBytes) &&
     isFiniteNumber(value.omittedFailedExportErrorBytes) &&
+    isFiniteNumber(value.omittedRendererDiagnosticsBytes) &&
     isFiniteNumber(value.omittedDiagnosticsBytes)
   )
 }

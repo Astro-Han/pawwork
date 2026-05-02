@@ -174,6 +174,22 @@ async function sessionExportWithTimeout(deps: FeedbackDeps, context: unknown) {
   }
 }
 
+async function rendererDiagnosticsWithTimeout(deps: FeedbackDeps, context: unknown) {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      deps.rendererDiagnostics(context),
+      new Promise<RendererDiagnosticsSlice>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error("renderer diagnostics timed out"))
+        }, deps.sessionExportTimeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
+  }
+}
+
 export function createFeedbackHandler(deps: FeedbackDeps) {
   let inFlight: Promise<FeedbackResult> | undefined
 
@@ -219,7 +235,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
     }
 
     try {
-      rendererDiagnostics = await deps.rendererDiagnostics(context)
+      rendererDiagnostics = await rendererDiagnosticsWithTimeout(deps, context)
     } catch (error) {
       deps.onHandledError?.("renderer diagnostics slice failed", error)
       rendererDiagnostics = emptyRendererDiagnosticsSlice("write_failed", new Date(generatedAt))

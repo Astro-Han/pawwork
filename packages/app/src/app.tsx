@@ -47,7 +47,7 @@ import DirectoryLayout from "@/pages/directory-layout"
 import Layout from "@/pages/layout"
 import { ErrorPage } from "./pages/error"
 import { buildDesktopContext, desktopWindowTitle, type DesktopContext } from "./utils/desktop-context"
-import type { RendererDiagnosticInput } from "@/context/platform"
+import type { RendererDiagnosticInput, RendererDiagnosticsExportResult } from "@/context/platform"
 import { useCheckServerHealth } from "./utils/server-health"
 
 const HomeRoute = lazy(() => import("@/pages/home"))
@@ -89,6 +89,7 @@ declare global {
     api?: {
       setDesktopContext?: (context: DesktopContext) => Promise<void>
       emitRendererDiagnostic?: (event: RendererDiagnosticInput) => Promise<void>
+      exportDiagnosticsLog?: () => Promise<RendererDiagnosticsExportResult>
       getAboutInfo?: () => Promise<AboutInfo>
       onAboutOpen?: (handler: () => void) => () => void
       setLspEnabled?: (value: boolean) => Promise<void>

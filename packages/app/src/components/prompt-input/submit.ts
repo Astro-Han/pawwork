@@ -511,6 +511,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
     const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())
     const messageID = Identifier.ascending("message")
+    const submittedPromptLength = input.promptLength(currentPrompt)
+    const submittedImageCount = images.length
+    const submittedCommentCount = input.commentCount()
 
     const removeOptimisticMessage = () => {
       sync.session.optimistic.remove({
@@ -533,11 +536,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         provider: model.providerID,
         model: model.modelID,
         endpoint_kind: "prompt",
-        prompt_length: input.promptLength(currentPrompt),
-        image_count: images.length,
-        comment_count: input.commentCount(),
+        prompt_length: submittedPromptLength,
+        image_count: submittedImageCount,
+        comment_count: submittedCommentCount,
       },
-    })
+    }).catch(() => {})
 
     const waitForWorktree = async () => {
       const worktree = WorktreeState.get(sessionDirectory)

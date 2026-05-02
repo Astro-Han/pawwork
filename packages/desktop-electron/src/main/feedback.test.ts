@@ -240,6 +240,20 @@ describe("feedback handler", () => {
     expect(subject.calls.opened).toBe("https://example.com/form")
   })
 
+  test("slow renderer diagnostics times out and still produces report artifacts", async () => {
+    const subject = setup({
+      sessionExportTimeoutMs: 1,
+      rendererDiagnostics: async () => new Promise(() => {}),
+    })
+
+    await subject.handler()
+
+    expect(subject.calls.handledErrors).toContain("renderer diagnostics slice failed")
+    expect(subject.calls.savedMarkdown).toContain('"status": "write_failed"')
+    expect(subject.calls.copied).toContain("Renderer diagnostics: write_failed")
+    expect(subject.calls.opened).toBe("https://example.com/form")
+  })
+
   test("slow session export times out and still produces report artifacts", async () => {
     let aborted = false
     const subject = setup({

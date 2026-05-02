@@ -133,6 +133,26 @@ describe("renderer diagnostics sanitizer", () => {
 
     expect(event?.data).toEqual({ action: "submit_prompt", model: "deepseek-v4-pro" })
   })
+
+  test("keeps dotted technical identifiers that are not URLs", () => {
+    const event = sanitizeRendererDiagnosticEvent(
+      {
+        name: "session.action.submit",
+        data: {
+          action: "submit_prompt",
+          provider: "open-router.ai",
+          model: "deepseek.v4",
+        },
+      },
+      { appLaunchID: "launch_1", now: () => new Date("2026-05-02T10:30:12.123Z"), windowID: 1 },
+    )
+
+    expect(event?.data).toEqual({
+      action: "submit_prompt",
+      provider: "open-router.ai",
+      model: "deepseek.v4",
+    })
+  })
 })
 
 describe("renderer diagnostics recorder", () => {
@@ -285,6 +305,9 @@ describe("renderer diagnostics recorder", () => {
     expect((await missing.slice({ sessionID: "ses_1", maxBytes: 1024 })).status).toBe("missing")
 
     const disabled = createRendererDiagnosticsRecorder({ root, appLaunchID: "launch_1", disabled: true })
+    expect((await disabled.record({ name: "session.action.submit", data: { action: "submit_prompt" } }, { windowID: 1 })).reason).toBe(
+      "disabled",
+    )
     expect((await disabled.slice({ sessionID: "ses_1", maxBytes: 1024 })).status).toBe("disabled")
 
     await writeFile(missing.path, "{not json}\n", "utf8")

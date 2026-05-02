@@ -170,12 +170,16 @@ export function createSessionScrollDock(input: {
       fill: input.fill,
     })
     if (dockHeight !== previousDockHeight) {
-      input.onDockHeightChange?.({
-        composerHeight: dockHeight,
-        previousComposerHeight: previousDockHeight,
-        scrollTop,
-        distanceFromBottom,
-      })
+      try {
+        input.onDockHeightChange?.({
+          composerHeight: dockHeight,
+          previousComposerHeight: previousDockHeight,
+          scrollTop,
+          distanceFromBottom,
+        })
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn("[session-scroll-dock] onDockHeightChange failed", error)
+      }
     }
   }
 

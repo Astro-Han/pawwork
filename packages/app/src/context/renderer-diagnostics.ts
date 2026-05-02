@@ -143,6 +143,7 @@ export function createSessionPerformanceDiagnostics(input: {
   let frame: number | undefined
   let interval: number | undefined
   let lastFrame = performance.now()
+  let sampleStartedAt = lastFrame
   let frameCount = 0
   let jankCount = 0
   let maxFrameGap = 0
@@ -168,12 +169,15 @@ export function createSessionPerformanceDiagnostics(input: {
   }
 
   const flush = () => {
+    const now = performance.now()
+    const elapsedMs = Math.max(1, now - sampleStartedAt)
+    const fps = Math.round((frameCount * 1000) / elapsedMs)
     const memory = performance as PerformanceWithMemory
     void emit({
       name: "renderer.perf.sample",
       ...baseEvent(),
       data: {
-        fps: frameCount,
+        fps,
         frame_gap_ms: Math.round(maxFrameGap),
         jank_count: jankCount,
         long_task_max_ms: Math.round(longTaskMax),
@@ -190,6 +194,7 @@ export function createSessionPerformanceDiagnostics(input: {
     longTaskMax = 0
     longTaskBlock = 0
     cls = 0
+    sampleStartedAt = now
   }
 
   if (typeof PerformanceObserver !== "undefined") {

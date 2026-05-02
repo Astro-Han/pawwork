@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 
 export const DEFAULT_RENDERER_DIAGNOSTICS_MAX_BYTES = 20 * 1024 * 1024
@@ -6,6 +6,7 @@ export const DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_MS = 24 * 60 * 60 * 1000
 export const SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES = 1 * 1024 * 1024
 export const GLOBAL_RENDERER_DIAGNOSTICS_EXPORT_MAX_BYTES = 10 * 1024 * 1024
 export const RENDERER_DIAGNOSTIC_EVENT_MAX_BYTES = 8 * 1024
+const DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_CHECK_MS = 60 * 1000
 
 export type RendererDiagnosticsStatus =
   | "ok"
@@ -86,6 +87,7 @@ type RecorderOptions = {
   appLaunchID: string
   maxBytes?: number
   retentionMs?: number
+  retentionCheckIntervalMs?: number
   highFrequencyIntervalMs?: number
   disabled?: boolean
   now?: () => Date
@@ -179,7 +181,7 @@ function stringField(value: unknown, limit = 160) {
   const next = value.replace(/\s+/g, " ").trim()
   if (!next) return undefined
   if (/[a-z][a-z0-9+.-]*:\/\//i.test(next)) return undefined
-  if (/\b[a-z0-9.-]+\.[a-z]{2,}(?:\/|\?|:|$)/i.test(next)) return undefined
+  if (/\b[a-z0-9.-]+\.[a-z]{2,}(?:\/|\?|:)/i.test(next)) return undefined
   if (/token=|key=|secret=|authorization/i.test(next)) return undefined
   return next.length > limit ? next.slice(0, limit) : next
 }
@@ -425,12 +427,14 @@ export async function exportRendererDiagnosticsLog(input: {
 export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
   const maxBytes = options.maxBytes ?? DEFAULT_RENDERER_DIAGNOSTICS_MAX_BYTES
   const retentionMs = options.retentionMs ?? DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_MS
+  const retentionCheckIntervalMs = options.retentionCheckIntervalMs ?? DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_CHECK_MS
   const highFrequencyIntervalMs = options.highFrequencyIntervalMs ?? 250
   const now = options.now ?? (() => new Date())
   const path = rendererDiagnosticsPath(options.root)
   const lastHighFrequency = new Map<string, number>()
   let writeFailed = false
   let writeQueue = Promise.resolve()
+  let lastRetentionCheck = 0
 
   const readEventReport = async () => {
     try {
@@ -458,13 +462,13 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     const events = await readEvents()
     const cutoff = now().getTime() - retentionMs
     const retained = events.filter((event) => eventTime(event) >= cutoff)
-    let content = retained.map((event) => JSON.stringify(event)).join("\n")
-    if (content) content += "\n"
-    while (Buffer.byteLength(content, "utf8") > maxBytes && retained.length > 0) {
-      retained.shift()
-      content = retained.map((event) => JSON.stringify(event)).join("\n")
-      if (content) content += "\n"
+    const lines = retained.map((event) => JSON.stringify(event))
+    let totalBytes = lines.reduce((sum, line) => sum + Buffer.byteLength(line, "utf8") + 1, 0)
+    while (totalBytes > maxBytes && lines.length > 0) {
+      const line = lines.shift()
+      if (line) totalBytes -= Buffer.byteLength(line, "utf8") + 1
     }
+    const content = lines.length > 0 ? `${lines.join("\n")}\n` : ""
     await mkdir(options.root, { recursive: true })
     const temp = join(options.root, `.${basename(path)}.${process.pid}.${Date.now()}.tmp`)
     await writeFile(temp, content, "utf8")
@@ -483,7 +487,19 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     return next
   }
 
+  const maybeFlushRetention = async () => {
+    const current = now().getTime()
+    const size = await stat(path).then(
+      (stats) => stats.size,
+      () => 0,
+    )
+    if (size <= maxBytes && current - lastRetentionCheck < retentionCheckIntervalMs) return
+    lastRetentionCheck = current
+    await flushRetention()
+  }
+
   const record = async (input: unknown, context: RecordContext) => {
+    if (options.disabled) return { ok: false as const, reason: "disabled" as const }
     try {
       const sanitized = sanitizeRendererDiagnosticEvent(input, {
         appLaunchID: options.appLaunchID,
@@ -503,7 +519,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
       await enqueueWrite(async () => {
         await mkdir(options.root, { recursive: true })
         await appendFile(path, `${JSON.stringify(sanitized)}\n`, "utf8")
-        await flushRetention()
+        await maybeFlushRetention()
       })
       return { ok: true as const }
     } catch {

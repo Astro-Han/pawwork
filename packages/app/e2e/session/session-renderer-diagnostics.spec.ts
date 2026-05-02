@@ -36,10 +36,12 @@ async function installRendererDiagnosticsCapture(page: Page) {
       }
     }
     win.__pawwork_renderer_diagnostics = []
+    const originalEmit = win.api?.emitRendererDiagnostic?.bind(win.api)
     win.api = {
       ...(win.api ?? {}),
       emitRendererDiagnostic: async (event) => {
         win.__pawwork_renderer_diagnostics?.push(JSON.parse(JSON.stringify(event)))
+        await originalEmit?.(event)
       },
     }
   })

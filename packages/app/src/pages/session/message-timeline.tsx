@@ -236,6 +236,17 @@ export function MessageTimeline(props: {
   anchor: (id: string) => string
 }) {
   let touchGesture: number | undefined
+  let scrollSampleFrame: number | undefined
+  let pendingScrollSample:
+    | {
+        scroll_top: number
+        scroll_height: number
+        client_height: number
+        distance_from_bottom: number
+        user_scrolled: boolean
+        jump_button_visible: boolean
+      }
+    | undefined
 
   const navigate = useNavigate()
   const sdk = useSDK()
@@ -247,6 +258,9 @@ export function MessageTimeline(props: {
   const { params } = useSessionKey()
   const platform = usePlatform()
   const server = useServer()
+  onCleanup(() => {
+    if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
+  })
   // Export hits the embedded sidecar via main-process IPC. When the user has switched the
   // active server to a remote HTTP/SSH target, the sidecar holds different data than the UI;
   // hide the action rather than ship a misleading export.
@@ -737,22 +751,30 @@ export function MessageTimeline(props: {
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
             const el = e.currentTarget
-            const max = el.scrollHeight - el.clientHeight
-            void emitRendererDiagnostic({
-              name: "session.scroll.sample",
-              route_session_id: params.id,
-              visible_session_id: props.sessionID,
-              timeline_session_id: props.sessionID,
-              data: {
-                scroll_top: el.scrollTop,
-                scroll_height: el.scrollHeight,
-                client_height: el.clientHeight,
-                distance_from_bottom: max - el.scrollTop,
-                user_scrolled: props.hasScrollGesture(),
-                jump_button_visible: props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-                ...visibleRangeData(),
-              },
-            })
+            const max = Math.max(0, el.scrollHeight - el.clientHeight)
+            pendingScrollSample = {
+              scroll_top: el.scrollTop,
+              scroll_height: el.scrollHeight,
+              client_height: el.clientHeight,
+              distance_from_bottom: Math.max(0, max - el.scrollTop),
+              user_scrolled: props.hasScrollGesture(),
+              jump_button_visible: props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
+            }
+            if (scrollSampleFrame === undefined) {
+              scrollSampleFrame = requestAnimationFrame(() => {
+                scrollSampleFrame = undefined
+                const sample = pendingScrollSample
+                pendingScrollSample = undefined
+                if (!sample) return
+                void emitRendererDiagnostic({
+                  name: "session.scroll.sample",
+                  route_session_id: params.id,
+                  visible_session_id: props.sessionID,
+                  timeline_session_id: props.sessionID,
+                  data: { ...sample, ...visibleRangeData() },
+                }).catch(() => {})
+              })
+            }
             if (!props.hasScrollGesture()) return
             props.onUserScroll()
             props.onAutoScrollHandleScroll()
