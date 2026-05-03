@@ -44,10 +44,12 @@ describe("resolveTodoIDs", () => {
       { ...todo("first reuse", previous[0].id), status: "pending" },
       { ...todo("duplicate reuse", previous[0].id), status: "pending" },
     ])
+    const previousIDs = previous.map(({ id }) => id)
 
     expect(resolved[0].id).not.toBe(unknown)
+    expect(previousIDs).not.toContain(resolved[0].id)
     expect(resolved[1].id).toBe(previous[0].id)
-    expect(resolved[2].id).not.toBe(previous[0].id)
+    expect(previousIDs).not.toContain(resolved[2].id)
   })
 })
 
