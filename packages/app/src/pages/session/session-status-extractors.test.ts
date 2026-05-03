@@ -71,6 +71,18 @@ describe("extractTodos", () => {
     )
     expect(extractTodos([part])).toEqual([{ content: "ok", status: "pending", priority: "low" }])
   })
+
+  it("prefers resolved metadata todos with ids over idless tool input", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "A", status: "pending", priority: "medium" }] },
+        metadata: { todos: [{ id: "todo_1", content: "A", status: "pending", priority: "medium" }] },
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([{ id: "todo_1", content: "A", status: "pending", priority: "medium" }])
+  })
 })
 
 const webfetchPart = (url: string): Part => toolPart("webfetch", completedState({ input: { url } }))

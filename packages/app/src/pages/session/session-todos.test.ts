@@ -30,7 +30,7 @@ const todo = (content: string, status: Todo["status"] = "pending"): Todo => ({
   content,
   status,
   priority: "medium",
-})
+}) as Todo
 
 describe("selectSessionTodos", () => {
   test("prefers message-derived todos over lagging backend todos", () => {

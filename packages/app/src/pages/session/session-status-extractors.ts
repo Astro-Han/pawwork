@@ -17,6 +17,7 @@ export const TOOL_WEBFETCH = "webfetch"
 export const TOOL_WEBSEARCH = "websearch"
 
 export interface TodoItem {
+  id?: string
   content: string
   status: string
   priority: string
@@ -29,7 +30,20 @@ function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
 function isValidTodo(value: unknown): value is TodoItem {
   if (typeof value !== "object" || value === null) return false
   const v = value as Partial<TodoItem>
-  return typeof v.content === "string" && typeof v.status === "string" && typeof v.priority === "string"
+  return (
+    (v.id === undefined || typeof v.id === "string") &&
+    typeof v.content === "string" &&
+    typeof v.status === "string" &&
+    typeof v.priority === "string"
+  )
+}
+
+function todosFromMetadata(part: Extract<Part, { type: "tool" }>): TodoItem[] | undefined {
+  const metadata = part.state.status === "completed" ? part.state.metadata : undefined
+  const todos = (metadata as { todos?: unknown } | undefined)?.todos
+  if (!Array.isArray(todos)) return undefined
+  const valid = todos.filter(isValidTodo)
+  return valid.length === todos.length ? valid : undefined
 }
 
 export function extractTodos(parts: Part[]): TodoItem[] {
@@ -38,6 +52,12 @@ export function extractTodos(parts: Part[]): TodoItem[] {
     if (!isToolPart(part)) continue
     if (part.tool !== TOOL_TODOWRITE) continue
     if (part.state.status !== "completed") continue
+    const metadataTodos = todosFromMetadata(part)
+    if (metadataTodos) {
+      latest = metadataTodos
+      continue
+    }
+
     const rawInput = part.state.input
     if (typeof rawInput !== "object" || rawInput === null) continue
     const todos = (rawInput as { todos?: unknown }).todos

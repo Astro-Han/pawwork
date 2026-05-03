@@ -2,7 +2,24 @@ import { describe, expect, test } from "bun:test"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
 import { todoDisplaySignature, todoLifecycleSignature, todoPhase } from "./todo-model"
 
-const todo = (content: string, status: Todo["status"] = "pending", priority: Todo["priority"] = "medium"): Todo => ({
+const todo = (
+  content: string,
+  status: Todo["status"] = "pending",
+  priority: Todo["priority"] = "medium",
+  id?: string,
+): Todo =>
+  ({
+    id,
+    content,
+    status,
+    priority,
+  }) as Todo
+
+const idlessTodo = (
+  content: string,
+  status: Todo["status"] = "pending",
+  priority: Todo["priority"] = "medium",
+): Pick<Todo, "content" | "status" | "priority"> => ({
   content,
   status,
   priority,
@@ -25,8 +42,8 @@ describe("todoPhase", () => {
 
 describe("todoLifecycleSignature", () => {
   test("ignores content and priority refreshes", () => {
-    expect(todoLifecycleSignature([todo("first", "completed", "high")])).toBe(
-      todoLifecycleSignature([todo("first refreshed", "completed", "low")]),
+    expect(todoLifecycleSignature([todo("first", "completed", "high", "todo_1")])).toBe(
+      todoLifecycleSignature([todo("first refreshed", "completed", "low", "todo_1")]),
     )
   })
 
@@ -36,6 +53,18 @@ describe("todoLifecycleSignature", () => {
     )
     expect(todoLifecycleSignature([todo("first", "completed")])).not.toBe(
       todoLifecycleSignature([todo("first", "completed"), todo("second", "completed")]),
+    )
+  })
+
+  test("changes when stable ids change with the same statuses", () => {
+    expect(todoLifecycleSignature([todo("first", "pending", "medium", "todo_1")])).not.toBe(
+      todoLifecycleSignature([todo("second", "pending", "medium", "todo_2")]),
+    )
+  })
+
+  test("falls back to status-only signatures when ids are missing", () => {
+    expect(todoLifecycleSignature([idlessTodo("first", "completed", "high")])).toBe(
+      todoLifecycleSignature([idlessTodo("first refreshed", "completed", "low")]),
     )
   })
 })
