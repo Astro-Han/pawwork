@@ -70,6 +70,15 @@ const RESTORE_LIMIT = 2 * 1024 * 1024
 const MAX_FILES = 200
 const locks = new Map<string, Promise<void>>()
 
+class RestoreConflictError extends Error {
+  constructor(
+    readonly file: string,
+    readonly displayPath: string,
+  ) {
+    super("restore conflict")
+  }
+}
+
 function now() {
   return Date.now()
 }
@@ -77,7 +86,7 @@ function now() {
 function hash(state: FileState) {
   if (!state.exists) return "missing"
   if (state.hash) return state.hash
-  return "sha256:" + crypto.createHash("sha256").update(state.content ?? "").digest("hex")
+  return stateHash(state.content ?? "", state.bom)
 }
 
 function same(a: FileState, b: FileState) {
@@ -103,6 +112,10 @@ function displayPath(file: string) {
 
 function byteSize(text: string) {
   return Buffer.byteLength(text, "utf8")
+}
+
+function stateHash(content: string, bom?: boolean) {
+  return "sha256:" + crypto.createHash("sha256").update(`${bom ? "bom:1" : "bom:0"}\0${content}`).digest("hex")
 }
 
 function additionsDeletions(before: string, after: string) {
@@ -191,7 +204,7 @@ async function currentState(file: string): Promise<FileState> {
       exists: true,
       content: current.text,
       bom: current.bom,
-      hash: "sha256:" + crypto.createHash("sha256").update(current.text).digest("hex"),
+      hash: stateHash(current.text, current.bom),
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { exists: false }
@@ -274,7 +287,7 @@ export namespace TurnChange {
     const content = state.content ?? ""
     const binary = isBinary(content)
     const large = byteSize(content) > RESTORE_LIMIT
-    const hashValue = "sha256:" + crypto.createHash("sha256").update(content).digest("hex")
+    const hashValue = stateHash(content, state.bom)
     if (binary || large) {
       return { exists: true, hash: hashValue, restorable: false, binary, large, bom: state.bom }
     }
@@ -292,6 +305,18 @@ export namespace TurnChange {
     return row?.value ?? 0
   }
 
+  function restoreWhere(input: { sessionID: SessionID; messageID: MessageID; path: string }) {
+    return and(
+      eq(TurnChangeRestoreTable.session_id, input.sessionID),
+      eq(TurnChangeRestoreTable.message_id, input.messageID),
+      eq(TurnChangeRestoreTable.file_path, input.path),
+    )
+  }
+
+  function getRestore(input: { sessionID: SessionID; messageID: MessageID; path: string }) {
+    return Database.use((db) => db.select().from(TurnChangeRestoreTable).where(restoreWhere(input)).get()) as RestoreRow | undefined
+  }
+
   export function recordWrite(input: {
     sessionID: SessionID
     messageID: MessageID
@@ -300,61 +325,67 @@ export namespace TurnChange {
     after: FileState
   }) {
     if (!input.messageID) return
-    const existing = Database.use((db) =>
-      db
-        .select()
-        .from(TurnChangeRestoreTable)
-        .where(
-          and(
-            eq(TurnChangeRestoreTable.session_id, input.sessionID),
-            eq(TurnChangeRestoreTable.message_id, input.messageID),
-            eq(TurnChangeRestoreTable.file_path, input.path),
-          ),
-        )
-        .get(),
-    ) as RestoreRow | undefined
+    try {
+      const existing = getRestore(input)
 
-    const time = now()
-    const data: RestoreFile = {
-      path: input.path,
-      displayPath: displayPath(input.path),
-      before: existing?.data.before ?? prepareState(input.before),
-      after: prepareState(input.after),
-    }
-    if (existing) {
-      Database.use((db) =>
-        db
-          .update(TurnChangeRestoreTable)
-          .set({ data, time_updated: time })
-          .where(
-            and(
-              eq(TurnChangeRestoreTable.session_id, input.sessionID),
-              eq(TurnChangeRestoreTable.message_id, input.messageID),
-              eq(TurnChangeRestoreTable.file_path, input.path),
-            ),
+      const time = now()
+      const data: RestoreFile = {
+        path: input.path,
+        displayPath: displayPath(input.path),
+        before: existing?.data.before ?? prepareState(input.before),
+        after: prepareState(input.after),
+      }
+      if (existing) {
+        Database.use((db) =>
+          db
+            .update(TurnChangeRestoreTable)
+            .set({ data, time_updated: time })
+            .where(restoreWhere(input))
+            .run(),
+        )
+        return
+      }
+
+      const position = nextPosition(input.sessionID, input.messageID)
+      if (position >= MAX_FILES) return
+      try {
+        Database.use((db) =>
+          db
+            .insert(TurnChangeRestoreTable)
+            .values({
+              session_id: input.sessionID,
+              message_id: input.messageID,
+              file_path: input.path,
+              position,
+              data,
+              finalized: false,
+              time_created: time,
+              time_updated: time,
+            })
+            .run(),
+        )
+      } catch {
+        try {
+          const current = getRestore(input)
+          if (!current) return
+          const retryData: RestoreFile = {
+            ...data,
+            before: current.data.before,
+          }
+          Database.use((db) =>
+            db
+              .update(TurnChangeRestoreTable)
+              .set({ data: retryData, time_updated: time })
+              .where(restoreWhere(input))
+              .run(),
           )
-          .run(),
-      )
+        } catch {
+          return
+        }
+      }
+    } catch {
       return
     }
-
-    const position = nextPosition(input.sessionID, input.messageID)
-    if (position >= MAX_FILES) return
-    Database.use((db) =>
-      db
-        .insert(TurnChangeRestoreTable)
-        .values({
-          session_id: input.sessionID,
-          message_id: input.messageID,
-          file_path: input.path,
-          position,
-          data,
-          finalized: false,
-          time_created: time,
-          time_updated: time,
-        })
-        .run(),
-    )
   }
 
   export function finalize(input: { sessionID: SessionID; messageID: MessageID }) {
@@ -447,13 +478,18 @@ export namespace TurnChange {
     const rollback: Array<{ file: string; state: FileState }> = []
     try {
       for (const row of restore) {
-        rollback.push({ file: row.data.path, state: await currentState(row.data.path) })
+        const expected = input.mode === "undo" ? row.data.after : row.data.before
+        const current = await currentState(row.data.path)
+        if (!same(current, expected)) throw new RestoreConflictError(row.data.path, row.data.displayPath)
+        rollback.push({ file: row.data.path, state: current })
         await applyState(row.data.path, input.mode === "undo" ? row.data.before : row.data.after)
       }
-    } catch {
+    } catch (err) {
       for (const item of rollback.reverse()) {
         await applyState(item.file, item.state).catch(() => undefined)
       }
+      if (err instanceof RestoreConflictError)
+        return { status: "blocked", reason: "conflict", files: [{ path: err.displayPath, reason: "changed" }] }
       return { status: "blocked", reason: "write_failed", files: rollback.map((item) => ({ path: displayPath(item.file), reason: "rollback" })) }
     }
 
