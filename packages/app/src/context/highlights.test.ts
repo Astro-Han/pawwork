@@ -157,7 +157,7 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     const highlights = loadReleaseHighlights(payload, "2026.4.29", "2026.4.28", "zh")
     expect(highlights).toHaveLength(1)
     expect(highlights[0].description).toBe(
-      "• 刷新桌面界面\n• 修复首次进入 Home 时左右侧栏默认打开的问题\n• 移除内置 Trash 工具\n• 提升 session 稳定性\n• 新增前台 subagent 生命周期支持\n• 默认启用 open permissions\n• 修复 Windows 拖拽上传",
+      "PawWork 2026.4.29 刷新桌面界面。\n• 刷新桌面界面\n• 修复首次进入 Home 时左右侧栏默认打开的问题\n• 移除内置 Trash 工具\n• 提升 session 稳定性\n• 新增前台 subagent 生命周期支持\n• 默认启用 open permissions\n• 修复 Windows 拖拽上传",
     )
   })
 
@@ -355,5 +355,28 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
 
     expect(highlights).toHaveLength(15)
     expect(highlights.at(-1)?.title).toBe("Card 15")
+  })
+
+  test("preserves intro prose before bullets in mixed content notices", () => {
+    const payload = [
+      {
+        tag_name: "v1.0.0",
+        body: [
+          "## App Update Notice",
+          "",
+          "Important migration note for this release.",
+          "",
+          "- Fixed crash on startup",
+          "- Added dark mode support",
+        ].join("\n"),
+      },
+    ]
+
+    const highlights = loadReleaseHighlights(payload, "1.0.0", "0.9.0", "en")
+
+    expect(highlights).toHaveLength(1)
+    expect(highlights[0].description).toBe(
+      "Important migration note for this release.\n• Fixed crash on startup\n• Added dark mode support",
+    )
   })
 })

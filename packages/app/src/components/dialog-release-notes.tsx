@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js"
+import { createEffect, createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -20,6 +20,7 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
   const language = useLanguage()
   const settings = useSettings()
   const [index, setIndex] = createSignal(0)
+  let descriptionRef: HTMLParagraphElement | undefined
 
   const total = () => props.highlights.length
   const last = () => Math.max(0, total() - 1)
@@ -27,6 +28,12 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
   const isFirst = () => index() === 0
   const isLast = () => index() >= last()
   const paged = () => total() > 1
+
+  createEffect(() => {
+    // Reset scroll position when page changes
+    index()
+    if (descriptionRef) descriptionRef.scrollTop = 0
+  })
 
   function handleNext() {
     if (isLast()) return
@@ -77,6 +84,7 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
               </h1>
             </div>
             <p
+              ref={descriptionRef}
               role="region"
               aria-labelledby="release-notes-title"
               tabIndex={0}

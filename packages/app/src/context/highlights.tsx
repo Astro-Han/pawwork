@@ -100,6 +100,8 @@ type ParsedNotice =
   | {
       kind: "bullets"
       items: string[]
+      intro?: string
+      outro?: string
     }
   | {
       kind: "summary"
@@ -115,22 +117,34 @@ function parseNoticeContent(notice: string | undefined): ParsedNotice | undefine
     .filter((line) => line.length > 0 && !line.startsWith("#"))
 
   const bullets: string[] = []
+  const prose: string[] = []
   let currentBullet: string | undefined
+  let hasSeenBullet = false
+
   for (const line of lines) {
     const match = line.match(/^(?:[-*+]\s+|\d+\.\s+)(.+)$/)
     if (match) {
       if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
       currentBullet = match[1].trim()
+      hasSeenBullet = true
       continue
     }
-    if (currentBullet) currentBullet += ` ${line}`
+
+    if (currentBullet) {
+      currentBullet += ` ${line}`
+    } else if (!hasSeenBullet) {
+      prose.push(line)
+    }
+    // trailing prose after last bullet is ignored (intentionally)
   }
   if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
 
   if (bullets.length > 0) {
+    const intro = prose.length > 0 ? trimNoticeItem(prose.join(" ")) : undefined
     return {
       kind: "bullets",
       items: bullets,
+      ...(intro ? { intro } : {}),
     }
   }
 
@@ -153,7 +167,11 @@ function parseReleaseBodyNotice(body: string, locale: ReleaseLocale): ParsedNoti
 
 function formatReleaseNoticeDescription(notice: ParsedNotice) {
   if (notice.kind === "bullets") {
-    return notice.items.map((item) => `• ${item}`).join("\n")
+    const bullets = notice.items.map((item) => `• ${item}`).join("\n")
+    if (notice.intro) {
+      return `${notice.intro}\n${bullets}`
+    }
+    return bullets
   }
 
   return notice.text
