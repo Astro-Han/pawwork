@@ -562,6 +562,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
         await appendFile(path, `${JSON.stringify(sanitized)}\n`, "utf8")
         await maybeFlushRetention()
       })
+      writeFailed = false
       return { ok: true as const }
     } catch {
       writeFailed = true
@@ -571,12 +572,12 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
 
   const slice = async (input: SliceInput & { windowID?: string | number }) => {
     if (options.disabled) return emptyRendererDiagnosticsSlice("disabled", now())
-    if (writeFailed) return emptyRendererDiagnosticsSlice("write_failed", now())
     const report = await readEventReport()
-    if (report.status === "missing") return emptyRendererDiagnosticsSlice("missing", now())
+    if (report.status === "missing") return emptyRendererDiagnosticsSlice(writeFailed ? "write_failed" : "missing", now())
     if (report.status === "corrupt" || (report.events.length === 0 && report.corruptLineCount > 0)) {
-      return emptyRendererDiagnosticsSlice("corrupt", now())
+      return emptyRendererDiagnosticsSlice(writeFailed && report.status === "corrupt" ? "write_failed" : "corrupt", now())
     }
+    writeFailed = false
     const events = report.events
     if (events.length === 0) return emptyRendererDiagnosticsSlice("missing", now())
     const windowID = input.windowID === undefined ? undefined : String(input.windowID)

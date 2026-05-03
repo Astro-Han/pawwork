@@ -582,7 +582,7 @@ registerIpcHandlers({
   loadingWindowComplete: () => loadingComplete.resolve(),
   runUpdater: async (alertOnFail) => checkForUpdates(alertOnFail),
   checkUpdate: async () => checkUpdate(),
-  reportProblem: (input) => reportProblem(input),
+  reportProblem: (input, context) => reportProblem(input, context),
   recordRendererDiagnostic: (event, context) => rendererDiagnostics.record(event, context),
   exportRendererDiagnostics: exportDiagnosticsFromMenu,
   rendererDiagnosticsSlice: ({ sessionID, windowID, maxBytes }) =>

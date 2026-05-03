@@ -216,7 +216,6 @@ export default function Page() {
     routeSessionID: () => params.id,
     visibleSessionID: timelineSessionID,
     timelineSessionID,
-    emit: emitRendererDiagnostic,
   })
 
   createEffect(() => {

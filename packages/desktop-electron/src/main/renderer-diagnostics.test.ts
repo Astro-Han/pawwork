@@ -381,6 +381,46 @@ describe("renderer diagnostics recorder", () => {
     ).toBe("expired")
   })
 
+  test("recovers slices after a transient write failure", async () => {
+    const parent = await tempRoot()
+    const root = join(parent, "blocked")
+    await writeFile(root, "not a directory", "utf8")
+    const recorder = createRendererDiagnosticsRecorder({
+      root,
+      appLaunchID: "launch_1",
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+    })
+
+    expect(
+      (await recorder.record({ name: "session.action.submit", data: { action: "submit_prompt" } }, { windowID: 1 }))
+        .reason,
+    ).toBe("write_failed")
+    expect((await recorder.slice({ sessionID: "ses_1", maxBytes: 1024 })).status).toBe("write_failed")
+
+    await rm(root, { force: true })
+    expect(
+      (
+        await recorder.record(
+          {
+            name: "session.action.submit",
+            route_session_id: "ses_1",
+            data: { action: "submit_prompt" },
+          },
+          { windowID: 1 },
+        )
+      ).ok,
+    ).toBe(true)
+
+    const slice = await recorder.slice({
+      sessionID: "ses_1",
+      maxBytes: 1024,
+      from: new Date("2026-05-02T10:30:00.000Z"),
+      to: new Date("2026-05-02T10:31:00.000Z"),
+    })
+    expect(slice.status).toBe("ok")
+    expect(slice.events).toHaveLength(1)
+  })
+
   test("global export wraps diagnostics as JSON and caps old events", async () => {
     const root = await tempRoot()
     const source = join(root, "renderer-diagnostics.jsonl")
