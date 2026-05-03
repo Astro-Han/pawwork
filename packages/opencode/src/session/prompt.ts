@@ -148,7 +148,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
     targetHash,
     outcome: "success",
   })
-  const decision = failureDecision.action !== "observe" ? failureDecision : successDecision
+  const decision = SessionDiagnostics.chooseGateDecision(failureDecision, successDecision)
 
   if (decision.action === "observe") return { kind: "observe" } satisfies GateOutcome
 

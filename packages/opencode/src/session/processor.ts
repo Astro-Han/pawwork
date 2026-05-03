@@ -312,16 +312,19 @@ export const layer: Layer.Layer<
         for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           let stepIndex = 0
+          let sawStepStart = false
           for (const part of message.parts) {
             if (part.type === "step-start") {
+              sawStepStart = true
               stepIndex += 1
               continue
             }
-            if (message.info.id === ctx.assistantMessage.id) currentStepIndex = stepIndex
+            const currentMessage = message.info.id === ctx.assistantMessage.id
+            if (currentMessage) currentStepIndex = sawStepStart ? stepIndex : stepIndex + 1
             if (part.type !== "tool") continue
             const loop = toolDiagnostics(part)?.loop
             if (!loop) continue
-            const observedStepIndex = message.info.id === ctx.assistantMessage.id ? stepIndex : -1
+            const observedStepIndex = currentMessage ? (sawStepStart ? stepIndex : stepIndex + 1) : -1
             const loopWithStep = { ...loop, stepIndex: loop.stepIndex ?? observedStepIndex }
             if (loop.loopAction === "stop") hasStoppedOut = true
             if (loop.loopAction === "block" && loop.loopSigKey) syntheticBlockSigKeysOut.push(loop.loopSigKey)

@@ -558,8 +558,8 @@ export namespace SessionDiagnostics {
       const s = state.signatures[sigKey]
       if (!s) continue
       if (s.completedCount >= LOOP_THRESHOLDS.reminderAt && s.recoverEmitted) {
-        const nextOccurrenceCount = s.completedCount + 1
-        if (nextOccurrenceCount >= LOOP_THRESHOLDS.stopAt && (state.autoResumeSpent || s.blockEmitted)) {
+        const nextOccurrenceCount = s.completedCount + (s.blockEmitted ? 2 : 1)
+        if (nextOccurrenceCount >= LOOP_THRESHOLDS.stopAt && state.autoResumeSpent) {
           return {
             action: "stop",
             sigKey,
@@ -585,6 +585,14 @@ export namespace SessionDiagnostics {
     }
 
     return { action: "observe" }
+  }
+
+  export function chooseGateDecision(failureDecision: GateDecision, successDecision: GateDecision): GateDecision {
+    if (failureDecision.action === "stop") return failureDecision
+    if (successDecision.action === "stop") return successDecision
+    if (failureDecision.action === "block") return failureDecision
+    if (successDecision.action === "block") return successDecision
+    return failureDecision
   }
 
   export function mergeMetadata<T extends Record<string, any> | undefined>(current: T, update: Metadata): NonNullable<T> & Metadata {

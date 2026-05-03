@@ -157,7 +157,6 @@ describe("SessionDiagnostics.queryGateAction", () => {
         successfulCallRecord(url),
         successfulCallRecord(url),
         successfulCallRecord(url, [sigKey]),
-        successfulCallRecord(url),
       ],
       errorRecords: [],
       syntheticBlockSigKeys: [sigKey],
@@ -174,6 +173,29 @@ describe("SessionDiagnostics.queryGateAction", () => {
 
     expect(decision.action).toBe("stop")
     if (decision.action === "stop") expect(decision.nextOccurrenceCount).toBe(5)
+  })
+
+  test("chooses stop over block across success and failure decisions", () => {
+    const successStop = {
+      action: "stop",
+      sigKey: "success:input:webfetch:aaa",
+      outcome: "success",
+      kind: "input",
+      completedCount: 3,
+      nextOccurrenceCount: 5,
+    } satisfies SessionDiagnostics.GateDecision
+    const failureBlock = {
+      action: "block",
+      sigKey: "failure:input:webfetch:aaa",
+      outcome: "failure",
+      kind: "input",
+      completedCount: 3,
+      completedFailures: 3,
+      nextOccurrenceCount: 4,
+    } satisfies SessionDiagnostics.GateDecision
+
+    expect(SessionDiagnostics.chooseGateDecision(failureBlock, successStop)).toBe(successStop)
+    expect(SessionDiagnostics.chooseGateDecision(successStop, failureBlock)).toBe(successStop)
   })
 
   test("does not block same-step parallel successful repeats before the model can react", () => {
@@ -363,8 +385,6 @@ describe("SessionDiagnostics.queryGateAction", () => {
       failingErrorRecord(url),
       failingErrorRecord(url),
       failingErrorRecord(url, [sigKey]),
-      failingErrorRecord(url),
-      failingErrorRecord(url),
     ]
     const state = SessionDiagnostics.deriveParentLoopState({
       errorRecords: records,
