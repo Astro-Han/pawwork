@@ -129,7 +129,7 @@ export function SessionContextTab() {
       }),
   )
 
-  const metrics = createMemo(() => getSessionContextMetrics(messages(), providers.all()))
+  const metrics = createMemo(() => getSessionContextMetrics(messages(), providers.all(), sync.data.config))
   const ctx = createMemo(() => metrics().context)
   const formatter = createMemo(() => createSessionContextFormatter(language.intl()))
 
@@ -198,7 +198,9 @@ export function SessionContextTab() {
     { label: "context.stats.messages", value: () => counts().all.toLocaleString(language.intl()) },
     { label: "context.stats.provider", value: providerLabel },
     { label: "context.stats.model", value: modelLabel },
-    { label: "context.stats.limit", value: () => formatter().number(ctx()?.limit) },
+    { label: "context.stats.contextWindow", value: () => formatter().number(ctx()?.contextWindow) },
+    { label: "context.stats.inputLimit", value: () => formatter().number(ctx()?.effectiveInputLimit) },
+    { label: "context.stats.compactThreshold", value: () => formatter().number(ctx()?.compactThreshold) },
     { label: "context.stats.totalTokens", value: () => formatter().number(ctx()?.total) },
     { label: "context.stats.usage", value: () => formatter().percent(ctx()?.usage) },
     { label: "context.stats.inputTokens", value: () => formatter().number(ctx()?.input) },

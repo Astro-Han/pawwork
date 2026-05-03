@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/language"
 import { useProviders } from "@/hooks/use-providers"
 import { getSessionContextMetrics } from "@/components/session/session-context-metrics"
 import { useSessionLayout } from "@/pages/session/session-layout"
+import { contextUsageRingPercent, contextUsageTone } from "./session-context-usage-state"
 
 interface SessionContextUsageProps {
   variant?: "button" | "indicator"
@@ -23,8 +24,14 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const variant = createMemo(() => props.variant ?? "button")
   const messages = createMemo(() => (params.id ? (sync.data.message[params.id] ?? []) : []))
 
-  const metrics = createMemo(() => getSessionContextMetrics(messages(), providers.all()))
+  const metrics = createMemo(() => getSessionContextMetrics(messages(), providers.all(), sync.data.config))
   const context = createMemo(() => metrics().context)
+  const tone = createMemo(() => contextUsageTone(context()?.usage))
+  const ringColor = createMemo(() => {
+    if (tone() === "danger") return "var(--icon-error-base)"
+    if (tone() === "warning") return "var(--icon-warning-base)"
+    return "var(--border-active)"
+  })
   const cost = createMemo(() =>
     new Intl.NumberFormat(language.intl(), {
       style: "currency",
@@ -38,10 +45,21 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   }
 
   const circle = () => (
-    <div class="flex items-center justify-center">
-      <ProgressCircle size={16} strokeWidth={2} percentage={context()?.usage ?? 0} />
+    <div class="flex items-center justify-center" style={{ "--progress-circle-progress": ringColor() }}>
+      <ProgressCircle size={16} strokeWidth={2} percentage={contextUsageRingPercent(context()?.usage)} />
     </div>
   )
+
+  const compactStatus = () => {
+    const ctx = context()
+    if (!ctx) return undefined
+    if (ctx.effectiveInputLimit === undefined) return language.t("context.usage.limitUnknown")
+    if (!ctx.autoCompactEnabled) return language.t("context.usage.autoCompactOff")
+    if (ctx.compactThreshold === undefined) return undefined
+    return language.t("context.usage.autoCompactsAround", {
+      threshold: ctx.compactThreshold.toLocaleString(language.intl()),
+    })
+  }
 
   const tooltipValue = () => (
     <div>
@@ -49,13 +67,20 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
         {(ctx) => (
           <>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{ctx().total.toLocaleString(language.intl())}</span>
-              <span class="text-text-invert-base">{language.t("context.usage.tokens")}</span>
+              <span class="text-text-invert-strong">{language.t("context.usage.title")}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{ctx().usage ?? 0}%</span>
-              <span class="text-text-invert-base">{language.t("context.usage.usage")}</span>
+              <span class="text-text-invert-strong">
+                {ctx().usedTokens.toLocaleString(language.intl())}
+                {ctx().effectiveInputLimit !== undefined
+                  ? ` / ${ctx().effectiveInputLimit?.toLocaleString(language.intl())}`
+                  : ""}
+              </span>
+              <span class="text-text-invert-base">{language.t("context.usage.contextUsed")}</span>
             </div>
+            <Show when={compactStatus()}>
+              {(status) => <div class="text-text-invert-base">{status()}</div>}
+            </Show>
           </>
         )}
       </Show>
