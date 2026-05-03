@@ -11,7 +11,7 @@ import { ProjectTable } from "../../src/project/project.sql"
 import { ProjectID } from "../../src/project/schema"
 import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../../src/session/session.sql"
 import { SessionShareTable } from "../../src/share/share.sql"
-import { SessionID, MessageID, PartID } from "../../src/session/schema"
+import { SessionID, MessageID, PartID, TodoID } from "../../src/session/schema"
 
 // Test fixtures
 const fixtures = {
@@ -462,12 +462,19 @@ describe("JSON to SQLite migration", () => {
       time: { created: Date.now(), updated: Date.now() },
       sandboxes: [],
     })
+    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
+    await Bun.write(
+      path.join(storageDir, "todo", "ses_test456def.json"),
+      JSON.stringify([{ content: "One todo", status: "pending", priority: "high" }]),
+    )
 
     await JsonMigration.run(db)
     await JsonMigration.run(db)
 
     const projects = db.select().from(ProjectTable).all()
     expect(projects.length).toBe(1) // Still only 1 due to onConflictDoNothing
+    const todos = db.select().from(TodoTable).all()
+    expect(todos.length).toBe(1)
   })
 
   test("migrates todos", async () => {
@@ -504,12 +511,41 @@ describe("JSON to SQLite migration", () => {
 
     const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
     expect(todos.length).toBe(2)
+    expect(todos[0].id).toBe(TodoID.ascending("todo_1"))
     expect(todos[0].content).toBe("First todo")
     expect(todos[0].status).toBe("pending")
     expect(todos[0].priority).toBe("high")
     expect(todos[0].position).toBe(0)
+    expect(todos[1].id).toBe(TodoID.ascending("todo_2"))
     expect(todos[1].content).toBe("Second todo")
     expect(todos[1].position).toBe(1)
+  })
+
+  test("replaces duplicate legacy todo ids during migration", async () => {
+    await writeProject(storageDir, {
+      id: "proj_test123abc",
+      worktree: "/test/path",
+      time: { created: Date.now(), updated: Date.now() },
+      sandboxes: [],
+    })
+    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
+
+    await Bun.write(
+      path.join(storageDir, "todo", "ses_test456def.json"),
+      JSON.stringify([
+        { id: "todo_duplicate", content: "First todo", status: "pending", priority: "high" },
+        { id: "todo_duplicate", content: "Second todo", status: "pending", priority: "medium" },
+      ]),
+    )
+
+    const stats = await JsonMigration.run(db)
+
+    expect(stats?.todos).toBe(2)
+    const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
+    expect(todos.length).toBe(2)
+    expect(todos[0].id).toBe(TodoID.ascending("todo_duplicate"))
+    expect(todos[1].id).toStartWith("todo_")
+    expect(todos[1].id).not.toBe(todos[0].id)
   })
 
   test("todos are ordered by position", async () => {
@@ -536,6 +572,7 @@ describe("JSON to SQLite migration", () => {
 
     expect(todos.length).toBe(3)
     expect(todos[0].content).toBe("Third")
+    expect(todos[0].id).toStartWith("todo_")
     expect(todos[0].position).toBe(0)
     expect(todos[1].content).toBe("First")
     expect(todos[1].position).toBe(1)

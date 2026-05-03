@@ -1,6 +1,6 @@
 import type { Part, Todo } from "@opencode-ai/sdk/v2"
 import { extractTodos } from "@/pages/session/session-status-extractors"
-import { todoPhase, todoSnapshot, type TodoSnapshot } from "./todo-model"
+import { todoPhase, todoSnapshot, type SessionTodoItem, type TodoSnapshot } from "./todo-model"
 
 export type SessionTodoSource = {
   sessionID?: string
@@ -13,7 +13,7 @@ export type SelectSessionTodosInput = {
   fallback?: SessionTodoSource
 }
 
-const partTodos = (parts: Part[]) => extractTodos(parts) as Todo[]
+const partTodos = (parts: Part[]) => extractTodos(parts)
 
 // Data snapshots are for status displays and should preserve the latest todo
 // list even when it is terminal. Dock snapshots below apply the stricter UI
@@ -101,9 +101,6 @@ export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): T
   return todoSnapshot({ sessionID: input.primary.sessionID, source: "none", items: [], dockEligible: false })
 }
 
-// Deprecated compatibility alias. Prefer explicit data or dock snapshot names.
-export const selectSessionTodoSnapshot = selectSessionTodoDockSnapshot
-
-export function selectSessionTodos(input: SessionTodoSource & { fallback?: SessionTodoSource }): Todo[] {
+export function selectSessionTodos(input: SessionTodoSource & { fallback?: SessionTodoSource }): SessionTodoItem[] {
   return selectSessionTodoDataSnapshot({ primary: input, fallback: input.fallback }).items
 }

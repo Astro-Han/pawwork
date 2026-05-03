@@ -1,11 +1,10 @@
 import { createEffect, createMemo, on, onCleanup, onMount } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { Todo } from "@opencode-ai/sdk/v2"
 import { useGlobalSync } from "@/context/global-sync"
 import { useSync } from "@/context/sync"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
 import { reduceTodoDockState, TODO_DOCK_COMPLETING_DELAY_MS, todoDockHiddenState } from "./todo-dock-machine"
-import { todoSnapshot, type TodoSnapshot } from "./todo-model"
+import { todoSnapshot, type SessionTodoItem, type TodoSnapshot } from "./todo-model"
 import { selectSessionTodoDockSnapshot } from "./todo-source"
 
 const dockInput = (snapshot: TodoSnapshot, sessionID?: string) => ({
@@ -27,7 +26,7 @@ export function createSessionTodoModel(input: {
 
   const [test, setTest] = createStore({
     on: false,
-    todos: undefined as Todo[] | undefined,
+    todos: undefined as SessionTodoItem[] | undefined,
   })
 
   const pull = () => {

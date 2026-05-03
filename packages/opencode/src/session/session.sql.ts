@@ -1,11 +1,11 @@
-import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
 import type { SessionEntry } from "../v2/session-entry"
 import type { Snapshot } from "../snapshot"
 import type { Permission } from "../permission"
 import type { ProjectID } from "../project/schema"
-import type { SessionID, MessageID, PartID } from "./schema"
+import type { SessionID, MessageID, PartID, TodoID } from "./schema"
 import type { WorkspaceID } from "../control-plane/schema"
 import { Timestamps } from "../storage/schema.sql"
 
@@ -95,6 +95,7 @@ export const PartTable = sqliteTable(
 export const TodoTable = sqliteTable(
   "todo",
   {
+    id: text().$type<TodoID>().primaryKey(),
     session_id: text()
       .$type<SessionID>()
       .notNull()
@@ -106,8 +107,8 @@ export const TodoTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
-    primaryKey({ columns: [table.session_id, table.position] }),
     index("todo_session_idx").on(table.session_id),
+    uniqueIndex("todo_session_position_idx").on(table.session_id, table.position),
   ],
 )
 

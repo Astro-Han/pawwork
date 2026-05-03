@@ -67,6 +67,24 @@ describe("reduceTodoDockState", () => {
     expect(reduceTodoDockState(completing, { type: "snapshot", input: terminal("s", "completed") })).toBe(completing)
   })
 
+  test("terminal replacement with same statuses but new lifecycle signature updates completing state", () => {
+    const shown = reduceTodoDockState(todoDockHiddenState(), { type: "snapshot", input: active("s") })
+    const completing = reduceTodoDockState(shown, {
+      type: "snapshot",
+      input: terminal("s", JSON.stringify([["todo_1", "completed"]])),
+    })
+
+    const replaced = reduceTodoDockState(completing, {
+      type: "snapshot",
+      input: terminal("s", JSON.stringify([["todo_2", "completed"]])),
+    })
+
+    expect(replaced).toMatchObject({
+      kind: "visible-completing",
+      lifecycleSignature: JSON.stringify([["todo_2", "completed"]]),
+    })
+  })
+
   test("empty hides immediately", () => {
     const shown = reduceTodoDockState(todoDockHiddenState(), { type: "snapshot", input: active() })
 
