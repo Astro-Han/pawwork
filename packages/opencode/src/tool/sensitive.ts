@@ -82,22 +82,29 @@ function isSensitiveMetadata(value: unknown): boolean {
   return false
 }
 
-function sensitivePatchPaths(patchText: string) {
-  const paths: string[] = []
-  for (const match of patchText.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)) {
-    paths.push(match[1]!.trim())
+function sensitivePatchEntries(patchText: string) {
+  const entries: Array<{ file: string; status: SensitiveStatus }> = []
+  for (const match of patchText.matchAll(/^\*\*\* (Add|Update|Delete) File: (.+)$/gm)) {
+    const type = match[1]!
+    const file = match[2]!.trim()
+    if (!isSensitivePath(file)) continue
+    entries.push({
+      file,
+      status: type === "Add" ? "added" : type === "Delete" ? "deleted" : "modified",
+    })
   }
   for (const match of patchText.matchAll(/^\*\*\* Move to: (.+)$/gm)) {
-    paths.push(match[1]!.trim())
+    const file = match[1]!.trim()
+    if (isSensitivePath(file)) entries.push({ file, status: "modified" })
   }
-  return paths.filter(isSensitivePath)
+  return entries
 }
 
 function isSensitiveInput(value: unknown): boolean {
   const input = object(value)
   if (!input) return false
   if (typeof input.filePath === "string" && isSensitivePath(input.filePath)) return true
-  if (typeof input.patchText === "string" && sensitivePatchPaths(input.patchText).length > 0) return true
+  if (typeof input.patchText === "string" && sensitivePatchEntries(input.patchText).length > 0) return true
   return false
 }
 
@@ -167,7 +174,7 @@ export function sanitizeSensitiveToolInput(tool: string, input: unknown, metadat
   }
   if (tool === "apply_patch" && typeof value.patchText === "string") {
     return {
-      files: sensitivePatchPaths(value.patchText).map((file) => ({ file, status: "modified", sensitive: true })),
+      files: sensitivePatchEntries(value.patchText).map((entry) => ({ ...entry, sensitive: true })),
       sensitive: true,
     }
   }
