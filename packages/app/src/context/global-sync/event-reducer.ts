@@ -15,6 +15,7 @@ import type { State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { diffs as list, message as clean } from "@/utils/diffs"
+import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
@@ -95,6 +96,7 @@ export function applyDirectoryEvent(input: {
   loadLsp: () => void
   vcsCache?: VcsCache
   setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
+  blockerTerminals?: ReturnType<typeof createBlockerTerminalCache>
 }) {
   const event = input.event
   switch (event.type) {
@@ -277,6 +279,7 @@ export function applyDirectoryEvent(input: {
     }
     case "permission.asked": {
       const permission = event.properties as PermissionRequest
+      if (input.blockerTerminals?.has("permission", input.directory, permission.sessionID, permission.id)) break
       const permissions = input.store.permission[permission.sessionID]
       if (!permissions) {
         input.setStore("permission", permission.sessionID, [permission])
@@ -298,6 +301,7 @@ export function applyDirectoryEvent(input: {
     }
     case "permission.replied": {
       const props = event.properties as { sessionID: string; requestID: string }
+      input.blockerTerminals?.mark("permission", input.directory, props.sessionID, props.requestID)
       const permissions = input.store.permission[props.sessionID]
       if (!permissions) break
       const result = Binary.search(permissions, props.requestID, (p) => p.id)
@@ -313,6 +317,7 @@ export function applyDirectoryEvent(input: {
     }
     case "question.asked": {
       const question = event.properties as QuestionRequest
+      if (input.blockerTerminals?.has("question", input.directory, question.sessionID, question.id)) break
       const questions = input.store.question[question.sessionID]
       if (!questions) {
         input.setStore("question", question.sessionID, [question])
@@ -335,6 +340,7 @@ export function applyDirectoryEvent(input: {
     case "question.replied":
     case "question.rejected": {
       const props = event.properties as { sessionID: string; requestID: string }
+      input.blockerTerminals?.mark("question", input.directory, props.sessionID, props.requestID)
       const questions = input.store.question[props.sessionID]
       if (!questions) break
       const result = Binary.search(questions, props.requestID, (q) => q.id)
