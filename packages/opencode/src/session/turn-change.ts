@@ -130,7 +130,9 @@ function displayPath(file: string) {
   if (file.startsWith(worktree + path.sep) || file === worktree) return path.relative(worktree, file).replaceAll("\\", "/")
   const home = Global.Path.home
   if (home && (file === home || file.startsWith(home + path.sep))) return `~/${path.relative(home, file).replaceAll("\\", "/")}`
-  return file
+  const parent = path.basename(path.dirname(file))
+  const name = path.basename(file)
+  return parent ? `${parent}/${name}` : name
 }
 
 function byteSize(text: string) {

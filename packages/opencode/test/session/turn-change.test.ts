@@ -107,6 +107,67 @@ describe("TurnChange", () => {
     })
   })
 
+  test("finalizes files in first-write order", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const second = path.join(fixture.path, "second.txt")
+        const first = path.join(fixture.path, "first.txt")
+
+        TurnChange.recordWrite({
+          ...turn,
+          path: second,
+          before: { exists: false },
+          after: { exists: true, content: "second\n" },
+        })
+        TurnChange.recordWrite({
+          ...turn,
+          path: first,
+          before: { exists: false },
+          after: { exists: true, content: "first\n" },
+        })
+        TurnChange.recordWrite({
+          ...turn,
+          path: second,
+          before: { exists: true, content: "second\n" },
+          after: { exists: true, content: "second updated\n" },
+        })
+
+        const display = TurnChange.finalize(turn)
+
+        expect(display?.files.map((file) => file.path)).toEqual(["second.txt", "first.txt"])
+      },
+    })
+  })
+
+  test("finalizes external files without persisting absolute display paths", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const external = path.join(path.dirname(fixture.path), "outside-project", "external.txt")
+
+        TurnChange.recordWrite({
+          ...turn,
+          path: external,
+          before: { exists: false },
+          after: { exists: true, content: "external\n" },
+        })
+
+        const display = TurnChange.finalize(turn)
+
+        expect(display?.files[0]?.path).toBe("outside-project/external.txt")
+        expect(JSON.stringify(display)).not.toContain(path.dirname(fixture.path))
+        expect(TurnChange.get(turn)?.files[0]?.openPath).toBe(external)
+      },
+    })
+  })
+
   test("finalizes file-limit overflow as an explicit truncated display", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
