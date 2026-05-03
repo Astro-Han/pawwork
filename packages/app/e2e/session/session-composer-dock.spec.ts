@@ -773,6 +773,55 @@ test("todo dock auto-hides after all todos complete", async ({ page, project }) 
   )
 })
 
+test("todo dock keeps the original hide timer during terminal-only refreshes", async ({ page, project }) => {
+  await project.open()
+  await page.clock.install()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todo unchanged terminal refresh",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      try {
+        await dock.open([
+          { content: "first task", status: "pending", priority: "high" },
+          { content: "second task", status: "in_progress", priority: "medium" },
+          { content: "third task", status: "pending", priority: "medium" },
+          { content: "fourth task", status: "pending", priority: "low" },
+        ])
+        await dock.expectCollapsed(["pending", "in_progress", "pending", "pending"])
+
+        const completed = [
+          { content: "first task", status: "completed", priority: "high" },
+          { content: "second task", status: "completed", priority: "medium" },
+          { content: "third task", status: "completed", priority: "medium" },
+          { content: "fourth task", status: "completed", priority: "low" },
+        ] as const
+
+        await dock.finish([
+          { ...completed[0], content: "first task done" },
+          { ...completed[1], content: "second task done" },
+          { ...completed[2], content: "third task done" },
+          { ...completed[3], content: "fourth task done" },
+        ])
+        await dock.expectState({ dock: true, completing: true, count: 4 })
+        await page.clock.fastForward(2_500)
+
+        await dock.finish([...completed])
+        await dock.expectState({ dock: true, completing: true, count: 4 })
+        await page.clock.fastForward(500)
+
+        await dock.expectState({ dock: false, completing: false, count: 4 })
+        await dock.expectDockGone()
+      } finally {
+        await dock.clear()
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("todo dock appears from real todowrite tool parts", async ({ page, llm, project }) => {
   await project.open()
   await withDockSession(

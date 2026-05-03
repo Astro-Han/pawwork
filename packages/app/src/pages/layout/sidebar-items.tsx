@@ -13,7 +13,7 @@ import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
-import { sessionPermissionRequest } from "../session/composer/session-request-tree"
+import { sessionPermissionRequest } from "../session/blockers/request-tree"
 import { createSessionRunning } from "../session/session-running-state"
 import { childSessionOnPath, hasProjectPermissions } from "./helpers"
 
