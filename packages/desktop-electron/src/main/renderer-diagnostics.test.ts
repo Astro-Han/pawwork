@@ -299,6 +299,49 @@ describe("renderer diagnostics recorder", () => {
     expect(JSON.stringify(slice)).not.toContain("x".repeat(1000))
   })
 
+  test("slice re-sanitizes stored JSONL before exporting diagnostics", async () => {
+    const root = await tempRoot()
+    const recorder = createRendererDiagnosticsRecorder({ root, appLaunchID: "launch_1" })
+    await writeFile(
+      recorder.path,
+      JSON.stringify({
+        time: "2026-05-02T10:30:12.123Z",
+        level: "warn",
+        "event.name": "session.action.submit",
+        app_launch_id: "launch_1",
+        window_id: "1",
+        route_session_id: "ses_1",
+        trace_id: "https://example.com/token=secret",
+        data: {
+          action: "submit_prompt",
+          provider: "https://provider.example.com/v1?token=secret",
+          model: "deepseek.v4",
+          prompt_text: "do not export",
+        },
+      }) + "\n",
+      "utf8",
+    )
+
+    const slice = await recorder.slice({
+      sessionID: "ses_1",
+      maxBytes: 1024,
+      from: new Date("2026-05-02T10:30:00.000Z"),
+      to: new Date("2026-05-02T10:31:00.000Z"),
+    })
+
+    expect(slice.events).toHaveLength(1)
+    expect(slice.events[0]).toMatchObject({
+      "event.name": "session.action.submit",
+      data: {
+        action: "submit_prompt",
+        model: "deepseek.v4",
+      },
+    })
+    expect(slice.events[0]?.trace_id).toBeUndefined()
+    expect(JSON.stringify(slice)).not.toContain("token=secret")
+    expect(JSON.stringify(slice)).not.toContain("do not export")
+  })
+
   test("reports missing, disabled, corrupt, and expired statuses without throwing", async () => {
     const root = await tempRoot()
     const missing = createRendererDiagnosticsRecorder({ root, appLaunchID: "launch_1" })

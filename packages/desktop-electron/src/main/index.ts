@@ -235,11 +235,11 @@ type FeedbackRuntimeContext = {
   windowID?: number
 }
 
-function currentFeedbackRuntimeContext(): FeedbackRuntimeContext {
-  const win = BrowserWindow.getFocusedWindow()
+function currentFeedbackRuntimeContext(override?: { windowID?: number }): FeedbackRuntimeContext {
+  const win = override?.windowID ? BrowserWindow.fromId(override.windowID) : BrowserWindow.getFocusedWindow()
   return {
-    desktop: desktopContexts.current(win?.id),
-    windowID: win?.id,
+    desktop: desktopContexts.current(override?.windowID ?? win?.id),
+    windowID: override?.windowID ?? win?.id,
   }
 }
 

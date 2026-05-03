@@ -212,6 +212,20 @@ describe("feedback handler", () => {
     expect(diagnosticsContext).toBe("active")
   })
 
+  test("passes IPC sender window override to context snapshot", async () => {
+    let receivedOverride: unknown
+    const subject = setup({
+      context: (override) => {
+        receivedOverride = override
+        return "active"
+      },
+    })
+
+    await subject.handler(undefined, { windowID: 7 })
+
+    expect(receivedOverride).toEqual({ windowID: 7 })
+  })
+
   test("session export failure downgrades report", async () => {
     const subject = setup({
       sessionExport: async () => {

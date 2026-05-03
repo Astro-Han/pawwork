@@ -1,5 +1,6 @@
 import { createEffect, on, onCleanup, untrack } from "solid-js"
 import { getSessionPrefetch, SESSION_PREFETCH_TTL } from "@/context/global-sync/session-prefetch"
+import type { RendererDiagnosticInput } from "@/context/platform"
 
 export function useSessionRefreshEffects(input: {
   directory: () => string
@@ -11,11 +12,94 @@ export function useSessionRefreshEffects(input: {
   hasTodoCache: (sessionID: string) => boolean
   syncSession: (sessionID: string, options?: { force?: boolean }) => void | Promise<void>
   syncTodo: (sessionID: string, options?: { force?: boolean }) => void | Promise<void>
+  emitRendererDiagnostic?: (event: RendererDiagnosticInput) => void | Promise<void>
 }) {
   let refreshFrame: number | undefined
   let refreshTimer: number | undefined
   let todoFrame: number | undefined
   let todoTimer: number | undefined
+
+  const emitRefresh = (event: RendererDiagnosticInput) => {
+    void input.emitRendererDiagnostic?.(event)
+  }
+
+  const syncSessionWithDiagnostics = (id: string, options: { force?: boolean } | undefined, cachePresent: boolean) => {
+    const startedAt = performance.now()
+    const phase = options?.force ? "message_force" : "message"
+    emitRefresh({
+      name: "session.data.refresh",
+      route_session_id: id,
+      visible_session_id: input.timelineSessionID(),
+      timeline_session_id: input.timelineSessionID(),
+      data: { phase: `${phase}_start`, cache_present: cachePresent },
+    })
+    void Promise.resolve(input.syncSession(id, options))
+      .then(() => {
+        emitRefresh({
+          name: "session.data.refresh",
+          route_session_id: id,
+          visible_session_id: input.timelineSessionID(),
+          timeline_session_id: input.timelineSessionID(),
+          data: {
+            phase: `${phase}_end`,
+            duration_ms: Math.round(performance.now() - startedAt),
+            cache_present: input.hasMessageCache(id),
+          },
+        })
+      })
+      .catch(() => {
+        emitRefresh({
+          name: "session.data.refresh",
+          route_session_id: id,
+          visible_session_id: input.timelineSessionID(),
+          timeline_session_id: input.timelineSessionID(),
+          data: {
+            phase: `${phase}_failed`,
+            duration_ms: Math.round(performance.now() - startedAt),
+            cache_present: input.hasMessageCache(id),
+          },
+        })
+      })
+  }
+
+  const syncTodoWithDiagnostics = (id: string, options: { force?: boolean } | undefined, cachePresent: boolean) => {
+    const startedAt = performance.now()
+    const phase = options?.force ? "todo_force" : "todo"
+    emitRefresh({
+      name: "session.data.refresh",
+      route_session_id: input.routeSessionID(),
+      visible_session_id: id,
+      timeline_session_id: id,
+      data: { phase: `${phase}_start`, cache_present: cachePresent },
+    })
+    void Promise.resolve(input.syncTodo(id, options))
+      .then(() => {
+        emitRefresh({
+          name: "session.data.refresh",
+          route_session_id: input.routeSessionID(),
+          visible_session_id: id,
+          timeline_session_id: id,
+          data: {
+            phase: `${phase}_end`,
+            duration_ms: Math.round(performance.now() - startedAt),
+            cache_present: input.hasTodoCache(id),
+          },
+        })
+      })
+      .catch(() => {
+        emitRefresh({
+          name: "session.data.refresh",
+          route_session_id: input.routeSessionID(),
+          visible_session_id: id,
+          timeline_session_id: id,
+          data: {
+            phase: `${phase}_failed`,
+            duration_ms: Math.round(performance.now() - startedAt),
+            cache_present: input.hasTodoCache(id),
+          },
+        })
+      })
+  }
 
   createEffect(
     on([input.directory, input.routeSessionID] as const, ([, id]) => {
@@ -34,7 +118,7 @@ export function useSessionRefreshEffects(input: {
             return Date.now() - info.at > SESSION_PREFETCH_TTL
           })()
       untrack(() => {
-        void input.syncSession(id)
+        syncSessionWithDiagnostics(id, undefined, cached)
       })
 
       refreshFrame = requestAnimationFrame(() => {
@@ -43,7 +127,7 @@ export function useSessionRefreshEffects(input: {
           refreshTimer = undefined
           if (input.routeSessionID() !== id) return
           untrack(() => {
-            if (stale) void input.syncSession(id, { force: true })
+            if (stale) syncSessionWithDiagnostics(id, { force: true }, cached)
           })
         }, 0)
       })
@@ -71,7 +155,7 @@ export function useSessionRefreshEffects(input: {
             todoTimer = undefined
             if (input.directory() !== dir || input.timelineSessionID() !== id) return
             untrack(() => {
-              void input.syncTodo(id, cached ? { force: true } : undefined)
+              syncTodoWithDiagnostics(id, cached ? { force: true } : undefined, cached)
             })
           }, 0)
         })

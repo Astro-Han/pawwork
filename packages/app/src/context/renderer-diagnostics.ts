@@ -69,13 +69,41 @@ export function detectSessionScrollJumpToTop(event: RendererDiagnosticInput): Re
 export function createRendererIncidentDetector() {
   const timelineMounts = new Map<string, { mounts: number; unmounts: number }>()
   const visibleCounts = new Map<string, number>()
+  const pendingVisibleClears = new Map<string, { before: number }>()
+  const lastScroll = new Map<string, { nearBottom: boolean }>()
+  const recentSubmits = new Map<string, { traceID?: string; monotonicMs: number }>()
 
   return (event: RendererDiagnosticInput) => {
     const incidents: RendererDiagnosticInput[] = []
-    const scrollIncident = detectSessionScrollJumpToTop(event)
-    if (scrollIncident) incidents.push(scrollIncident)
-
     const sessionKey = event.timeline_session_id ?? event.visible_session_id ?? event.route_session_id
+
+    if (sessionKey && event.name === "session.action.submit") {
+      recentSubmits.set(sessionKey, {
+        traceID: event.trace_id,
+        monotonicMs: event.monotonic_ms ?? performance.now(),
+      })
+    }
+
+    if (sessionKey && event.name === "session.scroll.sample") {
+      const scrollIncident = detectSessionScrollJumpToTop(event)
+      const distanceFromBottom = numericData(event, "distance_from_bottom")
+      const clientHeight = numericData(event, "client_height")
+      const nearBottom =
+        distanceFromBottom !== undefined && clientHeight !== undefined
+          ? distanceFromBottom <= Math.max(100, clientHeight / 2)
+          : false
+      const previous = lastScroll.get(sessionKey)
+      const submit = recentSubmits.get(sessionKey)
+      const monotonic = event.monotonic_ms ?? performance.now()
+      if (scrollIncident && previous?.nearBottom && submit && monotonic - submit.monotonicMs <= 2_000) {
+        incidents.push({
+          ...scrollIncident,
+          trace_id: scrollIncident.trace_id ?? submit.traceID,
+        })
+      }
+      lastScroll.set(sessionKey, { nearBottom })
+    }
+
     if (sessionKey && (event.name === "session.timeline.mount" || event.name === "session.timeline.unmount")) {
       const counts = timelineMounts.get(sessionKey) ?? { mounts: 0, unmounts: 0 }
       if (event.name === "session.timeline.mount") counts.mounts += 1
@@ -101,18 +129,24 @@ export function createRendererIncidentDetector() {
       const during = renderedCount(event)
       visibleCounts.set(sessionKey, during)
       if (before > 0 && during === 0) {
-        incidents.push({
-          name: "incident.session_visible_messages_cleared",
-          level: "warn",
-          route_session_id: event.route_session_id,
-          visible_session_id: event.visible_session_id,
-          timeline_session_id: event.timeline_session_id,
-          data: {
-            before_count: before,
-            during_count: during,
-            after_count: during,
-          },
-        })
+        pendingVisibleClears.set(sessionKey, { before })
+      } else if (during > 0) {
+        const pending = pendingVisibleClears.get(sessionKey)
+        if (pending) {
+          pendingVisibleClears.delete(sessionKey)
+          incidents.push({
+            name: "incident.session_visible_messages_cleared",
+            level: "warn",
+            route_session_id: event.route_session_id,
+            visible_session_id: event.visible_session_id,
+            timeline_session_id: event.timeline_session_id,
+            data: {
+              before_count: pending.before,
+              during_count: 0,
+              after_count: during,
+            },
+          })
+        }
       }
     }
 
@@ -125,8 +159,12 @@ const globalIncidentDetector = createRendererIncidentDetector()
 export async function emitRendererDiagnostic(event: RendererDiagnosticInput) {
   const api = typeof window === "undefined" ? undefined : window.api
   const emit = createRendererDiagnosticsEmitter({ api })
-  await emit(event)
-  for (const incident of globalIncidentDetector(event)) {
+  const timedEvent = {
+    ...event,
+    monotonic_ms: event.monotonic_ms ?? performance.now(),
+  }
+  await emit(timedEvent)
+  for (const incident of globalIncidentDetector(timedEvent)) {
     await emit(incident)
   }
 }
@@ -173,14 +211,17 @@ export function createSessionPerformanceDiagnostics(input: {
     const elapsedMs = Math.max(1, now - sampleStartedAt)
     const fps = Math.round((frameCount * 1000) / elapsedMs)
     const memory = performance as PerformanceWithMemory
+    const roundedFrameGap = Math.round(maxFrameGap)
+    const roundedLongTaskMax = Math.round(longTaskMax)
+    const base = baseEvent()
     void emit({
       name: "renderer.perf.sample",
-      ...baseEvent(),
+      ...base,
       data: {
         fps,
-        frame_gap_ms: Math.round(maxFrameGap),
+        frame_gap_ms: roundedFrameGap,
         jank_count: jankCount,
-        long_task_max_ms: Math.round(longTaskMax),
+        long_task_max_ms: roundedLongTaskMax,
         long_task_block_ms: Math.round(longTaskBlock),
         cls,
         heap_used_mb: memory.memory?.usedJSHeapSize
@@ -188,6 +229,22 @@ export function createSessionPerformanceDiagnostics(input: {
           : undefined,
       },
     })
+    if (cls >= 0.1) {
+      void emit({
+        name: "incident.session_layout_shift",
+        level: "warn",
+        ...base,
+        data: { cls, phase: "perf_sample" },
+      })
+    }
+    if (roundedLongTaskMax >= 100 || roundedFrameGap >= 250) {
+      void emit({
+        name: "incident.session_jank_burst",
+        level: "warn",
+        ...base,
+        data: { long_task_max_ms: roundedLongTaskMax, frame_gap_ms: roundedFrameGap, phase: "perf_sample" },
+      })
+    }
     frameCount = 0
     jankCount = 0
     maxFrameGap = 0

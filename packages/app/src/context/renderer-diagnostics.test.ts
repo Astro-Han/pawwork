@@ -119,7 +119,46 @@ describe("renderer diagnostics", () => {
     ).toBeUndefined()
   })
 
-  test("detects timeline remounts and cleared visible messages", () => {
+  test("detects scroll jumps after submit from a near-bottom state", () => {
+    const detect = createRendererIncidentDetector()
+    detect({
+      name: "session.action.submit",
+      route_session_id: "session-1",
+      visible_session_id: "session-1",
+      timeline_session_id: "session-1",
+      trace_id: "message-1",
+      monotonic_ms: 1000,
+      data: { action: "submit" },
+    })
+    expect(
+      detect({
+        name: "session.scroll.sample",
+        route_session_id: "session-1",
+        visible_session_id: "session-1",
+        timeline_session_id: "session-1",
+        monotonic_ms: 1200,
+        data: { scroll_top: 500, distance_from_bottom: 20, client_height: 500, user_scrolled: false },
+      }),
+    ).toEqual([])
+
+    expect(
+      detect({
+        name: "session.scroll.sample",
+        route_session_id: "session-1",
+        visible_session_id: "session-1",
+        timeline_session_id: "session-1",
+        monotonic_ms: 1300,
+        data: { scroll_top: 0, distance_from_bottom: 800, client_height: 500, user_scrolled: false },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        name: "incident.session_scroll_jump_to_top",
+        trace_id: "message-1",
+      }),
+    ])
+  })
+
+  test("detects timeline remounts and recovered visible message clears", () => {
     const detect = createRendererIncidentDetector()
 
     expect(detect({ name: "session.timeline.mount", timeline_session_id: "session-1", data: {} })).toEqual([])
@@ -133,10 +172,11 @@ describe("renderer diagnostics", () => {
         data: { timeline_mount_count: 2, timeline_unmount_count: 1 },
       }),
     ])
-    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 0 } })).toEqual([
+    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 0 } })).toEqual([])
+    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 4 } })).toEqual([
       expect.objectContaining({
         name: "incident.session_visible_messages_cleared",
-        data: { before_count: 5, during_count: 0, after_count: 0 },
+        data: { before_count: 5, during_count: 0, after_count: 4 },
       }),
     ])
   })

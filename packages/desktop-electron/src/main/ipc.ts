@@ -60,7 +60,7 @@ type Deps = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<UpdateInfo>
-  reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
+  reportProblem: (input?: ReportProblemInput, context?: { windowID?: number }) => Promise<ReportProblemResult>
   installUpdate: () => Promise<boolean> | boolean
   setBackgroundColor: (color: string) => void
   reportDeepLinkReady: (win: BrowserWindow | null) => void
@@ -149,9 +149,10 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
-  ipcMain.handle("report-problem", (_event: IpcMainInvokeEvent, input?: ReportProblemInput) =>
-    deps.reportProblem(input),
-  )
+  ipcMain.handle("report-problem", (event: IpcMainInvokeEvent, input?: ReportProblemInput) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return deps.reportProblem(input, { windowID: win?.id })
+  })
   ipcMain.handle("renderer-diagnostics:record", (event: IpcMainInvokeEvent, input: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return

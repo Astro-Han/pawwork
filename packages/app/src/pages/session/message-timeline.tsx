@@ -267,12 +267,23 @@ export function MessageTimeline(props: {
   const exportAvailable = createMemo(() => !!platform.exportSession && server.current?.type === "sidecar")
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
-  const visibleRangeData = () => {
+  const visibleRange = createMemo(() => {
     const ids = rendered()
+    const first = ids[0]
+    const last = ids.at(-1)
     return {
       rendered_count: ids.length,
-      visible_first_message_id: ids[0],
-      visible_last_message_id: ids.at(-1),
+      visible_first_message_id: first,
+      visible_last_message_id: last,
+      signature: `${ids.length}:${first ?? ""}:${last ?? ""}`,
+    }
+  })
+  const visibleRangeData = () => {
+    const range = visibleRange()
+    return {
+      rendered_count: range.rendered_count,
+      visible_first_message_id: range.visible_first_message_id,
+      visible_last_message_id: range.visible_last_message_id,
     }
   }
   const sessionKey = createMemo(() => props.sessionKey)
@@ -304,7 +315,7 @@ export function MessageTimeline(props: {
 
   createEffect(
     on(
-      () => rendered().join("\u0000"),
+      () => visibleRange().signature,
       () => {
         void emitRendererDiagnostic({
           name: "session.timeline.visible",

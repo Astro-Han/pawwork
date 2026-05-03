@@ -265,14 +265,38 @@ export function sanitizeRendererDiagnosticEvent(
 
 function parseEventLine(line: string): RendererDiagnosticEvent | undefined {
   try {
-    const value = JSON.parse(line) as RendererDiagnosticEvent
+    const value = JSON.parse(line) as Record<string, unknown>
     if (!value || typeof value !== "object") return undefined
-    if (typeof value.time !== "string") return undefined
-    if (typeof value["event.name"] !== "string") return undefined
-    if (typeof value.app_launch_id !== "string") return undefined
-    if (typeof value.window_id !== "string") return undefined
-    if (!value.data || typeof value.data !== "object" || Array.isArray(value.data)) return undefined
-    return value
+    const time = stringField(value.time, 80)
+    if (!time || !Number.isFinite(Date.parse(time))) return undefined
+    const name = stringField(value["event.name"], 120)
+    if (!name || !isAllowedEventName(name)) return undefined
+    const appLaunchID = stringField(value.app_launch_id, 120)
+    const windowID = stringField(value.window_id, 80)
+    if (!appLaunchID || !windowID) return undefined
+    const event: RendererDiagnosticEvent = {
+      time,
+      level: value.level === "warn" ? "warn" : "info",
+      "event.name": name,
+      app_launch_id: appLaunchID,
+      window_id: windowID,
+      data: sanitizeData(name, value.data),
+    }
+    const monotonic = numberField(value.monotonic_ms)
+    if (monotonic !== undefined) event.monotonic_ms = monotonic
+    const traceID = stringField(value.trace_id, 80)
+    if (traceID) event.trace_id = traceID
+    const routeID = stringField(value.route_session_id, 120)
+    if (routeID) event.route_session_id = routeID
+    const visibleID = stringField(value.visible_session_id, 120)
+    if (visibleID) event.visible_session_id = visibleID
+    const timelineID = stringField(value.timeline_session_id, 120)
+    if (timelineID) event.timeline_session_id = timelineID
+    const messageID = stringField(value.message_id, 120)
+    if (messageID) event.message_id = messageID
+    const partID = stringField(value.part_id, 120)
+    if (partID) event.part_id = partID
+    return event
   } catch {
     return undefined
   }
@@ -323,18 +347,26 @@ function isProtectedSliceContext(event: RendererDiagnosticEvent) {
 }
 
 function capEvents(events: RendererDiagnosticEvent[], maxBytes: number) {
-  let selected = events.slice()
+  const selected = events.map((event) => ({
+    event,
+    bytes: jsonBytes(event),
+  }))
+  let totalBytes =
+    selected.length === 0
+      ? Buffer.byteLength("[]", "utf8")
+      : 2 + selected.reduce((sum, item) => sum + item.bytes, 0) + selected.length - 1
   let omitted = 0
-  while (selected.length > 0 && jsonBytes(selected) > maxBytes) {
-    const removable = selected.findIndex((event) => !isProtectedSliceContext(event))
+  while (selected.length > 0 && totalBytes > maxBytes) {
+    const removable = selected.findIndex((item) => !isProtectedSliceContext(item.event))
     const index = removable >= 0 ? removable : 0
-    selected.splice(index, 1)
+    const [removed] = selected.splice(index, 1)
+    if (removed) totalBytes -= removed.bytes + (selected.length > 0 ? 1 : 0)
     omitted++
   }
   return {
-    events: selected,
+    events: selected.map((item) => item.event),
     omittedEventCount: omitted,
-    omittedBytes: Math.max(0, jsonBytes(events) - jsonBytes(selected)),
+    omittedBytes: Math.max(0, jsonBytes(events) - totalBytes),
   }
 }
 
@@ -509,7 +541,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
       if (!sanitized) return { ok: false as const, reason: "dropped" as const }
       if (highFrequencyEvents.has(sanitized["event.name"])) {
         const key = `${sanitized.window_id}:${sanitized["event.name"]}`
-        const current = Date.now()
+        const current = now().getTime()
         const previous = lastHighFrequency.get(key)
         if (previous !== undefined && current - previous < highFrequencyIntervalMs) {
           return { ok: false as const, reason: "rate_limited" as const }

@@ -24,10 +24,14 @@ type SaveReportInput = {
   markdown: string
 }
 
+type FeedbackContextOverride = {
+  windowID?: number
+}
+
 type FeedbackDeps = {
   feedbackUrl: string
   reportRoot: string
-  context?: () => unknown
+  context?: (override?: FeedbackContextOverride) => unknown
   confirm: (context?: unknown) => Promise<boolean>
   copy: (value: string) => Promise<void> | void
   openExternal: (url: string) => Promise<void> | void
@@ -193,11 +197,14 @@ async function rendererDiagnosticsWithTimeout(deps: FeedbackDeps, context: unkno
 export function createFeedbackHandler(deps: FeedbackDeps) {
   let inFlight: Promise<FeedbackResult> | undefined
 
-  async function runReportProblem(input: FeedbackInput = {}): Promise<FeedbackResult> {
+  async function runReportProblem(
+    input: FeedbackInput = {},
+    contextOverride?: FeedbackContextOverride,
+  ): Promise<FeedbackResult> {
     if (!deps.feedbackUrl) {
       return { status: "unavailable", summaryCopied: false, feedbackOpened: false, fullReport: { status: "none" } }
     }
-    const context = deps.context?.()
+    const context = deps.context?.(contextOverride)
     const needsConfirm = input.confirm ?? true
     if (needsConfirm) {
       const confirmed = await deps.confirm(context)
@@ -322,9 +329,12 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
         }
   }
 
-  return async function reportProblem(input?: FeedbackInput): Promise<FeedbackResult> {
+  return async function reportProblem(
+    input?: FeedbackInput,
+    contextOverride?: FeedbackContextOverride,
+  ): Promise<FeedbackResult> {
     if (inFlight) return inFlight
-    const next = runReportProblem(input)
+    const next = runReportProblem(input, contextOverride)
       .catch(async (error) => {
         try {
           await deps.onError?.(error)

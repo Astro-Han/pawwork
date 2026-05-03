@@ -126,30 +126,88 @@ export default function Page() {
     const parts = (message as { parts?: unknown }).parts
     return Array.isArray(parts) ? parts.length : 0
   }
-
-  createEffect(() => {
-    const routeSessionID = params.id
-    const visibleSessionID = timelineSessionID()
+  const timelineMessageMetrics = createMemo(() => {
     const messages = timelineMessages()
-    void emitRendererDiagnostic({
-      name: "session.view.state",
-      route_session_id: routeSessionID,
-      visible_session_id: visibleSessionID,
-      timeline_session_id: visibleSessionID,
-      data: {
-        route_session_id: routeSessionID,
-        visible_session_id: visibleSessionID,
-        timeline_session_id: visibleSessionID,
-        route_ready: timelineMessagesReady(),
-        visible_ready: timelineMessagesReady(),
-        transitioning: !!routeSessionID && !!visibleSessionID && routeSessionID !== visibleSessionID,
-        message_count: messages.length,
-        part_count: messages.reduce((count, message) => count + countMessageParts(message), 0),
-        history_more: timelineHistoryMore(),
-        history_loading: timelineHistoryLoading(),
-      },
-    })
+    return {
+      messageCount: messages.length,
+      partCount: messages.reduce((count, message) => count + countMessageParts(message), 0),
+    }
   })
+
+  createEffect(
+    on(
+      () => {
+        const routeSessionID = params.id
+        const visibleSessionID = timelineSessionID()
+        const metrics = timelineMessageMetrics()
+        return {
+          routeSessionID,
+          visibleSessionID,
+          routeReady: timelineMessagesReady(),
+          visibleReady: timelineMessagesReady(),
+          transitioning: !!routeSessionID && !!visibleSessionID && routeSessionID !== visibleSessionID,
+          messageCount: metrics.messageCount,
+          partCount: metrics.partCount,
+          historyMore: timelineHistoryMore(),
+          historyLoading: timelineHistoryLoading(),
+        }
+      },
+      (state) => {
+        void emitRendererDiagnostic({
+          name: "session.view.state",
+          route_session_id: state.routeSessionID,
+          visible_session_id: state.visibleSessionID,
+          timeline_session_id: state.visibleSessionID,
+          data: {
+            route_session_id: state.routeSessionID,
+            visible_session_id: state.visibleSessionID,
+            timeline_session_id: state.visibleSessionID,
+            route_ready: state.routeReady,
+            visible_ready: state.visibleReady,
+            transitioning: state.transitioning,
+            message_count: state.messageCount,
+            part_count: state.partCount,
+            history_more: state.historyMore,
+            history_loading: state.historyLoading,
+          },
+        })
+      },
+    ),
+  )
+
+  createEffect(
+    on(
+      () => {
+        const id = timelineSessionID()
+        return { routeSessionID: params.id, visibleSessionID: id, timelineSessionID: id }
+      },
+      (next, previous) => {
+        if (!previous) return
+        if (
+          next.routeSessionID === previous.routeSessionID &&
+          next.visibleSessionID === previous.visibleSessionID &&
+          next.timelineSessionID === previous.timelineSessionID
+        ) {
+          return
+        }
+        void emitRendererDiagnostic({
+          name: "session.identity.transition",
+          route_session_id: next.routeSessionID,
+          visible_session_id: next.visibleSessionID,
+          timeline_session_id: next.timelineSessionID,
+          data: {
+            from_route_session_id: previous.routeSessionID,
+            to_route_session_id: next.routeSessionID,
+            from_visible_session_id: previous.visibleSessionID,
+            to_visible_session_id: next.visibleSessionID,
+            from_timeline_session_id: previous.timelineSessionID,
+            to_timeline_session_id: next.timelineSessionID,
+          },
+        })
+      },
+      { defer: true },
+    ),
+  )
 
   createSessionPerformanceDiagnostics({
     routeSessionID: () => params.id,
@@ -232,6 +290,7 @@ export default function Page() {
     hasTodoCache: (id) => sync.data.todo[id] !== undefined || globalSync.data.session_todo[id] !== undefined,
     syncSession: (id, options) => sync.session.sync(id, options),
     syncTodo: (id, options) => sync.session.todo(id, options),
+    emitRendererDiagnostic,
   })
 
   useSessionVcsRefresh({
