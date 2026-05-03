@@ -506,7 +506,7 @@ it.live("loop continues when finish is tool-calls", () =>
   ),
 )
 
-it.live("loop gate blocks then stops after autoResume budget on repeated tool errors", () =>
+it.live("loop gate records same-step repeated tool errors without block or stop", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -526,7 +526,9 @@ it.live("loop gate blocks then stops after autoResume budget on repeated tool er
         // Always read the same nonexistent path so input + (fallback target) hashes are stable.
         const filePath = path.join(dir, "loop-gate-nonexistent.txt")
         const input = { filePath }
-        for (let i = 0; i < 7; i++) yield* llm.tool("read", input)
+        let sameStep = reply()
+        for (let i = 0; i < 7; i++) sameStep = sameStep.tool("read", input)
+        yield* llm.push(sameStep)
         yield* llm.text("done")
 
         const result = yield* prompt.loop({ sessionID: session.id })
@@ -544,39 +546,8 @@ it.live("loop gate blocks then stops after autoResume budget on repeated tool er
 
         const blockParts = errorParts.filter((p) => p.state.metadata?.diagnostics?.loop?.loopAction === "block")
         const stopParts = errorParts.filter((p) => p.state.metadata?.diagnostics?.loop?.loopAction === "stop")
-        expect(blockParts).toHaveLength(1)
-        expect(stopParts).toHaveLength(1)
-
-        const blockMeta = blockParts[0]!.state.metadata!.diagnostics!.loop!
-        expect(blockMeta.loopType).toBe("target")
-        expect(blockMeta.loopCompletedFailures).toBe(5)
-        expect(blockParts[0]!.state.error).toContain("blocked by PawWork")
-
-        const stopMeta = stopParts[0]!.state.metadata!.diagnostics!.loop!
-        expect(stopMeta.loopType).toBe("target")
-        expect(stopParts[0]!.state.error).toContain("halted by PawWork")
-
-        const stopIdx = allParts.indexOf(stopParts[0]!)
-        const trailing = allParts.slice(stopIdx + 1)
-        // After the synthetic stop, the turn must be terminal: exactly one trailing text part
-        // (the rendered stop summary) and no trailing tool parts. Just looking at the FIRST
-        // text part would still pass if a queued model text leaked through after stop.
-        const trailingTexts = trailing.filter((p): p is MessageV2.TextPart => p.type === "text")
-        expect(trailingTexts).toHaveLength(1)
-        expect(trailingTexts[0]!.synthetic).toBe(true)
-        // Default locale (test fixture sends no user-message locale) → English template.
-        expect(trailingTexts[0]!.text).toContain("stopped")
-        expect(trailing.filter((p) => p.type === "tool")).toHaveLength(0)
-
-        // Recovery fires per-sigKey; in this scenario read+filePath produces both `input:` and
-        // `target:` candidates, so loopRecoverFiredFor can carry either prefix. Accept both —
-        // narrowing to one was a false-failure risk without catching real regressions.
-        const recoverFired = errorParts.some((p) =>
-          (p.state.metadata?.diagnostics?.loop?.loopRecoverFiredFor ?? []).some(
-            (k: string) => k.startsWith("input:") || k.startsWith("target:"),
-          ),
-        )
-        expect(recoverFired).toBe(true)
+        expect(blockParts).toHaveLength(0)
+        expect(stopParts).toHaveLength(0)
 
         const requests = yield* llm.inputs
         // Extract user/system message text fields rather than stringifying the whole request
@@ -597,16 +568,52 @@ it.live("loop gate blocks then stops after autoResume budget on repeated tool er
             return []
           })
         })
-        // Either same-input or same-target reminder is acceptable in this scenario — the
-        // read+filePath path produces both signatures and either flavor is a valid recovery
-        // signal. Narrowing to one would fail spuriously without any behavior regression.
         expect(
           flattenedText.some(
             (t) =>
               t.includes("repeated the same tool input 3 times") ||
               t.includes("failed against the same target multiple times"),
           ),
-        ).toBe(true)
+        ).toBe(false)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("loop gate blocks repeated tool errors across model steps", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Loop gate cross-step",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "read missing repeatedly" }],
+        })
+
+        const input = { filePath: path.join(dir, "loop-gate-cross-step-missing.txt") }
+        for (let i = 0; i < 4; i++) yield* llm.tool("read", input)
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const blockParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction === "block",
+        )
+        expect(blockParts).toHaveLength(1)
+        expect(blockParts[0].state.metadata?.diagnostics?.loop?.loopCompletedFailures).toBe(3)
       }),
     { git: true, config: providerCfg },
   ),

@@ -40,11 +40,12 @@ describe("SessionDiagnostics.normalizeInput", () => {
 })
 
 describe("SessionDiagnostics.observeToolCall", () => {
-  test("does not create reminders on repeated calls (firing moved to observeToolError)", () => {
+  test("creates a success-repeat reminder on the 3rd identical successful call", () => {
     let records: SessionDiagnostics.ToolCallRecord[] = []
     const input = { url: "https://example.com/article" }
-    for (let i = 0; i < 5; i++) {
-      const observed = SessionDiagnostics.observeToolCall({
+    let observed: ReturnType<typeof SessionDiagnostics.observeToolCall> | undefined
+    for (let i = 0; i < 3; i++) {
+      observed = SessionDiagnostics.observeToolCall({
         records,
         sessionID,
         parentID,
@@ -56,9 +57,14 @@ describe("SessionDiagnostics.observeToolCall", () => {
       })
       records = [...records, observed.record]
     }
-    for (const record of records) {
-      expect(record.metadata.diagnostics?.loop?.reminders ?? []).toHaveLength(0)
-    }
+    const reminder = observed?.record.metadata.diagnostics?.loop?.reminders?.[0]
+    expect(reminder).toMatchObject({
+      key: `success:input:webfetch:${inputHashFor(input)}`,
+      type: "input_repeat",
+      status: "pending",
+      count: 3,
+    })
+    expect(observed?.record.metadata.diagnostics?.loop?.outcome).toBe("success")
   })
 
   test("does not count the same input across different user blocks", () => {
@@ -120,6 +126,60 @@ describe("SessionDiagnostics.observeToolCall", () => {
 
     expect(records.flatMap((record) => loop(record.metadata).reminders ?? [])).toHaveLength(0)
   })
+
+  test("does not count failed observations toward successful repeat reminders", () => {
+    const input = { url: "https://example.com/article" }
+    const records: SessionDiagnostics.ToolCallRecord[] = [
+      {
+        sessionID,
+        parentID,
+        tool: "webfetch",
+        inputHash: inputHashFor(input),
+        targetHash: targetHashFor(input.url),
+        metadata: {
+          diagnostics: {
+            loop: {
+              inputHash: inputHashFor(input),
+              targetHash: targetHashFor(input.url),
+              outcome: "failure",
+              errorFingerprint: "timeout",
+            },
+          },
+        },
+      },
+      {
+        sessionID,
+        parentID,
+        tool: "webfetch",
+        inputHash: inputHashFor(input),
+        targetHash: targetHashFor(input.url),
+        metadata: {
+          diagnostics: {
+            loop: {
+              inputHash: inputHashFor(input),
+              targetHash: targetHashFor(input.url),
+              outcome: "failure",
+              errorFingerprint: "not-found",
+            },
+          },
+        },
+      },
+    ]
+
+    const observed = SessionDiagnostics.observeToolCall({
+      records,
+      sessionID,
+      parentID,
+      tool: "webfetch",
+      input,
+      agent: "build",
+      modelID,
+      providerID,
+    })
+
+    expect(loop(observed.record.metadata).inputRepeatCount).toBe(1)
+    expect(loop(observed.record.metadata).reminders ?? []).toHaveLength(0)
+  })
 })
 
 describe("SessionDiagnostics.observeToolError", () => {
@@ -144,7 +204,7 @@ describe("SessionDiagnostics.observeToolError", () => {
       records.push(observed.record)
     }
     const fired = records.flatMap((r) => r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? [])
-    expect(fired.filter((k) => k.startsWith("input:"))).toHaveLength(1)
+    expect(fired.filter((k) => k.startsWith("failure:input:"))).toHaveLength(1)
   })
 })
 
@@ -169,8 +229,8 @@ describe("SessionDiagnostics.observeToolError v1 firing", () => {
       records.push(observed.record)
     }
     const fired = records.flatMap((r) => r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? [])
-    expect(fired.filter((k) => k.startsWith("input:"))).toHaveLength(1)
-    expect(fired.filter((k) => k.startsWith("target:"))).toHaveLength(1)
+    expect(fired.filter((k) => k.startsWith("failure:input:"))).toHaveLength(1)
+    expect(fired.filter((k) => k.startsWith("failure:target:"))).toHaveLength(1)
   })
 
   test("persists raw lastInput and string lastError on every record", () => {
@@ -206,8 +266,8 @@ describe("SessionDiagnostics.observeToolError v1 firing", () => {
       records.push(observed.record)
     }
     const fired = records.flatMap((r) => r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? [])
-    expect(fired.some((k) => k.startsWith("target:"))).toBe(false)
-    expect(fired.filter((k) => k.startsWith("input:"))).toHaveLength(1)
+    expect(fired.some((k) => k.startsWith("failure:target:"))).toBe(false)
+    expect(fired.filter((k) => k.startsWith("failure:input:"))).toHaveLength(1)
   })
 
   test("labels input vs target reminders correctly via Reminder.type", () => {
@@ -227,8 +287,8 @@ describe("SessionDiagnostics.observeToolError v1 firing", () => {
       records.push(observed.record)
     }
     const allReminders = records.flatMap((r) => r.metadata.diagnostics?.loop?.reminders ?? [])
-    const inputReminder = allReminders.find((r) => r.key.startsWith("input:"))
-    const targetReminder = allReminders.find((r) => r.key.startsWith("target:"))
+    const inputReminder = allReminders.find((r) => r.key.startsWith("failure:input:"))
+    const targetReminder = allReminders.find((r) => r.key.startsWith("failure:target:"))
     expect(inputReminder?.type).toBe("input_repeat")
     expect(targetReminder?.type).toBe("target_repeat")
   })
@@ -250,7 +310,7 @@ describe("SessionDiagnostics.observeToolError v1 firing", () => {
       records.push(observed.record)
     }
     const fired = records.flatMap((r) => r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? [])
-    expect(fired.filter((k) => k.startsWith("input:"))).toHaveLength(1)
+    expect(fired.filter((k) => k.startsWith("failure:input:"))).toHaveLength(1)
   })
 
   test("recomputes targetHash from originalInput when in-flight metadata missing", () => {
@@ -275,7 +335,7 @@ describe("SessionDiagnostics.observeToolError v1 firing", () => {
       records.push(observed.record)
     }
     const fired = records.flatMap((r) => r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? [])
-    expect(fired.filter((k) => k.startsWith("target:"))).toHaveLength(1)
+    expect(fired.filter((k) => k.startsWith("failure:target:"))).toHaveLength(1)
     // And the persisted record carries the recovered targetHash for future iterations.
     const last = records[records.length - 1]
     expect(typeof last?.targetHash).toBe("string")

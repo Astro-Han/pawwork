@@ -5,7 +5,9 @@ import { SessionDiagnostics } from "../../src/session/diagnostics"
 const makeState = (
   overrides: Partial<SessionDiagnostics.SignatureState> = {},
 ): SessionDiagnostics.SignatureState => ({
+  outcome: "failure",
   kind: "input",
+  completedCount: 5,
   completedFailures: 5,
   recoverEmitted: true,
   blockEmitted: true,
@@ -13,6 +15,21 @@ const makeState = (
 })
 
 describe("LoopRenderer.render", () => {
+  test("renders concise Chinese success-repeat stop text", () => {
+    const text = LoopRenderer.render({
+      tool: "grep",
+      state: makeState({
+        outcome: "success",
+        kind: "target",
+        completedCount: 4,
+        completedFailures: undefined,
+        lastError: undefined,
+      }),
+      locale: "zh-Hans",
+    })
+    expect(text).toBe("我刚才在重复检查同一处，已停止重复。\n下一步需要换个办法继续。")
+  })
+
   test("webfetch same_input shows the URL", () => {
     const text = LoopRenderer.render({
       tool: "webfetch",

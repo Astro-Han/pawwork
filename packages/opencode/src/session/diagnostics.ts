@@ -18,11 +18,19 @@ export namespace SessionDiagnostics {
   }
 
   export type SignatureKind = "input" | "target"
+  export type LoopOutcome = "success" | "failure"
   export type LoopAction = "observe" | "block" | "stop"
+  export const LOOP_THRESHOLDS = {
+    reminderAt: 3,
+    blockAt: 4,
+    stopAt: 5,
+  } as const
 
   export type SignatureState = {
+    outcome: LoopOutcome
     kind: SignatureKind
-    completedFailures: number
+    completedCount: number
+    completedFailures?: number
     recoverEmitted: boolean
     blockEmitted: boolean
     lastInput?: unknown
@@ -36,8 +44,24 @@ export namespace SessionDiagnostics {
 
   export type GateDecision =
     | { action: "observe" }
-    | { action: "block"; sigKey: string; kind: SignatureKind; completedFailures: number }
-    | { action: "stop"; sigKey: string; kind: SignatureKind; completedFailures: number }
+    | {
+        action: "block"
+        sigKey: string
+        outcome: LoopOutcome
+        kind: SignatureKind
+        completedCount: number
+        completedFailures?: number
+        nextOccurrenceCount: number
+      }
+    | {
+        action: "stop"
+        sigKey: string
+        outcome: LoopOutcome
+        kind: SignatureKind
+        completedCount: number
+        completedFailures?: number
+        nextOccurrenceCount: number
+      }
 
   export type LoopMetadata = {
     inputHash?: string
@@ -48,6 +72,7 @@ export namespace SessionDiagnostics {
     newTarget?: boolean
     errorFingerprint?: string
     errorRepeatCount?: number
+    outcome?: LoopOutcome
     reminders?: Reminder[]
     modelID?: string
     providerID?: string
@@ -60,12 +85,14 @@ export namespace SessionDiagnostics {
     truncated?: boolean
     loopAction?: LoopAction
     loopType?: SignatureKind
+    loopCompletedCount?: number
     loopCompletedFailures?: number
     loopSigKey?: string
     loopRecoverFiredFor?: string[]
     targetHashIsFallback?: boolean
     loopLastInput?: unknown
     loopLastError?: unknown
+    stepIndex?: number
   }
 
   export type Metadata = {
@@ -97,6 +124,15 @@ export namespace SessionDiagnostics {
 
   export function hash(value: string) {
     return createHash("sha256").update(value).digest("hex").slice(0, 16)
+  }
+
+  export function signatureKey(input: {
+    outcome: LoopOutcome
+    kind: SignatureKind
+    tool: string
+    hash: string
+  }) {
+    return `${input.outcome}:${input.kind}:${input.tool}:${input.hash}`
   }
 
   const RENDERER_BYTE_LIMIT = 1024
@@ -185,13 +221,41 @@ export namespace SessionDiagnostics {
     const summaryResult = targetSummary(input.tool, input.input)
     const summary = summaryResult.summary
     const targetHash = hash(summary)
+    const successfulRecords = input.records.filter((record) => {
+      const loop = record.metadata.diagnostics?.loop
+      return loop?.outcome !== "failure" && !loop?.errorFingerprint && !loop?.loopAction
+    })
     const inputRepeatCount =
-      input.records.filter((record) => record.parentID === input.parentID && record.tool === input.tool && record.inputHash === normalized.hash).length + 1
+      successfulRecords.filter((record) => record.parentID === input.parentID && record.tool === input.tool && record.inputHash === normalized.hash).length + 1
     const targetRepeatCount =
-      input.records.filter(
+      successfulRecords.filter(
         (record) =>
           record.parentID === input.parentID && record.tool === input.tool && record.targetHash === targetHash,
       ).length + 1
+    const newReminders: Reminder[] = []
+    const recoverFiredFor: string[] = []
+    const inputSigKey = signatureKey({ outcome: "success", kind: "input", tool: input.tool, hash: normalized.hash })
+    if (inputRepeatCount === LOOP_THRESHOLDS.reminderAt) {
+      newReminders.push({
+        key: inputSigKey,
+        type: "input_repeat",
+        status: "pending",
+        count: inputRepeatCount,
+        createdAt: Date.now(),
+      })
+      recoverFiredFor.push(inputSigKey)
+    }
+    if (!summaryResult.isFallback && targetRepeatCount === LOOP_THRESHOLDS.reminderAt) {
+      const targetSigKey = signatureKey({ outcome: "success", kind: "target", tool: input.tool, hash: targetHash })
+      newReminders.push({
+        key: targetSigKey,
+        type: "target_repeat",
+        status: "pending",
+        count: targetRepeatCount,
+        createdAt: Date.now(),
+      })
+      recoverFiredFor.push(targetSigKey)
+    }
 
     const record: ToolCallRecord = {
       sessionID: input.sessionID,
@@ -209,7 +273,9 @@ export namespace SessionDiagnostics {
             targetHashIsFallback: summaryResult.isFallback,
             targetRepeatCount,
             newTarget: targetRepeatCount === 1,
-            reminders: [],
+            outcome: "success",
+            reminders: newReminders,
+            loopRecoverFiredFor: recoverFiredFor.length ? recoverFiredFor : undefined,
             modelID: input.modelID,
             providerID: input.providerID,
             agent: input.agent,
@@ -274,6 +340,7 @@ export namespace SessionDiagnostics {
           diagnostics: {
             loop: {
               errorFingerprint: fingerprint,
+              outcome: "failure",
               reminders: [],
               loopLastInput: lastInput,
               loopLastError: lastError,
@@ -298,14 +365,14 @@ export namespace SessionDiagnostics {
       matcher: (r: ToolErrorRecord) => boolean
     }> = []
     candidates.push({
-      sigKey: `input:${input.tool}:${effectiveInputHash}`,
+      sigKey: signatureKey({ outcome: "failure", kind: "input", tool: input.tool, hash: effectiveInputHash }),
       kind: "input",
       matcher: (r) => r.inputHash === effectiveInputHash,
     })
     if (effectiveTargetHash) {
       const targetHash = effectiveTargetHash
       candidates.push({
-        sigKey: `target:${input.tool}:${targetHash}`,
+        sigKey: signatureKey({ outcome: "failure", kind: "target", tool: input.tool, hash: targetHash }),
         kind: "target",
         matcher: (r) => r.targetHash === targetHash,
       })
@@ -313,12 +380,14 @@ export namespace SessionDiagnostics {
 
     const newReminders: Reminder[] = []
     const recoverFiredFor: string[] = []
+    let maxCompletedFailures = 0
     for (const { sigKey, kind, matcher } of candidates) {
       const completedFailures = real.filter(matcher).length + 1
+      maxCompletedFailures = Math.max(maxCompletedFailures, completedFailures)
       const alreadyFired = real.some((r) =>
         (r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? []).includes(sigKey),
       )
-      if (completedFailures >= 3 && !alreadyFired) {
+      if (completedFailures === LOOP_THRESHOLDS.reminderAt && !alreadyFired) {
         newReminders.push({
           key: sigKey,
           type: kind === "target" ? "target_repeat" : "input_repeat",
@@ -345,8 +414,10 @@ export namespace SessionDiagnostics {
       metadata: {
         diagnostics: {
           loop: {
+            outcome: "failure",
             errorFingerprint: fingerprint,
             errorRepeatCount,
+            loopCompletedCount: maxCompletedFailures,
             reminders: newReminders,
             loopRecoverFiredFor: recoverFiredFor.length ? recoverFiredFor : undefined,
             loopLastInput: lastInput,
@@ -359,23 +430,67 @@ export namespace SessionDiagnostics {
   }
 
   export function deriveParentLoopState(input: {
+    successRecords?: ToolCallRecord[]
     errorRecords: ToolErrorRecord[]
     syntheticBlockSigKeys: string[]
     parentID: MessageID
+    currentStepIndex?: number
   }): ParentLoopState {
     const signatures: Record<string, SignatureState> = {}
+
+    const isFromPreviousStep = (record: { metadata: Metadata }) => {
+      if (input.currentStepIndex === undefined) return true
+      const stepIndex = record.metadata.diagnostics?.loop?.stepIndex
+      return typeof stepIndex === "number" && stepIndex < input.currentStepIndex
+    }
+
+    const successes = (input.successRecords ?? []).filter(
+      (r) =>
+        r.parentID === input.parentID &&
+        r.metadata.diagnostics?.loop?.loopAction !== "block" &&
+        r.metadata.diagnostics?.loop?.loopAction !== "stop" &&
+        r.inputHash !== "" &&
+        isFromPreviousStep(r),
+    )
+
+    for (const r of successes) {
+      const loop = r.metadata.diagnostics?.loop
+      const inputSigKey = r.inputHash
+        ? signatureKey({ outcome: "success", kind: "input", tool: r.tool, hash: r.inputHash })
+        : null
+      const targetSigKey = r.targetHash && !loop?.targetHashIsFallback
+        ? signatureKey({ outcome: "success", kind: "target", tool: r.tool, hash: r.targetHash })
+        : null
+      const fired = loop?.loopRecoverFiredFor ?? []
+      for (const [sigKey, kind] of [
+        [inputSigKey, "input"] as const,
+        [targetSigKey, "target"] as const,
+      ]) {
+        if (!sigKey) continue
+        const s = (signatures[sigKey] ??= {
+          outcome: "success",
+          kind,
+          completedCount: 0,
+          recoverEmitted: false,
+          blockEmitted: false,
+        })
+        s.completedCount += 1
+        if (fired.includes(sigKey)) s.recoverEmitted = true
+      }
+    }
 
     const real = input.errorRecords.filter(
       (r) =>
         r.parentID === input.parentID &&
         r.metadata.diagnostics?.loop?.loopAction !== "block" &&
         r.metadata.diagnostics?.loop?.loopAction !== "stop" &&
-        r.inputHash !== "",
+        r.inputHash !== "" &&
+        isFromPreviousStep(r),
     )
 
     for (const r of real) {
-      const inputSigKey = r.inputHash ? `input:${r.tool}:${r.inputHash}` : null
-      const targetSigKey = r.targetHash ? `target:${r.tool}:${r.targetHash}` : null
+      const inputSigKey = r.inputHash ? signatureKey({ outcome: "failure", kind: "input", tool: r.tool, hash: r.inputHash }) : null
+      const targetSigKey = r.targetHash ? signatureKey({ outcome: "failure", kind: "target", tool: r.tool, hash: r.targetHash }) : null
       const fired = r.metadata.diagnostics?.loop?.loopRecoverFiredFor ?? []
       for (const [sigKey, kind] of [
         [inputSigKey, "input"] as const,
@@ -383,12 +498,15 @@ export namespace SessionDiagnostics {
       ]) {
         if (!sigKey) continue
         const s = (signatures[sigKey] ??= {
+          outcome: "failure",
           kind,
+          completedCount: 0,
           completedFailures: 0,
           recoverEmitted: false,
           blockEmitted: false,
         })
-        s.completedFailures += 1
+        s.completedCount += 1
+        s.completedFailures = (s.completedFailures ?? 0) + 1
         if (fired.includes(sigKey)) s.recoverEmitted = true
         if (r.lastInput !== undefined) s.lastInput = r.lastInput
         if (r.lastError !== undefined) s.lastError = r.lastError
@@ -396,10 +514,15 @@ export namespace SessionDiagnostics {
     }
 
     for (const sigKey of input.syntheticBlockSigKeys) {
-      const kind: SignatureKind = sigKey.startsWith("target:") ? "target" : "input"
+      const parts = sigKey.split(":")
+      const hasOutcome = parts[0] === "success" || parts[0] === "failure"
+      const outcome: LoopOutcome = hasOutcome ? parts[0] as LoopOutcome : "failure"
+      const kind: SignatureKind = (hasOutcome ? parts[1] : parts[0]) === "target" ? "target" : "input"
       const s = (signatures[sigKey] ??= {
+        outcome,
         kind,
-        completedFailures: 0,
+        completedCount: 0,
+        completedFailures: outcome === "failure" ? 0 : undefined,
         recoverEmitted: false,
         blockEmitted: false,
       })
@@ -417,10 +540,12 @@ export namespace SessionDiagnostics {
     tool: string
     inputHash: string
     targetHash?: string
+    outcome?: LoopOutcome
   }): GateDecision {
     const { parentLoopState: state, tool, inputHash, targetHash } = input
-    const inputKey = `input:${tool}:${inputHash}`
-    const targetKey = targetHash ? `target:${tool}:${targetHash}` : null
+    const outcome = input.outcome ?? "failure"
+    const inputKey = signatureKey({ outcome, kind: "input", tool, hash: inputHash })
+    const targetKey = targetHash ? signatureKey({ outcome, kind: "target", tool, hash: targetHash }) : null
 
     // Iteration order is intentional: target is checked first because the spec treats
     // same_target as the more general signal (the model is hitting the same goal in
@@ -432,9 +557,30 @@ export namespace SessionDiagnostics {
       if (!sigKey) continue
       const s = state.signatures[sigKey]
       if (!s) continue
-      if (s.completedFailures >= 5 && s.recoverEmitted) {
-        const action: LoopAction = state.autoResumeSpent || s.blockEmitted ? "stop" : "block"
-        return { action, sigKey, kind: s.kind, completedFailures: s.completedFailures }
+      if (s.completedCount >= LOOP_THRESHOLDS.reminderAt && s.recoverEmitted) {
+        const nextOccurrenceCount = s.completedCount + 1
+        if (nextOccurrenceCount >= LOOP_THRESHOLDS.stopAt && (state.autoResumeSpent || s.blockEmitted)) {
+          return {
+            action: "stop",
+            sigKey,
+            outcome: s.outcome,
+            kind: s.kind,
+            completedCount: s.completedCount,
+            completedFailures: s.completedFailures,
+            nextOccurrenceCount,
+          }
+        }
+        if (nextOccurrenceCount >= LOOP_THRESHOLDS.blockAt) {
+          return {
+            action: "block",
+            sigKey,
+            outcome: s.outcome,
+            kind: s.kind,
+            completedCount: s.completedCount,
+            completedFailures: s.completedFailures,
+            nextOccurrenceCount,
+          }
+        }
       }
     }
 
@@ -502,30 +648,47 @@ export namespace SessionDiagnostics {
 
     if (!pending.length) return { parts }
     const lines: string[] = ["<system-reminder>"]
-    const sawInput = pending.some((r) => r.key.startsWith("input:"))
-    const sawTarget = pending.some((r) => r.key.startsWith("target:"))
+    const parsed = pending.map((r) => parseReminderKey(r.key))
+    const sawSuccess = parsed.some((r) => r.outcome === "success")
+    const sawFailureInput = parsed.some((r) => (r.outcome === "failure" || r.legacy) && r.kind === "input")
+    const sawFailureTarget = parsed.some((r) => (r.outcome === "failure" || r.legacy) && r.kind === "target")
     // Backward-compat: v0 reminders persisted with `error:` (or other) prefixes. Without this
     // fallback they get silently consumed (status flipped to "injected") with no model-facing
     // text, which loses the warning entirely. Emit the legacy generic copy so old sessions still
     // surface a reminder during migration.
-    const sawLegacy = pending.some((r) => !r.key.startsWith("input:") && !r.key.startsWith("target:"))
-    if (sawInput) {
+    const sawLegacy = parsed.some((r) => r.legacy && !r.kind)
+    if (sawSuccess) {
+      lines.push(
+        "You are repeating the same tool request. Change strategy: summarize what you already learned, choose a different target or method, or answer the user directly. Do not repeat the same request in this turn.",
+      )
+    }
+    if (sawFailureInput) {
       lines.push(
         "Detected that you have repeated the same tool input 3 times. Do not call the same input again. Reuse the existing result, change strategy, or summarize the current blocker.",
       )
     }
-    if (sawTarget) {
+    if (sawFailureTarget) {
       lines.push(
         "Detected that you have failed against the same target multiple times even though the errors differ. Do not keep retrying. Change approach, identify why the target is unreachable, or summarize the current blocker.",
       )
     }
-    if (sawLegacy && !sawInput && !sawTarget) {
+    if (sawLegacy && !sawFailureInput && !sawFailureTarget) {
       lines.push(
         "Detected that you have hit the same class of tool error multiple times. Do not keep retrying blindly. Identify the failure layer, change strategy, or summarize the current blocker.",
       )
     }
     lines.push("</system-reminder>")
     return { text: lines.join("\n"), parts }
+  }
+
+  function parseReminderKey(key: string): { outcome?: LoopOutcome; kind?: SignatureKind; legacy: boolean } {
+    const parts = key.split(":")
+    if (parts[0] === "success" || parts[0] === "failure") {
+      const kind = parts[1] === "target" ? "target" : parts[1] === "input" ? "input" : undefined
+      return { outcome: parts[0], kind, legacy: false }
+    }
+    if (parts[0] === "input" || parts[0] === "target") return { kind: parts[0], legacy: true }
+    return { legacy: true }
   }
 
   function normalizeValue(value: unknown): unknown {
