@@ -101,7 +101,6 @@ type ParsedNotice =
       kind: "bullets"
       items: string[]
       intro?: string
-      outro?: string
     }
   | {
       kind: "summary"
