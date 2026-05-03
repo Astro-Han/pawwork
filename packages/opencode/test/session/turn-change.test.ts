@@ -193,6 +193,38 @@ describe("TurnChange", () => {
     })
   })
 
+  test("blocks undo for truncated turns without writing tracked files", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        for (let index = 0; index < 201; index++) {
+          const target = path.join(fixture.path, `file-${index}.txt`)
+          await fs.writeFile(target, "after\n", "utf-8")
+          TurnChange.recordWrite({
+            ...turn,
+            path: target,
+            before: { exists: false },
+            after: { exists: true, content: "after\n" },
+          })
+        }
+        TurnChange.finalize(turn)
+
+        const result = await TurnChange.undo(turn)
+
+        expect(result).toMatchObject({
+          status: "blocked",
+          reason: "unsupported_size",
+          files: [{ path: "omitted files", reason: "truncated", omittedCount: 1 }],
+        })
+        expect(await fs.readFile(path.join(fixture.path, "file-0.txt"), "utf-8")).toBe("after\n")
+        expect(await fs.readFile(path.join(fixture.path, "file-200.txt"), "utf-8")).toBe("after\n")
+      },
+    })
+  })
+
   test("finalizes large files as status-only and blocks restore when target content is unavailable", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
@@ -409,7 +441,7 @@ describe("TurnChange", () => {
         let calls = 0
         const use = spyOn(Database, "use").mockImplementation(((fn: Parameters<typeof Database.use>[0]) => {
           calls++
-          if (calls === 3) throw new Error("db unavailable")
+          if (calls === 4) throw new Error("db unavailable")
           return original(fn)
         }) as typeof Database.use)
         try {

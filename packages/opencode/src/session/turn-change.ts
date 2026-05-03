@@ -59,7 +59,7 @@ export type MutationResult =
   | {
       status: "blocked"
       reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed"
-      files: Array<{ path: string; reason: string }>
+      files: Array<{ path: string; reason: string; omittedCount?: number }>
     }
 
 type RestoreFile = {
@@ -342,6 +342,7 @@ export namespace TurnChange {
         z.object({
           path: z.string(),
           reason: z.string(),
+          omittedCount: z.number().optional(),
         }),
       ),
     }),
@@ -584,6 +585,15 @@ export namespace TurnChange {
     if (!display) return { status: "blocked", reason: "restore_missing", files: [] }
     const sourceState = input.mode === "undo" ? "applied" : "undone"
     if (display.state !== sourceState) return { status: "blocked", reason: "conflict", files: [] }
+    const overflow = overflowRow(input.sessionID, input.messageID)
+    const overflowData = overflow?.data
+    if (overflowData && isOverflow(overflowData)) {
+      return {
+        status: "blocked",
+        reason: "unsupported_size",
+        files: [{ path: "omitted files", reason: "truncated", omittedCount: overflowData.omittedCount }],
+      }
+    }
     const restore = rows(input.sessionID, input.messageID)
     if (!restore.length) return { status: "blocked", reason: "restore_missing", files: [] }
 

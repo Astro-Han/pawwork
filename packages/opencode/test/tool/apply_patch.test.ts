@@ -339,6 +339,23 @@ describe("tool.apply_patch freeform", () => {
     })
   })
 
+  test("rejects add when existing target cannot be read as a file before asking permission", async () => {
+    await using fixture = await tmpdir()
+    const { ctx, calls } = makeCtx()
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        await fs.mkdir(path.join(fixture.path, "blocked.txt"))
+        const patchText = "*** Begin Patch\n*** Add File: blocked.txt\n+new content\n*** End Patch"
+
+        await expect(execute({ patchText }, ctx)).rejects.toThrow()
+
+        expect(calls).toHaveLength(0)
+      },
+    })
+  })
+
   test("rejects update when target file is missing", async () => {
     await using fixture = await tmpdir()
     const { ctx } = makeCtx()

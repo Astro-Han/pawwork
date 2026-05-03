@@ -31,6 +31,10 @@ function isSensitiveFile(filePath: string) {
   return isSensitivePath(sensitivityPath(filePath, Instance.worktree))
 }
 
+function notFound(error: unknown) {
+  return typeof error === "object" && error !== null && "reason" in error && (error as any).reason?._tag === "NotFound"
+}
+
 function safeTotalDiff(changes: Array<{ diff: string; sensitive: boolean }>) {
   return changes
     .filter((change) => !change.sensitive)
@@ -101,7 +105,9 @@ export const ApplyPatchTool = Tool.define(
         switch (hunk.type) {
           case "add": {
             const oldContent = ""
-            const existing = yield* Bom.readFile(afs, filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            const existing = yield* Bom.readFile(afs, filePath).pipe(
+              Effect.catchIf(notFound, () => Effect.succeed(undefined)),
+            )
             const newContent =
               hunk.contents.length === 0 || hunk.contents.endsWith("\n") ? hunk.contents : `${hunk.contents}\n`
             const next = Bom.split(newContent)
@@ -169,7 +175,7 @@ export const ApplyPatchTool = Tool.define(
             const movePath = hunk.move_path ? path.resolve(Instance.directory, hunk.move_path) : undefined
             yield* assertExternalDirectoryEffect(ctx, movePath)
             const moveBefore = movePath
-              ? yield* Bom.readFile(afs, movePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              ? yield* Bom.readFile(afs, movePath).pipe(Effect.catchIf(notFound, () => Effect.succeed(undefined)))
               : undefined
 
             fileChanges.push({
