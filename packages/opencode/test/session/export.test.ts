@@ -325,6 +325,27 @@ describe("Export.deriveSnapshotDiagnostics", () => {
     const result = Export.deriveSnapshotDiagnostics(tree)
     expect(result.loop?.last?.action).toBe("stop")
   })
+
+  test("exports success loop diagnostics with neutral completed count", () => {
+    const info = makeAssistantInfo()
+    const stop = successStopToolPartAt(info.id, 4, "success-stop")
+    const tree: Export.Tree = {
+      ...makeTree(),
+      messages: [
+        {
+          info,
+          parts: [stop],
+        },
+      ],
+      children: [],
+    }
+    const result = Export.deriveSnapshotDiagnostics(tree)
+    expect(result.loop?.last?.action).toBe("stop")
+    expect(result.loop?.last?.outcome).toBe("success")
+    expect(result.loop?.last?.completedCount).toBe(4)
+    expect(result.loop?.last?.occurrenceCount).toBe(5)
+    expect(result.loop?.last?.completedFailures).toBe(4)
+  })
 })
 
 let assistantSeq = 0
@@ -398,6 +419,35 @@ function stopToolPartAt(messageID: MessageID, end: number, tag: string): Message
         },
       },
       time: { start: 1, end },
+    },
+  }
+}
+
+function successStopToolPartAt(messageID: MessageID, count: number, tag: string): MessageV2.ToolPart {
+  return {
+    id: PartID.make("prt_success_stop_" + tag),
+    messageID,
+    sessionID: SessionID.make("ses_diag"),
+    type: "tool",
+    tool: "grep",
+    callID: "call_success_stop_" + tag,
+    state: {
+      status: "error",
+      input: { pattern: "compaction", path: "/tmp/src" },
+      error: "halted by PawWork",
+      metadata: {
+        diagnostics: {
+          loop: {
+            loopAction: "stop",
+            loopType: "input",
+            outcome: "success",
+            loopCompletedCount: count,
+            loopOccurrenceCount: 5,
+            loopSigKey: "success:input:grep:" + tag,
+          },
+        },
+      },
+      time: { start: 1, end: count },
     },
   }
 }

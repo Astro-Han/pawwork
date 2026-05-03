@@ -137,6 +137,9 @@ export namespace Export {
           type: "same_input" | "same_target"
           action: "block" | "stop"
           tool: string
+          outcome?: "success" | "failure"
+          completedCount?: number
+          occurrenceCount?: number
           completedFailures: number
         }
       }
@@ -156,6 +159,9 @@ export namespace Export {
         type: "same_input" | "same_target"
         action: "block" | "stop"
         tool: string
+        outcome?: "success" | "failure"
+        completedCount?: number
+        occurrenceCount?: number
         completedFailures: number
       }
     }
@@ -167,6 +173,9 @@ export namespace Export {
           type: "same_input" | "same_target"
           action: "block" | "stop"
           tool: string
+          outcome?: "success" | "failure"
+          completedCount?: number
+          occurrenceCount?: number
           completedFailures: number
         }
       | undefined
@@ -180,11 +189,15 @@ export namespace Export {
             | {
                 loopAction?: string
                 loopType?: string
+                outcome?: "success" | "failure"
+                loopCompletedCount?: number
                 loopCompletedFailures?: number
+                loopOccurrenceCount?: number
               }
             | undefined
           if (!loop || (loop.loopAction !== "block" && loop.loopAction !== "stop")) continue
-          if (!loop.loopType || typeof loop.loopCompletedFailures !== "number" || !message.info.parentID) continue
+          const completedCount = loop.loopCompletedCount ?? loop.loopCompletedFailures
+          if (!loop.loopType || typeof completedCount !== "number" || !message.info.parentID) continue
           let at = -Infinity
           if ("time" in part.state) {
             const t = part.state.time
@@ -197,7 +210,10 @@ export namespace Export {
             type: loop.loopType === "input" ? "same_input" : "same_target",
             action: loop.loopAction,
             tool: part.tool,
-            completedFailures: loop.loopCompletedFailures,
+            outcome: loop.outcome,
+            completedCount,
+            occurrenceCount: loop.loopOccurrenceCount,
+            completedFailures: loop.loopCompletedFailures ?? completedCount,
           }
         }
       }

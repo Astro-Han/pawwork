@@ -13,6 +13,13 @@ export namespace LoopRenderer {
     const scrubbedError = errorLine ? scrubErrorText(errorLine) : undefined
     const truncatedError = scrubbedError ? SessionDiagnostics.truncateForRenderer(scrubbedError) : undefined
     const isZh = (locale ?? "").toLowerCase().startsWith("zh")
+    const completedFailures = state.completedFailures ?? state.completedCount
+
+    if (state.outcome === "success") {
+      return isZh
+        ? "我刚才在重复检查同一处，已停止重复。\n下一步需要换个办法继续。"
+        : "I was repeating the same check, so I stopped the repetition.\nNext, I need to continue with a different approach."
+    }
 
     if (tool === "webfetch") {
       const rawURL = extractURL(state.lastInput)
@@ -21,50 +28,50 @@ export namespace LoopRenderer {
       if (state.kind === "input") {
         if (isZh) {
           return truncatedURL
-            ? `我重复调用了相同的请求 ${state.completedFailures} 次没成功，已停止。请求：webfetch ${truncatedURL}`
-            : `我重复调用了相同的请求 ${state.completedFailures} 次没成功，已停止。`
+            ? `我重复调用了相同的请求 ${completedFailures} 次没成功，已停止。请求：webfetch ${truncatedURL}`
+            : `我重复调用了相同的请求 ${completedFailures} 次没成功，已停止。`
         }
         return truncatedURL
-          ? `I made the same request ${state.completedFailures} times without success and stopped. Request: webfetch ${truncatedURL}`
-          : `I made the same request ${state.completedFailures} times without success and stopped.`
+          ? `I made the same request ${completedFailures} times without success and stopped. Request: webfetch ${truncatedURL}`
+          : `I made the same request ${completedFailures} times without success and stopped.`
       }
       if (isZh) {
         if (truncatedURL && truncatedError)
-          return `我重复抓取同一个目标 ${state.completedFailures} 次都失败，已停止。目标：${truncatedURL} 错误：${truncatedError}`
+          return `我重复抓取同一个目标 ${completedFailures} 次都失败，已停止。目标：${truncatedURL} 错误：${truncatedError}`
         if (truncatedURL)
-          return `我重复抓取同一个目标 ${state.completedFailures} 次都失败，已停止。目标：${truncatedURL}`
+          return `我重复抓取同一个目标 ${completedFailures} 次都失败，已停止。目标：${truncatedURL}`
         if (truncatedError)
-          return `我重复抓取同一个目标 ${state.completedFailures} 次都失败，已停止。错误：${truncatedError}`
-        return `我重复抓取同一个目标 ${state.completedFailures} 次都失败，已停止。`
+          return `我重复抓取同一个目标 ${completedFailures} 次都失败，已停止。错误：${truncatedError}`
+        return `我重复抓取同一个目标 ${completedFailures} 次都失败，已停止。`
       }
       if (truncatedURL && truncatedError)
-        return `I failed to fetch the same target ${state.completedFailures} times and stopped. Target: ${truncatedURL} Error: ${truncatedError}`
+        return `I failed to fetch the same target ${completedFailures} times and stopped. Target: ${truncatedURL} Error: ${truncatedError}`
       if (truncatedURL)
-        return `I failed to fetch the same target ${state.completedFailures} times and stopped. Target: ${truncatedURL}`
+        return `I failed to fetch the same target ${completedFailures} times and stopped. Target: ${truncatedURL}`
       if (truncatedError)
-        return `I failed to fetch the same target ${state.completedFailures} times and stopped. Error: ${truncatedError}`
-      return `I failed to fetch the same target ${state.completedFailures} times and stopped.`
+        return `I failed to fetch the same target ${completedFailures} times and stopped. Error: ${truncatedError}`
+      return `I failed to fetch the same target ${completedFailures} times and stopped.`
     }
 
     if (state.kind === "target") {
       if (isZh) {
         return truncatedError
-          ? `我重复在同一个目标上失败了 ${state.completedFailures} 次，已停止。工具：${tool} 错误：${truncatedError}`
-          : `我重复在同一个目标上失败了 ${state.completedFailures} 次，已停止。工具：${tool}`
+          ? `我重复在同一个目标上失败了 ${completedFailures} 次，已停止。工具：${tool} 错误：${truncatedError}`
+          : `我重复在同一个目标上失败了 ${completedFailures} 次，已停止。工具：${tool}`
       }
       return truncatedError
-        ? `I failed against the same target ${state.completedFailures} times and stopped. Tool: ${tool} Error: ${truncatedError}`
-        : `I failed against the same target ${state.completedFailures} times and stopped. Tool: ${tool}`
+        ? `I failed against the same target ${completedFailures} times and stopped. Tool: ${tool} Error: ${truncatedError}`
+        : `I failed against the same target ${completedFailures} times and stopped. Tool: ${tool}`
     }
 
     if (isZh) {
       return truncatedError
-        ? `我重复调用了 ${tool} ${state.completedFailures} 次都失败，已停止。最近一次错误：${truncatedError}`
-        : `我重复调用了 ${tool} ${state.completedFailures} 次都失败，已停止。`
+        ? `我重复调用了 ${tool} ${completedFailures} 次都失败，已停止。最近一次错误：${truncatedError}`
+        : `我重复调用了 ${tool} ${completedFailures} 次都失败，已停止。`
     }
     return truncatedError
-      ? `I called ${tool} ${state.completedFailures} times without success and stopped. Last error: ${truncatedError}`
-      : `I called ${tool} ${state.completedFailures} times without success and stopped.`
+      ? `I called ${tool} ${completedFailures} times without success and stopped. Last error: ${truncatedError}`
+      : `I called ${tool} ${completedFailures} times without success and stopped.`
   }
 
   function extractURL(value: unknown): string | undefined {
