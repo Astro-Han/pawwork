@@ -348,13 +348,18 @@ export function MessageTimeline(props: {
       return body.display
     }
     showToast({
-      title: action === "undo" ? "Undo blocked" : "Redo blocked",
+      title:
+        action === "undo"
+          ? language.t("session.turnChange.undoBlocked")
+          : language.t("session.turnChange.redoBlocked"),
       description:
         body?.reason === "conflict"
-          ? "The file changed after this turn, so PawWork did not overwrite it."
+          ? language.t("session.turnChange.blocked.conflict")
           : body?.reason === "unsupported_size"
-            ? "This turn includes a file without restore data, so PawWork did not change anything."
-            : "PawWork could not apply this change.",
+            ? language.t("session.turnChange.blocked.unsupportedSize")
+            : body?.reason === "permission_denied"
+              ? language.t("session.turnChange.blocked.permissionDenied")
+              : language.t("session.turnChange.blocked.generic"),
       variant: "error",
     })
     return turnChanges[messageID] ?? undefined

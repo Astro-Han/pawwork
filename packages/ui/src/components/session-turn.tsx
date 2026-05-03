@@ -356,13 +356,17 @@ export function SessionTurn(
     const current = turnChange()
     const action = current?.undoAvailable ? "undo" : current?.redoAvailable ? "redo" : undefined
     if (!action) return ""
-    const base = action === "undo" ? "Undo" : "Redo"
-    return confirmAction() === action ? `${base}?` : base
+    const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.redo")
+    return confirmAction() === action
+      ? action === "undo"
+        ? i18n.t("ui.sessionTurn.turnChanges.undoConfirm")
+        : i18n.t("ui.sessionTurn.turnChanges.redoConfirm")
+      : base
   })
   const turnStatusLabel = (status: TurnChangeFile["status"]) => {
-    if (status === "added") return "Added"
-    if (status === "deleted") return "Deleted"
-    return "Updated"
+    if (status === "added") return i18n.t("ui.sessionTurn.turnChanges.status.added")
+    if (status === "deleted") return i18n.t("ui.sessionTurn.turnChanges.status.deleted")
+    return i18n.t("ui.sessionTurn.turnChanges.status.updated")
   }
   const parentPath = (value: string) => {
     const normalized = value.replaceAll("\\", "/")
@@ -521,8 +525,12 @@ export function SessionTurn(
                     <div data-slot="session-turn-changes-header">
                       <div data-slot="session-turn-changes-summary">
                         <span>
-                          {turnEdited()} {i18n.t("ui.sessionTurn.diffs.changed")}{" "}
-                          {i18n.t(turnEdited() === 1 ? "ui.common.file.one" : "ui.common.file.other")}
+                          {i18n.t(
+                            turnEdited() === 1
+                              ? "ui.sessionTurn.turnChanges.summary.one"
+                              : "ui.sessionTurn.turnChanges.summary.other",
+                            { count: turnEdited() },
+                          )}
                         </span>
                         <span data-slot="session-turn-changes-additions">+{turnAdditions()}</span>
                         <span data-slot="session-turn-changes-deletions">-{turnDeletions()}</span>
@@ -589,7 +597,7 @@ export function SessionTurn(
                                     icon="open-file"
                                     size="small"
                                     variant="ghost"
-                                    aria-label="Open file"
+                                    aria-label={i18n.t("ui.sessionTurn.turnChanges.openFile")}
                                     disabled={file.status === "deleted" || !file.openPath || !props.turnChangeActions?.openFile}
                                     onClick={() => file.openPath && props.turnChangeActions?.openFile?.(file.openPath)}
                                   />
@@ -597,7 +605,7 @@ export function SessionTurn(
                                     icon="folder-add-left"
                                     size="small"
                                     variant="ghost"
-                                    aria-label="Show in folder"
+                                    aria-label={i18n.t("ui.sessionTurn.turnChanges.showInFolder")}
                                     disabled={!file.openPath || !props.turnChangeActions?.showInFolder}
                                     onClick={() =>
                                       file.openPath &&

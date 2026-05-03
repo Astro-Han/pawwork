@@ -132,16 +132,20 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
                     <div class="min-w-0 flex-1">
                       <div class="text-13-medium text-text-strong break-all">{entry.file}</div>
                       <div class="mt-1 flex items-center gap-2 text-13-regular text-text-weak">
-                        <span>{entry.kind === "added" ? "Added" : "Updated"}</span>
+                        <span>
+                          {entry.kind === "added"
+                            ? language.t("session.files.status.added")
+                            : language.t("session.files.status.updated")}
+                        </span>
                         <span aria-hidden>•</span>
-                        <span>{meta().exists ? formatSize(meta().size) : "Missing"}</span>
+                        <span>{meta().exists ? formatSize(meta().size) : language.t("session.files.missing")}</span>
                       </div>
                     </div>
                   </div>
 
                   <Switch>
                     <Match when={!meta().exists}>
-                      <div class="text-13-regular text-text-weak">File not found</div>
+                      <div class="text-13-regular text-text-weak">{language.t("session.files.notFound")}</div>
                     </Match>
                     <Match when={true}>{preview(entry)}</Match>
                   </Switch>
