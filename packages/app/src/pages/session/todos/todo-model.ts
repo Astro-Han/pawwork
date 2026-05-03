@@ -25,11 +25,11 @@ export function todoPhase(todos: readonly Pick<Todo, "status">[]): TodoPhase {
 }
 
 export function todoLifecycleSignature(todos: readonly Pick<Todo, "status">[]): string {
-  return todos.map((todo) => todo.status).join("\u0000")
+  return JSON.stringify(todos.map((todo) => [todo.status]))
 }
 
 export function todoDisplaySignature(todos: readonly Pick<Todo, "content" | "priority" | "status">[]): string {
-  return todos.map((todo) => `${todo.status}\u0000${todo.priority}\u0000${todo.content}`).join("\u0001")
+  return JSON.stringify(todos.map((todo) => [todo.status, todo.priority, todo.content]))
 }
 
 export function todoSnapshot(input: {

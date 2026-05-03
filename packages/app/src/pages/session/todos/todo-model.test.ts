@@ -49,4 +49,10 @@ describe("todoDisplaySignature", () => {
       todoDisplaySignature([todo("first", "completed", "low")]),
     )
   })
+
+  test("does not collide when todo content contains old delimiter characters", () => {
+    expect(todoDisplaySignature([todo("a\u0001completed\u0000medium\u0000b", "completed")])).not.toBe(
+      todoDisplaySignature([todo("a", "completed"), todo("b", "completed")]),
+    )
+  })
 })
