@@ -26,7 +26,13 @@ import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import { normalize } from "./session-diff"
-import { hasVisibleTurnChanges, type TurnChangeDisplay, type TurnChangeFile } from "./session-turn-changes"
+import {
+  hasTurnChangeActionHandler,
+  hasVisibleTurnChanges,
+  turnChangeAction,
+  type TurnChangeDisplay,
+  type TurnChangeFile,
+} from "./session-turn-changes"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -323,8 +329,8 @@ export function SessionTurn(
     const current = turnChange()
     const id = current?.messageID
     if (!id) return
-    const action = current.undoAvailable ? "undo" : current.redoAvailable ? "redo" : undefined
-    if (!action) return
+    const action = turnChangeAction(current)
+    if (!action || !hasTurnChangeActionHandler(current, props.turnChangeActions)) return
     if (!primeConfirm(action)) return
     resetConfirm()
     if (action === "undo") await props.turnChangeActions?.undo?.(id)
@@ -332,7 +338,7 @@ export function SessionTurn(
   }
   const turnActionLabel = createMemo(() => {
     const current = turnChange()
-    const action = current?.undoAvailable ? "undo" : current?.redoAvailable ? "redo" : undefined
+    const action = turnChangeAction(current)
     if (!action) return ""
     const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.redo")
     return confirmAction() === action
@@ -346,13 +352,6 @@ export function SessionTurn(
     if (status === "deleted") return i18n.t("ui.sessionTurn.turnChanges.status.deleted")
     return i18n.t("ui.sessionTurn.turnChanges.status.updated")
   }
-  const parentPath = (value: string) => {
-    const normalized = value.replaceAll("\\", "/")
-    const index = normalized.lastIndexOf("/")
-    if (index <= 0) return value
-    return value.slice(0, index)
-  }
-
   const interrupted = createMemo(() => assistantMessages().some((m) => m.error?.name === "MessageAbortedError"))
   const divider = createMemo(() => {
     if (compaction()) return i18n.t("ui.messagePart.compaction")
@@ -518,7 +517,7 @@ export function SessionTurn(
                           </span>
                         </Show>
                       </div>
-                      <Show when={turnActionLabel()}>
+                      <Show when={turnActionLabel() && hasTurnChangeActionHandler(turnChange(), props.turnChangeActions)}>
                         <button
                           type="button"
                           data-slot="session-turn-changes-action"
@@ -593,7 +592,7 @@ export function SessionTurn(
                                     onClick={() =>
                                       file.openPath &&
                                       props.turnChangeActions?.showInFolder?.(
-                                        file.status === "deleted" ? parentPath(file.openPath) : file.openPath,
+                                        file.status === "deleted" ? getDirectory(file.openPath) : file.openPath,
                                       )
                                     }
                                   />
