@@ -790,7 +790,20 @@ export async function seedSessionQuestion(
     },
   })
 
-  if (!result) throw new Error("Timed out seeding question request")
+  if (!result) {
+    const [questions, status] = await Promise.all([
+      sdk.question.list().then((x) => x.data ?? []).catch((error) => ({ error: String(error) })),
+      sdk.session.status().then((x) => x.data ?? {}).catch((error) => ({ error: String(error) })),
+    ])
+    throw new Error(
+      `Timed out seeding question request: ${JSON.stringify({
+        sessionID: input.sessionID,
+        wantedHeader: first.header,
+        questions,
+        status,
+      })}`,
+    )
+  }
   return { id: result.id }
 }
 
