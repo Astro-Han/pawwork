@@ -16,6 +16,7 @@ import { Persist, persisted } from "@/utils/persist"
 import type { InitError } from "../pages/error"
 import { useGlobalSDK } from "./global-sdk"
 import { bootstrapDirectory, bootstrapGlobal, clearProviderRev } from "./global-sync/bootstrap"
+import { createBlockerTerminalCache } from "./global-sync/blocker-terminal-cache"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
 import { createRefreshQueue } from "./global-sync/queue"
@@ -57,6 +58,7 @@ function createGlobalSync() {
   const booting = new Map<string, Promise<void>>()
   const sessionLoads = new Map<string, Promise<void>>()
   const sessionMeta = new Map<string, { limit: number }>()
+  const blockerTerminals = createBlockerTerminalCache()
 
   const [projectCache, setProjectCache, projectInit] = persisted(
     Persist.global("globalSync.project", ["globalSync.project.v1"]),
@@ -166,6 +168,7 @@ function createGlobalSync() {
     onDispose: (directory) => {
       queue.clear(directory)
       sessionMeta.delete(directory)
+      blockerTerminals.clearDirectory(directory)
       sdkCache.delete(directory)
       clearProviderRev(directory)
       clearSessionPrefetchDirectory(directory)
@@ -330,6 +333,7 @@ function createGlobalSync() {
       setStore,
       push: queue.push,
       setSessionTodo,
+      blockerTerminals,
       vcsCache: children.vcsCache.get(directory),
       loadLsp: () => {
         void sdkFor(directory)

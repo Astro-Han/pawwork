@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Message, Part, PermissionRequest, Project, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
+import { createBlockerTerminalCache } from "./blocker-terminal-cache"
 import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
 
 const rootSession = (input: { id: string; parentID?: string; archived?: number; created?: number; updated?: number }) =>
@@ -491,6 +492,66 @@ describe("applyDirectoryEvent", () => {
       loadLsp() {},
     })
     expect(store.question[sessionID]?.map((x) => x.id)).toEqual(["q_1", "q_3"])
+  })
+
+  test("question.replied before question.asked prevents stale ask from reopening", () => {
+    const blockerTerminals = createBlockerTerminalCache({ now: () => 1000 })
+    const [store, setStore] = createStore(baseState())
+
+    applyDirectoryEvent({
+      event: { type: "question.replied", properties: { sessionID: "ses_1", requestID: "q1" } },
+      directory: "/repo",
+      store,
+      setStore,
+      push() {},
+      loadLsp() {},
+      blockerTerminals,
+    })
+
+    applyDirectoryEvent({
+      event: {
+        type: "question.asked",
+        properties: questionRequest("q1", "ses_1"),
+      },
+      directory: "/repo",
+      store,
+      setStore,
+      push() {},
+      loadLsp() {},
+      blockerTerminals,
+    })
+
+    expect(store.question.ses_1).toBeUndefined()
+  })
+
+  test("permission.replied before permission.asked prevents stale ask from reopening", () => {
+    const blockerTerminals = createBlockerTerminalCache({ now: () => 1000 })
+    const [store, setStore] = createStore(baseState())
+
+    applyDirectoryEvent({
+      event: { type: "permission.replied", properties: { sessionID: "ses_1", requestID: "perm_1" } },
+      directory: "/repo",
+      store,
+      setStore,
+      push() {},
+      loadLsp() {},
+      blockerTerminals,
+    })
+
+    applyDirectoryEvent({
+      event: {
+        type: "permission.asked",
+        properties: permissionRequest("perm_1", "ses_1"),
+      },
+      directory: "/repo",
+      store,
+      setStore,
+      push() {},
+      loadLsp() {},
+      blockerTerminals,
+    })
+
+    expect(store.permission.ses_1).toBeUndefined()
   })
 
   test("updates vcs branch in store and cache", () => {

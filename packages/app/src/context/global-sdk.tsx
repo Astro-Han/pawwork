@@ -4,11 +4,13 @@ import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { batch, onCleanup, onMount } from "solid-js"
 import z from "zod"
+import type { E2EWindow } from "@/testing/terminal"
 import { createSdkForServer } from "@/utils/server"
 import { coalesceQueuedEvents, type QueuedGlobalEvent } from "./global-sdk-event-queue"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
+import { createSseCursor } from "./global-sdk/sse-cursor"
 
 const abortError = z.object({
   name: z.literal("AbortError"),
@@ -91,6 +93,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     const HEARTBEAT_TIMEOUT_MS = 15_000
     let lastEventAt = Date.now()
     let heartbeat: ReturnType<typeof setTimeout> | undefined
+    const replayCursor = createSseCursor()
     const resetHeartbeat = () => {
       lastEventAt = Date.now()
       if (heartbeat) clearTimeout(heartbeat)
@@ -119,6 +122,10 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           try {
             const events = await eventSdk.global.event({
               signal: attempt.signal,
+              headers: replayCursor.headers(),
+              onSseEvent: (event) => {
+                replayCursor.update(event.id)
+              },
               onSseError: (error) => {
                 if (aborted(error)) return
                 if (streamErrorLogged) return
@@ -178,7 +185,21 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       clearHeartbeat()
     }
 
+    const e2e = () => {
+      if (typeof window === "undefined") return
+      const state = (window as E2EWindow).__opencode_e2e
+      if (!state) return
+      state.globalEventStream = {
+        stop,
+        start: () => {
+          void start()
+        },
+        cursor: replayCursor.current,
+      }
+    }
+
     onMount(() => {
+      e2e()
       makeEventListener(document, "visibilitychange", () => {
         if (document.visibilityState !== "visible") return
         if (!started) return
