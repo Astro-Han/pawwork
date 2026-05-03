@@ -16,5 +16,8 @@ describe("tool sensitive path helpers", () => {
     expect(isSensitiveTargetPath(path.join(path.sep, "tmp", "token-tests", "app.ts"), root)).toBe(false)
     expect(isSensitiveTargetPath(path.join(path.sep, "tmp", "token-tests", ".env"), root)).toBe(true)
     expect(isSensitiveTargetPath(path.join(path.sep, "tmp", "credentials", "config.json"), root)).toBe(true)
+    expect(isSensitiveTargetPath(path.join(path.sep, "tmp", "my-secrets", "config.json"), root)).toBe(true)
+    expect(isSensitiveTargetPath(path.join(path.sep, "tmp", "prod_credentials", "config.json"), root)).toBe(true)
+    expect(isSensitiveTargetPath(path.join(path.sep, "tmp", "private-key-backup", "config.json"), root)).toBe(true)
   })
 })

@@ -175,7 +175,7 @@ describe("TurnChange", () => {
       directory: fixture.path,
       fn: async () => {
         const turn = await createTurn()
-        const external = path.join(path.dirname(fixture.path), "secrets", "config.json")
+        const external = path.join(path.dirname(fixture.path), "my-secrets", "config.json")
 
         TurnChange.recordWrite({
           ...turn,
@@ -255,6 +255,49 @@ describe("TurnChange", () => {
         expect(display?.truncated).toBe(true)
         expect(display?.omittedCount).toBe(1)
         expect(display?.undoAvailable).toBe(false)
+        expect(TurnChange.get(turn)?.undoAvailable).toBe(false)
+      },
+    })
+  })
+
+  test("finalizes overflow display even when tracked files are net no-ops", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        for (let index = 0; index < 200; index++) {
+          TurnChange.recordWrite({
+            ...turn,
+            path: path.join(fixture.path, `noop-${index}.txt`),
+            before: { exists: true, content: "same\n" },
+            after: { exists: true, content: "same\n" },
+          })
+        }
+        TurnChange.recordWrite({
+          ...turn,
+          path: path.join(fixture.path, "omitted.txt"),
+          before: { exists: false },
+          after: { exists: true, content: "omitted\n" },
+        })
+
+        const display = TurnChange.finalize(turn)
+
+        expect(display).toMatchObject({
+          truncated: true,
+          omittedCount: 1,
+          undoAvailable: false,
+          redoAvailable: false,
+          files: [],
+        })
+        expect(TurnChange.get(turn)).toMatchObject({
+          truncated: true,
+          omittedCount: 1,
+          undoAvailable: false,
+          redoAvailable: false,
+          files: [],
+        })
       },
     })
   })

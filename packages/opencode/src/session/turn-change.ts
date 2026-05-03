@@ -297,10 +297,11 @@ async function applyState(file: string, state: FileState) {
 }
 
 function withAvailability(display: Display, state: "applied" | "undone" | "redo_invalidated") {
+  const restorable = !display.truncated
   return {
     ...display,
-    undoAvailable: state === "applied",
-    redoAvailable: state === "undone",
+    undoAvailable: state === "applied" && restorable,
+    redoAvailable: state === "undone" && restorable,
   }
 }
 
@@ -530,13 +531,12 @@ export namespace TurnChange {
   function finalizeInternal(input: { sessionID: SessionID; messageID: MessageID }) {
     try {
       const files = rows(input.sessionID, input.messageID)
-      if (!files.length) return
       const displayFiles = files.map((row) => toDisplay(row.data)).filter(Boolean) as DisplayFile[]
-      if (!displayFiles.length) return
       const time = now()
       const overflow = overflowRow(input.sessionID, input.messageID)
       const overflowData = overflow?.data
       const omittedCount = overflowData && isOverflow(overflowData) ? overflowData.omittedCount : 0
+      if (!displayFiles.length && omittedCount === 0) return
       const display: Display = {
         sessionID: input.sessionID,
         turnID: input.messageID,
