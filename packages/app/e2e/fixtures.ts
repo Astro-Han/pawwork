@@ -116,6 +116,7 @@ async function promptSend(page: Page) {
 }
 
 type ProjectHandle = {
+  url: string
   directory: string
   slug: string
   gotoSession: (sessionID?: string) => Promise<void>
@@ -517,6 +518,9 @@ function makeProject(
       gotoSession,
       trackSession,
       trackDirectory,
+      get url() {
+        return backend.url
+      },
       get directory() {
         return need().directory
       },

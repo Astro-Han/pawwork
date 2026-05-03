@@ -4,12 +4,58 @@ import { resolver } from "hono-openapi"
 import { QuestionID } from "@/question/schema"
 import { Question } from "../../question"
 import { AppRuntime } from "@/effect/app-runtime"
+import { Bus } from "@/bus"
+import { Env } from "@/env"
+import { SessionID } from "@/session/schema"
 import z from "zod"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 
 export const QuestionRoutes = lazy(() =>
   new Hono()
+    // E2E-only hooks exercise question transport/UI flows without relying on flaky LLM seeding.
+    .post(
+      "/__e2e/ask",
+      validator(
+        "json",
+        z.object({
+          sessionID: SessionID.zod,
+          questions: z.array(Question.Info.zod),
+        }),
+      ),
+      async (c) => {
+        if (!Env.get("OPENCODE_E2E_LLM_URL")) return c.notFound()
+
+        const json = c.req.valid("json")
+        AppRuntime.runPromise(
+          Question.Service.use((svc) =>
+            svc.ask({
+              sessionID: json.sessionID,
+              questions: json.questions,
+            }),
+          ),
+        ).catch(() => undefined)
+
+        return c.body(null, 204)
+      },
+    )
+    .post(
+      "/__e2e/publish-asked",
+      validator(
+        "json",
+        z.object({
+          request: Question.Request.zod,
+        }),
+      ),
+      async (c) => {
+        if (!Env.get("OPENCODE_E2E_LLM_URL")) return c.notFound()
+
+        const json = c.req.valid("json")
+        await AppRuntime.runPromise(Bus.Service.use((bus) => bus.publish(Question.Event.Asked, json.request)))
+
+        return c.body(null, 204)
+      },
+    )
     .get(
       "/",
       describeRoute({

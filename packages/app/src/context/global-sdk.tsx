@@ -5,6 +5,7 @@ import { makeEventListener } from "@solid-primitives/event-listener"
 import { batch, onCleanup, onMount } from "solid-js"
 import z from "zod"
 import { createSdkForServer } from "@/utils/server"
+import type { E2EWindow } from "@/testing/terminal"
 import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
@@ -217,7 +218,21 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       clearHeartbeat()
     }
 
+    const e2e = () => {
+      if (typeof window === "undefined") return
+      const state = (window as E2EWindow).__opencode_e2e
+      if (!state) return
+      state.globalEventStream = {
+        stop,
+        start: () => {
+          void start()
+        },
+        cursor: replayCursor.current,
+      }
+    }
+
     onMount(() => {
+      e2e()
       makeEventListener(document, "visibilitychange", () => {
         if (document.visibilityState !== "visible") return
         if (!started) return

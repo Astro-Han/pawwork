@@ -30,6 +30,11 @@ export type E2EWindow = Window & {
       terminals?: Record<string, TerminalProbeState>
       controls?: Record<string, TerminalProbeControl>
     }
+    globalEventStream?: {
+      stop: () => void
+      start: () => void
+      cursor: () => string | undefined
+    }
   }
 }
 
