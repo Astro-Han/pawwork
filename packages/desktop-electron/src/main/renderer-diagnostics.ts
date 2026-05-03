@@ -528,6 +528,10 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     return next
   }
 
+  const drain = async () => {
+    await writeQueue
+  }
+
   const maybeFlushRetention = async () => {
     const current = now().getTime()
     const size = await stat(path).then(
@@ -572,6 +576,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
 
   const slice = async (input: SliceInput & { windowID?: string | number }) => {
     if (options.disabled) return emptyRendererDiagnosticsSlice("disabled", now())
+    await drain()
     const report = await readEventReport()
     if (report.status === "missing") return emptyRendererDiagnosticsSlice(writeFailed ? "write_failed" : "missing", now())
     if (report.status === "corrupt" || (report.events.length === 0 && report.corruptLineCount > 0)) {
@@ -601,6 +606,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     path,
     record,
     flushRetention: () => enqueueWrite(flushRetentionNow),
+    drain,
     readEvents,
     readEventReport,
     slice,

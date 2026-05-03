@@ -215,6 +215,7 @@ async function exportDiagnosticsFromMenu() {
   if (result.canceled || !result.filePath) return { ok: false as const, error: "cancelled" }
 
   try {
+    await rendererDiagnostics.drain()
     await exportRendererDiagnosticsLog({
       path: rendererDiagnostics.path,
       destination: result.filePath,

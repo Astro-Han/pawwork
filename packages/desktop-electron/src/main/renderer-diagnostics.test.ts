@@ -299,6 +299,34 @@ describe("renderer diagnostics recorder", () => {
     expect(JSON.stringify(slice)).not.toContain("x".repeat(1000))
   })
 
+  test("slice drains queued writes before reading", async () => {
+    const root = await tempRoot()
+    const recorder = createRendererDiagnosticsRecorder({
+      root,
+      appLaunchID: "launch_1",
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+    })
+
+    const pending = recorder.record(
+      {
+        name: "session.action.submit",
+        route_session_id: "ses_1",
+        data: { action: "submit_prompt" },
+      },
+      { windowID: 1 },
+    )
+    const slice = await recorder.slice({
+      sessionID: "ses_1",
+      maxBytes: 1024,
+      from: new Date("2026-05-02T10:30:00.000Z"),
+      to: new Date("2026-05-02T10:31:00.000Z"),
+    })
+
+    await pending
+    expect(slice.status).toBe("ok")
+    expect(slice.events).toHaveLength(1)
+  })
+
   test("slice re-sanitizes stored JSONL before exporting diagnostics", async () => {
     const root = await tempRoot()
     const recorder = createRendererDiagnosticsRecorder({ root, appLaunchID: "launch_1" })
