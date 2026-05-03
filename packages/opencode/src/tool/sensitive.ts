@@ -15,6 +15,11 @@ export function isSensitivePath(filePath: string) {
   return segments.some((segment) => SENSITIVE_SUBSTRINGS.some((pattern) => segment.includes(pattern)))
 }
 
+export function sensitivityPath(filePath: string, root: string) {
+  if (filePath === root || filePath.startsWith(root + path.sep)) return path.relative(root, filePath)
+  return path.basename(filePath)
+}
+
 export function safeFileMetadata(file: string, status: SensitiveStatus) {
   return {
     file,

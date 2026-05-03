@@ -14,7 +14,7 @@ import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
 import { Format } from "../format"
 import * as Bom from "@/util/bom"
-import { isSensitivePath, type SensitiveStatus } from "./sensitive"
+import { isSensitivePath, sensitivityPath, type SensitiveStatus } from "./sensitive"
 import { TurnChange } from "@/session/turn-change"
 
 export const Parameters = Schema.Struct({
@@ -25,6 +25,10 @@ function statusFromPatchType(type: "add" | "update" | "delete" | "move"): Sensit
   if (type === "add") return "added"
   if (type === "delete") return "deleted"
   return "modified"
+}
+
+function isSensitiveFile(filePath: string) {
+  return isSensitivePath(sensitivityPath(filePath, Instance.worktree))
 }
 
 function safeTotalDiff(changes: Array<{ diff: string; sensitive: boolean }>) {
@@ -123,7 +127,7 @@ export const ApplyPatchTool = Tool.define(
               beforeContent: existing?.text,
               beforeBom: existing?.bom ?? false,
               moveBeforeExists: undefined,
-              sensitive: isSensitivePath(filePath),
+              sensitive: isSensitiveFile(filePath),
             })
 
             totalDiff += diff + "\n"
@@ -183,7 +187,7 @@ export const ApplyPatchTool = Tool.define(
               moveBeforeContent: moveBefore?.text,
               moveBeforeBom: moveBefore?.bom,
               moveBeforeExists: !!moveBefore,
-              sensitive: isSensitivePath(filePath) || (movePath ? isSensitivePath(movePath) : false),
+              sensitive: isSensitiveFile(filePath) || (movePath ? isSensitiveFile(movePath) : false),
             })
 
             totalDiff += diff + "\n"
@@ -216,7 +220,7 @@ export const ApplyPatchTool = Tool.define(
               bom: source.bom,
               beforeExists: true,
               beforeBom: source.bom,
-              sensitive: isSensitivePath(filePath),
+              sensitive: isSensitiveFile(filePath),
             })
 
             totalDiff += deleteDiff + "\n"

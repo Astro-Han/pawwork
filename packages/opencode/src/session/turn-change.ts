@@ -8,7 +8,7 @@ import { count } from "drizzle-orm"
 import { MessageID, SessionID } from "./schema"
 import { TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
 import { Instance } from "@/project/instance"
-import { isSensitivePath } from "@/tool/sensitive"
+import { isSensitivePath, sensitivityPath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
 import { Global } from "@/global"
 import * as Bom from "@/util/bom"
@@ -130,9 +130,7 @@ function displayPath(file: string) {
   if (file.startsWith(worktree + path.sep) || file === worktree) return path.relative(worktree, file).replaceAll("\\", "/")
   const home = Global.Path.home
   if (home && (file === home || file.startsWith(home + path.sep))) return `~/${path.relative(home, file).replaceAll("\\", "/")}`
-  const parent = path.basename(path.dirname(file))
-  const name = path.basename(file)
-  return parent ? `${parent}/${name}` : name
+  return path.basename(file)
 }
 
 function byteSize(text: string) {
@@ -173,7 +171,7 @@ function canRestore(state: FileState) {
 function toDisplay(file: RestoreFile): DisplayFile | undefined {
   if (same(file.before, file.after)) return
   const currentStatus = status(file.before, file.after)
-  const sensitive = isSensitivePath(file.path)
+  const sensitive = isSensitivePath(sensitivityPath(file.path, Instance.worktree))
   if (sensitive) {
     return {
       path: file.displayPath,
@@ -287,13 +285,22 @@ function withAvailability(display: Display, state: "applied" | "undone" | "redo_
 }
 
 function withOpenPaths(display: Display, restore: RestoreRow[]) {
-  const paths = new Map(restore.map((row) => [row.data.displayPath, row.data.path]))
+  const paths = new Map<string, string[]>()
+  for (const row of restore) {
+    const current = paths.get(row.data.displayPath) ?? []
+    current.push(row.data.path)
+    paths.set(row.data.displayPath, current)
+  }
   return {
     ...display,
-    files: display.files.map((file) => ({
-      ...file,
-      openPath: paths.get(file.path),
-    })),
+    files: display.files.map((file) => {
+      const current = paths.get(file.path)
+      const openPath = current?.shift()
+      return {
+        ...file,
+        openPath,
+      }
+    }),
   }
 }
 

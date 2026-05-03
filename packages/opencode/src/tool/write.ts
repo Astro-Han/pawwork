@@ -14,7 +14,7 @@ import { Instance } from "../project/instance"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
-import { isSensitivePath, safeFilepathMetadata } from "./sensitive"
+import { isSensitivePath, safeFilepathMetadata, sensitivityPath } from "./sensitive"
 import { TurnChange } from "@/session/turn-change"
 
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
@@ -58,11 +58,12 @@ export const WriteTool = Tool.define(
           const contentNew = next.text
 
           let diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
-          const sensitive = isSensitivePath(filepath)
+          const relativeFilepath = path.relative(Instance.worktree, filepath)
+          const sensitive = isSensitivePath(sensitivityPath(filepath, Instance.worktree))
           const status = exists ? "modified" : "added"
           yield* ctx.ask({
             permission: "edit",
-            patterns: [path.relative(Instance.worktree, filepath)],
+            patterns: [relativeFilepath],
             always: ["*"],
             metadata: sensitive
               ? safeFilepathMetadata(filepath, status, bomChanged ? { bomDiscarded: true } : undefined)
@@ -114,7 +115,7 @@ export const WriteTool = Tool.define(
           }
 
           return {
-            title: path.relative(Instance.worktree, filepath),
+            title: relativeFilepath,
             metadata: {
               diagnostics,
               ...(sensitive ? { filepath, sensitive: true, status } : { filepath }),

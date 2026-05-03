@@ -161,7 +161,7 @@ describe("TurnChange", () => {
 
         const display = TurnChange.finalize(turn)
 
-        expect(display?.files[0]?.path).toBe("outside-project/external.txt")
+        expect(display?.files[0]?.path).toBe("external.txt")
         expect(JSON.stringify(display)).not.toContain(path.dirname(fixture.path))
         expect(TurnChange.get(turn)?.files[0]?.openPath).toBe(external)
       },
