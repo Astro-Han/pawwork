@@ -188,6 +188,17 @@ describe("EventReplayStore", () => {
     expect(store.latestID()).toBe("boot:2")
   })
 
+  test("clears all retained records without changing the cursor generation", () => {
+    const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
+    store.append(question("q1"))
+    store.append(question("q2"))
+
+    store.clear()
+
+    expect(store.recordsForTest()).toEqual([])
+    expect(store.latestID()).toBe("boot:2")
+  })
+
   test("reset starts a new empty generation", () => {
     const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
     store.append(question("q1"))

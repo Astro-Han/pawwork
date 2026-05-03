@@ -140,6 +140,10 @@ export class EventReplayStore {
   reset() {
     this.bootID = `${this.now().toString(36)}-${randomUUID().slice(0, 8)}`
     this.seq = 0
+    this.clear()
+  }
+
+  clear() {
     this.records = []
   }
 

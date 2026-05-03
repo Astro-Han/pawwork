@@ -92,7 +92,7 @@ describe("createGlobalEventReplayBridge", () => {
     expect(packets[0].id).toBe("boot:1")
   })
 
-  test("connection signals a gap once after partial replay records are available", () => {
+  test("gapped reconnect sends only server.connected and skips partial replay", () => {
     const bridge = createGlobalEventReplayBridge({
       replayStore: new EventReplayStore({ bootID: "boot", maxRecords: 1 }),
     })
@@ -106,9 +106,8 @@ describe("createGlobalEventReplayBridge", () => {
       push: (packet) => packets.push(packet),
     })()
 
-    expect(packets.map((packet) => JSON.parse(packet.data).payload.type)).toEqual(["question.replied", "server.connected"])
+    expect(packets.map((packet) => JSON.parse(packet.data).payload.type)).toEqual(["server.connected"])
     expect(packets[0].id).toBe("boot:2")
-    expect(packets.at(-1)?.id).toBe("boot:2")
   })
 
   test("dispose events invalidate retained replay records", () => {
@@ -129,12 +128,25 @@ describe("createGlobalEventReplayBridge", () => {
       push: (packet) => packets.push(packet),
     })()
 
-    expect(packets.map((packet) => JSON.parse(packet.data).payload.type)).toEqual([
-      "server.instance.disposed",
-      "server.connected",
-    ])
+    expect(packets.map((packet) => JSON.parse(packet.data).payload.type)).toEqual(["server.connected"])
     expect(packets[0].id).toBe("boot:2")
-    expect(packets.at(-1)?.id).toBe("boot:2")
+  })
+
+  test("global dispose resets the replay generation and clears retained records", () => {
+    const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
+    bridge.append(envelope("question.asked", "q1"))
+
+    const packet = bridge.append({
+      payload: {
+        type: "global.disposed",
+        properties: {},
+      },
+    })
+
+    expect(JSON.parse(packet.data).payload.type).toBe("global.disposed")
+    expect(packet.id).toBeUndefined()
+    expect(bridge.replayStore.recordsForTest()).toEqual([])
+    expect(bridge.replayStore.latestID()).not.toBe("boot:1")
   })
 
   test("missed instance dispose advances reconnect recovery from the previous fence", () => {

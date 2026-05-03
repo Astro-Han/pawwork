@@ -105,14 +105,14 @@ export function openGlobalEventReplayConnection(input: {
     pushConnected(opened.fenceID)
   }
 
-  // Gap reconnects still get retained records first as best-effort recovery;
-  // the following server.connected refresh is the final source of truth.
-  for (const record of opened.replay) {
-    input.push(packetForRecord(record))
-  }
-
-  if (input.lastEventID && (opened.invalidCursor || opened.gap)) {
-    pushConnected(opened.fenceID)
+  // Do not send partial replay for invalid/gapped cursors. Missing earlier
+  // events can make retained blocker records stale, so bootstrap owns recovery.
+  if (opened.invalidCursor || opened.gap) {
+    if (input.lastEventID) pushConnected(opened.fenceID)
+  } else {
+    for (const record of opened.replay) {
+      input.push(packetForRecord(record))
+    }
   }
 
   replaying = false
