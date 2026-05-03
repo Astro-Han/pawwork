@@ -5,24 +5,24 @@ export type QueuedGlobalEvent = { directory: string; payload: Event }
 const deltaKey = (event: QueuedGlobalEvent) => {
   if (event.payload.type !== "message.part.delta") return
   const props = event.payload.properties
-  return `${event.directory}:${props.messageID}:${props.partID}:${props.field}`
+  return JSON.stringify([event.directory, props.messageID, props.partID, props.field])
 }
 
 const partKey = (event: QueuedGlobalEvent) => {
   if (event.payload.type === "message.part.delta") {
     const props = event.payload.properties
-    return `${event.directory}:${props.messageID}:${props.partID}`
+    return JSON.stringify([event.directory, props.messageID, props.partID])
   }
   if (event.payload.type === "message.part.updated") {
     const part = event.payload.properties.part
-    return `${event.directory}:${part.messageID}:${part.id}`
+    return JSON.stringify([event.directory, part.messageID, part.id])
   }
 }
 
 const replaceableKey = (event: QueuedGlobalEvent) => {
   if (event.payload.type === "session.status")
-    return `session.status:${event.directory}:${event.payload.properties.sessionID}`
-  if (event.payload.type === "lsp.updated") return `lsp.updated:${event.directory}`
+    return JSON.stringify(["session.status", event.directory, event.payload.properties.sessionID])
+  if (event.payload.type === "lsp.updated") return JSON.stringify(["lsp.updated", event.directory])
 }
 
 const appendDelta = (event: QueuedGlobalEvent, delta: string): QueuedGlobalEvent => {

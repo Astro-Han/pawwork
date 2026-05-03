@@ -109,4 +109,14 @@ describe("global SDK event queue coalescing", () => {
     expect(deltas(events)).toEqual([])
     expect(events.map((event) => event.directory)).toEqual(["/repo-a", "/repo-b"])
   })
+
+  test("does not collide composite keys when directories contain separators", () => {
+    const events = coalesceQueuedEvents([
+      ...queuedIn("/repo:msg_1", delta("prt_1", "a", "prt_2")),
+      ...queuedIn("/repo", delta("msg_1:prt_1", "b", "prt_2")),
+    ])
+
+    expect(deltas(events)).toEqual(["a", "b"])
+    expect(events.map((event) => event.directory)).toEqual(["/repo:msg_1", "/repo"])
+  })
 })
