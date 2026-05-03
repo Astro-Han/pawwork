@@ -1,7 +1,6 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
-import { createRoot } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createRoot, createSignal } from "solid-js"
 import { createSessionHistoryWindow, resolveHistoryTurnStart } from "./use-session-history-window"
 
 const userMessage = (id: number) =>
@@ -14,30 +13,36 @@ const userMessage = (id: number) =>
 const userMessages = (count: number) => Array.from({ length: count }, (_, index) => userMessage(index))
 const ids = (start: number, end: number) => Array.from({ length: end - start }, (_, index) => `msg_${start + index}`)
 
-const createHarness = (input: { count: number; userScrolled?: boolean }) => {
-  const [state, setState] = createStore({
-    messages: userMessages(input.count),
+const createHarness = (input: { count: number; userScrolled?: boolean; atBottom?: boolean; historyMore?: boolean }) => {
+  const [state, setState] = createSignal({
+    count: input.count,
     userScrolled: input.userScrolled ?? false,
+    atBottom: input.atBottom ?? !(input.userScrolled ?? false),
+    historyMore: input.historyMore ?? false,
   })
   const history = createSessionHistoryWindow({
     sessionID: () => "ses_1",
     messagesReady: () => true,
-    loaded: () => state.messages.length,
-    visibleUserMessages: () => state.messages,
-    historyMore: () => false,
+    loaded: () => state().count,
+    visibleUserMessages: () => userMessages(state().count),
+    historyMore: () => state().historyMore,
     historyLoading: () => false,
     loadMore: async () => undefined,
-    userScrolled: () => state.userScrolled,
+    userScrolled: () => state().userScrolled,
+    isAtBottom: () => state().atBottom,
     scroller: () => undefined,
   })
 
   return {
     history,
     setCount: (count: number) => {
-      setState("messages", userMessages(count))
+      setState((prev) => ({ ...prev, count }))
     },
     setUserScrolled: (value: boolean) => {
-      setState("userScrolled", value)
+      setState((prev) => ({ ...prev, userScrolled: value }))
+    },
+    setAtBottom: (value: boolean) => {
+      setState((prev) => ({ ...prev, atBottom: value }))
     },
   }
 }
@@ -55,6 +60,7 @@ describe("session history window extraction", () => {
         historyLoading: () => false,
         loadMore: async () => undefined,
         userScrolled: () => false,
+        isAtBottom: () => true,
         scroller: () => undefined,
       })
 
@@ -78,6 +84,7 @@ describe("session history window extraction", () => {
         historyLoading: () => false,
         loadMore: async () => undefined,
         userScrolled: () => false,
+        isAtBottom: () => true,
         scroller: () => undefined,
       })
 
@@ -145,6 +152,46 @@ describe("session history window extraction", () => {
       expect(state.history.mode()).toBe("bottom")
       expect(resolveHistoryTurnStart({ mode: "bottom", storedTurnStart: 20, length: 40, userScrolled: false })).toBe(30)
       dispose()
+    })
+  })
+
+  test("reading mode returns to latest only when the viewport is actually at bottom", () => {
+    createRoot((dispose) => {
+      const state = createHarness({ count: 30, userScrolled: true, atBottom: false })
+
+      state.history.expandForReading(0)
+      state.setUserScrolled(false)
+      state.setAtBottom(false)
+      state.history.returnToLatestIfFollowing()
+
+      expect(state.history.mode()).toBe("reading")
+
+      state.setAtBottom(true)
+      state.setCount(40)
+      state.history.returnToLatestIfFollowing()
+
+      expect(state.history.mode()).toBe("bottom")
+      expect(resolveHistoryTurnStart({ mode: "bottom", storedTurnStart: 20, length: 40, userScrolled: false })).toBe(30)
+      dispose()
+    })
+  })
+
+  test("loadAndReveal does not collapse reading window before the viewport is at bottom", async () => {
+    await new Promise<void>((resolve) => {
+      createRoot((dispose) => {
+        const state = createHarness({ count: 30, userScrolled: false, atBottom: false, historyMore: true })
+
+        void state.history.loadAndReveal().then(() => {
+          state.setCount(40)
+
+          expect(state.history.mode()).toBe("reading")
+          expect(
+            resolveHistoryTurnStart({ mode: "reading", storedTurnStart: 0, length: 40, userScrolled: false }),
+          ).toBe(0)
+          dispose()
+          resolve()
+        })
+      })
     })
   })
 

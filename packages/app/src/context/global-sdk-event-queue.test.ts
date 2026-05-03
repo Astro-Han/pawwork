@@ -4,9 +4,9 @@ import { coalesceQueuedEvents, type QueuedGlobalEvent } from "./global-sdk-event
 
 const directory = "/repo"
 
-const delta = (partID: string, value: string, messageID = "msg_1"): Event => ({
+const delta = (partID: string, value: string, messageID = "msg_1", field = "text"): Event => ({
   type: "message.part.delta",
-  properties: { sessionID: "ses_1", messageID, partID, field: "text", delta: value },
+  properties: { sessionID: "ses_1", messageID, partID, field, delta: value },
 })
 
 const updated = (partID: string, messageID = "msg_1"): Event =>
@@ -57,11 +57,33 @@ describe("global SDK event queue coalescing", () => {
     expect(deltas(events)).toEqual(["a", "b"])
   })
 
+  test("does not merge same-part deltas for different fields", () => {
+    const events = coalesceQueuedEvents(
+      queued(delta("prt_1", "a", "msg_1", "text"), delta("prt_1", "b", "msg_1", "metadata")),
+    )
+
+    expect(deltas(events)).toEqual(["a", "b"])
+  })
+
   test("drops stale deltas before a full part update but keeps later deltas", () => {
     const events = coalesceQueuedEvents(queued(delta("prt_1", "stale"), updated("prt_1"), delta("prt_1", "fresh")))
 
     expect(eventTypes(events)).toEqual(["message.part.updated", "message.part.delta"])
     expect(deltas(events)).toEqual(["fresh"])
+  })
+
+  test("keeps only the full update and later delta for delta-update-delta ordering", () => {
+    const events = coalesceQueuedEvents(queued(delta("prt_1", "before"), updated("prt_1"), delta("prt_1", "after")))
+
+    expect(eventTypes(events)).toEqual(["message.part.updated", "message.part.delta"])
+    expect(deltas(events)).toEqual(["after"])
+  })
+
+  test("handles multiple full updates for the same part without resurrecting stale deltas", () => {
+    const events = coalesceQueuedEvents(queued(delta("prt_1", "stale"), updated("prt_1"), updated("prt_1")))
+
+    expect(eventTypes(events)).toEqual(["message.part.updated", "message.part.updated"])
+    expect(deltas(events)).toEqual([])
   })
 
   test("keeps replaceable event indexes correct after stale delta removal", () => {

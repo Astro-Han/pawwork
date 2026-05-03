@@ -63,6 +63,7 @@ export function createSessionTimelineInteraction(input: {
     historyLoading: input.historyLoading,
     loadMore: input.loadMore,
     userScrolled: autoScroll.userScrolled,
+    isAtBottom: () => scrollDock.scroll.bottom,
     scroller: scrollDock.scroller,
   })
 

@@ -13,6 +13,7 @@ export type SessionHistoryWindowInput = {
   historyLoading: () => boolean
   loadMore: (sessionID: string) => Promise<void>
   userScrolled: () => boolean
+  isAtBottom: () => boolean
   scroller: () => HTMLDivElement | undefined
 }
 
@@ -28,7 +29,10 @@ export function resolveHistoryTurnStart(input: {
   const initialWindow = input.initialWindow ?? 10
   const initial = input.length > initialWindow ? input.length - initialWindow : 0
   if (input.length <= 0) return 0
+  // bottom follows the newest turns unless the user has moved away from the latest viewport.
   if (input.mode === "bottom") return input.userScrolled ? Math.min(input.storedTurnStart, initial) : initial
+  // reading keeps the user's current window stable while new turns append.
+  // hash uses the same stable-window behavior so the target message stays mounted.
   if (input.storedTurnStart <= 0) return 0
   if (input.storedTurnStart >= input.length) return initial
   return input.storedTurnStart
@@ -92,7 +96,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   const resumeLatestWindow = () =>
     setTurnStart(initialTurnStart(input.visibleUserMessages().length), { mode: "bottom" })
   const returnToLatestIfFollowing = () => {
-    if (input.userScrolled()) return
+    if (!input.isAtBottom()) return
     resumeLatestWindow()
   }
   const mode = () => state.mode
@@ -270,7 +274,13 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   createEffect(
     on(
       () =>
-        [input.sessionID(), input.messagesReady(), input.visibleUserMessages().length, input.userScrolled()] as const,
+        [
+          input.sessionID(),
+          input.messagesReady(),
+          input.visibleUserMessages().length,
+          input.userScrolled(),
+          input.isAtBottom(),
+        ] as const,
       ([id, ready, len, userScrolled]) => {
         if (!id || !ready) return
         if (userScrolled && state.mode === "bottom") {
