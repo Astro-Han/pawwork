@@ -75,8 +75,16 @@ export class EventReplayStore {
 
   constructor(input?: { bootID?: string; maxRecords?: number; maxAgeMs?: number; now?: () => number }) {
     this.bootID = input?.bootID ?? `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
-    this.maxRecords = input?.maxRecords ?? DEFAULT_MAX_RECORDS
-    this.maxAgeMs = input?.maxAgeMs ?? DEFAULT_MAX_AGE_MS
+    const maxRecords = input?.maxRecords ?? DEFAULT_MAX_RECORDS
+    const maxAgeMs = input?.maxAgeMs ?? DEFAULT_MAX_AGE_MS
+    if (!Number.isInteger(maxRecords) || maxRecords < 0) {
+      throw new RangeError("maxRecords must be a non-negative integer")
+    }
+    if (!Number.isFinite(maxAgeMs) || maxAgeMs < 0) {
+      throw new RangeError("maxAgeMs must be a non-negative number")
+    }
+    this.maxRecords = maxRecords
+    this.maxAgeMs = maxAgeMs
     this.now = input?.now ?? Date.now
   }
 

@@ -58,6 +58,13 @@ describe("isReplayableGlobalEvent", () => {
 })
 
 describe("EventReplayStore", () => {
+  test("rejects invalid retention configuration", () => {
+    expect(() => new EventReplayStore({ maxRecords: -1 })).toThrow(RangeError)
+    expect(() => new EventReplayStore({ maxRecords: 1.5 })).toThrow(RangeError)
+    expect(() => new EventReplayStore({ maxAgeMs: -1 })).toThrow(RangeError)
+    expect(() => new EventReplayStore({ maxAgeMs: Number.NaN })).toThrow(RangeError)
+  })
+
   test("assigns monotonic ids under one boot id", () => {
     const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
     const first = store.append(question("q1"))

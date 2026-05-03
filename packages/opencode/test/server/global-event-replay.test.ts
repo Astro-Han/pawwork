@@ -11,18 +11,30 @@ const envelope = (type: string, id = type) => ({
   },
 })
 
-async function readSseUntil(response: Response, predicate: (text: string) => boolean) {
+async function readSseUntil(response: Response, predicate: (text: string) => boolean, timeoutMs = 2_000) {
   const reader = response.body?.getReader()
   if (!reader) throw new Error("Expected SSE response body")
   const decoder = new TextDecoder()
   let text = ""
-  while (!predicate(text)) {
-    const next = await reader.read()
-    if (next.done) break
-    text += decoder.decode(next.value, { stream: true })
+  const deadline = Date.now() + timeoutMs
+  try {
+    while (!predicate(text)) {
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) throw new Error(`Timed out waiting for SSE payload. Received: ${text}`)
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timed out reading SSE stream. Received: ${text}`)), remaining),
+        ),
+      ])
+      if (next.done) break
+      text += decoder.decode(next.value, { stream: true })
+    }
+    if (!predicate(text)) throw new Error(`SSE stream ended before expected payload. Received: ${text}`)
+    return text
+  } finally {
+    await reader.cancel()
   }
-  await reader.cancel()
-  return text
 }
 
 describe("createGlobalEventReplayBridge", () => {
