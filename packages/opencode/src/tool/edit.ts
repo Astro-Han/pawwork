@@ -18,7 +18,7 @@ import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import * as Bom from "@/util/bom"
-import { isSensitivePath, safeFileMetadata, safeFilepathMetadata, sensitivityPath } from "./sensitive"
+import { isSensitiveTargetPath, safeFileMetadata, safeFilepathMetadata } from "./sensitive"
 import { TurnChange } from "@/session/turn-change"
 
 function normalizeLineEndings(text: string): string {
@@ -124,7 +124,7 @@ export const EditTool = Tool.define(
                 contentOld = source.text
                 contentNew = next.text
                 diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
-                const sensitive = isSensitivePath(sensitivityPath(filePath, Instance.worktree))
+                const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
                 const status = existed ? "modified" : "added"
                 yield* ctx.ask({
                   permission: "edit",
@@ -189,7 +189,7 @@ export const EditTool = Tool.define(
                   normalizeLineEndings(contentNew),
                 ),
               )
-              const sensitive = isSensitivePath(sensitivityPath(filePath, Instance.worktree))
+              const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
               yield* ctx.ask({
                 permission: "edit",
                 patterns: [relativeFilePath],
@@ -229,7 +229,7 @@ export const EditTool = Tool.define(
             if (change.added) additions += change.count || 0
             if (change.removed) deletions += change.count || 0
           }
-          const sensitive = isSensitivePath(sensitivityPath(filePath, Instance.worktree))
+          const sensitive = isSensitiveTargetPath(filePath, Instance.worktree)
           const status = existedBefore ? "modified" : "added"
           const filediff: Snapshot.FileDiff = sensitive
             ? (safeFileMetadata(filePath, status) as unknown as Snapshot.FileDiff)

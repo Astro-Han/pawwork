@@ -8,7 +8,7 @@ import { count } from "drizzle-orm"
 import { MessageID, SessionID } from "./schema"
 import { TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
 import { Instance } from "@/project/instance"
-import { isSensitivePath, sensitivityPath } from "@/tool/sensitive"
+import { isSensitiveTargetPath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
 import { Global } from "@/global"
 import * as Bom from "@/util/bom"
@@ -133,6 +133,26 @@ function displayPath(file: string) {
   return path.basename(file)
 }
 
+function isOpaqueExternalPath(file: string) {
+  const directory = Instance.directory
+  if (file === directory || file.startsWith(directory + path.sep)) return false
+  const worktree = Instance.worktree
+  if (file === worktree || file.startsWith(worktree + path.sep)) return false
+  const home = Global.Path.home
+  if (home && (file === home || file.startsWith(home + path.sep))) return false
+  return true
+}
+
+function nextDisplayPath(sessionID: SessionID, messageID: MessageID, file: string) {
+  const base = displayPath(file)
+  if (!isOpaqueExternalPath(file)) return base
+  const existing = rows(sessionID, messageID)
+  const sameBase = existing.filter(
+    (row) => row.data.path !== file && (row.data.displayPath === base || row.data.displayPath.startsWith(`${base} · external #`)),
+  )
+  return sameBase.length === 0 ? base : `${base} · external #${sameBase.length + 1}`
+}
+
 function byteSize(text: string) {
   return Buffer.byteLength(text, "utf8")
 }
@@ -171,7 +191,7 @@ function canRestore(state: FileState) {
 function toDisplay(file: RestoreFile): DisplayFile | undefined {
   if (same(file.before, file.after)) return
   const currentStatus = status(file.before, file.after)
-  const sensitive = isSensitivePath(sensitivityPath(file.path, Instance.worktree))
+  const sensitive = isSensitiveTargetPath(file.path, Instance.worktree)
   if (sensitive) {
     return {
       path: file.displayPath,
@@ -430,7 +450,7 @@ export namespace TurnChange {
       const time = now()
       const data: RestoreFile = {
         path: input.path,
-        displayPath: displayPath(input.path),
+        displayPath: existing?.data.displayPath ?? nextDisplayPath(input.sessionID, input.messageID, input.path),
         before: existing?.data.before ?? prepareState(input.before),
         after: prepareState(input.after),
       }
@@ -521,7 +541,7 @@ export namespace TurnChange {
         sessionID: input.sessionID,
         turnID: input.messageID,
         messageID: input.messageID,
-        undoAvailable: true,
+        undoAvailable: omittedCount === 0,
         redoAvailable: false,
         ...(omittedCount > 0 ? { truncated: true, omittedCount } : {}),
         files: displayFiles,

@@ -14,7 +14,7 @@ import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
 import { Format } from "../format"
 import * as Bom from "@/util/bom"
-import { isSensitivePath, sensitivityPath, type SensitiveStatus } from "./sensitive"
+import { isSensitiveTargetPath, type SensitiveStatus } from "./sensitive"
 import { TurnChange } from "@/session/turn-change"
 
 export const Parameters = Schema.Struct({
@@ -28,7 +28,7 @@ function statusFromPatchType(type: "add" | "update" | "delete" | "move"): Sensit
 }
 
 function isSensitiveFile(filePath: string) {
-  return isSensitivePath(sensitivityPath(filePath, Instance.worktree))
+  return isSensitiveTargetPath(filePath, Instance.worktree)
 }
 
 function notFound(error: unknown) {

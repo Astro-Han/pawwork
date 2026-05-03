@@ -3,6 +3,7 @@ import path from "path"
 export type SensitiveStatus = "added" | "modified" | "deleted"
 
 const SENSITIVE_SUBSTRINGS = ["credential", "credentials", "secret", "token", "private-key"]
+const SENSITIVE_EXTERNAL_SEGMENTS = new Set(["credential", "credentials", "secret", "secrets", "token", "tokens", "private-key", "private-keys"])
 
 export function isSensitivePath(filePath: string) {
   const normalized = filePath.replaceAll("\\", "/").toLowerCase()
@@ -18,6 +19,17 @@ export function isSensitivePath(filePath: string) {
 export function sensitivityPath(filePath: string, root: string) {
   if (filePath === root || filePath.startsWith(root + path.sep)) return path.relative(root, filePath)
   return path.basename(filePath)
+}
+
+export function isSensitiveTargetPath(filePath: string, root: string) {
+  if (filePath === root || filePath.startsWith(root + path.sep)) return isSensitivePath(path.relative(root, filePath))
+
+  const normalized = filePath.replaceAll("\\", "/").toLowerCase()
+  const segments = normalized.split("/").filter(Boolean)
+  const basename = path.posix.basename(normalized)
+  if (isSensitivePath(basename)) return true
+
+  return segments.slice(0, -1).some((segment) => SENSITIVE_EXTERNAL_SEGMENTS.has(segment))
 }
 
 export function safeFileMetadata(file: string, status: SensitiveStatus) {

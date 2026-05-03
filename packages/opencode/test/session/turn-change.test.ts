@@ -168,6 +168,71 @@ describe("TurnChange", () => {
     })
   })
 
+  test("finalizes external files under sensitive directories as status-only", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const external = path.join(path.dirname(fixture.path), "secrets", "config.json")
+
+        TurnChange.recordWrite({
+          ...turn,
+          path: external,
+          before: { exists: false },
+          after: { exists: true, content: "token=hidden\n" },
+        })
+
+        const display = TurnChange.finalize(turn)
+        const serialized = JSON.stringify(display)
+
+        expect(display?.files).toEqual([
+          {
+            path: "config.json",
+            status: "added",
+            sensitive: true,
+            expandable: false,
+          },
+        ])
+        expect(serialized).not.toContain("token=hidden")
+        expect(serialized).not.toContain("@@")
+        expect(serialized).not.toContain(path.dirname(fixture.path))
+      },
+    })
+  })
+
+  test("disambiguates opaque external files with the same basename", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const first = path.join(path.dirname(fixture.path), "outside-a", "config.json")
+        const second = path.join(path.dirname(fixture.path), "outside-b", "config.json")
+
+        TurnChange.recordWrite({
+          ...turn,
+          path: first,
+          before: { exists: false },
+          after: { exists: true, content: "first\n" },
+        })
+        TurnChange.recordWrite({
+          ...turn,
+          path: second,
+          before: { exists: false },
+          after: { exists: true, content: "second\n" },
+        })
+
+        const display = TurnChange.finalize(turn)
+
+        expect(display?.files.map((file) => file.path)).toEqual(["config.json", "config.json · external #2"])
+        expect(TurnChange.get(turn)?.files.map((file) => file.openPath)).toEqual([first, second])
+      },
+    })
+  })
+
   test("finalizes file-limit overflow as an explicit truncated display", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
@@ -189,6 +254,7 @@ describe("TurnChange", () => {
         expect(display?.files).toHaveLength(200)
         expect(display?.truncated).toBe(true)
         expect(display?.omittedCount).toBe(1)
+        expect(display?.undoAvailable).toBe(false)
       },
     })
   })
