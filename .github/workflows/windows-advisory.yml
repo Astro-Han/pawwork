@@ -1,0 +1,263 @@
+name: windows-advisory
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-advisory-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          is_docs_path() {
+            case "$1" in
+              README.md|README_CN.md|assets/readme/*|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|packages/*/README.md|packages/opencode/specs/*)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          docs_only=false
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+          mapfile -t changes < <(git diff --name-status --find-renames --find-copies "$BASE_SHA" "$HEAD_SHA" --)
+
+          if [ "${#changes[@]}" -gt 0 ]; then
+            docs_only=true
+
+            for change in "${changes[@]}"; do
+              IFS=$'\t' read -r status path1 path2 <<< "$change"
+
+              case "$status" in
+                A*|M*|T*|D*)
+                  if ! is_docs_path "$path1"; then
+                    docs_only=false
+                    break
+                  fi
+                  ;;
+                R*|C*)
+                  if ! is_docs_path "$path1" || ! is_docs_path "$path2"; then
+                    docs_only=false
+                    break
+                  fi
+                  ;;
+                *)
+                  docs_only=false
+                  break
+                  ;;
+              esac
+            done
+          fi
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
+  unit-windows:
+    name: unit-windows-${{ matrix.package }}
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
+    runs-on: windows-latest
+    # Windows unit jobs are advisory, package-scoped or shard-scoped. The
+    # 20-minute budget applies per matrix child; opencode has three parallel
+    # shards, so a full stall can consume up to three Windows runner slots.
+    timeout-minutes: 20
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: app
+            uses_turbo: true
+            command: bun turbo test:ci --filter=@opencode-ai/app
+            report_path: packages/app/.artifacts/unit/junit.xml
+          # The opencode-* package values below are synthetic shard names for
+          # readable advisory checks and matrix keys, not package.json names.
+          # Direct bun test keeps opencode's test:ci timeout while allowing
+          # shard-local paths and reporter output. Shards are balanced by
+          # observed runtime, not directory count.
+          # Session also carries plugin, permission, util, skill, and root
+          # tests to keep the Windows shard runtimes close.
+          - package: opencode-session
+            uses_turbo: false
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-session.xml
+              test/session
+              test/plugin
+              test/permission
+              test/util
+              test/skill
+              test/index-runtime-namespace.test.ts
+              test/permission-agent.test.ts
+            report_path: packages/opencode/.artifacts/unit/junit-windows-session.xml
+          # Config and project cover configuration, project discovery, file,
+          # and GitHub workflow tests.
+          - package: opencode-config-project
+            uses_turbo: false
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-config-project.xml
+              test/config
+              test/project
+              test/worktree
+              test/file
+              test/github
+              test/settings
+              test/settings.test.ts
+            report_path: packages/opencode/.artifacts/unit/junit-windows-config-project.xml
+          # Server tools carries many smaller and faster directories, which is
+          # why it has more entries than the other two opencode shards.
+          - package: opencode-server-tools
+            uses_turbo: false
+            command: >-
+              cd packages/opencode && bun test
+              --timeout 30000
+              --reporter=junit
+              --reporter-outfile=.artifacts/unit/junit-windows-server-tools.xml
+              test/server
+              test/snapshot
+              test/tool
+              test/mcp
+              test/question
+              test/effect
+              test/agent
+              test/git
+              test/storage
+              test/provider
+              test/pty
+              test/share
+              test/script
+              test/memory
+              test/lsp
+              test/fixture
+              test/acp
+              test/bus
+              test/cli
+              test/global
+              test/format
+              test/account
+              test/sync
+              test/filesystem
+              test/patch
+              test/shell
+              test/control-plane
+              test/ide
+              test/installation
+              test/auth
+            report_path: packages/opencode/.artifacts/unit/junit-windows-server-tools.xml
+          - package: desktop
+            uses_turbo: true
+            command: bun turbo test:ci --filter=@opencode-ai/desktop-electron
+            report_path: packages/desktop-electron/.artifacts/unit/junit.xml
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Load-bearing: `bun install` runs `trustedDependencies`
+      # postinstalls from the root package.json (electron, node-pty,
+      # esbuild, tree-sitter at time of writing), which call `node`
+      # explicitly. Do not drop without first patching those scripts.
+      # Source of truth: grep `trustedDependencies` in package.json. (#70)
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
+        if: matrix.uses_turbo
+        with:
+          path: .turbo/cache
+          # Only app and desktop invoke Turbo in this Windows matrix.
+          key: turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-
+            turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-
+
+      - run: bun install --frozen-lockfile
+
+      - name: Prepare unit artifact directory
+        if: matrix.uses_turbo == false
+        run: mkdir -p "$(dirname "${{ matrix.report_path }}")"
+
+      - name: unit
+        id: unit
+        continue-on-error: true
+        run: |
+          set +e
+          ${{ matrix.command }}
+          status=$?
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Windows unit diagnostic"
+              echo ""
+              echo "- package: ${{ matrix.package }}"
+              echo "- exit code: $status"
+              echo "- status: failed advisory signal"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit "$status"
+
+      - name: Upload unit artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
+        with:
+          name: unit-windows-${{ matrix.package }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+          path: ${{ matrix.report_path }}
