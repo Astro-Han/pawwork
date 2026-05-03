@@ -14,10 +14,117 @@ import { Log } from "@opencode-ai/core/util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { errors } from "../error"
+import { EventReplayStore, type GlobalEventEnvelope, type ReplayRecord } from "../event-replay"
 
 const log = Log.create({ service: "server" })
 
 export const GlobalDisposedEvent = BusEvent.define("global.disposed", z.object({}))
+
+type SsePacket = {
+  id?: string
+  data: string
+  replaySeq?: number
+}
+
+export type GlobalEventReplayPacket = SsePacket
+
+function packetForEnvelope(envelope: GlobalEventEnvelope, id?: string): SsePacket {
+  return {
+    id,
+    data: JSON.stringify(envelope),
+  }
+}
+
+function packetForRecord(record: ReplayRecord): SsePacket {
+  return {
+    id: record.id,
+    replaySeq: record.seq,
+    data: JSON.stringify(record.envelope),
+  }
+}
+
+export function createGlobalEventReplayBridge(input?: { replayStore?: EventReplayStore }) {
+  const replayStore = input?.replayStore ?? new EventReplayStore()
+  const listeners = new Set<(packet: GlobalEventReplayPacket) => void>()
+
+  return {
+    replayStore,
+    append(event: GlobalEventEnvelope) {
+      const record = replayStore.append(event)
+      const packet = record ? packetForRecord(record) : packetForEnvelope(event)
+      for (const listener of listeners) listener(packet)
+      return packet
+    },
+    subscribe(listener: (packet: GlobalEventReplayPacket) => void) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+}
+
+export function openGlobalEventReplayConnection(input: {
+  bridge: ReturnType<typeof createGlobalEventReplayBridge>
+  lastEventID?: string
+  push: (packet: GlobalEventReplayPacket) => void
+}) {
+  const liveBuffer: GlobalEventReplayPacket[] = []
+  let replaying = true
+  const pushLive = (packet: GlobalEventReplayPacket) => {
+    if (replaying) {
+      liveBuffer.push(packet)
+      return
+    }
+    input.push(packet)
+  }
+
+  const unsubscribeLive = input.bridge.subscribe(pushLive)
+  const opened = input.bridge.replayStore.open(input.lastEventID, () => {})
+
+  input.push({
+    id: input.lastEventID ? undefined : opened.fenceID,
+    data: JSON.stringify({
+      payload: {
+        type: "server.connected",
+        properties: {},
+      },
+    }),
+  })
+
+  for (const record of opened.replay) {
+    input.push(packetForRecord(record))
+  }
+
+  if (opened.invalidCursor || opened.gap) {
+    input.push({
+      id: opened.fenceID,
+      data: JSON.stringify({
+        payload: {
+          type: "server.connected",
+          properties: {},
+        },
+      }),
+    })
+  }
+
+  opened.releaseLiveQueue(() => {})
+  replaying = false
+  for (const packet of liveBuffer) {
+    if (packet.replaySeq !== undefined && packet.replaySeq <= opened.fenceSeq) continue
+    input.push(packet)
+  }
+  liveBuffer.length = 0
+
+  return () => {
+    opened.unsubscribe()
+    unsubscribeLive()
+  }
+}
+
+const globalEventReplay = createGlobalEventReplayBridge()
+
+GlobalBus.on("event", (event) => {
+  globalEventReplay.append(event as GlobalEventEnvelope)
+})
 
 async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>) => () => void) {
   return streamSSE(c, async (stream) => {
@@ -62,6 +169,52 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
       for await (const data of q) {
         if (data === null) return
         await stream.writeSSE({ data })
+      }
+    } finally {
+      stop()
+    }
+  })
+}
+
+async function streamGlobalEvents(c: Context) {
+  const lastEventID = c.req.header("Last-Event-ID") ?? c.req.header("last-event-id") ?? undefined
+
+  return streamSSE(c, async (stream) => {
+    const q = new AsyncQueue<SsePacket | null>()
+    let done = false
+    const unsubscribe = openGlobalEventReplayConnection({
+      bridge: globalEventReplay,
+      lastEventID,
+      push: (packet) => q.push(packet),
+    })
+
+    const heartbeat = setInterval(() => {
+      q.push({
+        data: JSON.stringify({
+          payload: {
+            type: "server.heartbeat",
+            properties: {},
+          },
+        }),
+      })
+    }, 10_000)
+
+    const stop = () => {
+      if (done) return
+      done = true
+      clearInterval(heartbeat)
+      unsubscribe()
+      q.push(null)
+      log.info("global event disconnected")
+    }
+
+    stream.onAbort(stop)
+
+    try {
+      for await (const packet of q) {
+        if (packet === null) return
+        const { replaySeq: _replaySeq, ...sse } = packet
+        await stream.writeSSE(sse)
       }
     } finally {
       stop()
@@ -126,13 +279,7 @@ export const GlobalRoutes = lazy(() =>
         c.header("X-Accel-Buffering", "no")
         c.header("X-Content-Type-Options", "nosniff")
 
-        return streamEvents(c, (q) => {
-          async function handler(event: any) {
-            q.push(JSON.stringify(event))
-          }
-          GlobalBus.on("event", handler)
-          return () => GlobalBus.off("event", handler)
-        })
+        return streamGlobalEvents(c)
       },
     )
     .get(
