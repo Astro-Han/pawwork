@@ -7,6 +7,7 @@ import { Storage } from "@/storage/storage"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
+import { sanitizeSensitiveDiffs } from "@/tool/sensitive"
 
 export namespace SessionSummary {
   export const Artifact = z
@@ -121,12 +122,12 @@ export namespace SessionSummary {
         const all = yield* sessions.messages({ sessionID: input.sessionID })
         if (!all.length) return
 
-        const diffs = yield* computeDiff({ messages: all })
+        const diffs = sanitizeSensitiveDiffs(yield* computeDiff({ messages: all })) as Snapshot.FileDiff[]
         yield* sessions.setSummary({
           sessionID: input.sessionID,
           summary: {
-            additions: diffs.reduce((sum, x) => sum + x.additions, 0),
-            deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
+            additions: diffs.reduce((sum, x) => sum + (x.additions ?? 0), 0),
+            deletions: diffs.reduce((sum, x) => sum + (x.deletions ?? 0), 0),
             files: diffs.length,
           },
         })
@@ -138,7 +139,7 @@ export namespace SessionSummary {
         )
         const target = messages.find((m) => m.info.id === input.messageID)
         if (!target || target.info.role !== "user") return
-        const msgDiffs = yield* computeDiff({ messages })
+        const msgDiffs = sanitizeSensitiveDiffs(yield* computeDiff({ messages })) as Snapshot.FileDiff[]
         target.info.summary = { ...target.info.summary, diffs: msgDiffs }
         yield* sessions.updateMessage(target.info)
       })
@@ -147,12 +148,12 @@ export namespace SessionSummary {
         const diffs = yield* storage
           .read<Snapshot.FileDiff[]>(["session_diff", input.sessionID])
           .pipe(Effect.catch(() => Effect.succeed([] as Snapshot.FileDiff[])))
-        const next = diffs.map((item) => {
+        const next = (sanitizeSensitiveDiffs(diffs) as Snapshot.FileDiff[]).map((item) => {
           const file = unquoteGitPath(item.file)
           if (file === item.file) return item
           return { ...item, file }
         })
-        const changed = next.some((item, i) => item.file !== diffs[i]?.file)
+        const changed = JSON.stringify(next) !== JSON.stringify(diffs)
         if (changed) yield* storage.write(["session_diff", input.sessionID], next).pipe(Effect.ignore)
         return next
       })

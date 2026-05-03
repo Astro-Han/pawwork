@@ -14,6 +14,8 @@ import { Instance } from "../project/instance"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
+import { isSensitivePath, safeFilepathMetadata } from "./sensitive"
+import { TurnChange } from "@/session/turn-change"
 
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
 
@@ -55,15 +57,19 @@ export const WriteTool = Tool.define(
           const contentNew = next.text
 
           let diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
+          const sensitive = isSensitivePath(filepath)
+          const status = exists ? "modified" : "added"
           yield* ctx.ask({
             permission: "edit",
             patterns: [path.relative(Instance.worktree, filepath)],
             always: ["*"],
-            metadata: {
-              filepath,
-              diff,
-              ...(bomChanged && { bomDiscarded: true }),
-            },
+            metadata: sensitive
+              ? safeFilepathMetadata(filepath, status, bomChanged ? { bomDiscarded: true } : undefined)
+              : {
+                  filepath,
+                  diff,
+                  ...(bomChanged && { bomDiscarded: true }),
+                },
           })
 
           yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
@@ -76,6 +82,13 @@ export const WriteTool = Tool.define(
             diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, finalContent))
           }
           yield* bus.publish(File.Event.Edited, { file: filepath })
+          TurnChange.recordWrite({
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            path: filepath,
+            before: exists ? { exists: true, content: contentOld } : { exists: false },
+            after: { exists: true, content: finalContent },
+          })
           yield* bus.publish(FileWatcher.Event.Updated, {
             file: filepath,
             event: exists ? "change" : "add",

@@ -131,6 +131,50 @@ export const SessionEntryTable = sqliteTable(
   ],
 )
 
+export const TurnChangeDisplayTable = sqliteTable(
+  "turn_change_display",
+  {
+    session_id: text()
+      .$type<SessionID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    message_id: text()
+      .$type<MessageID>()
+      .notNull()
+      .references(() => MessageTable.id, { onDelete: "cascade" }),
+    data: text({ mode: "json" }).notNull().$type<unknown>(),
+    state: text().$type<"applied" | "undone" | "redo_invalidated">().notNull(),
+    ...Timestamps,
+  },
+  (table) => [
+    uniqueIndex("turn_change_display_message_idx").on(table.session_id, table.message_id),
+    index("turn_change_display_session_idx").on(table.session_id),
+  ],
+)
+
+export const TurnChangeRestoreTable = sqliteTable(
+  "turn_change_restore",
+  {
+    session_id: text()
+      .$type<SessionID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    message_id: text()
+      .$type<MessageID>()
+      .notNull()
+      .references(() => MessageTable.id, { onDelete: "cascade" }),
+    file_path: text().notNull(),
+    position: integer().notNull(),
+    data: text({ mode: "json" }).notNull().$type<unknown>(),
+    finalized: integer({ mode: "boolean" }).notNull().default(false),
+    ...Timestamps,
+  },
+  (table) => [
+    uniqueIndex("turn_change_restore_file_idx").on(table.session_id, table.message_id, table.file_path),
+    index("turn_change_restore_message_idx").on(table.session_id, table.message_id),
+  ],
+)
+
 export const PermissionTable = sqliteTable("permission", {
   project_id: text()
     .primaryKey()

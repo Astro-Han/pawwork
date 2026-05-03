@@ -29,6 +29,7 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
+import { TurnChange } from "@/session/turn-change"
 
 const log = Log.create({ service: "server" })
 
@@ -531,6 +532,94 @@ export const SessionRoutes = lazy(() =>
           messageID: query.messageID,
         })
         return c.json(result)
+      },
+    )
+    .get(
+      "/:sessionID/turn-change/:messageID",
+      describeRoute({
+        summary: "Get assistant turn changes",
+        description: "Get files explicitly changed by PawWork file-writing tools during one assistant turn.",
+        operationId: "session.turnChange",
+        responses: {
+          200: {
+            description: "Turn changes",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.DisplaySchema.nullable()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          messageID: MessageID.zod,
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        return c.json(TurnChange.get(params) ?? null)
+      },
+    )
+    .post(
+      "/:sessionID/turn-change/:messageID/undo",
+      describeRoute({
+        summary: "Undo assistant turn file changes",
+        operationId: "session.turnChangeUndo",
+        responses: {
+          200: {
+            description: "Undo result",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.MutationResultSchema),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          messageID: MessageID.zod,
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        return c.json(await TurnChange.undo(params))
+      },
+    )
+    .post(
+      "/:sessionID/turn-change/:messageID/redo",
+      describeRoute({
+        summary: "Redo assistant turn file changes",
+        operationId: "session.turnChangeRedo",
+        responses: {
+          200: {
+            description: "Redo result",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.MutationResultSchema),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          messageID: MessageID.zod,
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        return c.json(await TurnChange.redo(params))
       },
     )
     .get(

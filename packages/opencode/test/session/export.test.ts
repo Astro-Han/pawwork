@@ -180,6 +180,56 @@ describe("Export.session", () => {
   })
 })
 
+describe("Export.redactPart sensitive tool metadata", () => {
+  test("redacts sensitive tool input and metadata", () => {
+    const part: MessageV2.ToolPart = {
+      id: PartID.make("prt_sensitive_tool"),
+      messageID: MessageID.make("msg_sensitive_tool"),
+      sessionID: SessionID.make("ses_sensitive_tool"),
+      type: "tool",
+      tool: "edit",
+      callID: "call_sensitive_tool",
+      state: {
+        status: "completed",
+        input: {
+          filePath: "/tmp/project/.env",
+          oldString: "TOKEN=old-secret",
+          newString: "TOKEN=new-secret",
+        },
+        output: "Edit applied successfully.",
+        title: ".env",
+        metadata: {
+          diff: "@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n",
+          filediff: {
+            file: "/tmp/project/.env",
+            patch: "@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n",
+            additions: 1,
+            deletions: 1,
+          },
+        },
+        time: { start: 1, end: 2 },
+      },
+    }
+
+    const redacted = redactPart(part, { count: { omitted: 0 } })
+    const serialized = JSON.stringify(redacted)
+
+    expect(serialized).not.toContain("old-secret")
+    expect(serialized).not.toContain("new-secret")
+    expect(serialized).not.toContain("@@")
+    expect((redacted as MessageV2.ToolPart).state).toMatchObject({
+      input: { filePath: "/tmp/project/.env", sensitive: true },
+      metadata: {
+        filediff: {
+          file: "/tmp/project/.env",
+          status: "modified",
+          sensitive: true,
+        },
+      },
+    })
+  })
+})
+
 describe("Export.deriveSnapshotDiagnostics", () => {
   const sessionID = SessionID.make("ses_diag")
   const messageID = MessageID.make("msg_assistant")

@@ -18,6 +18,8 @@ import { Snapshot } from "@/snapshot"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import * as Bom from "@/util/bom"
+import { isSensitivePath, safeFileMetadata, safeFilepathMetadata } from "./sensitive"
+import { TurnChange } from "@/session/turn-change"
 
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")
@@ -84,10 +86,13 @@ export const EditTool = Tool.define(
           let diff = ""
           let contentOld = ""
           let contentNew = ""
+          let existedBefore = true
+          let bomDiscarded = false
           yield* lock(filePath).withPermits(1)(
             Effect.gen(function* () {
               if (params.oldString === "") {
                 const existed = yield* afs.existsSafe(filePath)
+                existedBefore = existed
                 // Reject directory targets up front instead of failing inside
                 // Bom.readFile / writeWithDirs with an opaque internal error.
                 if (existed) {
@@ -109,18 +114,23 @@ export const EditTool = Tool.define(
                 // BOM-less scripts.
                 const desiredBom = source.bom
                 const bomChanged = source.bom !== next.bom
+                bomDiscarded = bomChanged
                 contentOld = source.text
                 contentNew = next.text
                 diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
+                const sensitive = isSensitivePath(filePath)
+                const status = existed ? "modified" : "added"
                 yield* ctx.ask({
                   permission: "edit",
                   patterns: [path.relative(Instance.worktree, filePath)],
                   always: ["*"],
-                  metadata: {
-                    filepath: filePath,
-                    diff,
-                    ...(bomChanged && { bomDiscarded: true }),
-                  },
+                  metadata: sensitive
+                    ? safeFilepathMetadata(filePath, status, bomChanged ? { bomDiscarded: true } : undefined)
+                    : {
+                        filepath: filePath,
+                        diff,
+                        ...(bomChanged && { bomDiscarded: true }),
+                      },
                 })
                 yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
                 if (yield* format.file(filePath)) {
@@ -146,6 +156,7 @@ export const EditTool = Tool.define(
               )
               if (!info) throw new Error(`File ${filePath} not found`)
               if (info.type === "Directory") throw new Error(`Path is a directory, not a file: ${filePath}`)
+              existedBefore = true
               const source = yield* Bom.readFile(afs, filePath)
               contentOld = source.text
 
@@ -159,6 +170,7 @@ export const EditTool = Tool.define(
               // surface that byte-level change.
               const desiredBom = source.bom
               const bomChanged = source.bom !== next.bom
+              bomDiscarded = bomChanged
               contentNew = next.text
 
               diff = trimDiff(
@@ -169,15 +181,18 @@ export const EditTool = Tool.define(
                   normalizeLineEndings(contentNew),
                 ),
               )
+              const sensitive = isSensitivePath(filePath)
               yield* ctx.ask({
                 permission: "edit",
                 patterns: [path.relative(Instance.worktree, filePath)],
                 always: ["*"],
-                metadata: {
-                  filepath: filePath,
-                  diff,
-                  ...(bomChanged && { bomDiscarded: true }),
-                },
+                metadata: sensitive
+                  ? safeFilepathMetadata(filePath, "modified", bomChanged ? { bomDiscarded: true } : undefined)
+                  : {
+                      filepath: filePath,
+                      diff,
+                      ...(bomChanged && { bomDiscarded: true }),
+                    },
               })
 
               yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
@@ -206,19 +221,31 @@ export const EditTool = Tool.define(
             if (change.added) additions += change.count || 0
             if (change.removed) deletions += change.count || 0
           }
-          const filediff: Snapshot.FileDiff = {
-            file: filePath,
-            patch: diff,
-            additions,
-            deletions,
-          }
+          const sensitive = isSensitivePath(filePath)
+          const status = existedBefore ? "modified" : "added"
+          const filediff: Snapshot.FileDiff = sensitive
+            ? (safeFileMetadata(filePath, status) as unknown as Snapshot.FileDiff)
+            : {
+                file: filePath,
+                patch: diff,
+                additions,
+                deletions,
+              }
 
           yield* ctx.metadata({
             metadata: {
-              diff,
+              ...(sensitive ? {} : { diff }),
               filediff,
               diagnostics: {},
+              ...(sensitive && bomDiscarded ? { bomDiscarded: true } : {}),
             },
+          })
+          TurnChange.recordWrite({
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            path: filePath,
+            before: existedBefore ? { exists: true, content: contentOld } : { exists: false },
+            after: { exists: true, content: contentNew },
           })
 
           let output = "Edit applied successfully."
@@ -231,8 +258,9 @@ export const EditTool = Tool.define(
           return {
             metadata: {
               diagnostics,
-              diff,
+              ...(sensitive ? {} : { diff }),
               filediff,
+              ...(sensitive && bomDiscarded ? { bomDiscarded: true } : {}),
             },
             title: `${path.relative(Instance.worktree, filePath)}`,
             output,

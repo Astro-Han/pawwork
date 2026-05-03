@@ -20,6 +20,7 @@ import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
+import { TurnChange } from "./turn-change"
 
 const log = Log.create({ service: "session.processor" })
 
@@ -735,6 +736,7 @@ export const layer: Layer.Layer<
         ctx.toolcalls = {}
         ctx.assistantMessage.time.completed = Date.now()
         yield* session.updateMessage(ctx.assistantMessage)
+        TurnChange.finalize({ sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id })
       })
 
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {

@@ -60,6 +60,26 @@ type UserActions = {
   revert?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
 }
 
+type TurnChangeDisplay = {
+  sessionID: string
+  turnID: string
+  messageID: string
+  undoAvailable: boolean
+  redoAvailable: boolean
+  files: Array<{
+    path: string
+    openPath?: string
+    status: "added" | "modified" | "deleted"
+    additions?: number
+    deletions?: number
+    patch?: string
+    sensitive?: boolean
+    binary?: boolean
+    large?: boolean
+    expandable: boolean
+  }>
+}
+
 const messageComments = (parts: Part[]): MessageComment[] =>
   parts.flatMap((part) => {
     if (part.type !== "text" || !(part as TextPart).synthetic) return []
@@ -294,6 +314,70 @@ export function MessageTimeline(props: {
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
+  const [turnChanges, setTurnChanges] = createStore<Record<string, TurnChangeDisplay | null>>({})
+  const fetchedTurnChanges = new Set<string>()
+
+  const authHeaders = () => {
+    const current = server.current
+    if (!current?.http.password) return {} as Record<string, string>
+    return {
+      Authorization: `Basic ${btoa(`${current.http.username ?? "opencode"}:${current.http.password}`)}`,
+    }
+  }
+
+  const turnChangeFetch = async (
+    messageID: string,
+    action?: "undo" | "redo",
+  ): Promise<TurnChangeDisplay | undefined> => {
+    const current = server.current
+    const id = sessionID()
+    if (!current || !id) return
+    const url = `${current.http.url}/session/${id}/turn-change/${messageID}${action ? `/${action}` : ""}`
+    const res = await fetch(url, {
+      method: action ? "POST" : "GET",
+      headers: authHeaders(),
+    })
+    if (!res.ok) throw new Error(`turn-change ${action ?? "get"} failed: ${res.status}`)
+    const body = await res.json()
+    if (!action) {
+      setTurnChanges(messageID, body ?? null)
+      return body ?? undefined
+    }
+    if (body?.status === "applied") {
+      setTurnChanges(messageID, body.display)
+      return body.display
+    }
+    showToast({
+      title: action === "undo" ? "Undo blocked" : "Redo blocked",
+      description: "The file changed after this turn, so PawWork did not overwrite it.",
+      variant: "error",
+    })
+    return turnChanges[messageID] ?? undefined
+  }
+
+  createEffect(
+    on(
+      () =>
+        sessionMessages()
+          .filter((message): message is Extract<MessageType, { role: "assistant" }> => message.role === "assistant")
+          .filter((message) => typeof message.time.completed === "number")
+          .map((message) => message.id)
+          .join(":"),
+      () => {
+        const id = sessionID()
+        if (!id) return
+        for (const message of sessionMessages()) {
+          if (message.role !== "assistant" || typeof message.time.completed !== "number") continue
+          const key = `${id}:${message.id}`
+          if (fetchedTurnChanges.has(key)) continue
+          fetchedTurnChanges.add(key)
+          void turnChangeFetch(message.id).catch(() => {
+            setTurnChanges(message.id, null)
+          })
+        }
+      },
+    ),
+  )
 
   onMount(() => {
     void emitRendererDiagnostic({
@@ -913,6 +997,17 @@ export function MessageTimeline(props: {
                         showReasoningSummaries={settings.general.showReasoningSummaries()}
                         shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
                         editToolDefaultOpen={settings.general.editToolPartsExpanded()}
+                        turnChanges={turnChanges}
+                        turnChangeActions={{
+                          undo: (messageID) => turnChangeFetch(messageID, "undo"),
+                          redo: (messageID) => turnChangeFetch(messageID, "redo"),
+                          openFile: (path) => {
+                            void platform.openPath?.(path)
+                          },
+                          showInFolder: (path) => {
+                            void platform.showItemInFolder?.(path)
+                          },
+                        }}
                         classes={{
                           root: "min-w-0 w-full relative",
                           content: "flex flex-col justify-between !overflow-visible",

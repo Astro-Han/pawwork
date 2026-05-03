@@ -362,4 +362,72 @@ describe("ShareNext", () => {
       { config: { enterprise: { url: "https://legacy-share.example.com" } } },
     ),
   )
+
+  it.live("ShareNext redacts sensitive session diff payloads", () =>
+    provideTmpdirInstance(
+      () => {
+        const seen: Array<{ url: string; body: string }> = []
+        const client = HttpClient.make((req) => {
+          if (req.url.endsWith("/sync") && req.body._tag === "Uint8Array") {
+            seen.push({ url: req.url, body: new TextDecoder().decode(req.body.body) })
+          }
+          return Effect.succeed(json(req, { ok: true }))
+        })
+
+        return Effect.gen(function* () {
+          const bus = yield* Bus.Service
+          const share = yield* ShareNext.Service
+          const session = yield* Session.Service
+
+          const info = yield* session.create({ title: "first" })
+          yield* share.init()
+          yield* Effect.sleep(50)
+          yield* Effect.sync(() =>
+            Database.use((db) =>
+              db
+                .insert(SessionShareTable)
+                .values({
+                  session_id: info.id,
+                  id: "shr_abc",
+                  url: "https://legacy-share.example.com/share/abc",
+                  secret: "sec_123",
+                })
+                .run(),
+            ),
+          )
+
+          yield* bus.publish(Session.Event.Diff, {
+            sessionID: info.id,
+            diff: [
+              {
+                file: ".env",
+                patch: "@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n",
+                additions: 1,
+                deletions: 1,
+                status: "modified",
+              },
+            ],
+          })
+          yield* Effect.sleep(1_250)
+
+          expect(seen).toHaveLength(1)
+          const body = JSON.parse(seen[0].body) as {
+            data: Array<{ type: string; data: Array<Record<string, unknown>> }>
+          }
+          const serialized = JSON.stringify(body)
+
+          expect(serialized).not.toContain("old-secret")
+          expect(serialized).not.toContain("new-secret")
+          expect(serialized).not.toContain("@@")
+          expect(body.data).toEqual([
+            {
+              type: "session_diff",
+              data: [{ file: ".env", status: "modified", sensitive: true }],
+            },
+          ])
+        }).pipe(Effect.provide(wired(client)))
+      },
+      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
+    ),
+  )
 })

@@ -11,6 +11,7 @@ import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID, PartID } from "./schema"
 import { SessionRunState } from "./run-state"
 import { SessionSummary } from "./summary"
+import { sanitizeSensitiveDiffs } from "@/tool/sensitive"
 
 const log = Log.create({ service: "session.revert" })
 
@@ -79,15 +80,15 @@ export const layer = Layer.effect(
       yield* snap.revert(patches)
       if (rev.snapshot) rev.diff = yield* snap.diff(rev.snapshot as string)
       const range = all.filter((msg) => msg.info.id >= rev!.messageID)
-      const diffs = yield* summary.computeDiff({ messages: range })
+      const diffs = sanitizeSensitiveDiffs(yield* summary.computeDiff({ messages: range })) as Snapshot.FileDiff[]
       yield* storage.write(["session_diff", input.sessionID], diffs).pipe(Effect.ignore)
       yield* bus.publish(Session.Event.Diff, { sessionID: input.sessionID, diff: diffs })
       yield* sessions.setRevert({
         sessionID: input.sessionID,
         revert: rev,
         summary: {
-          additions: diffs.reduce((sum, x) => sum + x.additions, 0),
-          deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
+          additions: diffs.reduce((sum, x) => sum + (x.additions ?? 0), 0),
+          deletions: diffs.reduce((sum, x) => sum + (x.deletions ?? 0), 0),
           files: diffs.length,
         },
       })

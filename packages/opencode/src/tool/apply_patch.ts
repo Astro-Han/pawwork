@@ -14,10 +14,25 @@ import DESCRIPTION from "./apply_patch.txt"
 import { File } from "../file"
 import { Format } from "../format"
 import * as Bom from "@/util/bom"
+import { isSensitivePath, type SensitiveStatus } from "./sensitive"
+import { TurnChange } from "@/session/turn-change"
 
 export const Parameters = Schema.Struct({
   patchText: Schema.String.annotate({ description: "The full patch text that describes all changes to be made" }),
 })
+
+function statusFromPatchType(type: "add" | "update" | "delete" | "move"): SensitiveStatus {
+  if (type === "add") return "added"
+  if (type === "delete") return "deleted"
+  return "modified"
+}
+
+function safeTotalDiff(changes: Array<{ diff: string; sensitive: boolean }>) {
+  return changes
+    .filter((change) => !change.sensitive)
+    .map((change) => change.diff + (change.diff.endsWith("\n") ? "" : "\n"))
+    .join("")
+}
 
 export const ApplyPatchTool = Tool.define(
   "apply_patch",
@@ -63,6 +78,7 @@ export const ApplyPatchTool = Tool.define(
         additions: number
         deletions: number
         bom: boolean
+        sensitive: boolean
       }> = []
 
       let totalDiff = ""
@@ -95,6 +111,7 @@ export const ApplyPatchTool = Tool.define(
               additions,
               deletions,
               bom: next.bom,
+              sensitive: isSensitivePath(filePath),
             })
 
             totalDiff += diff + "\n"
@@ -146,6 +163,7 @@ export const ApplyPatchTool = Tool.define(
               additions,
               deletions,
               bom,
+              sensitive: isSensitivePath(filePath) || (movePath ? isSensitivePath(movePath) : false),
             })
 
             totalDiff += diff + "\n"
@@ -176,6 +194,7 @@ export const ApplyPatchTool = Tool.define(
               additions: 0,
               deletions,
               bom: source.bom,
+              sensitive: isSensitivePath(filePath),
             })
 
             totalDiff += deleteDiff + "\n"
@@ -185,14 +204,22 @@ export const ApplyPatchTool = Tool.define(
       }
 
       // Build per-file metadata for UI rendering (used for both permission and result)
-      const files = fileChanges.map((change) => ({
+      const files: Array<Record<string, unknown>> = fileChanges.map((change) => ({
         filePath: change.filePath,
         relativePath: path.relative(Instance.worktree, change.movePath ?? change.filePath).replaceAll("\\", "/"),
         type: change.type,
-        patch: change.diff,
-        additions: change.additions,
-        deletions: change.deletions,
-        movePath: change.movePath,
+        ...(change.sensitive
+          ? {
+              status: statusFromPatchType(change.type),
+              sensitive: true,
+              ...(change.movePath ? { movePath: change.movePath } : {}),
+            }
+          : {
+              patch: change.diff,
+              additions: change.additions,
+              deletions: change.deletions,
+              movePath: change.movePath,
+            }),
       }))
 
       // Check permissions — include `movePath` so a `move` hunk can't relocate
@@ -214,7 +241,7 @@ export const ApplyPatchTool = Tool.define(
         always: ["*"],
         metadata: {
           filepath: relativePaths.join(", "),
-          diff: totalDiff,
+          ...(safeTotalDiff(fileChanges) ? { diff: safeTotalDiff(fileChanges) } : {}),
           files,
         },
       })
@@ -276,6 +303,31 @@ export const ApplyPatchTool = Tool.define(
           }
           yield* bus.publish(File.Event.Edited, { file: edited })
         }
+
+        if (change.type === "move" && change.movePath) {
+          TurnChange.recordWrite({
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            path: change.filePath,
+            before: { exists: true, content: change.oldContent },
+            after: { exists: false },
+          })
+          TurnChange.recordWrite({
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            path: change.movePath,
+            before: { exists: false },
+            after: { exists: true, content: change.newContent },
+          })
+        } else {
+          TurnChange.recordWrite({
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            path: change.filePath,
+            before: change.type === "add" ? { exists: false } : { exists: true, content: change.oldContent },
+            after: change.type === "delete" ? { exists: false } : { exists: true, content: change.newContent },
+          })
+        }
       }
 
       // Rebuild the aggregated diff and per-file metadata so the caller-visible
@@ -285,7 +337,7 @@ export const ApplyPatchTool = Tool.define(
         const c = fileChanges[i]!
         totalDiff += c.diff + (c.diff.endsWith("\n") ? "" : "\n")
         const f = files[i]
-        if (f) {
+        if (f && !c.sensitive) {
           f.patch = c.diff
           f.additions = c.additions
           f.deletions = c.deletions
@@ -330,7 +382,7 @@ export const ApplyPatchTool = Tool.define(
       return {
         title: output,
         metadata: {
-          diff: totalDiff,
+          ...(safeTotalDiff(fileChanges) ? { diff: safeTotalDiff(fileChanges) } : {}),
           files,
           diagnostics,
         },

@@ -39,17 +39,9 @@ type AskInput = {
   patterns: string[]
   always: string[]
   metadata: {
-    diff: string
+    diff?: string
     filepath: string
-    files: Array<{
-      filePath: string
-      relativePath: string
-      type: "add" | "update" | "delete" | "move"
-      patch: string
-      additions: number
-      deletions: number
-      movePath?: string
-    }>
+    files: Array<Record<string, unknown>>
   }
 }
 
@@ -141,6 +133,49 @@ describe("tool.apply_patch freeform", () => {
         expect(added).toBe("created\n")
         expect(await fs.readFile(modifyPath, "utf-8")).toBe("line1\nchanged\n")
         await expect(fs.readFile(deletePath, "utf-8")).rejects.toThrow()
+      },
+    })
+  })
+
+  test("redacts sensitive file permission and result metadata", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const { ctx, calls } = makeCtx()
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const target = path.join(fixture.path, ".env")
+        await fs.writeFile(target, "TOKEN=old-secret\n", "utf-8")
+
+        const patchText = "*** Begin Patch\n*** Update File: .env\n@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n*** End Patch"
+        const result = await execute({ patchText }, ctx)
+        const serialized = JSON.stringify({ calls, result })
+
+        expect(calls).toHaveLength(1)
+        expect(calls[0].metadata).toEqual({
+          filepath: ".env",
+          files: [
+            {
+              filePath: target,
+              relativePath: ".env",
+              type: "update",
+              status: "modified",
+              sensitive: true,
+            },
+          ],
+        })
+        expect((result.metadata as any).files).toEqual([
+          {
+            filePath: target,
+            relativePath: ".env",
+            type: "update",
+            status: "modified",
+            sensitive: true,
+          },
+        ])
+        expect(serialized).not.toContain("old-secret")
+        expect(serialized).not.toContain("new-secret")
+        expect(serialized).not.toContain("@@")
       },
     })
   })
