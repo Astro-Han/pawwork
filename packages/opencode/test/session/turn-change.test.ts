@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
@@ -7,6 +7,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { TurnChange } from "../../src/session/turn-change"
 import { MessageID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { Database } from "../../src/storage/db"
 import { tmpdir } from "../fixture/fixture"
 import { resetDatabase } from "../fixture/db"
 
@@ -198,6 +199,68 @@ describe("TurnChange", () => {
 
         expect(result.status).toBe("blocked")
         expect(await fs.readFile(target, "utf-8")).toBe("user edit\n")
+      },
+    })
+  })
+
+  test("undo preflight blocks oversized current files without reading content", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "file.txt")
+        await fs.writeFile(target, "after\n", "utf-8")
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: true, content: "before\n" },
+          after: { exists: true, content: "after\n" },
+        })
+        TurnChange.finalize(turn)
+        await fs.writeFile(target, "x".repeat(2 * 1024 * 1024 + 1), "utf-8")
+
+        const readFile = spyOn(fs, "readFile")
+        try {
+          const result = await TurnChange.undo(turn)
+
+          expect(result).toMatchObject({
+            status: "blocked",
+            reason: "conflict",
+            files: [{ path: "file.txt", reason: "unavailable" }],
+          })
+          expect(readFile.mock.calls.some((call) => call[0] === target)).toBe(false)
+        } finally {
+          readFile.mockRestore()
+        }
+      },
+    })
+  })
+
+  test("finalize failure is isolated from caller cleanup", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "file.txt")
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: false },
+          after: { exists: true, content: "after\n" },
+        })
+        const transaction = spyOn(Database, "transaction").mockImplementation(() => {
+          throw new Error("db unavailable")
+        })
+        try {
+          expect(() => TurnChange.finalize(turn)).not.toThrow()
+          expect(TurnChange.get(turn)).toBeUndefined()
+        } finally {
+          transaction.mockRestore()
+        }
       },
     })
   })

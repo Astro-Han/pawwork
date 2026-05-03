@@ -12,6 +12,7 @@ import { isSensitivePath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
 import { Global } from "@/global"
 import * as Bom from "@/util/bom"
+import { Log } from "@opencode-ai/core/util/log"
 
 type FileState =
   | { exists: false; content?: undefined; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
@@ -69,6 +70,7 @@ const DISPLAY_LIMIT = 2 * 1024 * 1024
 const RESTORE_LIMIT = 2 * 1024 * 1024
 const MAX_FILES = 200
 const locks = new Map<string, Promise<void>>()
+const log = Log.create({ service: "session.turn-change" })
 
 class RestoreConflictError extends Error {
   constructor(
@@ -199,6 +201,7 @@ async function currentState(file: string): Promise<FileState> {
   try {
     const stat = await fs.stat(file)
     if (stat.isDirectory()) return { exists: true, restorable: false, hash: "directory", binary: true }
+    if (stat.size > RESTORE_LIMIT) return { exists: true, restorable: false, hash: `large:${stat.size}`, large: true }
     const current = Bom.split(await fs.readFile(file, "utf-8"))
     return {
       exists: true,
@@ -389,58 +392,66 @@ export namespace TurnChange {
   }
 
   export function finalize(input: { sessionID: SessionID; messageID: MessageID }) {
-    const files = rows(input.sessionID, input.messageID)
-    if (!files.length) return
-    const displayFiles = files.map((row) => toDisplay(row.data)).filter(Boolean) as DisplayFile[]
-    if (!displayFiles.length) return
-    const time = now()
-    const display: Display = {
-      sessionID: input.sessionID,
-      turnID: input.messageID,
-      messageID: input.messageID,
-      undoAvailable: true,
-      redoAvailable: false,
-      files: displayFiles,
+    try {
+      const files = rows(input.sessionID, input.messageID)
+      if (!files.length) return
+      const displayFiles = files.map((row) => toDisplay(row.data)).filter(Boolean) as DisplayFile[]
+      if (!displayFiles.length) return
+      const time = now()
+      const display: Display = {
+        sessionID: input.sessionID,
+        turnID: input.messageID,
+        messageID: input.messageID,
+        undoAvailable: true,
+        redoAvailable: false,
+        files: displayFiles,
+      }
+      Database.transaction((db) => {
+        db
+          .update(TurnChangeDisplayTable)
+          .set({ state: "redo_invalidated", time_updated: time })
+          .where(
+            and(
+              eq(TurnChangeDisplayTable.session_id, input.sessionID),
+              ne(TurnChangeDisplayTable.message_id, input.messageID),
+              eq(TurnChangeDisplayTable.state, "undone"),
+            ),
+          )
+          .run()
+        db
+          .insert(TurnChangeDisplayTable)
+          .values({
+            session_id: input.sessionID,
+            message_id: input.messageID,
+            data: display,
+            state: "applied",
+            time_created: time,
+            time_updated: time,
+          })
+          .onConflictDoUpdate({
+            target: [TurnChangeDisplayTable.session_id, TurnChangeDisplayTable.message_id],
+            set: { data: display, state: "applied", time_updated: time },
+          })
+          .run()
+        db
+          .update(TurnChangeRestoreTable)
+          .set({ finalized: true, time_updated: time })
+          .where(
+            and(
+              eq(TurnChangeRestoreTable.session_id, input.sessionID),
+              eq(TurnChangeRestoreTable.message_id, input.messageID),
+            ),
+          )
+          .run()
+      })
+      return display
+    } catch (err) {
+      log.warn("failed to finalize turn changes", {
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+        error: err instanceof Error ? err.name : typeof err,
+      })
     }
-    Database.transaction((db) => {
-      db
-        .update(TurnChangeDisplayTable)
-        .set({ state: "redo_invalidated", time_updated: time })
-        .where(
-          and(
-            eq(TurnChangeDisplayTable.session_id, input.sessionID),
-            ne(TurnChangeDisplayTable.message_id, input.messageID),
-            eq(TurnChangeDisplayTable.state, "undone"),
-          ),
-        )
-        .run()
-      db
-        .insert(TurnChangeDisplayTable)
-        .values({
-          session_id: input.sessionID,
-          message_id: input.messageID,
-          data: display,
-          state: "applied",
-          time_created: time,
-          time_updated: time,
-        })
-        .onConflictDoUpdate({
-          target: [TurnChangeDisplayTable.session_id, TurnChangeDisplayTable.message_id],
-          set: { data: display, state: "applied", time_updated: time },
-        })
-        .run()
-      db
-        .update(TurnChangeRestoreTable)
-        .set({ finalized: true, time_updated: time })
-        .where(
-          and(
-            eq(TurnChangeRestoreTable.session_id, input.sessionID),
-            eq(TurnChangeRestoreTable.message_id, input.messageID),
-          ),
-        )
-        .run()
-    })
-    return display
   }
 
   export function get(input: { sessionID: SessionID; messageID: MessageID }) {
