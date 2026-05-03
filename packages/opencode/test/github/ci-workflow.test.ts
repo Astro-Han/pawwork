@@ -243,9 +243,10 @@ describe("ci workflow", () => {
 
     expect(parsed.name).toBe("windows-advisory")
     expect(workflow).toContain("run-name: windows advisory @ ${{ github.ref_name }} / ${{ github.sha }}")
-    expect(workflow).toContain("pull_request:")
-    expect(workflow).toContain(".github/workflows/windows-advisory.yml")
-    expect(workflow).toContain("packages/desktop-electron/**")
+    expect(workflow).toContain("push:")
+    expect(workflow).toContain("branches: [dev]")
+    expect(workflow).toContain("workflow_dispatch:")
+    expect(workflow).not.toContain("pull_request:")
     expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
     expect(parsed.concurrency?.group).toContain("github.run_id")
     expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
