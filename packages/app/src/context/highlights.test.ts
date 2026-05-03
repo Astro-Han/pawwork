@@ -305,4 +305,55 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     expect(highlights).toHaveLength(2)
     expect(highlights.map((highlight) => highlight.title)).toEqual(["Card A", "Card B"])
   })
+
+  test("keeps structured highlight cap independent from release-body version cap", () => {
+    const payload = [
+      {
+        tag: "v0.2.5",
+        highlights: [
+          {
+            source: "desktop",
+            items: Array.from({ length: 6 }, (_, index) => ({
+              title: `Card ${index + 1}`,
+              description: `Description ${index + 1}`,
+            })),
+          },
+        ],
+      },
+    ]
+
+    const highlights = loadReleaseHighlights(payload, "0.2.5", "0.2.4", "en")
+
+    expect(highlights).toHaveLength(6)
+    expect(highlights.map((highlight) => highlight.title)).toEqual([
+      "Card 1",
+      "Card 2",
+      "Card 3",
+      "Card 4",
+      "Card 5",
+      "Card 6",
+    ])
+  })
+
+  test("keeps structured highlight limit at fifteen cards", () => {
+    const payload = [
+      {
+        tag: "v0.2.5",
+        highlights: [
+          {
+            source: "desktop",
+            items: Array.from({ length: 16 }, (_, index) => ({
+              title: `Card ${index + 1}`,
+              description: `Description ${index + 1}`,
+            })),
+          },
+        ],
+      },
+    ]
+
+    const highlights = loadReleaseHighlights(payload, "0.2.5", "0.2.4", "en")
+
+    expect(highlights).toHaveLength(15)
+    expect(highlights.at(-1)?.title).toBe("Card 15")
+  })
 })

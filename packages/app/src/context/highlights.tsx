@@ -9,7 +9,8 @@ import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
 const CHANGELOG_URL = "https://api.github.com/repos/Astro-Han/pawwork/releases"
-const MAX_RELEASE_HIGHLIGHTS = 5
+const MAX_RELEASE_VERSION_PAGES = 5
+const MAX_STRUCTURED_HIGHLIGHTS = 15
 
 type Store = {
   version?: string
@@ -18,6 +19,7 @@ type Store = {
 type ParsedRelease = {
   tag?: string
   highlights: Highlight[]
+  source: "release-body" | "structured"
 }
 
 type ReleaseLocale = Locale
@@ -104,7 +106,7 @@ type ParsedNotice =
       text: string
     }
 
-function parseNoticeDescriptions(notice: string | undefined): ParsedNotice | undefined {
+function parseNoticeContent(notice: string | undefined): ParsedNotice | undefined {
   if (!notice) return
 
   const lines = notice
@@ -143,10 +145,10 @@ function parseNoticeDescriptions(notice: string | undefined): ParsedNotice | und
 
 function parseReleaseBodyNotice(body: string, locale: ReleaseLocale): ParsedNotice | undefined {
   if (locale === "zh") {
-    const chinese = parseNoticeDescriptions(findChineseUpdateNotice(body))
+    const chinese = parseNoticeContent(findChineseUpdateNotice(body))
     if (chinese) return chinese
   }
-  return parseNoticeDescriptions(findAppUpdateNotice(body))
+  return parseNoticeContent(findAppUpdateNotice(body))
 }
 
 function formatReleaseNoticeDescription(notice: ParsedNotice) {
@@ -182,7 +184,7 @@ function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | un
       return [item]
     })
 
-    return { tag, highlights }
+    return { tag, highlights, source: "structured" }
   }
 
   const body = getText(value.body)
@@ -191,6 +193,7 @@ function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | un
     if (notice) {
       return {
         tag,
+        source: "release-body",
         highlights: [
           {
             title: releaseTitle(tag, locale),
@@ -201,7 +204,7 @@ function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | un
     }
   }
 
-  return { tag, highlights: [] }
+  return { tag, highlights: [], source: "release-body" }
 }
 
 function parseChangelog(value: unknown, locale: ReleaseLocale): ParsedRelease[] | undefined {
@@ -236,15 +239,36 @@ function sliceHighlights(input: { releases: ParsedRelease[]; current?: string; p
     return index === -1 ? releases.length : index
   })()
 
-  const highlights = releases.slice(start, end).flatMap((release) => release.highlights)
+  const selected = releases.slice(start, end)
+  const highlights: Highlight[] = []
+  let releaseBodyPages = 0
+  let structuredHighlights = 0
+
+  for (const release of selected) {
+    if (release.source === "release-body") {
+      if (release.highlights.length === 0) continue
+      if (releaseBodyPages >= MAX_RELEASE_VERSION_PAGES) continue
+
+      highlights.push(...release.highlights)
+      releaseBodyPages += 1
+      continue
+    }
+
+    const remaining = MAX_STRUCTURED_HIGHLIGHTS - structuredHighlights
+    if (remaining <= 0) continue
+
+    const next = release.highlights.slice(0, remaining)
+    highlights.push(...next)
+    structuredHighlights += next.length
+  }
+
   const seen = new Set<string>()
-  const unique = highlights.filter((highlight) => {
+  return highlights.filter((highlight) => {
     const key = dedupeKey(highlight)
     if (seen.has(key)) return false
     seen.add(key)
     return true
   })
-  return unique.slice(0, MAX_RELEASE_HIGHLIGHTS)
 }
 
 function dedupeKey(highlight: Highlight) {

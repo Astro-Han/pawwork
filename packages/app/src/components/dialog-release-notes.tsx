@@ -72,9 +72,16 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
           {/* Top section - feature content (fixed position from top) */}
           <div class="flex flex-col flex-1 min-h-0 gap-2 pt-22 pb-4">
             <div class="flex items-center gap-2 shrink-0">
-              <h1 class="text-16-medium text-text-strong">{feature()?.title ?? ""}</h1>
+              <h1 id="release-notes-title" class="text-16-medium text-text-strong">
+                {feature()?.title ?? ""}
+              </h1>
             </div>
-            <p class="text-13-regular text-text-base whitespace-pre-line overflow-y-auto min-h-0 flex-1 pr-2">
+            <p
+              role="region"
+              aria-labelledby="release-notes-title"
+              tabIndex={0}
+              class="text-13-regular text-text-base whitespace-pre-line overflow-y-auto min-h-0 flex-1 pr-2"
+            >
               {feature()?.description ?? ""}
             </p>
           </div>
