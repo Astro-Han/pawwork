@@ -32,7 +32,9 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
   createEffect(() => {
     // Reset scroll position when page changes
     index()
-    if (descriptionRef) descriptionRef.scrollTop = 0
+    queueMicrotask(() => {
+      if (descriptionRef) descriptionRef.scrollTop = 0
+    })
   })
 
   function handleNext() {
