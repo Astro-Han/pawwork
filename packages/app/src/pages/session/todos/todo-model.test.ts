@@ -67,6 +67,17 @@ describe("todoLifecycleSignature", () => {
       todoLifecycleSignature([idlessTodo("first refreshed", "completed", "low")]),
     )
   })
+
+  test("falls back to status-only signatures when any todo is missing an id", () => {
+    expect(
+      todoLifecycleSignature([todo("first", "pending", "medium", "todo_1"), idlessTodo("second", "completed")]),
+    ).toBe(
+      todoLifecycleSignature([
+        todo("first refreshed", "pending", "low", "todo_2"),
+        idlessTodo("second refreshed", "completed"),
+      ]),
+    )
+  })
 })
 
 describe("todoDisplaySignature", () => {
