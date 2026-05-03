@@ -117,8 +117,34 @@ describe("createGlobalEventReplayBridge", () => {
       push: (packet) => packets.push(packet),
     })()
 
-    expect(packets.map((packet) => JSON.parse(packet.data).payload.type)).toEqual(["server.connected"])
-    expect(packets[0].id).toBe("boot:1")
+    expect(packets.map((packet) => JSON.parse(packet.data).payload.type)).toEqual([
+      "server.instance.disposed",
+      "server.connected",
+    ])
+    expect(packets[0].id).toBe("boot:2")
+    expect(packets.at(-1)?.id).toBe("boot:2")
+  })
+
+  test("missed instance dispose advances reconnect recovery from the previous fence", () => {
+    const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
+    bridge.append(envelope("question.asked", "q1"))
+    bridge.append({
+      directory: "/repo",
+      payload: {
+        type: "server.instance.disposed",
+        properties: { directory: "/repo" },
+      },
+    })
+    const packets: Array<{ id?: string; replaySeq?: number; data: string }> = []
+
+    openGlobalEventReplayConnection({
+      bridge,
+      lastEventID: "boot:1",
+      push: (packet) => packets.push(packet),
+    })()
+
+    expect(packets.map((packet) => JSON.parse(packet.data).payload.type)).toEqual(["server.instance.disposed"])
+    expect(packets[0].id).toBe("boot:2")
   })
 
   test("route reads Last-Event-ID and writes replay ids into SSE output", async () => {

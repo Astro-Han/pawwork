@@ -44,6 +44,7 @@ describe("isReplayableGlobalEvent", () => {
     expect(isReplayableGlobalEvent(event("session.updated"))).toBe(true)
     expect(isReplayableGlobalEvent(event("session.deleted"))).toBe(true)
     expect(isReplayableGlobalEvent(event("session.status"))).toBe(true)
+    expect(isReplayableGlobalEvent(event("server.instance.disposed"))).toBe(true)
   })
 
   test("rejects high-volume and unrelated events", () => {

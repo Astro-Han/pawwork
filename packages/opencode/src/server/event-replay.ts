@@ -46,6 +46,7 @@ const REPLAYABLE_EVENT_TYPES = new Set([
   "session.updated",
   "session.deleted",
   "session.status",
+  "server.instance.disposed",
 ])
 
 export function parseReplayCursor(input: string | undefined): ReplayCursor | undefined {

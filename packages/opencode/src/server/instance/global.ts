@@ -98,6 +98,8 @@ export function openGlobalEventReplayConnection(input: {
     })
   }
 
+  // Fresh connect seeds a cursor. Valid reconnect replays only missed records.
+  // Invalid or gapped reconnect sends one refresh signal and advances the cursor.
   if (!input.lastEventID) {
     pushConnected(opened.fenceID)
   }
