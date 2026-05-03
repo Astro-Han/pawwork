@@ -630,13 +630,29 @@ export namespace TurnChange {
     const persistedDisplay = withAvailability(display.data, nextState)
     const nextDisplay = withOpenPaths(persistedDisplay, restore)
     const time = now()
-    Database.use((db) =>
-      db
-        .update(TurnChangeDisplayTable)
-        .set({ state: nextState, data: persistedDisplay, time_updated: time })
-        .where(and(eq(TurnChangeDisplayTable.session_id, input.sessionID), eq(TurnChangeDisplayTable.message_id, input.messageID)))
-        .run(),
-    )
+    try {
+      Database.use((db) =>
+        db
+          .update(TurnChangeDisplayTable)
+          .set({ state: nextState, data: persistedDisplay, time_updated: time })
+          .where(and(eq(TurnChangeDisplayTable.session_id, input.sessionID), eq(TurnChangeDisplayTable.message_id, input.messageID)))
+          .run(),
+      )
+    } catch (err) {
+      log.warn("failed to persist turn change mutation state", {
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+        error: err instanceof Error ? err.name : typeof err,
+      })
+      for (const item of rollback.reverse()) {
+        await applyState(item.file, item.state).catch(() => undefined)
+      }
+      return {
+        status: "blocked",
+        reason: "write_failed",
+        files: rollback.map((item) => ({ path: displayPath(item.file), reason: "state_persist_failed" })),
+      }
+    }
     return { status: "applied", display: nextDisplay }
   }
 

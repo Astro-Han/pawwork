@@ -327,6 +327,47 @@ describe("TurnChange", () => {
     })
   })
 
+  test("undo rolls files forward again when mutation state persistence fails", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "file.txt")
+        await fs.writeFile(target, "after\n", "utf-8")
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: true, content: "before\n" },
+          after: { exists: true, content: "after\n" },
+        })
+        TurnChange.finalize(turn)
+
+        const original = Database.use
+        let calls = 0
+        const use = spyOn(Database, "use").mockImplementation(((fn: Parameters<typeof Database.use>[0]) => {
+          calls++
+          if (calls === 3) throw new Error("db unavailable")
+          return original(fn)
+        }) as typeof Database.use)
+        try {
+          const result = await TurnChange.undo(turn)
+
+          expect(result).toMatchObject({
+            status: "blocked",
+            reason: "write_failed",
+            files: [{ path: "file.txt", reason: "state_persist_failed" }],
+          })
+          expect(await fs.readFile(target, "utf-8")).toBe("after\n")
+          expect(TurnChange.get(turn)?.undoAvailable).toBe(true)
+        } finally {
+          use.mockRestore()
+        }
+      },
+    })
+  })
+
   test("later finalized turn invalidates previous redo", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
