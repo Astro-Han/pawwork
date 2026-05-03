@@ -16,6 +16,24 @@ export type SessionHistoryWindowInput = {
   scroller: () => HTMLDivElement | undefined
 }
 
+type HistoryWindowMode = "bottom" | "reading" | "hash"
+
+export function resolveHistoryTurnStart(input: {
+  mode: HistoryWindowMode
+  storedTurnStart: number
+  length: number
+  userScrolled: boolean
+  initialWindow?: number
+}) {
+  const initialWindow = input.initialWindow ?? 10
+  const initial = input.length > initialWindow ? input.length - initialWindow : 0
+  if (input.length <= 0) return 0
+  if (input.mode === "bottom") return input.userScrolled ? Math.min(input.storedTurnStart, initial) : initial
+  if (input.storedTurnStart <= 0) return 0
+  if (input.storedTurnStart >= input.length) return initial
+  return input.storedTurnStart
+}
+
 /**
  * Maintains the rendered history window for a session timeline.
  *
@@ -35,6 +53,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     turnStart: 0,
     prefetchUntil: 0,
     prefetchNoGrowth: 0,
+    mode: "bottom" as HistoryWindowMode,
   })
 
   const initialTurnStart = (len: number) => (len > turnInit ? len - turnInit : 0)
@@ -44,20 +63,35 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     const len = input.visibleUserMessages().length
     if (!id || len <= 0) return 0
     if (state.turnID !== id) return initialTurnStart(len)
-    if (state.turnStart <= 0) return 0
-    if (state.turnStart >= len) return initialTurnStart(len)
-    return state.turnStart
+    return resolveHistoryTurnStart({
+      mode: state.mode,
+      storedTurnStart: state.turnStart,
+      length: len,
+      userScrolled: input.userScrolled(),
+      initialWindow: turnInit,
+    })
   })
 
-  const setTurnStart = (start: number) => {
+  const setTurnStart = (start: number, opts?: { mode?: HistoryWindowMode }) => {
     const id = input.sessionID()
     const next = start > 0 ? start : 0
+    const mode = opts?.mode ?? state.mode
     if (!id) {
-      setState({ turnID: undefined, turnStart: next })
+      setState({ turnID: undefined, turnStart: next, mode })
       return
     }
-    setState({ turnID: id, turnStart: next })
+    setState({ turnID: id, turnStart: next, mode })
   }
+
+  const expandForReading = (start: number) => setTurnStart(start, { mode: "reading" })
+  const expandForHash = (start: number) => setTurnStart(start, { mode: "hash" })
+  const markHashTarget = (index: number) => {
+    const current = turnStart()
+    expandForHash(index < current ? index : current)
+  }
+  const resumeLatestWindow = () =>
+    setTurnStart(initialTurnStart(input.visibleUserMessages().length), { mode: "bottom" })
+  const mode = () => state.mode
 
   const renderedUserMessages = createMemo(
     () => {
@@ -95,7 +129,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     const next = start - turnBatch
     const nextStart = next > 0 ? next : 0
 
-    preserveScroll(() => setTurnStart(nextStart))
+    preserveScroll(() => expandForReading(nextStart))
   }
 
   /** Button path: reveal all cached turns, fetch older history, reveal one batch. */
@@ -107,7 +141,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     const beforeVisible = input.visibleUserMessages().length
     let loaded = input.loaded()
 
-    if (start > 0) setTurnStart(0)
+    if (start > 0) expandForReading(0)
 
     if (!input.historyMore() || input.historyLoading()) return
 
@@ -137,7 +171,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     if (turnStart() !== 0) return
 
     const target = Math.min(afterVisible, beforeVisible + turnBatch)
-    setTurnStart(Math.max(0, afterVisible - target))
+    expandForReading(Math.max(0, afterVisible - target))
   }
 
   /** Scroll/prefetch path: fetch older history from server. */
@@ -189,7 +223,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
 
     if (opts?.prefetch) {
       const current = turnStart()
-      preserveScroll(() => setTurnStart(current + growth))
+      preserveScroll(() => expandForReading(current + growth))
       return
     }
 
@@ -198,7 +232,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     const currentRendered = renderedUserMessages().length
     const base = Math.max(beforeRendered, currentRendered)
     const target = Math.min(afterVisible, base + turnBatch)
-    preserveScroll(() => setTurnStart(Math.max(0, afterVisible - target)))
+    preserveScroll(() => expandForReading(Math.max(0, afterVisible - target)))
   }
 
   const onScrollerScroll = () => {
@@ -223,7 +257,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     on(
       input.sessionID,
       () => {
-        setState({ prefetchUntil: 0, prefetchNoGrowth: 0 })
+        setState({ prefetchUntil: 0, prefetchNoGrowth: 0, mode: "bottom" })
       },
       { defer: true },
     ),
@@ -231,10 +265,16 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
 
   createEffect(
     on(
-      () => [input.sessionID(), input.messagesReady()] as const,
-      ([id, ready]) => {
+      () =>
+        [input.sessionID(), input.messagesReady(), input.visibleUserMessages().length, input.userScrolled()] as const,
+      ([id, ready, len, userScrolled]) => {
         if (!id || !ready) return
-        setTurnStart(initialTurnStart(input.visibleUserMessages().length))
+        if (userScrolled && state.mode === "bottom") {
+          setState("mode", "reading")
+          return
+        }
+        if (state.mode !== "bottom") return
+        setTurnStart(initialTurnStart(len), { mode: "bottom" })
       },
       { defer: true },
     ),
@@ -243,6 +283,11 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   return {
     turnStart,
     setTurnStart,
+    expandForReading,
+    expandForHash,
+    markHashTarget,
+    resumeLatestWindow,
+    mode,
     renderedUserMessages,
     loadAndReveal,
     onScrollerScroll,
