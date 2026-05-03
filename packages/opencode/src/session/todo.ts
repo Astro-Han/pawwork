@@ -11,7 +11,7 @@ export const TodoID = TodoIDSchema
 export type TodoID = TodoIDType
 
 export const Input = z.object({
-  id: z.string().optional(),
+  id: TodoIDSchema.zod.optional(),
   content: z.string().describe("Brief description of the task"),
   status: z.string().describe("Current status of the task: pending, in_progress, completed, cancelled"),
   priority: z.string().describe("Priority level of the task: high, medium, low"),
@@ -58,6 +58,8 @@ export function resolveTodoIDs(previous: Info[], incoming: Input[]): Info[] {
       id = todo.id as TodoID
     }
 
+    // Exact-content reuse is only a legacy/idless fallback. Supplied unknown or
+    // duplicate ids are treated as untrusted and get fresh identity.
     if (!id && !todo.id) {
       const candidates = unusedPreviousByExactContent.get(todo.content)
       while (candidates?.length) {

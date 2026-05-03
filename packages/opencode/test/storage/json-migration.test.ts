@@ -521,6 +521,33 @@ describe("JSON to SQLite migration", () => {
     expect(todos[1].position).toBe(1)
   })
 
+  test("replaces duplicate legacy todo ids during migration", async () => {
+    await writeProject(storageDir, {
+      id: "proj_test123abc",
+      worktree: "/test/path",
+      time: { created: Date.now(), updated: Date.now() },
+      sandboxes: [],
+    })
+    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
+
+    await Bun.write(
+      path.join(storageDir, "todo", "ses_test456def.json"),
+      JSON.stringify([
+        { id: "todo_duplicate", content: "First todo", status: "pending", priority: "high" },
+        { id: "todo_duplicate", content: "Second todo", status: "pending", priority: "medium" },
+      ]),
+    )
+
+    const stats = await JsonMigration.run(db)
+
+    expect(stats?.todos).toBe(2)
+    const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
+    expect(todos.length).toBe(2)
+    expect(todos[0].id).toBe(TodoID.ascending("todo_duplicate"))
+    expect(todos[1].id).toStartWith("todo_")
+    expect(todos[1].id).not.toBe(todos[0].id)
+  })
+
   test("todos are ordered by position", async () => {
     await writeProject(storageDir, {
       id: "proj_test123abc",

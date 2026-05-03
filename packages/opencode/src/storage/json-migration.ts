@@ -109,6 +109,8 @@ export namespace JsonMigration {
 
     function legacyTodoID(sessionID: string, position: number) {
       const digest = createHash("sha256").update(`${sessionID}:${position}`).digest("hex")
+      // Historical JSON todos do not have creation metadata, so use a stable
+      // zero-timestamp prefix plus a slot hash to keep reruns idempotent.
       return TodoID.ascending(`todo_000000000000${digest.slice(0, 14)}`)
     }
 
@@ -314,6 +316,7 @@ export namespace JsonMigration {
     log.info("migrated parts", { count: stats.parts })
 
     // Migrate todos
+    const seenTodoIDs = new Set<string>()
     const todoSessions = todoFiles.map((file) => path.basename(file, ".json"))
     for (let i = 0; i < todoFiles.length; i += batchSize) {
       const end = Math.min(i + batchSize, todoFiles.length)
@@ -334,10 +337,10 @@ export namespace JsonMigration {
         for (let position = 0; position < data.length; position++) {
           const todo = data[position]
           if (!todo?.content || !todo?.status || !todo?.priority) continue
-          const id =
-            typeof todo.id === "string" && todo.id.startsWith("todo_")
-              ? TodoID.ascending(todo.id)
-              : legacyTodoID(sessionID, position)
+          const storedID =
+            typeof todo.id === "string" && todo.id.startsWith("todo_") ? TodoID.ascending(todo.id) : undefined
+          const id = storedID && !seenTodoIDs.has(storedID) ? storedID : legacyTodoID(sessionID, position)
+          seenTodoIDs.add(id)
           values.push({
             id,
             session_id: sessionID,

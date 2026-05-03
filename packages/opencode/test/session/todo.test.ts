@@ -78,4 +78,39 @@ describe("Todo service", () => {
       },
     })
   })
+
+  test("second update preserves id and persists status changes", async () => {
+    await using tmp = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "todo update ids" })
+        const first = await Effect.runPromise(
+          Todo.Service.use((svc) =>
+            svc.update({
+              sessionID: session.id,
+              todos: [{ content: "A", status: "pending", priority: "medium" }],
+            }),
+          ).pipe(Effect.provide(Todo.defaultLayer)),
+        )
+        const second = await Effect.runPromise(
+          Todo.Service.use((svc) =>
+            svc.update({
+              sessionID: session.id,
+              todos: [{ id: first[0].id, content: "A", status: "completed", priority: "medium" }],
+            }),
+          ).pipe(Effect.provide(Todo.defaultLayer)),
+        )
+        const stored = await Effect.runPromise(
+          Todo.Service.use((svc) => svc.get(session.id)).pipe(Effect.provide(Todo.defaultLayer)),
+        )
+
+        expect(second[0].id).toBe(first[0].id)
+        expect(stored).toEqual([{ ...second[0], status: "completed" }])
+
+        await Session.remove(session.id)
+      },
+    })
+  })
 })

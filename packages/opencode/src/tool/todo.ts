@@ -45,7 +45,10 @@ export const TodoWriteTool = Tool.define<typeof Parameters, Metadata, Todo.Servi
 
           const todos = yield* todo.update({
             sessionID: ctx.sessionID,
-            todos: params.todos,
+            todos: params.todos.map((todo) => ({
+              ...todo,
+              id: todo.id as Todo.TodoID | undefined,
+            })),
           })
 
           return {
