@@ -114,7 +114,7 @@ function parseNoticeContent(notice: string | undefined): ParsedNotice | undefine
   const lines = notice
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .filter((line) => !line.startsWith("#"))
 
   const bullets: string[] = []
   const prose: string[] = []
@@ -122,6 +122,15 @@ function parseNoticeContent(notice: string | undefined): ParsedNotice | undefine
   let hasSeenBullet = false
 
   for (const line of lines) {
+    if (line.length === 0) {
+      // Empty line acts as a paragraph break: flush any active bullet
+      if (currentBullet) {
+        bullets.push(trimNoticeItem(currentBullet))
+        currentBullet = undefined
+      }
+      continue
+    }
+
     const match = line.match(/^(?:[-*+]\s+|\d+\.\s+)(.+)$/)
     if (match) {
       if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
@@ -148,7 +157,7 @@ function parseNoticeContent(notice: string | undefined): ParsedNotice | undefine
     }
   }
 
-  const summary = trimNoticeItem(lines.join(" "))
+  const summary = trimNoticeItem(lines.filter((line) => line.length > 0).join(" "))
   if (!summary) return
 
   return {

@@ -379,4 +379,18 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
       "Important migration note for this release.\n• Fixed crash on startup\n• Added dark mode support",
     )
   })
+
+  test("does not fold trailing prose into the final bullet", () => {
+    const payload = [
+      {
+        tag_name: "v1.0.0",
+        body: ["## App Update Notice", "", "- Fixed sync", "", "Known issue: restart required."].join("\n"),
+      },
+    ]
+
+    const highlights = loadReleaseHighlights(payload, "1.0.0", "0.9.0", "en")
+
+    expect(highlights).toHaveLength(1)
+    expect(highlights[0].description).toBe("• Fixed sync")
+  })
 })
