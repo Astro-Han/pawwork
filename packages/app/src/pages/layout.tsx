@@ -66,7 +66,7 @@ import {
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
-  latestRootSession,
+  projectSessionRouteTarget,
   startupAutoselectDirectory,
   sortedRootSessions,
   workspaceKey,
@@ -99,7 +99,6 @@ export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
     Persist.global("layout.page", ["layout.page.v1"]),
     createStore({
-      lastProjectSession: {} as { [directory: string]: { directory: string; id: string; at: number } },
       activeProject: undefined as string | undefined,
       activeWorkspace: undefined as string | undefined,
       workspaceOrder: {} as Record<string, string[]>,
@@ -1415,23 +1414,7 @@ export default function Layout(props: ParentProps) {
     return currentProject()?.worktree ?? projectRoot(directory)
   }
 
-  function rememberSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
-    setStore("lastProjectSession", root, { directory, id, at: Date.now() })
-    return root
-  }
-
-  function clearLastProjectSession(root: string) {
-    if (!store.lastProjectSession[root]) return
-    setStore(
-      "lastProjectSession",
-      produce((draft) => {
-        delete draft[root]
-      }),
-    )
-  }
-
   function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
-    rememberSessionRoute(directory, id, root)
     notification.session.markViewed(id)
     const expanded = untrack(() => store.workspaceExpanded[directory])
     if (expanded === false) {
@@ -1445,71 +1428,8 @@ export default function Layout(props: ParentProps) {
     if (!directory) return
     const root = projectRoot(directory)
     server.projects.touch(root)
-    const project = layout.projects.list().find((item) => item.worktree === root)
-    let dirs = project
-      ? effectiveWorkspaceOrder(root, [root, ...(project.sandboxes ?? [])], store.workspaceOrder[root])
-      : [root]
-    const canOpen = (value: string | undefined) => {
-      if (!value) return false
-      return dirs.some((item) => workspaceKey(item) === workspaceKey(value))
-    }
-    const refreshDirs = async (target?: string) => {
-      if (!target || target === root || canOpen(target)) return canOpen(target)
-      const listed = await globalSDK.client.worktree
-        .list({ directory: root })
-        .then((x) => x.data ?? [])
-        .catch(() => [])
-      dirs = effectiveWorkspaceOrder(root, [root, ...listed.map((item) => item.directory)], store.workspaceOrder[root])
-      return canOpen(target)
-    }
-    const openSession = async (target: { directory: string; id: string }) => {
-      if (!canOpen(target.directory)) return false
-      const [data] = globalSync.child(target.directory, { bootstrap: false })
-      if (data.session.some((item) => item.id === target.id)) {
-        setStore("lastProjectSession", root, { directory: target.directory, id: target.id, at: Date.now() })
-        navigate(`/${base64Encode(target.directory)}/session/${target.id}`)
-        return true
-      }
-      const resolved = await globalSDK.client.session
-        .get({ sessionID: target.id })
-        .then((x) => x.data)
-        .catch(() => undefined)
-      if (!resolved?.directory) return false
-      if (!canOpen(resolved.directory)) return false
-      setStore("lastProjectSession", root, { directory: resolved.directory, id: resolved.id, at: Date.now() })
-      navigate(`/${base64Encode(resolved.directory)}/session/${resolved.id}`)
-      return true
-    }
-
-    const projectSession = store.lastProjectSession[root]
-    if (projectSession?.id) {
-      await refreshDirs(projectSession.directory)
-      const opened = await openSession(projectSession)
-      if (opened) return
-      clearLastProjectSession(root)
-    }
-
-    const latest = latestRootSession(dirs.map((item) => globalSync.child(item, { bootstrap: false })[0]))
-    if (latest && (await openSession(latest))) {
-      return
-    }
-
-    const fetched = latestRootSession(
-      await Promise.all(
-        dirs.map(async (item) => ({
-          path: { directory: item },
-          session: await globalSDK.client.session
-            .list({ directory: item, sort: "created" })
-            .then((x) => x.data ?? [])
-            .catch(() => []),
-        })),
-      ),
-    )
-    if (fetched && (await openSession(fetched))) {
-      return
-    }
-
-    navigate(`/${base64Encode(root)}/session`)
+    const target = projectSessionRouteTarget(root)
+    navigate(`/${base64Encode(target.directory)}/session`)
   }
 
   function navigateToSession(session: Session | undefined) {
@@ -1681,10 +1601,6 @@ export default function Layout(props: ParentProps) {
     setBusy(directory, false)
 
     if (!result) return
-
-    if (workspaceKey(store.lastProjectSession[root]?.directory ?? "") === workspaceKey(directory)) {
-      clearLastProjectSession(root)
-    }
 
     globalSync.set(
       "project",
@@ -1972,7 +1888,7 @@ export default function Layout(props: ParentProps) {
 
         if (root === activeRoute.sessionProject) return
         activeRoute.directory = dir
-        activeRoute.sessionProject = rememberSessionRoute(dir, id, root)
+        activeRoute.sessionProject = root
       },
     ),
   )
