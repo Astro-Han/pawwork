@@ -240,14 +240,27 @@ describe("session scroll dock", () => {
       createRoot((dispose) => {
         const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
         const promptDock = makeMeasuredDiv(120)
+        const events: Array<{
+          composerHeight: number
+          previousComposerHeight: number
+          scrollTop?: number
+          distanceFromBottom?: number
+        }> = []
+        const scroller = makeScroller({
+          clientHeight: 400,
+          scrollHeight: 1000,
+          scrollTop: 600,
+        })
 
         try {
           const scrollDock = createSessionScrollDock({
             clearMessageHash: () => undefined,
             clearActiveMessage: () => undefined,
             fill: () => undefined,
+            onDockHeightChange: (event) => events.push(event),
           })
 
+          scrollDock.setScrollRef(scroller.el)
           scrollDock.setPromptDockRef(promptDock.el)
           expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("120px")
 
@@ -255,6 +268,20 @@ describe("session scroll dock", () => {
           triggerResize(promptDock.el)
 
           expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("220px")
+          expect(events).toEqual([
+            {
+              composerHeight: 120,
+              previousComposerHeight: 0,
+              scrollTop: 600,
+              distanceFromBottom: 0,
+            },
+            {
+              composerHeight: 220,
+              previousComposerHeight: 120,
+              scrollTop: 600,
+              distanceFromBottom: 0,
+            },
+          ])
         } finally {
           dispose()
           if (previousDockHeight)

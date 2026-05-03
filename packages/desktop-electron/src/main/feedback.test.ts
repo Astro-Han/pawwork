@@ -63,6 +63,19 @@ function setup(overrides: Partial<Parameters<typeof createFeedbackHandler>[0]> =
       diagnostics: () => diagnostics,
       logTail: () => "log tail\n[error] launch failed",
       sessionExport: async () => ({ status: "none" }),
+      rendererDiagnostics: async () => ({
+        status: "ok",
+        source: "renderer-diagnostics",
+        generated_at: "2026-04-23T01:02:03.004Z",
+        events: [],
+        summary: {
+          event_count: 0,
+          incident_count: 0,
+          statuses: ["ok"],
+          omitted_event_count: 0,
+          omitted_bytes: 0,
+        },
+      }),
       onHandledError: (message) => {
         calls.handledErrors.push(message)
       },
@@ -199,6 +212,20 @@ describe("feedback handler", () => {
     expect(diagnosticsContext).toBe("active")
   })
 
+  test("passes IPC sender window override to context snapshot", async () => {
+    let receivedOverride: unknown
+    const subject = setup({
+      context: (override) => {
+        receivedOverride = override
+        return "active"
+      },
+    })
+
+    await subject.handler(undefined, { windowID: 7 })
+
+    expect(receivedOverride).toEqual({ windowID: 7 })
+  })
+
   test("session export failure downgrades report", async () => {
     const subject = setup({
       sessionExport: async () => {
@@ -209,6 +236,35 @@ describe("feedback handler", () => {
     expect(subject.calls.savedMarkdown).toContain('"status": "failed"')
     expect(subject.calls.savedMarkdown).toContain("session unavailable")
     expect(subject.calls.copied).toContain("PawWork Problem Report Summary")
+    expect(subject.calls.opened).toBe("https://example.com/form")
+  })
+
+  test("renderer diagnostics failure still produces report artifacts", async () => {
+    const subject = setup({
+      rendererDiagnostics: async () => {
+        throw new Error("diagnostics unavailable")
+      },
+    })
+
+    await subject.handler()
+
+    expect(subject.calls.handledErrors).toContain("renderer diagnostics slice failed")
+    expect(subject.calls.savedMarkdown).toContain('"status": "write_failed"')
+    expect(subject.calls.copied).toContain("Renderer diagnostics: write_failed")
+    expect(subject.calls.opened).toBe("https://example.com/form")
+  })
+
+  test("slow renderer diagnostics times out and still produces report artifacts", async () => {
+    const subject = setup({
+      sessionExportTimeoutMs: 1,
+      rendererDiagnostics: async () => new Promise(() => {}),
+    })
+
+    await subject.handler()
+
+    expect(subject.calls.handledErrors).toContain("renderer diagnostics slice failed")
+    expect(subject.calls.savedMarkdown).toContain('"status": "write_failed"')
+    expect(subject.calls.copied).toContain("Renderer diagnostics: write_failed")
     expect(subject.calls.opened).toBe("https://example.com/form")
   })
 

@@ -235,6 +235,10 @@ const createPlatform = (): Platform => {
 
     reportProblem: (input) => window.api.reportProblem(input),
 
+    emitRendererDiagnostic: (event) => window.api.emitRendererDiagnostic(event),
+
+    exportDiagnosticsLog: () => window.api.exportDiagnosticsLog(),
+
     update: async () => {
       if (!UPDATER_ENABLED()) return
       await window.api.installUpdate()

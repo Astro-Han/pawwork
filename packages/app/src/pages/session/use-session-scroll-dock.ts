@@ -80,6 +80,12 @@ export function createSessionScrollDock(input: {
   clearMessageHash: () => void
   clearActiveMessage: () => void
   fill: () => void
+  onDockHeightChange?: (event: {
+    composerHeight: number
+    previousComposerHeight: number
+    scrollTop?: number
+    distanceFromBottom?: number
+  }) => void
 }) {
   const autoScroll = createAutoScroll({
     working: () => true,
@@ -148,9 +154,14 @@ export function createSessionScrollDock(input: {
   }
 
   const updateDockHeight = (next: number) => {
+    const previousDockHeight = dockHeight
+    const scrollTop = scroller?.scrollTop
+    const distanceFromBottom = scroller
+      ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+      : undefined
     dockHeight = syncComposerDockHeight({
       el: scroller,
-      previousDockHeight: dockHeight,
+      previousDockHeight,
       nextDockHeight: next,
       userScrolled: autoScroll.userScrolled(),
       setCssHeight: (value) => document.documentElement.style.setProperty("--composer-dock-height", `${value}px`),
@@ -158,6 +169,18 @@ export function createSessionScrollDock(input: {
       scheduleScrollState,
       fill: input.fill,
     })
+    if (dockHeight !== previousDockHeight) {
+      try {
+        input.onDockHeightChange?.({
+          composerHeight: dockHeight,
+          previousComposerHeight: previousDockHeight,
+          scrollTop,
+          distanceFromBottom,
+        })
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn("[session-scroll-dock] onDockHeightChange failed", error)
+      }
+    }
   }
 
   const measurePromptDockHeight = () => Math.ceil(promptDock?.getBoundingClientRect().height ?? 0)

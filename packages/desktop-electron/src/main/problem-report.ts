@@ -1,5 +1,7 @@
 // Bound full report payloads while preserving recent logs and session snippets for diagnosis.
 // Default full report payload limit: 5 MB.
+import type { RendererDiagnosticEvent, RendererDiagnosticsSlice } from "./renderer-diagnostics"
+
 export const DEFAULT_PROBLEM_REPORT_MAX_BYTES = 5 * 1024 * 1024
 const SUMMARY_ERROR_LINE_MAX_CHARS = 220
 const SUMMARY_FAILURE_REASON_MAX_CHARS = 80
@@ -44,6 +46,7 @@ type Input = {
   diagnostics: ProblemReportDiagnostics
   logTail: string
   sessionExport: SessionExport
+  rendererDiagnostics?: RendererDiagnosticsSlice
   rendererError?: RendererErrorDetails
 }
 
@@ -60,12 +63,14 @@ type Payload = {
   diagnostics: ProblemReportDiagnostics
   logTail: string
   rendererError?: RendererErrorDetails
+  rendererDiagnostics?: RendererDiagnosticsSlice
   sessionExport: SafeSessionExport
   truncation: {
     omittedMessages: number
     omittedLogBytes: number
     omittedSessionInfoBytes: number
     omittedFailedExportErrorBytes: number
+    omittedRendererDiagnosticsBytes: number
     omittedDiagnosticsBytes: number
   }
 }
@@ -149,6 +154,36 @@ function sanitizeSessionExport(sessionExport: SessionExport): SafeSessionExport 
   }
 }
 
+function isProtectedRendererDiagnosticEvent(event: RendererDiagnosticEvent) {
+  return event["event.name"].startsWith("incident.") || event["event.name"] === "session.identity.transition"
+}
+
+function withRendererDiagnosticsEvents(
+  rendererDiagnostics: RendererDiagnosticsSlice,
+  events: RendererDiagnosticEvent[],
+  omittedBytes: number,
+): RendererDiagnosticsSlice {
+  const omittedEventCount = rendererDiagnostics.events.length - events.length
+  return {
+    ...rendererDiagnostics,
+    status: omittedEventCount > 0 ? "truncated" : rendererDiagnostics.status,
+    events,
+    summary: {
+      ...rendererDiagnostics.summary,
+      event_count: events.length,
+      incident_count: events.filter((event) => event["event.name"].startsWith("incident.")).length,
+      omitted_event_count: rendererDiagnostics.summary.omitted_event_count + omittedEventCount,
+      omitted_bytes: rendererDiagnostics.summary.omitted_bytes + omittedBytes,
+      statuses: Array.from(
+        new Set([
+          ...rendererDiagnostics.summary.statuses,
+          ...(omittedEventCount > 0 ? (["truncated"] as const) : []),
+        ]),
+      ),
+    },
+  }
+}
+
 function truncateString(value: string, limit: number) {
   return value.length > limit ? value.slice(0, limit) : value
 }
@@ -183,11 +218,13 @@ export function buildProblemReport(input: Input, options: Options = {}) {
   let messages = sessionMessages(sessionExport)
   let sessionInfo = sessionExport.status === "ok" ? sessionExport.info : undefined
   let failedExportError = sessionExport.status === "failed" ? sessionExport.error : undefined
+  let rendererDiagnostics = input.rendererDiagnostics
   let rendererError = input.rendererError
   let omittedMessages = 0
   let omittedLogBytes = 0
   let omittedSessionInfoBytes = 0
   let omittedFailedExportErrorBytes = 0
+  let omittedRendererDiagnosticsBytes = 0
   let omittedDiagnosticsBytes = 0
 
   const makePayload = (): Payload => ({
@@ -197,6 +234,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     diagnostics,
     logTail,
     ...(rendererError ? { rendererError } : {}),
+    ...(rendererDiagnostics ? { rendererDiagnostics } : {}),
     sessionExport: withFailedExportError(
       withMessages(withSessionInfo(sessionExport, sessionInfo ?? null), messages),
       failedExportError,
@@ -206,6 +244,7 @@ export function buildProblemReport(input: Input, options: Options = {}) {
       omittedLogBytes,
       omittedSessionInfoBytes,
       omittedFailedExportErrorBytes,
+      omittedRendererDiagnosticsBytes,
       omittedDiagnosticsBytes,
     },
   })
@@ -264,6 +303,19 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     output = markdown(makePayload())
   }
 
+  if (bytes(output) > maxBytes && rendererDiagnostics) {
+    const original = rendererDiagnostics
+    let events = [...original.events]
+    while (bytes(output) > maxBytes && events.length > 0) {
+      const removeIndex = events.findIndex((event) => !isProtectedRendererDiagnosticEvent(event))
+      if (removeIndex < 0) break
+      events.splice(removeIndex, 1)
+      omittedRendererDiagnosticsBytes = Math.max(0, jsonBytes(original.events) - jsonBytes(events))
+      rendererDiagnostics = withRendererDiagnosticsEvents(original, events, omittedRendererDiagnosticsBytes)
+      output = markdown(makePayload())
+    }
+  }
+
   let diagnosticStringLimit = 512
   while (bytes(output) > maxBytes && diagnosticStringLimit >= 0) {
     diagnostics = truncateDiagnostics(input.diagnostics, diagnosticStringLimit)
@@ -290,6 +342,7 @@ type ProblemReportSummaryInput = {
   failureReason?: string
   recentErrors: string[]
   rendererError?: RendererErrorDetails
+  rendererDiagnostics?: RendererDiagnosticsSlice
 }
 
 function oneLine(value: string) {
@@ -365,6 +418,11 @@ export function buildProblemReportSummary(input: ProblemReportSummaryInput) {
     `Electron: ${input.diagnostics.electronVersion}`,
     `Route: ${safeSummaryRoute(input.diagnostics.route)}`,
     `Session: ${safeSummarySession(input.diagnostics.sessionID)}`,
+    ...(input.rendererDiagnostics
+      ? [
+          `Renderer diagnostics: ${input.rendererDiagnostics.status}, events=${input.rendererDiagnostics.summary.event_count}, incidents=${input.rendererDiagnostics.summary.incident_count}`,
+        ]
+      : []),
     ...(rendererError ? [`Renderer error: ${rendererError}`] : []),
     ...fullReportLines,
     "",
@@ -417,6 +475,20 @@ function isRendererErrorDetails(value: unknown): value is RendererErrorDetails {
   return isRecord(value) && typeof value.summary === "string" && typeof value.details === "string"
 }
 
+function isRendererDiagnosticsSlice(value: unknown): value is RendererDiagnosticsSlice {
+  if (!isRecord(value)) return false
+  if (typeof value.status !== "string" || value.source !== "renderer-diagnostics") return false
+  if (typeof value.generated_at !== "string" || !Array.isArray(value.events)) return false
+  if (!isRecord(value.summary)) return false
+  return (
+    isFiniteNumber(value.summary.event_count) &&
+    isFiniteNumber(value.summary.incident_count) &&
+    Array.isArray(value.summary.statuses) &&
+    isFiniteNumber(value.summary.omitted_event_count) &&
+    isFiniteNumber(value.summary.omitted_bytes)
+  )
+}
+
 function isTruncation(value: unknown): value is Payload["truncation"] {
   if (!isRecord(value)) return false
   return (
@@ -424,6 +496,7 @@ function isTruncation(value: unknown): value is Payload["truncation"] {
     isFiniteNumber(value.omittedLogBytes) &&
     isFiniteNumber(value.omittedSessionInfoBytes) &&
     isFiniteNumber(value.omittedFailedExportErrorBytes) &&
+    isFiniteNumber(value.omittedRendererDiagnosticsBytes) &&
     isFiniteNumber(value.omittedDiagnosticsBytes)
   )
 }
@@ -439,6 +512,7 @@ function isProblemReportPayload(value: unknown): value is Payload {
     isDiagnostics(value.diagnostics) &&
     typeof value.logTail === "string" &&
     (value.rendererError === undefined || isRendererErrorDetails(value.rendererError)) &&
+    (value.rendererDiagnostics === undefined || isRendererDiagnosticsSlice(value.rendererDiagnostics)) &&
     isSessionExport(value.sessionExport) &&
     isTruncation(value.truncation)
   )

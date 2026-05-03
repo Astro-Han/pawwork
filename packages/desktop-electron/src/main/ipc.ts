@@ -17,7 +17,12 @@ import type {
 } from "../preload/types"
 import { attachmentPathMime } from "./attachment-mime"
 import { getStore } from "./store"
-import { fetchExport } from "./server-client"
+import { attachRendererDiagnosticsToSessionExport, fetchExport } from "./server-client"
+import {
+  emptyRendererDiagnosticsSlice,
+  SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+  type RendererDiagnosticsSlice,
+} from "./renderer-diagnostics"
 
 const pickerFilters = (ext?: string[]) => {
   if (!ext || ext.length === 0) return undefined
@@ -28,6 +33,7 @@ const pickerFilters = (ext?: string[]) => {
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 // Picker approvals are short-lived because they authorize a renderer to request file bytes from main.
 const ATTACHMENT_APPROVAL_TTL_MS = 30 * 60 * 1000
+const RENDERER_DIAGNOSTICS_TIMEOUT_MS = 5_000
 const MAX_APPROVED_ATTACHMENT_PATHS = 1000
 
 function normalizeAttachmentPath(filepath: unknown) {
@@ -55,12 +61,19 @@ type Deps = {
   loadingWindowComplete: () => void
   runUpdater: (alertOnFail: boolean) => Promise<void> | void
   checkUpdate: () => Promise<UpdateInfo>
-  reportProblem: (input?: ReportProblemInput) => Promise<ReportProblemResult>
+  reportProblem: (input?: ReportProblemInput, context?: { windowID?: number }) => Promise<ReportProblemResult>
   installUpdate: () => Promise<boolean> | boolean
   setBackgroundColor: (color: string) => void
   reportDeepLinkReady: (win: BrowserWindow | null) => void
   reportCiSmokeReady: () => Promise<void> | void
   setDesktopContext: (context: DesktopContext, win: BrowserWindow) => Promise<void> | void
+  recordRendererDiagnostic: (event: unknown, context: { windowID: number }) => Promise<unknown> | unknown
+  exportRendererDiagnostics: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>
+  rendererDiagnosticsSlice: (input: {
+    sessionID: string
+    windowID?: number
+    maxBytes: number
+  }) => Promise<RendererDiagnosticsSlice>
 }
 
 export function registerIpcHandlers(deps: Deps) {
@@ -136,9 +149,16 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.on("loading-window-complete", () => deps.loadingWindowComplete())
   ipcMain.handle("run-updater", (_event: IpcMainInvokeEvent, alertOnFail: boolean) => deps.runUpdater(alertOnFail))
   ipcMain.handle("check-update", () => deps.checkUpdate())
-  ipcMain.handle("report-problem", (_event: IpcMainInvokeEvent, input?: ReportProblemInput) =>
-    deps.reportProblem(input),
-  )
+  ipcMain.handle("report-problem", (event: IpcMainInvokeEvent, input?: ReportProblemInput) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return deps.reportProblem(input, { windowID: win?.id })
+  })
+  ipcMain.handle("renderer-diagnostics:record", (event: IpcMainInvokeEvent, input: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    return deps.recordRendererDiagnostic(input, { windowID: win.id })
+  })
+  ipcMain.handle("renderer-diagnostics:export", () => deps.exportRendererDiagnostics())
   ipcMain.handle("install-update", () => deps.installUpdate())
   ipcMain.handle("set-background-color", (_event: IpcMainInvokeEvent, color: string) => deps.setBackgroundColor(color))
   ipcMain.handle("report-deep-link-ready", (event: IpcMainInvokeEvent) =>
@@ -325,7 +345,7 @@ export function registerIpcHandlers(deps: Deps) {
   ipcMain.handle(
     "export-session",
     async (
-      _event: IpcMainInvokeEvent,
+      event: IpcMainInvokeEvent,
       sessionID: string,
       directory: string,
       defaultName?: string,
@@ -337,6 +357,28 @@ export function registerIpcHandlers(deps: Deps) {
       const server = await deps.getServerReadyData()
       const fetched = await fetchExport(server, directory, sessionID)
       if (!fetched.ok) return fetched
+      let rendererDiagnostics: RendererDiagnosticsSlice
+      try {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        rendererDiagnostics = await Promise.race([
+          deps.rendererDiagnosticsSlice({
+            sessionID,
+            windowID: win?.id,
+            maxBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+          }),
+          new Promise<RendererDiagnosticsSlice>((_, reject) => {
+            timeout = setTimeout(() => {
+              reject(new Error("renderer diagnostics timed out"))
+            }, RENDERER_DIAGNOSTICS_TIMEOUT_MS)
+          }),
+        ]).finally(() => {
+          if (timeout !== undefined) clearTimeout(timeout)
+        })
+      } catch {
+        rendererDiagnostics = emptyRendererDiagnosticsSlice("write_failed", new Date())
+      }
+      const exportBody = attachRendererDiagnosticsToSessionExport(fetched.body, rendererDiagnostics)
 
       const fallbackStamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
       const result = await dialog.showSaveDialog({
@@ -347,7 +389,7 @@ export function registerIpcHandlers(deps: Deps) {
       if (result.canceled || !result.filePath) return { ok: false, error: "cancelled" } as const
 
       try {
-        await fs.writeFile(result.filePath, fetched.body, "utf8")
+        await fs.writeFile(result.filePath, exportBody, "utf8")
         return { ok: true, path: result.filePath } as const
       } catch (err) {
         return { ok: false, error: (err as Error).message } as const

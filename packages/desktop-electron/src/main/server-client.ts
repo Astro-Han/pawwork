@@ -50,3 +50,13 @@ export async function fetchExport(
     clearTimeout(timer)
   }
 }
+
+export function attachRendererDiagnosticsToSessionExport(body: string, rendererDiagnostics: unknown) {
+  try {
+    const parsed = JSON.parse(body) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return body
+    return JSON.stringify({ ...parsed, renderer_diagnostics: rendererDiagnostics }, null, 2)
+  } catch {
+    return body
+  }
+}

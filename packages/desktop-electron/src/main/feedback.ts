@@ -8,6 +8,7 @@ import {
   type RendererErrorDetails,
   type SessionExport,
 } from "./problem-report"
+import { emptyRendererDiagnosticsSlice, type RendererDiagnosticsSlice } from "./renderer-diagnostics"
 import type { MenuLocale } from "./menu-labels"
 import { errorMessage } from "./error"
 
@@ -23,10 +24,14 @@ type SaveReportInput = {
   markdown: string
 }
 
+type FeedbackContextOverride = {
+  windowID?: number
+}
+
 type FeedbackDeps = {
   feedbackUrl: string
   reportRoot: string
-  context?: () => unknown
+  context?: (override?: FeedbackContextOverride) => unknown
   confirm: (context?: unknown) => Promise<boolean>
   copy: (value: string) => Promise<void> | void
   openExternal: (url: string) => Promise<void> | void
@@ -39,6 +44,7 @@ type FeedbackDeps = {
   diagnostics: (context?: unknown) => ProblemReportDiagnostics
   logTail: () => string
   sessionExport: (context?: unknown, signal?: AbortSignal) => Promise<SessionExport>
+  rendererDiagnostics: (context?: unknown) => Promise<RendererDiagnosticsSlice>
   onHandledError?: (message: string, error: unknown) => void
   onError?: (error: unknown) => Promise<void> | void
 }
@@ -172,14 +178,33 @@ async function sessionExportWithTimeout(deps: FeedbackDeps, context: unknown) {
   }
 }
 
+async function rendererDiagnosticsWithTimeout(deps: FeedbackDeps, context: unknown) {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      deps.rendererDiagnostics(context),
+      new Promise<RendererDiagnosticsSlice>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error("renderer diagnostics timed out"))
+        }, deps.sessionExportTimeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout)
+  }
+}
+
 export function createFeedbackHandler(deps: FeedbackDeps) {
   let inFlight: Promise<FeedbackResult> | undefined
 
-  async function runReportProblem(input: FeedbackInput = {}): Promise<FeedbackResult> {
+  async function runReportProblem(
+    input: FeedbackInput = {},
+    contextOverride?: FeedbackContextOverride,
+  ): Promise<FeedbackResult> {
     if (!deps.feedbackUrl) {
       return { status: "unavailable", summaryCopied: false, feedbackOpened: false, fullReport: { status: "none" } }
     }
-    const context = deps.context?.()
+    const context = deps.context?.(contextOverride)
     const needsConfirm = input.confirm ?? true
     if (needsConfirm) {
       const confirmed = await deps.confirm(context)
@@ -193,6 +218,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
     let diagnostics: ProblemReportDiagnostics
     let logTail = ""
     let sessionExport: SessionExport = { status: "none" }
+    let rendererDiagnostics: RendererDiagnosticsSlice = emptyRendererDiagnosticsSlice("missing", new Date(generatedAt))
     let savedReport: SavedReport | undefined
     let fullReportFailure: string | undefined
 
@@ -215,10 +241,17 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       sessionExport = { status: "failed", error: errorMessage(error) }
     }
 
+    try {
+      rendererDiagnostics = await rendererDiagnosticsWithTimeout(deps, context)
+    } catch (error) {
+      deps.onHandledError?.("renderer diagnostics slice failed", error)
+      rendererDiagnostics = emptyRendererDiagnosticsSlice("write_failed", new Date(generatedAt))
+    }
+
     if (!fullReportFailure) {
       try {
         const report = buildProblemReport(
-          { diagnostics, logTail, sessionExport, rendererError: input.rendererError },
+          { diagnostics, logTail, sessionExport, rendererDiagnostics, rendererError: input.rendererError },
           { reportId: id, generatedAt, maxBytes: DEFAULT_PROBLEM_REPORT_MAX_BYTES },
         )
         savedReport = await deps.saveReport({ reportId: id, generatedAt, markdown: report.markdown })
@@ -236,6 +269,7 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
       fullReportStatus: savedReport ? "ready" : "failed",
       failureReason: fullReportFailure,
       recentErrors: recentKeyErrors(logTail),
+      rendererDiagnostics,
       rendererError: input.rendererError,
     })
 
@@ -295,9 +329,12 @@ export function createFeedbackHandler(deps: FeedbackDeps) {
         }
   }
 
-  return async function reportProblem(input?: FeedbackInput): Promise<FeedbackResult> {
+  return async function reportProblem(
+    input?: FeedbackInput,
+    contextOverride?: FeedbackContextOverride,
+  ): Promise<FeedbackResult> {
     if (inFlight) return inFlight
-    const next = runReportProblem(input)
+    const next = runReportProblem(input, contextOverride)
       .catch(async (error) => {
         try {
           await deps.onError?.(error)

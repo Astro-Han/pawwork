@@ -1,4 +1,4 @@
-import { For, createEffect, createMemo, on, onCleanup, Show, Index, type JSX, createSignal } from "solid-js"
+import { For, createEffect, createMemo, on, onCleanup, onMount, Show, Index, type JSX, createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
@@ -24,6 +24,7 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
+import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
@@ -235,6 +236,18 @@ export function MessageTimeline(props: {
   anchor: (id: string) => string
 }) {
   let touchGesture: number | undefined
+  let scrollSampleFrame: number | undefined
+  let mounted = true
+  let pendingScrollSample:
+    | {
+        scroll_top: number
+        scroll_height: number
+        client_height: number
+        distance_from_bottom: number
+        user_scrolled: boolean
+        jump_button_visible: boolean
+      }
+    | undefined
 
   const navigate = useNavigate()
   const sdk = useSDK()
@@ -246,18 +259,76 @@ export function MessageTimeline(props: {
   const { params } = useSessionKey()
   const platform = usePlatform()
   const server = useServer()
+  onCleanup(() => {
+    mounted = false
+    if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
+  })
   // Export hits the embedded sidecar via main-process IPC. When the user has switched the
   // active server to a remote HTTP/SSH target, the sidecar holds different data than the UI;
   // hide the action rather than ship a misleading export.
   const exportAvailable = createMemo(() => !!platform.exportSession && server.current?.type === "sidecar")
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
+  const visibleRange = createMemo(() => {
+    const ids = rendered()
+    const first = ids[0]
+    const last = ids.at(-1)
+    return {
+      rendered_count: ids.length,
+      visible_first_message_id: first,
+      visible_last_message_id: last,
+      signature: `${ids.length}:${first ?? ""}:${last ?? ""}`,
+    }
+  })
+  const visibleRangeData = () => {
+    const range = visibleRange()
+    return {
+      rendered_count: range.rendered_count,
+      visible_first_message_id: range.visible_first_message_id,
+      visible_last_message_id: range.visible_last_message_id,
+    }
+  }
   const sessionKey = createMemo(() => props.sessionKey)
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
+
+  onMount(() => {
+    void emitRendererDiagnostic({
+      name: "session.timeline.mount",
+      route_session_id: params.id,
+      visible_session_id: props.sessionID,
+      timeline_session_id: props.sessionID,
+      data: visibleRangeData(),
+    })
+  })
+
+  onCleanup(() => {
+    void emitRendererDiagnostic({
+      name: "session.timeline.unmount",
+      route_session_id: params.id,
+      visible_session_id: props.sessionID,
+      timeline_session_id: props.sessionID,
+      data: visibleRangeData(),
+    })
+  })
+
+  createEffect(
+    on(
+      () => visibleRange().signature,
+      () => {
+        void emitRendererDiagnostic({
+          name: "session.timeline.visible",
+          route_session_id: params.id,
+          visible_session_id: props.sessionID,
+          timeline_session_id: props.sessionID,
+          data: visibleRangeData(),
+        })
+      },
+    ),
+  )
   let webSearchToastSessionID: string | undefined
 
   createEffect(() => {
@@ -692,6 +763,32 @@ export function MessageTimeline(props: {
           onScroll={(e) => {
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
+            const el = e.currentTarget
+            const max = Math.max(0, el.scrollHeight - el.clientHeight)
+            pendingScrollSample = {
+              scroll_top: el.scrollTop,
+              scroll_height: el.scrollHeight,
+              client_height: el.clientHeight,
+              distance_from_bottom: Math.max(0, max - el.scrollTop),
+              user_scrolled: props.hasScrollGesture(),
+              jump_button_visible: props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
+            }
+            if (scrollSampleFrame === undefined) {
+              scrollSampleFrame = requestAnimationFrame(() => {
+                scrollSampleFrame = undefined
+                if (!mounted) return
+                const sample = pendingScrollSample
+                pendingScrollSample = undefined
+                if (!sample) return
+                void emitRendererDiagnostic({
+                  name: "session.scroll.sample",
+                  route_session_id: params.id,
+                  visible_session_id: props.sessionID,
+                  timeline_session_id: props.sessionID,
+                  data: { ...sample, ...visibleRangeData() },
+                }).catch(() => {})
+              })
+            }
             if (!props.hasScrollGesture()) return
             props.onUserScroll()
             props.onAutoScrollHandleScroll()

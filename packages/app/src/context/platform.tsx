@@ -49,6 +49,21 @@ export type ReportProblemResult =
   | { status: "unavailable"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "none" } }
   | { status: "failed"; summaryCopied: false; feedbackOpened: false; fullReport: { status: "failed" } }
 
+export type RendererDiagnosticInput = {
+  name: string
+  level?: "info" | "warn"
+  monotonic_ms?: number
+  trace_id?: string
+  route_session_id?: string
+  visible_session_id?: string
+  timeline_session_id?: string
+  message_id?: string
+  part_id?: string
+  data?: Record<string, unknown>
+}
+
+export type RendererDiagnosticsExportResult = { ok: true; path: string } | { ok: false; error: string }
+
 export type Platform = {
   /** Platform discriminator */
   platform: "web" | "desktop"
@@ -114,6 +129,12 @@ export type Platform = {
 
   /** Prepare a problem report and open the configured feedback form (desktop only) */
   reportProblem?(input?: ReportProblemInput): Promise<ReportProblemResult>
+
+  /** Emit a local renderer diagnostics event. Desktop only; no-op on web. */
+  emitRendererDiagnostic?(event: RendererDiagnosticInput): Promise<void>
+
+  /** Export the current local renderer diagnostics log. Desktop only. */
+  exportDiagnosticsLog?(): Promise<RendererDiagnosticsExportResult>
 
   /** Install updates (desktop only) */
   update?(): Promise<void>

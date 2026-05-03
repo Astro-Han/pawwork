@@ -128,6 +128,7 @@ export function createSessionTimelineData(input: {
     routeDiffs,
     routeSessionCount,
     routeHasSessionReview,
+    routeMessagesReady,
     sessionID,
     sessionKey,
     sessionInfo,
