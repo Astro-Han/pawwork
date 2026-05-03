@@ -12,9 +12,9 @@ CREATE TABLE `__new_todo` (
 );
 --> statement-breakpoint
 INSERT INTO `__new_todo`(`id`, `session_id`, `content`, `status`, `priority`, `position`, `time_created`, `time_updated`)
-SELECT 'todo_' || lower(hex(randomblob(16))), `session_id`, `content`, `status`, `priority`, `position`, `time_created`, `time_updated` FROM `todo`;--> statement-breakpoint
+SELECT 'todo_' || printf('%012x', (`time_created` * 4096) + `position`) || lower(hex(randomblob(7))), `session_id`, `content`, `status`, `priority`, `position`, `time_created`, `time_updated` FROM `todo`;--> statement-breakpoint
 DROP TABLE `todo`;--> statement-breakpoint
 ALTER TABLE `__new_todo` RENAME TO `todo`;--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
 CREATE INDEX `todo_session_idx` ON `todo` (`session_id`);--> statement-breakpoint
-CREATE INDEX `todo_session_position_idx` ON `todo` (`session_id`,`position`);
+CREATE UNIQUE INDEX `todo_session_position_idx` ON `todo` (`session_id`,`position`);

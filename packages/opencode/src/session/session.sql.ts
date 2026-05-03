@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
 import type { SessionEntry } from "../v2/session-entry"
@@ -108,7 +108,7 @@ export const TodoTable = sqliteTable(
   },
   (table) => [
     index("todo_session_idx").on(table.session_id),
-    index("todo_session_position_idx").on(table.session_id, table.position),
+    uniqueIndex("todo_session_position_idx").on(table.session_id, table.position),
   ],
 )
 

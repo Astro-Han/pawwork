@@ -10,6 +10,7 @@ import { existsSync } from "fs"
 import { Filesystem } from "../util/filesystem"
 import { Glob } from "../util/glob"
 import { TodoID } from "../session/schema"
+import { createHash } from "crypto"
 
 export namespace JsonMigration {
   const log = Log.create({ service: "json-migration" })
@@ -104,6 +105,11 @@ export namespace JsonMigration {
         errs.push(`failed to migrate ${label} batch: ${e}`)
         return 0
       }
+    }
+
+    function legacyTodoID(sessionID: string, position: number) {
+      const digest = createHash("sha256").update(`${sessionID}:${position}`).digest("hex")
+      return TodoID.ascending(`todo_000000000000${digest.slice(0, 14)}`)
     }
 
     // Pre-scan all files upfront to avoid repeated glob operations
@@ -328,7 +334,10 @@ export namespace JsonMigration {
         for (let position = 0; position < data.length; position++) {
           const todo = data[position]
           if (!todo?.content || !todo?.status || !todo?.priority) continue
-          const id = typeof todo.id === "string" && todo.id.startsWith("todo_") ? TodoID.ascending(todo.id) : TodoID.ascending()
+          const id =
+            typeof todo.id === "string" && todo.id.startsWith("todo_")
+              ? TodoID.ascending(todo.id)
+              : legacyTodoID(sessionID, position)
           values.push({
             id,
             session_id: sessionID,

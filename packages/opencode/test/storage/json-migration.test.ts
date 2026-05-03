@@ -462,12 +462,19 @@ describe("JSON to SQLite migration", () => {
       time: { created: Date.now(), updated: Date.now() },
       sandboxes: [],
     })
+    await writeSession(storageDir, "proj_test123abc", { ...fixtures.session })
+    await Bun.write(
+      path.join(storageDir, "todo", "ses_test456def.json"),
+      JSON.stringify([{ content: "One todo", status: "pending", priority: "high" }]),
+    )
 
     await JsonMigration.run(db)
     await JsonMigration.run(db)
 
     const projects = db.select().from(ProjectTable).all()
     expect(projects.length).toBe(1) // Still only 1 due to onConflictDoNothing
+    const todos = db.select().from(TodoTable).all()
+    expect(todos.length).toBe(1)
   })
 
   test("migrates todos", async () => {
