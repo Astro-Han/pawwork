@@ -7,6 +7,7 @@ export function createSseCursor() {
     },
     update(id: string | undefined) {
       if (!id) return
+      // SSE ids come from the server replay layer; keep this helper transport-only.
       value = id
     },
     headers() {

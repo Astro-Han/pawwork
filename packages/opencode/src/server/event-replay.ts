@@ -29,13 +29,13 @@ export type ReplaySnapshot = {
   replay: ReplayRecord[]
   gap: boolean
   invalidCursor: boolean
-  unsubscribe: () => void
-  releaseLiveQueue: (push: (record: ReplayRecord) => void) => void
 }
 
 const DEFAULT_MAX_RECORDS = 2048
 const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000
 
+// Keep this list intentionally small. These events are low-volume and session
+// or blocker critical; high-volume streaming events recover through bootstrap.
 const REPLAYABLE_EVENT_TYPES = new Set([
   "question.asked",
   "question.replied",
@@ -65,13 +65,12 @@ export function isReplayableGlobalEvent(envelope: GlobalEventEnvelope): boolean 
 }
 
 export class EventReplayStore {
-  private readonly bootID: string
+  private bootID: string
   private readonly maxRecords: number
   private readonly maxAgeMs: number
   private readonly now: () => number
   private seq = 0
   private records: ReplayRecord[] = []
-  private listeners = new Set<(record: ReplayRecord) => void>()
 
   constructor(input?: { bootID?: string; maxRecords?: number; maxAgeMs?: number; now?: () => number }) {
     this.bootID = input?.bootID ?? `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
@@ -98,31 +97,22 @@ export class EventReplayStore {
     this.records.push(record)
     this.prune()
 
-    for (const listener of this.listeners) listener(record)
     return record
   }
 
-  open(lastEventID: string | undefined, onLive: (record: ReplayRecord) => void): ReplaySnapshot {
-    const liveBuffer: ReplayRecord[] = []
-    let replaying = true
-
-    const listener = (record: ReplayRecord) => {
-      if (replaying) {
-        liveBuffer.push(record)
-        return
-      }
-      onLive(record)
-    }
-
-    this.listeners.add(listener)
-
+  snapshot(lastEventID: string | undefined): ReplaySnapshot {
+    this.prune()
     const fenceSeq = this.seq
     const fenceID = this.formatID(fenceSeq)
     const parsed = parseReplayCursor(lastEventID)
     const invalidCursor = !!lastEventID && (!parsed || parsed.bootID !== this.bootID || parsed.seq > fenceSeq)
     const cursorSeq = invalidCursor || !parsed ? fenceSeq : parsed.seq
     const earliestSeq = this.records[0]?.seq
-    const gap = !invalidCursor && !!parsed && earliestSeq !== undefined && parsed.seq < earliestSeq - 1
+    const gap =
+      !invalidCursor &&
+      !!parsed &&
+      parsed.seq < fenceSeq &&
+      (earliestSeq === undefined || parsed.seq < earliestSeq - 1)
     const replay =
       invalidCursor || !parsed
         ? []
@@ -135,19 +125,21 @@ export class EventReplayStore {
       replay,
       gap,
       invalidCursor,
-      unsubscribe: () => this.listeners.delete(listener),
-      releaseLiveQueue: (push) => {
-        replaying = false
-        for (const record of liveBuffer) {
-          if (record.seq > fenceSeq) push(record)
-        }
-        liveBuffer.length = 0
-      },
     }
   }
 
-  recordsForTest(): ReplayRecord[] {
-    return this.records
+  reset() {
+    this.bootID = `${this.now().toString(36)}-${randomUUID().slice(0, 8)}`
+    this.seq = 0
+    this.records = []
+  }
+
+  clearDirectory(directory: string) {
+    this.records = this.records.filter((record) => record.envelope.directory !== directory)
+  }
+
+  recordsForTest(): readonly ReplayRecord[] {
+    return this.records.slice()
   }
 
   private formatID(seq: number): string {

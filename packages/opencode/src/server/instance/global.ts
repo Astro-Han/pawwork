@@ -50,6 +50,12 @@ export function createGlobalEventReplayBridge(input?: { replayStore?: EventRepla
   return {
     replayStore,
     append(event: GlobalEventEnvelope) {
+      if (event.payload.type === GlobalDisposedEvent.type) {
+        replayStore.reset()
+      }
+      if (event.payload.type === "server.instance.disposed" && event.directory) {
+        replayStore.clearDirectory(event.directory)
+      }
       const record = replayStore.append(event)
       const packet = record ? packetForRecord(record) : packetForEnvelope(event)
       for (const listener of listeners) listener(packet)
@@ -78,25 +84,11 @@ export function openGlobalEventReplayConnection(input: {
   }
 
   const unsubscribeLive = input.bridge.subscribe(pushLive)
-  const opened = input.bridge.replayStore.open(input.lastEventID, () => {})
+  const opened = input.bridge.replayStore.snapshot(input.lastEventID)
 
-  input.push({
-    id: input.lastEventID ? undefined : opened.fenceID,
-    data: JSON.stringify({
-      payload: {
-        type: "server.connected",
-        properties: {},
-      },
-    }),
-  })
-
-  for (const record of opened.replay) {
-    input.push(packetForRecord(record))
-  }
-
-  if (opened.invalidCursor || opened.gap) {
+  const pushConnected = (id?: string) => {
     input.push({
-      id: opened.fenceID,
+      id,
       data: JSON.stringify({
         payload: {
           type: "server.connected",
@@ -106,7 +98,18 @@ export function openGlobalEventReplayConnection(input: {
     })
   }
 
-  opened.releaseLiveQueue(() => {})
+  if (!input.lastEventID) {
+    pushConnected(opened.fenceID)
+  }
+
+  for (const record of opened.replay) {
+    input.push(packetForRecord(record))
+  }
+
+  if (input.lastEventID && (opened.invalidCursor || opened.gap)) {
+    pushConnected(opened.fenceID)
+  }
+
   replaying = false
   for (const packet of liveBuffer) {
     if (packet.replaySeq !== undefined && packet.replaySeq <= opened.fenceSeq) continue
@@ -115,7 +118,6 @@ export function openGlobalEventReplayConnection(input: {
   liveBuffer.length = 0
 
   return () => {
-    opened.unsubscribe()
     unsubscribeLive()
   }
 }
@@ -176,14 +178,17 @@ async function streamEvents(c: Context, subscribe: (q: AsyncQueue<string | null>
   })
 }
 
-async function streamGlobalEvents(c: Context) {
+export async function streamGlobalEvents(
+  c: Context,
+  bridge: ReturnType<typeof createGlobalEventReplayBridge> = globalEventReplay,
+) {
   const lastEventID = c.req.header("Last-Event-ID") ?? c.req.header("last-event-id") ?? undefined
 
   return streamSSE(c, async (stream) => {
     const q = new AsyncQueue<SsePacket | null>()
     let done = false
     const unsubscribe = openGlobalEventReplayConnection({
-      bridge: globalEventReplay,
+      bridge,
       lastEventID,
       push: (packet) => q.push(packet),
     })

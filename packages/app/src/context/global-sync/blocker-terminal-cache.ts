@@ -15,7 +15,7 @@ export function createBlockerTerminalCache(input?: { max?: number; ttlMs?: numbe
   const entries = new Map<string, Entry>()
 
   const keyFor = (kind: BlockerKind, directory: string, sessionID: string, requestID: string) =>
-    `${kind}\n${directory}\n${sessionID}\n${requestID}`
+    JSON.stringify([kind, directory, sessionID, requestID])
 
   const prune = () => {
     const cutoff = now() - ttlMs

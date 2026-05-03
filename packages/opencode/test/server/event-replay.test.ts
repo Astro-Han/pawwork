@@ -109,37 +109,34 @@ describe("EventReplayStore", () => {
     store.append(question("q2"))
     store.append(question("q3"))
 
-    const opened = store.open("boot:1", () => {})
+    const opened = store.snapshot("boot:1")
 
     expect(opened.invalidCursor).toBe(false)
     expect(opened.gap).toBe(false)
     expect(opened.replay.map((record) => record.id)).toEqual(["boot:2", "boot:3"])
-    opened.unsubscribe()
   })
 
   test("returns no replay for invalid boot id", () => {
     const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
     store.append(question("q1"))
 
-    const opened = store.open("old:1", () => {})
+    const opened = store.snapshot("old:1")
 
     expect(opened.invalidCursor).toBe(true)
     expect(opened.gap).toBe(false)
     expect(opened.replay).toEqual([])
     expect(opened.fenceID).toBe("boot:1")
-    opened.unsubscribe()
   })
 
   test("treats a same-boot future cursor as invalid", () => {
     const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
     store.append(question("q1"))
 
-    const opened = store.open("boot:99", () => {})
+    const opened = store.snapshot("boot:99")
 
     expect(opened.invalidCursor).toBe(true)
     expect(opened.replay).toEqual([])
     expect(opened.fenceID).toBe("boot:1")
-    opened.unsubscribe()
   })
 
   test("detects a gap when cursor is older than retained records", () => {
@@ -148,28 +145,48 @@ describe("EventReplayStore", () => {
     store.append(question("q2"))
     store.append(question("q3"))
 
-    const opened = store.open("boot:0", () => {})
+    const opened = store.snapshot("boot:0")
 
     expect(opened.gap).toBe(true)
     expect(opened.replay.map((record) => record.id)).toEqual(["boot:2", "boot:3"])
-    opened.unsubscribe()
   })
 
-  test("buffers live records during replay and releases only records after the fence", () => {
+  test("detects a gap when cursor is behind but all retained records expired", () => {
+    let now = 1000
+    const store = new EventReplayStore({ bootID: "boot", maxAgeMs: 100, now: () => now })
+    store.append(question("q1"))
+    now = 1200
+    store.append(question("q2"))
+    now = 1400
+    store.append(question("q3"))
+    now = 1600
+
+    const opened = store.snapshot("boot:1")
+
+    expect(store.recordsForTest()).toEqual([])
+    expect(opened.gap).toBe(true)
+    expect(opened.replay).toEqual([])
+    expect(opened.fenceID).toBe("boot:3")
+  })
+
+  test("clears records for one disposed directory", () => {
+    const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
+    store.append(question("q1"))
+    store.append({ ...question("q2"), directory: "/other" })
+
+    store.clearDirectory("/repo")
+
+    expect(store.recordsForTest().map((record) => record.envelope.directory)).toEqual(["/other"])
+    expect(store.latestID()).toBe("boot:2")
+  })
+
+  test("reset starts a new empty generation", () => {
     const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
     store.append(question("q1"))
 
-    const live: string[] = []
-    const opened = store.open("boot:0", (record) => live.push(record.id))
-    store.append(question("q2"))
+    store.reset()
 
-    expect(opened.fenceID).toBe("boot:1")
-    expect(opened.replay.map((record) => record.id)).toEqual(["boot:1"])
-    expect(live).toEqual([])
-
-    opened.releaseLiveQueue((record) => live.push(record.id))
-
-    expect(live).toEqual(["boot:2"])
-    opened.unsubscribe()
+    expect(store.recordsForTest()).toEqual([])
+    expect(store.latestID()).toMatch(/^[a-z0-9]+-[a-f0-9-]+:0$/)
   })
 })
