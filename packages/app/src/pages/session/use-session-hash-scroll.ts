@@ -16,12 +16,13 @@ export const useSessionHashScroll = (input: {
   pendingMessage: () => string | undefined
   setPendingMessage: (value: string | undefined) => void
   setActiveMessage: (message: UserMessage | undefined) => void
-  setTurnStart: (value: number) => void
+  markHashTarget: (index: number) => void
   autoScroll: { pause: () => void; forceScrollToBottom: () => void }
   scroller: () => HTMLDivElement | undefined
   anchor: (id: string) => string
   scheduleScrollState: (el: HTMLDivElement) => void
   consumePendingMessage: (key: string) => string | undefined
+  onMessageHashCleared?: () => void
 }) => {
   const visibleUserMessages = createMemo(() => input.visibleUserMessages())
   const messageById = createMemo(() => new Map(visibleUserMessages().map((m) => [m.id, m])))
@@ -52,6 +53,7 @@ export const useSessionHashScroll = (input: {
     if (!location.hash) return
     clearingHash = location.hash
     navigate(location.pathname + location.search, { replace: true })
+    input.onMessageHashCleared?.()
   }
 
   const updateHash = (id: string) => {
@@ -91,9 +93,8 @@ export const useSessionHashScroll = (input: {
     if (input.currentMessageId() !== message.id) input.setActiveMessage(message)
 
     const index = messageIndex().get(message.id) ?? -1
+    if (index !== -1) input.markHashTarget(index)
     if (index !== -1 && index < input.turnStart()) {
-      input.setTurnStart(index)
-
       queue(() => {
         seek(message.id, behavior)
       })
