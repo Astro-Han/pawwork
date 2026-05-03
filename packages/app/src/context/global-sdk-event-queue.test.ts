@@ -28,6 +28,8 @@ const status = (sessionID = "ses_1", type: "busy" | "idle" | "retry" = "busy"): 
 })
 
 const queued = (...events: Event[]): QueuedGlobalEvent[] => events.map((payload) => ({ directory, payload }))
+const queuedIn = (directory: string, ...events: Event[]): QueuedGlobalEvent[] =>
+  events.map((payload) => ({ directory, payload }))
 const eventTypes = (events: QueuedGlobalEvent[]) => events.map((event) => event.payload.type)
 const deltas = (events: QueuedGlobalEvent[]) =>
   events
@@ -69,5 +71,20 @@ describe("global SDK event queue coalescing", () => {
 
     expect(eventTypes(events)).toEqual(["session.status", "message.part.updated"])
     expect(events[0].payload).toEqual(status("ses_1", "idle"))
+  })
+
+  test("keeps delta merging and stale pruning isolated by directory", () => {
+    const events = coalesceQueuedEvents([
+      ...queuedIn("/repo-a", delta("prt_1", "a")),
+      ...queuedIn("/repo-b", delta("prt_1", "b")),
+      ...queuedIn("/repo-a", delta("prt_1", "c")),
+      ...queuedIn("/repo-a", updated("prt_1")),
+      ...queuedIn("/repo-b", delta("prt_1", "d")),
+      ...queuedIn("/repo-b", updated("prt_1")),
+    ])
+
+    expect(eventTypes(events)).toEqual(["message.part.updated", "message.part.updated"])
+    expect(deltas(events)).toEqual([])
+    expect(events.map((event) => event.directory)).toEqual(["/repo-a", "/repo-b"])
   })
 })

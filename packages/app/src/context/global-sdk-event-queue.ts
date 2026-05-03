@@ -40,14 +40,21 @@ const appendDelta = (event: QueuedGlobalEvent, delta: string): QueuedGlobalEvent
 }
 
 export function coalesceQueuedEvents(events: QueuedGlobalEvent[]): QueuedGlobalEvent[] {
-  const result: QueuedGlobalEvent[] = []
+  const result: (QueuedGlobalEvent | undefined)[] = []
   const replaceable = new Map<string, number>()
-  const rebuildReplaceable = () => {
-    replaceable.clear()
-    for (const [index, event] of result.entries()) {
-      const key = replaceableKey(event)
-      if (key) replaceable.set(key, index)
+  const deltaIndexesByPart = new Map<string, Set<number>>()
+  const pushEvent = (event: QueuedGlobalEvent) => {
+    const index = result.length
+    result.push(event)
+
+    const key = partKey(event)
+    if (event.payload.type === "message.part.delta" && key) {
+      const indexes = deltaIndexesByPart.get(key) ?? new Set<number>()
+      indexes.add(index)
+      deltaIndexesByPart.set(key, indexes)
     }
+
+    return index
   }
 
   for (const event of events) {
@@ -58,19 +65,19 @@ export function coalesceQueuedEvents(events: QueuedGlobalEvent[]): QueuedGlobalE
         result[index] = event
         continue
       }
-      replaceable.set(replaceKey, result.length)
-      result.push(event)
+      replaceable.set(replaceKey, pushEvent(event))
       continue
     }
 
     if (event.payload.type === "message.part.updated") {
       const updatedKey = partKey(event)
-      for (let index = result.length - 1; index >= 0; index--) {
-        if (partKey(result[index]) !== updatedKey) continue
-        if (result[index].payload.type === "message.part.delta") result.splice(index, 1)
+      if (updatedKey) {
+        for (const index of deltaIndexesByPart.get(updatedKey) ?? []) {
+          result[index] = undefined
+        }
+        deltaIndexesByPart.delete(updatedKey)
       }
-      rebuildReplaceable()
-      result.push(event)
+      pushEvent(event)
       continue
     }
 
@@ -82,8 +89,8 @@ export function coalesceQueuedEvents(events: QueuedGlobalEvent[]): QueuedGlobalE
       }
     }
 
-    result.push(event)
+    pushEvent(event)
   }
 
-  return result
+  return result.filter((event): event is QueuedGlobalEvent => event !== undefined)
 }

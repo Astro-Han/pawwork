@@ -88,7 +88,7 @@ describe("session history window extraction", () => {
     expect(resolveHistoryTurnStart({ mode: "bottom", storedTurnStart: 0, length: 25, userScrolled: false })).toBe(15)
   })
 
-  test("reading mode does not slide the window when the user scrolls upward inside the rendered range", () => {
+  test("bottom mode preserves storedTurnStart when user has scrolled inside rendered range", () => {
     expect(resolveHistoryTurnStart({ mode: "bottom", storedTurnStart: 15, length: 26, userScrolled: true })).toBe(15)
   })
 
