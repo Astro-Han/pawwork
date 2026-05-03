@@ -1,6 +1,6 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
-import { createRoot, createSignal } from "solid-js"
+import { createRoot } from "solid-js"
 import { createSessionHistoryWindow, resolveHistoryTurnStart } from "./use-session-history-window"
 
 const userMessage = (id: number) =>
@@ -14,24 +14,28 @@ const userMessages = (count: number) => Array.from({ length: count }, (_, index)
 const ids = (start: number, end: number) => Array.from({ length: end - start }, (_, index) => `msg_${start + index}`)
 
 const createHarness = (input: { count: number; userScrolled?: boolean }) => {
-  const [messages, setMessages] = createSignal(userMessages(input.count))
-  const [userScrolled, setUserScrolled] = createSignal(input.userScrolled ?? false)
+  let messages = userMessages(input.count)
+  let userScrolled = input.userScrolled ?? false
   const history = createSessionHistoryWindow({
     sessionID: () => "ses_1",
     messagesReady: () => true,
-    loaded: () => messages().length,
-    visibleUserMessages: messages,
+    loaded: () => messages.length,
+    visibleUserMessages: () => messages,
     historyMore: () => false,
     historyLoading: () => false,
     loadMore: async () => undefined,
-    userScrolled,
+    userScrolled: () => userScrolled,
     scroller: () => undefined,
   })
 
   return {
     history,
-    setCount: (count: number) => setMessages(userMessages(count)),
-    setUserScrolled,
+    setCount: (count: number) => {
+      messages = userMessages(count)
+    },
+    setUserScrolled: (value: boolean) => {
+      userScrolled = value
+    },
   }
 }
 
@@ -119,6 +123,42 @@ describe("session history window extraction", () => {
       expect(state.history.mode()).toBe("bottom")
       expect(state.history.turnStart()).toBe(20)
       expect(state.history.renderedUserMessages().map((message) => message.id)).toEqual(ids(20, 30))
+      dispose()
+    })
+  })
+
+  test("manual scroll back to bottom returns to bottom mode and bounds later appends", () => {
+    createRoot((dispose) => {
+      const state = createHarness({ count: 30 })
+
+      state.history.expandForReading(0)
+      expect(state.history.mode()).toBe("reading")
+
+      state.setUserScrolled(false)
+      state.history.returnToLatestIfFollowing()
+      state.setCount(40)
+      state.history.returnToLatestIfFollowing()
+
+      expect(state.history.mode()).toBe("bottom")
+      expect(resolveHistoryTurnStart({ mode: "bottom", storedTurnStart: 20, length: 40, userScrolled: false })).toBe(30)
+      dispose()
+    })
+  })
+
+  test("cleared hash target returns to bottom mode before later appends", () => {
+    createRoot((dispose) => {
+      const state = createHarness({ count: 30 })
+
+      state.history.markHashTarget(12)
+      expect(state.history.mode()).toBe("hash")
+
+      state.setUserScrolled(false)
+      state.history.returnToLatestIfFollowing()
+      state.setCount(40)
+      state.history.returnToLatestIfFollowing()
+
+      expect(state.history.mode()).toBe("bottom")
+      expect(resolveHistoryTurnStart({ mode: "bottom", storedTurnStart: 20, length: 40, userScrolled: false })).toBe(30)
       dispose()
     })
   })

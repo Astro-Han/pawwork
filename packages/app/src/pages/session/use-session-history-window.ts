@@ -91,6 +91,10 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   }
   const resumeLatestWindow = () =>
     setTurnStart(initialTurnStart(input.visibleUserMessages().length), { mode: "bottom" })
+  const returnToLatestIfFollowing = () => {
+    if (input.userScrolled()) return
+    resumeLatestWindow()
+  }
   const mode = () => state.mode
 
   const renderedUserMessages = createMemo(
@@ -273,8 +277,11 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
           setState("mode", "reading")
           return
         }
-        if (state.mode !== "bottom") return
-        setTurnStart(initialTurnStart(len), { mode: "bottom" })
+        if (!userScrolled && state.mode !== "bottom") {
+          returnToLatestIfFollowing()
+          return
+        }
+        returnToLatestIfFollowing()
       },
       { defer: true },
     ),
@@ -287,6 +294,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     expandForHash,
     markHashTarget,
     resumeLatestWindow,
+    returnToLatestIfFollowing,
     mode,
     renderedUserMessages,
     loadAndReveal,
