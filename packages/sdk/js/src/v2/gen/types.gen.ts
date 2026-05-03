@@ -349,6 +349,7 @@ export type EventQuestionRejected = {
 }
 
 export type Todo = {
+  id: string
   /**
    * Brief description of the task
    */
