@@ -1,4 +1,4 @@
-import { batch, createEffect, createMemo, on } from "solid-js"
+import { batch, createEffect, createMemo, on, onCleanup } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
@@ -49,6 +49,7 @@ export function createSessionBlockers(input: { sessionID: () => string | undefin
         },
       }),
   })
+  onCleanup(questionRefetch.dispose)
 
   createEffect(
     on(questionFallbackSessionID, (sessionID) => {

@@ -42,6 +42,8 @@ export type TodoDockInput = {
   count: number
   phase: TodoPhase
   lifecycleSignature: string
+  dockEligible?: boolean
+  historicalTerminal?: boolean
 }
 
 export type TodoDockTransition =
@@ -93,7 +95,7 @@ export function reduceTodoDockState(state: TodoDockMachineState, transition: Tod
     return todoDockHiddenState(forgetSession(state.activeSessionIDs, input.sessionID))
   }
 
-  if (input.phase === "active") {
+  if (input.phase === "active" && input.dockEligible !== false) {
     const hidden = !state.dock
     return {
       kind: "visible-active",

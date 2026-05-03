@@ -5,8 +5,10 @@ export function createQuestionRefetchRunner(input: {
 }) {
   const inflight = new Set<string>()
   const queue = input.queue ?? queueMicrotask
+  let disposed = false
 
   const start = (sessionID: string | undefined) => {
+    if (disposed) return
     if (!sessionID || inflight.has(sessionID)) return
 
     inflight.add(sessionID)
@@ -15,10 +17,17 @@ export function createQuestionRefetchRunner(input: {
       .catch(() => {})
       .finally(() => {
         inflight.delete(sessionID)
+        if (disposed) return
         const next = input.getFallbackSessionID()
         if (next && next !== sessionID && !inflight.has(next)) queue(() => start(next))
       })
   }
 
-  return { start }
+  return {
+    start,
+    dispose: () => {
+      disposed = true
+      inflight.clear()
+    },
+  }
 }

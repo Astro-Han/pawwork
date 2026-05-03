@@ -26,6 +26,7 @@ export function createSessionComposerState(input: {
 
   return {
     blocked: blockers.blocked,
+    recoveringQuestion: blockers.recoveringQuestion,
     questionRequest: blockers.questionRequest,
     permissionRequest: blockers.permissionRequest,
     permissionResponding: blockers.permissionResponding,

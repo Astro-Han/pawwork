@@ -60,11 +60,18 @@ export function selectSessionTodoDataSnapshot(input: SelectSessionTodosInput): T
 
 export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): TodoSnapshot {
   // Dock source precedence is intentionally stricter than data precedence:
-  // active tool parts can beat lagging backend state, but terminal-only parts
-  // are display history and must not reopen the dock by themselves.
+  // tool parts can beat lagging backend state while the dock machine decides
+  // whether terminal snapshots complete an active dock or stay hidden history.
   const primaryParts = partTodos(input.primary.parts)
-  if (todoPhase(primaryParts) === "active") {
-    return todoSnapshot({ sessionID: input.primary.sessionID, source: "primary-parts", items: primaryParts })
+  if (primaryParts.length > 0) {
+    const phase = todoPhase(primaryParts)
+    return todoSnapshot({
+      sessionID: input.primary.sessionID,
+      source: "primary-parts",
+      items: primaryParts,
+      dockEligible: phase === "active",
+      historicalTerminal: phase === "terminal",
+    })
   }
 
   if (input.primary.backend && input.primary.backend.length > 0) {
@@ -72,8 +79,15 @@ export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): T
   }
 
   const fallbackParts = partTodos(input.fallback?.parts ?? [])
-  if (todoPhase(fallbackParts) === "active") {
-    return todoSnapshot({ sessionID: input.fallback?.sessionID, source: "fallback-parts", items: fallbackParts })
+  if (fallbackParts.length > 0) {
+    const phase = todoPhase(fallbackParts)
+    return todoSnapshot({
+      sessionID: input.fallback?.sessionID,
+      source: "fallback-parts",
+      items: fallbackParts,
+      dockEligible: phase === "active",
+      historicalTerminal: phase === "terminal",
+    })
   }
 
   if (input.fallback?.backend && input.fallback.backend.length > 0) {
@@ -87,6 +101,7 @@ export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): T
   return todoSnapshot({ sessionID: input.primary.sessionID, source: "none", items: [], dockEligible: false })
 }
 
+// Deprecated compatibility alias. Prefer explicit data or dock snapshot names.
 export const selectSessionTodoSnapshot = selectSessionTodoDockSnapshot
 
 export function selectSessionTodos(input: SessionTodoSource & { fallback?: SessionTodoSource }): Todo[] {

@@ -13,6 +13,8 @@ const dockInput = (snapshot: TodoSnapshot, sessionID?: string) => ({
   count: snapshot.items.length,
   phase: snapshot.phase,
   lifecycleSignature: snapshot.lifecycleSignature,
+  dockEligible: snapshot.dockEligible,
+  historicalTerminal: snapshot.historicalTerminal,
 })
 
 export function createSessionTodoModel(input: {

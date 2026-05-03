@@ -29,6 +29,17 @@ describe("reduceTodoDockState", () => {
     })
   })
 
+  test("active parts to terminal parts enters completing even without backend todos", () => {
+    const shown = reduceTodoDockState(todoDockHiddenState(), { type: "snapshot", input: active() })
+
+    expect(
+      reduceTodoDockState(shown, {
+        type: "snapshot",
+        input: { ...terminal(), dockEligible: false, historicalTerminal: true },
+      }),
+    ).toMatchObject({ kind: "visible-completing", dock: true, completing: true })
+  })
+
   test("hide timer hides only the matching terminal snapshot", () => {
     const completing = reduceTodoDockState(
       reduceTodoDockState(todoDockHiddenState(), { type: "snapshot", input: active() }),

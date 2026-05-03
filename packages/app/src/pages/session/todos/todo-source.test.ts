@@ -60,14 +60,15 @@ describe("selectSessionTodoDockSnapshot", () => {
     })
   })
 
-  test("prefers backend over completed-only primary parts", () => {
+  test("prefers terminal primary parts over lagging backend todos", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
     expect(
       selectSessionTodoDockSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
     ).toMatchObject({
-      source: "primary-backend",
-      items: [todo("from backend", "pending")],
+      source: "primary-parts",
+      items: [todo("done from parts", "completed")],
+      phase: "terminal",
     })
   })
 
@@ -75,11 +76,11 @@ describe("selectSessionTodoDockSnapshot", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
     expect(selectSessionTodoDockSnapshot({ primary: { backend: [], parts } })).toMatchObject({
-      source: "none",
-      items: [],
-      phase: "empty",
+      source: "primary-parts",
+      items: [todo("done from parts", "completed")],
+      phase: "terminal",
       dockEligible: false,
-      historicalTerminal: false,
+      historicalTerminal: true,
     })
   })
 
