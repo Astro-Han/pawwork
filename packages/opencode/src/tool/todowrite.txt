@@ -12,6 +12,12 @@ Use this tool proactively in these scenarios:
 6. After completing a task - Mark it complete and add any new follow-up tasks
 7. When you start working on a new task, mark the todo as in_progress. Ideally you should only have one todo as in_progress at a time. Complete existing tasks before starting new ones.
 
+## Stable Todo IDs
+
+When updating an existing todo item, preserve its `id` if one is present in the current todo list.
+When creating a new todo, replacing a todo with a different logical task, or when you are unsure whether it is the same task, omit `id`; the system will assign one.
+Do not invent ids. Only reuse ids that already appeared in the current todo list.
+
 ## When NOT to Use This Tool
 
 Skip using this tool when:
@@ -162,4 +168,3 @@ The assistant did not use the todo list because this is a single command executi
    - Create specific, actionable items
    - Break complex tasks into smaller, manageable steps
    - Use clear, descriptive task names
-
