@@ -9,6 +9,7 @@ import path from "path"
 import { existsSync } from "fs"
 import { Filesystem } from "../util/filesystem"
 import { Glob } from "../util/glob"
+import { TodoID } from "../session/schema"
 
 export namespace JsonMigration {
   const log = Log.create({ service: "json-migration" })
@@ -327,7 +328,9 @@ export namespace JsonMigration {
         for (let position = 0; position < data.length; position++) {
           const todo = data[position]
           if (!todo?.content || !todo?.status || !todo?.priority) continue
+          const id = typeof todo.id === "string" && todo.id.startsWith("todo_") ? TodoID.ascending(todo.id) : TodoID.ascending()
           values.push({
+            id,
             session_id: sessionID,
             content: todo.content,
             status: todo.status,

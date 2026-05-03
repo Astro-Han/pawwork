@@ -11,7 +11,7 @@ import { ProjectTable } from "../../src/project/project.sql"
 import { ProjectID } from "../../src/project/schema"
 import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../../src/session/session.sql"
 import { SessionShareTable } from "../../src/share/share.sql"
-import { SessionID, MessageID, PartID } from "../../src/session/schema"
+import { SessionID, MessageID, PartID, TodoID } from "../../src/session/schema"
 
 // Test fixtures
 const fixtures = {
@@ -504,10 +504,12 @@ describe("JSON to SQLite migration", () => {
 
     const todos = db.select().from(TodoTable).orderBy(TodoTable.position).all()
     expect(todos.length).toBe(2)
+    expect(todos[0].id).toBe(TodoID.ascending("todo_1"))
     expect(todos[0].content).toBe("First todo")
     expect(todos[0].status).toBe("pending")
     expect(todos[0].priority).toBe("high")
     expect(todos[0].position).toBe(0)
+    expect(todos[1].id).toBe(TodoID.ascending("todo_2"))
     expect(todos[1].content).toBe("Second todo")
     expect(todos[1].position).toBe(1)
   })
@@ -536,6 +538,7 @@ describe("JSON to SQLite migration", () => {
 
     expect(todos.length).toBe(3)
     expect(todos[0].content).toBe("Third")
+    expect(todos[0].id).toStartWith("todo_")
     expect(todos[0].position).toBe(0)
     expect(todos[1].content).toBe("First")
     expect(todos[1].position).toBe(1)
