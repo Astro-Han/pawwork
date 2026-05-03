@@ -27,6 +27,6 @@ describe("useSessionHashScroll", () => {
     const source = await Bun.file(new URL("./use-session-timeline-interaction.ts", import.meta.url)).text()
 
     expect(source).toContain("onMessageHashCleared")
-    expect(source).toContain("historyWindow.returnToLatestIfFollowing()")
+    expect(source).toContain("historyWindow.clearHashTarget()")
   })
 })

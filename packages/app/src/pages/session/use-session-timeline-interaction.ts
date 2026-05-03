@@ -103,7 +103,7 @@ export function createSessionTimelineInteraction(input: {
     anchor,
     scheduleScrollState: scrollDock.scheduleScrollState,
     consumePendingMessage: input.consumePendingMessage,
-    onMessageHashCleared: () => historyWindow.returnToLatestIfFollowing(),
+    onMessageHashCleared: () => historyWindow.clearHashTarget(),
   })
   clearMessageHash = hashScroll.clearMessageHash
   activeMessage.setScrollToMessage(hashScroll.scrollToMessage)

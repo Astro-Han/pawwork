@@ -38,6 +38,22 @@ export function resolveHistoryTurnStart(input: {
   return input.storedTurnStart
 }
 
+export function resolveClearedHashTarget(input: {
+  atBottom: boolean
+  currentTurnStart: number
+  length: number
+  initialWindow?: number
+}) {
+  const initialWindow = input.initialWindow ?? 10
+  if (input.atBottom) {
+    return {
+      mode: "bottom" as HistoryWindowMode,
+      turnStart: input.length > initialWindow ? input.length - initialWindow : 0,
+    }
+  }
+  return { mode: "reading" as HistoryWindowMode, turnStart: input.currentTurnStart > 0 ? input.currentTurnStart : 0 }
+}
+
 /**
  * Maintains the rendered history window for a session timeline.
  *
@@ -61,6 +77,8 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   })
 
   const initialTurnStart = (len: number) => (len > turnInit ? len - turnInit : 0)
+  let latestTurnID: string | undefined
+  let latestTurnStart = 0
 
   const turnStart = createMemo(() => {
     const id = input.sessionID()
@@ -81,9 +99,13 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     const next = start > 0 ? start : 0
     const mode = opts?.mode ?? state.mode
     if (!id) {
+      latestTurnID = undefined
+      latestTurnStart = next
       setState({ turnID: undefined, turnStart: next, mode })
       return
     }
+    latestTurnID = id
+    latestTurnStart = next
     setState({ turnID: id, turnStart: next, mode })
   }
 
@@ -98,6 +120,15 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
   const returnToLatestIfFollowing = () => {
     if (!input.isAtBottom()) return
     resumeLatestWindow()
+  }
+  const clearHashTarget = () => {
+    const next = resolveClearedHashTarget({
+      atBottom: input.isAtBottom(),
+      currentTurnStart: latestTurnID === input.sessionID() ? latestTurnStart : turnStart(),
+      length: input.visibleUserMessages().length,
+      initialWindow: turnInit,
+    })
+    setTurnStart(next.turnStart, { mode: next.mode })
   }
   const mode = () => state.mode
 
@@ -306,6 +337,7 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     markHashTarget,
     resumeLatestWindow,
     returnToLatestIfFollowing,
+    clearHashTarget,
     mode,
     renderedUserMessages,
     loadAndReveal,

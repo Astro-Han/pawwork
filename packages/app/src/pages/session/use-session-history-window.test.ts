@@ -1,7 +1,11 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
-import { createSessionHistoryWindow, resolveHistoryTurnStart } from "./use-session-history-window"
+import {
+  createSessionHistoryWindow,
+  resolveClearedHashTarget,
+  resolveHistoryTurnStart,
+} from "./use-session-history-window"
 
 const userMessage = (id: number) =>
   ({
@@ -203,13 +207,27 @@ describe("session history window extraction", () => {
       expect(state.history.mode()).toBe("hash")
 
       state.setUserScrolled(false)
-      state.history.returnToLatestIfFollowing()
+      state.history.clearHashTarget()
       state.setCount(40)
       state.history.returnToLatestIfFollowing()
 
       expect(state.history.mode()).toBe("bottom")
       expect(resolveHistoryTurnStart({ mode: "bottom", storedTurnStart: 20, length: 40, userScrolled: false })).toBe(30)
       dispose()
+    })
+  })
+
+  test("cleared hash target away from bottom becomes reading without losing the current window", () => {
+    expect(resolveClearedHashTarget({ atBottom: false, currentTurnStart: 12, length: 40 })).toEqual({
+      mode: "reading",
+      turnStart: 12,
+    })
+  })
+
+  test("cleared hash target at bottom returns to the latest bounded window", () => {
+    expect(resolveClearedHashTarget({ atBottom: true, currentTurnStart: 12, length: 40 })).toEqual({
+      mode: "bottom",
+      turnStart: 30,
     })
   })
 })
