@@ -22,6 +22,7 @@ export const useSessionHashScroll = (input: {
   anchor: (id: string) => string
   scheduleScrollState: (el: HTMLDivElement) => void
   consumePendingMessage: (key: string) => string | undefined
+  onMessageHashCleared?: () => void
 }) => {
   const visibleUserMessages = createMemo(() => input.visibleUserMessages())
   const messageById = createMemo(() => new Map(visibleUserMessages().map((m) => [m.id, m])))
@@ -52,6 +53,7 @@ export const useSessionHashScroll = (input: {
     if (!location.hash) return
     clearingHash = location.hash
     navigate(location.pathname + location.search, { replace: true })
+    input.onMessageHashCleared?.()
   }
 
   const updateHash = (id: string) => {
