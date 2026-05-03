@@ -66,13 +66,14 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.context?.usedTokens).toBe(450)
     expect(metrics.context?.effectiveInputLimit).toBe(1000)
     expect(metrics.context?.compactThreshold).toBe(900)
+    expect(metrics.context?.usagePercent).toBe(45)
     expect(metrics.context?.usage).toBe(45)
     expect(metrics.context?.providerLabel).toBe("OpenAI")
     expect(metrics.context?.modelLabel).toBe("GPT-4.1")
   })
 
   test("uses input limit and custom compaction reserve for usage metrics", () => {
-    const messages = [assistant("a1", { total: 238_000, input: 1, output: 1, reasoning: 1, read: 1, write: 1 }, 1)]
+    const messages = [assistant("a1", { total: 238_000, input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 1)]
     const providers = [
       {
         id: "openai",
@@ -90,7 +91,27 @@ describe("getSessionContextMetrics", () => {
     expect(metrics.context?.contextWindow).toBe(400_000)
     expect(metrics.context?.usedTokens).toBe(238_000)
     expect(metrics.context?.compactThreshold).toBe(252_000)
+    expect(metrics.context?.usagePercent).toBeCloseTo((238_000 / 272_000) * 100, 5)
     expect(metrics.context?.usage).toBe(Math.round((238_000 / 272_000) * 100))
+  })
+
+  test("keeps raw usage separate from rounded display usage", () => {
+    const messages = [assistant("a1", { total: 696, input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 1)]
+    const providers = [
+      {
+        id: "openai",
+        models: {
+          "gpt-4.1": {
+            limit: { context: 1_000, output: 100 },
+          },
+        },
+      },
+    ]
+
+    const metrics = getSessionContextMetrics(messages, providers)
+
+    expect(metrics.context?.usagePercent).toBe(69.6)
+    expect(metrics.context?.usage).toBe(70)
   })
 
   test("selects the latest assistant when only total tokens are reported", () => {

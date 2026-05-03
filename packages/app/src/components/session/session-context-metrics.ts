@@ -45,6 +45,7 @@ type Context = {
   cacheRead: number
   cacheWrite: number
   total: number
+  usagePercent: number | null
   usage: number | null
 }
 
@@ -101,6 +102,7 @@ const build = (messages: Message[] = [], providers: Provider[] = [], config: Con
       cacheRead: message.tokens.cache.read,
       cacheWrite: message.tokens.cache.write,
       total,
+      usagePercent: usage.usagePercent,
       usage: usage.usagePercent === null ? null : Math.round(usage.usagePercent),
     },
   }

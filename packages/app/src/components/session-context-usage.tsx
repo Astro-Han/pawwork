@@ -26,7 +26,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const metrics = createMemo(() => getSessionContextMetrics(messages(), providers.all(), sync.data.config))
   const context = createMemo(() => metrics().context)
-  const tone = createMemo(() => contextUsageTone(context()?.usage))
+  const tone = createMemo(() => contextUsageTone(context()?.usagePercent))
   const ringColor = createMemo(() => {
     if (tone() === "danger") return "var(--icon-error-base)"
     if (tone() === "warning") return "var(--icon-warning-base)"
@@ -46,7 +46,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
 
   const circle = () => (
     <div class="flex items-center justify-center" style={{ "--progress-circle-progress": ringColor() }}>
-      <ProgressCircle size={16} strokeWidth={2} percentage={contextUsageRingPercent(context()?.usage)} />
+      <ProgressCircle size={16} strokeWidth={2} percentage={contextUsageRingPercent(context()?.usagePercent)} />
     </div>
   )
 
@@ -61,6 +61,18 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     })
   }
 
+  const contextUsedText = (ctx: NonNullable<ReturnType<typeof context>>) => {
+    const used = ctx.usedTokens.toLocaleString(language.intl())
+    const limit = ctx.effectiveInputLimit
+    if (limit === undefined) {
+      return language.t("context.usage.contextUsedUnknownLimit", { used })
+    }
+    return language.t("context.usage.contextUsedWithLimit", {
+      used,
+      limit: limit.toLocaleString(language.intl()),
+    })
+  }
+
   const tooltipValue = () => (
     <div>
       <Show when={context()}>
@@ -70,13 +82,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
               <span class="text-text-invert-strong">{language.t("context.usage.title")}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">
-                {ctx().usedTokens.toLocaleString(language.intl())}
-                {ctx().effectiveInputLimit !== undefined
-                  ? ` / ${ctx().effectiveInputLimit?.toLocaleString(language.intl())}`
-                  : ""}
-              </span>
-              <span class="text-text-invert-base">{language.t("context.usage.contextUsed")}</span>
+              <span class="text-text-invert-strong">{contextUsedText(ctx())}</span>
             </div>
             <Show when={compactStatus()}>
               {(status) => <div class="text-text-invert-base">{status()}</div>}

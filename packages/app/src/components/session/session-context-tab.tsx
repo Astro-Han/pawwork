@@ -169,6 +169,13 @@ export function SessionContextTab() {
     return c.modelLabel
   })
 
+  const compactThreshold = createMemo(() => {
+    const c = ctx()
+    if (!c) return "—"
+    if (!c.autoCompactEnabled) return language.t("context.stats.off")
+    return formatter().number(c.compactThreshold)
+  })
+
   const breakdown = createMemo(
     on(
       () => [ctx()?.message.id, ctx()?.input, messages().length, systemPrompt()],
@@ -200,8 +207,8 @@ export function SessionContextTab() {
     { label: "context.stats.model", value: modelLabel },
     { label: "context.stats.contextWindow", value: () => formatter().number(ctx()?.contextWindow) },
     { label: "context.stats.inputLimit", value: () => formatter().number(ctx()?.effectiveInputLimit) },
-    { label: "context.stats.compactThreshold", value: () => formatter().number(ctx()?.compactThreshold) },
-    { label: "context.stats.totalTokens", value: () => formatter().number(ctx()?.total) },
+    { label: "context.stats.compactThreshold", value: compactThreshold },
+    { label: "context.stats.contextUsed", value: () => formatter().number(ctx()?.usedTokens) },
     { label: "context.stats.usage", value: () => formatter().percent(ctx()?.usage) },
     { label: "context.stats.inputTokens", value: () => formatter().number(ctx()?.input) },
     { label: "context.stats.outputTokens", value: () => formatter().number(ctx()?.output) },

@@ -114,8 +114,19 @@ describe("deriveContextUsage", () => {
 
   test("derives the default output reserve from the model metadata", () => {
     expect(contextUsageDefaultOutputReserve({ limit: { context: 100_000, output: 12_000 } })).toBe(12_000)
-    expect(contextUsageDefaultOutputReserve({ limit: { context: 100_000, output: 0 } })).toBeUndefined()
+    expect(contextUsageDefaultOutputReserve({ limit: { context: 100_000, output: 0 } })).toBe(0)
     expect(contextUsageDefaultOutputReserve()).toBeUndefined()
+  })
+
+  test("preserves zero output reserve when deriving the compact threshold", () => {
+    const usage = deriveContextUsage({
+      model: { limit: { context: 100_000, output: 0 } },
+      tokens: tokens({ input: 1_000 }),
+      compaction: {},
+      defaultOutputReserve: contextUsageDefaultOutputReserve({ limit: { context: 100_000, output: 0 } }),
+    })
+
+    expect(usage.compactThreshold).toBe(100_000)
   })
 
   test("clamps compact threshold when reserve is larger than the effective limit", () => {

@@ -40,11 +40,13 @@ export type ContextUsage = {
 const COMPACTION_BUFFER = 20_000
 
 export function contextUsageUsedTokens(tokens: ContextUsageTokens) {
+  // Match overflow accounting: provider `total` wins when present; otherwise
+  // reasoning is excluded because providers may also report it inside output.
   return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
 }
 
 export function contextUsageDefaultOutputReserve(model?: ContextUsageModel) {
-  return model?.limit.output || undefined
+  return model?.limit.output
 }
 
 export function deriveContextUsage(input: ContextUsageInput): ContextUsage {
