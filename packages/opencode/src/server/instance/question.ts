@@ -13,6 +13,8 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 
 const log = Log.create({ service: "server" })
+const e2eQuestionRoutesEnabled = () =>
+  Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 export const QuestionRoutes = lazy(() =>
   new Hono()
@@ -23,11 +25,11 @@ export const QuestionRoutes = lazy(() =>
         "json",
         z.object({
           sessionID: SessionID.zod,
-          questions: z.array(Question.Info.zod),
+          questions: z.array(Question.Info.zod).min(1).max(4),
         }),
       ),
       async (c) => {
-        if (!Env.get("OPENCODE_E2E_LLM_URL")) return c.notFound()
+        if (!e2eQuestionRoutesEnabled()) return c.notFound()
 
         const json = c.req.valid("json")
         void AppRuntime.runPromise(
@@ -53,7 +55,7 @@ export const QuestionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
-        if (!Env.get("OPENCODE_E2E_LLM_URL")) return c.notFound()
+        if (!e2eQuestionRoutesEnabled()) return c.notFound()
 
         const json = c.req.valid("json")
         await AppRuntime.runPromise(Bus.Service.use((bus) => bus.publish(Question.Event.Asked, json.request)))

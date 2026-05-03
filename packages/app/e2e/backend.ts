@@ -85,6 +85,7 @@ export function createBackendEnv(input: {
     XDG_STATE_HOME: path.join(input.sandbox, "state"),
     OPENCODE_CLIENT: "app",
     OPENCODE_STRICT_CONFIG_DEPS: "true",
+    OPENCODE_E2E_ENABLED: "true",
     OPENCODE_E2E_LLM_URL: input.llmUrl,
   }
   for (const key of Object.keys(env)) {
