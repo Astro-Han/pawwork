@@ -10,6 +10,7 @@ import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
 import { createInlineEditorController } from "./inline-editor"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
+import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem } from "./sidebar-items"
 import "./sidebar.css"
 
@@ -96,8 +97,56 @@ export const PawworkSidebar = (props: {
   const renderSessionItem = (entry: { item: PawworkSidebarSession }) => {
     const session = entry.item.session
     const isPinned = createMemo(() => props.pinnedIDs().includes(session.id))
-    const pinLabel = () =>
-      isPinned() ? language.t("sidebar.pawwork.unpinSession") : language.t("sidebar.pawwork.pinSession")
+    const menuLabels = () => ({
+      pin: language.t("sidebar.pawwork.pinSession"),
+      unpin: language.t("sidebar.pawwork.unpinSession"),
+      rename: language.t("common.rename"),
+      export: language.t("session.export.action.export"),
+      delete: language.t("common.delete"),
+    })
+    const menuActions = (target: Session, onRenameSession: (session: Session) => void) =>
+      buildSessionMenuActions({
+        session: target,
+        pinned: props.pinnedIDs().includes(target.id),
+        exportAvailable: props.exportSessionAvailable(),
+        labels: menuLabels(),
+        onTogglePinnedSession: props.onTogglePinnedSession,
+        onRenameSession,
+        onExportSession: props.onExportSession,
+        onDeleteSession: props.onDeleteSession,
+      })
+    const renderDropdownActions = (actions: SessionMenuAction[]) => (
+      <>
+        <For each={actions}>
+          {(action) => (
+            <>
+              <Show when={action.separatorBefore}>
+                <DropdownMenu.Separator />
+              </Show>
+              <DropdownMenu.Item onSelect={() => void action.run()}>
+                <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
+              </DropdownMenu.Item>
+            </>
+          )}
+        </For>
+      </>
+    )
+    const renderContextActions = (actions: SessionMenuAction[]) => (
+      <>
+        <For each={actions}>
+          {(action) => (
+            <>
+              <Show when={action.separatorBefore}>
+                <ContextMenu.Separator />
+              </Show>
+              <ContextMenu.Item onSelect={() => void action.run()}>
+                <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
+              </ContextMenu.Item>
+            </>
+          )}
+        </For>
+      </>
+    )
 
     return (
       <ContextMenu>
@@ -152,27 +201,11 @@ export const PawworkSidebar = (props: {
                       })
                     }}
                   >
-                    <DropdownMenu.Item onSelect={() => props.onTogglePinnedSession(rowSession.id)}>
-                      <DropdownMenu.ItemLabel>{pinLabel()}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      onSelect={() => {
+                    {renderDropdownActions(
+                      menuActions(rowSession, () => {
                         setPendingRenameID(rowSession.id)
-                      }}
-                    >
-                      <DropdownMenu.ItemLabel>{language.t("common.rename")}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
-                    <Show when={props.exportSessionAvailable()}>
-                      <DropdownMenu.Item onSelect={() => void props.onExportSession(rowSession)}>
-                        <DropdownMenu.ItemLabel>
-                          {language.t("session.export.action.export")}
-                        </DropdownMenu.ItemLabel>
-                      </DropdownMenu.Item>
-                    </Show>
-                    <DropdownMenu.Separator />
-                    <DropdownMenu.Item onSelect={() => props.onDeleteSession(rowSession)}>
-                      <DropdownMenu.ItemLabel>{language.t("common.delete")}</DropdownMenu.ItemLabel>
-                    </DropdownMenu.Item>
+                      }),
+                    )}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu>
@@ -181,25 +214,11 @@ export const PawworkSidebar = (props: {
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content>
-            <ContextMenu.Item onSelect={() => props.onTogglePinnedSession(session.id)}>
-              <ContextMenu.ItemLabel>{pinLabel()}</ContextMenu.ItemLabel>
-            </ContextMenu.Item>
-            <ContextMenu.Item
-              onSelect={() => {
+            {renderContextActions(
+              menuActions(session, () => {
                 editor.openEditor(`pawwork-session:${session.id}`, session.title ?? "")
-              }}
-            >
-              <ContextMenu.ItemLabel>{language.t("common.rename")}</ContextMenu.ItemLabel>
-            </ContextMenu.Item>
-            <Show when={props.exportSessionAvailable()}>
-              <ContextMenu.Item onSelect={() => void props.onExportSession(session)}>
-                <ContextMenu.ItemLabel>{language.t("session.export.action.export")}</ContextMenu.ItemLabel>
-              </ContextMenu.Item>
-            </Show>
-            <ContextMenu.Separator />
-            <ContextMenu.Item onSelect={() => props.onDeleteSession(session)}>
-              <ContextMenu.ItemLabel>{language.t("common.delete")}</ContextMenu.ItemLabel>
-            </ContextMenu.Item>
+              }),
+            )}
           </ContextMenu.Content>
         </ContextMenu.Portal>
       </ContextMenu>
