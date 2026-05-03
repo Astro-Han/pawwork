@@ -9,7 +9,7 @@ import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
 const CHANGELOG_URL = "https://api.github.com/repos/Astro-Han/pawwork/releases"
-const MAX_RELEASE_HIGHLIGHTS = 15
+const MAX_RELEASE_HIGHLIGHTS = 5
 
 type Store = {
   version?: string
@@ -94,8 +94,18 @@ function trimNoticeItem(value: string) {
   return text.length > 200 ? text.slice(0, 200).trimEnd() + "…" : text
 }
 
-function parseNoticeDescriptions(notice: string | undefined): string[] {
-  if (!notice) return []
+type ParsedNotice =
+  | {
+      kind: "bullets"
+      items: string[]
+    }
+  | {
+      kind: "summary"
+      text: string
+    }
+
+function parseNoticeDescriptions(notice: string | undefined): ParsedNotice | undefined {
+  if (!notice) return
 
   const lines = notice
     .split(/\r?\n/)
@@ -115,18 +125,36 @@ function parseNoticeDescriptions(notice: string | undefined): string[] {
   }
   if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
 
-  if (bullets.length > 0) return bullets
+  if (bullets.length > 0) {
+    return {
+      kind: "bullets",
+      items: bullets,
+    }
+  }
 
   const summary = trimNoticeItem(lines.join(" "))
-  return summary ? [summary] : []
+  if (!summary) return
+
+  return {
+    kind: "summary",
+    text: summary,
+  }
 }
 
-function parseReleaseBodyDescriptions(body: string, locale: ReleaseLocale) {
+function parseReleaseBodyNotice(body: string, locale: ReleaseLocale): ParsedNotice | undefined {
   if (locale === "zh") {
     const chinese = parseNoticeDescriptions(findChineseUpdateNotice(body))
-    if (chinese.length > 0) return chinese
+    if (chinese) return chinese
   }
   return parseNoticeDescriptions(findAppUpdateNotice(body))
+}
+
+function formatReleaseNoticeDescription(notice: ParsedNotice) {
+  if (notice.kind === "bullets") {
+    return notice.items.map((item) => `• ${item}`).join("\n")
+  }
+
+  return notice.text
 }
 
 function releaseTitle(tag: string, locale: ReleaseLocale) {
@@ -159,11 +187,16 @@ function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | un
 
   const body = getText(value.body)
   if (tag && body) {
-    const descriptions = parseReleaseBodyDescriptions(body, locale)
-    if (descriptions.length > 0) {
+    const notice = parseReleaseBodyNotice(body, locale)
+    if (notice) {
       return {
         tag,
-        highlights: descriptions.map((description) => ({ title: releaseTitle(tag, locale), description })),
+        highlights: [
+          {
+            title: releaseTitle(tag, locale),
+            description: formatReleaseNoticeDescription(notice),
+          },
+        ],
       }
     }
   }
@@ -218,7 +251,12 @@ function dedupeKey(highlight: Highlight) {
   return [highlight.title, highlight.description, highlight.media?.type ?? "", highlight.media?.src ?? ""].join("\n")
 }
 
-export function loadReleaseHighlights(value: unknown, current?: string, previous?: string, locale: ReleaseLocale = "en") {
+export function loadReleaseHighlights(
+  value: unknown,
+  current?: string,
+  previous?: string,
+  locale: ReleaseLocale = "en",
+) {
   const releases = parseChangelog(value, locale)
   if (!releases?.length) return []
   return sliceHighlights({ releases, current, previous })
