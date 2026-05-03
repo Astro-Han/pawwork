@@ -120,6 +120,15 @@ function stateHash(content: string, bom?: boolean) {
   return "sha256:" + crypto.createHash("sha256").update(`${bom ? "bom:1" : "bom:0"}\0${content}`).digest("hex")
 }
 
+function isPermissionCode(code: string | undefined) {
+  return code === "EACCES" || code === "EPERM"
+}
+
+function stateErrorCode(state: FileState) {
+  if (!state.hash?.startsWith("error:")) return
+  return state.hash.slice("error:".length)
+}
+
 function additionsDeletions(before: string, after: string) {
   let additions = 0
   let deletions = 0
@@ -476,13 +485,18 @@ export namespace TurnChange {
         continue
       }
       const current = await currentState(row.data.path)
-      if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
+      if (isPermissionCode(stateErrorCode(current))) blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
+      else if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
       else if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
     }
     if (blocked.length)
       return {
         status: "blocked",
-        reason: blocked.some((item) => item.reason === "restore_unavailable") ? "unsupported_size" : "conflict",
+        reason: blocked.some((item) => item.reason === "permission_denied")
+          ? "permission_denied"
+          : blocked.some((item) => item.reason === "restore_unavailable")
+            ? "unsupported_size"
+            : "conflict",
         files: blocked,
       }
 
@@ -496,9 +510,16 @@ export namespace TurnChange {
         await applyState(row.data.path, input.mode === "undo" ? row.data.before : row.data.after)
       }
     } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
       for (const item of rollback.reverse()) {
         await applyState(item.file, item.state).catch(() => undefined)
       }
+      if (isPermissionCode(code))
+        return {
+          status: "blocked",
+          reason: "permission_denied",
+          files: rollback.map((item) => ({ path: displayPath(item.file), reason: "permission_denied" })),
+        }
       if (err instanceof RestoreConflictError)
         return { status: "blocked", reason: "conflict", files: [{ path: err.displayPath, reason: "changed" }] }
       return { status: "blocked", reason: "write_failed", files: rollback.map((item) => ({ path: displayPath(item.file), reason: "rollback" })) }

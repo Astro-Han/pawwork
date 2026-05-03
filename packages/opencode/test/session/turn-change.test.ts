@@ -265,6 +265,43 @@ describe("TurnChange", () => {
     })
   })
 
+  test("undo reports permission failures separately from generic write failures", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "file.txt")
+        await fs.writeFile(target, "after\n", "utf-8")
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: true, content: "before\n" },
+          after: { exists: true, content: "after\n" },
+        })
+        TurnChange.finalize(turn)
+
+        const writeFile = spyOn(fs, "writeFile").mockImplementation(() => {
+          const err = new Error("permission denied") as NodeJS.ErrnoException
+          err.code = "EACCES"
+          throw err
+        })
+        try {
+          const result = await TurnChange.undo(turn)
+
+          expect(result).toMatchObject({
+            status: "blocked",
+            reason: "permission_denied",
+            files: [{ path: "file.txt", reason: "permission_denied" }],
+          })
+        } finally {
+          writeFile.mockRestore()
+        }
+      },
+    })
+  })
+
   test("later finalized turn invalidates previous redo", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
