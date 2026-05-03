@@ -14,6 +14,7 @@ import { Config } from "@/config/config"
 import { Log } from "@opencode-ai/core/util/log"
 import { SessionShareTable } from "./share.sql"
 import { ShareRuntime } from "./runtime"
+import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
 
 export namespace ShareNext {
   const log = Log.create({ service: "share-next" })
@@ -106,6 +107,18 @@ export namespace ShareNext {
     }
   }
 
+  function sanitizeMessageInfo<T extends SDK.Message>(info: T): T {
+    const summary = "summary" in info && typeof info.summary === "object" && info.summary ? info.summary : undefined
+    if (!summary?.diffs) return info
+    return {
+      ...info,
+      summary: {
+        ...summary,
+        diffs: sanitizeSensitiveDiffs(summary.diffs),
+      },
+    }
+  }
+
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -186,17 +199,21 @@ export namespace ShareNext {
           yield* watch(MessageV2.Event.Updated, (evt) =>
             Effect.gen(function* () {
               const info = evt.properties.info
-              yield* sync(info.sessionID, [{ type: "message", data: info }])
+              yield* sync(info.sessionID, [{ type: "message", data: sanitizeMessageInfo(info) }])
               if (info.role !== "user") return
               const model = yield* provider.getModel(info.model.providerID, info.model.modelID)
               yield* sync(info.sessionID, [{ type: "model", data: [model] }])
             }),
           )
           yield* watch(MessageV2.Event.PartUpdated, (evt) =>
-            sync(evt.properties.part.sessionID, [{ type: "part", data: evt.properties.part }]),
+            sync(evt.properties.part.sessionID, [
+              { type: "part", data: sanitizeSensitiveToolPart(evt.properties.part) as SDK.Part },
+            ]),
           )
           yield* watch(Session.Event.Diff, (evt) =>
-            sync(evt.properties.sessionID, [{ type: "session_diff", data: evt.properties.diff }]),
+            sync(evt.properties.sessionID, [
+              { type: "session_diff", data: sanitizeSensitiveDiffs(evt.properties.diff) as SDK.SnapshotFileDiff[] },
+            ]),
           )
           yield* watch(Session.Event.Deleted, (evt) => remove(evt.properties.sessionID))
 
@@ -273,9 +290,11 @@ export namespace ShareNext {
 
         yield* sync(sessionID, [
           { type: "session", data: info },
-          ...messages.map((item) => ({ type: "message" as const, data: item.info })),
-          ...messages.flatMap((item) => item.parts.map((part) => ({ type: "part" as const, data: part }))),
-          { type: "session_diff", data: diffs },
+          ...messages.map((item) => ({ type: "message" as const, data: sanitizeMessageInfo(item.info) })),
+          ...messages.flatMap((item) =>
+            item.parts.map((part) => ({ type: "part" as const, data: sanitizeSensitiveToolPart(part) as SDK.Part })),
+          ),
+          { type: "session_diff", data: sanitizeSensitiveDiffs(diffs) as SDK.SnapshotFileDiff[] },
           { type: "model", data: models },
         ])
       })

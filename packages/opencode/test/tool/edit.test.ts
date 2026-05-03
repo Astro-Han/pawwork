@@ -12,6 +12,7 @@ import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Truncate } from "../../src/tool/truncate"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { TurnChange } from "../../src/session/turn-change"
 import { FileWatcher } from "../../src/file/watcher"
 import * as Tool from "../../src/tool/tool"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
@@ -28,6 +29,26 @@ const ctx = {
   ask: () => Effect.void,
 }
 
+function captureToolCtx() {
+  const asks: any[] = []
+  const metadata: any[] = []
+  return {
+    ctx: {
+      ...ctx,
+      ask: (input: any) =>
+        Effect.sync(() => {
+          asks.push(input)
+        }),
+      metadata: (input: any) =>
+        Effect.sync(() => {
+          metadata.push(input)
+        }),
+    },
+    asks,
+    metadata,
+  }
+}
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
@@ -41,6 +62,7 @@ const it = testEffect(
     Truncate.defaultLayer,
     Agent.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
+    TurnChange.defaultLayer,
   ),
 )
 
@@ -279,6 +301,53 @@ describe("tool.edit", () => {
             file: filepath,
             event: "change",
           })
+        }),
+      ),
+    )
+
+    it.live("redacts sensitive file permission and tool metadata", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, ".env")
+          yield* Effect.promise(() => fs.writeFile(filepath, "TOKEN=old-secret\n", "utf-8"))
+          const captured = captureToolCtx()
+
+          const result = yield* run(
+            {
+              filePath: filepath,
+              oldString: "old-secret",
+              newString: "new-secret",
+            },
+            captured.ctx,
+          )
+          const serialized = JSON.stringify({ asks: captured.asks, metadata: captured.metadata, result })
+
+          expect(captured.asks).toHaveLength(1)
+          expect(captured.asks[0].metadata).toEqual({
+            filepath,
+            status: "modified",
+            sensitive: true,
+          })
+          expect(captured.metadata).toEqual([
+            {
+              metadata: {
+                filediff: {
+                  file: filepath,
+                  status: "modified",
+                  sensitive: true,
+                },
+                diagnostics: {},
+              },
+            },
+          ])
+          expect((result.metadata as any).filediff).toEqual({
+            file: filepath,
+            status: "modified",
+            sensitive: true,
+          })
+          expect(serialized).not.toContain("old-secret")
+          expect(serialized).not.toContain("new-secret")
+          expect(serialized).not.toContain("@@")
         }),
       ),
     )

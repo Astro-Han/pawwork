@@ -16,6 +16,7 @@ import { Provider } from "../provider/provider"
 import { ProviderID, ModelID } from "../provider/schema"
 import { Instance } from "../project/instance"
 import { Global } from "../global"
+import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -48,6 +49,7 @@ export function redactPart(
   part: MessageV2.Part,
   ctx: { count: { omitted: number } },
 ): MessageV2.Part {
+  part = sanitizeSensitiveToolPart(part)
   if (part.type === "file") {
     const r = redactDataUrl(part.url)
     if (!r) return part
@@ -237,7 +239,7 @@ export namespace Export {
     ctx: { count: { omitted: number } },
   ) {
     const messages = yield* svc.messages({ sessionID: info.id })
-    const diffs = yield* svc.diff(info.id)
+    const diffs = sanitizeSensitiveDiffs(yield* svc.diff(info.id)) as SnapshotMod.FileDiff[]
     const children = yield* svc.children(info.id)
     const sorted = [...children].sort((a, b) => {
       if (a.time.created !== b.time.created) return a.time.created - b.time.created

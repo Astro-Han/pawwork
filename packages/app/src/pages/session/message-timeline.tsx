@@ -60,6 +60,29 @@ type UserActions = {
   revert?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
 }
 
+type TurnChangeDisplay = {
+  sessionID: string
+  turnID: string
+  messageID: string
+  undoAvailable: boolean
+  redoAvailable: boolean
+  truncated?: boolean
+  omittedCount?: number
+  files: Array<{
+    path: string
+    openPath?: string
+    status: "added" | "modified" | "deleted"
+    additions?: number
+    deletions?: number
+    patch?: string
+    sensitive?: boolean
+    binary?: boolean
+    large?: boolean
+    restoreAvailable?: boolean
+    expandable: boolean
+  }>
+}
+
 const messageComments = (parts: Part[]): MessageComment[] =>
   parts.flatMap((part) => {
     if (part.type !== "text" || !(part as TextPart).synthetic) return []
@@ -294,6 +317,98 @@ export function MessageTimeline(props: {
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
+  const [turnChanges, setTurnChanges] = createStore<Record<string, TurnChangeDisplay | null>>({})
+  const fetchedTurnChanges = new Set<string>()
+
+  const authHeaders = () => {
+    const current = server.current
+    if (!current?.http.password) return {} as Record<string, string>
+    return {
+      Authorization: `Basic ${btoa(`${current.http.username ?? "opencode"}:${current.http.password}`)}`,
+    }
+  }
+
+  const blockedDescription = (body: any) => {
+    const base =
+      body?.reason === "conflict"
+        ? language.t("session.turnChange.blocked.conflict")
+        : body?.reason === "unsupported_size"
+          ? language.t("session.turnChange.blocked.unsupportedSize")
+          : body?.reason === "permission_denied"
+            ? language.t("session.turnChange.blocked.permissionDenied")
+            : language.t("session.turnChange.blocked.generic")
+    const files = Array.isArray(body?.files)
+      ? body.files.filter((file: any) => typeof file?.path === "string").map((file: any) => file.path as string)
+      : []
+    if (!files.length) return base
+    const visible = files.slice(0, 3).join(", ")
+    const rest = files.length > 3 ? language.t("session.turnChange.blocked.more", { count: files.length - 3 }) : ""
+    return `${base} ${language.t("session.turnChange.blocked.files", { files: `${visible}${rest}` })}`
+  }
+
+  const turnChangeFetch = async (
+    messageID: string,
+    action?: "undo" | "redo",
+  ): Promise<TurnChangeDisplay | undefined> => {
+    const current = server.current
+    const id = sessionID()
+    if (!current || !id) return
+    const url = `${current.http.url}/session/${id}/turn-change/${messageID}${action ? `/${action}` : ""}`
+    const res = await fetch(url, {
+      method: action ? "POST" : "GET",
+      headers: authHeaders(),
+    })
+    if (!res.ok) throw new Error(`turn-change ${action ?? "get"} failed: ${res.status}`)
+    const body = await res.json()
+    if (!action) {
+      setTurnChanges(messageID, body ?? null)
+      return body ?? undefined
+    }
+    if (body?.status === "applied") {
+      setTurnChanges(messageID, body.display)
+      return body.display
+    }
+    showToast({
+      title:
+        action === "undo"
+          ? language.t("session.turnChange.undoBlocked")
+          : language.t("session.turnChange.redoBlocked"),
+      description: blockedDescription(body),
+      variant: "error",
+    })
+    return turnChanges[messageID] ?? undefined
+  }
+
+  createEffect(
+    on(
+      () =>
+        sessionMessages()
+          .filter((message): message is Extract<MessageType, { role: "assistant" }> => message.role === "assistant")
+          .filter((message) => typeof message.time.completed === "number")
+          .map((message) => message.id)
+          .join(":"),
+      () => {
+        const id = sessionID()
+        if (!id) return
+        for (const message of sessionMessages()) {
+          if (message.role !== "assistant" || typeof message.time.completed !== "number") continue
+          const key = `${id}:${message.id}`
+          if (fetchedTurnChanges.has(key)) continue
+          fetchedTurnChanges.add(key)
+          void turnChangeFetch(message.id)
+            .then((display) => {
+              if (display) return
+              fetchedTurnChanges.delete(key)
+              setTimeout(() => void turnChangeFetch(message.id).catch(() => undefined), 500)
+            })
+            .catch(() => {
+              fetchedTurnChanges.delete(key)
+              setTurnChanges(message.id, null)
+            })
+        }
+      },
+    ),
+  )
 
   onMount(() => {
     void emitRendererDiagnostic({
@@ -913,6 +1028,17 @@ export function MessageTimeline(props: {
                         showReasoningSummaries={settings.general.showReasoningSummaries()}
                         shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
                         editToolDefaultOpen={settings.general.editToolPartsExpanded()}
+                        turnChanges={turnChanges}
+                        turnChangeActions={{
+                          undo: (messageID) => turnChangeFetch(messageID, "undo"),
+                          redo: (messageID) => turnChangeFetch(messageID, "redo"),
+                          openFile: (path) => {
+                            void platform.openPath?.(path)
+                          },
+                          showInFolder: (path) => {
+                            void platform.showItemInFolder?.(path)
+                          },
+                        }}
                         classes={{
                           root: "min-w-0 w-full relative",
                           content: "flex flex-col justify-between !overflow-visible",

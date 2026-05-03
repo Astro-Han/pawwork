@@ -12,6 +12,7 @@ import { Truncate } from "../../src/tool/truncate"
 import * as Tool from "../../src/tool/tool"
 import { Agent } from "../../src/agent/agent"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { TurnChange } from "../../src/session/turn-change"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -27,6 +28,20 @@ const ctx = {
   ask: () => Effect.void,
 }
 
+function captureAskCtx() {
+  const calls: any[] = []
+  return {
+    ctx: {
+      ...ctx,
+      ask: (input: any) =>
+        Effect.sync(() => {
+          calls.push(input)
+        }),
+    },
+    calls,
+  }
+}
+
 afterEach(async () => {
   await Instance.disposeAll()
 })
@@ -40,6 +55,7 @@ const it = testEffect(
     CrossSpawnSpawner.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
+    TurnChange.defaultLayer,
   ),
 )
 
@@ -142,6 +158,29 @@ describe("tool.write", () => {
 
           expect(result.metadata).toHaveProperty("filepath", filepath)
           expect(result.metadata).toHaveProperty("exists", true)
+        }),
+      ),
+    )
+
+    it.live("redacts sensitive file permission metadata", () =>
+      provideTmpdirInstance((dir) =>
+        Effect.gen(function* () {
+          const filepath = path.join(dir, ".env")
+          yield* Effect.promise(() => fs.writeFile(filepath, "TOKEN=old-secret\n", "utf-8"))
+          const captured = captureAskCtx()
+
+          const result = yield* run({ filePath: filepath, content: "TOKEN=new-secret\n" }, captured.ctx)
+          const serialized = JSON.stringify({ permission: captured.calls, result })
+
+          expect(captured.calls).toHaveLength(1)
+          expect(captured.calls[0].metadata).toEqual({
+            filepath,
+            status: "modified",
+            sensitive: true,
+          })
+          expect(serialized).not.toContain("old-secret")
+          expect(serialized).not.toContain("new-secret")
+          expect(serialized).not.toContain("@@")
         }),
       ),
     )

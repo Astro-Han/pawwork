@@ -11,7 +11,9 @@ import { Bus } from "../../src/bus"
 import { Config } from "../../src/config/config"
 import { Provider } from "../../src/provider/provider"
 import { Session } from "../../src/session"
-import type { SessionID } from "../../src/session/schema"
+import { MessageID, type SessionID } from "../../src/session/schema"
+import { ModelID, ProviderID } from "../../src/provider/schema"
+import { MessageV2 } from "../../src/session/message-v2"
 import { ShareNext } from "../../src/share/share-next"
 import { ShareRuntime } from "../../src/share/runtime"
 import { Storage } from "../../src/storage/storage"
@@ -357,6 +359,155 @@ describe("ShareNext", () => {
               status: "modified",
             },
           ])
+        }).pipe(Effect.provide(wired(client)))
+      },
+      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
+    ),
+  )
+
+  it.live("ShareNext redacts sensitive session diff payloads", () =>
+    provideTmpdirInstance(
+      () => {
+        const seen: Array<{ url: string; body: string }> = []
+        const client = HttpClient.make((req) => {
+          if (req.url.endsWith("/sync") && req.body._tag === "Uint8Array") {
+            seen.push({ url: req.url, body: new TextDecoder().decode(req.body.body) })
+          }
+          return Effect.succeed(json(req, { ok: true }))
+        })
+
+        return Effect.gen(function* () {
+          const bus = yield* Bus.Service
+          const share = yield* ShareNext.Service
+          const session = yield* Session.Service
+
+          const info = yield* session.create({ title: "first" })
+          yield* share.init()
+          yield* Effect.sleep(50)
+          yield* Effect.sync(() =>
+            Database.use((db) =>
+              db
+                .insert(SessionShareTable)
+                .values({
+                  session_id: info.id,
+                  id: "shr_abc",
+                  url: "https://legacy-share.example.com/share/abc",
+                  secret: "sec_123",
+                })
+                .run(),
+            ),
+          )
+
+          yield* bus.publish(Session.Event.Diff, {
+            sessionID: info.id,
+            diff: [
+              {
+                file: ".env",
+                patch: "@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n",
+                additions: 1,
+                deletions: 1,
+                status: "modified",
+              },
+            ],
+          })
+          yield* Effect.sleep(1_250)
+
+          expect(seen).toHaveLength(1)
+          const body = JSON.parse(seen[0].body) as {
+            data: Array<{ type: string; data: Array<Record<string, unknown>> }>
+          }
+          const serialized = JSON.stringify(body)
+
+          expect(serialized).not.toContain("old-secret")
+          expect(serialized).not.toContain("new-secret")
+          expect(serialized).not.toContain("@@")
+          expect(body.data).toEqual([
+            {
+              type: "session_diff",
+              data: [{ file: ".env", patch: "", additions: 0, deletions: 0, status: "modified", sensitive: true }],
+            },
+          ])
+        }).pipe(Effect.provide(wired(client)))
+      },
+      { config: { enterprise: { url: "https://legacy-share.example.com" } } },
+    ),
+  )
+
+  it.live("ShareNext redacts sensitive diffs embedded in message sync payloads", () =>
+    provideTmpdirInstance(
+      () => {
+        const seen: Array<{ url: string; body: string }> = []
+        const client = HttpClient.make((req) => {
+          if (req.url.endsWith("/sync") && req.body._tag === "Uint8Array") {
+            seen.push({ url: req.url, body: new TextDecoder().decode(req.body.body) })
+          }
+          return Effect.succeed(json(req, { ok: true }))
+        })
+
+        return Effect.gen(function* () {
+          const bus = yield* Bus.Service
+          const share = yield* ShareNext.Service
+          const session = yield* Session.Service
+
+          const info = yield* session.create({ title: "first" })
+          yield* share.init()
+          yield* Effect.sleep(50)
+          yield* Effect.sync(() =>
+            Database.use((db) =>
+              db
+                .insert(SessionShareTable)
+                .values({
+                  session_id: info.id,
+                  id: "shr_abc",
+                  url: "https://legacy-share.example.com/share/abc",
+                  secret: "sec_123",
+                })
+                .run(),
+            ),
+          )
+
+          yield* bus.publish(MessageV2.Event.Updated, {
+            sessionID: info.id,
+            info: {
+              id: MessageID.make("msg_sensitive_summary"),
+              sessionID: info.id,
+              role: "user",
+              time: { created: Date.now() },
+              agent: "test",
+              model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
+              tools: {},
+              summary: {
+                diffs: [
+                  {
+                    file: ".env",
+                    patch: "@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n",
+                    additions: 1,
+                    deletions: 1,
+                    status: "modified",
+                  },
+                ],
+              },
+            },
+          })
+          yield* Effect.sleep(1_250)
+
+          expect(seen).toHaveLength(1)
+          const parsed = seen.map((item) => JSON.parse(item.body))
+          const body = parsed.find((item) => item.data.some((entry: { type: string }) => entry.type === "message"))
+          expect(body).toBeDefined()
+          const serialized = JSON.stringify(body)
+          expect(serialized).not.toContain("old-secret")
+          expect(serialized).not.toContain("new-secret")
+          expect(serialized).not.toContain("@@")
+          const message = body.data.find((entry: { type: string }) => entry.type === "message")
+          expect(message).toMatchObject({
+            type: "message",
+            data: {
+              summary: {
+                diffs: [{ file: ".env", patch: "", additions: 0, deletions: 0, status: "modified", sensitive: true }],
+              },
+            },
+          })
         }).pipe(Effect.provide(wired(client)))
       },
       { config: { enterprise: { url: "https://legacy-share.example.com" } } },

@@ -14,6 +14,8 @@ import { Instance } from "../project/instance"
 import { trimDiff } from "./edit"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import * as Bom from "@/util/bom"
+import { isSensitiveTargetPath, safeFilepathMetadata } from "./sensitive"
+import { TurnChange } from "@/session/turn-change"
 
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
 
@@ -31,6 +33,7 @@ export const WriteTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const bus = yield* Bus.Service
     const format = yield* Format.Service
+    const turnChange = yield* TurnChange.Service
 
     return {
       description: DESCRIPTION,
@@ -55,15 +58,20 @@ export const WriteTool = Tool.define(
           const contentNew = next.text
 
           let diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, contentNew))
+          const relativeFilepath = path.relative(Instance.worktree, filepath)
+          const sensitive = isSensitiveTargetPath(filepath, Instance.worktree)
+          const status = exists ? "modified" : "added"
           yield* ctx.ask({
             permission: "edit",
-            patterns: [path.relative(Instance.worktree, filepath)],
+            patterns: [relativeFilepath],
             always: ["*"],
-            metadata: {
-              filepath,
-              diff,
-              ...(bomChanged && { bomDiscarded: true }),
-            },
+            metadata: sensitive
+              ? safeFilepathMetadata(filepath, status, bomChanged ? { bomDiscarded: true } : undefined)
+              : {
+                  filepath,
+                  diff,
+                  ...(bomChanged && { bomDiscarded: true }),
+                },
           })
 
           yield* fs.writeWithDirs(filepath, Bom.join(contentNew, desiredBom))
@@ -76,6 +84,13 @@ export const WriteTool = Tool.define(
             diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, finalContent))
           }
           yield* bus.publish(File.Event.Edited, { file: filepath })
+          yield* turnChange.recordWrite({
+            sessionID: ctx.sessionID,
+            messageID: ctx.messageID,
+            path: filepath,
+            before: exists ? { exists: true, content: contentOld, bom: source.bom } : { exists: false },
+            after: { exists: true, content: finalContent, bom: desiredBom },
+          })
           yield* bus.publish(FileWatcher.Event.Updated, {
             file: filepath,
             event: exists ? "change" : "add",
@@ -83,7 +98,7 @@ export const WriteTool = Tool.define(
 
           let output = "Wrote file successfully."
           yield* lsp.touchFile(filepath, true)
-          const diagnostics = yield* lsp.diagnostics()
+          const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
           const normalizedFilepath = AppFileSystem.normalizePath(filepath)
           let projectDiagnosticsCount = 0
           for (const [file, issues] of Object.entries(diagnostics)) {
@@ -100,11 +115,12 @@ export const WriteTool = Tool.define(
           }
 
           return {
-            title: path.relative(Instance.worktree, filepath),
+            title: relativeFilepath,
             metadata: {
               diagnostics,
-              filepath,
+              ...(sensitive ? { filepath, sensitive: true, status } : { filepath }),
               exists: exists,
+              ...(sensitive && bomChanged ? { bomDiscarded: true } : {}),
             },
             output,
           }

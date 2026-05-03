@@ -12,6 +12,7 @@ import { Bus } from "../../src/bus"
 import { Truncate } from "../../src/tool/truncate"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { TurnChange } from "../../src/session/turn-change"
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(
@@ -21,6 +22,7 @@ const runtime = ManagedRuntime.make(
     Bus.layer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
+    TurnChange.defaultLayer,
   ),
 )
 
@@ -39,17 +41,9 @@ type AskInput = {
   patterns: string[]
   always: string[]
   metadata: {
-    diff: string
+    diff?: string
     filepath: string
-    files: Array<{
-      filePath: string
-      relativePath: string
-      type: "add" | "update" | "delete" | "move"
-      patch: string
-      additions: number
-      deletions: number
-      movePath?: string
-    }>
+    files: Array<Record<string, unknown>>
   }
 }
 
@@ -60,7 +54,7 @@ type ToolCtx = typeof baseCtx & {
 const execute = async (params: { patchText: string }, ctx: ToolCtx) => {
   const info = await runtime.runPromise(ApplyPatchTool)
   const tool = await runtime.runPromise(info.init())
-  return Effect.runPromise(tool.execute(params, ctx))
+  return runtime.runPromise(tool.execute(params, ctx))
 }
 
 const makeCtx = () => {
@@ -141,6 +135,49 @@ describe("tool.apply_patch freeform", () => {
         expect(added).toBe("created\n")
         expect(await fs.readFile(modifyPath, "utf-8")).toBe("line1\nchanged\n")
         await expect(fs.readFile(deletePath, "utf-8")).rejects.toThrow()
+      },
+    })
+  })
+
+  test("redacts sensitive file permission and result metadata", async () => {
+    await using fixture = await tmpdir({ git: true })
+    const { ctx, calls } = makeCtx()
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const target = path.join(fixture.path, ".env")
+        await fs.writeFile(target, "TOKEN=old-secret\n", "utf-8")
+
+        const patchText = "*** Begin Patch\n*** Update File: .env\n@@\n-TOKEN=old-secret\n+TOKEN=new-secret\n*** End Patch"
+        const result = await execute({ patchText }, ctx)
+        const serialized = JSON.stringify({ calls, result })
+
+        expect(calls).toHaveLength(1)
+        expect(calls[0].metadata).toEqual({
+          filepath: ".env",
+          files: [
+            {
+              filePath: target,
+              relativePath: ".env",
+              type: "update",
+              status: "modified",
+              sensitive: true,
+            },
+          ],
+        })
+        expect((result.metadata as any).files).toEqual([
+          {
+            filePath: target,
+            relativePath: ".env",
+            type: "update",
+            status: "modified",
+            sensitive: true,
+          },
+        ])
+        expect(serialized).not.toContain("old-secret")
+        expect(serialized).not.toContain("new-secret")
+        expect(serialized).not.toContain("@@")
       },
     })
   })
@@ -298,6 +335,23 @@ describe("tool.apply_patch freeform", () => {
 
         await execute({ patchText }, ctx)
         expect(await fs.readFile(target, "utf-8")).toBe("new content\n")
+      },
+    })
+  })
+
+  test("rejects add when existing target cannot be read as a file before asking permission", async () => {
+    await using fixture = await tmpdir()
+    const { ctx, calls } = makeCtx()
+
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        await fs.mkdir(path.join(fixture.path, "blocked.txt"))
+        const patchText = "*** Begin Patch\n*** Add File: blocked.txt\n+new content\n*** End Patch"
+
+        await expect(execute({ patchText }, ctx)).rejects.toThrow()
+
+        expect(calls).toHaveLength(0)
       },
     })
   })
