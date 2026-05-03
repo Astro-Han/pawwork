@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Part, ToolState } from "@opencode-ai/sdk/v2"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
 import { selectSessionTodos } from "./session-todos"
+import type { SessionTodoItem } from "./todos/todo-model"
 
 const completedState = (
   overrides: Partial<Extract<ToolState, { status: "completed" }>> = {},
@@ -26,17 +27,24 @@ const toolPart = (tool: string, state: ToolState = completedState()): Part =>
     state,
   }) as Part
 
-const todo = (content: string, status: Todo["status"] = "pending"): Todo => ({
+const todo = (content: string, status: SessionTodoItem["status"] = "pending"): SessionTodoItem => ({
   content,
   status,
   priority: "medium",
-}) as Todo
+})
+
+const backendTodo = (content: string, status: Todo["status"] = "pending"): Todo => ({
+  id: `todo_${content}`,
+  content,
+  status,
+  priority: "medium",
+})
 
 describe("selectSessionTodos", () => {
   test("prefers message-derived todos over lagging backend todos", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [todo("from backend", "pending")], parts })).toEqual([
+    expect(selectSessionTodos({ backend: [backendTodo("from backend", "pending")], parts })).toEqual([
       todo("from parts", "in_progress"),
     ])
   })
