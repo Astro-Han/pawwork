@@ -107,6 +107,31 @@ describe("TurnChange", () => {
     })
   })
 
+  test("finalizes file-limit overflow as an explicit truncated display", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        for (let index = 0; index < 201; index++) {
+          TurnChange.recordWrite({
+            ...turn,
+            path: path.join(fixture.path, `file-${index}.txt`),
+            before: { exists: false },
+            after: { exists: true, content: `${index}\n` },
+          })
+        }
+
+        const display = TurnChange.finalize(turn)
+
+        expect(display?.files).toHaveLength(200)
+        expect(display?.truncated).toBe(true)
+        expect(display?.omittedCount).toBe(1)
+      },
+    })
+  })
+
   test("finalizes large files as status-only and blocks restore when target content is unavailable", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()

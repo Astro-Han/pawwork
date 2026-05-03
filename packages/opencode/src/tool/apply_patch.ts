@@ -41,6 +41,7 @@ export const ApplyPatchTool = Tool.define(
     const afs = yield* AppFileSystem.Service
     const format = yield* Format.Service
     const bus = yield* Bus.Service
+    const turnChange = yield* TurnChange.Service
 
     const run = Effect.fn("ApplyPatchTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
@@ -326,14 +327,14 @@ export const ApplyPatchTool = Tool.define(
         }
 
         if (change.type === "move" && change.movePath) {
-          TurnChange.recordWrite({
+          yield* turnChange.recordWrite({
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: change.filePath,
             before: { exists: true, content: change.oldContent, bom: change.beforeBom },
             after: { exists: false },
           })
-          TurnChange.recordWrite({
+          yield* turnChange.recordWrite({
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: change.movePath,
@@ -343,7 +344,7 @@ export const ApplyPatchTool = Tool.define(
             after: { exists: true, content: change.newContent, bom: change.bom },
           })
         } else {
-          TurnChange.recordWrite({
+          yield* turnChange.recordWrite({
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: change.filePath,

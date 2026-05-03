@@ -12,6 +12,7 @@ import { Bus } from "../../src/bus"
 import { Truncate } from "../../src/tool/truncate"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID, MessageID } from "../../src/session/schema"
+import { TurnChange } from "../../src/session/turn-change"
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(
@@ -21,6 +22,7 @@ const runtime = ManagedRuntime.make(
     Bus.layer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
+    TurnChange.defaultLayer,
   ),
 )
 
@@ -52,7 +54,7 @@ type ToolCtx = typeof baseCtx & {
 const execute = async (params: { patchText: string }, ctx: ToolCtx) => {
   const info = await runtime.runPromise(ApplyPatchTool)
   const tool = await runtime.runPromise(info.init())
-  return Effect.runPromise(tool.execute(params, ctx))
+  return runtime.runPromise(tool.execute(params, ctx))
 }
 
 const makeCtx = () => {

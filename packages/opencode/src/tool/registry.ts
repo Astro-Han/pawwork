@@ -48,6 +48,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { Env } from "../env"
 import { Question } from "../question"
 import { Todo } from "../session/todo"
+import { TurnChange } from "../session/turn-change"
 import { LSP } from "../lsp"
 import { Instruction } from "../session/instruction"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -95,6 +96,7 @@ export namespace ToolRegistry {
     | Plugin.Service
     | Question.Service
     | Todo.Service
+    | TurnChange.Service
     | Agent.Service
     | Skill.Service
     | Session.Service
@@ -407,7 +409,7 @@ export namespace ToolRegistry {
       Layer.provide(Config.defaultLayer),
       Layer.provide(Plugin.defaultLayer),
       Layer.provide(Question.defaultLayer),
-      Layer.provide(Todo.defaultLayer),
+      Layer.provide(Layer.mergeAll(Todo.defaultLayer, TurnChange.defaultLayer)),
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),
       Layer.provide(Session.defaultLayer),

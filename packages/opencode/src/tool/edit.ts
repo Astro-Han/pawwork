@@ -64,6 +64,7 @@ export const EditTool = Tool.define(
     const afs = yield* AppFileSystem.Service
     const format = yield* Format.Service
     const bus = yield* Bus.Service
+    const turnChange = yield* TurnChange.Service
 
     return {
       description: DESCRIPTION,
@@ -246,7 +247,7 @@ export const EditTool = Tool.define(
               ...(sensitive && bomDiscarded ? { bomDiscarded: true } : {}),
             },
           })
-          TurnChange.recordWrite({
+          yield* turnChange.recordWrite({
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: filePath,

@@ -32,6 +32,7 @@ import { SessionRunState } from "../../src/session/run-state"
 import { SubagentRun } from "../../src/session/subagent-run"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
+import { TurnChange } from "../../src/session/turn-change"
 import { Skill } from "../../src/skill"
 import { Settings } from "../../src/settings"
 import { SystemPrompt } from "../../src/session/system"
@@ -177,6 +178,7 @@ function makeHttp() {
     lsp,
     mcp,
     AppFileSystem.defaultLayer,
+    TurnChange.defaultLayer,
     status,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))

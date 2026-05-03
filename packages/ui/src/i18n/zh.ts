@@ -53,6 +53,7 @@ export const dict = {
   "ui.sessionTurn.turnChanges.undoConfirm": "确认撤销？",
   "ui.sessionTurn.turnChanges.redo": "重做",
   "ui.sessionTurn.turnChanges.redoConfirm": "确认重做？",
+  "ui.sessionTurn.turnChanges.omitted": "另有 {{count}} 个未显示",
   "ui.sessionTurn.turnChanges.status.added": "已添加",
   "ui.sessionTurn.turnChanges.status.updated": "已更新",
   "ui.sessionTurn.turnChanges.status.deleted": "已删除",

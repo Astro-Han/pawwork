@@ -50,6 +50,7 @@ import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionRunState } from "../../src/session/run-state"
 import { SessionStatus } from "../../src/session/status"
+import { TurnChange } from "../../src/session/turn-change"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "../../src/tool/registry"
 import { WebSearchAuth } from "../../src/tool/websearch-auth"
@@ -125,6 +126,7 @@ function makeHttp() {
     lsp,
     mcp,
     AppFileSystem.defaultLayer,
+    TurnChange.defaultLayer,
     status,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))

@@ -29,6 +29,7 @@ import { SessionProcessor } from "@/session/processor"
 import { SessionCompaction } from "@/session/compaction"
 import { SessionRevert } from "@/session/revert"
 import { SessionSummary } from "@/session/summary"
+import { TurnChange } from "@/session/turn-change"
 import { SessionPrompt } from "@/session/prompt"
 import { Instruction } from "@/session/instruction"
 import { LLM } from "@/session/llm"
@@ -80,6 +81,7 @@ export const AppLayer = Layer.mergeAll(
   SessionCompaction.defaultLayer,
   SessionRevert.defaultLayer,
   SessionSummary.defaultLayer,
+  TurnChange.defaultLayer,
   SessionPrompt.defaultLayer,
   Instruction.defaultLayer,
   LLM.defaultLayer,

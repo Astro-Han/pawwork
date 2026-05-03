@@ -17,6 +17,7 @@ import { SessionProcessor } from "../../src/session/processor"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
+import { TurnChange } from "../../src/session/turn-change"
 import { Snapshot } from "../../src/snapshot"
 import { Log } from "../../src/util"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -165,6 +166,7 @@ const deps = Layer.mergeAll(
   Config.defaultLayer,
   LLM.defaultLayer,
   Provider.defaultLayer,
+  TurnChange.defaultLayer,
   status,
 ).pipe(Layer.provideMerge(infra))
 const env = Layer.mergeAll(

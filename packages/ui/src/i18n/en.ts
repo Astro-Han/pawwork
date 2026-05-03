@@ -50,6 +50,7 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.turnChanges.undoConfirm": "Undo?",
   "ui.sessionTurn.turnChanges.redo": "Redo",
   "ui.sessionTurn.turnChanges.redoConfirm": "Redo?",
+  "ui.sessionTurn.turnChanges.omitted": "{{count}} omitted",
   "ui.sessionTurn.turnChanges.status.added": "Added",
   "ui.sessionTurn.turnChanges.status.updated": "Updated",
   "ui.sessionTurn.turnChanges.status.deleted": "Deleted",

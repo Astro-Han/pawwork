@@ -13,8 +13,10 @@ import { trimDiff } from "@/tool/edit"
 import { Global } from "@/global"
 import * as Bom from "@/util/bom"
 import { Log } from "@opencode-ai/core/util/log"
+import { Context, Effect, Layer } from "effect"
+import { makeRuntime } from "@/effect/run-service"
 
-type FileState =
+export type FileState =
   | { exists: false; content?: undefined; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
   | { exists: true; content?: string; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
 type Status = "added" | "modified" | "deleted"
@@ -39,14 +41,37 @@ export type Display = {
   messageID: MessageID
   undoAvailable: boolean
   redoAvailable: boolean
+  truncated?: boolean
+  omittedCount?: number
   files: DisplayFile[]
 }
+
+export type RecordWriteInput = {
+  sessionID: SessionID
+  messageID: MessageID
+  path: string
+  before: FileState
+  after: FileState
+}
+
+export type MutationResult =
+  | { status: "applied"; display: Display }
+  | {
+      status: "blocked"
+      reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed"
+      files: Array<{ path: string; reason: string }>
+    }
 
 type RestoreFile = {
   path: string
   displayPath: string
   before: FileState
   after: FileState
+}
+
+type RestoreOverflow = {
+  overflow: true
+  omittedCount: number
 }
 
 type RestoreRow = {
@@ -58,18 +83,14 @@ type RestoreRow = {
   finalized: boolean
 }
 
-type MutationResult =
-  | { status: "applied"; display: Display }
-  | {
-      status: "blocked"
-      reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed"
-      files: Array<{ path: string; reason: string }>
-    }
+type RestoreTableRow = Omit<RestoreRow, "data"> & {
+  data: RestoreFile | RestoreOverflow
+}
 
 const DISPLAY_LIMIT = 2 * 1024 * 1024
 const RESTORE_LIMIT = 2 * 1024 * 1024
 const MAX_FILES = 200
-const locks = new Map<string, Promise<void>>()
+const OVERFLOW_PATH = "__pawwork_turn_change_overflow__"
 const log = Log.create({ service: "session.turn-change" })
 
 class RestoreConflictError extends Error {
@@ -185,15 +206,36 @@ function toDisplay(file: RestoreFile): DisplayFile | undefined {
   }
 }
 
+function isOverflow(data: RestoreFile | RestoreOverflow): data is RestoreOverflow {
+  return "overflow" in data && data.overflow === true
+}
+
 function rows(sessionID: SessionID, messageID: MessageID) {
-  return Database.use((db) =>
+  const result = Database.use((db) =>
     db
       .select()
       .from(TurnChangeRestoreTable)
       .where(and(eq(TurnChangeRestoreTable.session_id, sessionID), eq(TurnChangeRestoreTable.message_id, messageID)))
       .orderBy(TurnChangeRestoreTable.position)
       .all(),
-  ) as RestoreRow[]
+  ) as RestoreTableRow[]
+  return result.filter((row): row is RestoreRow => !isOverflow(row.data))
+}
+
+function overflowRow(sessionID: SessionID, messageID: MessageID) {
+  return Database.use((db) =>
+    db
+      .select()
+      .from(TurnChangeRestoreTable)
+      .where(
+        and(
+          eq(TurnChangeRestoreTable.session_id, sessionID),
+          eq(TurnChangeRestoreTable.message_id, messageID),
+          eq(TurnChangeRestoreTable.file_path, OVERFLOW_PATH),
+        ),
+      )
+      .get(),
+  ) as RestoreTableRow | undefined
 }
 
 function displayRow(sessionID: SessionID, messageID: MessageID) {
@@ -274,6 +316,8 @@ export namespace TurnChange {
     messageID: MessageID.zod,
     undoAvailable: z.boolean(),
     redoAvailable: z.boolean(),
+    truncated: z.boolean().optional(),
+    omittedCount: z.number().optional(),
     files: z.array(DisplayFileSchema),
   })
 
@@ -329,13 +373,46 @@ export namespace TurnChange {
     return Database.use((db) => db.select().from(TurnChangeRestoreTable).where(restoreWhere(input)).get()) as RestoreRow | undefined
   }
 
-  export function recordWrite(input: {
-    sessionID: SessionID
-    messageID: MessageID
-    path: string
-    before: FileState
-    after: FileState
-  }) {
+  type ServiceState = {
+    locks: Map<SessionID, Promise<void>>
+  }
+
+  function recordOverflow(input: { sessionID: SessionID; messageID: MessageID }) {
+    const current = overflowRow(input.sessionID, input.messageID)
+    const time = now()
+    const currentData = current?.data
+    const omittedCount = (currentData && isOverflow(currentData) ? currentData.omittedCount : 0) + 1
+    Database.use((db) =>
+      db
+        .insert(TurnChangeRestoreTable)
+        .values({
+          session_id: input.sessionID,
+          message_id: input.messageID,
+          file_path: OVERFLOW_PATH,
+          position: MAX_FILES,
+          data: { overflow: true, omittedCount } satisfies RestoreOverflow,
+          finalized: false,
+          time_created: time,
+          time_updated: time,
+        })
+        .onConflictDoUpdate({
+          target: [TurnChangeRestoreTable.session_id, TurnChangeRestoreTable.message_id, TurnChangeRestoreTable.file_path],
+          set: {
+            data: { overflow: true, omittedCount } satisfies RestoreOverflow,
+            time_updated: time,
+          },
+        })
+        .run(),
+    )
+    if (omittedCount === 1)
+      log.warn("turn change file limit reached", {
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+        omittedCount,
+      })
+  }
+
+  function recordWriteInternal(input: RecordWriteInput) {
     if (!input.messageID) return
     try {
       const existing = getRestore(input)
@@ -359,7 +436,10 @@ export namespace TurnChange {
       }
 
       const position = nextPosition(input.sessionID, input.messageID)
-      if (position >= MAX_FILES) return
+      if (position >= MAX_FILES) {
+        recordOverflow(input)
+        return
+      }
       try {
         Database.use((db) =>
           db
@@ -379,7 +459,14 @@ export namespace TurnChange {
       } catch {
         try {
           const current = getRestore(input)
-          if (!current) return
+          if (!current) {
+            log.warn("failed to record turn change restore row after insert conflict", {
+              sessionID: input.sessionID,
+              messageID: input.messageID,
+              error: "missing_restore_row",
+            })
+            return
+          }
           const retryData: RestoreFile = {
             ...data,
             before: current.data.before,
@@ -392,27 +479,41 @@ export namespace TurnChange {
               .run(),
           )
         } catch {
+          log.warn("failed to update turn change restore row after insert conflict", {
+            sessionID: input.sessionID,
+            messageID: input.messageID,
+            error: "update_failed",
+          })
           return
         }
       }
     } catch {
+      log.warn("failed to record turn change", {
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+        error: "record_failed",
+      })
       return
     }
   }
 
-  export function finalize(input: { sessionID: SessionID; messageID: MessageID }) {
+  function finalizeInternal(input: { sessionID: SessionID; messageID: MessageID }) {
     try {
       const files = rows(input.sessionID, input.messageID)
       if (!files.length) return
       const displayFiles = files.map((row) => toDisplay(row.data)).filter(Boolean) as DisplayFile[]
       if (!displayFiles.length) return
       const time = now()
+      const overflow = overflowRow(input.sessionID, input.messageID)
+      const overflowData = overflow?.data
+      const omittedCount = overflowData && isOverflow(overflowData) ? overflowData.omittedCount : 0
       const display: Display = {
         sessionID: input.sessionID,
         turnID: input.messageID,
         messageID: input.messageID,
         undoAvailable: true,
         redoAvailable: false,
+        ...(omittedCount > 0 ? { truncated: true, omittedCount } : {}),
         files: displayFiles,
       }
       Database.transaction((db) => {
@@ -463,7 +564,7 @@ export namespace TurnChange {
     }
   }
 
-  export function get(input: { sessionID: SessionID; messageID: MessageID }) {
+  function getInternal(input: { sessionID: SessionID; messageID: MessageID }) {
     const row = displayRow(input.sessionID, input.messageID)
     if (!row) return
     return withOpenPaths(withAvailability(row.data, row.state), rows(input.sessionID, input.messageID))
@@ -539,28 +640,77 @@ export namespace TurnChange {
     return { status: "applied", display: nextDisplay }
   }
 
+  async function locked<T>(state: ServiceState, sessionID: SessionID, fn: () => Promise<T>) {
+    const previous = state.locks.get(sessionID) ?? Promise.resolve()
+    let release!: () => void
+    const current = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const queued = previous.then(() => current)
+    state.locks.set(sessionID, queued)
+    await previous
+    try {
+      return await fn()
+    } finally {
+      release()
+      if (state.locks.get(sessionID) === queued) state.locks.delete(sessionID)
+    }
+  }
+
+  export interface Interface {
+    readonly recordWrite: (input: RecordWriteInput) => Effect.Effect<void>
+    readonly finalize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
+    readonly get: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
+    readonly undo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
+    readonly redo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
+  }
+
+  export class Service extends Context.Service<Service, Interface>()("@pawwork/TurnChange") {}
+
+  export const layer: Layer.Layer<Service, never, never> = Layer.effect(
+    Service,
+    Effect.gen(function* () {
+      const state: ServiceState = { locks: new Map() }
+      return Service.of({
+        recordWrite: Effect.fn("TurnChange.recordWrite")(function* (input) {
+          recordWriteInternal(input)
+        }),
+        finalize: Effect.fn("TurnChange.finalize")(function* (input) {
+          return finalizeInternal(input)
+        }),
+        get: Effect.fn("TurnChange.get")(function* (input) {
+          return getInternal(input)
+        }),
+        undo: Effect.fn("TurnChange.undo")(function* (input) {
+          return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "undo" })))
+        }),
+        redo: Effect.fn("TurnChange.redo")(function* (input) {
+          return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "redo" })))
+        }),
+      })
+    }),
+  )
+
+  export const defaultLayer = layer
+  const runtime = makeRuntime(Service, defaultLayer)
+
+  export function recordWrite(input: RecordWriteInput) {
+    return runtime.runSync((svc) => svc.recordWrite(input))
+  }
+
+  export function finalize(input: { sessionID: SessionID; messageID: MessageID }) {
+    return runtime.runSync((svc) => svc.finalize(input))
+  }
+
+  export function get(input: { sessionID: SessionID; messageID: MessageID }) {
+    return runtime.runSync((svc) => svc.get(input))
+  }
+
   export function undo(input: { sessionID: SessionID; messageID: MessageID }) {
-    return locked(input.sessionID, () => mutate({ ...input, mode: "undo" }))
+    return runtime.runPromise((svc) => svc.undo(input))
   }
 
   export function redo(input: { sessionID: SessionID; messageID: MessageID }) {
-    return locked(input.sessionID, () => mutate({ ...input, mode: "redo" }))
-  }
-}
-
-async function locked<T>(sessionID: SessionID, fn: () => Promise<T>) {
-  const previous = locks.get(sessionID) ?? Promise.resolve()
-  let release!: () => void
-  const current = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  const queued = previous.then(() => current)
-  locks.set(sessionID, queued)
-  await previous
-  try {
-    return await fn()
-  } finally {
-    release()
-    if (locks.get(sessionID) === queued) locks.delete(sessionID)
+    return runtime.runPromise((svc) => svc.redo(input))
   }
 }

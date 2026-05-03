@@ -624,6 +624,8 @@ export const dict = {
     "This turn includes a file without restore data, so PawWork did not change anything.",
   "session.turnChange.blocked.permissionDenied": "PawWork does not have permission to change this file.",
   "session.turnChange.blocked.generic": "PawWork could not apply this change.",
+  "session.turnChange.blocked.files": "Affected: {{files}}",
+  "session.turnChange.blocked.more": ", +{{count}} more",
 
   "session.context.addToContext": "Add {{selection}} to context",
   "session.todo.title": "Todos",

@@ -122,6 +122,7 @@ export const layer: Layer.Layer<
   | Plugin.Service
   | SessionSummary.Service
   | SessionStatus.Service
+  | TurnChange.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -134,6 +135,7 @@ export const layer: Layer.Layer<
     const summary = yield* SessionSummary.Service
     const scope = yield* Scope.Scope
     const status = yield* SessionStatus.Service
+    const turnChange = yield* TurnChange.Service
 
     const create = Effect.fn("SessionProcessor.create")(function* (input: Input) {
       // Pre-capture snapshot before the LLM stream starts. The AI SDK
@@ -736,7 +738,7 @@ export const layer: Layer.Layer<
         ctx.toolcalls = {}
         ctx.assistantMessage.time.completed = Date.now()
         yield* session.updateMessage(ctx.assistantMessage)
-        TurnChange.finalize({ sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id })
+        yield* turnChange.finalize({ sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id })
       })
 
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
@@ -986,6 +988,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
     Layer.provide(SessionStatus.defaultLayer),
+    Layer.provide(TurnChange.defaultLayer),
     Layer.provide(Bus.layer),
     Layer.provide(Config.defaultLayer),
   ),

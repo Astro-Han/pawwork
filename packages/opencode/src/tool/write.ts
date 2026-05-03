@@ -33,6 +33,7 @@ export const WriteTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const bus = yield* Bus.Service
     const format = yield* Format.Service
+    const turnChange = yield* TurnChange.Service
 
     return {
       description: DESCRIPTION,
@@ -82,7 +83,7 @@ export const WriteTool = Tool.define(
             diff = trimDiff(createTwoFilesPatch(filepath, filepath, contentOld, finalContent))
           }
           yield* bus.publish(File.Event.Edited, { file: filepath })
-          TurnChange.recordWrite({
+          yield* turnChange.recordWrite({
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: filepath,

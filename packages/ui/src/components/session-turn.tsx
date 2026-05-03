@@ -164,6 +164,8 @@ type TurnChangeDisplay = {
   messageID: string
   undoAvailable: boolean
   redoAvailable: boolean
+  truncated?: boolean
+  omittedCount?: number
   files: TurnChangeFile[]
 }
 
@@ -534,6 +536,11 @@ export function SessionTurn(
                         </span>
                         <span data-slot="session-turn-changes-additions">+{turnAdditions()}</span>
                         <span data-slot="session-turn-changes-deletions">-{turnDeletions()}</span>
+                        <Show when={turnChange()?.truncated && (turnChange()?.omittedCount ?? 0) > 0}>
+                          <span data-slot="session-turn-changes-omitted">
+                            {i18n.t("ui.sessionTurn.turnChanges.omitted", { count: turnChange()?.omittedCount ?? 0 })}
+                          </span>
+                        </Show>
                       </div>
                       <Show when={turnActionLabel()}>
                         <button

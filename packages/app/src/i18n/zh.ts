@@ -585,6 +585,8 @@ export const dict = {
   "session.turnChange.blocked.unsupportedSize": "此轮包含没有恢复数据的文件，爪印没有修改任何内容。",
   "session.turnChange.blocked.permissionDenied": "爪印没有权限修改此文件。",
   "session.turnChange.blocked.generic": "爪印无法应用此更改。",
+  "session.turnChange.blocked.files": "涉及：{{files}}",
+  "session.turnChange.blocked.more": "，另有 {{count}} 个",
   "session.context.addToContext": "将 {{selection}} 添加到上下文",
   "session.todo.title": "待办事项",
   "session.todo.collapse": "折叠",

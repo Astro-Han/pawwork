@@ -589,7 +589,13 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        return c.json(TurnChange.get(params) ?? null)
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const turnChange = yield* TurnChange.Service
+            return yield* turnChange.get(params)
+          }),
+        )
+        return c.json(result ?? null)
       },
     )
     .post(
@@ -621,8 +627,9 @@ export const SessionRoutes = lazy(() =>
         const result = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const state = yield* SessionRunState.Service
+            const turnChange = yield* TurnChange.Service
             yield* state.assertNotBusy(params.sessionID)
-            const result = yield* Effect.promise(() => TurnChange.undo(params))
+            const result = yield* turnChange.undo(params)
             if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
             return result
           }),
@@ -659,8 +666,9 @@ export const SessionRoutes = lazy(() =>
         const result = await AppRuntime.runPromise(
           Effect.gen(function* () {
             const state = yield* SessionRunState.Service
+            const turnChange = yield* TurnChange.Service
             yield* state.assertNotBusy(params.sessionID)
-            const result = yield* Effect.promise(() => TurnChange.redo(params))
+            const result = yield* turnChange.redo(params)
             if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
             return result
           }),

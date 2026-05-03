@@ -66,6 +66,8 @@ type TurnChangeDisplay = {
   messageID: string
   undoAvailable: boolean
   redoAvailable: boolean
+  truncated?: boolean
+  omittedCount?: number
   files: Array<{
     path: string
     openPath?: string
@@ -76,6 +78,7 @@ type TurnChangeDisplay = {
     sensitive?: boolean
     binary?: boolean
     large?: boolean
+    restoreAvailable?: boolean
     expandable: boolean
   }>
 }
@@ -325,6 +328,24 @@ export function MessageTimeline(props: {
     }
   }
 
+  const blockedDescription = (body: any) => {
+    const base =
+      body?.reason === "conflict"
+        ? language.t("session.turnChange.blocked.conflict")
+        : body?.reason === "unsupported_size"
+          ? language.t("session.turnChange.blocked.unsupportedSize")
+          : body?.reason === "permission_denied"
+            ? language.t("session.turnChange.blocked.permissionDenied")
+            : language.t("session.turnChange.blocked.generic")
+    const files = Array.isArray(body?.files)
+      ? body.files.filter((file: any) => typeof file?.path === "string").map((file: any) => file.path as string)
+      : []
+    if (!files.length) return base
+    const visible = files.slice(0, 3).join(", ")
+    const rest = files.length > 3 ? language.t("session.turnChange.blocked.more", { count: files.length - 3 }) : ""
+    return `${base} ${language.t("session.turnChange.blocked.files", { files: `${visible}${rest}` })}`
+  }
+
   const turnChangeFetch = async (
     messageID: string,
     action?: "undo" | "redo",
@@ -352,14 +373,7 @@ export function MessageTimeline(props: {
         action === "undo"
           ? language.t("session.turnChange.undoBlocked")
           : language.t("session.turnChange.redoBlocked"),
-      description:
-        body?.reason === "conflict"
-          ? language.t("session.turnChange.blocked.conflict")
-          : body?.reason === "unsupported_size"
-            ? language.t("session.turnChange.blocked.unsupportedSize")
-            : body?.reason === "permission_denied"
-              ? language.t("session.turnChange.blocked.permissionDenied")
-              : language.t("session.turnChange.blocked.generic"),
+      description: blockedDescription(body),
       variant: "error",
     })
     return turnChanges[messageID] ?? undefined
