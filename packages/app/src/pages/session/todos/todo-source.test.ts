@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Part, ToolState } from "@opencode-ai/sdk/v2"
 import type { Todo } from "@opencode-ai/sdk/v2/client"
-import { selectSessionTodoSnapshot, selectSessionTodos } from "./todo-source"
+import { selectSessionTodoDataSnapshot, selectSessionTodoDockSnapshot, selectSessionTodos } from "./todo-source"
 
 const completedState = (
   overrides: Partial<Extract<ToolState, { status: "completed" }>> = {},
@@ -32,37 +32,54 @@ const todo = (content: string, status: Todo["status"] = "pending"): Todo => ({
   priority: "medium",
 })
 
-describe("selectSessionTodoSnapshot", () => {
+describe("selectSessionTodoDataSnapshot", () => {
+  test("returns completed-only parts for status summary display", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
+
+    expect(selectSessionTodoDataSnapshot({ primary: { backend: [], parts } })).toMatchObject({
+      source: "primary-parts",
+      items: [todo("done from parts", "completed")],
+      phase: "terminal",
+      dockEligible: false,
+      historicalTerminal: true,
+    })
+  })
+})
+
+describe("selectSessionTodoDockSnapshot", () => {
   test("prefers active primary message-derived todos over lagging backend todos", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("from parts", "in_progress")] } }))]
 
-    expect(selectSessionTodoSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } })).toMatchObject(
-      {
-        source: "primary-parts",
-        items: [todo("from parts", "in_progress")],
-        phase: "active",
-      },
-    )
+    expect(
+      selectSessionTodoDockSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
+    ).toMatchObject({
+      source: "primary-parts",
+      items: [todo("from parts", "in_progress")],
+      phase: "active",
+      dockEligible: true,
+    })
   })
 
   test("prefers backend over completed-only primary parts", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
-    expect(selectSessionTodoSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } })).toMatchObject(
-      {
-        source: "primary-backend",
-        items: [todo("from backend", "pending")],
-      },
-    )
+    expect(
+      selectSessionTodoDockSnapshot({ primary: { backend: [todo("from backend", "pending")], parts } }),
+    ).toMatchObject({
+      source: "primary-backend",
+      items: [todo("from backend", "pending")],
+    })
   })
 
   test("does not reopen completed-only historical parts over an empty backend", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 
-    expect(selectSessionTodoSnapshot({ primary: { backend: [], parts } })).toMatchObject({
+    expect(selectSessionTodoDockSnapshot({ primary: { backend: [], parts } })).toMatchObject({
       source: "none",
       items: [],
       phase: "empty",
+      dockEligible: false,
+      historicalTerminal: false,
     })
   })
 
@@ -72,7 +89,7 @@ describe("selectSessionTodoSnapshot", () => {
     ]
 
     expect(
-      selectSessionTodoSnapshot({
+      selectSessionTodoDockSnapshot({
         primary: { backend: [], parts: [] },
         fallback: { backend: [], parts: fallbackParts },
       }),
@@ -81,11 +98,24 @@ describe("selectSessionTodoSnapshot", () => {
 
   test("uses fallback backend when no active fallback parts exist", () => {
     expect(
-      selectSessionTodoSnapshot({
+      selectSessionTodoDockSnapshot({
         primary: { backend: [], parts: [] },
         fallback: { backend: [todo("fallback backend", "pending")], parts: [] },
       }),
     ).toMatchObject({ source: "fallback-backend", items: [todo("fallback backend", "pending")] })
+  })
+
+  test("keeps primary terminal backend ahead of fallback active parts", () => {
+    const fallbackParts = [
+      toolPart("todowrite", completedState({ input: { todos: [todo("fallback active", "in_progress")] } })),
+    ]
+
+    expect(
+      selectSessionTodoDockSnapshot({
+        primary: { backend: [todo("primary done", "completed")], parts: [] },
+        fallback: { backend: [], parts: fallbackParts },
+      }),
+    ).toMatchObject({ source: "primary-backend", items: [todo("primary done", "completed")], phase: "terminal" })
   })
 })
 

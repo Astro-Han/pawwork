@@ -6,6 +6,7 @@ import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { findRunningQuestionFallbackSession } from "./question-fallback"
+import { createQuestionRefetchRunner } from "./question-refetch-runner"
 import { refetchPendingQuestionsForSession } from "./question-reconcile"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./request-tree"
 
@@ -34,11 +35,9 @@ export function createSessionBlockers(input: { sessionID: () => string | undefin
     })
   })
 
-  let questionRefetchInflight = false
-  createEffect(
-    on(questionFallbackSessionID, (sessionID) => {
-      if (!sessionID || questionRefetchInflight) return
-      questionRefetchInflight = true
+  const questionRefetch = createQuestionRefetchRunner({
+    getFallbackSessionID: questionFallbackSessionID,
+    refetch: (sessionID) =>
       refetchPendingQuestionsForSession({
         sessionID,
         shouldContinue: () => questionFallbackSessionID() === sessionID,
@@ -48,11 +47,12 @@ export function createSessionBlockers(input: { sessionID: () => string | undefin
             sync.set("question", sid, reconcile(questions, { key: "id" }))
           })
         },
-      })
-        .catch(() => {})
-        .finally(() => {
-          questionRefetchInflight = false
-        })
+      }),
+  })
+
+  createEffect(
+    on(questionFallbackSessionID, (sessionID) => {
+      questionRefetch.start(sessionID)
     }),
   )
 
@@ -93,6 +93,7 @@ export function createSessionBlockers(input: { sessionID: () => string | undefin
 
   return {
     blocked,
+    recoveringQuestion: () => !!questionFallbackSessionID(),
     questionRequest,
     permissionRequest,
     permissionResponding,

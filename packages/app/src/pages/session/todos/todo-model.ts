@@ -11,6 +11,8 @@ export type TodoSnapshot = {
   phase: TodoPhase
   lifecycleSignature: string
   displaySignature: string
+  dockEligible: boolean
+  historicalTerminal: boolean
 }
 
 export function isTerminalTodo(todo: Pick<Todo, "status">): boolean {
@@ -30,7 +32,13 @@ export function todoDisplaySignature(todos: readonly Pick<Todo, "content" | "pri
   return todos.map((todo) => `${todo.status}\u0000${todo.priority}\u0000${todo.content}`).join("\u0001")
 }
 
-export function todoSnapshot(input: { sessionID?: string; source: TodoSourceKind; items: Todo[] }): TodoSnapshot {
+export function todoSnapshot(input: {
+  sessionID?: string
+  source: TodoSourceKind
+  items: Todo[]
+  dockEligible?: boolean
+  historicalTerminal?: boolean
+}): TodoSnapshot {
   const phase = todoPhase(input.items)
   return {
     sessionID: input.sessionID,
@@ -39,5 +47,7 @@ export function todoSnapshot(input: { sessionID?: string; source: TodoSourceKind
     phase,
     lifecycleSignature: todoLifecycleSignature(input.items),
     displaySignature: todoDisplaySignature(input.items),
+    dockEligible: input.dockEligible ?? phase === "active",
+    historicalTerminal: input.historicalTerminal ?? false,
   }
 }

@@ -6,7 +6,14 @@ import { useSync } from "@/context/sync"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
 import { reduceTodoDockState, TODO_DOCK_COMPLETING_DELAY_MS, todoDockHiddenState } from "./todo-dock-machine"
 import { todoSnapshot, type TodoSnapshot } from "./todo-model"
-import { selectSessionTodoSnapshot } from "./todo-source"
+import { selectSessionTodoDockSnapshot } from "./todo-source"
+
+const dockInput = (snapshot: TodoSnapshot, sessionID?: string) => ({
+  sessionID: snapshot.sessionID ?? sessionID,
+  count: snapshot.items.length,
+  phase: snapshot.phase,
+  lifecycleSignature: snapshot.lifecycleSignature,
+})
 
 export function createSessionTodoModel(input: {
   sessionID: () => string | undefined
@@ -73,7 +80,7 @@ export function createSessionTodoModel(input: {
     const fallbackMessages = fallbackID && fallbackID !== id ? (sync.data.message[fallbackID] ?? []) : []
     const fallbackParts = fallbackMessages.flatMap((message) => sync.data.part[message.id] ?? [])
 
-    return selectSessionTodoSnapshot({
+    return selectSessionTodoDockSnapshot({
       primary: { sessionID: id, backend: globalSync.data.session_todo[id], parts },
       fallback: fallbackID
         ? { sessionID: fallbackID, backend: globalSync.data.session_todo[fallbackID], parts: fallbackParts }
@@ -81,13 +88,15 @@ export function createSessionTodoModel(input: {
     })
   })
 
-  const [dock, setDock] = createStore({
-    dock: false,
-    opening: false,
-    completing: false,
+  let machine = reduceTodoDockState(todoDockHiddenState(), {
+    type: "snapshot",
+    input: dockInput(snapshot(), activeSessionID()),
   })
-
-  let machine = todoDockHiddenState()
+  const [dock, setDock] = createStore({
+    dock: machine.dock,
+    opening: machine.opening,
+    completing: machine.completing,
+  })
   let raf: number | undefined
   let hideTimeout: number | undefined
 
@@ -140,12 +149,7 @@ export function createSessionTodoModel(input: {
     on(
       () => {
         const current = snapshot()
-        return {
-          sessionID: current.sessionID ?? activeSessionID(),
-          count: current.items.length,
-          phase: current.phase,
-          lifecycleSignature: current.lifecycleSignature,
-        }
+        return dockInput(current, activeSessionID())
       },
       (current) => dispatch({ type: "snapshot", input: current }),
     ),

@@ -3,6 +3,9 @@ import type { QuestionRequest } from "@opencode-ai/sdk/v2/client"
 export const QUESTION_REFETCH_ATTEMPTS = 4
 export const QUESTION_REFETCH_DELAY_MS = 250
 
+// Session-scoped and cancellation-safe by design: keep all three
+// shouldContinue() checks so stale async question.list() results cannot write
+// into the store after the active fallback session changes.
 export async function refetchPendingQuestionsForSession(input: {
   sessionID: string
   maxAttempts?: number
