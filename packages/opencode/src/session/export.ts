@@ -139,6 +139,7 @@ export namespace Export {
           tool: string
           outcome?: "success" | "failure"
           completedCount?: number
+          occurrenceCount?: number
           completedFailures: number
         }
       }
@@ -160,6 +161,7 @@ export namespace Export {
         tool: string
         outcome?: "success" | "failure"
         completedCount?: number
+        occurrenceCount?: number
         completedFailures: number
       }
     }
@@ -173,6 +175,7 @@ export namespace Export {
           tool: string
           outcome?: "success" | "failure"
           completedCount?: number
+          occurrenceCount?: number
           completedFailures: number
         }
       | undefined
@@ -189,6 +192,7 @@ export namespace Export {
                 outcome?: "success" | "failure"
                 loopCompletedCount?: number
                 loopCompletedFailures?: number
+                loopOccurrenceCount?: number
               }
             | undefined
           if (!loop || (loop.loopAction !== "block" && loop.loopAction !== "stop")) continue
@@ -208,6 +212,7 @@ export namespace Export {
             tool: part.tool,
             outcome: loop.outcome,
             completedCount,
+            occurrenceCount: loop.loopOccurrenceCount,
             completedFailures: loop.loopCompletedFailures ?? completedCount,
           }
         }

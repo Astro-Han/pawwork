@@ -198,6 +198,28 @@ describe("SessionDiagnostics.queryGateAction", () => {
     expect(SessionDiagnostics.chooseGateDecision(successStop, failureBlock)).toBe(successStop)
   })
 
+  test("chooses failure block over success block when neither outcome stops", () => {
+    const successBlock = {
+      action: "block",
+      sigKey: "success:input:webfetch:aaa",
+      outcome: "success",
+      kind: "input",
+      completedCount: 3,
+      nextOccurrenceCount: 4,
+    } satisfies SessionDiagnostics.GateDecision
+    const failureBlock = {
+      action: "block",
+      sigKey: "failure:input:webfetch:aaa",
+      outcome: "failure",
+      kind: "input",
+      completedCount: 3,
+      completedFailures: 3,
+      nextOccurrenceCount: 4,
+    } satisfies SessionDiagnostics.GateDecision
+
+    expect(SessionDiagnostics.chooseGateDecision(failureBlock, successBlock)).toBe(failureBlock)
+  })
+
   test("does not block same-step parallel successful repeats before the model can react", () => {
     const url = "https://x.com/a"
     const sigKey = `success:target:webfetch:${targetHashFor(url)}`

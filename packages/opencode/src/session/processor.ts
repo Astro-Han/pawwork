@@ -214,7 +214,7 @@ export const layer: Layer.Layer<
             if (part.type !== "tool") return []
             if (part.state.status !== "completed") return []
             const loop = toolDiagnostics(part)?.loop
-            if (!loop?.inputHash || !loop.targetHash) return []
+            if (!loop?.inputHash) return []
             if (loop.errorFingerprint || loop.loopAction) return []
             return [
               {
@@ -222,7 +222,7 @@ export const layer: Layer.Layer<
                 parentID,
                 tool: part.tool,
                 inputHash: loop.inputHash,
-                targetHash: loop.targetHash,
+                targetHash: loop.targetHash ?? "",
                 metadata: { diagnostics: { loop } },
               } satisfies SessionDiagnostics.ToolCallRecord,
             ]
@@ -313,18 +313,25 @@ export const layer: Layer.Layer<
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           let stepIndex = 0
           let sawStepStart = false
+          let afterStepFinish = false
           for (const part of message.parts) {
             if (part.type === "step-start") {
               sawStepStart = true
+              afterStepFinish = false
               stepIndex += 1
               continue
             }
             const currentMessage = message.info.id === ctx.assistantMessage.id
-            if (currentMessage) currentStepIndex = sawStepStart ? stepIndex : stepIndex + 1
+            const activeStepIndex = !sawStepStart || afterStepFinish ? stepIndex + 1 : stepIndex
+            if (currentMessage) currentStepIndex = activeStepIndex
+            if (part.type === "step-finish") {
+              afterStepFinish = true
+              continue
+            }
             if (part.type !== "tool") continue
             const loop = toolDiagnostics(part)?.loop
             if (!loop) continue
-            const observedStepIndex = currentMessage ? (sawStepStart ? stepIndex : stepIndex + 1) : -1
+            const observedStepIndex = currentMessage ? activeStepIndex : -1
             const loopWithStep = { ...loop, stepIndex: loop.stepIndex ?? observedStepIndex }
             if (loop.loopAction === "stop") hasStoppedOut = true
             if (loop.loopAction === "block" && loop.loopSigKey) syntheticBlockSigKeysOut.push(loop.loopSigKey)
@@ -853,6 +860,7 @@ export const layer: Layer.Layer<
               outcome: input.outcome,
               loopCompletedCount: input.completedCount,
               loopCompletedFailures: input.completedFailures ?? input.completedCount,
+              loopOccurrenceCount: input.nextOccurrenceCount,
             },
           },
         })
@@ -918,6 +926,7 @@ export const layer: Layer.Layer<
               outcome: input.outcome,
               loopCompletedCount: input.completedCount,
               loopCompletedFailures: input.completedFailures ?? input.completedCount,
+              loopOccurrenceCount: input.nextOccurrenceCount,
             },
           },
         })

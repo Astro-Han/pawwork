@@ -669,9 +669,60 @@ it.live("loop gate stops repeated successful tools across model steps", () =>
         expect(stopParts).toHaveLength(1)
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.outcome).toBe("success")
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopCompletedCount).toBe(3)
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopOccurrenceCount).toBe(5)
         expect(result.parts.some((part) => part.type === "text" && part.text.includes("stopped the repetition"))).toBe(
           true,
         )
+        expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(false)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("loop gate stops repeated tool errors across model steps", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Loop gate failure stop",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "read missing until stop" }],
+        })
+
+        const input = { filePath: path.join(dir, "loop-gate-failure-stop-missing.txt") }
+        for (let i = 0; i < 5; i++) yield* llm.tool("read", input)
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const blockParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction === "block",
+        )
+        const stopParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction === "stop",
+        )
+
+        expect(blockParts).toHaveLength(1)
+        expect(stopParts).toHaveLength(1)
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.outcome).toBe("failure")
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopCompletedCount).toBe(3)
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopOccurrenceCount).toBe(5)
         expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(false)
       }),
     { git: true, config: providerCfg },

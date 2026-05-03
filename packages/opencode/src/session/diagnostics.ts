@@ -87,6 +87,7 @@ export namespace SessionDiagnostics {
     loopType?: SignatureKind
     loopCompletedCount?: number
     loopCompletedFailures?: number
+    loopOccurrenceCount?: number
     loopSigKey?: string
     loopRecoverFiredFor?: string[]
     targetHashIsFallback?: boolean

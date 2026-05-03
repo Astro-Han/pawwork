@@ -343,6 +343,7 @@ describe("Export.deriveSnapshotDiagnostics", () => {
     expect(result.loop?.last?.action).toBe("stop")
     expect(result.loop?.last?.outcome).toBe("success")
     expect(result.loop?.last?.completedCount).toBe(4)
+    expect(result.loop?.last?.occurrenceCount).toBe(5)
     expect(result.loop?.last?.completedFailures).toBe(4)
   })
 })
@@ -441,6 +442,7 @@ function successStopToolPartAt(messageID: MessageID, count: number, tag: string)
             loopType: "input",
             outcome: "success",
             loopCompletedCount: count,
+            loopOccurrenceCount: 5,
             loopSigKey: "success:input:grep:" + tag,
           },
         },
