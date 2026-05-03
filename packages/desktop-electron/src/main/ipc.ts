@@ -33,6 +33,7 @@ const pickerFilters = (ext?: string[]) => {
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
 // Picker approvals are short-lived because they authorize a renderer to request file bytes from main.
 const ATTACHMENT_APPROVAL_TTL_MS = 30 * 60 * 1000
+const RENDERER_DIAGNOSTICS_TIMEOUT_MS = 5_000
 const MAX_APPROVED_ATTACHMENT_PATHS = 1000
 
 function normalizeAttachmentPath(filepath: unknown) {
@@ -359,10 +360,20 @@ export function registerIpcHandlers(deps: Deps) {
       let rendererDiagnostics: RendererDiagnosticsSlice
       try {
         const win = BrowserWindow.fromWebContents(event.sender)
-        rendererDiagnostics = await deps.rendererDiagnosticsSlice({
-          sessionID,
-          windowID: win?.id,
-          maxBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        rendererDiagnostics = await Promise.race([
+          deps.rendererDiagnosticsSlice({
+            sessionID,
+            windowID: win?.id,
+            maxBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
+          }),
+          new Promise<RendererDiagnosticsSlice>((_, reject) => {
+            timeout = setTimeout(() => {
+              reject(new Error("renderer diagnostics timed out"))
+            }, RENDERER_DIAGNOSTICS_TIMEOUT_MS)
+          }),
+        ]).finally(() => {
+          if (timeout !== undefined) clearTimeout(timeout)
         })
       } catch {
         rendererDiagnostics = emptyRendererDiagnosticsSlice("write_failed", new Date())

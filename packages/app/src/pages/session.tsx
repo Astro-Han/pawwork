@@ -133,6 +133,9 @@ export default function Page() {
       partCount: messages.reduce((count, message) => count + countMessageParts(message), 0),
     }
   })
+  const emitDiagnostics = (event: Parameters<typeof emitRendererDiagnostic>[0]) => {
+    void emitRendererDiagnostic(event).catch(() => undefined)
+  }
 
   createEffect(
     on(
@@ -153,7 +156,7 @@ export default function Page() {
         }
       },
       (state) => {
-        void emitRendererDiagnostic({
+        emitDiagnostics({
           name: "session.view.state",
           route_session_id: state.routeSessionID,
           visible_session_id: state.visibleSessionID,
@@ -190,7 +193,7 @@ export default function Page() {
         ) {
           return
         }
-        void emitRendererDiagnostic({
+        emitDiagnostics({
           name: "session.identity.transition",
           route_session_id: next.routeSessionID,
           visible_session_id: next.visibleSessionID,

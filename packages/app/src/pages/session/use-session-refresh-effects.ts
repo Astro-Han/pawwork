@@ -20,17 +20,21 @@ export function useSessionRefreshEffects(input: {
   let todoTimer: number | undefined
 
   const emitRefresh = (event: RendererDiagnosticInput) => {
-    void input.emitRendererDiagnostic?.(event)
+    try {
+      const pending = input.emitRendererDiagnostic?.(event)
+      void Promise.resolve(pending).catch(() => undefined)
+    } catch {}
   }
 
   const syncSessionWithDiagnostics = (id: string, options: { force?: boolean } | undefined, cachePresent: boolean) => {
     const startedAt = performance.now()
+    const visibleSessionID = input.timelineSessionID()
     const phase = options?.force ? "message_force" : "message"
     emitRefresh({
       name: "session.data.refresh",
       route_session_id: id,
-      visible_session_id: input.timelineSessionID(),
-      timeline_session_id: input.timelineSessionID(),
+      visible_session_id: visibleSessionID,
+      timeline_session_id: visibleSessionID,
       data: { phase: `${phase}_start`, cache_present: cachePresent },
     })
     void Promise.resolve(input.syncSession(id, options))
@@ -38,8 +42,8 @@ export function useSessionRefreshEffects(input: {
         emitRefresh({
           name: "session.data.refresh",
           route_session_id: id,
-          visible_session_id: input.timelineSessionID(),
-          timeline_session_id: input.timelineSessionID(),
+          visible_session_id: visibleSessionID,
+          timeline_session_id: visibleSessionID,
           data: {
             phase: `${phase}_end`,
             duration_ms: Math.round(performance.now() - startedAt),
@@ -51,8 +55,8 @@ export function useSessionRefreshEffects(input: {
         emitRefresh({
           name: "session.data.refresh",
           route_session_id: id,
-          visible_session_id: input.timelineSessionID(),
-          timeline_session_id: input.timelineSessionID(),
+          visible_session_id: visibleSessionID,
+          timeline_session_id: visibleSessionID,
           data: {
             phase: `${phase}_failed`,
             duration_ms: Math.round(performance.now() - startedAt),
@@ -64,10 +68,11 @@ export function useSessionRefreshEffects(input: {
 
   const syncTodoWithDiagnostics = (id: string, options: { force?: boolean } | undefined, cachePresent: boolean) => {
     const startedAt = performance.now()
+    const routeSessionID = input.routeSessionID()
     const phase = options?.force ? "todo_force" : "todo"
     emitRefresh({
       name: "session.data.refresh",
-      route_session_id: input.routeSessionID(),
+      route_session_id: routeSessionID,
       visible_session_id: id,
       timeline_session_id: id,
       data: { phase: `${phase}_start`, cache_present: cachePresent },
@@ -76,7 +81,7 @@ export function useSessionRefreshEffects(input: {
       .then(() => {
         emitRefresh({
           name: "session.data.refresh",
-          route_session_id: input.routeSessionID(),
+          route_session_id: routeSessionID,
           visible_session_id: id,
           timeline_session_id: id,
           data: {
@@ -89,7 +94,7 @@ export function useSessionRefreshEffects(input: {
       .catch(() => {
         emitRefresh({
           name: "session.data.refresh",
-          route_session_id: input.routeSessionID(),
+          route_session_id: routeSessionID,
           visible_session_id: id,
           timeline_session_id: id,
           data: {
