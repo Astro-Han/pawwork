@@ -93,6 +93,7 @@ import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sid
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
 import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
+import { sessionTitle } from "@/utils/session-title"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -1097,7 +1098,9 @@ export default function Layout(props: ParentProps) {
     })
   }
 
-  async function deleteSession(session: Session) {
+  type SessionDeleteTarget = Pick<Session, "id" | "directory">
+
+  async function deleteSession(session: SessionDeleteTarget) {
     const [store, setStore] = globalSync.child(session.directory)
     const sessions = (store.session ?? []).filter((s) => !s.parentID && !s.time?.archived)
     const index = sessions.findIndex((s) => s.id === session.id)
@@ -1112,10 +1115,10 @@ export default function Layout(props: ParentProps) {
           description: errorMessage(err, language.t("common.requestFailed")),
           variant: "error",
         })
-        return false
+        return undefined
       })
 
-    if (!result) return false
+    if (!result) return
 
     setStore(
       produce((draft) => {
@@ -1151,12 +1154,13 @@ export default function Layout(props: ParentProps) {
     if (session.id === params.id) {
       navigate(nextSession ? `/${params.dir}/session/${nextSession.id}` : `/${params.dir}/session`)
     }
-    return true
   }
 
   function confirmDeleteSession(session: Session) {
+    const target: SessionDeleteTarget = { id: session.id, directory: session.directory }
+    const name = sessionTitle(session.title) ?? language.t("command.session.new")
     dialog.show(() => (
-      <DialogDeleteSession sessionID={session.id} onConfirm={() => void deleteSession(session)} />
+      <DialogDeleteSession name={name} onConfirm={() => deleteSession(target)} />
     ))
   }
 
