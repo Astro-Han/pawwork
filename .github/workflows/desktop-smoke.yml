@@ -228,9 +228,10 @@ jobs:
           bun ./scripts/ci-smoke.ts packaged dev "$EXECUTABLE_PATH"
         working-directory: packages/desktop-electron
 
-  # Aggregator for the `dev` branch ruleset. The required check on GitHub
-  # is `desktop-smoke / check`; every new job added above MUST be listed
-  # in `needs:` below, otherwise its failure will not block merge.
+  # Compatibility aggregator for branch protection setups that require
+  # `desktop-smoke / check`. The live dev ruleset currently requires
+  # `smoke-macos-arm64` directly, so every blocking job added above should
+  # still be listed in `needs:` below.
   check:
     if: always()
     needs:

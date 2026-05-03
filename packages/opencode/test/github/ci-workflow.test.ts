@@ -4,7 +4,8 @@ import path from "node:path"
 import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
-const workflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml")
+const ciWorkflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml")
+const windowsAdvisoryWorkflowPath = path.join(repoRoot, ".github", "workflows", "windows-advisory.yml")
 const opencodeTestRoot = path.join(repoRoot, "packages", "opencode", "test")
 
 const pinned = {
@@ -17,6 +18,7 @@ const pinned = {
 }
 
 const runAttempt = "${{ github.run_attempt }}"
+const githubSha = "${{ github.sha }}"
 const windowsUnitJobName = "unit-windows"
 
 // Suffixes drive readable job and artifact names; commands use package.json names verbatim.
@@ -92,20 +94,20 @@ const linuxUnitJobs = linuxUnitPackages.map((pkg) => ({
 const windowsUnitJobs = windowsUnitPackages.map((pkg) => ({
   ...pkg,
   jobName: `unit-windows-${pkg.suffix}`,
-  artifactName: `unit-windows-${pkg.suffix}-${runAttempt}`,
+  artifactName: `unit-windows-${pkg.suffix}-${githubSha}-${runAttempt}`,
 }))
 
-function steps(job: string) {
+function steps(job: string, workflowPath = ciWorkflowPath) {
   const parsed = parseWorkflow(workflowPath)
   return parsed.jobs?.[job]?.steps ?? []
 }
 
-function checkoutStep(job: string) {
-  return steps(job).find((step) => step.uses?.startsWith("actions/checkout@"))
+function checkoutStep(job: string, workflowPath = ciWorkflowPath) {
+  return steps(job, workflowPath).find((step) => step.uses?.startsWith("actions/checkout@"))
 }
 
-function stepByName(job: string, name: string) {
-  return steps(job).find((step) => step.name === name)
+function stepByName(job: string, name: string, workflowPath = ciWorkflowPath) {
+  return steps(job, workflowPath).find((step) => step.name === name)
 }
 
 function toPosix(relativePath: string) {
@@ -151,23 +153,22 @@ function isWindowsOpencodeShard(item: Record<string, unknown>): item is { comman
 
 describe("ci workflow", () => {
   test("pins third-party actions and disables checkout credential persistence", () => {
-    const workflow = readWorkflow(workflowPath)
-    const parsed = parseWorkflow(workflowPath)
+    const workflow = readWorkflow(ciWorkflowPath)
+    const parsed = parseWorkflow(ciWorkflowPath)
 
     expect(parsed.name).toBe("ci")
     expect(parsed.permissions).toEqual({ contents: "read" })
 
     const linuxUnitJobNames = linuxUnitJobs.map((job) => job.jobName)
-    const setupUnitJobNames = [...linuxUnitJobNames, windowsUnitJobName]
 
-    for (const job of ["changes", "typecheck", ...setupUnitJobNames]) {
+    for (const job of ["changes", "typecheck", ...linuxUnitJobNames]) {
       expect(checkoutStep(job)?.uses).toBe(pinned.checkout)
       expect(checkoutStep(job)?.with?.["persist-credentials"]).toBe(false)
     }
 
     expect(checkoutStep("changes")?.with?.["fetch-depth"]).toBe(0)
 
-    for (const job of ["typecheck", ...setupUnitJobNames]) {
+    for (const job of ["typecheck", ...linuxUnitJobNames]) {
       expect(steps(job).find((step) => step.uses?.startsWith("actions/setup-node@"))?.uses).toBe(pinned.setupNode)
       expect(steps(job).find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))?.uses).toBe(pinned.setupBun)
       expect(steps(job).filter((step) => step.uses?.startsWith("actions/cache@")).map((step) => step.uses)).toEqual([
@@ -180,18 +181,17 @@ describe("ci workflow", () => {
       expect(stepByName(job, "Publish unit reports")?.uses).toBe(pinned.junit)
     }
 
-    expect(stepByName(windowsUnitJobName, "Publish unit reports")).toBeUndefined()
-
-    for (const job of [...linuxUnitJobNames, windowsUnitJobName]) {
+    for (const job of linuxUnitJobNames) {
       expect(stepByName(job, "Upload unit artifacts")?.uses).toBe(pinned.artifact)
     }
 
     expect(workflow).not.toContain("pull_request_target")
     expect(workflow).not.toContain("persist-credentials: true")
+    expect(parsed.jobs?.[windowsUnitJobName]).toBeUndefined()
   })
 
   test("keeps dev runs and cancels stale pull request runs", () => {
-    const parsed = parseWorkflow(workflowPath)
+    const parsed = parseWorkflow(ciWorkflowPath)
 
     expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
     expect(parsed.concurrency?.group).toContain("github.run_id")
@@ -199,7 +199,7 @@ describe("ci workflow", () => {
   })
 
   test("preserves the docs-only change detection contract", () => {
-    const parsed = parseWorkflow(workflowPath)
+    const parsed = parseWorkflow(ciWorkflowPath)
     const changes = parsed.jobs?.changes
     const filter = steps("changes").find((step) => step.id === "filter")
 
@@ -218,7 +218,7 @@ describe("ci workflow", () => {
   })
 
   test("splits required Linux unit jobs by package while preserving Turbo dependency semantics", () => {
-    const parsed = parseWorkflow(workflowPath)
+    const parsed = parseWorkflow(ciWorkflowPath)
 
     for (const { jobName, command, reportPath, checkName, artifactName } of linuxUnitJobs) {
       const job = parsed.jobs?.[jobName]
@@ -236,37 +236,77 @@ describe("ci workflow", () => {
     }
   })
 
-  test("keeps Windows unit package and shard signals advisory", () => {
-    const parsed = parseWorkflow(workflowPath)
+  test("keeps Windows unit package and shard signals in the advisory workflow", () => {
+    const workflow = readWorkflow(windowsAdvisoryWorkflowPath)
+    const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
     const job = parsed.jobs?.[windowsUnitJobName]
 
+    expect(parsed.name).toBe("windows-advisory")
+    expect(workflow).toContain("run-name: windows advisory @ ${{ github.ref_name }} / ${{ github.sha }}")
+    expect(workflow).toContain("push:")
+    expect(workflow).toContain("branches: [dev]")
+    expect(workflow).toContain("workflow_dispatch:")
+    expect(workflow).not.toContain("pull_request:")
+    expect(parsed.concurrency?.group).toContain("github.ref == 'refs/heads/dev'")
+    expect(parsed.concurrency?.group).toContain("github.run_id")
+    expect(parsed.concurrency?.["cancel-in-progress"]).toBe("${{ github.ref != 'refs/heads/dev' }}")
+    expect(parsed.permissions).toEqual({ contents: "read" })
+    expect(checkoutStep("changes", windowsAdvisoryWorkflowPath)?.uses).toBe(pinned.checkout)
+    expect(checkoutStep("changes", windowsAdvisoryWorkflowPath)?.with?.["persist-credentials"]).toBe(false)
+    expect(checkoutStep(windowsUnitJobName, windowsAdvisoryWorkflowPath)?.uses).toBe(pinned.checkout)
+    expect(checkoutStep(windowsUnitJobName, windowsAdvisoryWorkflowPath)?.with?.["persist-credentials"]).toBe(false)
     expect(job?.name).toBe("unit-windows-${{ matrix.package }}")
     expect(job?.needs).toBe("changes")
     expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
     expect(job?.["runs-on"]).toBe("windows-latest")
     expect(job?.["timeout-minutes"]).toBe(20)
-    expect(job?.["continue-on-error"]).toBe(true)
+    expect(job?.["continue-on-error"]).toBeUndefined()
     expect(job?.strategy?.["fail-fast"]).toBe(false)
     expect(job?.permissions).toEqual({ contents: "read" })
     expect(job?.defaults?.run?.shell).toBe("bash")
-    expect(stepByName(windowsUnitJobName, "Prepare unit artifact directory")?.run).toBe(
+    expect(steps(windowsUnitJobName, windowsAdvisoryWorkflowPath).find((step) =>
+      step.uses?.startsWith("actions/setup-node@"),
+    )?.uses).toBe(pinned.setupNode)
+    expect(steps(windowsUnitJobName, windowsAdvisoryWorkflowPath).find((step) =>
+      step.uses?.startsWith("oven-sh/setup-bun@"),
+    )?.uses).toBe(pinned.setupBun)
+    expect(
+      steps(windowsUnitJobName, windowsAdvisoryWorkflowPath)
+        .filter((step) => step.uses?.startsWith("actions/cache@"))
+        .map((step) => step.uses),
+    ).toEqual([pinned.cache, pinned.cache])
+    expect(stepByName(windowsUnitJobName, "Prepare unit artifact directory", windowsAdvisoryWorkflowPath)?.run).toBe(
       'mkdir -p "$(dirname "${{ matrix.report_path }}")"',
     )
-    expect(stepByName(windowsUnitJobName, "Prepare unit artifact directory")?.if).toBe("matrix.uses_turbo == false")
-    expect(stepByName(windowsUnitJobName, "unit")?.id).toBe("unit")
-    expect(stepByName(windowsUnitJobName, "unit")?.["continue-on-error"]).toBe(true)
-    expect(stepByName(windowsUnitJobName, "unit")?.run).toContain("${{ matrix.command }}")
-    expect(stepByName(windowsUnitJobName, "unit")?.run).toContain('echo "exit_code=$status" >> "$GITHUB_OUTPUT"')
-    expect(stepByName(windowsUnitJobName, "unit")?.run).toContain("### Windows unit diagnostic")
-    expect(stepByName(windowsUnitJobName, "unit")?.run).toContain("failed advisory signal")
-    expect(stepByName(windowsUnitJobName, "Publish unit reports")).toBeUndefined()
-    expect(stepByName(windowsUnitJobName, "Upload unit artifacts")?.uses).toBe(pinned.artifact)
-    expect(stepByName(windowsUnitJobName, "Upload unit artifacts")?.with?.name).toBe(
-      "unit-windows-${{ matrix.package }}-${{ github.run_attempt }}",
+    expect(stepByName(windowsUnitJobName, "Prepare unit artifact directory", windowsAdvisoryWorkflowPath)?.if).toBe(
+      "matrix.uses_turbo == false",
     )
-    expect(stepByName(windowsUnitJobName, "Upload unit artifacts")?.with?.path).toBe("${{ matrix.report_path }}")
+    expect(stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.id).toBe("unit")
+    expect(stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.["continue-on-error"]).toBeUndefined()
+    expect(stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.run).toContain("${{ matrix.command }}")
+    expect(stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.run).toContain(
+      'echo "exit_code=$status" >> "$GITHUB_OUTPUT"',
+    )
+    expect(stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.run).toContain(
+      "### Windows unit diagnostic",
+    )
+    expect(stepByName(windowsUnitJobName, "unit", windowsAdvisoryWorkflowPath)?.run).toContain(
+      "failed advisory signal",
+    )
+    expect(stepByName(windowsUnitJobName, "Publish unit reports", windowsAdvisoryWorkflowPath)).toBeUndefined()
+    expect(stepByName(windowsUnitJobName, "Upload unit artifacts", windowsAdvisoryWorkflowPath)?.uses).toBe(
+      pinned.artifact,
+    )
+    expect(stepByName(windowsUnitJobName, "Upload unit artifacts", windowsAdvisoryWorkflowPath)?.with?.name).toBe(
+      "unit-windows-${{ matrix.package }}-${{ github.sha }}-${{ github.run_attempt }}",
+    )
+    expect(stepByName(windowsUnitJobName, "Upload unit artifacts", windowsAdvisoryWorkflowPath)?.with?.path).toBe(
+      "${{ matrix.report_path }}",
+    )
 
-    const turboCacheStep = steps(windowsUnitJobName).find((step) => step.with?.path === ".turbo/cache")
+    const turboCacheStep = steps(windowsUnitJobName, windowsAdvisoryWorkflowPath).find(
+      (step) => step.with?.path === ".turbo/cache",
+    )
     expect(turboCacheStep?.if).toBe("matrix.uses_turbo")
     expect(turboCacheStep?.with?.key).toBe(
       "turbo-${{ runner.os }}-unit-windows-${{ matrix.package }}-${{ hashFiles('turbo.json', '**/package.json', 'bun.lock') }}-${{ github.sha }}",
@@ -278,7 +318,7 @@ describe("ci workflow", () => {
   })
 
   test("defines Windows unit packages and opencode shards", () => {
-    const parsed = parseWorkflow(workflowPath)
+    const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
     const job = parsed.jobs?.[windowsUnitJobName]
     const matrixIncludes = job?.strategy?.matrix?.include ?? []
 
@@ -293,12 +333,12 @@ describe("ci workflow", () => {
 
     for (const { jobName, artifactName } of windowsUnitJobs) {
       expect(parsed.jobs?.[jobName]).toBeUndefined()
-      expect(artifactName).toBe(`unit-windows-${jobName.replace("unit-windows-", "")}-${runAttempt}`)
+      expect(artifactName).toBe(`unit-windows-${jobName.replace("unit-windows-", "")}-${githubSha}-${runAttempt}`)
     }
   })
 
   test("covers each opencode test file exactly once across Windows opencode shards", () => {
-    const parsed = parseWorkflow(workflowPath)
+    const parsed = parseWorkflow(windowsAdvisoryWorkflowPath)
     const matrixIncludes = parsed.jobs?.[windowsUnitJobName]?.strategy?.matrix?.include ?? []
     const opencodeShards = matrixIncludes.filter(isWindowsOpencodeShard)
     const allTestFiles = listOpencodeTestFiles().sort()
@@ -360,7 +400,7 @@ describe("ci workflow", () => {
   })
 
   test("keeps docs-only behavior and excludes Windows from the blocking aggregate", () => {
-    const parsed = parseWorkflow(workflowPath)
+    const parsed = parseWorkflow(ciWorkflowPath)
     const check = parsed.jobs?.check
     const needs = Array.isArray(check?.needs) ? check.needs : []
     const validate = stepByName("check", "Validate CI result")
