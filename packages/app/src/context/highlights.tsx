@@ -9,7 +9,8 @@ import { persisted } from "@/utils/persist"
 import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
 const CHANGELOG_URL = "https://api.github.com/repos/Astro-Han/pawwork/releases"
-const MAX_RELEASE_HIGHLIGHTS = 15
+const MAX_RELEASE_VERSION_PAGES = 5
+const MAX_STRUCTURED_HIGHLIGHTS = 15
 
 type Store = {
   version?: string
@@ -18,6 +19,7 @@ type Store = {
 type ParsedRelease = {
   tag?: string
   highlights: Highlight[]
+  source: "release-body" | "structured"
 }
 
 type ReleaseLocale = Locale
@@ -94,39 +96,93 @@ function trimNoticeItem(value: string) {
   return text.length > 200 ? text.slice(0, 200).trimEnd() + "…" : text
 }
 
-function parseNoticeDescriptions(notice: string | undefined): string[] {
-  if (!notice) return []
+type ParsedNotice =
+  | {
+      kind: "bullets"
+      items: string[]
+      intro?: string
+    }
+  | {
+      kind: "summary"
+      text: string
+    }
+
+function parseNoticeContent(notice: string | undefined): ParsedNotice | undefined {
+  if (!notice) return
 
   const lines = notice
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .filter((line) => !line.startsWith("#"))
 
   const bullets: string[] = []
+  const prose: string[] = []
   let currentBullet: string | undefined
+  let hasSeenBullet = false
+
   for (const line of lines) {
+    if (line.length === 0) {
+      // Empty line acts as a paragraph break: flush any active bullet
+      if (currentBullet) {
+        bullets.push(trimNoticeItem(currentBullet))
+        currentBullet = undefined
+      }
+      continue
+    }
+
     const match = line.match(/^(?:[-*+]\s+|\d+\.\s+)(.+)$/)
     if (match) {
       if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
       currentBullet = match[1].trim()
+      hasSeenBullet = true
       continue
     }
-    if (currentBullet) currentBullet += ` ${line}`
+
+    if (currentBullet) {
+      currentBullet += ` ${line}`
+    } else if (!hasSeenBullet) {
+      prose.push(line)
+    }
+    // trailing prose after last bullet is ignored (intentionally)
   }
   if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
 
-  if (bullets.length > 0) return bullets
+  if (bullets.length > 0) {
+    const intro = prose.length > 0 ? trimNoticeItem(prose.join(" ")) : undefined
+    return {
+      kind: "bullets",
+      items: bullets,
+      ...(intro ? { intro } : {}),
+    }
+  }
 
-  const summary = trimNoticeItem(lines.join(" "))
-  return summary ? [summary] : []
+  const summary = trimNoticeItem(lines.filter((line) => line.length > 0).join(" "))
+  if (!summary) return
+
+  return {
+    kind: "summary",
+    text: summary,
+  }
 }
 
-function parseReleaseBodyDescriptions(body: string, locale: ReleaseLocale) {
+function parseReleaseBodyNotice(body: string, locale: ReleaseLocale): ParsedNotice | undefined {
   if (locale === "zh") {
-    const chinese = parseNoticeDescriptions(findChineseUpdateNotice(body))
-    if (chinese.length > 0) return chinese
+    const chinese = parseNoticeContent(findChineseUpdateNotice(body))
+    if (chinese) return chinese
   }
-  return parseNoticeDescriptions(findAppUpdateNotice(body))
+  return parseNoticeContent(findAppUpdateNotice(body))
+}
+
+function formatReleaseNoticeDescription(notice: ParsedNotice) {
+  if (notice.kind === "bullets") {
+    const bullets = notice.items.map((item) => `• ${item}`).join("\n")
+    if (notice.intro) {
+      return `${notice.intro}\n${bullets}`
+    }
+    return bullets
+  }
+
+  return notice.text
 }
 
 function releaseTitle(tag: string, locale: ReleaseLocale) {
@@ -154,21 +210,27 @@ function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | un
       return [item]
     })
 
-    return { tag, highlights }
+    return { tag, highlights, source: "structured" }
   }
 
   const body = getText(value.body)
   if (tag && body) {
-    const descriptions = parseReleaseBodyDescriptions(body, locale)
-    if (descriptions.length > 0) {
+    const notice = parseReleaseBodyNotice(body, locale)
+    if (notice) {
       return {
         tag,
-        highlights: descriptions.map((description) => ({ title: releaseTitle(tag, locale), description })),
+        source: "release-body",
+        highlights: [
+          {
+            title: releaseTitle(tag, locale),
+            description: formatReleaseNoticeDescription(notice),
+          },
+        ],
       }
     }
   }
 
-  return { tag, highlights: [] }
+  return { tag, highlights: [], source: "release-body" }
 }
 
 function parseChangelog(value: unknown, locale: ReleaseLocale): ParsedRelease[] | undefined {
@@ -203,22 +265,48 @@ function sliceHighlights(input: { releases: ParsedRelease[]; current?: string; p
     return index === -1 ? releases.length : index
   })()
 
-  const highlights = releases.slice(start, end).flatMap((release) => release.highlights)
+  const selected = releases.slice(start, end)
+  const highlights: Highlight[] = []
+  let releaseBodyPages = 0
+  let structuredHighlights = 0
+
+  for (const release of selected) {
+    if (release.source === "release-body") {
+      if (release.highlights.length === 0) continue
+      if (releaseBodyPages >= MAX_RELEASE_VERSION_PAGES) continue
+
+      highlights.push(...release.highlights)
+      releaseBodyPages += 1
+      continue
+    }
+
+    const remaining = MAX_STRUCTURED_HIGHLIGHTS - structuredHighlights
+    if (remaining <= 0) continue
+
+    const next = release.highlights.slice(0, remaining)
+    highlights.push(...next)
+    structuredHighlights += next.length
+  }
+
   const seen = new Set<string>()
-  const unique = highlights.filter((highlight) => {
+  return highlights.filter((highlight) => {
     const key = dedupeKey(highlight)
     if (seen.has(key)) return false
     seen.add(key)
     return true
   })
-  return unique.slice(0, MAX_RELEASE_HIGHLIGHTS)
 }
 
 function dedupeKey(highlight: Highlight) {
   return [highlight.title, highlight.description, highlight.media?.type ?? "", highlight.media?.src ?? ""].join("\n")
 }
 
-export function loadReleaseHighlights(value: unknown, current?: string, previous?: string, locale: ReleaseLocale = "en") {
+export function loadReleaseHighlights(
+  value: unknown,
+  current?: string,
+  previous?: string,
+  locale: ReleaseLocale = "en",
+) {
   const releases = parseChangelog(value, locale)
   if (!releases?.length) return []
   return sliceHighlights({ releases, current, previous })
