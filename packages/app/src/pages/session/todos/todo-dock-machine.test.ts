@@ -97,6 +97,20 @@ describe("reduceTodoDockState", () => {
     })
   })
 
+  test("leaving a completing session consumes its transient active history", () => {
+    const completing = reduceTodoDockState(
+      reduceTodoDockState(todoDockHiddenState(), { type: "snapshot", input: active("a") }),
+      { type: "snapshot", input: terminal("a") },
+    )
+    const other = reduceTodoDockState(completing, { type: "snapshot", input: empty("b") })
+
+    expect(reduceTodoDockState(other, { type: "snapshot", input: terminal("a") })).toMatchObject({
+      kind: "hidden-terminal",
+      sessionID: "a",
+      dock: false,
+    })
+  })
+
   test("landing on completed-only historical session stays hidden", () => {
     const state: TodoDockMachineState = todoDockHiddenState()
 

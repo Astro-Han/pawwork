@@ -43,6 +43,9 @@ export type TodoDockInput = {
   phase: TodoPhase
   lifecycleSignature: string
   dockEligible?: boolean
+  // Semantic flag from the source selector. The reducer primarily uses active
+  // session history to decide whether terminal snapshots complete a currently
+  // active dock or remain hidden historical state.
   historicalTerminal?: boolean
 }
 
@@ -69,6 +72,11 @@ const rememberSession = (activeSessionIDs: ReadonlySet<string>, sessionID?: stri
   return next
 }
 
+const stateSessionID = (state: TodoDockMachineState) => {
+  if (state.kind === "hidden") return undefined
+  return state.sessionID
+}
+
 export function reduceTodoDockState(state: TodoDockMachineState, transition: TodoDockTransition): TodoDockMachineState {
   if (transition.type === "animationFrameElapsed") {
     if (state.kind !== "visible-active" || !state.opening) return state
@@ -91,8 +99,14 @@ export function reduceTodoDockState(state: TodoDockMachineState, transition: Tod
   }
 
   const input = transition.input
+  const previousSessionID = stateSessionID(state)
+  const activeSessionIDs =
+    previousSessionID && previousSessionID !== input.sessionID
+      ? forgetSession(state.activeSessionIDs, previousSessionID)
+      : state.activeSessionIDs
+
   if (input.count === 0 || input.phase === "empty") {
-    return todoDockHiddenState(forgetSession(state.activeSessionIDs, input.sessionID))
+    return todoDockHiddenState(forgetSession(activeSessionIDs, input.sessionID))
   }
 
   if (input.phase === "active" && input.dockEligible !== false) {
@@ -103,7 +117,7 @@ export function reduceTodoDockState(state: TodoDockMachineState, transition: Tod
       dock: true,
       opening: hidden,
       completing: false,
-      activeSessionIDs: rememberSession(state.activeSessionIDs, input.sessionID),
+      activeSessionIDs: rememberSession(activeSessionIDs, input.sessionID),
     }
   }
 
@@ -111,7 +125,7 @@ export function reduceTodoDockState(state: TodoDockMachineState, transition: Tod
     if (state.sessionID === input.sessionID && state.lifecycleSignature === input.lifecycleSignature) return state
   }
 
-  if (!input.sessionID || !state.activeSessionIDs.has(input.sessionID)) {
+  if (!input.sessionID || !activeSessionIDs.has(input.sessionID)) {
     return {
       kind: "hidden-terminal",
       sessionID: input.sessionID,
@@ -119,7 +133,7 @@ export function reduceTodoDockState(state: TodoDockMachineState, transition: Tod
       dock: false,
       opening: false,
       completing: false,
-      activeSessionIDs: state.activeSessionIDs,
+      activeSessionIDs,
     }
   }
 
@@ -130,6 +144,6 @@ export function reduceTodoDockState(state: TodoDockMachineState, transition: Tod
     dock: true,
     opening: false,
     completing: true,
-    activeSessionIDs: state.activeSessionIDs,
+    activeSessionIDs,
   }
 }

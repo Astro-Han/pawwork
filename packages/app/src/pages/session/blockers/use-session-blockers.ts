@@ -35,12 +35,13 @@ export function createSessionBlockers(input: { sessionID: () => string | undefin
     })
   })
 
+  let alive = true
   const questionRefetch = createQuestionRefetchRunner({
     getFallbackSessionID: questionFallbackSessionID,
     refetch: (sessionID) =>
       refetchPendingQuestionsForSession({
         sessionID,
-        shouldContinue: () => questionFallbackSessionID() === sessionID,
+        shouldContinue: () => alive && questionFallbackSessionID() === sessionID,
         list: () => sdk.client.question.list().then((result) => result.data ?? []),
         apply(sid, questions) {
           batch(() => {
@@ -49,7 +50,10 @@ export function createSessionBlockers(input: { sessionID: () => string | undefin
         },
       }),
   })
-  onCleanup(questionRefetch.dispose)
+  onCleanup(() => {
+    alive = false
+    questionRefetch.dispose()
+  })
 
   createEffect(
     on(questionFallbackSessionID, (sessionID) => {
