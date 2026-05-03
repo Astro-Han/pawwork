@@ -45,7 +45,7 @@ export type Workflow = {
   name?: string
   concurrency?: {
     group?: string
-    "cancel-in-progress"?: boolean
+    "cancel-in-progress"?: boolean | string
   }
   on?: Record<string, unknown>
   permissions?: Record<string, string>
