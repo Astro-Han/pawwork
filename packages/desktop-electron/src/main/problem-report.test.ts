@@ -34,7 +34,7 @@ const base = {
     generated_at: "2026-04-23T01:02:03.004Z",
     events: [
       {
-        ts: "2026-04-23T01:02:03.004Z",
+        time: "2026-04-23T01:02:03.004Z",
         "event.name": "session.action.submit",
         level: "info" as const,
         app_launch_id: "launch_1",

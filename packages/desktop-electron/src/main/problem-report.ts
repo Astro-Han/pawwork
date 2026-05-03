@@ -308,7 +308,8 @@ export function buildProblemReport(input: Input, options: Options = {}) {
     let events = [...original.events]
     while (bytes(output) > maxBytes && events.length > 0) {
       const removeIndex = events.findIndex((event) => !isProtectedRendererDiagnosticEvent(event))
-      events.splice(removeIndex >= 0 ? removeIndex : 0, 1)
+      if (removeIndex < 0) break
+      events.splice(removeIndex, 1)
       omittedRendererDiagnosticsBytes = Math.max(0, jsonBytes(original.events) - jsonBytes(events))
       rendererDiagnostics = withRendererDiagnosticsEvents(original, events, omittedRendererDiagnosticsBytes)
       output = markdown(makePayload())

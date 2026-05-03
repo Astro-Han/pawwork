@@ -12,19 +12,32 @@ type PerformanceWithMemory = Performance & {
   }
 }
 
+let warnedRendererDiagnosticsEmitFailure = false
+
+function warnRendererDiagnosticsEmitFailure(reason: string, error?: unknown) {
+  if (!import.meta.env.DEV || warnedRendererDiagnosticsEmitFailure) return
+  warnedRendererDiagnosticsEmitFailure = true
+  console.warn(`[renderer-diagnostics] ${reason}`, error)
+}
+
 export function createRendererDiagnosticsEmitter(input: {
   api?: DiagnosticsApi
   now?: () => number
 }) {
   return async (event: RendererDiagnosticInput) => {
     const emit = input.api?.emitRendererDiagnostic
-    if (!emit) return
+    if (!emit) {
+      warnRendererDiagnosticsEmitFailure("desktop diagnostics API is unavailable")
+      return
+    }
     try {
       await emit({
         ...event,
         monotonic_ms: event.monotonic_ms ?? input.now?.() ?? performance.now(),
       })
-    } catch {}
+    } catch (error) {
+      warnRendererDiagnosticsEmitFailure("failed to emit renderer diagnostic", error)
+    }
   }
 }
 
@@ -42,6 +55,10 @@ function renderedCount(event: RendererDiagnosticInput) {
   return numericData(event, "rendered_count") ?? 0
 }
 
+function nearBottomThreshold(clientHeight: number) {
+  return Math.min(200, Math.max(80, clientHeight * 0.3))
+}
+
 export function detectSessionScrollJumpToTop(event: RendererDiagnosticInput): RendererDiagnosticInput | undefined {
   if (event.name !== "session.scroll.sample") return
   const scrollTop = numericData(event, "scroll_top")
@@ -49,7 +66,7 @@ export function detectSessionScrollJumpToTop(event: RendererDiagnosticInput): Re
   const clientHeight = numericData(event, "client_height")
   const userScrolled = booleanData(event, "user_scrolled")
   if (scrollTop === undefined || distanceFromBottom === undefined || clientHeight === undefined) return
-  if (scrollTop > 4 || distanceFromBottom < Math.max(100, clientHeight / 2) || userScrolled) return
+  if (scrollTop > 4 || distanceFromBottom < nearBottomThreshold(clientHeight) || userScrolled) return
   return {
     name: "incident.session_scroll_jump_to_top",
     level: "warn",
@@ -90,7 +107,7 @@ export function createRendererIncidentDetector() {
       const clientHeight = numericData(event, "client_height")
       const nearBottom =
         distanceFromBottom !== undefined && clientHeight !== undefined
-          ? distanceFromBottom <= Math.max(100, clientHeight / 2)
+          ? distanceFromBottom <= nearBottomThreshold(clientHeight)
           : false
       const previous = lastScroll.get(sessionKey)
       const submit = recentSubmits.get(sessionKey)
@@ -208,6 +225,17 @@ export function createSessionPerformanceDiagnostics(input: {
 
   const flush = () => {
     const now = performance.now()
+    if (document.visibilityState === "hidden") {
+      frameCount = 0
+      jankCount = 0
+      maxFrameGap = 0
+      longTaskMax = 0
+      longTaskBlock = 0
+      cls = 0
+      sampleStartedAt = now
+      lastFrame = now
+      return
+    }
     const elapsedMs = Math.max(1, now - sampleStartedAt)
     const fps = Math.round((frameCount * 1000) / elapsedMs)
     const memory = performance as PerformanceWithMemory
@@ -224,6 +252,7 @@ export function createSessionPerformanceDiagnostics(input: {
         long_task_max_ms: roundedLongTaskMax,
         long_task_block_ms: Math.round(longTaskBlock),
         cls,
+        // Chrome exposes usedJSHeapSize in bytes.
         heap_used_mb: memory.memory?.usedJSHeapSize
           ? Math.round(memory.memory.usedJSHeapSize / 1024 / 1024)
           : undefined,
@@ -262,7 +291,7 @@ export function createSessionPerformanceDiagnostics(input: {
           longTaskBlock += entry.duration
         }
       })
-      longTaskObserver.observe({ entryTypes: ["longtask"] })
+      longTaskObserver.observe({ type: "longtask", buffered: true })
     } catch {}
 
     try {
@@ -273,7 +302,7 @@ export function createSessionPerformanceDiagnostics(input: {
           if (!hadRecentInput && typeof value === "number") cls += value
         }
       })
-      layoutShiftObserver.observe({ entryTypes: ["layout-shift"] })
+      layoutShiftObserver.observe({ type: "layout-shift", buffered: true })
     } catch {}
   }
 

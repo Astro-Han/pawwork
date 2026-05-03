@@ -143,7 +143,7 @@ export default function Page() {
         return {
           routeSessionID,
           visibleSessionID,
-          routeReady: timelineMessagesReady(),
+          routeReady: timeline.routeMessagesReady(),
           visibleReady: timelineMessagesReady(),
           transitioning: !!routeSessionID && !!visibleSessionID && routeSessionID !== visibleSessionID,
           messageCount: metrics.messageCount,

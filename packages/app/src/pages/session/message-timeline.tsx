@@ -237,6 +237,7 @@ export function MessageTimeline(props: {
 }) {
   let touchGesture: number | undefined
   let scrollSampleFrame: number | undefined
+  let mounted = true
   let pendingScrollSample:
     | {
         scroll_top: number
@@ -259,6 +260,7 @@ export function MessageTimeline(props: {
   const platform = usePlatform()
   const server = useServer()
   onCleanup(() => {
+    mounted = false
     if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
   })
   // Export hits the embedded sidecar via main-process IPC. When the user has switched the
@@ -774,6 +776,7 @@ export function MessageTimeline(props: {
             if (scrollSampleFrame === undefined) {
               scrollSampleFrame = requestAnimationFrame(() => {
                 scrollSampleFrame = undefined
+                if (!mounted) return
                 const sample = pendingScrollSample
                 pendingScrollSample = undefined
                 if (!sample) return

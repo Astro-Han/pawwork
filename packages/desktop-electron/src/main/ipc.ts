@@ -70,7 +70,6 @@ type Deps = {
   exportRendererDiagnostics: () => Promise<{ ok: true; path: string } | { ok: false; error: string }>
   rendererDiagnosticsSlice: (input: {
     sessionID: string
-    directory: string
     windowID?: number
     maxBytes: number
   }) => Promise<RendererDiagnosticsSlice>
@@ -362,7 +361,6 @@ export function registerIpcHandlers(deps: Deps) {
         const win = BrowserWindow.fromWebContents(event.sender)
         rendererDiagnostics = await deps.rendererDiagnosticsSlice({
           sessionID,
-          directory,
           windowID: win?.id,
           maxBytes: SESSION_EXPORT_RENDERER_DIAGNOSTICS_MAX_BYTES,
         })

@@ -98,13 +98,16 @@ type RecordContext = {
 }
 
 type SliceInput = {
-  appLaunchID?: string
-  windowID?: string | number
   sessionID?: string | null
   traceID?: string
   from?: Date
   to?: Date
   maxBytes: number
+}
+
+type InternalSliceInput = SliceInput & {
+  appLaunchID?: string
+  windowID?: string | number
   now: Date
 }
 
@@ -187,7 +190,7 @@ function stringField(value: unknown, limit = 160) {
 }
 
 function numberField(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < 1e15 ? value : undefined
 }
 
 function booleanField(value: unknown) {
@@ -224,6 +227,11 @@ function sanitizeData(name: keyof typeof eventDataFields, data: unknown) {
   const output: Record<string, string | number | boolean | null> = {}
   for (const key of eventDataFields[name]) {
     if (!(key in input)) continue
+    if (key === "endpoint_kind") {
+      const value = stringField(input[key], 40)
+      if (value === "prompt" || value === "continue" || value === "edit") output[key] = value
+      continue
+    }
     const value = safeDataValue(input[key])
     if (value !== undefined) output[key] = value
   }
@@ -311,6 +319,7 @@ function eventMatchesSession(event: RendererDiagnosticEvent, sessionID: string) 
   if (event.route_session_id === sessionID) return true
   if (event.visible_session_id === sessionID) return true
   if (event.timeline_session_id === sessionID) return true
+  if (event["event.name"] !== "session.identity.transition") return false
   const data = event.data
   return (
     data.from_route_session_id === sessionID ||
@@ -372,7 +381,7 @@ function capEvents(events: RendererDiagnosticEvent[], maxBytes: number) {
 
 export function selectRendererDiagnosticsSlice(
   inputEvents: RendererDiagnosticEvent[],
-  input: SliceInput,
+  input: InternalSliceInput,
 ): RendererDiagnosticsSlice {
   const windowID = input.windowID === undefined ? undefined : String(input.windowID)
   const from = input.from?.getTime() ?? input.now.getTime() - 5 * 60 * 1000
@@ -490,7 +499,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
 
   const readEvents = async () => (await readEventReport()).events
 
-  const flushRetention = async () => {
+  const flushRetentionNow = async () => {
     const events = await readEvents()
     const cutoff = now().getTime() - retentionMs
     const retained = events.filter((event) => eventTime(event) >= cutoff)
@@ -527,7 +536,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     )
     if (size <= maxBytes && current - lastRetentionCheck < retentionCheckIntervalMs) return
     lastRetentionCheck = current
-    await flushRetention()
+    await flushRetentionNow()
   }
 
   const record = async (input: unknown, context: RecordContext) => {
@@ -560,7 +569,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     }
   }
 
-  const slice = async (input: Omit<SliceInput, "appLaunchID" | "now">) => {
+  const slice = async (input: SliceInput & { windowID?: string | number }) => {
     if (options.disabled) return emptyRendererDiagnosticsSlice("disabled", now())
     if (writeFailed) return emptyRendererDiagnosticsSlice("write_failed", now())
     const report = await readEventReport()
@@ -590,7 +599,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
   return {
     path,
     record,
-    flushRetention,
+    flushRetention: () => enqueueWrite(flushRetentionNow),
     readEvents,
     readEventReport,
     slice,

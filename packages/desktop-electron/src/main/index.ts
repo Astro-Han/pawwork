@@ -208,7 +208,7 @@ async function sessionExport(context = currentDesktopContext(), signal?: AbortSi
 async function exportDiagnosticsFromMenu() {
   const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
   const result = await dialog.showSaveDialog({
-    title: menuLabel(focusedMenuLocale(), "exportDiagnosticsLogTitle"),
+    title: menuLabel(focusedMenuLocale() ?? "en", "exportDiagnosticsLogTitle"),
     defaultPath: `pawwork-renderer-diagnostics-${stamp}.json`,
     filters: [{ name: "JSON", extensions: ["json"] }],
   })
