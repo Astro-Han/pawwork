@@ -29,9 +29,37 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
-import { TurnChange } from "@/session/turn-change"
+import { TurnChange, type Display as TurnChangeDisplay } from "@/session/turn-change"
+import { FileWatcher } from "@/file/watcher"
+import { File } from "@/file"
+import { LSP } from "@/lsp"
 
 const log = Log.create({ service: "server" })
+
+function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo") {
+  return Effect.gen(function* () {
+    const bus = yield* Bus.Service
+    const lsp = yield* LSP.Service
+    for (const file of display.files) {
+      if (!file.openPath) continue
+      yield* bus.publish(File.Event.Edited, { file: file.openPath })
+      const event =
+        mode === "redo"
+          ? file.status === "added"
+            ? "add"
+            : file.status === "deleted"
+              ? "unlink"
+              : "change"
+          : file.status === "added"
+            ? "unlink"
+            : file.status === "deleted"
+              ? "add"
+              : "change"
+      yield* bus.publish(FileWatcher.Event.Updated, { file: file.openPath, event })
+      if (event !== "unlink") yield* lsp.touchFile(file.openPath, true)
+    }
+  })
+}
 
 export const SessionRoutes = lazy(() =>
   new Hono()
@@ -590,7 +618,16 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        return c.json(await TurnChange.undo(params))
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const state = yield* SessionRunState.Service
+            yield* state.assertNotBusy(params.sessionID)
+            const result = yield* Effect.promise(() => TurnChange.undo(params))
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
+            return result
+          }),
+        )
+        return c.json(result)
       },
     )
     .post(
@@ -619,7 +656,16 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const params = c.req.valid("param")
-        return c.json(await TurnChange.redo(params))
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const state = yield* SessionRunState.Service
+            yield* state.assertNotBusy(params.sessionID)
+            const result = yield* Effect.promise(() => TurnChange.redo(params))
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
+            return result
+          }),
+        )
+        return c.json(result)
       },
     )
     .get(

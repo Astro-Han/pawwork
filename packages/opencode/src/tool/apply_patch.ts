@@ -78,6 +78,12 @@ export const ApplyPatchTool = Tool.define(
         additions: number
         deletions: number
         bom: boolean
+        beforeExists: boolean
+        beforeContent?: string
+        beforeBom: boolean
+        moveBeforeContent?: string
+        moveBeforeBom?: boolean
+        moveBeforeExists?: boolean
         sensitive: boolean
       }> = []
 
@@ -90,6 +96,7 @@ export const ApplyPatchTool = Tool.define(
         switch (hunk.type) {
           case "add": {
             const oldContent = ""
+            const existing = yield* Bom.readFile(afs, filePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
             const newContent =
               hunk.contents.length === 0 || hunk.contents.endsWith("\n") ? hunk.contents : `${hunk.contents}\n`
             const next = Bom.split(newContent)
@@ -111,6 +118,10 @@ export const ApplyPatchTool = Tool.define(
               additions,
               deletions,
               bom: next.bom,
+              beforeExists: !!existing,
+              beforeContent: existing?.text,
+              beforeBom: existing?.bom ?? false,
+              moveBeforeExists: undefined,
               sensitive: isSensitivePath(filePath),
             })
 
@@ -152,6 +163,9 @@ export const ApplyPatchTool = Tool.define(
 
             const movePath = hunk.move_path ? path.resolve(Instance.directory, hunk.move_path) : undefined
             yield* assertExternalDirectoryEffect(ctx, movePath)
+            const moveBefore = movePath
+              ? yield* Bom.readFile(afs, movePath).pipe(Effect.catch(() => Effect.succeed(undefined)))
+              : undefined
 
             fileChanges.push({
               filePath,
@@ -163,6 +177,11 @@ export const ApplyPatchTool = Tool.define(
               additions,
               deletions,
               bom,
+              beforeExists: true,
+              beforeBom: source.bom,
+              moveBeforeContent: moveBefore?.text,
+              moveBeforeBom: moveBefore?.bom,
+              moveBeforeExists: !!moveBefore,
               sensitive: isSensitivePath(filePath) || (movePath ? isSensitivePath(movePath) : false),
             })
 
@@ -194,6 +213,8 @@ export const ApplyPatchTool = Tool.define(
               additions: 0,
               deletions,
               bom: source.bom,
+              beforeExists: true,
+              beforeBom: source.bom,
               sensitive: isSensitivePath(filePath),
             })
 
@@ -316,16 +337,20 @@ export const ApplyPatchTool = Tool.define(
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: change.movePath,
-            before: { exists: false },
-            after: { exists: true, content: change.newContent },
+            before: change.moveBeforeExists
+              ? { exists: true, content: change.moveBeforeContent ?? "", bom: change.moveBeforeBom ?? false }
+              : { exists: false },
+            after: { exists: true, content: change.newContent, bom: change.bom },
           })
         } else {
           TurnChange.recordWrite({
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: change.filePath,
-            before: change.type === "add" ? { exists: false } : { exists: true, content: change.oldContent },
-            after: change.type === "delete" ? { exists: false } : { exists: true, content: change.newContent },
+            before: change.beforeExists
+              ? { exists: true, content: change.beforeContent ?? change.oldContent, bom: change.beforeBom }
+              : { exists: false },
+            after: change.type === "delete" ? { exists: false } : { exists: true, content: change.newContent, bom: change.bom },
           })
         }
       }
@@ -355,7 +380,7 @@ export const ApplyPatchTool = Tool.define(
         const target = change.movePath ?? change.filePath
         yield* lsp.touchFile(target, true)
       }
-      const diagnostics = yield* lsp.diagnostics()
+      const diagnostics = fileChanges.some((change) => change.sensitive) ? {} : yield* lsp.diagnostics()
 
       // Generate output summary
       const summaryLines = fileChanges.map((change) => {
@@ -373,6 +398,7 @@ export const ApplyPatchTool = Tool.define(
       for (const change of fileChanges) {
         if (change.type === "delete") continue
         const target = change.movePath ?? change.filePath
+        if (change.sensitive) continue
         const block = LSP.Diagnostic.report(target, diagnostics[AppFileSystem.normalizePath(target)] ?? [])
         if (!block) continue
         const rel = path.relative(Instance.worktree, target).replaceAll("\\", "/")

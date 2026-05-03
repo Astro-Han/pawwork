@@ -86,8 +86,8 @@ export const WriteTool = Tool.define(
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: filepath,
-            before: exists ? { exists: true, content: contentOld } : { exists: false },
-            after: { exists: true, content: finalContent },
+            before: exists ? { exists: true, content: contentOld, bom: source.bom } : { exists: false },
+            after: { exists: true, content: finalContent, bom: desiredBom },
           })
           yield* bus.publish(FileWatcher.Event.Updated, {
             file: filepath,
@@ -96,7 +96,7 @@ export const WriteTool = Tool.define(
 
           let output = "Wrote file successfully."
           yield* lsp.touchFile(filepath, true)
-          const diagnostics = yield* lsp.diagnostics()
+          const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
           const normalizedFilepath = AppFileSystem.normalizePath(filepath)
           let projectDiagnosticsCount = 0
           for (const [file, issues] of Object.entries(diagnostics)) {
@@ -116,8 +116,9 @@ export const WriteTool = Tool.define(
             title: path.relative(Instance.worktree, filepath),
             metadata: {
               diagnostics,
-              filepath,
+              ...(sensitive ? { filepath, sensitive: true, status } : { filepath }),
               exists: exists,
+              ...(sensitive && bomChanged ? { bomDiscarded: true } : {}),
             },
             output,
           }

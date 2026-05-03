@@ -154,6 +154,7 @@ type TurnChangeFile = {
   sensitive?: boolean
   binary?: boolean
   large?: boolean
+  restoreAvailable?: boolean
   expandable: boolean
 }
 
@@ -309,7 +310,13 @@ export function SessionTurn(
     { equals: same },
   )
 
-  const turnChangeMessageID = createMemo(() => assistantMessages().findLast((item) => item.time.completed)?.id)
+  const turnChangeMessageID = createMemo(() => {
+    const messages = assistantMessages()
+    return (
+      messages.findLast((item) => item.time.completed && (props.turnChanges?.[item.id]?.files.length ?? 0) > 0)?.id ??
+      messages.findLast((item) => item.time.completed)?.id
+    )
+  })
   const turnChange = createMemo(() => {
     const id = turnChangeMessageID()
     return id ? props.turnChanges?.[id] : undefined
@@ -352,6 +359,11 @@ export function SessionTurn(
     const base = action === "undo" ? "Undo" : "Redo"
     return confirmAction() === action ? `${base}?` : base
   })
+  const turnStatusLabel = (status: TurnChangeFile["status"]) => {
+    if (status === "added") return "Added"
+    if (status === "deleted") return "Deleted"
+    return "Updated"
+  }
   const parentPath = (value: string) => {
     const normalized = value.replaceAll("\\", "/")
     const index = normalized.lastIndexOf("/")
@@ -566,7 +578,7 @@ export function SessionTurn(
                                 <span data-slot="session-turn-change-meta">
                                   <Show
                                     when={file.additions !== undefined || file.deletions !== undefined}
-                                    fallback={<span data-slot="session-turn-change-status">Updated</span>}
+                                    fallback={<span data-slot="session-turn-change-status">{turnStatusLabel(file.status)}</span>}
                                   >
                                     <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
                                     <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
@@ -610,7 +622,7 @@ export function SessionTurn(
                     </div>
                   </div>
                 </Show>
-                <Show when={turnEdited() === 0 && edited() > 0 && !working()}>
+                <Show when={props.turnChanges === undefined && turnEdited() === 0 && edited() > 0 && !working()}>
                   <div
                     data-slot="session-turn-diffs"
                     data-component="session-turn-diffs-group"

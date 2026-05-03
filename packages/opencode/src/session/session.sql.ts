@@ -147,8 +147,8 @@ export const TurnChangeDisplayTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
-    uniqueIndex("turn_change_display_message_idx").on(table.session_id, table.message_id),
-    index("turn_change_display_session_idx").on(table.session_id),
+    uniqueIndex("turn_change_display_session_id_message_id_idx").on(table.session_id, table.message_id),
+    index("turn_change_display_session_id_idx").on(table.session_id),
   ],
 )
 
@@ -170,8 +170,8 @@ export const TurnChangeRestoreTable = sqliteTable(
     ...Timestamps,
   },
   (table) => [
-    uniqueIndex("turn_change_restore_file_idx").on(table.session_id, table.message_id, table.file_path),
-    index("turn_change_restore_message_idx").on(table.session_id, table.message_id),
+    uniqueIndex("turn_change_restore_session_id_message_id_file_path_idx").on(table.session_id, table.message_id, table.file_path),
+    index("turn_change_restore_session_id_message_id_idx").on(table.session_id, table.message_id),
   ],
 )
 

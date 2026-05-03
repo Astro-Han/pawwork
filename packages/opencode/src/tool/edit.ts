@@ -88,6 +88,8 @@ export const EditTool = Tool.define(
           let contentNew = ""
           let existedBefore = true
           let bomDiscarded = false
+          let beforeBom = false
+          let afterBom = false
           yield* lock(filePath).withPermits(1)(
             Effect.gen(function* () {
               if (params.oldString === "") {
@@ -113,6 +115,8 @@ export const EditTool = Tool.define(
                 // show, silently breaking shebangs and first-token parsing on
                 // BOM-less scripts.
                 const desiredBom = source.bom
+                beforeBom = source.bom
+                afterBom = desiredBom
                 const bomChanged = source.bom !== next.bom
                 bomDiscarded = bomChanged
                 contentOld = source.text
@@ -169,6 +173,8 @@ export const EditTool = Tool.define(
               // text introduce a new BOM, since the diff preview cannot
               // surface that byte-level change.
               const desiredBom = source.bom
+              beforeBom = source.bom
+              afterBom = desiredBom
               const bomChanged = source.bom !== next.bom
               bomDiscarded = bomChanged
               contentNew = next.text
@@ -244,13 +250,13 @@ export const EditTool = Tool.define(
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: filePath,
-            before: existedBefore ? { exists: true, content: contentOld } : { exists: false },
-            after: { exists: true, content: contentNew },
+            before: existedBefore ? { exists: true, content: contentOld, bom: beforeBom } : { exists: false },
+            after: { exists: true, content: contentNew, bom: afterBom },
           })
 
           let output = "Edit applied successfully."
           yield* lsp.touchFile(filePath, true)
-          const diagnostics = yield* lsp.diagnostics()
+          const diagnostics = sensitive ? {} : yield* lsp.diagnostics()
           const normalizedFilePath = AppFileSystem.normalizePath(filePath)
           const block = LSP.Diagnostic.report(filePath, diagnostics[normalizedFilePath] ?? [])
           if (block) output += `\n\nLSP errors detected in this file, please fix:\n${block}`

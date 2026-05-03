@@ -9,8 +9,8 @@ CREATE TABLE `turn_change_display` (
 	CONSTRAINT `fk_turn_change_display_message_id_message_id_fk` FOREIGN KEY (`message_id`) REFERENCES `message`(`id`) ON DELETE CASCADE
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `turn_change_display_message_idx` ON `turn_change_display` (`session_id`,`message_id`);--> statement-breakpoint
-CREATE INDEX `turn_change_display_session_idx` ON `turn_change_display` (`session_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `turn_change_display_session_id_message_id_idx` ON `turn_change_display` (`session_id`,`message_id`);--> statement-breakpoint
+CREATE INDEX `turn_change_display_session_id_idx` ON `turn_change_display` (`session_id`);--> statement-breakpoint
 CREATE TABLE `turn_change_restore` (
 	`session_id` text NOT NULL,
 	`message_id` text NOT NULL,
@@ -24,5 +24,5 @@ CREATE TABLE `turn_change_restore` (
 	CONSTRAINT `fk_turn_change_restore_message_id_message_id_fk` FOREIGN KEY (`message_id`) REFERENCES `message`(`id`) ON DELETE CASCADE
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `turn_change_restore_file_idx` ON `turn_change_restore` (`session_id`,`message_id`,`file_path`);--> statement-breakpoint
-CREATE INDEX `turn_change_restore_message_idx` ON `turn_change_restore` (`session_id`,`message_id`);
+CREATE UNIQUE INDEX `turn_change_restore_session_id_message_id_file_path_idx` ON `turn_change_restore` (`session_id`,`message_id`,`file_path`);--> statement-breakpoint
+CREATE INDEX `turn_change_restore_session_id_message_id_idx` ON `turn_change_restore` (`session_id`,`message_id`);

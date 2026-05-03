@@ -106,6 +106,71 @@ describe("TurnChange", () => {
     })
   })
 
+  test("finalizes large files as status-only and blocks restore when target content is unavailable", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "large.txt")
+        const large = "x".repeat(2 * 1024 * 1024 + 1)
+        await fs.rm(target, { force: true })
+
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: true, content: large },
+          after: { exists: false },
+        })
+
+        const display = TurnChange.finalize(turn)
+        expect(display?.files).toEqual([
+          {
+            path: "large.txt",
+            status: "deleted",
+            large: true,
+            restoreAvailable: false,
+            expandable: false,
+          },
+        ])
+
+        const result = await TurnChange.undo(turn)
+        expect(result).toMatchObject({
+          status: "blocked",
+          reason: "unsupported_size",
+          files: [{ path: "large.txt", reason: "restore_unavailable" }],
+        })
+        await expect(fs.readFile(target, "utf-8")).rejects.toThrow()
+      },
+    })
+  })
+
+  test("undo restores BOM bytes", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "bom.txt")
+        await fs.writeFile(target, "after\n", "utf-8")
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: true, content: "before\n", bom: true },
+          after: { exists: true, content: "after\n", bom: false },
+        })
+        TurnChange.finalize(turn)
+
+        expect((await TurnChange.undo(turn)).status).toBe("applied")
+        const bytes = await fs.readFile(target)
+        expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+        expect(bytes.toString("utf-8")).toBe("\uFEFFbefore\n")
+      },
+    })
+  })
+
   test("undo preflight conflict writes no files", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()

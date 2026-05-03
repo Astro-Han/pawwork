@@ -81,8 +81,11 @@ export function sanitizeSensitiveDiffs<T extends { file: string; status?: Sensit
   return diffs.map((item) =>
     isSensitivePath(item.file)
       ? {
-          file: item.file,
+          ...item,
           status: item.status ?? "modified",
+          ...("patch" in item ? { patch: "" } : {}),
+          ...("additions" in item ? { additions: 0 } : {}),
+          ...("deletions" in item ? { deletions: 0 } : {}),
           sensitive: true,
         }
       : item,
@@ -152,13 +155,17 @@ export function sanitizeSensitiveToolPart<T extends { type: string; tool?: strin
   if (!("input" in part.state) && !("metadata" in part.state)) return part
   const input = sanitizeSensitiveToolInput(part.tool, part.state.input, part.state.metadata)
   const metadata = sanitizeSensitiveToolMetadata(part.state.metadata, part.state.input)
-  if (input === part.state.input && metadata === part.state.metadata) return part
+  const sensitive = input !== part.state.input || metadata !== part.state.metadata
+  if (!sensitive) return part
+  const output = typeof part.state.output === "string" ? "Sensitive file updated." : part.state.output
   return {
     ...part,
     state: {
       ...part.state,
       input,
       metadata,
+      output,
+      attachments: undefined,
     },
   }
 }

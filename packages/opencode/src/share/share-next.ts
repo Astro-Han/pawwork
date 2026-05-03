@@ -107,6 +107,18 @@ export namespace ShareNext {
     }
   }
 
+  function sanitizeMessageInfo<T extends SDK.Message>(info: T): T {
+    const summary = "summary" in info && typeof info.summary === "object" && info.summary ? info.summary : undefined
+    if (!summary?.diffs) return info
+    return {
+      ...info,
+      summary: {
+        ...summary,
+        diffs: sanitizeSensitiveDiffs(summary.diffs),
+      },
+    }
+  }
+
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -187,7 +199,7 @@ export namespace ShareNext {
           yield* watch(MessageV2.Event.Updated, (evt) =>
             Effect.gen(function* () {
               const info = evt.properties.info
-              yield* sync(info.sessionID, [{ type: "message", data: info }])
+              yield* sync(info.sessionID, [{ type: "message", data: sanitizeMessageInfo(info) }])
               if (info.role !== "user") return
               const model = yield* provider.getModel(info.model.providerID, info.model.modelID)
               yield* sync(info.sessionID, [{ type: "model", data: [model] }])
@@ -278,7 +290,7 @@ export namespace ShareNext {
 
         yield* sync(sessionID, [
           { type: "session", data: info },
-          ...messages.map((item) => ({ type: "message" as const, data: item.info })),
+          ...messages.map((item) => ({ type: "message" as const, data: sanitizeMessageInfo(item.info) })),
           ...messages.flatMap((item) =>
             item.parts.map((part) => ({ type: "part" as const, data: sanitizeSensitiveToolPart(part) as SDK.Part })),
           ),

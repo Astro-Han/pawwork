@@ -349,7 +349,12 @@ export function MessageTimeline(props: {
     }
     showToast({
       title: action === "undo" ? "Undo blocked" : "Redo blocked",
-      description: "The file changed after this turn, so PawWork did not overwrite it.",
+      description:
+        body?.reason === "conflict"
+          ? "The file changed after this turn, so PawWork did not overwrite it."
+          : body?.reason === "unsupported_size"
+            ? "This turn includes a file without restore data, so PawWork did not change anything."
+            : "PawWork could not apply this change.",
       variant: "error",
     })
     return turnChanges[messageID] ?? undefined
@@ -371,9 +376,16 @@ export function MessageTimeline(props: {
           const key = `${id}:${message.id}`
           if (fetchedTurnChanges.has(key)) continue
           fetchedTurnChanges.add(key)
-          void turnChangeFetch(message.id).catch(() => {
-            setTurnChanges(message.id, null)
-          })
+          void turnChangeFetch(message.id)
+            .then((display) => {
+              if (display) return
+              fetchedTurnChanges.delete(key)
+              setTimeout(() => void turnChangeFetch(message.id).catch(() => undefined), 500)
+            })
+            .catch(() => {
+              fetchedTurnChanges.delete(key)
+              setTurnChanges(message.id, null)
+            })
         }
       },
     ),

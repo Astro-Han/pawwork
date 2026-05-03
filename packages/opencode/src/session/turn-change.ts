@@ -4,13 +4,17 @@ import path from "path"
 import { createTwoFilesPatch, diffLines } from "diff"
 import z from "zod"
 import { eq, and, ne, Database } from "@/storage/db"
+import { count } from "drizzle-orm"
 import { MessageID, SessionID } from "./schema"
 import { TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
 import { Instance } from "@/project/instance"
 import { isSensitivePath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
+import { Global } from "@/global"
 
-type FileState = { exists: false; content?: undefined } | { exists: true; content: string }
+type FileState =
+  | { exists: false; content?: undefined; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
+  | { exists: true; content?: string; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
 type Status = "added" | "modified" | "deleted"
 
 export type DisplayFile = {
@@ -23,6 +27,7 @@ export type DisplayFile = {
   sensitive?: boolean
   binary?: boolean
   large?: boolean
+  restoreAvailable?: boolean
   expandable: boolean
 }
 
@@ -62,6 +67,7 @@ type MutationResult =
 const DISPLAY_LIMIT = 2 * 1024 * 1024
 const RESTORE_LIMIT = 2 * 1024 * 1024
 const MAX_FILES = 200
+const locks = new Map<string, Promise<void>>()
 
 function now() {
   return Date.now()
@@ -69,7 +75,8 @@ function now() {
 
 function hash(state: FileState) {
   if (!state.exists) return "missing"
-  return "sha256:" + crypto.createHash("sha256").update(state.content).digest("hex")
+  if (state.hash) return state.hash
+  return "sha256:" + crypto.createHash("sha256").update(state.content ?? "").digest("hex")
 }
 
 function same(a: FileState, b: FileState) {
@@ -88,9 +95,13 @@ function displayPath(file: string) {
     return path.relative(directory, file).replaceAll("\\", "/")
   const worktree = Instance.worktree
   if (file.startsWith(worktree + path.sep) || file === worktree) return path.relative(worktree, file).replaceAll("\\", "/")
-  const home = process.env.HOME
+  const home = Global.Path.home
   if (home && (file === home || file.startsWith(home + path.sep))) return `~/${path.relative(home, file).replaceAll("\\", "/")}`
   return file
+}
+
+function byteSize(text: string) {
+  return Buffer.byteLength(text, "utf8")
 }
 
 function additionsDeletions(before: string, after: string) {
@@ -107,6 +118,10 @@ function isBinary(text: string) {
   return text.includes("\0")
 }
 
+function canRestore(state: FileState) {
+  return !state.exists || (state.content !== undefined && state.restorable !== false && !state.large && !state.binary)
+}
+
 function toDisplay(file: RestoreFile): DisplayFile | undefined {
   if (same(file.before, file.after)) return
   const currentStatus = status(file.before, file.after)
@@ -120,16 +135,17 @@ function toDisplay(file: RestoreFile): DisplayFile | undefined {
     }
   }
 
-  const beforeText = file.before.exists ? file.before.content : ""
-  const afterText = file.after.exists ? file.after.content : ""
-  const binary = isBinary(beforeText) || isBinary(afterText)
-  const large = beforeText.length > DISPLAY_LIMIT || afterText.length > DISPLAY_LIMIT
+  const beforeText = file.before.exists ? (file.before.content ?? "") : ""
+  const afterText = file.after.exists ? (file.after.content ?? "") : ""
+  const binary = !!file.before.binary || !!file.after.binary || isBinary(beforeText ?? "") || isBinary(afterText ?? "")
+  const large = !!file.before.large || !!file.after.large || byteSize(beforeText ?? "") > DISPLAY_LIMIT || byteSize(afterText ?? "") > DISPLAY_LIMIT
   if (binary || large) {
     return {
       path: file.displayPath,
       status: currentStatus,
       ...(binary ? { binary: true } : {}),
       ...(large ? { large: true } : {}),
+      restoreAvailable: canRestore(file.before) && canRestore(file.after),
       expandable: false,
     }
   }
@@ -167,20 +183,24 @@ function displayRow(sessionID: SessionID, messageID: MessageID) {
 
 async function currentState(file: string): Promise<FileState> {
   try {
-    return { exists: true, content: await fs.readFile(file, "utf-8") }
+    const stat = await fs.stat(file)
+    if (stat.isDirectory()) return { exists: true, restorable: false, hash: "directory", binary: true }
+    const content = await fs.readFile(file, "utf-8")
+    return { exists: true, content, hash: "sha256:" + crypto.createHash("sha256").update(content).digest("hex") }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { exists: false }
-    throw err
+    return { exists: true, restorable: false, hash: `error:${(err as NodeJS.ErrnoException).code ?? "unknown"}` }
   }
 }
 
 async function applyState(file: string, state: FileState) {
+  if (!canRestore(state)) throw new Error("restore data unavailable")
   if (!state.exists) {
     await fs.rm(file, { force: true })
     return
   }
   await fs.mkdir(path.dirname(file), { recursive: true })
-  await fs.writeFile(file, state.content, "utf-8")
+  await fs.writeFile(file, (state.bom ? "\uFEFF" : "") + (state.content ?? ""), "utf-8")
 }
 
 function withAvailability(display: Display, state: "applied" | "undone" | "redo_invalidated") {
@@ -213,6 +233,7 @@ export namespace TurnChange {
     sensitive: z.boolean().optional(),
     binary: z.boolean().optional(),
     large: z.boolean().optional(),
+    restoreAvailable: z.boolean().optional(),
     expandable: z.boolean(),
   })
 
@@ -242,6 +263,29 @@ export namespace TurnChange {
     }),
   ])
 
+  function prepareState(state: FileState): FileState {
+    if (!state.exists) return state
+    const content = state.content ?? ""
+    const binary = isBinary(content)
+    const large = byteSize(content) > RESTORE_LIMIT
+    const hashValue = "sha256:" + crypto.createHash("sha256").update(content).digest("hex")
+    if (binary || large) {
+      return { exists: true, hash: hashValue, restorable: false, binary, large, bom: state.bom }
+    }
+    return { ...state, hash: hashValue, restorable: true }
+  }
+
+  function nextPosition(sessionID: SessionID, messageID: MessageID) {
+    const row = Database.use((db) =>
+      db
+        .select({ value: count() })
+        .from(TurnChangeRestoreTable)
+        .where(and(eq(TurnChangeRestoreTable.session_id, sessionID), eq(TurnChangeRestoreTable.message_id, messageID)))
+        .get(),
+    )
+    return row?.value ?? 0
+  }
+
   export function recordWrite(input: {
     sessionID: SessionID
     messageID: MessageID
@@ -250,8 +294,6 @@ export namespace TurnChange {
     after: FileState
   }) {
     if (!input.messageID) return
-    if (input.before.exists && input.before.content.length > RESTORE_LIMIT) return
-    if (input.after.exists && input.after.content.length > RESTORE_LIMIT) return
     const existing = Database.use((db) =>
       db
         .select()
@@ -270,8 +312,8 @@ export namespace TurnChange {
     const data: RestoreFile = {
       path: input.path,
       displayPath: displayPath(input.path),
-      before: existing?.data.before ?? input.before,
-      after: input.after,
+      before: existing?.data.before ?? prepareState(input.before),
+      after: prepareState(input.after),
     }
     if (existing) {
       Database.use((db) =>
@@ -290,8 +332,8 @@ export namespace TurnChange {
       return
     }
 
-    const count = rows(input.sessionID, input.messageID).length
-    if (count >= MAX_FILES) return
+    const position = nextPosition(input.sessionID, input.messageID)
+    if (position >= MAX_FILES) return
     Database.use((db) =>
       db
         .insert(TurnChangeRestoreTable)
@@ -299,7 +341,7 @@ export namespace TurnChange {
           session_id: input.sessionID,
           message_id: input.messageID,
           file_path: input.path,
-          position: count,
+          position,
           data,
           finalized: false,
           time_created: time,
@@ -381,10 +423,20 @@ export namespace TurnChange {
     const blocked: Array<{ path: string; reason: string }> = []
     for (const row of restore) {
       const expected = input.mode === "undo" ? row.data.after : row.data.before
+      if (!canRestore(input.mode === "undo" ? row.data.before : row.data.after)) {
+        blocked.push({ path: row.data.displayPath, reason: "restore_unavailable" })
+        continue
+      }
       const current = await currentState(row.data.path)
-      if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
+      if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
+      else if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
     }
-    if (blocked.length) return { status: "blocked", reason: "conflict", files: blocked }
+    if (blocked.length)
+      return {
+        status: "blocked",
+        reason: blocked.some((item) => item.reason === "restore_unavailable") ? "unsupported_size" : "conflict",
+        files: blocked,
+      }
 
     const rollback: Array<{ file: string; state: FileState }> = []
     try {
@@ -414,10 +466,27 @@ export namespace TurnChange {
   }
 
   export function undo(input: { sessionID: SessionID; messageID: MessageID }) {
-    return mutate({ ...input, mode: "undo" })
+    return locked(input.sessionID, () => mutate({ ...input, mode: "undo" }))
   }
 
   export function redo(input: { sessionID: SessionID; messageID: MessageID }) {
-    return mutate({ ...input, mode: "redo" })
+    return locked(input.sessionID, () => mutate({ ...input, mode: "redo" }))
+  }
+}
+
+async function locked<T>(sessionID: SessionID, fn: () => Promise<T>) {
+  const previous = locks.get(sessionID) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const queued = previous.then(() => current)
+  locks.set(sessionID, queued)
+  await previous
+  try {
+    return await fn()
+  } finally {
+    release()
+    if (locks.get(sessionID) === queued) locks.delete(sessionID)
   }
 }

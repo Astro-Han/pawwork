@@ -104,7 +104,9 @@ describe("session artifacts", () => {
 
         expect(serialized).not.toContain("old-secret")
         expect(serialized).not.toContain("new-secret")
-        expect(diff as unknown).toEqual([{ file: ".env", status: "modified", sensitive: true }])
+        expect(diff as unknown).toEqual([
+          { file: ".env", patch: "", additions: 0, deletions: 0, status: "modified", sensitive: true },
+        ])
 
         const stored = await AppRuntime.runPromise(
           Effect.gen(function* () {

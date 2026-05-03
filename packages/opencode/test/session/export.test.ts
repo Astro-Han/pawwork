@@ -219,6 +219,7 @@ describe("Export.redactPart sensitive tool metadata", () => {
     expect(serialized).not.toContain("@@")
     expect((redacted as MessageV2.ToolPart).state).toMatchObject({
       input: { filePath: "/tmp/project/.env", sensitive: true },
+      output: "Sensitive file updated.",
       metadata: {
         filediff: {
           file: "/tmp/project/.env",
