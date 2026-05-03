@@ -1,6 +1,7 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
+import { createStore } from "solid-js/store"
 import { createSessionHistoryWindow, resolveHistoryTurnStart } from "./use-session-history-window"
 
 const userMessage = (id: number) =>
@@ -14,27 +15,29 @@ const userMessages = (count: number) => Array.from({ length: count }, (_, index)
 const ids = (start: number, end: number) => Array.from({ length: end - start }, (_, index) => `msg_${start + index}`)
 
 const createHarness = (input: { count: number; userScrolled?: boolean }) => {
-  let messages = userMessages(input.count)
-  let userScrolled = input.userScrolled ?? false
+  const [state, setState] = createStore({
+    messages: userMessages(input.count),
+    userScrolled: input.userScrolled ?? false,
+  })
   const history = createSessionHistoryWindow({
     sessionID: () => "ses_1",
     messagesReady: () => true,
-    loaded: () => messages.length,
-    visibleUserMessages: () => messages,
+    loaded: () => state.messages.length,
+    visibleUserMessages: () => state.messages,
     historyMore: () => false,
     historyLoading: () => false,
     loadMore: async () => undefined,
-    userScrolled: () => userScrolled,
+    userScrolled: () => state.userScrolled,
     scroller: () => undefined,
   })
 
   return {
     history,
     setCount: (count: number) => {
-      messages = userMessages(count)
+      setState("messages", userMessages(count))
     },
     setUserScrolled: (value: boolean) => {
-      userScrolled = value
+      setState("userScrolled", value)
     },
   }
 }

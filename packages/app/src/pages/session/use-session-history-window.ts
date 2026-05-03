@@ -277,10 +277,11 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
           setState("mode", "reading")
           return
         }
-        if (!userScrolled && state.mode !== "bottom") {
+        if (!userScrolled && state.mode === "reading") {
           returnToLatestIfFollowing()
           return
         }
+        if (state.mode === "hash") return
         returnToLatestIfFollowing()
       },
       { defer: true },
