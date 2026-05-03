@@ -26,6 +26,7 @@ import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import { normalize } from "./session-diff"
+import { hasVisibleTurnChanges, type TurnChangeDisplay, type TurnChangeFile } from "./session-turn-changes"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -142,31 +143,6 @@ function heading(text: string) {
     const value = clean(strong[1])
     if (value) return value
   }
-}
-
-type TurnChangeFile = {
-  path: string
-  openPath?: string
-  status: "added" | "modified" | "deleted"
-  additions?: number
-  deletions?: number
-  patch?: string
-  sensitive?: boolean
-  binary?: boolean
-  large?: boolean
-  restoreAvailable?: boolean
-  expandable: boolean
-}
-
-type TurnChangeDisplay = {
-  sessionID: string
-  turnID: string
-  messageID: string
-  undoAvailable: boolean
-  redoAvailable: boolean
-  truncated?: boolean
-  omittedCount?: number
-  files: TurnChangeFile[]
 }
 
 export function SessionTurn(
@@ -315,7 +291,7 @@ export function SessionTurn(
   const turnChangeMessageID = createMemo(() => {
     const messages = assistantMessages()
     return (
-      messages.findLast((item) => item.time.completed && (props.turnChanges?.[item.id]?.files.length ?? 0) > 0)?.id ??
+      messages.findLast((item) => item.time.completed && hasVisibleTurnChanges(props.turnChanges?.[item.id]))?.id ??
       messages.findLast((item) => item.time.completed)?.id
     )
   })
@@ -522,7 +498,7 @@ export function SessionTurn(
                   </div>
                 </Show>
                 <SessionRetry status={status()} show={active()} />
-                <Show when={turnEdited() > 0 && !working()}>
+                <Show when={hasVisibleTurnChanges(turnChange()) && !working()}>
                   <div data-slot="session-turn-changes" data-component="session-turn-changes">
                     <div data-slot="session-turn-changes-header">
                       <div data-slot="session-turn-changes-summary">
