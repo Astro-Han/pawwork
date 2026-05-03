@@ -11,6 +11,7 @@ import { Index, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { composerEnabled, composerProbe } from "@/testing/session-composer"
 import { useLanguage } from "@/context/language"
+import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 
 const currentToken = "\u0000current\u0000"
 const totalToken = "\u0000total\u0000"
@@ -42,7 +43,7 @@ function dot(status: Todo["status"]) {
 
 export function SessionTodoDock(props: {
   sessionID?: string
-  todos: Todo[]
+  todos: SessionTodoItem[]
   collapseLabel: string
   expandLabel: string
   dockProgress: number
@@ -230,7 +231,7 @@ export function SessionTodoDock(props: {
   )
 }
 
-function TodoList(props: { todos: Todo[] }) {
+function TodoList(props: { todos: SessionTodoItem[] }) {
   const [store, setStore] = createStore({
     stuck: false,
   })

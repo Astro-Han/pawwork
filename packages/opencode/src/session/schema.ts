@@ -33,3 +33,13 @@ export const PartID = Schema.String.annotate({ [ZodOverride]: Identifier.schema(
 )
 
 export type PartID = Schema.Schema.Type<typeof PartID>
+
+export const TodoID = Schema.String.annotate({ [ZodOverride]: Identifier.schema("todo") }).pipe(
+  Schema.brand("TodoID"),
+  withStatics((s) => ({
+    ascending: (id?: string) => s.make(Identifier.ascending("todo", id)),
+    zod: zod(s),
+  })),
+)
+
+export type TodoID = Schema.Schema.Type<typeof TodoID>

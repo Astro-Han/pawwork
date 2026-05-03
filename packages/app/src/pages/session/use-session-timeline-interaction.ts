@@ -63,8 +63,14 @@ export function createSessionTimelineInteraction(input: {
     historyLoading: input.historyLoading,
     loadMore: input.loadMore,
     userScrolled: autoScroll.userScrolled,
+    isAtBottom: () => scrollDock.scroll.bottom,
     scroller: scrollDock.scroller,
   })
+
+  const resumeLatest = () => {
+    historyWindow.resumeLatestWindow()
+    resumeScroll()
+  }
 
   historyBackfill = createSessionHistoryBackfill({
     routeSessionID: input.routeSessionID,
@@ -91,12 +97,13 @@ export function createSessionTimelineInteraction(input: {
     pendingMessage: activeMessage.pendingMessage,
     setPendingMessage: activeMessage.setPendingMessage,
     setActiveMessage: activeMessage.setActiveMessage,
-    setTurnStart: historyWindow.setTurnStart,
+    markHashTarget: historyWindow.markHashTarget,
     autoScroll,
     scroller: scrollDock.scroller,
     anchor,
     scheduleScrollState: scrollDock.scheduleScrollState,
     consumePendingMessage: input.consumePendingMessage,
+    onMessageHashCleared: () => historyWindow.clearHashTarget(),
   })
   clearMessageHash = hashScroll.clearMessageHash
   activeMessage.setScrollToMessage(hashScroll.scrollToMessage)
@@ -106,7 +113,7 @@ export function createSessionTimelineInteraction(input: {
     autoScroll,
     anchor,
     historyWindow,
-    resumeScroll,
+    resumeScroll: resumeLatest,
     scheduleScrollState: scrollDock.scheduleScrollState,
     scrollDock,
     setScrollRef: scrollDock.setScrollRef,

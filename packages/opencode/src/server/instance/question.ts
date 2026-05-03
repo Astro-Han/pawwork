@@ -7,9 +7,12 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { Bus } from "@/bus"
 import { Env } from "@/env"
 import { SessionID } from "@/session/schema"
+import { Log } from "@opencode-ai/core/util/log"
 import z from "zod"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+
+const log = Log.create({ service: "server" })
 
 export const QuestionRoutes = lazy(() =>
   new Hono()
@@ -27,14 +30,16 @@ export const QuestionRoutes = lazy(() =>
         if (!Env.get("OPENCODE_E2E_LLM_URL")) return c.notFound()
 
         const json = c.req.valid("json")
-        AppRuntime.runPromise(
+        void AppRuntime.runPromise(
           Question.Service.use((svc) =>
             svc.ask({
               sessionID: json.sessionID,
               questions: json.questions,
             }),
           ),
-        ).catch(() => undefined)
+        ).catch((error) => {
+          log.error("e2e question seed failed", { sessionID: json.sessionID, error })
+        })
 
         return c.body(null, 204)
       },

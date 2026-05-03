@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js"
+import { createEffect, createSignal } from "solid-js"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -20,6 +20,7 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
   const language = useLanguage()
   const settings = useSettings()
   const [index, setIndex] = createSignal(0)
+  let descriptionRef: HTMLParagraphElement | undefined
 
   const total = () => props.highlights.length
   const last = () => Math.max(0, total() - 1)
@@ -27,6 +28,14 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
   const isFirst = () => index() === 0
   const isLast = () => index() >= last()
   const paged = () => total() > 1
+
+  createEffect(() => {
+    // Reset scroll position when page changes
+    index()
+    queueMicrotask(() => {
+      if (descriptionRef) descriptionRef.scrollTop = 0
+    })
+  })
 
   function handleNext() {
     if (isLast()) return
@@ -68,20 +77,27 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
     >
       <div class="flex flex-1 min-w-0 min-h-0" tabIndex={0} autofocus onKeyDown={handleKeyDown}>
         {/* Left side - Text content */}
-        <div class="flex flex-col flex-1 min-w-0 p-8">
+        <div class="flex flex-col flex-1 min-w-0 min-h-0 p-8">
           {/* Top section - feature content (fixed position from top) */}
-          <div class="flex flex-col gap-2 pt-22">
-            <div class="flex items-center gap-2">
-              <h1 class="text-16-medium text-text-strong">{feature()?.title ?? ""}</h1>
+          <div class="flex flex-col flex-1 min-h-0 gap-2 pt-22 pb-4">
+            <div class="flex items-center gap-2 shrink-0">
+              <h1 id="release-notes-title" class="text-16-medium text-text-strong">
+                {feature()?.title ?? ""}
+              </h1>
             </div>
-            <p class="text-13-regular text-text-base">{feature()?.description ?? ""}</p>
+            <p
+              ref={descriptionRef}
+              role="region"
+              aria-labelledby="release-notes-title"
+              tabIndex={0}
+              class="text-13-regular text-text-base whitespace-pre-line overflow-y-auto min-h-0 flex-1 pr-2"
+            >
+              {feature()?.description ?? ""}
+            </p>
           </div>
 
-          {/* Spacer to push buttons to bottom */}
-          <div class="flex-1" />
-
           {/* Bottom section - buttons and indicators (fixed position) */}
-          <div class="flex flex-col gap-12">
+          <div class="flex flex-col gap-12 shrink-0">
             <div class="flex flex-col items-start gap-3">
               {isLast() ? (
                 <Button variant="primary" size="large" onClick={handleClose}>

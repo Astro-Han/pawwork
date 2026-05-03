@@ -30,7 +30,7 @@ const todo = (content: string, status: Todo["status"] = "pending"): Todo => ({
   content,
   status,
   priority: "medium",
-})
+}) as Todo
 
 describe("selectSessionTodoDataSnapshot", () => {
   test("returns completed-only parts for status summary display", () => {
