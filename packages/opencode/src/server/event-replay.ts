@@ -161,3 +161,5 @@ export class EventReplayStore {
     while (this.records[0] && this.records[0].createdAt < cutoff) this.records.shift()
   }
 }
+
+export * as EventReplay from "./event-replay"

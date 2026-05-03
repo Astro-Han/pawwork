@@ -28,9 +28,8 @@ type SsePacket = {
 
 export type GlobalEventReplayPacket = SsePacket
 
-function packetForEnvelope(envelope: GlobalEventEnvelope, id?: string): SsePacket {
+function packetForEnvelope(envelope: GlobalEventEnvelope): SsePacket {
   return {
-    id,
     data: JSON.stringify(envelope),
   }
 }
@@ -51,6 +50,8 @@ export function createGlobalEventReplayBridge(input?: { replayStore?: EventRepla
     replayStore,
     append(event: GlobalEventEnvelope) {
       if (event.payload.type === GlobalDisposedEvent.type) {
+        // Global dispose starts a new replay generation. Online clients still
+        // receive the live packet; offline clients refresh on bootID mismatch.
         replayStore.reset()
       }
       if (event.payload.type === "server.instance.disposed" && event.directory) {
@@ -104,6 +105,8 @@ export function openGlobalEventReplayConnection(input: {
     pushConnected(opened.fenceID)
   }
 
+  // Gap reconnects still get retained records first as best-effort recovery;
+  // the following server.connected refresh is the final source of truth.
   for (const record of opened.replay) {
     input.push(packetForRecord(record))
   }

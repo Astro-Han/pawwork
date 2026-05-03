@@ -169,6 +169,7 @@ describe("createGlobalEventReplayBridge", () => {
       headers: { "Last-Event-ID": "boot:0" },
       signal: controller.signal,
     })
+    expect(response.status).toBe(200)
     const text = await readSseUntil(response, (value) => value.includes("question.asked"))
     controller.abort()
 
