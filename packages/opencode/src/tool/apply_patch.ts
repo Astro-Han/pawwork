@@ -330,7 +330,7 @@ export const ApplyPatchTool = Tool.define(
             sessionID: ctx.sessionID,
             messageID: ctx.messageID,
             path: change.filePath,
-            before: { exists: true, content: change.oldContent },
+            before: { exists: true, content: change.oldContent, bom: change.beforeBom },
             after: { exists: false },
           })
           TurnChange.recordWrite({

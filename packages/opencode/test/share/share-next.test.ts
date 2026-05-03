@@ -492,12 +492,15 @@ describe("ShareNext", () => {
           yield* Effect.sleep(1_250)
 
           expect(seen).toHaveLength(1)
-          const body = JSON.parse(seen[0].body)
+          const parsed = seen.map((item) => JSON.parse(item.body))
+          const body = parsed.find((item) => item.data.some((entry: { type: string }) => entry.type === "message"))
+          expect(body).toBeDefined()
           const serialized = JSON.stringify(body)
           expect(serialized).not.toContain("old-secret")
           expect(serialized).not.toContain("new-secret")
           expect(serialized).not.toContain("@@")
-          expect(body.data[0]).toMatchObject({
+          const message = body.data.find((entry: { type: string }) => entry.type === "message")
+          expect(message).toMatchObject({
             type: "message",
             data: {
               summary: {

@@ -167,6 +167,11 @@ describe("TurnChange", () => {
         const bytes = await fs.readFile(target)
         expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
         expect(bytes.toString("utf-8")).toBe("\uFEFFbefore\n")
+
+        expect((await TurnChange.redo(turn)).status).toBe("applied")
+        const redoBytes = await fs.readFile(target)
+        expect([...redoBytes.slice(0, 3)]).not.toEqual([0xef, 0xbb, 0xbf])
+        expect(redoBytes.toString("utf-8")).toBe("after\n")
       },
     })
   })

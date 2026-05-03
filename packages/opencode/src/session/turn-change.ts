@@ -11,6 +11,7 @@ import { Instance } from "@/project/instance"
 import { isSensitivePath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
 import { Global } from "@/global"
+import * as Bom from "@/util/bom"
 
 type FileState =
   | { exists: false; content?: undefined; hash?: string; restorable?: boolean; bom?: boolean; large?: boolean; binary?: boolean }
@@ -185,8 +186,13 @@ async function currentState(file: string): Promise<FileState> {
   try {
     const stat = await fs.stat(file)
     if (stat.isDirectory()) return { exists: true, restorable: false, hash: "directory", binary: true }
-    const content = await fs.readFile(file, "utf-8")
-    return { exists: true, content, hash: "sha256:" + crypto.createHash("sha256").update(content).digest("hex") }
+    const current = Bom.split(await fs.readFile(file, "utf-8"))
+    return {
+      exists: true,
+      content: current.text,
+      bom: current.bom,
+      hash: "sha256:" + crypto.createHash("sha256").update(current.text).digest("hex"),
+    }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { exists: false }
     return { exists: true, restorable: false, hash: `error:${(err as NodeJS.ErrnoException).code ?? "unknown"}` }

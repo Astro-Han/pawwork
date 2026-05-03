@@ -42,7 +42,6 @@ function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo
     const lsp = yield* LSP.Service
     for (const file of display.files) {
       if (!file.openPath) continue
-      yield* bus.publish(File.Event.Edited, { file: file.openPath })
       const event =
         mode === "redo"
           ? file.status === "added"
@@ -55,6 +54,7 @@ function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo
             : file.status === "deleted"
               ? "add"
               : "change"
+      if (event !== "unlink") yield* bus.publish(File.Event.Edited, { file: file.openPath })
       yield* bus.publish(FileWatcher.Event.Updated, { file: file.openPath, event })
       if (event !== "unlink") yield* lsp.touchFile(file.openPath, true)
     }
