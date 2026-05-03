@@ -14,6 +14,7 @@ import {
   errorMessage,
   hasProjectPermissions,
   latestRootSession,
+  projectSessionRouteTarget,
   sortedRootSessions,
   startupAutoselectDirectory,
   workspaceKey,
@@ -113,6 +114,10 @@ describe("layout workspace helpers", () => {
   test("skips startup autoselect when disabled or missing a backend directory", () => {
     expect(startupAutoselectDirectory?.(false, "/Users/demo/PawWork")).toBeUndefined()
     expect(startupAutoselectDirectory?.(true, undefined)).toBeUndefined()
+  })
+
+  test("opens projects to the new session route without selecting a session", () => {
+    expect(projectSessionRouteTarget("/Users/demo/PawWork")).toEqual({ directory: "/Users/demo/PawWork" })
   })
 
   test("normalizes trailing slash in workspace key", () => {

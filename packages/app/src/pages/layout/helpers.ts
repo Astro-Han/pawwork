@@ -86,3 +86,5 @@ export const startupAutoselectDirectory = (enabled: boolean, backendDirectory?: 
   if (!enabled) return
   return backendDirectory || undefined
 }
+
+export const projectSessionRouteTarget = (root: string) => ({ directory: root })
