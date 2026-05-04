@@ -112,6 +112,24 @@ describe("deriveContextUsage", () => {
     expect(zero.compactThreshold).toBe(100_000)
   })
 
+  test("sanitizes invalid reserve values before threshold math", () => {
+    const negative = deriveContextUsage({
+      model: { limit: { context: 100_000, output: 10_000 } },
+      tokens: tokens({ input: 1_000 }),
+      compaction: { reserved: -1 },
+      defaultReserveTokens: 10_000,
+    })
+    const nonFinite = deriveContextUsage({
+      model: { limit: { context: 100_000, output: 10_000 } },
+      tokens: tokens({ input: 1_000 }),
+      compaction: { reserved: Number.NaN },
+      defaultReserveTokens: 10_000,
+    })
+
+    expect(negative.compactThreshold).toBe(100_000)
+    expect(nonFinite.compactThreshold).toBe(90_000)
+  })
+
   test("derives the reserve source from the model output limit", () => {
     expect(contextUsageModelOutputLimit({ limit: { context: 100_000, output: 12_000 } })).toBe(12_000)
     expect(contextUsageModelOutputLimit({ limit: { context: 100_000, output: 0 } })).toBe(0)

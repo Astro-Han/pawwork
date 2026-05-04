@@ -49,6 +49,11 @@ export function contextUsageModelOutputLimit(model?: ContextUsageModel) {
   return model?.limit.output
 }
 
+function nonNegativeFinite(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined
+  return Math.max(0, value)
+}
+
 export function deriveContextUsage(input: ContextUsageInput): ContextUsage {
   const usedTokens = contextUsageUsedTokens(input.tokens)
   const context = input.model?.limit.context
@@ -67,8 +72,8 @@ export function deriveContextUsage(input: ContextUsageInput): ContextUsage {
   const effectiveInputLimit = input.model?.limit.input ?? context
   // The caller passes the reserve source tokens. This helper applies the shared
   // 20K cap so runtime and UI cannot drift.
-  const reserved =
-    input.compaction?.reserved ?? Math.min(COMPACTION_BUFFER, input.defaultReserveTokens ?? COMPACTION_BUFFER)
+  const fallbackReserve = Math.min(COMPACTION_BUFFER, nonNegativeFinite(input.defaultReserveTokens) ?? COMPACTION_BUFFER)
+  const reserved = nonNegativeFinite(input.compaction?.reserved) ?? fallbackReserve
   const compactThreshold = Math.max(0, effectiveInputLimit - reserved)
   const usagePercent = effectiveInputLimit > 0 ? (usedTokens / effectiveInputLimit) * 100 : null
 
