@@ -18,6 +18,12 @@ import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { taskDescription } from "@/pages/session/task-description"
+import {
+  turnFetchSignature,
+  turnFetchTargets,
+  type TurnFetchAssistantLite,
+  type TurnFetchInput,
+} from "@/pages/session/turn-change-fetch"
 import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -500,54 +506,46 @@ export function MessageTimeline(props: {
     return turnChanges[userMessageID] ?? undefined
   }
 
+  const turnFetchInput = (): TurnFetchInput | null => {
+    const id = sessionID()
+    if (!id) return null
+    const assistants: TurnFetchAssistantLite[] = []
+    for (const message of sessionMessages()) {
+      if (message.role !== "assistant") continue
+      assistants.push({
+        id: message.id,
+        parentID: message.parentID,
+        completed: message.time.completed,
+      })
+    }
+    return { sessionID: id, assistants }
+  }
+
   createEffect(
     on(
       () => {
-        const ids: string[] = []
-        const messages = sessionMessages()
-        const completed = new Map<string, boolean>()
-        for (const message of messages) {
-          if (message.role !== "assistant") continue
-          const parent = message.parentID
-          if (!parent) continue
-          const isDone = typeof message.time.completed === "number"
-          completed.set(parent, (completed.get(parent) ?? true) && isDone)
-        }
-        for (const [parent, done] of completed) {
-          if (done) ids.push(parent)
-        }
-        return ids.join(":")
+        const input = turnFetchInput()
+        return input ? turnFetchSignature(input) : ""
       },
       () => {
-        const id = sessionID()
-        if (!id) return
-        const messages = sessionMessages()
-        const completedTurns = new Map<string, boolean>()
-        for (const message of messages) {
-          if (message.role !== "assistant") continue
-          const parent = message.parentID
-          if (!parent) continue
-          const isDone = typeof message.time.completed === "number"
-          completedTurns.set(parent, (completedTurns.get(parent) ?? true) && isDone)
-        }
-        for (const [userMessageID, done] of completedTurns) {
-          if (!done) continue
-          const key = `${id}:${userMessageID}`
-          if (fetchedTurnChanges.has(key)) continue
-          fetchedTurnChanges.add(key)
-          void turnChangeFetch(userMessageID)
+        const input = turnFetchInput()
+        if (!input) return
+        for (const target of turnFetchTargets(input)) {
+          if (fetchedTurnChanges.has(target.key)) continue
+          fetchedTurnChanges.add(target.key)
+          void turnChangeFetch(target.userMessageID)
             .then((display) => {
               if (display) return
-              if (turnChangeRetryTimers.has(key)) return
+              if (turnChangeRetryTimers.has(target.key)) return
               const timer = setTimeout(() => {
-                turnChangeRetryTimers.delete(key)
-                void turnChangeFetch(userMessageID).catch(() => undefined)
+                turnChangeRetryTimers.delete(target.key)
+                void turnChangeFetch(target.userMessageID).catch(() => undefined)
               }, 500)
-              turnChangeRetryTimers.set(key, timer)
+              turnChangeRetryTimers.set(target.key, timer)
             })
             .catch(() => {
-              fetchedTurnChanges.delete(key)
-              setTurnChanges(userMessageID, null)
+              fetchedTurnChanges.delete(target.key)
+              setTurnChanges(target.userMessageID, null)
             })
         }
       },
