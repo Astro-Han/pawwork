@@ -918,8 +918,12 @@ export namespace TurnChange {
               },
             )
             if (reverse.status === "blocked") {
-              for (const file of reverse.files) {
-                dirty.push({ path: file.path, reason: file.reason })
+              if (reverse.files.length) {
+                for (const file of reverse.files) {
+                  dirty.push({ path: file.path, reason: file.reason })
+                }
+              } else {
+                dirty.push({ path: done, reason: reverse.reason })
               }
             }
           }
