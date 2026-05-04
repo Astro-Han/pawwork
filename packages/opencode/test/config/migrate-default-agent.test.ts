@@ -132,20 +132,25 @@ test("migrateDefaultAgent: write failure → returns sanitizedText for in-memory
   await fs.rmdir(tmpPath)
 })
 
-test("migrateDefaultAgent: preserves original file mode (0600 stays 0600)", async () => {
-  await using tmp = await tmpdir()
-  const cfgPath = path.join(tmp.path, "pawwork.json")
-  await fs.writeFile(cfgPath, JSON.stringify({ default_agent: "plan", apiKey: "sk-secret" }, null, 2), "utf8")
-  await fs.chmod(cfgPath, 0o600)
+// POSIX file mode bits do not exist on Windows: NTFS reports a fixed
+// 0o666/0o444 mask regardless of the chmod call. Skip the assertion there.
+test.skipIf(process.platform === "win32")(
+  "migrateDefaultAgent: preserves original file mode (0600 stays 0600)",
+  async () => {
+    await using tmp = await tmpdir()
+    const cfgPath = path.join(tmp.path, "pawwork.json")
+    await fs.writeFile(cfgPath, JSON.stringify({ default_agent: "plan", apiKey: "sk-secret" }, null, 2), "utf8")
+    await fs.chmod(cfgPath, 0o600)
 
-  const { logger } = makeMockLogger()
-  const res = await migrateDefaultAgent(cfgPath, { logger })
+    const { logger } = makeMockLogger()
+    const res = await migrateDefaultAgent(cfgPath, { logger })
 
-  expect(res.rewritten).toBe(true)
-  const after = await fs.stat(cfgPath)
-  // mask off non-permission bits and assert exact mode preserved
-  expect(after.mode & 0o777).toBe(0o600)
-})
+    expect(res.rewritten).toBe(true)
+    const after = await fs.stat(cfgPath)
+    // mask off non-permission bits and assert exact mode preserved
+    expect(after.mode & 0o777).toBe(0o600)
+  },
+)
 
 test("migrateDefaultAgent: subsequent call after failed first still returns sanitizedText", async () => {
   await using tmp = await tmpdir()
