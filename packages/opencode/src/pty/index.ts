@@ -146,22 +146,43 @@ export namespace Pty {
         })
       }
 
-      function signalGroup(session: Active, signal: string) {
+      function processExists(pid: number) {
         try {
-          process.kill(-session.process.pid, signal)
+          process.kill(pid, 0)
           return true
         } catch {
           return false
         }
       }
 
+      const hasExited = (session: Active) => session.info.status === "exited" || !processExists(session.process.pid)
+
+      async function descendantPids(pid: number) {
+        if (process.platform === "win32") return []
+        const seen = new Set<number>()
+        const pending = [pid]
+        while (pending.length) {
+          const parent = pending.pop()!
+          const out = await Bun.$`pgrep -P ${parent}`.quiet().nothrow().text()
+          for (const line of out.split(/\s+/)) {
+            const child = Number(line)
+            if (!Number.isInteger(child) || child <= 0 || seen.has(child)) continue
+            seen.add(child)
+            pending.push(child)
+          }
+        }
+        return Array.from(seen)
+      }
+
       function signalProcess(session: Active, signal: string) {
+        if (session.info.status === "exited") return
         try {
           session.process.kill(signal)
         } catch {}
       }
 
       const terminate = Effect.fn("Pty.terminate")(function* (session: Active) {
+        if (hasExited(session)) return
         const exited = waitForExit(session)
         if (process.platform === "win32") {
           signalProcess(session, "SIGTERM")
@@ -169,42 +190,30 @@ export namespace Pty {
           return
         }
 
-        if (signalGroup(session, "SIGTERM")) {
-          yield* Effect.promise(() => sleep(TERMINATION_GRACE_MS))
-          signalGroup(session, "SIGKILL")
-        } else {
-          signalProcess(session, "SIGTERM")
-          yield* Effect.promise(() => sleep(TERMINATION_GRACE_MS))
-          signalProcess(session, "SIGKILL")
+        const descendants = yield* Effect.promise(() => descendantPids(session.process.pid))
+        signalProcess(session, "SIGTERM")
+        for (const child of descendants) {
+          try {
+            if (processExists(child)) process.kill(child, "SIGTERM")
+          } catch {}
+        }
+        yield* Effect.promise(() =>
+          Promise.race([exited.then(() => true), sleep(TERMINATION_GRACE_MS).then(() => false)]),
+        )
+        if (hasExited(session)) return
+        signalProcess(session, "SIGKILL")
+        for (const child of descendants) {
+          try {
+            if (processExists(child)) process.kill(child, "SIGKILL")
+          } catch {}
         }
         yield* Effect.promise(() => exited)
       })
-
-      const terminateSync = (session: Active) => {
-        if (process.platform === "win32") {
-          signalProcess(session, "SIGTERM")
-          return
-        }
-
-        const killedGroup = signalGroup(session, "SIGTERM")
-        if (!killedGroup) {
-          signalProcess(session, "SIGTERM")
-        }
-        setTimeout(() => {
-          if (killedGroup) signalGroup(session, "SIGKILL")
-          else signalProcess(session, "SIGKILL")
-        }, TERMINATION_GRACE_MS).unref()
-      }
 
       const teardown = Effect.fn("Pty.teardown")(function* (session: Active) {
         closeSubscribers(session)
         yield* terminate(session)
       })
-
-      function teardownSync(session: Active) {
-        closeSubscribers(session)
-        terminateSync(session)
-      }
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("Pty.state")(function* (ctx) {
@@ -214,8 +223,10 @@ export namespace Pty {
           }
 
           yield* Effect.addFinalizer(() =>
-            Effect.sync(() => {
-              for (const session of state.sessions.values()) teardownSync(session)
+            Effect.gen(function* () {
+              for (const session of state.sessions.values()) {
+                yield* teardown(session)
+              }
               state.sessions.clear()
             }),
           )

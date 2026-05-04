@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
+import { setTimeout as sleep } from "node:timers/promises"
 import * as Tool from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
@@ -24,6 +25,7 @@ import { withoutInternalServerAuthEnv } from "@/util/env"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
+const TERMINATION_GRACE_MS = 100
 const PS = new Set(["powershell", "pwsh"])
 const CWD = new Set(["cd", "push-location", "set-location"])
 const FILES = new Set([
@@ -142,6 +144,59 @@ function envValue(key: string) {
   if (process.platform !== "win32") return process.env[key]
   const name = Object.keys(process.env).find((item) => item.toLowerCase() === key.toLowerCase())
   return name ? process.env[name] : undefined
+}
+
+async function terminateProcessTree(pid: number) {
+  const descendants = await descendantPids(pid)
+  if (process.platform === "win32") {
+    await Bun.$`taskkill /pid ${pid} /f /t`.quiet().nothrow()
+    return
+  }
+
+  try {
+    if (processExists(pid)) process.kill(pid, "SIGTERM")
+  } catch {}
+  for (const child of descendants) {
+    try {
+      if (processExists(child)) process.kill(child, "SIGTERM")
+    } catch {}
+  }
+  await sleep(TERMINATION_GRACE_MS)
+  if (!processExists(pid) && descendants.every((child) => !processExists(child))) return
+  try {
+    if (processExists(pid)) process.kill(pid, "SIGKILL")
+  } catch {}
+  for (const child of descendants) {
+    try {
+      if (processExists(child)) process.kill(child, "SIGKILL")
+    } catch {}
+  }
+}
+
+function processExists(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function descendantPids(pid: number): Promise<number[]> {
+  if (process.platform === "win32") return []
+  const seen = new Set<number>()
+  const pending = [pid]
+  while (pending.length) {
+    const parent = pending.pop()!
+    const out = await Bun.$`pgrep -P ${parent}`.quiet().nothrow().text()
+    for (const line of out.split(/\s+/)) {
+      const child = Number(line)
+      if (!Number.isInteger(child) || child <= 0 || seen.has(child)) continue
+      seen.add(child)
+      pending.push(child)
+    }
+  }
+  return Array.from(seen)
 }
 
 function auto(key: string, cwd: string, shell: string) {
@@ -513,11 +568,11 @@ export const BashTool = Tool.define(
 
           if (exit.kind === "abort") {
             aborted = true
-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+            yield* Effect.promise(() => terminateProcessTree(handle.pid)).pipe(Effect.orDie)
           }
           if (exit.kind === "timeout") {
             expired = true
-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+            yield* Effect.promise(() => terminateProcessTree(handle.pid)).pipe(Effect.orDie)
           }
 
           return exit.kind === "exit" ? exit.code : null

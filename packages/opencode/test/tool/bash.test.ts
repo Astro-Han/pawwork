@@ -1089,10 +1089,11 @@ describe("tool.bash abort", () => {
         const bash = await initBash()
         const controller = new AbortController()
         const pidFile = path.join(dir.path, "bash-child.pid")
+        const child = `trap '' HUP TERM; echo $$ > ${JSON.stringify(pidFile)}; while :; do sleep 1; done`
         const res = await Effect.runPromise(
           bash.execute(
             {
-              command: `trap '' HUP TERM; sleep 30 & echo $! > ${JSON.stringify(pidFile)}; echo before; wait`,
+              command: `/bin/sh -c ${JSON.stringify(child)} & echo before; wait`,
               description: "Abort child tree",
             },
             {

@@ -75,7 +75,11 @@ describe("pty", () => {
 
         let id: PtyID | undefined
         try {
-          const info = await Pty.create({ command: "/bin/sh", title: "sh" })
+          const info = await Pty.create({
+            command: "/bin/sh",
+            args: ["-c", "trap 'exit 0' TERM; while :; do sleep 1; done"],
+            title: "sh",
+          })
           id = info.id
 
           await sleep(100)
@@ -102,9 +106,10 @@ describe("pty", () => {
         const pidFile = `${dir.path}/pty-child.pid`
         let id: PtyID | undefined
         try {
+          const child = `trap '' HUP TERM; echo $$ > ${JSON.stringify(pidFile)}; while :; do sleep 1; done`
           const info = await Pty.create({
             command: "/bin/sh",
-            args: ["-c", `trap '' HUP TERM; sleep 30 & echo $! > ${JSON.stringify(pidFile)}; wait`],
+            args: ["-c", `trap 'exit 0' TERM; /bin/sh -c ${JSON.stringify(child)} & wait`],
             title: "child-tree",
           })
           id = info.id
