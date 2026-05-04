@@ -171,12 +171,9 @@ export namespace Question {
       sessionID: SessionID
       questions: ReadonlyArray<Info>
       tool?: Tool
-      // Bridge for the AbortSignal that travels via Tool.Context. The Effect
-      // surrounding the tool runs through EffectBridge.run.promise, which does
-      // NOT propagate parent fiber interrupts into the spawned Effect — so a
-      // session cancel never fires Effect.onInterrupt here. The signal is the
-      // only reliable cancellation channel; without it the pending entry leaks
-      // and the dock stays visible forever. See #419.
+      // Production cancellation channel. EffectBridge.run.promise does not
+      // propagate parent fiber interrupts, so without a signal a session
+      // cancel leaks the pending entry and the dock stays forever. See #419.
       signal?: AbortSignal
     }) => Effect.Effect<ReadonlyArray<Answer>, RejectedError>
     readonly reply: (input: { requestID: QuestionID; answers: ReadonlyArray<Answer> }) => Effect.Effect<void>
@@ -255,19 +252,14 @@ export namespace Question {
         // event payload to mutate the pending entry either.
         yield* bus.publish(Event.Asked, structuredClone(info))
 
-        // input.signal is the production cancellation channel; the
-        // Effect.onInterrupt arm below is defence-in-depth for direct fiber
-        // interrupts (layer shutdown / supervisor kill) where signal is
-        // undefined. The pending.has guard keeps both arms idempotent. See #419.
+        // Cancellation: input.signal is the production channel; the
+        // Effect.onInterrupt arm below is defence for direct fiber kill
+        // (layer shutdown / supervisor) when signal is undefined. The abort
+        // callback fires from the JS event loop, so we capture the parent
+        // Effect context here and re-provide it on each runFork.
         const signal = input.signal
         let removeListener: (() => void) | undefined
         const sessionID = input.sessionID
-        // Capture the parent fiber's Effect context so the abort callback
-        // (which fires from the JS event loop, outside any fiber) forks the
-        // publish + Deferred.fail effects onto a runtime that already
-        // carries our service layer + InstanceRef. The wrapping
-        // InstanceState.bind is a belt-and-braces fallback for log.info and
-        // any consumer still on the ALS path.
         const ctx = yield* Effect.context<never>()
         const failFromAbort = InstanceState.bind(() => {
           const entry = pending.get(id)
@@ -291,9 +283,6 @@ export namespace Question {
           }
         }
 
-        // Defence-in-depth onInterrupt arm catches direct fiber interrupts
-        // (layer shutdown, supervisor kill) when no signal is present. The
-        // `pending.has` guard keeps both arms idempotent.
         return yield* Deferred.await(deferred).pipe(
           Effect.onInterrupt(() =>
             Effect.gen(function* () {
