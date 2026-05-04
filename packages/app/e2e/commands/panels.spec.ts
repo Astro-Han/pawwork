@@ -39,17 +39,22 @@ test("desktop right-panel tabs switch between review and files within a unified 
 
 test("desktop remains clickable after right-panel resize ends with mouseup", async ({ page, gotoSession, slug, sdk }) => {
   const stamp = Date.now()
-  const one = await sdk.session.create({ title: `e2e resize source ${stamp}` }).then((r) => r.data)
-  const two = await sdk.session.create({ title: `e2e resize target ${stamp}` }).then((r) => r.data)
-
-  if (!one?.id) throw new Error("Source session create did not return an id")
-  if (!two?.id) throw new Error("Target session create did not return an id")
+  let oneID: string | undefined
+  let twoID: string | undefined
 
   try {
-    await gotoSession(one.id)
+    const one = await sdk.session.create({ title: `e2e resize source ${stamp}` }).then((r) => r.data)
+    if (!one?.id) throw new Error("Source session create did not return an id")
+    oneID = one.id
+
+    const two = await sdk.session.create({ title: `e2e resize target ${stamp}` }).then((r) => r.data)
+    if (!two?.id) throw new Error("Target session create did not return an id")
+    twoID = two.id
+
+    await gotoSession(oneID)
     await openSidebar(page)
 
-    const rightPanel = page.locator("#right-panel")
+    const rightPanel = page.locator('[data-component="right-panel"]')
     await page.keyboard.press(`${modKey}+Shift+R`)
     await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
@@ -88,15 +93,15 @@ test("desktop remains clickable after right-panel resize ends with mouseup", asy
     await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
     await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
 
-    await page.locator(`[data-session-id="${two.id}"] a`).first().click()
-    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${two.id}(?:\\?|#|$)`))
+    await page.locator(`[data-session-id="${twoID}"] a`).first().click()
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${twoID}(?:\\?|#|$)`))
     await expect(page.locator(promptSelector)).toBeVisible()
 
     await page.locator('[data-action="pawwork-open-settings"]').click()
     await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
   } finally {
-    await cleanupSession({ sdk, sessionID: one.id })
-    await cleanupSession({ sdk, sessionID: two.id })
+    if (oneID) await cleanupSession({ sdk, sessionID: oneID })
+    if (twoID) await cleanupSession({ sdk, sessionID: twoID })
   }
 })
 

@@ -32,6 +32,8 @@ export const resizeInteractionStopEvents = [
 
 export type BodyInteractionLockReleaseReason = "complete" | "cancel" | "timeout"
 
+export const resizeInteractionFallbackMs = 30_000
+
 type BodyInteractionLockTarget = {
   style: {
     userSelect: string
@@ -48,7 +50,7 @@ export function createBodyInteractionLock(
   } = {},
 ) {
   const target = options.target ?? window
-  const fallbackMs = options.fallbackMs ?? 5000
+  const fallbackMs = options.fallbackMs ?? resizeInteractionFallbackMs
   let active = false
   let fallback: ReturnType<typeof setTimeout> | undefined
   let previousUserSelect = ""

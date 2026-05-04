@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { createBodyInteractionLock } from "./resize-handle"
+import { createBodyInteractionLock, resizeInteractionFallbackMs } from "./resize-handle"
 
 describe("createBodyInteractionLock", () => {
+  test("uses a long default fallback timeout for manual resizing", () => {
+    expect(resizeInteractionFallbackMs).toBe(30_000)
+  })
+
   test("releases body interaction styles on cancel events", () => {
     const target = new EventTarget()
     const body = { style: { userSelect: "", overflow: "" } }
