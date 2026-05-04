@@ -329,6 +329,52 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
     })
   })
 
+  test("chained same-file edits across two assistants undo cleanly without conflict", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "chain" })
+        const userMessageID = await makeUser(session.id, "chain")
+        const a1 = await makeAssistant(session.id, userMessageID, "chain-a1")
+        const a2 = await makeAssistant(session.id, userMessageID, "chain-a2")
+        const target = path.join(fixture.path, "chain.txt")
+
+        await fs.writeFile(target, "two\n", "utf-8")
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a1,
+          path: target,
+          before: { exists: false },
+          after: { exists: true, content: "two\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+
+        await fs.writeFile(target, "three\n", "utf-8")
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a2,
+          path: target,
+          before: { exists: true, content: "two\n" },
+          after: { exists: true, content: "three\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+
+        const result = await TurnChange.aggregateTurnUndo({ sessionID: session.id, userMessageID })
+        expect(result.status).toBe("applied")
+        if (result.status !== "applied") return
+        expect(result.skipped ?? []).toEqual([])
+        expect(await fs.access(target).then(() => true).catch(() => false)).toBe(false)
+
+        const redo = await TurnChange.aggregateTurnRedo({ sessionID: session.id, userMessageID })
+        expect(redo.status).toBe("applied")
+        if (redo.status !== "applied") return
+        expect(await fs.readFile(target, "utf-8")).toBe("three\n")
+      },
+    })
+  })
+
   test("force=true skips conflicting message and reports skipped[]", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()

@@ -817,6 +817,7 @@ export namespace TurnChange {
     const sourceState = input.mode === "undo" ? "applied" : "undone"
     const actionable: MessageID[] = []
     const skipped: SkippedMessage[] = []
+    const virtualState = new Map<string, FileState>()
 
     for (const messageID of ordered) {
       const display = displayRow(input.sessionID, messageID)
@@ -842,11 +843,16 @@ export namespace TurnChange {
       const blocked: Array<{ path: string; reason: string }> = []
       for (const row of restore) {
         const expected = input.mode === "undo" ? row.data.after : row.data.before
-        if (!canRestore(input.mode === "undo" ? row.data.before : row.data.after)) {
+        const target = input.mode === "undo" ? row.data.before : row.data.after
+        if (!canRestore(target)) {
           blocked.push({ path: row.data.displayPath, reason: "restore_unavailable" })
           continue
         }
-        const current = await currentState(row.data.path)
+        let current = virtualState.get(row.data.path)
+        if (!current) {
+          current = await currentState(row.data.path)
+          virtualState.set(row.data.path, current)
+        }
         if (isPermissionCode(stateErrorCode(current))) blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
         else if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
         else if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
@@ -856,6 +862,10 @@ export namespace TurnChange {
         const reason = blocked.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
         skipped.push({ messageID, reason, files: blocked })
         continue
+      }
+      for (const row of restore) {
+        const target = input.mode === "undo" ? row.data.before : row.data.after
+        virtualState.set(row.data.path, target)
       }
       actionable.push(messageID)
     }
