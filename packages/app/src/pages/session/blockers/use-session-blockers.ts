@@ -112,20 +112,19 @@ export function createSessionBlockers(input: {
         if (!localGuards()) return { proceed: false }
         // Guard 4: server confirms the running question part is still
         // uncovered (reuses fallback semantics so auto-heal and recovery
-        // dock never disagree). On server failure we skip the halt and
-        // wait for the next snapshot edge — killing a session on a
-        // transient list() blip would be worse than another 3 s wait,
-        // and navigation cleanup re-arms when the user comes back.
+        // dock never disagree). A transient list() failure asks the
+        // clock to re-arm once instead of halting blindly or dead-ending
+        // a sticky stuck session.
         let filtered: Awaited<ReturnType<typeof sdk.client.question.list>>["data"]
         try {
           const result = await sdk.client.question.list()
           filtered = (result.data ?? []).filter((q) => q.sessionID === sessionID)
         } catch (err) {
-          console.warn("question-recovery: question.list() failed; skipping halt", {
+          console.warn("question-recovery: question.list() failed; will retry", {
             sessionID,
             err,
           })
-          return { proceed: false }
+          return { proceed: false, retry: true }
         }
         // Re-check the local guards after the await — state may have moved.
         if (!localGuards()) return { proceed: false }

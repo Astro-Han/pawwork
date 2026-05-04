@@ -9,7 +9,11 @@ export interface ReverifyContext {
   firedAt: number
 }
 
-export type ReverifyOutcome = { proceed: boolean }
+// `retry` lets reverify ask the clock to re-arm a single follow-up timer
+// without waiting for a snapshot edge — used for transient failures
+// (e.g. server question.list() blip) so a sticky stuck session does not
+// dead-end on a single error.
+export type ReverifyOutcome = { proceed: true } | { proceed: false; retry?: boolean }
 
 export interface ClockInput {
   snapshot: () => QuestionRecoverySnapshot
@@ -96,7 +100,19 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
       return
     }
     if (disposed) return
-    if (!outcome.proceed) return
+    if (!outcome.proceed) {
+      if (outcome.retry && input.activeSessionID() === sessionID) {
+        const handle = setTimer(() => {
+          void fire(sessionID)
+        }, delayMs)
+        pending.set(sessionID, {
+          handle,
+          armedAt: now(),
+          armedDirectory: entry.armedDirectory,
+        })
+      }
+      return
+    }
 
     try {
       await input.halt(sessionID)

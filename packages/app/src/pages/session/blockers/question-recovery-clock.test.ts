@@ -52,13 +52,13 @@ interface Harness {
   haltCalls: string[]
   warnCalls: { message: string; payload: Record<string, unknown> }[]
   haltImpl?: (s: string) => Promise<unknown>
-  reverifyImpl?: () => Promise<{ proceed: boolean }>
+  reverifyImpl?: () => Promise<{ proceed: true } | { proceed: false; retry?: boolean }>
   dispose: () => void
 }
 
 const setupHarness = (overrides?: {
   haltImpl?: (s: string) => Promise<unknown>
-  reverifyImpl?: (sid: string) => Promise<{ proceed: boolean }>
+  reverifyImpl?: (sid: string) => Promise<{ proceed: true } | { proceed: false; retry?: boolean }>
   delayMs?: number
   initialSid?: string
 }): Harness => {
@@ -137,6 +137,31 @@ describe("createQuestionRecoveryClock", () => {
     h.fk.advance(HEAL_DELAY_MS)
     await flush()
     expect(h.haltCalls).toEqual([])
+    h.dispose()
+  })
+
+  // Transient reverify failure: when reverify returns proceed:false with
+  // retry:true, the clock re-arms exactly one follow-up timer so a sticky
+  // stuck session does not dead-end on a single list() blip.
+  test("reverify proceed=false + retry=true re-arms one follow-up timer", async () => {
+    let attempts = 0
+    const h = setupHarness({
+      reverifyImpl: async () => {
+        attempts++
+        return attempts === 1 ? { proceed: false, retry: true } : { proceed: true }
+      },
+    })
+    h.setSnap(missing)
+    h.fk.advance(HEAL_DELAY_MS)
+    await flush()
+    expect(attempts).toBe(1)
+    expect(h.haltCalls).toEqual([])
+    expect(h.fk.pending()).toBe(1)
+
+    h.fk.advance(HEAL_DELAY_MS)
+    await flush()
+    expect(attempts).toBe(2)
+    expect(h.haltCalls).toEqual(["s"])
     h.dispose()
   })
 
