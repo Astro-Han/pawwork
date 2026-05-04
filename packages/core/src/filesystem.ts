@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { dirname, join, relative, resolve as pathResolve } from "path"
-import { realpathSync } from "fs"
+import { dirname, join, relative, resolve as pathResolve, win32 } from "path"
+import { existsSync, realpathSync } from "fs"
 import * as NFS from "fs/promises"
 import { lookup } from "mime-types"
 import { Context, Effect, FileSystem, Layer, Schema } from "effect"
@@ -188,7 +188,7 @@ export namespace AppFileSystem {
 
   export function normalizePath(path: string): string {
     if (process.platform !== "win32") return path
-    const resolved = pathResolve(windowsPath(path))
+    const resolved = normalizeWindowsAbsolutePath(windowsPath(path))
     try {
       return realpathSync.native(resolved)
     } catch {
@@ -206,7 +206,8 @@ export namespace AppFileSystem {
   }
 
   export function resolve(path: string): string {
-    const resolved = pathResolve(windowsPath(path))
+    const resolved =
+      process.platform === "win32" ? normalizeWindowsAbsolutePath(windowsPath(path)) : pathResolve(path)
     try {
       return normalizePath(realpathSync(resolved))
     } catch (error: any) {
@@ -222,6 +223,45 @@ export namespace AppFileSystem {
       .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
       .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
       .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+  }
+
+  // Rooted but driveless paths (e.g. "/users/runner/...") arrive when callers
+  // strip the drive letter before handing the path back. path.resolve would
+  // bind such a path to the cwd's drive, which silently mismatches when the
+  // file actually lives on a different drive. Probe each known drive root for
+  // an existing file and fall back to win32.resolve only when none match.
+  function normalizeWindowsAbsolutePath(p: string): string {
+    const existing = resolveRootedWindowsVariant(p)
+    return win32.normalize(existing ?? win32.resolve(p))
+  }
+
+  function resolveRootedWindowsVariant(p: string): string | undefined {
+    if (!/^[\\/](?![\\/])/.test(p)) return
+    const suffix = p.replace(/^[\\/]+/, "").replaceAll("/", "\\")
+    for (const root of windowsDriveRoots()) {
+      const candidate = win32.join(root, suffix)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+
+  function windowsDriveRoots(): string[] {
+    const result: string[] = []
+    const seen = new Set<string>()
+    const push = (input?: string) => {
+      if (!input) return
+      const match = input.match(/^([A-Za-z]:)/)
+      if (!match) return
+      const root = match[1].toUpperCase()
+      if (seen.has(root)) return
+      seen.add(root)
+      result.push(root + "\\")
+    }
+    push(process.cwd())
+    push(process.env.SystemDrive)
+    for (let code = 65; code <= 90; code++) {
+      push(String.fromCharCode(code) + ":")
+    }
+    return result
   }
 
   export function overlaps(a: string, b: string) {

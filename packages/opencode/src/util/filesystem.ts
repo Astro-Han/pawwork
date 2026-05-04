@@ -1,10 +1,10 @@
 import { chmod, mkdir, readFile, stat as statFile, writeFile } from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { lookup } from "mime-types"
-import { realpathSync } from "fs"
 import { dirname, isAbsolute as pathIsAbsolute, join, relative, resolve as pathResolve, win32 } from "path"
 import { Readable } from "stream"
 import { pipeline } from "stream/promises"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Glob } from "./glob"
 
 export namespace Filesystem {
@@ -111,89 +111,14 @@ export namespace Filesystem {
    * This is needed because Windows paths are case-insensitive but LSP servers
    * may return paths with different casing than what we send them.
    */
-  export function normalizePath(p: string): string {
-    if (process.platform !== "win32") return p
-    const resolved = normalizeWindowsAbsolutePath(windowsPath(p))
-    try {
-      return realpathSync.native(resolved)
-    } catch {
-      return resolved
-    }
-  }
-
-  export function normalizePathPattern(p: string): string {
-    if (process.platform !== "win32") return p
-    if (p === "*") return p
-    const match = p.match(/^(.*)[\\/]\*$/)
-    if (!match) return normalizePath(p)
-    const dir = /^[A-Za-z]:$/.test(match[1]) ? match[1] + "\\" : match[1]
-    return join(normalizePath(dir), "*")
-  }
-
-  // We cannot rely on path.resolve() here because git.exe may come from Git Bash, Cygwin, or MSYS2, so we need to translate these paths at the boundary.
-  // Also resolves symlinks so that callers using the result as a cache key
-  // always get the same canonical path for a given physical directory.
-  export function resolve(p: string): string {
-    const resolved = process.platform === "win32" ? normalizeWindowsAbsolutePath(windowsPath(p)) : pathResolve(p)
-    try {
-      return normalizePath(realpathSync(resolved))
-    } catch (e) {
-      if (isEnoent(e)) return normalizePath(resolved)
-      throw e
-    }
-  }
-
-  export function windowsPath(p: string): string {
-    if (process.platform !== "win32") return p
-    return (
-      p
-        .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-        // Git Bash for Windows paths are typically /<drive>/...
-        .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-        // Cygwin git paths are typically /cygdrive/<drive>/...
-        .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-        // WSL paths are typically /mnt/<drive>/...
-        .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-    )
-  }
-
-  function normalizeWindowsAbsolutePath(p: string) {
-    const existing = resolveRootedWindowsVariant(p)
-    return win32.normalize(existing ?? win32.resolve(p))
-  }
-
-  function resolveRootedWindowsVariant(p: string) {
-    if (!/^[\\/](?![\\/])/.test(p)) return
-    const suffix = p.replace(/^[\\/]+/, "").replaceAll("/", "\\")
-    for (const root of windowsDriveRoots()) {
-      const candidate = win32.join(root, suffix)
-      if (existsSync(candidate)) return candidate
-    }
-  }
-
-  function windowsDriveRoots() {
-    const result: string[] = []
-    const seen = new Set<string>()
-    const push = (input?: string) => {
-      if (!input) return
-      const match = input.match(/^([A-Za-z]:)/)
-      if (!match) return
-      const root = match[1].toUpperCase()
-      if (seen.has(root)) return
-      seen.add(root)
-      result.push(root + "\\")
-    }
-    push(process.cwd())
-    push(process.env.SystemDrive)
-    for (let code = 65; code <= 90; code++) {
-      push(String.fromCharCode(code) + ":")
-    }
-    return result
-  }
+  export const normalizePath = AppFileSystem.normalizePath
+  export const normalizePathPattern = AppFileSystem.normalizePathPattern
+  export const resolve = AppFileSystem.resolve
+  export const windowsPath = AppFileSystem.windowsPath
 
   function comparablePath(p: string) {
     if (process.platform !== "win32") return pathResolve(p)
-    return win32.normalize(win32.resolve(windowsPath(p)))
+    return AppFileSystem.normalizePath(p)
   }
 
   function comparableRelative(from: string, to: string) {
