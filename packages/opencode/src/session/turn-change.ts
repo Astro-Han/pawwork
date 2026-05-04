@@ -6,7 +6,7 @@ import z from "zod"
 import { eq, and, ne, Database } from "@/storage/db"
 import { count } from "drizzle-orm"
 import { MessageID, SessionID } from "./schema"
-import { TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
+import { MessageTable, TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
 import { Instance } from "@/project/instance"
 import { isSensitiveTargetPath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
@@ -54,12 +54,19 @@ export type RecordWriteInput = {
   after: FileState
 }
 
+export type SkippedMessage = {
+  messageID: MessageID
+  reason: "conflict" | "permission_denied"
+  files: Array<{ path: string; reason: string }>
+}
+
 export type MutationResult =
-  | { status: "applied"; display: Display }
+  | { status: "applied"; display: Display; skipped?: SkippedMessage[] }
   | {
       status: "blocked"
       reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed"
       files: Array<{ path: string; reason: string; omittedCount?: number }>
+      skipped?: SkippedMessage[]
     }
 
 type RestoreFile = {
@@ -351,10 +358,22 @@ export namespace TurnChange {
     files: z.array(DisplayFileSchema),
   })
 
+  export const SkippedMessageSchema = z.object({
+    messageID: MessageID.zod,
+    reason: z.enum(["conflict", "permission_denied"]),
+    files: z.array(
+      z.object({
+        path: z.string(),
+        reason: z.string(),
+      }),
+    ),
+  })
+
   export const MutationResultSchema = z.discriminatedUnion("status", [
     z.object({
       status: z.literal("applied"),
       display: DisplaySchema,
+      skipped: z.array(SkippedMessageSchema).optional(),
     }),
     z.object({
       status: z.literal("blocked"),
@@ -366,6 +385,7 @@ export namespace TurnChange {
           omittedCount: z.number().optional(),
         }),
       ),
+      skipped: z.array(SkippedMessageSchema).optional(),
     }),
   ])
 
@@ -600,6 +620,94 @@ export namespace TurnChange {
     return withOpenPaths(withAvailability(row.data, row.state), rows(input.sessionID, input.messageID))
   }
 
+  function listAssistantsForUser(sessionID: SessionID, userMessageID: MessageID): MessageID[] {
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(MessageTable)
+        .where(eq(MessageTable.session_id, sessionID))
+        .orderBy(MessageTable.time_created, MessageTable.id)
+        .all(),
+    )
+    const result: MessageID[] = []
+    for (const row of rows) {
+      const data = row.data as { role?: string; parentID?: MessageID } | undefined
+      if (data?.role !== "assistant") continue
+      if (data.parentID !== userMessageID) continue
+      result.push(row.id)
+    }
+    return result
+  }
+
+  function collapseRestoreFiles(allRows: RestoreRow[]): RestoreFile[] {
+    const order: string[] = []
+    const merged = new Map<string, RestoreFile>()
+    for (const row of allRows) {
+      const key = row.data.displayPath
+      const existing = merged.get(key)
+      if (!existing) {
+        order.push(key)
+        merged.set(key, row.data)
+      } else {
+        merged.set(key, {
+          path: existing.path,
+          displayPath: existing.displayPath,
+          before: existing.before,
+          after: row.data.after,
+        })
+      }
+    }
+    return order.map((key) => merged.get(key)!)
+  }
+
+  function aggregateTurnInternal(input: {
+    sessionID: SessionID
+    userMessageID: MessageID
+  }): Display | undefined {
+    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    if (!assistants.length) return
+
+    const allRestore: RestoreRow[] = []
+    let anyDisplay = false
+    let undoable = true
+    let redoable = true
+    let truncatedCount = 0
+    for (const messageID of assistants) {
+      const display = displayRow(input.sessionID, messageID)
+      if (display) {
+        anyDisplay = true
+        if (display.state !== "applied") undoable = false
+        if (display.state !== "undone") redoable = false
+        if (display.data.truncated) {
+          truncatedCount += display.data.omittedCount ?? 0
+        }
+      } else {
+        // assistant has no finalized display row — not undoable as a whole
+        undoable = false
+        redoable = false
+      }
+      const restoreRows = rows(input.sessionID, messageID)
+      for (const row of restoreRows) allRestore.push(row)
+    }
+
+    if (!anyDisplay && !allRestore.length) return
+
+    const collapsed = collapseRestoreFiles(allRestore)
+    const files = collapsed.map((file) => toDisplay(file)).filter(Boolean) as DisplayFile[]
+    if (!files.length && truncatedCount === 0) return
+
+    const display: Display = {
+      sessionID: input.sessionID,
+      turnID: input.userMessageID,
+      messageID: input.userMessageID,
+      undoAvailable: undoable && truncatedCount === 0,
+      redoAvailable: redoable && truncatedCount === 0,
+      ...(truncatedCount > 0 ? { truncated: true, omittedCount: truncatedCount } : {}),
+      files,
+    }
+    return withOpenPaths(display, allRestore)
+  }
+
   async function mutate(input: { sessionID: SessionID; messageID: MessageID; mode: "undo" | "redo" }): Promise<MutationResult> {
     const display = displayRow(input.sessionID, input.messageID)
     if (!display) return { status: "blocked", reason: "restore_missing", files: [] }
@@ -695,6 +803,107 @@ export namespace TurnChange {
     return { status: "applied", display: nextDisplay }
   }
 
+  async function preflightTurn(input: {
+    sessionID: SessionID
+    userMessageID: MessageID
+    mode: "undo" | "redo"
+  }): Promise<{
+    actionable: MessageID[]
+    skipped: SkippedMessage[]
+    fatal?: { reason: "restore_missing" | "unsupported_size"; files: Array<{ path: string; reason: string; omittedCount?: number }> }
+  }> {
+    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    const ordered = input.mode === "undo" ? [...assistants].reverse() : assistants
+    const sourceState = input.mode === "undo" ? "applied" : "undone"
+    const actionable: MessageID[] = []
+    const skipped: SkippedMessage[] = []
+
+    for (const messageID of ordered) {
+      const display = displayRow(input.sessionID, messageID)
+      if (!display) continue
+      if (display.state !== sourceState) continue
+
+      const overflow = overflowRow(input.sessionID, messageID)
+      const overflowData = overflow?.data
+      if (overflowData && isOverflow(overflowData)) {
+        return {
+          actionable: [],
+          skipped,
+          fatal: {
+            reason: "unsupported_size",
+            files: [{ path: "omitted files", reason: "truncated", omittedCount: overflowData.omittedCount }],
+          },
+        }
+      }
+
+      const restore = rows(input.sessionID, messageID)
+      if (!restore.length) continue
+
+      const blocked: Array<{ path: string; reason: string }> = []
+      for (const row of restore) {
+        const expected = input.mode === "undo" ? row.data.after : row.data.before
+        if (!canRestore(input.mode === "undo" ? row.data.before : row.data.after)) {
+          blocked.push({ path: row.data.displayPath, reason: "restore_unavailable" })
+          continue
+        }
+        const current = await currentState(row.data.path)
+        if (isPermissionCode(stateErrorCode(current))) blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
+        else if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
+        else if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
+      }
+
+      if (blocked.length) {
+        const reason = blocked.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+        skipped.push({ messageID, reason, files: blocked })
+        continue
+      }
+      actionable.push(messageID)
+    }
+    return { actionable, skipped }
+  }
+
+  async function mutateTurn(input: {
+    sessionID: SessionID
+    userMessageID: MessageID
+    mode: "undo" | "redo"
+    force: boolean
+  }): Promise<MutationResult> {
+    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    if (!assistants.length) return { status: "blocked", reason: "restore_missing", files: [] }
+
+    const preflight = await preflightTurn({
+      sessionID: input.sessionID,
+      userMessageID: input.userMessageID,
+      mode: input.mode,
+    })
+    if (preflight.fatal) {
+      return { status: "blocked", reason: preflight.fatal.reason, files: preflight.fatal.files, skipped: preflight.skipped }
+    }
+    if (!input.force && preflight.skipped.length) {
+      const reason = preflight.skipped.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+      const files = preflight.skipped.flatMap((item) => item.files)
+      return { status: "blocked", reason, files, skipped: preflight.skipped }
+    }
+    if (!preflight.actionable.length && !preflight.skipped.length) {
+      return { status: "blocked", reason: "restore_missing", files: [] }
+    }
+
+    for (const messageID of preflight.actionable) {
+      const result = await mutate({ sessionID: input.sessionID, messageID, mode: input.mode })
+      if (result.status === "blocked") {
+        return { status: "blocked", reason: result.reason, files: result.files, skipped: preflight.skipped }
+      }
+    }
+
+    const aggregated = aggregateTurnInternal({ sessionID: input.sessionID, userMessageID: input.userMessageID })
+    if (!aggregated) return { status: "blocked", reason: "restore_missing", files: [], skipped: preflight.skipped }
+    return {
+      status: "applied",
+      display: aggregated,
+      ...(preflight.skipped.length ? { skipped: preflight.skipped } : {}),
+    }
+  }
+
   async function locked<T>(state: ServiceState, sessionID: SessionID, fn: () => Promise<T>) {
     const previous = state.locks.get(sessionID) ?? Promise.resolve()
     let release!: () => void
@@ -716,8 +925,22 @@ export namespace TurnChange {
     readonly recordWrite: (input: RecordWriteInput) => Effect.Effect<void>
     readonly finalize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
     readonly get: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
+    readonly aggregateTurn: (input: {
+      sessionID: SessionID
+      userMessageID: MessageID
+    }) => Effect.Effect<Display | undefined>
     readonly undo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
     readonly redo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
+    readonly aggregateTurnUndo: (input: {
+      sessionID: SessionID
+      userMessageID: MessageID
+      force?: boolean
+    }) => Effect.Effect<MutationResult>
+    readonly aggregateTurnRedo: (input: {
+      sessionID: SessionID
+      userMessageID: MessageID
+      force?: boolean
+    }) => Effect.Effect<MutationResult>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@pawwork/TurnChange") {}
@@ -736,11 +959,28 @@ export namespace TurnChange {
         get: Effect.fn("TurnChange.get")(function* (input) {
           return getInternal(input)
         }),
+        aggregateTurn: Effect.fn("TurnChange.aggregateTurn")(function* (input) {
+          return aggregateTurnInternal(input)
+        }),
         undo: Effect.fn("TurnChange.undo")(function* (input) {
           return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "undo" })))
         }),
         redo: Effect.fn("TurnChange.redo")(function* (input) {
           return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "redo" })))
+        }),
+        aggregateTurnUndo: Effect.fn("TurnChange.aggregateTurnUndo")(function* (input) {
+          return yield* Effect.promise(() =>
+            locked(state, input.sessionID, () =>
+              mutateTurn({ sessionID: input.sessionID, userMessageID: input.userMessageID, mode: "undo", force: !!input.force }),
+            ),
+          )
+        }),
+        aggregateTurnRedo: Effect.fn("TurnChange.aggregateTurnRedo")(function* (input) {
+          return yield* Effect.promise(() =>
+            locked(state, input.sessionID, () =>
+              mutateTurn({ sessionID: input.sessionID, userMessageID: input.userMessageID, mode: "redo", force: !!input.force }),
+            ),
+          )
         }),
       })
     }),
@@ -761,11 +1001,23 @@ export namespace TurnChange {
     return runtime.runSync((svc) => svc.get(input))
   }
 
+  export function aggregateTurn(input: { sessionID: SessionID; userMessageID: MessageID }) {
+    return runtime.runSync((svc) => svc.aggregateTurn(input))
+  }
+
   export function undo(input: { sessionID: SessionID; messageID: MessageID }) {
     return runtime.runPromise((svc) => svc.undo(input))
   }
 
   export function redo(input: { sessionID: SessionID; messageID: MessageID }) {
     return runtime.runPromise((svc) => svc.redo(input))
+  }
+
+  export function aggregateTurnUndo(input: { sessionID: SessionID; userMessageID: MessageID; force?: boolean }) {
+    return runtime.runPromise((svc) => svc.aggregateTurnUndo(input))
+  }
+
+  export function aggregateTurnRedo(input: { sessionID: SessionID; userMessageID: MessageID; force?: boolean }) {
+    return runtime.runPromise((svc) => svc.aggregateTurnRedo(input))
   }
 }
