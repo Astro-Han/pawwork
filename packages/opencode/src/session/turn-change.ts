@@ -896,9 +896,17 @@ export namespace TurnChange {
     const aggregatedSkipped: SkippedMessage[] = [...preflight.skipped]
     const mutatedPaths: string[] = []
     const mutatedSet = new Set<string>()
+    const completed: MessageID[] = []
+    const reverseMode: "undo" | "redo" = input.mode === "undo" ? "redo" : "undo"
     for (const messageID of preflight.actionable) {
       const result = await mutate({ sessionID: input.sessionID, messageID, mode: input.mode })
       if (result.status === "blocked") {
+        if (!input.force) {
+          for (const done of [...completed].reverse()) {
+            await mutate({ sessionID: input.sessionID, messageID: done, mode: reverseMode }).catch(() => undefined)
+          }
+          return { status: "blocked", reason: result.reason, files: result.files, skipped: preflight.skipped }
+        }
         const reason: SkippedMessage["reason"] = result.reason === "permission_denied" ? "permission_denied" : "conflict"
         aggregatedSkipped.push({
           messageID,
@@ -907,6 +915,7 @@ export namespace TurnChange {
         })
         continue
       }
+      completed.push(messageID)
       const restore = rows(input.sessionID, messageID)
       for (const row of restore) {
         if (mutatedSet.has(row.data.path)) continue

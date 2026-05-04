@@ -320,6 +320,11 @@ export function MessageTimeline(props: {
   const webSearchPendingParts = new Map<string, Set<string>>()
   const [turnChanges, setTurnChanges] = createStore<Record<string, TurnChangeDisplay | null>>({})
   const fetchedTurnChanges = new Set<string>()
+  const turnChangeRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  onCleanup(() => {
+    for (const timer of turnChangeRetryTimers.values()) clearTimeout(timer)
+    turnChangeRetryTimers.clear()
+  })
 
   const authHeaders = () => {
     const current = server.current
@@ -356,28 +361,71 @@ export function MessageTimeline(props: {
     const id = sessionID()
     if (!current || !id) return
     const url = `${current.http.url}/session/${id}/turn/${userMessageID}/changes${action ? `/${action}` : ""}`
-    const res = await fetch(url, {
-      method: action ? "POST" : "GET",
-      headers: {
-        ...authHeaders(),
-        ...(action ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(action ? { body: JSON.stringify({ force: !!options?.force }) } : {}),
-    })
-    if (!res.ok) throw new Error(`turn-change ${action ?? "get"} failed: ${res.status}`)
-    const body = await res.json()
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: action ? "POST" : "GET",
+        headers: {
+          ...authHeaders(),
+          ...(action ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(action ? { body: JSON.stringify({ force: !!options?.force }) } : {}),
+      })
+    } catch (err) {
+      if (action) {
+        showToast({
+          title:
+            action === "undo"
+              ? language.t("session.turnChange.undoBlocked")
+              : language.t("session.turnChange.redoBlocked"),
+          description: language.t("session.turnChange.blocked.generic"),
+          variant: "error",
+        })
+      }
+      return turnChanges[userMessageID] ?? undefined
+    }
+    if (!res.ok) {
+      if (action) {
+        showToast({
+          title:
+            action === "undo"
+              ? language.t("session.turnChange.undoBlocked")
+              : language.t("session.turnChange.redoBlocked"),
+          description: language.t("session.turnChange.blocked.generic"),
+          variant: "error",
+        })
+      }
+      return turnChanges[userMessageID] ?? undefined
+    }
+    let body: any
+    try {
+      body = await res.json()
+    } catch {
+      if (action) {
+        showToast({
+          title:
+            action === "undo"
+              ? language.t("session.turnChange.undoBlocked")
+              : language.t("session.turnChange.redoBlocked"),
+          description: language.t("session.turnChange.blocked.generic"),
+          variant: "error",
+        })
+      }
+      return turnChanges[userMessageID] ?? undefined
+    }
     if (!action) {
       setTurnChanges(userMessageID, body ?? null)
       return body ?? undefined
     }
     if (body?.status === "applied") {
-      const display: TurnChangeDisplay | null = body.display ?? null
-      if (display && Array.isArray(body.skipped) && body.skipped.length) {
+      const rawDisplay: TurnChangeDisplay | null = body.display ?? null
+      let display: TurnChangeDisplay | null = rawDisplay
+      if (rawDisplay && Array.isArray(body.skipped) && body.skipped.length) {
         const skippedCount = body.skipped.reduce(
           (sum: number, item: any) => sum + (Array.isArray(item?.files) ? item.files.length : 0),
           0,
         )
-        if (skippedCount > 0) display.skippedCount = skippedCount
+        if (skippedCount > 0) display = { ...rawDisplay, skippedCount }
       }
       setTurnChanges(userMessageID, display)
       return display ?? undefined
@@ -490,8 +538,12 @@ export function MessageTimeline(props: {
           void turnChangeFetch(userMessageID)
             .then((display) => {
               if (display) return
-              fetchedTurnChanges.delete(key)
-              setTimeout(() => void turnChangeFetch(userMessageID).catch(() => undefined), 500)
+              if (turnChangeRetryTimers.has(key)) return
+              const timer = setTimeout(() => {
+                turnChangeRetryTimers.delete(key)
+                void turnChangeFetch(userMessageID).catch(() => undefined)
+              }, 500)
+              turnChangeRetryTimers.set(key, timer)
             })
             .catch(() => {
               fetchedTurnChanges.delete(key)
