@@ -677,6 +677,124 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .get(
+      "/:sessionID/turn/:userMessageID/changes",
+      describeRoute({
+        summary: "Get aggregated turn changes",
+        description: "Aggregate file changes across all assistants in one user turn.",
+        operationId: "session.turnChangesAggregate",
+        responses: {
+          200: {
+            description: "Aggregated turn changes",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.DisplaySchema.nullable()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          userMessageID: MessageID.zod,
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const turnChange = yield* TurnChange.Service
+            return yield* turnChange.aggregateTurn(params)
+          }),
+        )
+        return c.json(result ?? null)
+      },
+    )
+    .post(
+      "/:sessionID/turn/:userMessageID/changes/undo",
+      describeRoute({
+        summary: "Undo all assistant changes in a turn",
+        operationId: "session.turnChangesAggregateUndo",
+        responses: {
+          200: {
+            description: "Undo result",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.MutationResultSchema),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          userMessageID: MessageID.zod,
+        }),
+      ),
+      validator("json", z.object({ force: z.boolean().optional() }).optional()),
+      async (c) => {
+        const params = c.req.valid("param")
+        const body = c.req.valid("json") ?? {}
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const state = yield* SessionRunState.Service
+            const turnChange = yield* TurnChange.Service
+            yield* state.assertNotBusy(params.sessionID)
+            const result = yield* turnChange.aggregateTurnUndo({ ...params, force: body.force })
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
+            return result
+          }),
+        )
+        return c.json(result)
+      },
+    )
+    .post(
+      "/:sessionID/turn/:userMessageID/changes/redo",
+      describeRoute({
+        summary: "Redo all assistant changes in a turn",
+        operationId: "session.turnChangesAggregateRedo",
+        responses: {
+          200: {
+            description: "Redo result",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.MutationResultSchema),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          userMessageID: MessageID.zod,
+        }),
+      ),
+      validator("json", z.object({ force: z.boolean().optional() }).optional()),
+      async (c) => {
+        const params = c.req.valid("param")
+        const body = c.req.valid("json") ?? {}
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const state = yield* SessionRunState.Service
+            const turnChange = yield* TurnChange.Service
+            yield* state.assertNotBusy(params.sessionID)
+            const result = yield* turnChange.aggregateTurnRedo({ ...params, force: body.force })
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
+            return result
+          }),
+        )
+        return c.json(result)
+      },
+    )
+    .get(
       "/:sessionID/artifacts",
       describeRoute({
         summary: "Get session artifacts",
