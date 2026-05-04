@@ -53,8 +53,36 @@ test("desktop remains clickable after right-panel resize ends with mouseup", asy
     await page.keyboard.press(`${modKey}+Shift+R`)
     await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
 
-    await page.locator('[data-component="right-panel-resize-wrapper"]').dispatchEvent("pointerdown")
+    const handle = page.locator('[data-component="right-panel-resize-wrapper"] [data-component="resize-handle"]')
+    await expect(handle).toBeVisible()
+    const box = await handle.boundingBox()
+    if (!box) throw new Error("Right-panel resize handle missing")
+
+    const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    await handle.dispatchEvent("mousedown", {
+      button: 0,
+      buttons: 1,
+      clientX: start.x,
+      clientY: start.y,
+    })
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          overflow: document.body.style.overflow,
+          userSelect: document.body.style.userSelect,
+        })),
+      )
+      .toEqual({ overflow: "hidden", userSelect: "none" })
+    await page.mouse.move(start.x - 40, start.y)
     await page.mouse.up()
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          overflow: document.body.style.overflow,
+          userSelect: document.body.style.userSelect,
+        })),
+      )
+      .toEqual({ overflow: "", userSelect: "" })
 
     await page.locator(pawworkSessionNewSelector).click()
     await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
