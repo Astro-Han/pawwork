@@ -29,6 +29,24 @@ describe("readTimelineMessages", () => {
     expect(missing.lastGood).toBe(ready.lastGood)
   })
 
+  test("keeps a long session window during a same-session cache miss", () => {
+    const loaded = Array.from({ length: 80 }, (_, index) => userMessage(`msg_${index}`))
+    const ready = readTimelineMessages({
+      sessionID: "ses_target",
+      raw: loaded,
+      lastGood: undefined,
+    })
+
+    const missing = readTimelineMessages({
+      sessionID: "ses_target",
+      raw: undefined,
+      lastGood: ready.lastGood,
+    })
+
+    expect(missing.messages).toHaveLength(80)
+    expect(missing.messages).toBe(loaded)
+  })
+
   test("does not reuse last-good messages after switching to another session", () => {
     const loaded = [userMessage("msg_1")]
     const ready = readTimelineMessages({

@@ -62,4 +62,27 @@ describe("createCurrentSyncChild", () => {
     expect(value[0].directory).toBe("/tmp/project")
     expect(calls).toEqual(["/tmp/project"])
   })
+
+  test("tracks directory changes while the provider owner stays mounted", () => {
+    let directory = "/tmp/project-a"
+    const calls: string[] = []
+
+    const current = createRoot((dispose) => {
+      const accessor = createCurrentSyncChild({
+        directory: () => directory,
+        child: (next) => {
+          calls.push(next)
+          return [{ directory: next }, () => {}] as const
+        },
+      })
+      return { accessor, dispose }
+    })
+
+    expect(current.accessor()[0].directory).toBe("/tmp/project-a")
+    directory = "/tmp/project-b"
+    expect(current.accessor()[0].directory).toBe("/tmp/project-b")
+    expect(calls).toEqual(["/tmp/project-a", "/tmp/project-b"])
+
+    current.dispose()
+  })
 })
