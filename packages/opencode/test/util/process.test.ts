@@ -85,6 +85,31 @@ describe("util.process", () => {
     expect(await proc.exited).not.toBe(0)
   }, 3000)
 
+  test("terminateTree falls back to root process when descendant enumeration fails", async () => {
+    if (process.platform === "win32") return
+
+    const proc = Process.spawn(node('process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'))
+    await Process.terminateTree({
+      pid: proc.pid!,
+      graceMs: 25,
+      waitForExit: proc.exited,
+      findDescendants: async () => {
+        throw new Error("pgrep unavailable")
+      },
+    })
+
+    expect(await proc.exited).not.toBe(0)
+  }, 3000)
+
+  test("stop uses the shared process tree termination path", async () => {
+    if (process.platform === "win32") return
+
+    const proc = Process.spawn(node('process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'))
+    await Process.stop(proc)
+
+    expect(await proc.exited).not.toBe(0)
+  }, 3000)
+
   test("uses cwd when spawning commands", async () => {
     await using tmp = await tmpdir()
     const out = await Process.run(node("process.stdout.write(process.cwd())"), {

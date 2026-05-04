@@ -514,11 +514,15 @@ export const BashTool = Tool.define(
 
           if (exit.kind === "abort") {
             aborted = true
-            yield* Effect.promise(() => Process.terminateTree({ pid: handle.pid })).pipe(Effect.orDie)
+            yield* Effect.promise(() =>
+              Process.terminateTree({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }),
+            ).pipe(Effect.orDie)
           }
           if (exit.kind === "timeout") {
             expired = true
-            yield* Effect.promise(() => Process.terminateTree({ pid: handle.pid })).pipe(Effect.orDie)
+            yield* Effect.promise(() =>
+              Process.terminateTree({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }),
+            ).pipe(Effect.orDie)
           }
 
           return exit.kind === "exit" ? exit.code : null

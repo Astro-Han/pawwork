@@ -209,10 +209,10 @@ export namespace Pty {
         }),
       )
 
-      const trackCleanup = (s: State, effect: Effect.Effect<void>) => {
+      const trackCleanup = (s: State, id: PtyID, effect: Effect.Effect<void>) => {
         const task = Effect.runPromise(effect.pipe(Effect.provide(EffectLogger.layer)))
           .catch((error) => {
-            log.error("cleanup task failed", { error })
+            log.error("cleanup task failed", { id, error })
           })
           .finally(() => {
             s.cleanupTasks.delete(task)
@@ -340,6 +340,7 @@ export namespace Pty {
             session.exitCode = exitCode
             trackCleanup(
               s,
+              id,
               Effect.gen(function* () {
                 yield* bus.publish(Event.Exited, { id, exitCode })
                 yield* remove(id)

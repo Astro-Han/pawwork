@@ -3,6 +3,9 @@ import launch from "cross-spawn"
 import { buffer } from "node:stream/consumers"
 import { setTimeout as sleep } from "node:timers/promises"
 import { errorMessage } from "./error"
+import { Log } from "@opencode-ai/core/util/log"
+
+const log = Log.create({ service: "util.process" })
 
 export namespace Process {
   export const TERMINATION_GRACE_MS = 500
@@ -147,22 +150,31 @@ export namespace Process {
     throw new RunFailedError(cmd, out.code, out.stdout, out.stderr)
   }
 
-  // Duplicated in `packages/sdk/js/src/process.ts` because the SDK cannot import
-  // `opencode` without creating a cycle. Keep both copies in sync.
+  // The SDK keeps a sync stop variant because it cannot import opencode without
+  // creating a cycle. Keep platform behavior aligned when changing this path.
   export async function stop(proc: ChildProcess) {
     if (proc.exitCode !== null || proc.signalCode !== null) return
 
-    if (process.platform !== "win32" || !proc.pid) {
+    if (!proc.pid) {
       proc.kill()
       return
     }
 
-    const out = await run(["taskkill", "/pid", String(proc.pid), "/T", "/F"], {
-      nothrow: true,
+    const waitForExit = new Promise<void>((resolve) => {
+      const done = () => {
+        proc.off("exit", done)
+        proc.off("error", done)
+        resolve()
+      }
+      proc.once("exit", done)
+      proc.once("error", done)
     })
 
-    if (out.code === 0) return
-    proc.kill()
+    await terminateTree({
+      pid: proc.pid,
+      signalRoot: (signal) => proc.kill(signal),
+      waitForExit,
+    })
   }
 
   export function exists(pid: number) {
@@ -180,7 +192,14 @@ export namespace Process {
     const pending = [pid]
     while (pending.length) {
       const parent = pending.pop()!
-      const out = await Bun.$`pgrep -P ${parent}`.quiet().nothrow().text()
+      const out = await Bun.$`pgrep -P ${parent}`
+        .quiet()
+        .nothrow()
+        .text()
+        .catch((error) => {
+          log.debug("failed to enumerate child processes", { pid: parent, error: errorMessage(error) })
+          return ""
+        })
       for (const line of out.split(/\s+/)) {
         const child = Number(line)
         if (!Number.isInteger(child) || child <= 0 || seen.has(child)) continue
@@ -214,6 +233,7 @@ export namespace Process {
     graceMs?: number
     signalRoot?: (signal: NodeJS.Signals) => void
     waitForExit?: Promise<unknown>
+    findDescendants?: (pid: number) => Promise<number[]>
   }) {
     const graceMs = input.graceMs ?? TERMINATION_GRACE_MS
     if (process.platform === "win32") {
@@ -221,7 +241,10 @@ export namespace Process {
       return
     }
 
-    const children = await descendants(input.pid)
+    const children = await (input.findDescendants ?? descendants)(input.pid).catch((error) => {
+      log.debug("failed to enumerate process tree", { pid: input.pid, error: errorMessage(error) })
+      return []
+    })
     const signalRoot = (signal: NodeJS.Signals) => {
       if (input.signalRoot && exists(input.pid)) {
         try {
@@ -233,22 +256,27 @@ export namespace Process {
     }
 
     const groupSignaled = signalGroup(input.pid, "SIGTERM")
+    log.debug("sent process tree terminate signal", { pid: input.pid, groupSignaled, descendantCount: children.length })
     if (!groupSignaled) {
       signalRoot("SIGTERM")
       for (const child of children) signalPid(child, "SIGTERM")
     }
 
     const rootExited = await (input.waitForExit
-      ? Promise.race([input.waitForExit.then(() => true), sleep(graceMs).then(() => false)])
+      ? Promise.race([input.waitForExit.then(() => true, () => true), sleep(graceMs).then(() => false)])
       : sleep(graceMs).then(() => false))
 
     if (!exists(input.pid) && children.every((child) => !exists(child))) return
     if (groupSignaled && !rootExited && exists(input.pid)) {
       signalGroup(input.pid, "SIGKILL")
+      log.debug("sent process group kill signal", { pid: input.pid })
+      if (input.waitForExit) await Promise.race([input.waitForExit.catch(() => undefined), sleep(graceMs)])
       return
     }
     signalRoot("SIGKILL")
     for (const child of children) signalPid(child, "SIGKILL")
+    log.debug("sent fallback process kill signals", { pid: input.pid, descendantCount: children.length })
+    if (input.waitForExit) await Promise.race([input.waitForExit.catch(() => undefined), sleep(graceMs)])
   }
 
   export async function text(cmd: string[], opts: RunOptions = {}): Promise<TextResult> {
