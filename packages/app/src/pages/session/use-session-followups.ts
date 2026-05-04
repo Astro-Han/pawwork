@@ -74,6 +74,9 @@ export function createSessionFollowups(input: {
   resumeScroll: () => void
   attachmentLabel: () => string
 }) {
+  // This persisted store intentionally moved from Persist.workspace(..., "followup", ["followup.v1"]) to
+  // Persist.global("session-followup.v1"). Legacy workspace-scoped followup.v1 queues are not migrated
+  // because their saved execution directory can be stale after worktree exit.
   const [followup, setFollowup] = persisted(
     Persist.global("session-followup.v1", ["followup.v1"]),
     createStore<{
