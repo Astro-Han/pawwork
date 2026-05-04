@@ -6,8 +6,9 @@ describe("shouldShowSessionOpeningState", () => {
     expect(
       shouldShowSessionOpeningState({
         activeSessionID: "ses_target",
+        routeSessionID: "ses_target",
+        routeReady: false,
         timelineSessionID: "ses_target",
-        timelineMessagesReady: false,
       }),
     ).toBe(true)
   })
@@ -16,15 +17,17 @@ describe("shouldShowSessionOpeningState", () => {
     expect(
       shouldShowSessionOpeningState({
         activeSessionID: undefined,
+        routeSessionID: undefined,
+        routeReady: false,
         timelineSessionID: undefined,
-        timelineMessagesReady: false,
       }),
     ).toBe(false)
     expect(
       shouldShowSessionOpeningState({
         activeSessionID: "ses_target",
+        routeSessionID: "ses_target",
+        routeReady: true,
         timelineSessionID: "ses_target",
-        timelineMessagesReady: true,
       }),
     ).toBe(false)
   })
@@ -33,8 +36,9 @@ describe("shouldShowSessionOpeningState", () => {
     expect(
       shouldShowSessionOpeningState({
         activeSessionID: "ses_route",
+        routeSessionID: "ses_route",
+        routeReady: false,
         timelineSessionID: "ses_other",
-        timelineMessagesReady: false,
       }),
     ).toBe(false)
   })

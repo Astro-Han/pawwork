@@ -4,7 +4,7 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useLocation, useSearchParams } from "@solidjs/router"
+import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { useComments } from "@/context/comments"
 import { useGlobalSync } from "@/context/global-sync"
@@ -55,6 +55,7 @@ export default function Page() {
   const comments = useComments()
   const terminal = useTerminal()
   const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
   const { params, sessionKey, tabs, view } = useSessionLayout()
 
@@ -540,6 +541,17 @@ export default function Page() {
     />
   )
 
+  const retryOpenRouteSession = () => {
+    const id = params.id
+    if (!id) return
+    void sync.session.sync(id, { force: true })
+  }
+
+  const openNewRouteSession = () => {
+    if (!params.dir) return
+    navigate(`/${params.dir}/session`)
+  }
+
   return (
     <SessionMainView
       activeSessionID={params.id}
@@ -547,6 +559,9 @@ export default function Page() {
       mobileTab={mobileTab()}
       setMobileTab={setMobileTab}
       language={language}
+      routeSessionID={params.id}
+      routeReady={timeline.routeMessagesReady()}
+      transitioning={timeline.transitioning()}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}
       timelineMessagesReady={timelineMessagesReady()}
@@ -568,6 +583,8 @@ export default function Page() {
       historyMore={timelineHistoryMore()}
       historyLoading={timelineHistoryLoading()}
       anchor={timelineInteraction.anchor}
+      onRetryOpenSession={retryOpenRouteSession}
+      onOpenNewSession={openNewRouteSession}
       composerSession={renderComposerRegion("session")}
       composerHome={(ctx) => renderComposerRegion("home", ctx)}
       canReview={canReview}

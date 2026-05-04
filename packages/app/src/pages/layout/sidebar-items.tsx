@@ -16,6 +16,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { sessionPermissionRequest } from "../session/blockers/request-tree"
 import { createSessionRunning } from "../session/session-running-state"
 import { childSessionOnPath, hasProjectPermissions } from "./helpers"
+import { defaultSessionHref, shouldOpenSessionWithShell } from "./sidebar-item-navigation"
 
 export const ProjectIcon = (props: { project: LocalProject; class?: string; notify?: boolean }): JSX.Element => {
   const globalSync = useGlobalSync()
@@ -70,6 +71,8 @@ export type SessionItemProps = {
   showChild?: boolean
   level?: number
   prefetchSession: (session: Session, priority?: "high" | "low") => void
+  hrefForSession?: (session: Session) => string
+  onOpenSession?: (session: Session) => void
   titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
   actionSlot?: (session: Session) => JSX.Element
   pinned?: (session: Session) => boolean
@@ -82,16 +85,19 @@ const SessionRow = (props: {
   dense?: boolean
   warmPress: () => void
   warmFocus: () => void
+  href: string
+  onOpenSession?: (event: MouseEvent) => void
   titleContent?: JSX.Element
 }): JSX.Element => {
   const title = () => sessionTitle(props.session.title)
 
   return (
     <A
-      href={`/${props.slug}/session/${props.session.id}`}
+      href={props.href}
       class={`flex items-center min-w-0 w-full text-left focus:outline-none leading-[1.4] ${props.dense ? "py-1" : "py-[5px]"}`}
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
+      onClick={props.onOpenSession}
     >
       <Show when={props.titleContent} fallback={<span class="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
         {props.titleContent}
@@ -165,6 +171,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       session={props.session}
       slug={props.slug}
       dense={props.dense}
+      href={props.hrefForSession?.(props.session) ?? defaultSessionHref(props.slug, props.session)}
+      onOpenSession={(event) => {
+        if (!props.onOpenSession) return
+        if (!shouldOpenSessionWithShell(event)) return
+        event.preventDefault()
+        props.onOpenSession(props.session)
+      }}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
       titleContent={props.titleContent?.({ session: props.session, title: () => sessionTitle(props.session.title) ?? "" })}

@@ -20,6 +20,9 @@ export function SessionMainView(props: {
   mobileTab: "session" | "changes"
   setMobileTab: (tab: "session" | "changes") => void
   language: ReturnType<typeof useLanguage>
+  routeSessionID?: string
+  routeReady: boolean
+  transitioning: boolean
   timelineSessionID?: string
   timelineSessionKey: string
   timelineMessagesReady: boolean
@@ -41,6 +44,8 @@ export function SessionMainView(props: {
   historyMore: boolean
   historyLoading: boolean
   anchor: TimelineProps["anchor"]
+  onRetryOpenSession: () => void
+  onOpenNewSession: () => void
   composerSession: JSX.Element
   composerHome: (ctx: {
     onModeChange: (mode: "normal" | "shell") => void
@@ -89,19 +94,37 @@ export function SessionMainView(props: {
               <Match
                 when={shouldShowSessionOpeningState({
                   activeSessionID: props.activeSessionID,
+                  routeSessionID: props.routeSessionID,
+                  routeReady: props.routeReady,
                   timelineSessionID: props.timelineSessionID,
-                  timelineMessagesReady: props.timelineMessagesReady,
                 })}
               >
                 <div
                   class="size-full flex items-center justify-center px-6 text-center"
                   role="status"
                   data-component="session-opening-state"
+                  data-transitioning={props.transitioning ? "true" : "false"}
                 >
                   <div class="flex flex-col items-center gap-2">
                     <div class="size-8 rounded-full border border-border-subtle border-t-accent-base animate-spin" />
                     <div class="text-13-medium text-text-strong">{props.language.t("session.opening")}</div>
                     <div class="text-12-regular text-text-weak">{props.language.t("session.messages.loading")}</div>
+                    <div class="mt-2 flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        class="rounded-md border border-border-subtle px-3 py-1 text-13-regular text-text-base transition-colors hover:bg-surface-raised-base-hover focus:outline-none focus-visible:bg-surface-raised-base-hover"
+                        onClick={props.onRetryOpenSession}
+                      >
+                        {props.language.t("common.retry")}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded-md border border-border-subtle px-3 py-1 text-13-regular text-text-base transition-colors hover:bg-surface-raised-base-hover focus:outline-none focus-visible:bg-surface-raised-base-hover"
+                        onClick={props.onOpenNewSession}
+                      >
+                        {props.language.t("command.session.new")}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </Match>

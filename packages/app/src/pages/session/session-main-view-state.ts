@@ -1,12 +1,14 @@
 export function shouldShowSessionOpeningState(input: {
   activeSessionID?: string
+  routeSessionID?: string
+  routeReady: boolean
   timelineSessionID?: string
-  timelineMessagesReady: boolean
 }) {
   return (
     !!input.activeSessionID &&
-    !!input.timelineSessionID &&
-    input.activeSessionID === input.timelineSessionID &&
-    !input.timelineMessagesReady
+    !!input.routeSessionID &&
+    input.activeSessionID === input.routeSessionID &&
+    input.timelineSessionID === input.routeSessionID &&
+    !input.routeReady
   )
 }

@@ -246,6 +246,7 @@ export const dict = {
   "common.goForward": "前进",
   "common.loading": "加载中",
   "common.loading.ellipsis": "...",
+  "common.retry": "重试",
   "common.showMore": "显示更多",
   "common.cancel": "取消",
   "common.connect": "连接",

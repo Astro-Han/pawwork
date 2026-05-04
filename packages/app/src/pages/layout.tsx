@@ -2051,6 +2051,7 @@ export default function Layout(props: ParentProps) {
     currentDir,
     navList: currentSessions,
     prefetchSession,
+    openSession: navigateToSession,
     workspaceName,
     renameWorkspace,
     editorOpen,
@@ -2093,6 +2094,7 @@ export default function Layout(props: ParentProps) {
       sortMode={() => store.pawworkSortMode}
       setScrollContainerRef={workspaceSidebarCtx.setScrollContainerRef}
       prefetchSession={prefetchSession}
+      onOpenSession={navigateToSession}
       onRenameSession={renamePawworkSession}
       onTogglePinnedSession={togglePinnedSession}
       exportSessionAvailable={exportSessionAvailable}

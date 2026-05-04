@@ -34,6 +34,7 @@ export type WorkspaceSidebarContext = {
   currentDir: Accessor<string>
   navList: Accessor<Session[]>
   prefetchSession: (session: Session, priority?: "high" | "low") => void
+  openSession: (session: Session) => void
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   renameWorkspace: (directory: string, next: string, projectId?: string, branch?: string) => void
   editorOpen: (id: string) => boolean
@@ -250,6 +251,7 @@ const WorkspaceSessionList = (props: {
           slug={props.slug()}
           showChild
           prefetchSession={props.ctx.prefetchSession}
+          onOpenSession={props.ctx.openSession}
         />
       )}
     </For>
