@@ -39,6 +39,7 @@ interface PendingEntry {
   handle: unknown
   armedAt: number
   armedDirectory: string
+  retried: boolean
 }
 
 // Auto-heal clock. Edge-triggered arming (transition INTO missingRunning),
@@ -101,7 +102,10 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
     }
     if (disposed) return
     if (!outcome.proceed) {
-      if (outcome.retry && input.activeSessionID() === sessionID) {
+      // Bounded retry: at most one follow-up attempt per arm. A second
+      // transient failure must wait for a fresh snapshot edge instead of
+      // looping the server every delayMs forever.
+      if (outcome.retry && !entry.retried && input.activeSessionID() === sessionID) {
         const handle = setTimer(() => {
           void fire(sessionID)
         }, delayMs)
@@ -109,6 +113,7 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
           handle,
           armedAt: now(),
           armedDirectory: entry.armedDirectory,
+          retried: true,
         })
       }
       return
@@ -152,7 +157,7 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
       const handle = setTimer(() => {
         void fire(sid)
       }, delayMs)
-      pending.set(sid, { handle, armedAt, armedDirectory })
+      pending.set(sid, { handle, armedAt, armedDirectory, retried: false })
       return
     }
 

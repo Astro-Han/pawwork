@@ -165,6 +165,43 @@ describe("createQuestionRecoveryClock", () => {
     h.dispose()
   })
 
+  // Bounded retry: a second consecutive transient failure must NOT re-arm.
+  // The clock waits for a fresh snapshot edge instead of looping the server
+  // every delayMs forever.
+  test("reverify retry=true twice in a row only re-arms once", async () => {
+    let attempts = 0
+    const h = setupHarness({
+      reverifyImpl: async () => {
+        attempts++
+        return { proceed: false, retry: true }
+      },
+    })
+    h.setSnap(missing)
+    h.fk.advance(HEAL_DELAY_MS)
+    await flush()
+    expect(attempts).toBe(1)
+    expect(h.fk.pending()).toBe(1) // one follow-up armed
+
+    h.fk.advance(HEAL_DELAY_MS)
+    await flush()
+    expect(attempts).toBe(2)
+    expect(h.haltCalls).toEqual([])
+    expect(h.fk.pending()).toBe(0) // give-up: no second re-arm
+
+    // A long wait without snapshot change does not revive the clock.
+    h.fk.advance(HEAL_DELAY_MS * 10)
+    await flush()
+    expect(attempts).toBe(2)
+    expect(h.haltCalls).toEqual([])
+
+    // A fresh snapshot edge (none → missing) starts a new arm with a fresh
+    // retry budget.
+    h.setSnap(none)
+    h.setSnap(missing)
+    expect(h.fk.pending()).toBe(1)
+    h.dispose()
+  })
+
   test("halt() throws → structured warn logged, map entry deleted, no retry", async () => {
     let haltCount = 0
     const h = setupHarness({

@@ -120,13 +120,11 @@ export function createSessionBlockers(input: {
           const result = await sdk.client.question.list()
           filtered = (result.data ?? []).filter((q) => q.sessionID === sessionID)
         } catch (err) {
-          console.warn("question-recovery: question.list() failed; will retry", {
-            sessionID,
-            err,
-          })
-          // retry:true asks the clock to re-arm one follow-up timer (see
-          // ReverifyOutcome in question-recovery-clock.ts) so a transient
-          // server failure does not dead-end auto-heal for this edge.
+          console.warn("question-recovery: question.list() failed", { sessionID, err })
+          // Ask the clock for one bounded follow-up attempt (see
+          // ReverifyOutcome in question-recovery-clock.ts). A second
+          // consecutive failure waits for a fresh snapshot edge instead of
+          // looping the server.
           return { proceed: false, retry: true }
         }
         // Re-check the local guards after the await — state may have moved.
