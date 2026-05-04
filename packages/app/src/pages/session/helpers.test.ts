@@ -7,6 +7,7 @@ import {
   createSessionTabs,
   focusTerminalById,
   getTabReorderIndex,
+  sizingStopEvents,
   shouldFocusTerminalOnKeyDown,
 } from "./helpers"
 
@@ -114,6 +115,12 @@ describe("getTabReorderIndex", () => {
 
   test("returns undefined for unknown droppable id", () => {
     expect(getTabReorderIndex(["a", "b", "c"], "a", "missing")).toBeUndefined()
+  })
+})
+
+describe("createSizing", () => {
+  test("listens for mouse and touch endings as resize fallbacks", () => {
+    expect(sizingStopEvents).toEqual(["pointerup", "pointercancel", "mouseup", "touchend", "touchcancel", "blur"])
   })
 })
 

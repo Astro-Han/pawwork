@@ -94,6 +94,7 @@ import { PawworkTitlebar } from "./layout/pawwork-titlebar"
 import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { sessionTitle } from "@/utils/session-title"
+import { sizingStopEvents } from "@/pages/session/helpers"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
@@ -192,9 +193,7 @@ export default function Layout(props: ParentProps) {
 
   onMount(() => {
     const stop = () => setState("sizing", false)
-    makeEventListener(window, "pointerup", stop)
-    makeEventListener(window, "pointercancel", stop)
-    makeEventListener(window, "blur", stop)
+    for (const event of sizingStopEvents) makeEventListener(window, event, stop)
   })
 
   createEffect(() => {

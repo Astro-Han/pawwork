@@ -153,6 +153,8 @@ export const getTabReorderIndex = (tabs: readonly string[], from: string, to: st
   return toIndex
 }
 
+export const sizingStopEvents = ["pointerup", "pointercancel", "mouseup", "touchend", "touchcancel", "blur"] as const
+
 export const createSizing = () => {
   const [state, setState] = createStore({ active: false })
   let t: number | undefined
@@ -174,9 +176,7 @@ export const createSizing = () => {
   }
 
   onMount(() => {
-    makeEventListener(window, "pointerup", stop)
-    makeEventListener(window, "pointercancel", stop)
-    makeEventListener(window, "blur", stop)
+    for (const event of sizingStopEvents) makeEventListener(window, event, stop)
   })
 
   onCleanup(() => {

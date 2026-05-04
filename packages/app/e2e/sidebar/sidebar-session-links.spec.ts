@@ -1,6 +1,20 @@
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { cleanupSession, cleanupTestProject, createTestProject, openSidebar, waitSession } from "../actions"
 import { promptSelector } from "../selectors"
+
+async function expectUrlToStayMatched(page: Page, pattern: RegExp, stableFor = 300) {
+  let stableSince = Date.now()
+  await expect
+    .poll(() => {
+      if (!pattern.test(page.url())) {
+        stableSince = Date.now()
+        return false
+      }
+      return Date.now() - stableSince >= stableFor
+    })
+    .toBe(true)
+}
 
 test("sidebar session links navigate to the selected session", async ({ page, slug, sdk, gotoSession }) => {
   const stamp = Date.now()
@@ -20,9 +34,15 @@ test("sidebar session links navigate to the selected session", async ({ page, sl
     await expect(target).toBeVisible()
     await target.click()
 
-    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${two.id}(?:\\?|#|$)`))
+    const selectedSessionUrl = new RegExp(`/${slug}/session/${two.id}(?:\\?|#|$)`)
+    await expect(page).toHaveURL(selectedSessionUrl)
+    await expectUrlToStayMatched(page, selectedSessionUrl)
     await expect(page.locator(promptSelector)).toBeVisible()
     await expect(page.locator(`[data-session-id="${two.id}"] a`).first()).toHaveClass(/\bactive\b/)
+
+    await page.locator('[data-action="pawwork-session-new"]').click()
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
+    await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
   } finally {
     await cleanupSession({ sdk, sessionID: one.id })
     await cleanupSession({ sdk, sessionID: two.id })
