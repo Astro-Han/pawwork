@@ -66,7 +66,9 @@ import {
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
-  projectSessionRouteTarget,
+  newSessionRoute,
+  openProjectRoute,
+  openSessionRoute,
   startupAutoselectDirectory,
   sortedRootSessions,
   workspaceKey,
@@ -1427,13 +1429,12 @@ export default function Layout(props: ParentProps) {
     if (!directory) return
     const root = projectRoot(directory)
     server.projects.touch(root)
-    const target = projectSessionRouteTarget(root)
-    navigate(`/${base64Encode(target.directory)}/session`)
+    navigate(openProjectRoute(root))
   }
 
   function navigateToSession(session: Session | undefined) {
     if (!session) return
-    navigate(`/${base64Encode(session.directory)}/session/${session.id}`)
+    navigate(openSessionRoute(session.directory, session.id))
   }
 
   function openPawworkHome(directory?: string) {
@@ -1442,12 +1443,12 @@ export default function Layout(props: ParentProps) {
       chooseProject()
       return
     }
-    navigate(`/${base64Encode(root)}/session`)
+    navigate(newSessionRoute(root))
   }
 
-  function openProject(directory: string, navigate = true) {
+  function openProject(directory: string, shouldNavigate = true) {
     layout.projects.open(directory)
-    if (navigate) return navigateToProject(directory)
+    if (shouldNavigate) return navigateToProject(directory)
   }
 
   const handleDeepLinks = (urls: string[]) => {

@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures"
-import { openSidebar } from "../actions"
-import { pawworkSessionNewSelector, titlebarRightSelector } from "../selectors"
+import { cleanupSession, openSidebar } from "../actions"
+import { pawworkSessionNewSelector, promptSelector, titlebarRightSelector } from "../selectors"
 import { modKey } from "../utils"
 
 test("desktop right-panel tabs switch between review and files within a unified utility shell", async ({ page, gotoSession }) => {
@@ -37,20 +37,72 @@ test("desktop right-panel tabs switch between review and files within a unified 
   await expect(reviewTab).toHaveAttribute("aria-selected", "true")
 })
 
-test("desktop remains clickable after right-panel resize ends with mouseup", async ({ page, gotoSession, slug }) => {
-  await gotoSession()
-  await openSidebar(page)
+test("desktop remains clickable after right-panel resize ends with mouseup", async ({ page, gotoSession, slug, sdk }) => {
+  const stamp = Date.now()
+  let oneID: string | undefined
+  let twoID: string | undefined
 
-  const rightPanel = page.locator("#right-panel")
-  await page.keyboard.press(`${modKey}+Shift+R`)
-  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+  try {
+    const one = await sdk.session.create({ title: `e2e resize source ${stamp}` }).then((r) => r.data)
+    if (!one?.id) throw new Error("Source session create did not return an id")
+    oneID = one.id
 
-  await page.locator('[data-component="right-panel-resize-wrapper"]').dispatchEvent("pointerdown")
-  await page.mouse.up()
+    const two = await sdk.session.create({ title: `e2e resize target ${stamp}` }).then((r) => r.data)
+    if (!two?.id) throw new Error("Target session create did not return an id")
+    twoID = two.id
 
-  await page.locator(pawworkSessionNewSelector).click()
-  await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
-  await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
+    await gotoSession(oneID)
+    await openSidebar(page)
+
+    const rightPanel = page.locator('[data-component="right-panel"]')
+    await page.keyboard.press(`${modKey}+Shift+R`)
+    await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+
+    const handle = page.locator('[data-component="right-panel-resize-wrapper"] [data-component="resize-handle"]')
+    await expect(handle).toBeVisible()
+    const box = await handle.boundingBox()
+    if (!box) throw new Error("Right-panel resize handle missing")
+
+    const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    await handle.dispatchEvent("mousedown", {
+      button: 0,
+      buttons: 1,
+      clientX: start.x,
+      clientY: start.y,
+    })
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          overflow: document.body.style.overflow,
+          userSelect: document.body.style.userSelect,
+        })),
+      )
+      .toEqual({ overflow: "hidden", userSelect: "none" })
+    await page.mouse.move(start.x - 40, start.y)
+    await page.mouse.up()
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          overflow: document.body.style.overflow,
+          userSelect: document.body.style.userSelect,
+        })),
+      )
+      .toEqual({ overflow: "", userSelect: "" })
+
+    await page.locator(pawworkSessionNewSelector).click()
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
+    await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
+
+    await page.locator(`[data-session-id="${twoID}"] a`).first().click()
+    await expect(page).toHaveURL(new RegExp(`/${slug}/session/${twoID}(?:\\?|#|$)`))
+    await expect(page.locator(promptSelector)).toBeVisible()
+
+    await page.locator('[data-action="pawwork-open-settings"]').click()
+    await expect(page.locator('[data-component="settings-page"]')).toBeVisible()
+  } finally {
+    if (oneID) await cleanupSession({ sdk, sessionID: oneID })
+    if (twoID) await cleanupSession({ sdk, sessionID: twoID })
+  }
 })
 
 test("desktop session keeps a single right-panel toggle and icon-first utility tabs", async ({ page, gotoSession }) => {

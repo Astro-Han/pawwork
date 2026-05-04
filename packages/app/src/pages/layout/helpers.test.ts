@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { base64Encode } from "@opencode-ai/util/encode"
 import {
   collectNewSessionDeepLinks,
   collectOpenProjectDeepLinks,
@@ -14,6 +15,9 @@ import {
   errorMessage,
   hasProjectPermissions,
   latestRootSession,
+  newSessionRoute,
+  openProjectRoute,
+  openSessionRoute,
   projectSessionRouteTarget,
   sortedRootSessions,
   startupAutoselectDirectory,
@@ -118,6 +122,14 @@ describe("layout workspace helpers", () => {
 
   test("opens projects to the new session route without selecting a session", () => {
     expect(projectSessionRouteTarget("/Users/demo/PawWork")).toEqual({ directory: "/Users/demo/PawWork" })
+  })
+
+  test("keeps project, new-session, and explicit-session routes separate", () => {
+    expect(openProjectRoute("/Users/demo/PawWork")).toBe(`/${base64Encode("/Users/demo/PawWork")}/session`)
+    expect(newSessionRoute("/Users/demo/worktree")).toBe(`/${base64Encode("/Users/demo/worktree")}/session`)
+    expect(openSessionRoute("/Users/demo/worktree", "ses_123")).toBe(
+      `/${base64Encode("/Users/demo/worktree")}/session/ses_123`,
+    )
   })
 
   test("normalizes trailing slash in workspace key", () => {
