@@ -54,6 +54,16 @@ test("web runtime uses the desktop shell without claiming Electron platform iden
   expect(platform).toContain("export function isWindowsShell")
 })
 
+test("web favicon uses PawWork branding instead of the inherited OpenCode mark", () => {
+  const html = read("../index.html")
+  const favicon = read("../../ui/src/assets/favicon/favicon-v3.svg")
+
+  expect(html).toContain("/favicon-v3.svg")
+  expect(favicon).toContain("#FF6B2B")
+  expect(favicon).toContain("#FFF8F0")
+  expect(favicon).not.toContain("#131010")
+})
+
 test("session composer is docked outside the scroll-clipped timeline region", () => {
   const session = read("./pages/session.tsx")
   const sessionMainView = read("./pages/session/session-main-view.tsx")
