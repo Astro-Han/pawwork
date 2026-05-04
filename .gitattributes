@@ -1,0 +1,5 @@
+# Pin generated source files that test fixtures compare byte-for-byte against
+# an LF-only string prefix. Without this, Git for Windows' default
+# `core.autocrlf` flips line endings on checkout and breaks the snapshot
+# fixture in `packages/opencode/test/server/models-snapshot-fixture.ts`.
+packages/opencode/src/provider/models-snapshot.js text eol=lf
