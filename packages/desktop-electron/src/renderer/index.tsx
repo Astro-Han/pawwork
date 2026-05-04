@@ -138,6 +138,7 @@ const createPlatform = (): Platform => {
 
   return {
     platform: "desktop",
+    shell: { kind: "desktop", os },
     os,
     version: pkg.version,
 

@@ -31,6 +31,7 @@ export default defineConfig({
     reuseExistingServer: reuse,
     timeout: 120_000,
     env: {
+      VITE_PAWWORK_SHELL_OS: "macos",
       VITE_OPENCODE_SERVER_HOST: serverHost,
       VITE_OPENCODE_SERVER_PORT: serverPort,
     },

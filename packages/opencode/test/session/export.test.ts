@@ -395,7 +395,36 @@ describe("Export.deriveSnapshotDiagnostics", () => {
     expect(result.loop?.last?.outcome).toBe("success")
     expect(result.loop?.last?.completedCount).toBe(4)
     expect(result.loop?.last?.occurrenceCount).toBe(5)
-    expect(result.loop?.last?.completedFailures).toBe(4)
+    expect(result.loop?.last?.completedFailures).toBeUndefined()
+  })
+
+  test("exports attempted input for synthetic block diagnostics", () => {
+    const info = makeAssistantInfo()
+    const block = blockToolPartAt(info.id, 100, "attempted-input")
+    const attemptedInput = { filePath: "/tmp/project/src/session.ts", offset: 360, limit: 80 }
+    if (block.state.status !== "error") throw new Error("expected error tool state")
+    block.state.metadata = {
+      ...block.state.metadata,
+      diagnostics: {
+        loop: {
+          ...block.state.metadata?.diagnostics?.loop,
+          attemptedInput,
+        },
+      },
+    }
+    const tree: Export.Tree = {
+      ...makeTree(),
+      messages: [
+        {
+          info,
+          parts: [block],
+        },
+      ],
+      children: [],
+    }
+
+    const result = Export.deriveSnapshotDiagnostics(tree)
+    expect(result.loop?.last?.attemptedInput).toEqual(attemptedInput)
   })
 })
 
@@ -652,6 +681,85 @@ describe("redactPart", () => {
     // hash + kind + structural fields preserved
     expect(sources[0].kind).toBe("global")
     expect(sources[0].hash).toBe("sha256:abc")
+  })
+
+  test("sanitizeSnapshot redacts loop attemptedInput and tool errors", () => {
+    const messageID = MessageID.make("msg_sensitive_loop")
+    const fakeSnapshot: Export.Snapshot = {
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 0,
+      root_session_id: SessionID.make("ses_x"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: "darwin",
+        os_version: "0",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 0, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: {
+        loop: {
+          last: {
+            parentID: "msg_user",
+            type: "same_input",
+            action: "block",
+            tool: "bash",
+            attemptedInput: { command: "cat /Users/secret/.env", token: "sk-secret" },
+          },
+        },
+      },
+      session: {
+        info: { id: SessionID.make("ses_x"), title: "t", directory: "/dir" } as never,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [
+          {
+            info: {
+              id: messageID,
+              role: "assistant",
+              sessionID: SessionID.make("ses_x"),
+              mode: "build",
+              agent: "build",
+              path: { cwd: "/tmp", root: "/tmp" },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: "test-model",
+              providerID: "test",
+              parentID: MessageID.make("msg_user"),
+              time: { created: 1 },
+            } as MessageV2.Assistant,
+            parts: [
+              {
+                id: PartID.make("prt_error"),
+                messageID,
+                sessionID: SessionID.make("ses_x"),
+                type: "tool",
+                tool: "bash",
+                callID: "call_error",
+                state: {
+                  status: "error",
+                  input: { command: "cat /Users/secret/.env" },
+                  error: "failed to read /Users/secret/.env",
+                  time: { start: 1, end: 2 },
+                },
+              },
+            ],
+          },
+        ],
+        children: [],
+      },
+    }
+
+    const sanitized = Export.sanitizeSnapshot(fakeSnapshot)
+    expect(sanitized.diagnostics.loop?.last?.attemptedInput).toEqual({ redacted: "loop-attempted-input:msg_user" })
+    const tool = sanitized.session.messages[0].parts[0]
+    if (tool.type !== "tool" || tool.state.status !== "error") throw new Error("expected error tool part")
+    expect(tool.state.input).toEqual({ redacted: "tool-input:prt_error" })
+    expect(tool.state.error).toBe("[redacted:tool-error:prt_error]")
   })
 
   test("redacts data: url inside completed tool attachments", () => {

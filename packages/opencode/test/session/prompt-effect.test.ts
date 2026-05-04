@@ -616,6 +616,7 @@ it.live("loop gate blocks repeated tool errors across model steps", () =>
         )
         expect(blockParts).toHaveLength(1)
         expect(blockParts[0].state.metadata?.diagnostics?.loop?.loopCompletedFailures).toBe(3)
+        expect(blockParts[0].state.metadata?.diagnostics?.loop?.attemptedInput).toEqual(input)
       }),
     { git: true, config: providerCfg },
   ),
@@ -681,6 +682,113 @@ it.live("loop gate stops repeated successful tools across model steps", () =>
   ),
 )
 
+it.live("loop gate allows successful read calls for different ranges of the same file", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Loop gate read ranges",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const file = path.join(dir, "loop-gate-read-ranges.txt")
+        yield* Effect.promise(() =>
+          Bun.write(
+            file,
+            Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join("\n"),
+          ),
+        )
+
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "read ranges" }],
+        })
+        for (const offset of [1, 10, 20, 30]) {
+          yield* llm.tool("read", { filePath: file, offset, limit: 5 })
+        }
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const completedReadParts = allParts.filter(
+          (part): part is CompletedToolPart =>
+            part.type === "tool" && part.tool === "read" && part.state.status === "completed",
+        )
+        const loopGateParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction !== undefined,
+        )
+
+        expect(completedReadParts).toHaveLength(4)
+        expect(loopGateParts).toHaveLength(0)
+        expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+unix("bash file mutation resets successful exact-input loop gating", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Loop gate bash mutation patch",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const file = path.join(dir, "loop-gate-bash-mutation.txt")
+
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "write file with bash" }],
+        })
+        const input = {
+          command: `printf 'changed\\n' > ${JSON.stringify(file)} && printf 'ok\\n'`,
+          description: "write test file",
+        }
+        for (let i = 0; i < 4; i++) yield* llm.tool("bash", input)
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const completedBashParts = allParts.filter(
+          (part): part is CompletedToolPart =>
+            part.type === "tool" && part.tool === "bash" && part.state.status === "completed",
+        )
+        const loopGateParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction !== undefined,
+        )
+        const patchParts = allParts.filter((part): part is MessageV2.PatchPart => part.type === "patch")
+
+        expect(completedBashParts).toHaveLength(4)
+        expect(loopGateParts).toHaveLength(0)
+        expect(patchParts.length).toBeGreaterThan(0)
+        expect(patchParts.flatMap((part) => part.files).some((item) => item.endsWith("loop-gate-bash-mutation.txt"))).toBe(
+          true,
+        )
+        expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("loop gate stops repeated tool errors across model steps", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -725,6 +833,7 @@ it.live("loop gate stops repeated tool errors across model steps", () =>
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.outcome).toBe("failure")
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopCompletedCount).toBe(3)
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopOccurrenceCount).toBe(5)
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.attemptedInput).toEqual(input)
         expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(false)
       }),
     { git: true, config: providerCfg },

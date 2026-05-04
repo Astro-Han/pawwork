@@ -9,7 +9,7 @@ import { useLocation } from "@solidjs/router"
 import { Portal } from "solid-js/web"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
-import { usePlatform } from "@/context/platform"
+import { canOpenLocalPath, usePlatform } from "@/context/platform"
 import { useServer } from "@/context/server"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
@@ -54,8 +54,7 @@ export function SessionHeader() {
     if (platform.os === "linux") return language.t("session.header.open.fileManager")
     return language.t("session.header.open.finder")
   })
-  const canOpenDirectory = (directory?: string) =>
-    platform.platform === "desktop" && !!platform.openPath && server.isLocal() && !!directory
+  const canOpenDirectory = (directory?: string) => canOpenLocalPath(platform) && server.isLocal() && !!directory
   const activeWorktreeDirectory = createMemo(() => activeWorktree()?.directory ?? "")
   const canOpenProjectDirectory = createMemo(() => canOpenDirectory(projectDirectory()))
   const canOpenActiveWorktreeDirectory = createMemo(() => canOpenDirectory(activeWorktreeDirectory()))

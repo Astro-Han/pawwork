@@ -68,7 +68,10 @@ export type Platform = {
   /** Platform discriminator */
   platform: "web" | "desktop"
 
-  /** Desktop OS (desktop only) */
+  /** Visual shell contract. Runtime identity stays separate from appearance. */
+  shell?: PlatformShell
+
+  /** Runtime desktop OS, Electron only. Visual shell OS lives in shell.os and may be set by Web/E2E. */
   os?: "macos" | "windows" | "linux"
 
   /** App version */
@@ -174,6 +177,54 @@ export type Platform = {
 }
 
 export type DisplayBackend = "auto" | "wayland"
+
+export type PlatformShell = {
+  kind: "desktop" | "web"
+  os?: "macos" | "windows" | "linux"
+}
+
+export function getShellKind(platform: Pick<Platform, "platform" | "shell">) {
+  return platform.shell?.kind ?? (platform.platform === "desktop" ? "desktop" : "web")
+}
+
+export function getShellOs(platform: Pick<Platform, "shell" | "os">) {
+  return platform.shell?.os ?? platform.os
+}
+
+export function shellAttrs(platform: Pick<Platform, "platform" | "shell" | "os">) {
+  return {
+    "data-shell": getShellKind(platform),
+    "data-shell-os": getShellOs(platform),
+  }
+}
+
+export function isDesktopShell(platform: Pick<Platform, "platform" | "shell">) {
+  return getShellKind(platform) === "desktop"
+}
+
+export function isMacShell(platform: Pick<Platform, "platform" | "shell" | "os">) {
+  return isDesktopShell(platform) && getShellOs(platform) === "macos"
+}
+
+export function isWindowsShell(platform: Pick<Platform, "platform" | "shell" | "os">) {
+  return isDesktopShell(platform) && getShellOs(platform) === "windows"
+}
+
+export function canOpenLocalPath(platform: Pick<Platform, "openPath">) {
+  return !!platform.openPath
+}
+
+export function canCheckUpdate(platform: Pick<Platform, "checkUpdate">) {
+  return !!platform.checkUpdate
+}
+
+export function canUseDisplayBackend(platform: Pick<Platform, "getDisplayBackend" | "setDisplayBackend">) {
+  return !!platform.getDisplayBackend && !!platform.setDisplayBackend
+}
+
+export function canUseNativeFilePicker(platform: Pick<Platform, "openFilePickerDialog">) {
+  return !!platform.openFilePickerDialog
+}
 
 export const { use: usePlatform, provider: PlatformProvider } = createSimpleContext({
   name: "Platform",
