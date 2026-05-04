@@ -23,6 +23,7 @@ import { isRecord } from "@/util/record"
 import { TurnChange } from "./turn-change"
 
 const log = Log.create({ service: "session.processor" })
+const TOOL_CLEANUP_TIMEOUT_MS = 1_000
 
 export type Result = "compact" | "stop" | "continue"
 
@@ -838,7 +839,7 @@ export const layer: Layer.Layer<
 
         yield* Effect.forEach(
           Object.values(ctx.toolcalls),
-          (call) => Deferred.await(call.done).pipe(Effect.timeout("250 millis"), Effect.ignore),
+          (call) => Deferred.await(call.done).pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore),
           { concurrency: "unbounded" },
         )
 
