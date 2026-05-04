@@ -1,6 +1,7 @@
 import { getFilename } from "@opencode-ai/util/path"
 import { type Session } from "@opencode-ai/sdk/v2/client"
 import { compareSessionsByCreated } from "@/context/global-sync/utils"
+import { base64Encode } from "@opencode-ai/util/encode"
 
 type SessionStore = {
   session?: Session[]
@@ -88,3 +89,9 @@ export const startupAutoselectDirectory = (enabled: boolean, backendDirectory?: 
 }
 
 export const projectSessionRouteTarget = (root: string) => ({ directory: root })
+
+export const newSessionRoute = (directory: string) => `/${base64Encode(directory)}/session`
+
+export const openProjectRoute = (root: string) => newSessionRoute(projectSessionRouteTarget(root).directory)
+
+export const openSessionRoute = (directory: string, id: string) => `${newSessionRoute(directory)}/${id}`

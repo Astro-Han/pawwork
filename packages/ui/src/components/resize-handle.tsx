@@ -11,6 +11,69 @@ export interface ResizeHandleProps extends Omit<JSX.HTMLAttributes<HTMLDivElemen
   collapseThreshold?: number
 }
 
+export const resizeInteractionStopEvents = [
+  "mouseup",
+  "pointerup",
+  "pointercancel",
+  "touchend",
+  "touchcancel",
+  "blur",
+] as const
+
+type BodyInteractionLockTarget = {
+  style: {
+    userSelect: string
+    overflow: string
+  }
+}
+
+export function createBodyInteractionLock(
+  body: BodyInteractionLockTarget,
+  options: {
+    target?: EventTarget
+    fallbackMs?: number
+    onRelease?: () => void
+  } = {},
+) {
+  const target = options.target ?? window
+  const fallbackMs = options.fallbackMs ?? 5000
+  let active = false
+  let fallback: ReturnType<typeof setTimeout> | undefined
+  let previousUserSelect = ""
+  let previousOverflow = ""
+
+  const release = () => {
+    if (!active) return
+    active = false
+    body.style.userSelect = previousUserSelect
+    body.style.overflow = previousOverflow
+    if (fallback !== undefined) {
+      clearTimeout(fallback)
+      fallback = undefined
+    }
+    for (const event of resizeInteractionStopEvents) {
+      target.removeEventListener(event, release)
+    }
+    options.onRelease?.()
+  }
+
+  return {
+    start() {
+      if (active) return
+      active = true
+      previousUserSelect = body.style.userSelect
+      previousOverflow = body.style.overflow
+      body.style.userSelect = "none"
+      body.style.overflow = "hidden"
+      for (const event of resizeInteractionStopEvents) {
+        target.addEventListener(event, release)
+      }
+      fallback = setTimeout(release, fallbackMs)
+    },
+    stop: release,
+  }
+}
+
 export function ResizeHandle(props: ResizeHandleProps) {
   const [local, rest] = splitProps(props, [
     "direction",
@@ -32,9 +95,6 @@ export function ResizeHandle(props: ResizeHandleProps) {
     const startSize = local.size
     let current = startSize
 
-    document.body.style.userSelect = "none"
-    document.body.style.overflow = "hidden"
-
     const onMouseMove = (moveEvent: MouseEvent) => {
       const pos = local.direction === "horizontal" ? moveEvent.clientX : moveEvent.clientY
       const delta =
@@ -50,18 +110,29 @@ export function ResizeHandle(props: ResizeHandleProps) {
       local.onResize(clamped)
     }
 
-    const onMouseUp = () => {
-      document.body.style.userSelect = ""
-      document.body.style.overflow = ""
+    let finished = false
+    const finish = (collapse: boolean) => {
+      if (finished) return
+      finished = true
       document.removeEventListener("mousemove", onMouseMove)
       document.removeEventListener("mouseup", onMouseUp)
 
       const threshold = local.collapseThreshold ?? 0
-      if (local.onCollapse && threshold > 0 && current < threshold) {
+      if (collapse && local.onCollapse && threshold > 0 && current < threshold) {
         local.onCollapse()
       }
     }
 
+    const lock = createBodyInteractionLock(document.body, {
+      onRelease: () => finish(false),
+    })
+
+    const onMouseUp = () => {
+      finish(true)
+      lock.stop()
+    }
+
+    lock.start()
     document.addEventListener("mousemove", onMouseMove)
     document.addEventListener("mouseup", onMouseUp)
   }
