@@ -47,6 +47,7 @@ const missing: QuestionRecoverySnapshot = { kind: "missingRunning" }
 interface Harness {
   clock: ReturnType<typeof createQuestionRecoveryClock>
   setSnap: (s: QuestionRecoverySnapshot) => void
+  setSid: (s: string | undefined) => void
   fk: ReturnType<typeof fakeClock>
   haltCalls: string[]
   warnCalls: { message: string; payload: Record<string, unknown> }[]
@@ -57,23 +58,30 @@ interface Harness {
 
 const setupHarness = (overrides?: {
   haltImpl?: (s: string) => Promise<unknown>
-  reverifyImpl?: () => Promise<{ proceed: boolean }>
+  reverifyImpl?: (sid: string) => Promise<{ proceed: boolean }>
   delayMs?: number
+  initialSid?: string
 }): Harness => {
   const fk = fakeClock()
   const haltCalls: string[] = []
   const warnCalls: { message: string; payload: Record<string, unknown> }[] = []
   let setSnap!: (s: QuestionRecoverySnapshot) => void
+  let setSid!: (s: string | undefined) => void
   let clock!: ReturnType<typeof createQuestionRecoveryClock>
   const dispose = createRoot((d) => {
     const [snap, setS] = createSignal<QuestionRecoverySnapshot>(none)
+    const [sid, setSidSignal] = createSignal<string | undefined>(overrides?.initialSid ?? "s")
     setSnap = (s) => {
       setS(s)
       clock.tick()
     }
+    setSid = (s) => {
+      setSidSignal(s)
+      clock.tick()
+    }
     clock = createQuestionRecoveryClock({
       snapshot: snap,
-      activeSessionID: () => "s",
+      activeSessionID: sid,
       activeDirectory: () => "/dir",
       halt:
         overrides?.haltImpl ??
@@ -89,7 +97,7 @@ const setupHarness = (overrides?: {
     })
     return d
   })
-  return { clock, setSnap, fk, haltCalls, warnCalls, dispose }
+  return { clock, setSnap, setSid, fk, haltCalls, warnCalls, dispose }
 }
 
 describe("createQuestionRecoveryClock", () => {
@@ -198,5 +206,34 @@ describe("createQuestionRecoveryClock", () => {
     expect(h.fk.pending()).toBe(1)
     h.dispose()
     expect(h.fk.pending()).toBe(0)
+  })
+
+  // Navigation cleanup: switching active session must drop the previous
+  // session's pending timer AND its lastSeen entry, so coming back to a
+  // still-stuck session re-arms cleanly. Locks the bug Codex flagged where
+  // lastSeen[old] stayed missingRunning forever.
+  test("session navigation forgets the old session's pending timer and edge state", async () => {
+    const h = setupHarness({ initialSid: "a" })
+    h.setSnap(missing)
+    expect(h.fk.pending()).toBe(1)
+
+    // Navigate to b. In production b's snapshot is per-session; here we
+    // simulate by flipping snap to none on the navigation tick.
+    h.setSid("b")
+    h.setSnap(none)
+    expect(h.fk.pending()).toBe(0)
+    h.fk.advance(HEAL_DELAY_MS * 2)
+    await flush()
+    expect(h.haltCalls).toEqual([])
+
+    // Come back to a with snapshot still missingRunning — must re-arm fresh
+    // even though lastSeen[a] would otherwise still read missingRunning.
+    h.setSid("a")
+    h.setSnap(missing)
+    expect(h.fk.pending()).toBe(1)
+    h.fk.advance(HEAL_DELAY_MS)
+    await flush()
+    expect(h.haltCalls).toEqual(["a"])
+    h.dispose()
   })
 })

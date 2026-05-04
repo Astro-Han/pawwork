@@ -56,6 +56,7 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
 
   const pending = new Map<string, PendingEntry>()
   const lastSeen = new Map<string, QuestionRecoverySnapshot["kind"]>()
+  let lastActiveSid: string | undefined
   let disposed = false
 
   const cancelFor = (sessionID: string) => {
@@ -63,6 +64,11 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
     if (!entry) return
     clearTimer(entry.handle)
     pending.delete(sessionID)
+  }
+
+  const forget = (sessionID: string) => {
+    cancelFor(sessionID)
+    lastSeen.delete(sessionID)
   }
 
   const fire = async (sessionID: string) => {
@@ -109,6 +115,14 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
     if (disposed) return
     const sid = input.activeSessionID()
     const snap = input.snapshot()
+
+    // Session navigation: drop the previous session's pending timer and
+    // edge state so coming back to a still-stuck session re-arms cleanly
+    // instead of hitting a stale lastSeen=missingRunning entry. This also
+    // bounds lastSeen to at most one entry at any time.
+    if (lastActiveSid && lastActiveSid !== sid) forget(lastActiveSid)
+    lastActiveSid = sid
+
     if (!sid) return
 
     const previousKind = lastSeen.get(sid)

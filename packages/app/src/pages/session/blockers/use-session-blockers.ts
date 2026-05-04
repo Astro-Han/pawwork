@@ -93,48 +93,60 @@ export function createSessionBlockers(input: {
       activeDirectory: () => sdk.directory,
       halt,
       reverify: async (sessionID, ctx) => {
-        // Guard 1: snapshot still missingRunning for this session.
-        if (recoverySnapshot().kind !== "missingRunning") return { proceed: false }
-        // Guard 2: active session unchanged (directory pin via armedDirectory).
-        if (activeSessionID() !== sessionID) return { proceed: false }
-        if (sdk.directory !== ctx.armedDirectory) return { proceed: false }
-        // Guard 3: session still busy.
-        const running = isSessionRunning(
-          sync.data.session_status[sessionID],
-          sync.data.message[sessionID],
-        )
-        if (!running) return { proceed: false }
+        const localGuards = () => {
+          // Guard 1: snapshot still missingRunning for this session.
+          if (recoverySnapshot().kind !== "missingRunning") return false
+          // Guard 2: active session unchanged (directory pin via armedDirectory).
+          if (activeSessionID() !== sessionID) return false
+          if (sdk.directory !== ctx.armedDirectory) return false
+          // Guard 3: session still busy.
+          if (
+            !isSessionRunning(
+              sync.data.session_status[sessionID],
+              sync.data.message[sessionID],
+            )
+          )
+            return false
+          return true
+        }
+        if (!localGuards()) return { proceed: false }
         // Guard 4: server confirms the running question part is still
         // uncovered (reuses fallback semantics so auto-heal and recovery
-        // dock never disagree). On server failure we proceed to halt — the
-        // user has already been hung for HEAL_DELAY_MS, surfacing the error
-        // card is safer than continuing to wait.
+        // dock never disagree). On server failure we skip the halt and
+        // wait for the next snapshot edge — killing a session on a
+        // transient list() blip would be worse than another 3 s wait,
+        // and navigation cleanup re-arms when the user comes back.
+        let filtered: Awaited<ReturnType<typeof sdk.client.question.list>>["data"]
         try {
           const result = await sdk.client.question.list()
-          const allQuestions = result.data ?? []
-          const filtered = allQuestions.filter((q) => q.sessionID === sessionID)
-          const stillUncovered = findRunningQuestionFallbackSession({
-            sessionID,
-            syncQuestions: filtered,
-            messages: sync.data.message[sessionID],
-            partsByMessageID: sync.data.part,
-          })
-          if (stillUncovered === sessionID) return { proceed: true }
-          // Server already covers it — write back so UI stops looking stuck.
-          batch(() => {
-            sync.set("question", sessionID, reconcile(filtered, { key: "id" }))
-          })
-          return { proceed: false }
+          filtered = (result.data ?? []).filter((q) => q.sessionID === sessionID)
         } catch (err) {
-          console.warn("question-recovery: question.list() failed; halting anyway", {
+          console.warn("question-recovery: question.list() failed; skipping halt", {
             sessionID,
             err,
           })
-          return { proceed: true }
+          return { proceed: false }
         }
+        // Re-check the local guards after the await — state may have moved.
+        if (!localGuards()) return { proceed: false }
+        const stillUncovered = findRunningQuestionFallbackSession({
+          sessionID,
+          syncQuestions: filtered,
+          messages: sync.data.message[sessionID],
+          partsByMessageID: sync.data.part,
+        })
+        if (stillUncovered === sessionID) return { proceed: true }
+        // Server already covers it — write back so UI stops looking stuck.
+        batch(() => {
+          sync.set("question", sessionID, reconcile(filtered, { key: "id" }))
+        })
+        return { proceed: false }
       },
     })
-    onCleanup(() => clock.dispose())
+    // clock self-cleans via its own onCleanup; the binding above is kept
+    // only so `clock` is referenced (the side-effect of construction is
+    // what we want).
+    void clock
   }
 
   const permissionRequest = createMemo(() => {
