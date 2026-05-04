@@ -255,26 +255,10 @@ export namespace Question {
         // event payload to mutate the pending entry either.
         yield* bus.publish(Event.Asked, structuredClone(info))
 
-        // Wait for either the user reply (via Deferred) or the tool's
-        // AbortSignal firing. The signal is the only cancellation channel that
-        // survives — `EffectBridge.run.promise` runs the tool Effect via
-        // `Effect.runPromise`, so a parent fiber interrupt does NOT propagate
-        // here. Without the signal arm, session cancel leaves the entry in
-        // `pending` forever and the dock stays visible. See #419.
-        //
-        // The Effect.onInterrupt arm below is a defence-in-depth catch for
-        // *direct* fiber interrupts (e.g. layer shutdown / supervisor kill
-        // during tests), where `signal` is undefined. The `pending.has` guard
-        // makes the second arm a no-op if both fire.
-        // The tool's AbortSignal is our only reliable cancel channel: the
-        // surrounding tool Effect runs through `EffectBridge.run.promise`
-        // (which is `Effect.runPromise`), so a parent fiber interrupt does
-        // not propagate here, and `Effect.runFork(Deferred.fail)` does not
-        // get scheduled until layer disposal because we are parked on
-        // `Deferred.await` ahead of it. We therefore mutate pending + publish
-        // Rejected + fail the deferred *eagerly* in the abort handler. The
-        // Deferred failure still drives the Effect to unwind, but the user-
-        // facing state is correct immediately. See #419.
+        // input.signal is the production cancellation channel; the
+        // Effect.onInterrupt arm below is defence-in-depth for direct fiber
+        // interrupts (layer shutdown / supervisor kill) where signal is
+        // undefined. The pending.has guard keeps both arms idempotent. See #419.
         const signal = input.signal
         let removeListener: (() => void) | undefined
         const sessionID = input.sessionID

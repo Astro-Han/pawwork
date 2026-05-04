@@ -31,6 +31,19 @@ async function rejectAll() {
   }
 }
 
+/** Wait until exactly one pending question shows up, then assert it landed.
+ *  Returns the pending request so the caller can drive the next step. */
+async function waitForPending(timeoutMs = 1000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const pending = await list()
+    if (pending.length === 1) return pending[0]!
+    await Bun.sleep(10)
+  }
+  expect(await list(), "expected exactly one pending question before continuing").toHaveLength(1)
+  throw new Error("unreachable: assertion above always throws on miss")
+}
+
 test("ask - returns pending promise", async () => {
   await using tmp = await tmpdir({ git: true })
   await Instance.provide({
@@ -522,12 +535,7 @@ test("ask - publishes question.rejected on input.signal abort", async () => {
         ),
       ).catch((err) => err)
 
-      const start = Date.now()
-      while (Date.now() - start < 1000) {
-        const pending = await list()
-        if (pending.length === 1) break
-        await Bun.sleep(10)
-      }
+      await waitForPending()
 
       controller.abort()
       const result = await promise
@@ -573,12 +581,7 @@ test("ask - publishes question.rejected on fiber interrupt", async () => {
         { signal: controller.signal },
       ).catch(() => {})
 
-      const start = Date.now()
-      while (Date.now() - start < 1000) {
-        const pending = await list()
-        if (pending.length === 1) break
-        await Bun.sleep(10)
-      }
+      await waitForPending()
 
       controller.abort()
       await promise
