@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
+import { getShellKind, getShellOs, isDesktopShell, isMacShell, isWindowsShell, shellAttrs } from "./context/platform"
 
 function read(relativePath: string) {
   return fs.readFileSync(path.join(import.meta.dir, relativePath), "utf8").replaceAll("\r\n", "\n")
@@ -11,6 +12,10 @@ function hash(relativePath: string) {
   return createHash("sha256").update(fs.readFileSync(path.join(import.meta.dir, relativePath))).digest("hex")
 }
 
+function stripComments(source: string) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")
+}
+
 test("desktop shell shares titlebar height across titlebar and narrow sidebar geometry", () => {
   const css = read("./index.css")
   const layout = read("./pages/layout.tsx")
@@ -18,8 +23,12 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   const sessionHeader = read("./components/session/session-header.tsx")
   const pawworkTitlebar = read("./pages/layout/pawwork-titlebar.tsx")
   const wideDesktopQuery = css.indexOf("@media (min-width: 1280px)")
-  const macMainSeamRule = css.indexOf('[data-component="desktop-shell-main"][data-shell="desktop"][data-os="macos"] {')
-  const wideFrameRule = css.indexOf('[data-component="desktop-shell-frame"][data-shell="desktop"][data-os="linux"] {')
+  const macMainSeamRule = css.indexOf(
+    '[data-component="desktop-shell-main"][data-shell="desktop"][data-shell-os="macos"] {',
+  )
+  const wideFrameRule = css.indexOf(
+    '[data-component="desktop-shell-frame"][data-shell="desktop"][data-shell-os="linux"] {',
+  )
 
   expect(css).toContain('[data-component="desktop-shell"][data-shell="desktop"] {')
   expect(css).toContain("--shell-titlebar-height: 44px;")
@@ -32,9 +41,11 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(macMainSeamRule).toBeGreaterThan(-1)
   expect(macMainSeamRule).toBeLessThan(wideDesktopQuery)
   expect(layout).toContain('"--shell-titlebar-current-height"')
+  expect(layout).toContain("{...shellAttrs(platform)}")
   expect(layout).toContain("isMacShell(platform)")
   expect(layout).not.toContain("top-10")
   expect(titlebar).toContain('"h-11": isDesktopShell(platform) && !mac()')
+  expect(titlebar).toContain("{...shellAttrs(platform)}")
   expect(titlebar).toContain('style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}')
   expect(titlebar).toContain("--sidebar-width")
   expect(titlebar).toContain("--right-panel-width")
@@ -57,9 +68,40 @@ test("web runtime uses the desktop shell without claiming Electron platform iden
   expect(platform).toContain('shell?: PlatformShell')
   expect(platform).toContain("export function getShellKind")
   expect(platform).toContain("export function getShellOs")
+  expect(platform).toContain("export function shellAttrs")
   expect(platform).toContain("export function isDesktopShell")
   expect(platform).toContain("export function isMacShell")
   expect(platform).toContain("export function isWindowsShell")
+})
+
+test("shell helpers keep runtime identity separate from visual shell identity", () => {
+  const webDesktop = { platform: "web" as const, shell: { kind: "desktop" as const, os: "macos" as const } }
+
+  expect(getShellKind(webDesktop)).toBe("desktop")
+  expect(getShellOs(webDesktop)).toBe("macos")
+  expect(isDesktopShell(webDesktop)).toBe(true)
+  expect(isMacShell(webDesktop)).toBe(true)
+  expect(isWindowsShell(webDesktop)).toBe(false)
+  expect(shellAttrs(webDesktop)).toEqual({ "data-shell": "desktop", "data-shell-os": "macos" })
+  expect(isDesktopShell({ platform: "web" })).toBe(false)
+  expect(isDesktopShell({ platform: "desktop" })).toBe(true)
+})
+
+test("visual shell files do not key appearance from runtime platform identity", () => {
+  const visualSources = [
+    "./components/titlebar.tsx",
+    "./pages/layout.tsx",
+    "./components/session/session-header.tsx",
+    "./components/settings-general.tsx",
+  ]
+
+  for (const file of visualSources) {
+    expect(stripComments(read(file)), file).not.toMatch(/platform\.platform\s*={2,3}\s*["']desktop["']/)
+  }
+
+  const css = read("./index.css")
+  expect(css).not.toContain('[data-platform="desktop"]')
+  expect(css).not.toContain("[data-platform='desktop']")
 })
 
 test("web favicon uses PawWork branding instead of the inherited OpenCode mark", () => {

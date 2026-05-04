@@ -83,7 +83,7 @@ export const SettingsGeneral: Component = () => {
     checking: false,
   })
 
-  const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
+  const linux = createMemo(() => platform.os === "linux" && !!platform.getDisplayBackend && !!platform.setDisplayBackend)
   const dir = createMemo(() => decode64(params.dir))
   const accepting = createMemo(() => {
     const value = dir()

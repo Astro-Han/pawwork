@@ -71,7 +71,7 @@ export type Platform = {
   /** Visual shell contract. Runtime identity stays separate from appearance. */
   shell?: PlatformShell
 
-  /** Desktop OS (desktop only) */
+  /** Runtime desktop OS, Electron only. Visual shell OS lives in shell.os and may be set by Web/E2E. */
   os?: "macos" | "windows" | "linux"
 
   /** App version */
@@ -189,6 +189,13 @@ export function getShellKind(platform: Pick<Platform, "platform" | "shell">) {
 
 export function getShellOs(platform: Pick<Platform, "shell" | "os">) {
   return platform.shell?.os ?? platform.os
+}
+
+export function shellAttrs(platform: Pick<Platform, "platform" | "shell" | "os">) {
+  return {
+    "data-shell": getShellKind(platform),
+    "data-shell-os": getShellOs(platform),
+  }
 }
 
 export function isDesktopShell(platform: Pick<Platform, "platform" | "shell">) {

@@ -6,7 +6,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 
 import { useLayout } from "@/context/layout"
-import { getShellKind, getShellOs, isDesktopShell, isMacShell, isWindowsShell, usePlatform } from "@/context/platform"
+import { isDesktopShell, isMacShell, isWindowsShell, shellAttrs, usePlatform } from "@/context/platform"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { applyPath, backPath, forwardPath } from "./titlebar-history"
@@ -20,8 +20,6 @@ export function Titlebar() {
   const location = useLocation()
   const params = useParams()
 
-  const shellKind = () => getShellKind(platform)
-  const shellOs = () => getShellOs(platform)
   const mac = createMemo(() => isMacShell(platform))
   const windows = createMemo(() => isWindowsShell(platform))
   const zoom = () => platform.webviewZoom?.() ?? 1
@@ -85,8 +83,7 @@ export function Titlebar() {
     <header
       data-component="titlebar-shell"
       data-platform={platform.platform}
-      data-shell={shellKind()}
-      data-os={shellOs()}
+      {...shellAttrs(platform)}
       class="shrink-0 relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
       classList={{ "h-11": isDesktopShell(platform) && !mac() }}
       style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}

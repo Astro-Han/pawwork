@@ -54,8 +54,7 @@ export function SessionHeader() {
     if (platform.os === "linux") return language.t("session.header.open.fileManager")
     return language.t("session.header.open.finder")
   })
-  const canOpenDirectory = (directory?: string) =>
-    platform.platform === "desktop" && !!platform.openPath && server.isLocal() && !!directory
+  const canOpenDirectory = (directory?: string) => !!platform.openPath && server.isLocal() && !!directory
   const activeWorktreeDirectory = createMemo(() => activeWorktree()?.directory ?? "")
   const canOpenProjectDirectory = createMemo(() => canOpenDirectory(projectDirectory()))
   const canOpenActiveWorktreeDirectory = createMemo(() => canOpenDirectory(activeWorktreeDirectory()))

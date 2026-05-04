@@ -25,7 +25,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
 import { Session, type GlobalSession, type Message } from "@opencode-ai/sdk/v2/client"
-import { getShellKind, getShellOs, isMacShell, usePlatform } from "@/context/platform"
+import { isMacShell, shellAttrs, usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce, reconcile } from "solid-js/store"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
@@ -2097,9 +2097,6 @@ export default function Layout(props: ParentProps) {
   )
   const sidebarContent = () =>
     renderPawworkPanel(pawworkSessions, { directory: currentProject()?.worktree, scope: "main" })
-  const shellKind = () => getShellKind(platform)
-  const shellOs = () => getShellOs(platform)
-
   return (
     <LayoutPageContext.Provider
       value={{
@@ -2114,8 +2111,7 @@ export default function Layout(props: ParentProps) {
       <div
         data-component="desktop-shell"
         data-platform={platform.platform}
-        data-shell={shellKind()}
-        data-os={shellOs()}
+        {...shellAttrs(platform)}
         class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
         classList={{
           "[transition:--sidebar-width_200ms_cubic-bezier(0.22,1,0.36,1),--right-panel-width_240ms_cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
@@ -2134,8 +2130,7 @@ export default function Layout(props: ParentProps) {
         <div
           data-component="desktop-shell-frame"
           data-platform={platform.platform}
-          data-shell={shellKind()}
-          data-os={shellOs()}
+          {...shellAttrs(platform)}
           class="flex flex-1 min-h-0 min-w-0 flex-col"
         >
           <Titlebar />
@@ -2195,8 +2190,7 @@ export default function Layout(props: ParentProps) {
                 <main
                   data-component="desktop-shell-main"
                   data-platform={platform.platform}
-                  data-shell={shellKind()}
-                  data-os={shellOs()}
+                  {...shellAttrs(platform)}
                   classList={{
                     "size-full overflow-x-hidden flex flex-col items-start contain-strict bg-background-base": true,
                   }}
