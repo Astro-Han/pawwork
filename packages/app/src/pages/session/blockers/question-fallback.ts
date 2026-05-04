@@ -4,8 +4,13 @@ import type { Message, Part, QuestionRequest } from "@opencode-ai/sdk/v2"
 // has no matching entry in sync. Identity is (messageID, callID) so a model
 // emitting parallel question tool calls is covered correctly even when the
 // counts happen to line up but the entries point to different tool calls.
-// Falls back to a count check for the rare entries that lack tool identity
-// (e.g. seeded test fixtures), so head-count loss is still caught. See #419.
+//
+// Sync entries that lack tool identity (e.g. legacy / seeded test fixtures)
+// can't be matched by key, so they cover any one running part. The
+// uncovered-with-identity bucket and the without-identity bucket are pooled
+// against the entries-without-identity bucket: a fallback only fires when
+// the uncovered total truly exceeds what the legacy entries can absorb.
+// See #419.
 export function findRunningQuestionFallbackSession(input: {
   sessionID?: string
   syncQuestions: ReadonlyArray<QuestionRequest>
@@ -23,7 +28,7 @@ export function findRunningQuestionFallbackSession(input: {
     else entriesWithoutTool++
   }
 
-  let runningWithoutTool = 0
+  let uncoveredRunning = 0
   for (const m of messages) {
     const parts = input.partsByMessageID[m.id]
     if (!parts) continue
@@ -31,14 +36,12 @@ export function findRunningQuestionFallbackSession(input: {
       if (part.type !== "tool" || part.tool !== "question" || part.state.status !== "running") continue
       const callID = part.callID
       const messageID = part.messageID
-      if (!callID || !messageID) {
-        runningWithoutTool++
-        continue
+      if (!callID || !messageID || !coveredKeys.has(`${messageID}:${callID}`)) {
+        uncoveredRunning++
       }
-      if (!coveredKeys.has(`${messageID}:${callID}`)) return input.sessionID
     }
   }
 
-  if (runningWithoutTool > entriesWithoutTool) return input.sessionID
+  if (uncoveredRunning > entriesWithoutTool) return input.sessionID
   return undefined
 }

@@ -131,4 +131,19 @@ describe("findRunningQuestionFallbackSession", () => {
       }),
     ).toBe("s")
   })
+
+  // Mixed-state guard for #419: when a sync entry lacks tool identity but a
+  // running part has identity, the legacy entry should still cover it. Pre-fix
+  // behavior would treat the running part as missing and trigger fallback,
+  // even though the sync entry was a legitimate (legacy-shaped) match.
+  test("legacy sync entry without identity absorbs running part with identity", () => {
+    expect(
+      findRunningQuestionFallbackSession({
+        sessionID: "s",
+        syncQuestions: [syncQ("q_legacy", "s")],
+        messages: [message("m1")],
+        partsByMessageID: { m1: [toolPart("p1", "question", "running", { messageID: "m1", callID: "c1" })] },
+      }),
+    ).toBeUndefined()
+  })
 })
