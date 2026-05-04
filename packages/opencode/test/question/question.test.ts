@@ -544,6 +544,7 @@ test("ask - publishes question.rejected on input.signal abort", async () => {
       expect(events[0]?.sessionID).toBe(SessionID.make("ses_signal"))
       expect(result).toBeInstanceOf(Question.RejectedError)
       expect((result as Question.RejectedError).cancelled).toBe(true)
+      expect((result as Question.RejectedError).message).toBe("Question cancelled before the user answered it.")
 
       const after = await list()
       expect(after).toHaveLength(0)
@@ -622,8 +623,23 @@ test("reject - leaves cancelled flag false (user dismiss, not session cancel)", 
       const result = await promise.catch((err) => err)
       expect(result).toBeInstanceOf(Question.RejectedError)
       expect((result as Question.RejectedError).cancelled).toBeFalsy()
+      expect((result as Question.RejectedError).message).toBe("The user dismissed this question")
     },
   })
+})
+
+// processor.failToolCall writes `errorMessage(error)` into part.state.error
+// for the abort-signal path (failed != cleanup). The message getter has to
+// branch on `cancelled` so consumers (state.error, logs, telemetry) read the
+// same friendly copy as the legacy fiber-cleanup path. See #419.
+test("RejectedError - message branches on cancelled flag", () => {
+  const dismissed = new Question.RejectedError()
+  expect(dismissed.cancelled).toBeFalsy()
+  expect(dismissed.message).toBe("The user dismissed this question")
+
+  const cancelled = new Question.RejectedError({ cancelled: true })
+  expect(cancelled.cancelled).toBe(true)
+  expect(cancelled.message).toBe("Question cancelled before the user answered it.")
 })
 
 test("pending question rejects on instance dispose", async () => {

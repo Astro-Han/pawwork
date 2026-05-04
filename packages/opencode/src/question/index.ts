@@ -146,12 +146,16 @@ export namespace Question {
   // `cancelled` distinguishes a session-cancel-driven rejection (signal abort
   // or fiber interrupt) from an intentional user dismissal. The processor
   // uses this to set metadata.interrupted only on cancel — a dismiss is a
-  // completed user action, not an interruption. See #419.
+  // completed user action, not an interruption. The message branches the
+  // same way so consumers (state.error, logs, telemetry) read accurately
+  // without each having to inspect the cancelled flag. See #419.
   export class RejectedError extends Schema.TaggedErrorClass<RejectedError>()("QuestionRejectedError", {
     cancelled: Schema.optional(Schema.Boolean),
   }) {
     override get message() {
-      return "The user dismissed this question"
+      return this.cancelled
+        ? "Question cancelled before the user answered it."
+        : "The user dismissed this question"
     }
   }
 
