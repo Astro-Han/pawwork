@@ -2,6 +2,9 @@ import { createEffect, onCleanup } from "solid-js"
 import type { QuestionRecoverySnapshot } from "./question-recovery-snapshot"
 
 export const HEAL_DELAY_MS = 3_000
+// Max follow-up attempts after the initial fire on the same arm. A fresh
+// snapshot edge or session navigation resets this budget. See spec v6 R16.
+export const MAX_RETRIES = 3
 
 export interface ReverifyContext {
   armedAt: number
@@ -39,7 +42,7 @@ interface PendingEntry {
   handle: unknown
   armedAt: number
   armedDirectory: string
-  retried: boolean
+  retries: number
 }
 
 // Auto-heal clock. Edge-triggered arming (transition INTO missingRunning),
@@ -102,10 +105,21 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
     }
     if (disposed) return
     if (!outcome.proceed) {
-      // Bounded retry: at most one follow-up attempt per arm. A second
-      // transient failure must wait for a fresh snapshot edge instead of
-      // looping the server every delayMs forever.
-      if (outcome.retry && !entry.retried && input.activeSessionID() === sessionID) {
+      // Bounded retry: up to MAX_RETRIES follow-up attempts per arm. After
+      // the budget is exhausted, log structured warn and stop — wait for a
+      // fresh snapshot edge or session navigation instead of looping the
+      // server every delayMs forever.
+      if (outcome.retry && input.activeSessionID() === sessionID) {
+        if (entry.retries >= MAX_RETRIES) {
+          warn("question-recovery: retry budget exhausted", {
+            sessionID,
+            directory: entry.armedDirectory,
+            armedAt: entry.armedAt,
+            firedAt: ctx.firedAt,
+            retries: entry.retries,
+          })
+          return
+        }
         const handle = setTimer(() => {
           void fire(sessionID)
         }, delayMs)
@@ -113,7 +127,7 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
           handle,
           armedAt: now(),
           armedDirectory: entry.armedDirectory,
-          retried: true,
+          retries: entry.retries + 1,
         })
       }
       return
@@ -157,7 +171,7 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
       const handle = setTimer(() => {
         void fire(sid)
       }, delayMs)
-      pending.set(sid, { handle, armedAt, armedDirectory, retried: false })
+      pending.set(sid, { handle, armedAt, armedDirectory, retries: 0 })
       return
     }
 

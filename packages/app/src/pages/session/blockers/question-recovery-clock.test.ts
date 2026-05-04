@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
-import { createQuestionRecoveryClock, HEAL_DELAY_MS } from "./question-recovery-clock"
+import { createQuestionRecoveryClock, HEAL_DELAY_MS, MAX_RETRIES } from "./question-recovery-clock"
 import type { QuestionRecoverySnapshot } from "./question-recovery-snapshot"
 
 interface FakeTimer {
@@ -165,10 +165,10 @@ describe("createQuestionRecoveryClock", () => {
     h.dispose()
   })
 
-  // Bounded retry: a second consecutive transient failure must NOT re-arm.
-  // The clock waits for a fresh snapshot edge instead of looping the server
-  // every delayMs forever.
-  test("reverify retry=true twice in a row only re-arms once", async () => {
+  // Bounded retry: persistent transient failures must give up after a
+  // bounded number of follow-up attempts. The clock then waits for a fresh
+  // snapshot edge instead of looping the server every delayMs forever.
+  test("reverify retry=true exhausts MAX_RETRIES then logs warn and stops", async () => {
     let attempts = 0
     const h = setupHarness({
       reverifyImpl: async () => {
@@ -177,21 +177,29 @@ describe("createQuestionRecoveryClock", () => {
       },
     })
     h.setSnap(missing)
-    h.fk.advance(HEAL_DELAY_MS)
-    await flush()
-    expect(attempts).toBe(1)
-    expect(h.fk.pending()).toBe(1) // one follow-up armed
 
+    // Drive initial fire + MAX_RETRIES follow-ups. After each tick we should
+    // see a follow-up timer queued for the next round, until the budget hits.
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      h.fk.advance(HEAL_DELAY_MS)
+      await flush()
+      expect(attempts).toBe(i + 1)
+      expect(h.fk.pending()).toBe(1)
+    }
+
+    // The (MAX_RETRIES + 1)-th attempt is the last one; it returns retry=true
+    // but the budget is now exhausted, so the clock warns and stops.
     h.fk.advance(HEAL_DELAY_MS)
     await flush()
-    expect(attempts).toBe(2)
+    expect(attempts).toBe(MAX_RETRIES + 1)
     expect(h.haltCalls).toEqual([])
-    expect(h.fk.pending()).toBe(0) // give-up: no second re-arm
+    expect(h.fk.pending()).toBe(0)
+    expect(h.warnCalls.some((w) => w.message.includes("retry budget exhausted"))).toBe(true)
 
     // A long wait without snapshot change does not revive the clock.
     h.fk.advance(HEAL_DELAY_MS * 10)
     await flush()
-    expect(attempts).toBe(2)
+    expect(attempts).toBe(MAX_RETRIES + 1)
     expect(h.haltCalls).toEqual([])
 
     // A fresh snapshot edge (none → missing) starts a new arm with a fresh
