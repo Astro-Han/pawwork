@@ -45,6 +45,17 @@ async function makeUser(sessionID: SessionID, suffix: string) {
   return id
 }
 
+describe("TurnChange.MutationResultSchema", () => {
+  test("accepts rollback_failed as a blocked reason", () => {
+    const parsed = TurnChange.MutationResultSchema.safeParse({
+      status: "blocked",
+      reason: "rollback_failed",
+      files: [{ path: "alpha.txt", reason: "rollback" }],
+    })
+    expect(parsed.success).toBe(true)
+  })
+})
+
 describe("TurnChange.aggregateTurn", () => {
   test("collapses two assistants editing different files into one display", async () => {
     await resetDatabase()

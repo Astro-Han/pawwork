@@ -348,7 +348,9 @@ export function MessageTimeline(props: {
           ? language.t("session.turnChange.blocked.unsupportedSize")
           : body?.reason === "permission_denied"
             ? language.t("session.turnChange.blocked.permissionDenied")
-            : language.t("session.turnChange.blocked.generic")
+            : body?.reason === "rollback_failed"
+              ? language.t("session.turnChange.blocked.rollbackFailed")
+              : language.t("session.turnChange.blocked.generic")
     const files = Array.isArray(body?.files)
       ? body.files.filter((file: any) => typeof file?.path === "string").map((file: any) => file.path as string)
       : []

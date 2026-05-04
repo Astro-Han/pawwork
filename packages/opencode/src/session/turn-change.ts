@@ -64,7 +64,7 @@ export type MutationResult =
   | { status: "applied"; display: Display; skipped?: SkippedMessage[]; mutatedPaths?: string[] }
   | {
       status: "blocked"
-      reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed"
+      reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed" | "rollback_failed"
       files: Array<{ path: string; reason: string; omittedCount?: number }>
       skipped?: SkippedMessage[]
     }
@@ -378,7 +378,14 @@ export namespace TurnChange {
     }),
     z.object({
       status: z.literal("blocked"),
-      reason: z.enum(["conflict", "restore_missing", "permission_denied", "unsupported_size", "write_failed"]),
+      reason: z.enum([
+        "conflict",
+        "restore_missing",
+        "permission_denied",
+        "unsupported_size",
+        "write_failed",
+        "rollback_failed",
+      ]),
       files: z.array(
         z.object({
           path: z.string(),
@@ -902,8 +909,27 @@ export namespace TurnChange {
       const result = await mutate({ sessionID: input.sessionID, messageID, mode: input.mode })
       if (result.status === "blocked") {
         if (!input.force) {
+          const dirty: Array<{ path: string; reason: string }> = []
           for (const done of [...completed].reverse()) {
-            await mutate({ sessionID: input.sessionID, messageID: done, mode: reverseMode }).catch(() => undefined)
+            const reverse = await mutate({ sessionID: input.sessionID, messageID: done, mode: reverseMode }).catch(
+              (err) => {
+                log.error("rollback threw", { messageID: done, error: err })
+                return { status: "blocked", reason: "write_failed", files: [] } as MutationResult
+              },
+            )
+            if (reverse.status === "blocked") {
+              for (const file of reverse.files) {
+                dirty.push({ path: file.path, reason: file.reason })
+              }
+            }
+          }
+          if (dirty.length) {
+            return {
+              status: "blocked",
+              reason: "rollback_failed",
+              files: dirty,
+              skipped: preflight.skipped,
+            }
           }
           return { status: "blocked", reason: result.reason, files: result.files, skipped: preflight.skipped }
         }
