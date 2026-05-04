@@ -67,6 +67,7 @@ export const dict = {
   "ui.sessionTurn.turnChanges.confirmApply": "跳过并应用",
   "ui.sessionTurn.turnChanges.confirmCancel": "取消",
   "ui.sessionTurn.turnChanges.skippedNotice": "{{count}} 个文件因外部改动被跳过",
+  "ui.sessionTurn.turnChanges.confirmListMore": "还有 {{count}} 个",
 
   "ui.sessionTurn.retry.retrying": "重试中",
   "ui.sessionTurn.retry.inSeconds": "{{seconds}} 秒后",

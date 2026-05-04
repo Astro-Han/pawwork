@@ -327,10 +327,21 @@ export function MessageTimeline(props: {
   const [turnChanges, setTurnChanges] = createStore<Record<string, TurnChangeDisplay | null>>({})
   const fetchedTurnChanges = new Set<string>()
   const turnChangeRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  onCleanup(() => {
+  const cancelTurnChangeRetries = () => {
     for (const timer of turnChangeRetryTimers.values()) clearTimeout(timer)
     turnChangeRetryTimers.clear()
-  })
+  }
+  onCleanup(cancelTurnChangeRetries)
+  createEffect(
+    on(
+      sessionID,
+      () => {
+        cancelTurnChangeRetries()
+        fetchedTurnChanges.clear()
+      },
+      { defer: true },
+    ),
+  )
 
   const authHeaders = () => {
     const current = server.current
@@ -474,7 +485,9 @@ export function MessageTimeline(props: {
                     </For>
                     <Show when={conflictPaths.length > 6}>
                       <div class="px-3 py-1.5 text-12-regular text-text-weak border-t border-border-base">
-                        +{conflictPaths.length - 6} more
+                        {language.t("ui.sessionTurn.turnChanges.confirmListMore", {
+                          count: conflictPaths.length - 6,
+                        })}
                       </div>
                     </Show>
                   </div>

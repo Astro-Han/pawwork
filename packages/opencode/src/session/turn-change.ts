@@ -666,6 +666,19 @@ export namespace TurnChange {
     return Array.from(merged.values())
   }
 
+  function disambiguateAggregatedRestoreFiles(files: RestoreFile[]): RestoreFile[] {
+    const seen = new Map<string, number>()
+    return files.map((file) => {
+      if (!isOpaqueExternalPath(file.path)) return file
+      const base = displayPath(file.path)
+      const index = (seen.get(base) ?? 0) + 1
+      seen.set(base, index)
+      const nextDisplay = index === 1 ? base : `${base} · external #${index}`
+      if (nextDisplay === file.displayPath) return file
+      return { ...file, displayPath: nextDisplay }
+    })
+  }
+
   function aggregateTurnInternal(input: {
     sessionID: SessionID
     userMessageID: MessageID
@@ -694,7 +707,7 @@ export namespace TurnChange {
 
     if (!anyDisplay && !allRestore.length) return
 
-    const collapsed = collapseRestoreFiles(allRestore)
+    const collapsed = disambiguateAggregatedRestoreFiles(collapseRestoreFiles(allRestore))
     const files = collapsed.map((file) => toDisplay(file)).filter(Boolean) as DisplayFile[]
     if (!files.length && truncatedCount === 0) return
 
@@ -847,8 +860,14 @@ export namespace TurnChange {
         const expected = input.mode === "undo" ? row.data.after : row.data.before
         const target = input.mode === "undo" ? row.data.before : row.data.after
         if (!canRestore(target)) {
-          blocked.push({ path: row.data.displayPath, reason: "restore_unavailable" })
-          continue
+          return {
+            actionable: [],
+            skipped,
+            fatal: {
+              reason: "unsupported_size",
+              files: [{ path: row.data.displayPath, reason: "restore_unavailable" }],
+            },
+          }
         }
         let current = virtualState.get(row.data.path)
         if (!current) {

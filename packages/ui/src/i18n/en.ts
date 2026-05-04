@@ -64,6 +64,7 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.turnChanges.confirmApply": "Skip and apply",
   "ui.sessionTurn.turnChanges.confirmCancel": "Cancel",
   "ui.sessionTurn.turnChanges.skippedNotice": "{{count}} file(s) skipped due to changes outside this turn",
+  "ui.sessionTurn.turnChanges.confirmListMore": "+{{count}} more",
 
   "ui.sessionTurn.retry.retrying": "retrying",
   "ui.sessionTurn.retry.inSeconds": "in {{seconds}}s",

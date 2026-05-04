@@ -514,6 +514,104 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
     })
   })
 
+  test("opaque external basenames from sibling assistants disambiguate after aggregation", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "ext-collide" })
+        const userMessageID = await makeUser(session.id, "ext")
+        const a1 = await makeAssistant(session.id, userMessageID, "ext-a1")
+        const a2 = await makeAssistant(session.id, userMessageID, "ext-a2")
+
+        // Two opaque external paths sharing a basename, recorded by different assistants
+        // (so per-message disambiguation cannot see the collision).
+        const externalA = "/tmp/pawwork-fixture-A/config.json"
+        const externalB = "/tmp/pawwork-fixture-B/config.json"
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a1,
+          path: externalA,
+          before: { exists: false },
+          after: { exists: true, content: "{\"a\":1}\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a2,
+          path: externalB,
+          before: { exists: false },
+          after: { exists: true, content: "{\"b\":1}\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+
+        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        expect(display?.files).toHaveLength(2)
+        const paths = (display?.files ?? []).map((f) => f.path)
+        // Distinct displayPaths after the second-pass disambiguation.
+        expect(new Set(paths).size).toBe(2)
+        // At least one entry retains the basename, the other is suffixed with `· external #`.
+        expect(paths.some((p) => p === "config.json")).toBe(true)
+        expect(paths.some((p) => p.startsWith("config.json · external #"))).toBe(true)
+      },
+    })
+  })
+
+  test("preflight returns fatal unsupported_size when any assistant has an unrestorable target", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "agg-unsupported" })
+        const userMessageID = await makeUser(session.id, "u1")
+        const a1 = await makeAssistant(session.id, userMessageID, "u-a1")
+        const a2 = await makeAssistant(session.id, userMessageID, "u-a2")
+        const ok = path.join(fixture.path, "u-ok.txt")
+        const big = path.join(fixture.path, "u-big.bin")
+        await fs.writeFile(ok, "OK\n", "utf-8")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a1,
+          path: ok,
+          before: { exists: false },
+          after: { exists: true, content: "OK\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        // Mark the second message's `before` as non-restorable (oversized).
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a2,
+          path: big,
+          before: { exists: true, restorable: false, hash: "large:99999999", large: true },
+          after: { exists: true, content: "after\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+
+        // Default (force=false): fatal unsupported_size, ok file untouched.
+        const blocked = await TurnChange.aggregateTurnUndo({ sessionID: session.id, userMessageID })
+        expect(blocked.status).toBe("blocked")
+        if (blocked.status !== "blocked") return
+        expect(blocked.reason).toBe("unsupported_size")
+        expect(await fs.readFile(ok, "utf-8")).toBe("OK\n")
+
+        // force=true must not partially mutate either; still fatal unsupported_size.
+        const forced = await TurnChange.aggregateTurnUndo({
+          sessionID: session.id,
+          userMessageID,
+          force: true,
+        })
+        expect(forced.status).toBe("blocked")
+        if (forced.status !== "blocked") return
+        expect(forced.reason).toBe("unsupported_size")
+        expect(await fs.readFile(ok, "utf-8")).toBe("OK\n")
+      },
+    })
+  })
+
   test("force=true skips conflicting message and reports skipped[]", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()
