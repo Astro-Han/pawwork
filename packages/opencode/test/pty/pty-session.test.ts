@@ -153,7 +153,12 @@ describe("pty", () => {
           let id: PtyID | undefined
           try {
             const info = await Pty.create({
-              command: "/bin/sh",
+              command: "/usr/bin/env",
+              args: [
+                "sh",
+                "-c",
+                'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD}" && printf "custom=%s\\n" "${PAWWORK_E2E_CUSTOM_ENV-unset}"',
+              ],
               title: "env",
             })
             id = info.id
@@ -165,10 +170,6 @@ describe("pty", () => {
               close: () => undefined,
             } as any)
 
-            await Pty.write(
-              info.id,
-              'printf "username=%s\\n" "${OPENCODE_SERVER_USERNAME}" && printf "password=%s\\n" "${OPENCODE_SERVER_PASSWORD}" && printf "custom=%s\\n" "${PAWWORK_E2E_CUSTOM_ENV-unset}"\nexit\n',
-            )
             await wait(() => output.join("").includes("custom="))
 
             const text = output.join("")
