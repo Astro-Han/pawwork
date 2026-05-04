@@ -143,7 +143,13 @@ export namespace Question {
     Rejected: BusEvent.define("question.rejected", Rejected.zod),
   }
 
-  export class RejectedError extends Schema.TaggedErrorClass<RejectedError>()("QuestionRejectedError", {}) {
+  // `cancelled` distinguishes a session-cancel-driven rejection (signal abort
+  // or fiber interrupt) from an intentional user dismissal. The processor
+  // uses this to set metadata.interrupted only on cancel — a dismiss is a
+  // completed user action, not an interruption. See #419.
+  export class RejectedError extends Schema.TaggedErrorClass<RejectedError>()("QuestionRejectedError", {
+    cancelled: Schema.optional(Schema.Boolean),
+  }) {
     override get message() {
       return "The user dismissed this question"
     }
@@ -193,7 +199,7 @@ export namespace Question {
           yield* Effect.addFinalizer(() =>
             Effect.gen(function* () {
               for (const item of state.pending.values()) {
-                yield* Deferred.fail(item.deferred, new RejectedError())
+                yield* Deferred.fail(item.deferred, new RejectedError({ cancelled: true }))
               }
               state.pending.clear()
             }),
@@ -272,14 +278,20 @@ export namespace Question {
         const signal = input.signal
         let removeListener: (() => void) | undefined
         const sessionID = input.sessionID
-        const failFromAbort = () => {
+        // bus.publish reads InstanceState (directory/workspace/context), which
+        // requires either Effect fiber context or JS ALS to be set. The abort
+        // listener fires from the JS event loop on signal dispatch — not
+        // necessarily inside our parent Effect's runtime — so wrap with
+        // InstanceState.bind to capture the current instance ALS context and
+        // restore it whenever the callback runs.
+        const failFromAbort = InstanceState.bind(() => {
           const entry = pending.get(id)
           if (!entry) return
           pending.delete(id)
           log.info("rejected", { requestID: id, reason: "aborted" })
           Effect.runFork(bus.publish(Event.Rejected, { sessionID, requestID: id }))
-          Effect.runFork(Deferred.fail(entry.deferred, new RejectedError()))
-        }
+          Effect.runFork(Deferred.fail(entry.deferred, new RejectedError({ cancelled: true })))
+        })
 
         if (signal) {
           if (signal.aborted) {

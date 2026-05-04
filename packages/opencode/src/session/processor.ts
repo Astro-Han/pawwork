@@ -463,8 +463,10 @@ export const layer: Layer.Layer<
         // so when a question tool errors out via session cancel (Question.ask
         // routed RejectedError through here, not via the cleanup path at the
         // bottom of the stream), we must mark it the same way the cleanup
-        // path does. See #419.
-        const questionInterrupted = match.part.tool === "question" && error instanceof Question.RejectedError
+        // path does. The `cancelled` flag distinguishes a session cancel from
+        // an explicit user dismissal — only the former is "interrupted". See #419.
+        const questionInterrupted =
+          match.part.tool === "question" && error instanceof Question.RejectedError && error.cancelled === true
         yield* session.updatePart({
           ...match.part,
           state: {

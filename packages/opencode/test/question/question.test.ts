@@ -481,8 +481,71 @@ test("questions stay isolated by directory", async () => {
 // Question.ask must publish question.rejected so the frontend can clear the
 // dock, AND remove the entry from pending so question.list() won't return a
 // phantom. See issue #419.
+//
+// Two complementary coverage paths:
+//   1. input.signal abort (production cancel route — EffectBridge.run.promise
+//      breaks fiber interrupt, so the AbortSignal is the only working channel)
+//   2. fiber interrupt via runPromise options.signal (defence-in-depth path
+//      for direct supervisor kill / layer shutdown)
 
-test("ask - publishes question.rejected on interrupt", async () => {
+test("ask - publishes question.rejected on input.signal abort", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const events: { sessionID: SessionID; requestID: QuestionID }[] = []
+      const unsub = Bus.subscribe(Question.Event.Rejected, (evt) => {
+        events.push(evt.properties)
+      })
+
+      const controller = new AbortController()
+      // Pass signal as `input.signal` (NOT to runPromise) so we exercise the
+      // signal.addEventListener("abort", failFromAbort) branch, which is the
+      // only one that survives in production where EffectBridge.run.promise
+      // strips fiber interrupts.
+      const promise = AppRuntime.runPromise(
+        Question.Service.use((svc) =>
+          svc.ask({
+            sessionID: SessionID.make("ses_signal"),
+            questions: [
+              {
+                question: "Pick one",
+                header: "Pick",
+                options: [
+                  { label: "A", description: "first" },
+                  { label: "B", description: "second" },
+                ],
+              },
+            ],
+            signal: controller.signal,
+          }),
+        ),
+      ).catch((err) => err)
+
+      const start = Date.now()
+      while (Date.now() - start < 1000) {
+        const pending = await list()
+        if (pending.length === 1) break
+        await Bun.sleep(10)
+      }
+
+      controller.abort()
+      const result = await promise
+
+      expect(events).toHaveLength(1)
+      expect(events[0]?.sessionID).toBe(SessionID.make("ses_signal"))
+      expect(result).toBeInstanceOf(Question.RejectedError)
+      expect((result as Question.RejectedError).cancelled).toBe(true)
+
+      const after = await list()
+      expect(after).toHaveLength(0)
+
+      unsub()
+    },
+  })
+})
+
+test("ask - publishes question.rejected on fiber interrupt", async () => {
   await using tmp = await tmpdir({ git: true })
   await Instance.provide({
     directory: tmp.path,
@@ -510,8 +573,6 @@ test("ask - publishes question.rejected on interrupt", async () => {
         { signal: controller.signal },
       ).catch(() => {})
 
-      // Wait until pending registered so we know publish(Asked) has run
-      // before we trigger the interrupt.
       const start = Date.now()
       while (Date.now() - start < 1000) {
         const pending = await list()
@@ -529,6 +590,35 @@ test("ask - publishes question.rejected on interrupt", async () => {
       expect(after).toHaveLength(0)
 
       unsub()
+    },
+  })
+})
+
+test("reject - leaves cancelled flag false (user dismiss, not session cancel)", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const promise = ask({
+        sessionID: SessionID.make("ses_dismiss"),
+        questions: [
+          {
+            question: "Dismiss me?",
+            header: "Dismiss",
+            options: [
+              { label: "Yes", description: "Yes" },
+              { label: "No", description: "No" },
+            ],
+          },
+        ],
+      })
+
+      const pending = await list()
+      await reject(pending[0]!.id)
+
+      const result = await promise.catch((err) => err)
+      expect(result).toBeInstanceOf(Question.RejectedError)
+      expect((result as Question.RejectedError).cancelled).toBeFalsy()
     },
   })
 })
