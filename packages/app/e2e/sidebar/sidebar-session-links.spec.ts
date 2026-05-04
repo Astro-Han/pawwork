@@ -141,11 +141,11 @@ test("opening a delayed sidebar session never shows the previous session as load
         await gotoSession(source.id)
         await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toBeVisible()
         await openSidebar(page)
+        await expect.poll(() => targetMessageRequests, { timeout: 10_000 }).toBeGreaterThan(0)
 
         await page.locator(`[data-session-id="${target.id}"] a`).first().click()
 
         await expect(page).toHaveURL(new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`))
-        await expect.poll(() => targetMessageRequests, { timeout: 10_000 }).toBeGreaterThan(0)
         await expect(page.locator('[data-component="session-opening-state"]')).toBeVisible()
         await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toHaveCount(0)
         await expect(page.locator(sessionTurnListSelector).getByText(targetText)).toHaveCount(0)
