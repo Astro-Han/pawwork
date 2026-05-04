@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import path from "node:path"
 import { rendererWebPreferences } from "./window-options"
 
 describe("desktop windows security", () => {
@@ -10,6 +11,8 @@ describe("desktop windows security", () => {
       contextIsolation: true,
       nodeIntegration: false,
     })
-    expect(prefs.preload).toEndWith("/preload/index.js")
+    // `path.join` uses backslashes on Windows, so compare with the platform
+    // separator instead of hardcoding `/preload/index.js`.
+    expect(prefs.preload).toEndWith(path.join("preload", "index.js"))
   })
 })

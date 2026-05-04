@@ -14,7 +14,15 @@ const WALK_PATHS = [
   "packages/app/e2e",
 ]
 
-const SELF_PATH = "packages/opencode/test/tool/agent-rename.test.ts"
+// NTFS is case-insensitive but case-preserving, and Bun has historically
+// reported drive letters in different cases for `__filename` vs walked paths
+// on Windows (e.g., `D:\…` vs `d:\…`). Compare lowercased forms on Windows so
+// the self-skip stays robust regardless of which casing each side picks.
+function selfKey(file: string) {
+  const resolved = path.resolve(file)
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved
+}
+const SELF_PATH = selfKey(__filename)
 
 const LEGACY_RENDER_MARKER = /\bagent-rename:legacy-render\b/
 
@@ -88,9 +96,9 @@ describe("agent rename literal sweep (#128)", () => {
         const absWalk = path.join(REPO_ROOT, walkPath)
         if (!fs.existsSync(absWalk)) continue
         for (const file of walkFiles(absWalk)) {
-          const rel = path.relative(REPO_ROOT, file)
-          if (rel === SELF_PATH) continue
+          if (selfKey(file) === SELF_PATH) continue
           if (!/\.(ts|tsx|txt|md)$/.test(file)) continue
+          const rel = path.relative(REPO_ROOT, file)
           const lines = readLines(file)
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i]
@@ -125,9 +133,9 @@ describe("agent rename literal sweep (#128)", () => {
         const absWalk = path.join(REPO_ROOT, walkPath)
         if (!fs.existsSync(absWalk)) continue
         for (const file of walkFiles(absWalk)) {
-          const rel = path.relative(REPO_ROOT, file)
-          if (rel === SELF_PATH) continue
+          if (selfKey(file) === SELF_PATH) continue
           if (!/\.(ts|tsx|txt|md)$/.test(file)) continue
+          const rel = path.relative(REPO_ROOT, file)
           const lines = readLines(file)
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i]

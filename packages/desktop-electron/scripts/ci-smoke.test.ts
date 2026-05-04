@@ -114,27 +114,36 @@ describe("ci smoke helpers", () => {
     })
   })
 
-  test("packaged smoke reports spawn failures with launch context", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))
-    try {
-      const executablePath = path.join(dir, "PawWork")
-      writeFileSync(executablePath, "")
-      chmodSync(executablePath, 0o755)
+  // POSIX-only: the fixture relies on creating an empty file with chmod 0o755
+  // to trigger an ENOEXEC spawn error so ci-smoke.ts emits the
+  // "Failed to launch desktop app:" branch. Windows has no direct equivalent
+  // (empty files run through cmd exit cleanly, sending the flow through the
+  // "Electron exited" branch instead), and the assertion targets the spawn
+  // error format itself, not Windows-specific launch behavior.
+  test.skipIf(process.platform === "win32")(
+    "packaged smoke reports spawn failures with launch context",
+    () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "pawwork-ci-smoke-"))
+      try {
+        const executablePath = path.join(dir, "PawWork")
+        writeFileSync(executablePath, "")
+        chmodSync(executablePath, 0o755)
 
-      const result = spawnSync(
-        process.execPath,
-        [path.join(import.meta.dir, "ci-smoke.ts"), "packaged", "dev", executablePath],
-        {
-          encoding: "utf8",
-          timeout: 5_000,
-        },
-      )
+        const result = spawnSync(
+          process.execPath,
+          [path.join(import.meta.dir, "ci-smoke.ts"), "packaged", "dev", executablePath],
+          {
+            encoding: "utf8",
+            timeout: 5_000,
+          },
+        )
 
-      expect(result.status).not.toBe(0)
-      expect(`${result.stdout}${result.stderr}`).toContain("Failed to launch desktop app:")
-      expect(`${result.stdout}${result.stderr}`).toContain(executablePath)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
+        expect(result.status).not.toBe(0)
+        expect(`${result.stdout}${result.stderr}`).toContain("Failed to launch desktop app:")
+        expect(`${result.stdout}${result.stderr}`).toContain(executablePath)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+  )
 })

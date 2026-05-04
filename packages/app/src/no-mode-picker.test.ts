@@ -48,7 +48,10 @@ test('no source file in packages/app/src uses mode === "primary" outside the all
     const lines = text.split(/\r?\n/)
     lines.forEach((lineText, i) => {
       if (!re.test(lineText)) return
-      const relPath = path.relative(APP_SRC, file)
+      // Normalize to forward slashes so the Windows backslash form of
+      // `path.relative` still matches MODE_PRIMARY_ALLOWLIST entries authored
+      // with POSIX-style paths.
+      const relPath = path.relative(APP_SRC, file).replaceAll(path.sep, "/")
       const ok = MODE_PRIMARY_ALLOWLIST.some((a) => a.file === relPath && a.line === i + 1)
       if (!ok) offenders.push({ file: relPath, line: i + 1, text: lineText.trim() })
     })
