@@ -131,9 +131,7 @@ export function SessionMainView(props: {
               </Match>
               <Match
                 when={
-                  props.activeSessionID && props.timelineSessionID && props.timelineMessagesReady
-                    ? props.timelineSessionID
-                    : undefined
+                  props.activeSessionID && props.timelineSessionID ? props.timelineSessionID : undefined
                 }
               >
                 <MessageTimeline

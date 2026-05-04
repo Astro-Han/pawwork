@@ -12,6 +12,29 @@ import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { diffs as list } from "@/utils/diffs"
 import { same } from "@/utils/same"
 
+type LastGoodMessages = { sessionID: string; messages: ReturnType<typeof readSessionMessages> } | undefined
+
+export function readTimelineMessages(input: {
+  sessionID: string | undefined
+  raw: unknown
+  lastGood: LastGoodMessages
+}): { messages: ReturnType<typeof readSessionMessages>; lastGood: LastGoodMessages } {
+  if (!input.sessionID) {
+    return { messages: emptyMessages, lastGood: undefined }
+  }
+
+  if (input.raw !== undefined) {
+    const messages = readSessionMessages(input.raw)
+    return { messages, lastGood: { sessionID: input.sessionID, messages } }
+  }
+
+  if (input.lastGood?.sessionID === input.sessionID) {
+    return { messages: input.lastGood.messages, lastGood: input.lastGood }
+  }
+
+  return { messages: emptyMessages, lastGood: input.lastGood }
+}
+
 export function createSessionTimelineData(input: {
   directory: () => string
   routeSessionID: () => string | undefined
@@ -48,10 +71,17 @@ export function createSessionTimelineData(input: {
     return input.sync.session.get(id)
   })
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)
+  let lastGoodMessages: LastGoodMessages
   const messages = createMemo(
     () => {
       const id = sessionID()
-      return readSessionMessages(id ? input.sync.data.message[id] : undefined)
+      const next = readTimelineMessages({
+        sessionID: id,
+        raw: id ? input.sync.data.message[id] : undefined,
+        lastGood: lastGoodMessages,
+      })
+      lastGoodMessages = next.lastGood
+      return next.messages
     },
     emptyMessages,
     { equals: same },

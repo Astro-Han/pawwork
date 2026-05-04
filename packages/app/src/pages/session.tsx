@@ -357,7 +357,7 @@ export default function Page() {
 
   const timelineInteraction = createSessionTimelineInteraction({
     routeSessionID: () => params.id,
-    sessionKey,
+    sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
     messagesReady: timelineMessagesReady,
     loadedMessages: () => timelineMessages().length,
@@ -570,7 +570,7 @@ export default function Page() {
       setMobileTab={setMobileTab}
       language={language}
       routeSessionID={params.id}
-      routeReady={timeline.routeMessagesReady()}
+      routeReady={timelineMessagesReady()}
       transitioning={timeline.transitioning()}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}

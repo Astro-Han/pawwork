@@ -4,6 +4,16 @@ export type SessionViewStateInput = {
   directory: string
   routeSessionID: string | undefined
   routeMessagesReady: boolean
+  previous?: SessionViewState
+}
+
+export type SessionViewState = {
+  routeSessionID: string | undefined
+  routeReady: boolean
+  visibleSessionID: string | undefined
+  transitioning: boolean
+  routeSessionKey: string
+  visibleSessionKey: string
 }
 
 export type SessionViewControllerInput = {
@@ -12,12 +22,17 @@ export type SessionViewControllerInput = {
   routeMessagesReady: Accessor<boolean>
 }
 
-export function sessionKey(input: { directory: string; sessionID: string | undefined }) {
-  return `${input.directory}${input.sessionID ? `/${input.sessionID}` : ""}`
+export function sessionKey(input: { sessionID: string | undefined }) {
+  return input.sessionID ?? ""
 }
 
 export function nextSessionViewState(input: SessionViewStateInput) {
-  const routeReady = !input.routeSessionID || input.routeMessagesReady
+  const sameSession =
+    input.previous?.routeSessionID === input.routeSessionID &&
+    input.previous?.visibleSessionID === input.routeSessionID &&
+    !!input.routeSessionID
+  const keepReady = sameSession && !!input.previous?.routeReady && !input.routeMessagesReady
+  const routeReady = !input.routeSessionID || input.routeMessagesReady || keepReady
   const visibleSessionID = input.routeSessionID
 
   return {
@@ -25,13 +40,13 @@ export function nextSessionViewState(input: SessionViewStateInput) {
     routeReady,
     visibleSessionID,
     transitioning: !routeReady,
-    routeSessionKey: sessionKey({ directory: input.directory, sessionID: input.routeSessionID }),
-    visibleSessionKey: sessionKey({ directory: input.directory, sessionID: visibleSessionID }),
+    routeSessionKey: sessionKey({ sessionID: input.routeSessionID }),
+    visibleSessionKey: sessionKey({ sessionID: visibleSessionID }),
   }
 }
 
 export function createSessionViewController(input: SessionViewControllerInput) {
-  type State = ReturnType<typeof nextSessionViewState> & { directory: string }
+  type State = SessionViewState & { directory: string }
   const state = createMemo((current: State | undefined): State => {
     const directory = input.directory()
     return {
@@ -39,6 +54,7 @@ export function createSessionViewController(input: SessionViewControllerInput) {
         directory,
         routeSessionID: input.routeSessionID(),
         routeMessagesReady: input.routeMessagesReady(),
+        previous: current,
       }),
       directory,
     }
