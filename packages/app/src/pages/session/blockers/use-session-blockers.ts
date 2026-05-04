@@ -10,7 +10,10 @@ import { createQuestionRefetchRunner } from "./question-refetch-runner"
 import { refetchPendingQuestionsForSession } from "./question-reconcile"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./request-tree"
 
-export function createSessionBlockers(input: { sessionID: () => string | undefined }) {
+export function createSessionBlockers(input: {
+  sessionID: () => string | undefined
+  halt?: (sessionID: string) => Promise<unknown>
+}) {
   const sdk = useSDK()
   const sync = useSync()
   const language = useLanguage()

@@ -114,7 +114,15 @@ export default function Page() {
   const timelineSessionID = timeline.sessionID
   const timelineSessionKey = timeline.sessionKey
   const timelineIsChildSession = timeline.isChildSession
-  const composer = createSessionComposerState({ sessionID: timelineSessionID, fallbackSessionID: () => params.id })
+  const halt = (sessionID: string) =>
+    isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
+      ? sdk.client.session.abort({ sessionID }).catch(() => {})
+      : Promise.resolve()
+  const composer = createSessionComposerState({
+    sessionID: timelineSessionID,
+    fallbackSessionID: () => params.id,
+    halt,
+  })
   const timelineMessages = timeline.messages
   const timelineMessagesReady = timeline.messagesReady
   const timelineDiffs = timeline.diffs
@@ -448,11 +456,6 @@ export default function Page() {
     resumeScroll,
     attachmentLabel: () => language.t("common.attachment"),
   })
-
-  const halt = (sessionID: string) =>
-    isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
-      ? sdk.client.session.abort({ sessionID }).catch(() => {})
-      : Promise.resolve()
 
   const sessionRevert = createSessionRevert({
     sessionID: timelineSessionID,
