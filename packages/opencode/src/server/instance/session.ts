@@ -36,12 +36,14 @@ import { LSP } from "@/lsp"
 
 const log = Log.create({ service: "server" })
 
-function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo") {
+function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
   return Effect.gen(function* () {
     const bus = yield* Bus.Service
     const lsp = yield* LSP.Service
+    const allowed = mutatedPaths ? new Set(mutatedPaths) : undefined
     for (const file of display.files) {
       if (!file.openPath) continue
+      if (allowed && !allowed.has(file.openPath)) continue
       const event =
         mode === "redo"
           ? file.status === "added"
@@ -670,6 +672,124 @@ export const SessionRoutes = lazy(() =>
             yield* state.assertNotBusy(params.sessionID)
             const result = yield* turnChange.redo(params)
             if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
+            return result
+          }),
+        )
+        return c.json(result)
+      },
+    )
+    .get(
+      "/:sessionID/turn/:userMessageID/changes",
+      describeRoute({
+        summary: "Get aggregated turn changes",
+        description: "Aggregate file changes across all assistants in one user turn.",
+        operationId: "session.turnChangesAggregate",
+        responses: {
+          200: {
+            description: "Aggregated turn changes",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.DisplaySchema.nullable()),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          userMessageID: MessageID.zod,
+        }),
+      ),
+      async (c) => {
+        const params = c.req.valid("param")
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const turnChange = yield* TurnChange.Service
+            return yield* turnChange.aggregateTurn(params)
+          }),
+        )
+        return c.json(result ?? null)
+      },
+    )
+    .post(
+      "/:sessionID/turn/:userMessageID/changes/undo",
+      describeRoute({
+        summary: "Undo all assistant changes in a turn",
+        operationId: "session.turnChangesAggregateUndo",
+        responses: {
+          200: {
+            description: "Undo result",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.MutationResultSchema),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          userMessageID: MessageID.zod,
+        }),
+      ),
+      validator("json", z.object({ force: z.boolean().optional() }).optional()),
+      async (c) => {
+        const params = c.req.valid("param")
+        const body = c.req.valid("json") ?? {}
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const state = yield* SessionRunState.Service
+            const turnChange = yield* TurnChange.Service
+            yield* state.assertNotBusy(params.sessionID)
+            const result = yield* turnChange.aggregateTurnUndo({ ...params, force: body.force })
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo", result.mutatedPaths)
+            return result
+          }),
+        )
+        return c.json(result)
+      },
+    )
+    .post(
+      "/:sessionID/turn/:userMessageID/changes/redo",
+      describeRoute({
+        summary: "Redo all assistant changes in a turn",
+        operationId: "session.turnChangesAggregateRedo",
+        responses: {
+          200: {
+            description: "Redo result",
+            content: {
+              "application/json": {
+                schema: resolver(TurnChange.MutationResultSchema),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+          userMessageID: MessageID.zod,
+        }),
+      ),
+      validator("json", z.object({ force: z.boolean().optional() }).optional()),
+      async (c) => {
+        const params = c.req.valid("param")
+        const body = c.req.valid("json") ?? {}
+        const result = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const state = yield* SessionRunState.Service
+            const turnChange = yield* TurnChange.Service
+            yield* state.assertNotBusy(params.sessionID)
+            const result = yield* turnChange.aggregateTurnRedo({ ...params, force: body.force })
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo", result.mutatedPaths)
             return result
           }),
         )

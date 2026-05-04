@@ -20,6 +20,7 @@ export type TurnChangeDisplay = {
   redoAvailable: boolean
   truncated?: boolean
   omittedCount?: number
+  skippedCount?: number
   files: TurnChangeFile[]
 }
 
@@ -27,6 +28,10 @@ export function hasVisibleTurnChanges(display: TurnChangeDisplay | null | undefi
   return !!display && (display.files.length > 0 || !!display.truncated)
 }
 
+// After a force-partial undo a turn can have hasApplied (skipped messages still applied)
+// and hasUndone (succeeded messages) at the same time. We surface a single button that
+// continues in the original direction (undo) by design; the redo path for a mixed state
+// is intentionally not exposed inline. Mixed-state recovery UX is tracked as follow-up.
 export function turnChangeAction(display: TurnChangeDisplay | null | undefined): "undo" | "redo" | undefined {
   if (display?.undoAvailable) return "undo"
   if (display?.redoAvailable) return "redo"

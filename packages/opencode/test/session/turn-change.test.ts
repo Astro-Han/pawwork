@@ -342,7 +342,7 @@ describe("TurnChange", () => {
       fn: async () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "large.txt")
-        const large = "x".repeat(2 * 1024 * 1024 + 1)
+        const large = "x".repeat(20 * 1024 * 1024 + 1)
         await fs.rm(target, { force: true })
 
         TurnChange.recordWrite({
@@ -370,6 +370,66 @@ describe("TurnChange", () => {
           files: [{ path: "large.txt", reason: "restore_unavailable" }],
         })
         await expect(fs.readFile(target, "utf-8")).rejects.toThrow()
+      },
+    })
+  })
+
+  test("medium files (>display, <restore) stay restorable but are not expandable", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "medium.txt")
+        const medium = "a".repeat(3 * 1024 * 1024)
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: false },
+          after: { exists: true, content: medium },
+        })
+        const display = TurnChange.finalize(turn)
+        expect(display?.files).toHaveLength(1)
+        expect(display?.files[0]).toMatchObject({
+          path: "medium.txt",
+          status: "added",
+          large: true,
+          restoreAvailable: true,
+          expandable: false,
+        })
+        expect(display?.undoAvailable).toBe(true)
+
+        await fs.writeFile(target, medium, "utf-8")
+        const result = await TurnChange.undo(turn)
+        expect(result.status).toBe("applied")
+        await expect(fs.readFile(target, "utf-8")).rejects.toThrow()
+      },
+    })
+  })
+
+  test("huge files (>restore) are not restorable", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const turn = await createTurn()
+        const target = path.join(fixture.path, "huge.txt")
+        const huge = "a".repeat(20 * 1024 * 1024 + 1)
+        TurnChange.recordWrite({
+          ...turn,
+          path: target,
+          before: { exists: false },
+          after: { exists: true, content: huge },
+        })
+        const display = TurnChange.finalize(turn)
+        expect(display?.files).toHaveLength(1)
+        expect(display?.files[0]).toMatchObject({
+          large: true,
+          restoreAvailable: false,
+          expandable: false,
+        })
       },
     })
   })
@@ -446,7 +506,7 @@ describe("TurnChange", () => {
           after: { exists: true, content: "after\n" },
         })
         TurnChange.finalize(turn)
-        await fs.writeFile(target, "x".repeat(2 * 1024 * 1024 + 1), "utf-8")
+        await fs.writeFile(target, "x".repeat(20 * 1024 * 1024 + 1), "utf-8")
 
         const readFile = spyOn(fs, "readFile")
         try {

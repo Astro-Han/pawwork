@@ -6,7 +6,7 @@ import z from "zod"
 import { eq, and, ne, Database } from "@/storage/db"
 import { count } from "drizzle-orm"
 import { MessageID, SessionID } from "./schema"
-import { TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
+import { MessageTable, TurnChangeDisplayTable, TurnChangeRestoreTable } from "./session.sql"
 import { Instance } from "@/project/instance"
 import { isSensitiveTargetPath } from "@/tool/sensitive"
 import { trimDiff } from "@/tool/edit"
@@ -54,12 +54,19 @@ export type RecordWriteInput = {
   after: FileState
 }
 
+export type SkippedMessage = {
+  messageID: MessageID
+  reason: "conflict" | "permission_denied"
+  files: Array<{ path: string; reason: string }>
+}
+
 export type MutationResult =
-  | { status: "applied"; display: Display }
+  | { status: "applied"; display: Display; skipped?: SkippedMessage[]; mutatedPaths?: string[] }
   | {
       status: "blocked"
-      reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed"
+      reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed" | "rollback_failed"
       files: Array<{ path: string; reason: string; omittedCount?: number }>
+      skipped?: SkippedMessage[]
     }
 
 type RestoreFile = {
@@ -88,7 +95,7 @@ type RestoreTableRow = Omit<RestoreRow, "data"> & {
 }
 
 const DISPLAY_LIMIT = 2 * 1024 * 1024
-const RESTORE_LIMIT = 2 * 1024 * 1024
+const RESTORE_LIMIT = 20 * 1024 * 1024
 const MAX_FILES = 200
 const OVERFLOW_PATH = "__pawwork_turn_change_overflow__"
 const log = Log.create({ service: "session.turn-change" })
@@ -351,14 +358,34 @@ export namespace TurnChange {
     files: z.array(DisplayFileSchema),
   })
 
+  export const SkippedMessageSchema = z.object({
+    messageID: MessageID.zod,
+    reason: z.enum(["conflict", "permission_denied"]),
+    files: z.array(
+      z.object({
+        path: z.string(),
+        reason: z.string(),
+      }),
+    ),
+  })
+
   export const MutationResultSchema = z.discriminatedUnion("status", [
     z.object({
       status: z.literal("applied"),
       display: DisplaySchema,
+      skipped: z.array(SkippedMessageSchema).optional(),
+      mutatedPaths: z.array(z.string()).optional(),
     }),
     z.object({
       status: z.literal("blocked"),
-      reason: z.enum(["conflict", "restore_missing", "permission_denied", "unsupported_size", "write_failed"]),
+      reason: z.enum([
+        "conflict",
+        "restore_missing",
+        "permission_denied",
+        "unsupported_size",
+        "write_failed",
+        "rollback_failed",
+      ]),
       files: z.array(
         z.object({
           path: z.string(),
@@ -366,6 +393,7 @@ export namespace TurnChange {
           omittedCount: z.number().optional(),
         }),
       ),
+      skipped: z.array(SkippedMessageSchema).optional(),
     }),
   ])
 
@@ -600,6 +628,101 @@ export namespace TurnChange {
     return withOpenPaths(withAvailability(row.data, row.state), rows(input.sessionID, input.messageID))
   }
 
+  function listAssistantsForUser(sessionID: SessionID, userMessageID: MessageID): MessageID[] {
+    const rows = Database.use((db) =>
+      db
+        .select()
+        .from(MessageTable)
+        .where(eq(MessageTable.session_id, sessionID))
+        .orderBy(MessageTable.time_created, MessageTable.id)
+        .all(),
+    )
+    const result: MessageID[] = []
+    for (const row of rows) {
+      const data = row.data as { role?: string; parentID?: MessageID } | undefined
+      if (data?.role !== "assistant") continue
+      if (data.parentID !== userMessageID) continue
+      result.push(row.id)
+    }
+    return result
+  }
+
+  function collapseRestoreFiles(allRows: RestoreRow[]): RestoreFile[] {
+    const merged = new Map<string, RestoreFile>()
+    for (const row of allRows) {
+      const key = row.data.path
+      const existing = merged.get(key)
+      if (!existing) {
+        merged.set(key, row.data)
+      } else {
+        merged.set(key, {
+          path: existing.path,
+          displayPath: existing.displayPath,
+          before: existing.before,
+          after: row.data.after,
+        })
+      }
+    }
+    return Array.from(merged.values())
+  }
+
+  function disambiguateAggregatedRestoreFiles(files: RestoreFile[]): RestoreFile[] {
+    const seen = new Map<string, number>()
+    return files.map((file) => {
+      if (!isOpaqueExternalPath(file.path)) return file
+      const base = displayPath(file.path)
+      const index = (seen.get(base) ?? 0) + 1
+      seen.set(base, index)
+      const nextDisplay = index === 1 ? base : `${base} · external #${index}`
+      if (nextDisplay === file.displayPath) return file
+      return { ...file, displayPath: nextDisplay }
+    })
+  }
+
+  function aggregateTurnInternal(input: {
+    sessionID: SessionID
+    userMessageID: MessageID
+  }): Display | undefined {
+    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    if (!assistants.length) return
+
+    const allRestore: RestoreRow[] = []
+    let anyDisplay = false
+    let hasApplied = false
+    let hasUndone = false
+    let truncatedCount = 0
+    for (const messageID of assistants) {
+      const display = displayRow(input.sessionID, messageID)
+      if (display) {
+        anyDisplay = true
+        if (display.state === "applied") hasApplied = true
+        if (display.state === "undone") hasUndone = true
+        if (display.data.truncated) {
+          truncatedCount += display.data.omittedCount ?? 0
+        }
+      }
+      const restoreRows = rows(input.sessionID, messageID)
+      for (const row of restoreRows) allRestore.push(row)
+    }
+
+    if (!anyDisplay && !allRestore.length) return
+
+    const collapsed = disambiguateAggregatedRestoreFiles(collapseRestoreFiles(allRestore))
+    const files = collapsed.map((file) => toDisplay(file)).filter(Boolean) as DisplayFile[]
+    if (!files.length && truncatedCount === 0) return
+
+    const display: Display = {
+      sessionID: input.sessionID,
+      turnID: input.userMessageID,
+      messageID: input.userMessageID,
+      undoAvailable: hasApplied && truncatedCount === 0,
+      redoAvailable: hasUndone && truncatedCount === 0,
+      ...(truncatedCount > 0 ? { truncated: true, omittedCount: truncatedCount } : {}),
+      files,
+    }
+    return withOpenPaths(display, allRestore)
+  }
+
   async function mutate(input: { sessionID: SessionID; messageID: MessageID; mode: "undo" | "redo" }): Promise<MutationResult> {
     const display = displayRow(input.sessionID, input.messageID)
     if (!display) return { status: "blocked", reason: "restore_missing", files: [] }
@@ -695,6 +818,195 @@ export namespace TurnChange {
     return { status: "applied", display: nextDisplay }
   }
 
+  async function preflightTurn(input: {
+    sessionID: SessionID
+    userMessageID: MessageID
+    mode: "undo" | "redo"
+  }): Promise<{
+    actionable: MessageID[]
+    skipped: SkippedMessage[]
+    fatal?: { reason: "restore_missing" | "unsupported_size"; files: Array<{ path: string; reason: string; omittedCount?: number }> }
+  }> {
+    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    const ordered = input.mode === "undo" ? [...assistants].reverse() : assistants
+    const sourceState = input.mode === "undo" ? "applied" : "undone"
+    const actionable: MessageID[] = []
+    const skipped: SkippedMessage[] = []
+    const virtualState = new Map<string, FileState>()
+
+    for (const messageID of ordered) {
+      const display = displayRow(input.sessionID, messageID)
+      if (!display) continue
+      if (display.state !== sourceState) continue
+
+      const overflow = overflowRow(input.sessionID, messageID)
+      const overflowData = overflow?.data
+      if (overflowData && isOverflow(overflowData)) {
+        return {
+          actionable: [],
+          skipped,
+          fatal: {
+            reason: "unsupported_size",
+            files: [{ path: "omitted files", reason: "truncated", omittedCount: overflowData.omittedCount }],
+          },
+        }
+      }
+
+      const restore = rows(input.sessionID, messageID)
+      if (!restore.length) continue
+
+      const blocked: Array<{ path: string; reason: string }> = []
+      for (const row of restore) {
+        const expected = input.mode === "undo" ? row.data.after : row.data.before
+        const target = input.mode === "undo" ? row.data.before : row.data.after
+        if (!canRestore(target)) {
+          return {
+            actionable: [],
+            skipped,
+            fatal: {
+              reason: "unsupported_size",
+              files: [{ path: row.data.displayPath, reason: "restore_unavailable" }],
+            },
+          }
+        }
+        let current = virtualState.get(row.data.path)
+        if (!current) {
+          current = await currentState(row.data.path)
+          virtualState.set(row.data.path, current)
+        }
+        if (isPermissionCode(stateErrorCode(current))) blocked.push({ path: row.data.displayPath, reason: "permission_denied" })
+        else if (!canRestore(current)) blocked.push({ path: row.data.displayPath, reason: "unavailable" })
+        else if (!same(current, expected)) blocked.push({ path: row.data.displayPath, reason: "changed" })
+      }
+
+      if (blocked.length) {
+        const reason = blocked.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+        skipped.push({ messageID, reason, files: blocked })
+        continue
+      }
+      for (const row of restore) {
+        const target = input.mode === "undo" ? row.data.before : row.data.after
+        virtualState.set(row.data.path, target)
+      }
+      actionable.push(messageID)
+    }
+    return { actionable, skipped }
+  }
+
+  async function mutateTurn(input: {
+    sessionID: SessionID
+    userMessageID: MessageID
+    mode: "undo" | "redo"
+    force: boolean
+  }): Promise<MutationResult> {
+    const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+    if (!assistants.length) return { status: "blocked", reason: "restore_missing", files: [] }
+
+    const preflight = await preflightTurn({
+      sessionID: input.sessionID,
+      userMessageID: input.userMessageID,
+      mode: input.mode,
+    })
+    if (preflight.fatal) {
+      return { status: "blocked", reason: preflight.fatal.reason, files: preflight.fatal.files, skipped: preflight.skipped }
+    }
+    if (!input.force && preflight.skipped.length) {
+      const reason = preflight.skipped.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+      const files = preflight.skipped.flatMap((item) => item.files)
+      return { status: "blocked", reason, files, skipped: preflight.skipped }
+    }
+    if (!preflight.actionable.length && !preflight.skipped.length) {
+      return { status: "blocked", reason: "restore_missing", files: [] }
+    }
+
+    const aggregatedSkipped: SkippedMessage[] = [...preflight.skipped]
+    const mutatedPaths: string[] = []
+    const mutatedSet = new Set<string>()
+    const completed: MessageID[] = []
+    const reverseMode: "undo" | "redo" = input.mode === "undo" ? "redo" : "undo"
+    for (const messageID of preflight.actionable) {
+      const result = await mutate({ sessionID: input.sessionID, messageID, mode: input.mode })
+      if (result.status === "blocked") {
+        if (!input.force) {
+          const dirty: Array<{ path: string; reason: string }> = []
+          for (const done of [...completed].reverse()) {
+            const reverse = await mutate({ sessionID: input.sessionID, messageID: done, mode: reverseMode }).catch(
+              (err) => {
+                log.error("rollback threw", { messageID: done, error: err })
+                return { status: "blocked", reason: "write_failed", files: [] } as MutationResult
+              },
+            )
+            if (reverse.status === "blocked") {
+              if (reverse.files.length) {
+                for (const file of reverse.files) {
+                  dirty.push({ path: file.path, reason: file.reason })
+                }
+              } else {
+                dirty.push({ path: done, reason: reverse.reason })
+              }
+            }
+          }
+          if (dirty.length) {
+            return {
+              status: "blocked",
+              reason: "rollback_failed",
+              files: dirty,
+              skipped: preflight.skipped,
+            }
+          }
+          return { status: "blocked", reason: result.reason, files: result.files, skipped: preflight.skipped }
+        }
+        const reason: SkippedMessage["reason"] = result.reason === "permission_denied" ? "permission_denied" : "conflict"
+        aggregatedSkipped.push({
+          messageID,
+          reason,
+          files: result.files.map((f) => ({ path: f.path, reason: f.reason })),
+        })
+        continue
+      }
+      completed.push(messageID)
+      const restore = rows(input.sessionID, messageID)
+      for (const row of restore) {
+        if (mutatedSet.has(row.data.path)) continue
+        mutatedSet.add(row.data.path)
+        mutatedPaths.push(row.data.path)
+      }
+    }
+
+    if (!mutatedPaths.length) {
+      const reason = aggregatedSkipped.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+      const files = aggregatedSkipped.flatMap((item) => item.files)
+      return { status: "blocked", reason, files, ...(aggregatedSkipped.length ? { skipped: aggregatedSkipped } : {}) }
+    }
+
+    const aggregated = aggregateTurnInternal({ sessionID: input.sessionID, userMessageID: input.userMessageID })
+    const display: Display = aggregated ?? (() => {
+      const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+      let hasApplied = false
+      let hasUndone = false
+      for (const messageID of assistants) {
+        const row = displayRow(input.sessionID, messageID)
+        if (!row) continue
+        if (row.state === "applied") hasApplied = true
+        if (row.state === "undone") hasUndone = true
+      }
+      return {
+        sessionID: input.sessionID,
+        turnID: input.userMessageID,
+        messageID: input.userMessageID,
+        undoAvailable: hasApplied,
+        redoAvailable: hasUndone,
+        files: [],
+      }
+    })()
+    return {
+      status: "applied",
+      display,
+      mutatedPaths,
+      ...(aggregatedSkipped.length ? { skipped: aggregatedSkipped } : {}),
+    }
+  }
+
   async function locked<T>(state: ServiceState, sessionID: SessionID, fn: () => Promise<T>) {
     const previous = state.locks.get(sessionID) ?? Promise.resolve()
     let release!: () => void
@@ -716,8 +1028,22 @@ export namespace TurnChange {
     readonly recordWrite: (input: RecordWriteInput) => Effect.Effect<void>
     readonly finalize: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
     readonly get: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<Display | undefined>
+    readonly aggregateTurn: (input: {
+      sessionID: SessionID
+      userMessageID: MessageID
+    }) => Effect.Effect<Display | undefined>
     readonly undo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
     readonly redo: (input: { sessionID: SessionID; messageID: MessageID }) => Effect.Effect<MutationResult>
+    readonly aggregateTurnUndo: (input: {
+      sessionID: SessionID
+      userMessageID: MessageID
+      force?: boolean
+    }) => Effect.Effect<MutationResult>
+    readonly aggregateTurnRedo: (input: {
+      sessionID: SessionID
+      userMessageID: MessageID
+      force?: boolean
+    }) => Effect.Effect<MutationResult>
   }
 
   export class Service extends Context.Service<Service, Interface>()("@pawwork/TurnChange") {}
@@ -736,11 +1062,28 @@ export namespace TurnChange {
         get: Effect.fn("TurnChange.get")(function* (input) {
           return getInternal(input)
         }),
+        aggregateTurn: Effect.fn("TurnChange.aggregateTurn")(function* (input) {
+          return aggregateTurnInternal(input)
+        }),
         undo: Effect.fn("TurnChange.undo")(function* (input) {
           return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "undo" })))
         }),
         redo: Effect.fn("TurnChange.redo")(function* (input) {
           return yield* Effect.promise(() => locked(state, input.sessionID, () => mutate({ ...input, mode: "redo" })))
+        }),
+        aggregateTurnUndo: Effect.fn("TurnChange.aggregateTurnUndo")(function* (input) {
+          return yield* Effect.promise(() =>
+            locked(state, input.sessionID, () =>
+              mutateTurn({ sessionID: input.sessionID, userMessageID: input.userMessageID, mode: "undo", force: !!input.force }),
+            ),
+          )
+        }),
+        aggregateTurnRedo: Effect.fn("TurnChange.aggregateTurnRedo")(function* (input) {
+          return yield* Effect.promise(() =>
+            locked(state, input.sessionID, () =>
+              mutateTurn({ sessionID: input.sessionID, userMessageID: input.userMessageID, mode: "redo", force: !!input.force }),
+            ),
+          )
         }),
       })
     }),
@@ -761,11 +1104,23 @@ export namespace TurnChange {
     return runtime.runSync((svc) => svc.get(input))
   }
 
+  export function aggregateTurn(input: { sessionID: SessionID; userMessageID: MessageID }) {
+    return runtime.runSync((svc) => svc.aggregateTurn(input))
+  }
+
   export function undo(input: { sessionID: SessionID; messageID: MessageID }) {
     return runtime.runPromise((svc) => svc.undo(input))
   }
 
   export function redo(input: { sessionID: SessionID; messageID: MessageID }) {
     return runtime.runPromise((svc) => svc.redo(input))
+  }
+
+  export function aggregateTurnUndo(input: { sessionID: SessionID; userMessageID: MessageID; force?: boolean }) {
+    return runtime.runPromise((svc) => svc.aggregateTurnUndo(input))
+  }
+
+  export function aggregateTurnRedo(input: { sessionID: SessionID; userMessageID: MessageID; force?: boolean }) {
+    return runtime.runPromise((svc) => svc.aggregateTurnRedo(input))
   }
 }

@@ -18,6 +18,12 @@ import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { taskDescription } from "@/pages/session/task-description"
+import {
+  turnFetchSignature,
+  turnFetchTargets,
+  type TurnFetchAssistantLite,
+  type TurnFetchInput,
+} from "@/pages/session/turn-change-fetch"
 import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -68,6 +74,7 @@ type TurnChangeDisplay = {
   redoAvailable: boolean
   truncated?: boolean
   omittedCount?: number
+  skippedCount?: number
   files: Array<{
     path: string
     openPath?: string
@@ -319,6 +326,22 @@ export function MessageTimeline(props: {
   const webSearchPendingParts = new Map<string, Set<string>>()
   const [turnChanges, setTurnChanges] = createStore<Record<string, TurnChangeDisplay | null>>({})
   const fetchedTurnChanges = new Set<string>()
+  const turnChangeRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const cancelTurnChangeRetries = () => {
+    for (const timer of turnChangeRetryTimers.values()) clearTimeout(timer)
+    turnChangeRetryTimers.clear()
+  }
+  onCleanup(cancelTurnChangeRetries)
+  createEffect(
+    on(
+      sessionID,
+      () => {
+        cancelTurnChangeRetries()
+        fetchedTurnChanges.clear()
+      },
+      { defer: true },
+    ),
+  )
 
   const authHeaders = () => {
     const current = server.current
@@ -336,7 +359,9 @@ export function MessageTimeline(props: {
           ? language.t("session.turnChange.blocked.unsupportedSize")
           : body?.reason === "permission_denied"
             ? language.t("session.turnChange.blocked.permissionDenied")
-            : language.t("session.turnChange.blocked.generic")
+            : body?.reason === "rollback_failed"
+              ? language.t("session.turnChange.blocked.rollbackFailed")
+              : language.t("session.turnChange.blocked.generic")
     const files = Array.isArray(body?.files)
       ? body.files.filter((file: any) => typeof file?.path === "string").map((file: any) => file.path as string)
       : []
@@ -347,26 +372,153 @@ export function MessageTimeline(props: {
   }
 
   const turnChangeFetch = async (
-    messageID: string,
+    userMessageID: string,
     action?: "undo" | "redo",
+    options?: { force?: boolean },
   ): Promise<TurnChangeDisplay | undefined> => {
     const current = server.current
     const id = sessionID()
     if (!current || !id) return
-    const url = `${current.http.url}/session/${id}/turn-change/${messageID}${action ? `/${action}` : ""}`
-    const res = await fetch(url, {
-      method: action ? "POST" : "GET",
-      headers: authHeaders(),
-    })
-    if (!res.ok) throw new Error(`turn-change ${action ?? "get"} failed: ${res.status}`)
-    const body = await res.json()
+    const url = `${current.http.url}/session/${id}/turn/${userMessageID}/changes${action ? `/${action}` : ""}`
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: action ? "POST" : "GET",
+        headers: {
+          ...authHeaders(),
+          ...(action ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(action ? { body: JSON.stringify({ force: !!options?.force }) } : {}),
+      })
+    } catch (err) {
+      if (action) {
+        showToast({
+          title:
+            action === "undo"
+              ? language.t("session.turnChange.undoBlocked")
+              : language.t("session.turnChange.redoBlocked"),
+          description: language.t("session.turnChange.blocked.generic"),
+          variant: "error",
+        })
+      }
+      return turnChanges[userMessageID] ?? undefined
+    }
+    if (!res.ok) {
+      if (action) {
+        showToast({
+          title:
+            action === "undo"
+              ? language.t("session.turnChange.undoBlocked")
+              : language.t("session.turnChange.redoBlocked"),
+          description: language.t("session.turnChange.blocked.generic"),
+          variant: "error",
+        })
+      }
+      return turnChanges[userMessageID] ?? undefined
+    }
+    let body: any
+    try {
+      body = await res.json()
+    } catch {
+      if (action) {
+        showToast({
+          title:
+            action === "undo"
+              ? language.t("session.turnChange.undoBlocked")
+              : language.t("session.turnChange.redoBlocked"),
+          description: language.t("session.turnChange.blocked.generic"),
+          variant: "error",
+        })
+      }
+      return turnChanges[userMessageID] ?? undefined
+    }
     if (!action) {
-      setTurnChanges(messageID, body ?? null)
+      setTurnChanges(userMessageID, body ?? null)
       return body ?? undefined
     }
     if (body?.status === "applied") {
-      setTurnChanges(messageID, body.display)
-      return body.display
+      const rawDisplay: TurnChangeDisplay | null = body.display ?? null
+      let display: TurnChangeDisplay | null = rawDisplay
+      if (rawDisplay && Array.isArray(body.skipped) && body.skipped.length) {
+        const skippedCount = body.skipped.reduce(
+          (sum: number, item: any) => sum + (Array.isArray(item?.files) ? item.files.length : 0),
+          0,
+        )
+        if (skippedCount > 0) display = { ...rawDisplay, skippedCount }
+      }
+      setTurnChanges(userMessageID, display)
+      return display ?? undefined
+    }
+    if (action && body?.status === "blocked" && body.reason === "conflict" && !options?.force) {
+      const conflictPaths = Array.isArray(body.files)
+        ? (body.files as Array<{ path?: unknown }>)
+            .map((file) => (typeof file?.path === "string" ? file.path : ""))
+            .filter((path) => path.length > 0)
+        : []
+      return await new Promise<TurnChangeDisplay | undefined>((resolve) => {
+        let settled = false
+        const finish = (value: TurnChangeDisplay | undefined) => {
+          if (settled) return
+          settled = true
+          resolve(value)
+        }
+        dialog.show(
+          () => (
+            <Dialog
+              title={language.t("ui.sessionTurn.turnChanges.confirmTitle")}
+              description={language.t("ui.sessionTurn.turnChanges.confirmDescription")}
+              size="normal"
+              fit
+            >
+              <div class="flex flex-col gap-4 px-5 pb-5 pt-2">
+                <Show when={conflictPaths.length > 0}>
+                  <div class="flex flex-col rounded-md border border-border-base bg-surface-base max-h-44 overflow-auto">
+                    <For each={conflictPaths.slice(0, 6)}>
+                      {(item) => (
+                        <div
+                          class="px-3 py-1.5 text-13-regular text-text-strong font-mono truncate"
+                          title={item}
+                        >
+                          {item}
+                        </div>
+                      )}
+                    </For>
+                    <Show when={conflictPaths.length > 6}>
+                      <div class="px-3 py-1.5 text-12-regular text-text-weak border-t border-border-base">
+                        {language.t("ui.sessionTurn.turnChanges.confirmListMore", {
+                          count: conflictPaths.length - 6,
+                        })}
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+                <div class="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      dialog.close()
+                      finish(undefined)
+                    }}
+                  >
+                    {language.t("ui.sessionTurn.turnChanges.confirmCancel")}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={async () => {
+                      dialog.close()
+                      const next = await turnChangeFetch(userMessageID, action, { force: true })
+                      finish(next)
+                    }}
+                  >
+                    {language.t("ui.sessionTurn.turnChanges.confirmApply")}
+                  </Button>
+                </div>
+              </div>
+            </Dialog>
+          ),
+          () => finish(undefined),
+        )
+      })
     }
     showToast({
       title:
@@ -376,34 +528,49 @@ export function MessageTimeline(props: {
       description: blockedDescription(body),
       variant: "error",
     })
-    return turnChanges[messageID] ?? undefined
+    return turnChanges[userMessageID] ?? undefined
+  }
+
+  const turnFetchInput = (): TurnFetchInput | null => {
+    const id = sessionID()
+    if (!id) return null
+    const assistants: TurnFetchAssistantLite[] = []
+    for (const message of sessionMessages()) {
+      if (message.role !== "assistant") continue
+      assistants.push({
+        id: message.id,
+        parentID: message.parentID,
+        completed: message.time.completed,
+      })
+    }
+    return { sessionID: id, assistants }
   }
 
   createEffect(
     on(
-      () =>
-        sessionMessages()
-          .filter((message): message is Extract<MessageType, { role: "assistant" }> => message.role === "assistant")
-          .filter((message) => typeof message.time.completed === "number")
-          .map((message) => message.id)
-          .join(":"),
       () => {
-        const id = sessionID()
-        if (!id) return
-        for (const message of sessionMessages()) {
-          if (message.role !== "assistant" || typeof message.time.completed !== "number") continue
-          const key = `${id}:${message.id}`
-          if (fetchedTurnChanges.has(key)) continue
-          fetchedTurnChanges.add(key)
-          void turnChangeFetch(message.id)
+        const input = turnFetchInput()
+        return input ? turnFetchSignature(input) : ""
+      },
+      () => {
+        const input = turnFetchInput()
+        if (!input) return
+        for (const target of turnFetchTargets(input)) {
+          if (fetchedTurnChanges.has(target.key)) continue
+          fetchedTurnChanges.add(target.key)
+          void turnChangeFetch(target.userMessageID)
             .then((display) => {
               if (display) return
-              fetchedTurnChanges.delete(key)
-              setTimeout(() => void turnChangeFetch(message.id).catch(() => undefined), 500)
+              if (turnChangeRetryTimers.has(target.key)) return
+              const timer = setTimeout(() => {
+                turnChangeRetryTimers.delete(target.key)
+                void turnChangeFetch(target.userMessageID).catch(() => undefined)
+              }, 500)
+              turnChangeRetryTimers.set(target.key, timer)
             })
             .catch(() => {
-              fetchedTurnChanges.delete(key)
-              setTurnChanges(message.id, null)
+              fetchedTurnChanges.delete(target.key)
+              setTurnChanges(target.userMessageID, null)
             })
         }
       },
@@ -1030,8 +1197,8 @@ export function MessageTimeline(props: {
                         editToolDefaultOpen={settings.general.editToolPartsExpanded()}
                         turnChanges={turnChanges}
                         turnChangeActions={{
-                          undo: (messageID) => turnChangeFetch(messageID, "undo"),
-                          redo: (messageID) => turnChangeFetch(messageID, "redo"),
+                          undo: (userMessageID, options) => turnChangeFetch(userMessageID, "undo", options),
+                          redo: (userMessageID, options) => turnChangeFetch(userMessageID, "redo", options),
                           openFile: (path) => {
                             void platform.openPath?.(path)
                           },
