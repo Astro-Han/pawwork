@@ -8,6 +8,15 @@ function node(script: string) {
   return [process.execPath, "-e", script]
 }
 
+async function waitForFile(file: string) {
+  for (let i = 0; i < 50; i++) {
+    const text = await fs.readFile(file, "utf8").catch(() => undefined)
+    if (text) return text
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error(`timed out waiting for ${file}`)
+}
+
 describe("util.process", () => {
   test("captures stdout and stderr", async () => {
     const out = await Process.run(node('process.stdout.write("out");process.stderr.write("err")'))
@@ -41,6 +50,24 @@ describe("util.process", () => {
 
     expect(out.code).not.toBe(0)
     expect(Date.now() - started).toBeLessThan(1000)
+  }, 3000)
+
+  test("aborts child processes started by a spawned process", async () => {
+    if (process.platform === "win32") return
+
+    await using tmp = await tmpdir()
+    const pidFile = path.join(tmp.path, "child.pid")
+    const child = `trap '' HUP TERM; echo $$ > ${JSON.stringify(pidFile)}; while :; do sleep 1; done`
+    const abort = new AbortController()
+    const proc = Process.spawn(["/bin/sh", "-c", `/bin/sh -c ${JSON.stringify(child)} & wait`], {
+      abort: abort.signal,
+      timeout: 50,
+    })
+
+    const childPid = Number((await waitForFile(pidFile)).trim())
+    abort.abort()
+    expect(await proc.exited).not.toBe(0)
+    expect(Process.exists(childPid)).toBe(false)
   }, 3000)
 
   test("kills after timeout when process ignores terminate signal", async () => {

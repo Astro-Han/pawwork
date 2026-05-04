@@ -75,24 +75,37 @@ export namespace Process {
     })
 
     let closed = false
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let exited: Promise<number>
 
     const abort = () => {
       if (closed) return
       if (proc.exitCode !== null || proc.signalCode !== null) return
       closed = true
 
-      proc.kill(opts.kill ?? "SIGTERM")
-
       const ms = opts.timeout ?? 5_000
-      if (ms <= 0) return
-      timer = setTimeout(() => proc.kill("SIGKILL"), ms)
+      if (ms <= 0) {
+        proc.kill(opts.kill ?? "SIGTERM")
+        return
+      }
+      if (!proc.pid) {
+        proc.kill(opts.kill ?? "SIGTERM")
+        return
+      }
+
+      void terminateTree({
+        pid: proc.pid,
+        graceMs: ms,
+        signalRoot: (signal) => proc.kill(signal),
+        waitForExit: exited,
+      }).catch((error) => {
+        log.debug("failed to terminate aborted process tree", { pid: proc.pid, error: errorMessage(error) })
+        proc.kill("SIGKILL")
+      })
     }
 
-    const exited = new Promise<number>((resolve, reject) => {
+    exited = new Promise<number>((resolve, reject) => {
       const done = () => {
         opts.abort?.removeEventListener("abort", abort)
-        if (timer) clearTimeout(timer)
       }
 
       proc.once("exit", (code, signal) => {
@@ -241,6 +254,8 @@ export namespace Process {
       return
     }
 
+    // Descendants are a best-effort snapshot for normal child processes. A
+    // daemonized double-fork can intentionally leave this tree before cleanup.
     const children = await (input.findDescendants ?? descendants)(input.pid).catch((error) => {
       log.debug("failed to enumerate process tree", { pid: input.pid, error: errorMessage(error) })
       return []
@@ -262,6 +277,8 @@ export namespace Process {
       for (const child of children) signalPid(child, "SIGTERM")
     }
 
+    // With waitForExit, worst case is one grace period before SIGKILL and one
+    // bounded wait after SIGKILL so callers can observe the final exit.
     const rootExited = await (input.waitForExit
       ? Promise.race([input.waitForExit.then(() => true, () => true), sleep(graceMs).then(() => false)])
       : sleep(graceMs).then(() => false))
