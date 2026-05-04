@@ -82,7 +82,7 @@ export const dict = {
   "ui.sessionTurn.status.consideringNextSteps": "正在考虑下一步",
 
   "ui.messagePart.questions.dismissed": "问题已忽略",
-  "ui.messagePart.questions.interrupted": "这个问题已取消，还没有收到回答。需要继续的话，请在下面重新说一下",
+  "ui.messagePart.questions.interrupted": "这个问题已取消，尚未收到回答。如需继续，请在下方重新说明。",
   "ui.messagePart.compaction": "会话已压缩",
   "ui.messagePart.context.read.one": "读取 {{count}} 个文件",
   "ui.messagePart.context.read.other": "读取 {{count}} 个文件",
