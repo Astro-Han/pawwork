@@ -1,0 +1,69 @@
+import path from "path"
+import fs from "fs/promises"
+import fsNode from "fs"
+import { Flag } from "./flag/flag"
+import { Global } from "./global"
+
+function resolveHome(input: string) {
+  const expanded = input === "~" ? Global.Path.home : input.startsWith("~/") ? path.join(Global.Path.home, input.slice(2)) : input
+  return path.resolve(expanded)
+}
+
+function unique(items: string[]) {
+  return Array.from(new Set(items))
+}
+
+function envPath(input: string | undefined) {
+  const value = input?.trim()
+  return value ? value : undefined
+}
+
+function normalize(input: string) {
+  const resolved = path.resolve(input)
+  try {
+    return fsNode.realpathSync.native(resolved)
+  } catch {
+    return resolved
+  }
+}
+
+export namespace PawWorkHome {
+  export function primary() {
+    return resolveHome(envPath(Flag.PAWWORK_HOME) ?? envPath(Flag.PAWWORK_CONFIG_DIR) ?? path.join(Global.Path.home, ".pawwork"))
+  }
+
+  export function candidates() {
+    const home = envPath(Flag.PAWWORK_HOME)
+    const config = envPath(Flag.PAWWORK_CONFIG_DIR)
+    return unique([
+      ...(home ? [resolveHome(home)] : []),
+      ...(config ? [resolveHome(config)] : []),
+      resolveHome(path.join(Global.Path.home, ".pawwork")),
+      path.resolve(Global.Path.config),
+    ])
+  }
+
+  export function fileCandidates(name: string) {
+    return candidates().map((dir) => path.join(dir, name))
+  }
+
+  export function configFileCandidates() {
+    return candidates().flatMap((dir) => [path.join(dir, "pawwork.jsonc"), path.join(dir, "pawwork.json")])
+  }
+
+  export async function ensurePrimary() {
+    const dir = primary()
+    const stat = await fs.stat(dir).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (stat && !stat.isDirectory()) throw new Error(`PawWork Home exists but is not a directory: ${dir}`)
+    if (!stat) await fs.mkdir(dir, { recursive: true })
+    return dir
+  }
+
+  export function isCandidate(dir: string) {
+    const resolved = normalize(dir)
+    return candidates().some((candidate) => normalize(candidate) === resolved)
+  }
+}

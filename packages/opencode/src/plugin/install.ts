@@ -12,6 +12,8 @@ import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
 import { isRecord } from "@/util/record"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 import { parsePluginSpecifier, readPluginPackage, resolvePluginTarget } from "./shared"
 
@@ -31,7 +33,7 @@ export type PatchDeps = {
   readText: (file: string) => Promise<string>
   write: (file: string, text: string) => Promise<void>
   exists: (file: string) => Promise<boolean>
-  files: (dir: string, name: "opencode") => string[]
+  files: (dir: string, name: "opencode" | "pawwork") => string[]
 }
 
 export type PatchInput = {
@@ -320,14 +322,14 @@ export async function readPluginManifest(target: string): Promise<ManifestResult
 }
 
 function patchDir(input: PatchInput) {
-  if (input.global) return input.config ?? Global.Path.config
+  if (input.global) return input.config ?? (Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config)
   const git = input.vcs === "git" && input.worktree !== "/"
   const root = git ? input.worktree : input.directory
   return path.join(root, ".opencode")
 }
 
 async function patchOne(dir: string, target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
-  const name = "opencode"
+  const name = Runtime.isPawWork() ? "pawwork" : "opencode"
   await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
 
   const files = dep.files(dir, name)

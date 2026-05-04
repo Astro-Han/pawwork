@@ -424,6 +424,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
 describe("Instruction.systemPaths PawWork runtime config dir", () => {
   const original = {
     opencodeConfigDir: process.env.OPENCODE_CONFIG_DIR,
+    pawworkHome: process.env.PAWWORK_HOME,
     pawworkConfigDir: process.env.PAWWORK_CONFIG_DIR,
     runtimeNamespace: process.env.PAWWORK_RUNTIME_NAMESPACE,
     disableProjectConfig: process.env.OPENCODE_DISABLE_PROJECT_CONFIG,
@@ -434,6 +435,8 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
   afterEach(() => {
     if (original.opencodeConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = original.opencodeConfigDir
+    if (original.pawworkHome === undefined) delete process.env.PAWWORK_HOME
+    else process.env.PAWWORK_HOME = original.pawworkHome
     if (original.pawworkConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
     else process.env.PAWWORK_CONFIG_DIR = original.pawworkConfigDir
     if (original.runtimeNamespace === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -512,6 +515,51 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
               Effect.gen(function* () {
                 const paths = yield* svc.systemPaths()
                 expect(paths.has(path.join(profileTmp.path, "AGENTS.md"))).toBe(true)
+                expect(paths.has(path.join(globalTmp.path, "AGENTS.md"))).toBe(false)
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
+  test("prefers PAWWORK_HOME AGENTS.md over PAWWORK_CONFIG_DIR and legacy global", async () => {
+    await using homeTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# PawWork Home Instructions")
+      },
+    })
+    await using envTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# PawWork Env Instructions")
+      },
+    })
+    await using globalTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Global Instructions")
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    delete process.env.OPENCODE_CONFIG_DIR
+    process.env.PAWWORK_HOME = homeTmp.path
+    process.env.PAWWORK_CONFIG_DIR = envTmp.path
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const paths = yield* svc.systemPaths()
+                expect(paths.has(path.join(homeTmp.path, "AGENTS.md"))).toBe(true)
+                expect(paths.has(path.join(envTmp.path, "AGENTS.md"))).toBe(false)
                 expect(paths.has(path.join(globalTmp.path, "AGENTS.md"))).toBe(false)
               }),
             ),

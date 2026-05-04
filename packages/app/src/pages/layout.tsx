@@ -1213,6 +1213,16 @@ export default function Layout(props: ParentProps) {
         onSelect: () => openSettings(),
       },
       {
+        id: "settings.openGlobalConfigFolder",
+        title: language.t("command.settings.openGlobalConfigFolder"),
+        category: language.t("command.category.settings"),
+        disabled: !platform.openPath,
+        onSelect: async () => {
+          const target = globalSync.data.path.config || (await globalSDK.client.path.get().then((x) => x.data?.config))
+          if (target) await platform.openPath?.(target)
+        },
+      },
+      {
         id: "session.previous",
         title: language.t("command.session.previous"),
         category: language.t("command.category.session"),

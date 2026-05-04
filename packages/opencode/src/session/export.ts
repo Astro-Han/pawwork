@@ -16,6 +16,7 @@ import { Provider } from "../provider/provider"
 import { ProviderID, ModelID } from "../provider/schema"
 import { Instance } from "../project/instance"
 import { Global } from "../global"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
@@ -305,7 +306,9 @@ export namespace Export {
       worktree = undefined
     }
     const candidates: Array<{ kind: string; file: string }> = [
-      { kind: "global", file: path.join(Global.Path.config, "AGENTS.md") },
+      ...(Runtime.isPawWork()
+        ? PawWorkHome.fileCandidates("AGENTS.md").map((file) => ({ kind: "global", file }))
+        : [{ kind: "global", file: path.join(Global.Path.config, "AGENTS.md") }]),
       ...(worktree ? [{ kind: "project", file: path.join(worktree, "AGENTS.md") }] : []),
       // Bundled pawwork prompt — present in the repo at packages/opencode/src/session/prompt/pawwork.txt.
       // hashFile silently returns undefined and the entry is skipped if the file is missing.

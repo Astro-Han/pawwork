@@ -5,6 +5,7 @@ import { Config } from "@/config"
 import { InstanceState } from "@/effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
@@ -39,6 +40,7 @@ function configDir() {
 }
 
 function globalInstructionFiles() {
+  if (Runtime.isPawWork()) return PawWorkHome.fileCandidates("AGENTS.md")
   const files = []
   const dir = configDir()
   if (dir) {

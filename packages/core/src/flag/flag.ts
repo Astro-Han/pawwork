@@ -20,6 +20,7 @@ export namespace Flag {
   export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
   export declare const OPENCODE_PURE: boolean
   export declare const OPENCODE_CONFIG_DIR: string | undefined
+  export declare const PAWWORK_HOME: string | undefined
   export declare const PAWWORK_CONFIG_DIR: string | undefined
   export declare const OPENCODE_PLUGIN_META_FILE: string | undefined
   export const OPENCODE_CONFIG_CONTENT = process.env["OPENCODE_CONFIG_CONTENT"]
@@ -109,6 +110,17 @@ Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
 Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
   get() {
     return process.env["OPENCODE_CONFIG_DIR"]
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+// Dynamic getter for PAWWORK_HOME
+// This must be evaluated at access time, not module load time,
+// because tests and external tooling may set this env var at runtime
+Object.defineProperty(Flag, "PAWWORK_HOME", {
+  get() {
+    return process.env["PAWWORK_HOME"]
   },
   enumerable: true,
   configurable: false,

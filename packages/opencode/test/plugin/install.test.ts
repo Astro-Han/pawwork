@@ -111,6 +111,33 @@ async function read(file: string) {
 }
 
 describe("plugin.install.task", () => {
+  test("writes PawWork global plugin config to pawwork.jsonc", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      const target = await plugin(tmp.path, ["server"])
+      const run = createPlugTask(
+        {
+          mod: "acme@1.2.3",
+          global: true,
+        },
+        deps(path.join(tmp.path, "global"), target),
+      )
+
+      const ok = await run(ctx(tmp.path))
+      expect(ok).toBe(true)
+
+      const config = await read(path.join(tmp.path, "global", "pawwork.jsonc"))
+      expect(config.plugin).toEqual(["acme@1.2.3"])
+      expect(await Filesystem.exists(path.join(tmp.path, "global", "opencode.jsonc"))).toBe(false)
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
   test("writes only server config for packages that expose server and tui", async () => {
     await using tmp = await tmpdir()
     const target = await plugin(tmp.path, ["server", "tui"])

@@ -12,6 +12,8 @@ import { Instance } from "../../project/instance"
 import { Installation } from "../../installation"
 import path from "path"
 import { Global } from "@opencode-ai/core/global"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { Runtime } from "@opencode-ai/core/runtime"
 import { modify, applyEdits } from "jsonc-parser"
 import { Filesystem } from "../../util/filesystem"
 import { Bus } from "../../bus"
@@ -408,20 +410,20 @@ export const McpLogoutCommand = cmd({
 })
 
 async function resolveConfigPath(baseDir: string, global = false) {
-  // Check for existing config files. Prefer pawwork.json/jsonc, then fall back to legacy opencode names.
+  // Check for existing config files. Prefer PawWork JSONC/JSON, then fall back to legacy OpenCode names.
   const candidates = [
-    path.join(baseDir, "pawwork.json"),
     path.join(baseDir, "pawwork.jsonc"),
-    path.join(baseDir, "opencode.json"),
+    path.join(baseDir, "pawwork.json"),
     path.join(baseDir, "opencode.jsonc"),
+    path.join(baseDir, "opencode.json"),
   ]
 
   if (!global) {
     candidates.push(
-      path.join(baseDir, ".opencode", "pawwork.json"),
       path.join(baseDir, ".opencode", "pawwork.jsonc"),
-      path.join(baseDir, ".opencode", "opencode.json"),
+      path.join(baseDir, ".opencode", "pawwork.json"),
       path.join(baseDir, ".opencode", "opencode.jsonc"),
+      path.join(baseDir, ".opencode", "opencode.json"),
     )
   }
 
@@ -465,9 +467,10 @@ export const McpAddCommand = cmd({
         const project = Instance.project
 
         // Resolve config paths eagerly for hints
+        const globalDir = Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config
         const [projectConfigPath, globalConfigPath] = await Promise.all([
           resolveConfigPath(Instance.worktree),
-          resolveConfigPath(Global.Path.config, true),
+          resolveConfigPath(globalDir, true),
         ])
 
         // Determine scope

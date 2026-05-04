@@ -3,6 +3,8 @@ import * as prompts from "@clack/prompts"
 import { AppRuntime } from "@/effect/app-runtime"
 import { UI } from "../ui"
 import { Global } from "@opencode-ai/core/global"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { Runtime } from "@opencode-ai/core/runtime"
 import { Agent } from "../../agent/agent"
 import { Provider } from "../../provider/provider"
 import path from "path"
@@ -86,7 +88,7 @@ const AgentCreateCommand = cmd({
                 {
                   label: "Global",
                   value: "global" as const,
-                  hint: Global.Path.config,
+                  hint: Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config,
                 },
               ],
             })
@@ -94,7 +96,11 @@ const AgentCreateCommand = cmd({
             scope = scopeResult
           }
           targetPath = path.join(
-            scope === "global" ? Global.Path.config : path.join(Instance.worktree, ".opencode"),
+            scope === "global"
+              ? Runtime.isPawWork()
+                ? PawWorkHome.primary()
+                : Global.Path.config
+              : path.join(Instance.worktree, ".opencode"),
             "agent",
           )
         }

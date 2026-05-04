@@ -8,6 +8,7 @@ import { Global } from "@opencode-ai/core/global"
 import fsNode from "fs/promises"
 import { NamedError } from "@opencode-ai/util/error"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
@@ -67,6 +68,7 @@ function projectConfigNames() {
 }
 
 function projectConfigFilesForDirectory(dir: string) {
+  if (Runtime.isPawWork() && PawWorkHome.isCandidate(dir)) return []
   const base = path.basename(dir)
   if (base === ".pawwork") return Runtime.isPawWork() ? PAWWORK_PROJECT_CONFIG_FILES : []
   if (base === ".opencode" || dir === Flag.OPENCODE_CONFIG_DIR) {
@@ -364,11 +366,38 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
 function globalConfigFile() {
+  if (Runtime.isPawWork()) {
+    const primary = PawWorkHome.primary()
+    const jsonc = path.join(primary, "pawwork.jsonc")
+    if (existsSync(jsonc)) return jsonc
+    const json = path.join(primary, "pawwork.json")
+    if (existsSync(json)) return json
+    return json
+  }
   const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
   for (const file of [...candidates].reverse()) {
     if (existsSync(file)) return file
   }
   return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
+}
+
+function globalConfigFilesToLoad() {
+  if (!Runtime.isPawWork()) {
+    const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
+    return candidates.filter((file) => existsSync(file))
+  }
+
+  for (const dir of PawWorkHome.candidates()) {
+    const json = path.join(dir, "pawwork.json")
+    const jsonc = path.join(dir, "pawwork.jsonc")
+    const files = [json, jsonc].filter((file) => existsSync(file))
+    if (files.length) return files
+  }
+  return []
+}
+
+function globalConfigSource() {
+  return globalConfigFilesToLoad().at(-1)
 }
 
 function projectConfigFile(dir: string) {
@@ -469,8 +498,7 @@ const rawLayer = Layer.effect(
 
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
-      for (const file of globalConfigFiles()) {
-        const filepath = path.join(Global.Path.config, file)
+      for (const filepath of globalConfigFilesToLoad()) {
         // Strip deprecated default_agent before parsing (issue #239).
         // When sanitizedText is present we use it directly to avoid a redundant
         // disk read AND to ensure runtime never sees a stale value even if the
@@ -601,7 +629,7 @@ const rawLayer = Layer.effect(
         }
 
         const global = yield* getGlobal()
-        yield* merge(Global.Path.config, global, "global")
+        yield* merge(globalConfigSource() ?? (Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config), global, "global")
 
         if (Flag.OPENCODE_CONFIG) {
           yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG))
@@ -632,10 +660,7 @@ const rawLayer = Layer.effect(
         const deps: Fiber.Fiber<void, never>[] = []
 
         for (const dir of directories) {
-          const configFiles =
-            Runtime.isPawWork() && pawworkConfigDir && dir === pawworkConfigDir
-              ? globalConfigFiles()
-              : projectConfigFilesForDirectory(dir)
+          const configFiles = Runtime.isPawWork() && PawWorkHome.isCandidate(dir) ? [] : projectConfigFilesForDirectory(dir)
 
           if (configFiles.length > 0) {
             for (const file of configFiles) {
@@ -857,7 +882,11 @@ const rawLayer = Layer.effect(
 
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
-      const before = (yield* readConfigFile(file)) ?? "{}"
+      yield* Effect.promise(() =>
+        Runtime.isPawWork() ? PawWorkHome.ensurePrimary() : fsNode.mkdir(path.dirname(file), { recursive: true }),
+      )
+      const existingText = yield* readConfigFile(file)
+      const before = existingText ?? JSON.stringify(writable(yield* loadGlobal()), null, 2)
 
       let next: Info
       if (!file.endsWith(".jsonc")) {

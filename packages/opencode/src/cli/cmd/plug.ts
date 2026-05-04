@@ -11,6 +11,8 @@ import { Filesystem } from "../../util/filesystem"
 import { Process } from "../../util/process"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 type Spin = {
   start: (msg: string) => void
@@ -28,7 +30,7 @@ export type PlugDeps = {
   readText: (file: string) => Promise<string>
   write: (file: string, text: string) => Promise<void>
   exists: (file: string) => Promise<boolean>
-  files: (dir: string, name: "opencode") => string[]
+  files: (dir: string, name: "opencode" | "pawwork") => string[]
   global: string
 }
 
@@ -58,7 +60,7 @@ const defaultPlugDeps: PlugDeps = {
   },
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
-  global: Global.Path.config,
+  global: Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config,
 }
 
 function cause(err: unknown) {

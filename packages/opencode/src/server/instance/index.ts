@@ -8,6 +8,8 @@ import { Vcs } from "../../project/vcs"
 import { Agent } from "../../agent/agent"
 import { Skill } from "../../skill"
 import { Global } from "../../global"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
 import { QuestionRoutes } from "./question"
@@ -90,10 +92,11 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
+        const config = Runtime.isPawWork() ? await PawWorkHome.ensurePrimary() : Global.Path.config
         return c.json({
           home: Global.Path.home,
           state: Global.Path.state,
-          config: Global.Path.config,
+          config,
           worktree: Instance.worktree,
           directory: Instance.directory,
         })

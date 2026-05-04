@@ -28,6 +28,7 @@ export const dict = {
   "command.provider.connect": "Connect provider",
   "command.server.switch": "Switch server",
   "command.settings.open": "Open settings",
+  "command.settings.openGlobalConfigFolder": "Open global config folder",
   "command.session.previous": "Previous session",
   "command.session.next": "Next session",
   "command.session.previous.unseen": "Previous unread session",

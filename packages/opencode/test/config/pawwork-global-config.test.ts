@@ -6,9 +6,11 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Account } from "../../src/account"
 import { Auth } from "../../src/auth"
 import { Config, ConfigManaged } from "../../src/config"
+import { ConfigPlugin } from "../../src/config/plugin"
 import { ConfigPaths } from "../../src/config/paths"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
@@ -45,6 +47,9 @@ const listConfigDirs = (directory: string, worktree: string) =>
   Effect.runPromise(ConfigPaths.directories(directory, worktree).pipe(Effect.provide(AppFileSystem.defaultLayer)))
 
 const originalRuntimeNamespace = process.env.PAWWORK_RUNTIME_NAMESPACE
+const originalPawWorkHome = process.env.PAWWORK_HOME
+const originalPawWorkConfigDir = process.env.PAWWORK_CONFIG_DIR
+const originalTestHome = process.env.OPENCODE_TEST_HOME
 
 beforeEach(async () => {
   process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
@@ -56,6 +61,12 @@ afterEach(async () => {
   await clear(true)
   if (originalRuntimeNamespace === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
   else process.env.PAWWORK_RUNTIME_NAMESPACE = originalRuntimeNamespace
+  if (originalPawWorkHome === undefined) delete process.env.PAWWORK_HOME
+  else process.env.PAWWORK_HOME = originalPawWorkHome
+  if (originalPawWorkConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
+  else process.env.PAWWORK_CONFIG_DIR = originalPawWorkConfigDir
+  if (originalTestHome === undefined) delete process.env.OPENCODE_TEST_HOME
+  else process.env.OPENCODE_TEST_HOME = originalTestHome
 })
 
 describe("default OpenCode config compatibility", () => {
@@ -102,13 +113,8 @@ describe("default OpenCode config compatibility", () => {
     const script = `
       process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
       process.env.XDG_CONFIG_HOME = ${JSON.stringify(root.path)}
-      const { ConfigPaths } = await import("./src/config/paths.ts")
-      const { AppFileSystem } = await import("@opencode-ai/core/filesystem")
-      const { Effect } = await import("effect")
-      const dirs = await Effect.runPromise(
-        ConfigPaths.directories(${JSON.stringify(project)}, ${JSON.stringify(project)}).pipe(Effect.provide(AppFileSystem.defaultLayer)),
-      )
-      console.log(JSON.stringify(dirs[0]))
+      const { Global } = await import("@opencode-ai/core/global")
+      console.log(JSON.stringify(Global.Path.config))
     `
     const result = Bun.spawnSync({
       cmd: [process.execPath, "--eval", script],
@@ -191,6 +197,217 @@ describe("default OpenCode config compatibility", () => {
 })
 
 describe("PawWork global config isolation", () => {
+  test("defaults primary PawWork Home to ~/.pawwork", async () => {
+    await using home = await tmpdir()
+    const previousHome = process.env.OPENCODE_TEST_HOME
+    const previousPawWorkHome = process.env.PAWWORK_HOME
+    const previousPawWorkConfig = process.env.PAWWORK_CONFIG_DIR
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    try {
+      expect(PawWorkHome.primary()).toBe(path.join(home.path, ".pawwork"))
+    } finally {
+      if (previousHome === undefined) delete process.env.OPENCODE_TEST_HOME
+      else process.env.OPENCODE_TEST_HOME = previousHome
+      if (previousPawWorkHome === undefined) delete process.env.PAWWORK_HOME
+      else process.env.PAWWORK_HOME = previousPawWorkHome
+      if (previousPawWorkConfig === undefined) delete process.env.PAWWORK_CONFIG_DIR
+      else process.env.PAWWORK_CONFIG_DIR = previousPawWorkConfig
+    }
+  })
+
+  test("prefers PAWWORK_HOME over PAWWORK_CONFIG_DIR", async () => {
+    await using home = await tmpdir()
+    await using legacyEnv = await tmpdir()
+    process.env.PAWWORK_HOME = path.join(home.path, "custom-home")
+    process.env.PAWWORK_CONFIG_DIR = legacyEnv.path
+
+    expect(PawWorkHome.primary()).toBe(path.join(home.path, "custom-home"))
+    expect(PawWorkHome.candidates().slice(0, 2)).toEqual([path.join(home.path, "custom-home"), legacyEnv.path])
+  })
+
+  test("treats blank PawWork Home env vars as unset", async () => {
+    await using home = await tmpdir()
+    process.env.OPENCODE_TEST_HOME = home.path
+    process.env.PAWWORK_HOME = ""
+    process.env.PAWWORK_CONFIG_DIR = "   "
+
+    expect(PawWorkHome.primary()).toBe(path.join(home.path, ".pawwork"))
+    expect(PawWorkHome.candidates()[0]).toBe(path.join(home.path, ".pawwork"))
+  })
+
+  test("global config reads PAWWORK_HOME before PAWWORK_CONFIG_DIR and legacy config", async () => {
+    await using primary = await tmpdir()
+    await using envLegacy = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = primary.path
+    process.env.PAWWORK_CONFIG_DIR = envLegacy.path
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(path.join(primary.path, "pawwork.json"), JSON.stringify({ model: "home/model" }))
+      await Filesystem.write(path.join(envLegacy.path, "pawwork.json"), JSON.stringify({ model: "env/model" }))
+      await Filesystem.write(path.join(platformLegacy.path, "pawwork.json"), JSON.stringify({ model: "legacy/model" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.model).toBe("home/model")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("first global update writes primary Home without dropping legacy effective config", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(
+        path.join(platformLegacy.path, "pawwork.json"),
+        JSON.stringify({ model: "legacy/model", username: "legacy-user" }),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await saveGlobal({ username: "updated-user" })
+          const primaryFile = path.join(home.path, ".pawwork", "pawwork.json")
+          const saved = JSON.parse(await Bun.file(primaryFile).text())
+          expect(saved.model).toBe("legacy/model")
+          expect(saved.username).toBe("updated-user")
+          expect(await Bun.file(path.join(platformLegacy.path, "pawwork.json")).text()).toContain("legacy-user")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("first global update preserves merged legacy json and jsonc config", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(path.join(platformLegacy.path, "pawwork.json"), JSON.stringify({ model: "legacy/model" }))
+      await Filesystem.write(path.join(platformLegacy.path, "pawwork.jsonc"), JSON.stringify({ username: "jsonc-user" }))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await saveGlobal({ username: "updated-user" })
+          const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
+          expect(saved.model).toBe("legacy/model")
+          expect(saved.username).toBe("updated-user")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("PawWork Home global plugin origin points at the Home config file", async () => {
+    await using home = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    process.env.PAWWORK_HOME = home.path
+
+    await Filesystem.write(
+      path.join(home.path, "pawwork.json"),
+      JSON.stringify({
+        plugin: ["./plugin.ts"],
+      }),
+    )
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        const origin = config.plugin_origins?.find((item) =>
+          ConfigPlugin.pluginSpecifier(item.spec).endsWith("/plugin.ts"),
+        )
+        expect(origin?.source).toBe(path.join(home.path, "pawwork.json"))
+      },
+    })
+  })
+
+  test("global resource directories load legacy before PawWork Home so Home wins conflicts", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await fs.mkdir(path.join(home.path, ".pawwork"), { recursive: true })
+      const dirs = await listConfigDirs(project.path, project.path)
+      expect(dirs.indexOf(path.join(home.path, ".pawwork"))).toBeGreaterThanOrEqual(0)
+      expect(dirs.indexOf(platformLegacy.path)).toBeGreaterThanOrEqual(0)
+      expect(dirs.indexOf(platformLegacy.path)).toBeLessThan(dirs.indexOf(path.join(home.path, ".pawwork")))
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("PawWork Home command overrides same-name legacy global command", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(
+        path.join(platformLegacy.path, "command", "hello.md"),
+        `---
+description: Legacy command
+---
+legacy command`,
+      )
+      await Filesystem.write(
+        path.join(home.path, ".pawwork", "command", "hello.md"),
+        `---
+description: Home command
+---
+home command`,
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.command?.hello.template).toBe("home command")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("does not discover home-level .opencode config implicitly", async () => {
     await using home = await tmpdir()
     await using project = await tmpdir({ git: true })
@@ -381,6 +598,7 @@ describe("PawWork global config isolation", () => {
     await using global = await tmpdir()
     const globalDir = global.path
     const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = globalDir
     ;(Global.Path as { config: string }).config = globalDir
 
     try {
@@ -408,6 +626,7 @@ describe("PawWork global config isolation", () => {
     await using global = await tmpdir()
     const globalDir = global.path
     const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = globalDir
     ;(Global.Path as { config: string }).config = globalDir
 
     try {
