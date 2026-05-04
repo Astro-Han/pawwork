@@ -403,6 +403,16 @@ export namespace Export {
     return Object.keys(value).length ? { redacted: `${kind}:${id}` } : value
   }
 
+  function dataValue(kind: string, id: string, value: unknown) {
+    if (value === undefined || value === null) return value
+    if (typeof value === "string") return redact(kind, id, value)
+    if (typeof value === "object") {
+      if (Array.isArray(value)) return value.length ? { redacted: `${kind}:${id}` } : value
+      return Object.keys(value as Record<string, unknown>).length ? { redacted: `${kind}:${id}` } : value
+    }
+    return value
+  }
+
   function span(id: string, value: { value: string; start: number; end: number }) {
     return {
       ...value,
@@ -676,10 +686,25 @@ export namespace Export {
     }
   }
 
+  function sanitizeDiagnostics(diagnostics: Snapshot["diagnostics"]): Snapshot["diagnostics"] {
+    const last = diagnostics.loop?.last
+    if (!last) return diagnostics
+    return {
+      ...diagnostics,
+      loop: {
+        ...diagnostics.loop,
+        last: {
+          ...last,
+          attemptedInput: dataValue("loop-attempted-input", last.parentID, last.attemptedInput),
+        },
+      },
+    }
+  }
+
   // Snapshot-level sanitize. Wraps sanitizeTree (the conversation tree) AND redacts top-level
-  // runtime_context fields that may carry user-machine paths (instruction_sources). Other
-  // runtime_context fields (app_version, build_channel, locale, timezone, model_refs, stats)
-  // are not user-identifying and are kept verbatim.
+  // runtime_context/diagnostic fields that may carry user-machine paths or raw tool args.
+  // Other runtime_context fields (app_version, build_channel, locale, timezone, model_refs,
+  // stats) are not user-identifying and are kept verbatim.
   export function sanitizeSnapshot(snap: Snapshot): Snapshot {
     return {
       ...snap,
@@ -691,6 +716,7 @@ export namespace Export {
           url: s.url === undefined ? undefined : redact("instruction-url", String(i), s.url),
         })),
       },
+      diagnostics: sanitizeDiagnostics(snap.diagnostics),
       session: sanitizeTree(snap.session),
     }
   }

@@ -200,7 +200,9 @@ describe("SessionDiagnostics.queryGateAction", () => {
   test("does not block successful read calls for different ranges of the same file", () => {
     const filePath = "/tmp/project/src/session.ts"
     const targetHash = targetHashForInput("read", { filePath, offset: 1, limit: 80 })
+    const queryTargetHash = targetHashForInput("read", { filePath, offset: 360, limit: 80 })
     const targetSigKey = `success:target:read:${targetHash}`
+    expect(queryTargetHash).toBe(targetHash)
     const state = SessionDiagnostics.deriveParentLoopState({
       successRecords: [
         successfulToolCallRecord("read", { filePath, offset: 1, limit: 80 }),
@@ -211,12 +213,13 @@ describe("SessionDiagnostics.queryGateAction", () => {
       syntheticBlockSigKeys: [],
       parentID,
     })
+    expect(state.signatures[targetSigKey]?.completedCount).toBe(3)
 
     const decision = SessionDiagnostics.queryGateAction({
       parentLoopState: state,
       tool: "read",
       inputHash: inputHashFor({ filePath, offset: 360, limit: 80 }),
-      targetHash,
+      targetHash: queryTargetHash,
       outcome: "success",
     })
 
