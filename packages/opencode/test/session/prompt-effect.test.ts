@@ -682,6 +682,59 @@ it.live("loop gate stops repeated successful tools across model steps", () =>
   ),
 )
 
+it.live("loop gate allows successful read calls for different ranges of the same file", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Loop gate read ranges",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const file = path.join(dir, "loop-gate-read-ranges.txt")
+        yield* Effect.promise(() =>
+          Bun.write(
+            file,
+            Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join("\n"),
+          ),
+        )
+
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "read ranges" }],
+        })
+        for (const offset of [1, 10, 20, 30]) {
+          yield* llm.tool("read", { filePath: file, offset, limit: 5 })
+        }
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const completedReadParts = allParts.filter(
+          (part): part is CompletedToolPart =>
+            part.type === "tool" && part.tool === "read" && part.state.status === "completed",
+        )
+        const loopGateParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction !== undefined,
+        )
+
+        expect(completedReadParts).toHaveLength(4)
+        expect(loopGateParts).toHaveLength(0)
+        expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("loop gate stops repeated tool errors across model steps", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

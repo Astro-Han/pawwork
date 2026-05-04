@@ -53,6 +53,7 @@ export interface Handle {
     syntheticBlockSigKeys: string[]
     hasStopped: boolean
     currentStepIndex?: number
+    currentMutationEpoch?: number
   }
   readonly recordSyntheticBlock: (input: {
     toolCallId: string
@@ -215,12 +216,18 @@ export const layer: Layer.Layer<
         if (!parentID) return []
         return Array.from(MessageV2.stream(ctx.sessionID)).flatMap((message) => {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) return []
+          let mutationEpoch = 0
           return message.parts.flatMap((part) => {
+            if (part.type === "patch") {
+              mutationEpoch += 1
+              return []
+            }
             if (part.type !== "tool") return []
             if (part.state.status !== "completed") return []
             const loop = toolDiagnostics(part)?.loop
             if (!loop?.inputHash) return []
             if (loop.errorFingerprint || loop.loopAction) return []
+            const loopWithEpoch = { ...loop, mutationEpoch: loop.mutationEpoch ?? mutationEpoch }
             return [
               {
                 sessionID: ctx.sessionID,
@@ -228,7 +235,9 @@ export const layer: Layer.Layer<
                 tool: part.tool,
                 inputHash: loop.inputHash,
                 targetHash: loop.targetHash ?? "",
-                metadata: { diagnostics: { loop } },
+                outputHash: loop.outputHash,
+                mutationEpoch: loopWithEpoch.mutationEpoch,
+                metadata: { diagnostics: { loop: loopWithEpoch } },
               } satisfies SessionDiagnostics.ToolCallRecord,
             ]
           })
@@ -305,6 +314,7 @@ export const layer: Layer.Layer<
         const syntheticBlockSigKeysOut: string[] = []
         let hasStoppedOut = false
         let currentStepIndex: number | undefined
+        let currentMutationEpoch = 0
         if (!parentID) {
           return {
             successRecords: successRecordsOut,
@@ -312,21 +322,28 @@ export const layer: Layer.Layer<
             syntheticBlockSigKeys: syntheticBlockSigKeysOut,
             hasStopped: hasStoppedOut,
             currentStepIndex,
+            currentMutationEpoch,
           }
         }
         for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           let stepIndex = 0
+          let mutationEpoch = 0
           let sawStepStart = false
           let afterStepFinish = false
           for (const part of message.parts) {
+            const currentMessage = message.info.id === ctx.assistantMessage.id
+            if (part.type === "patch") {
+              mutationEpoch += 1
+              if (currentMessage) currentMutationEpoch = mutationEpoch
+              continue
+            }
             if (part.type === "step-start") {
               sawStepStart = true
               afterStepFinish = false
               stepIndex += 1
               continue
             }
-            const currentMessage = message.info.id === ctx.assistantMessage.id
             const activeStepIndex = !sawStepStart || afterStepFinish ? stepIndex + 1 : stepIndex
             if (currentMessage) currentStepIndex = activeStepIndex
             if (part.type === "step-finish") {
@@ -337,7 +354,11 @@ export const layer: Layer.Layer<
             const loop = toolDiagnostics(part)?.loop
             if (!loop) continue
             const observedStepIndex = currentMessage ? activeStepIndex : -1
-            const loopWithStep = { ...loop, stepIndex: loop.stepIndex ?? observedStepIndex }
+            const loopWithStep = {
+              ...loop,
+              stepIndex: loop.stepIndex ?? observedStepIndex,
+              mutationEpoch: loop.mutationEpoch ?? mutationEpoch,
+            }
             if (loop.loopAction === "stop") hasStoppedOut = true
             if (loop.loopAction === "block" && loop.loopSigKey) syntheticBlockSigKeysOut.push(loop.loopSigKey)
             if (part.state.status === "completed" && loop.inputHash && !loop.errorFingerprint && !loop.loopAction) {
@@ -347,6 +368,8 @@ export const layer: Layer.Layer<
                 tool: part.tool,
                 inputHash: loop.inputHash,
                 targetHash: loop.targetHash ?? "",
+                outputHash: loop.outputHash,
+                mutationEpoch: loopWithStep.mutationEpoch,
                 metadata: { diagnostics: { loop: loopWithStep } },
               } satisfies SessionDiagnostics.ToolCallRecord)
             }
@@ -372,6 +395,7 @@ export const layer: Layer.Layer<
           syntheticBlockSigKeys: syntheticBlockSigKeysOut,
           hasStopped: hasStoppedOut,
           currentStepIndex,
+          currentMutationEpoch,
         }
       }
 
@@ -393,7 +417,17 @@ export const layer: Layer.Layer<
             status: "completed",
             input: match.part.state.input,
             output: output.output,
-            metadata: diagnostics ? SessionDiagnostics.mergeMetadata(output.metadata, { diagnostics }) : output.metadata,
+            metadata: diagnostics
+              ? SessionDiagnostics.mergeMetadata(output.metadata, {
+                  diagnostics: {
+                    ...diagnostics,
+                    loop: {
+                      ...diagnostics.loop,
+                      outputHash: SessionDiagnostics.outputHash(output.output),
+                    },
+                  },
+                })
+              : output.metadata,
             title: output.title,
             time: { start: match.part.state.time.start, end: Date.now() },
             attachments: output.attachments,

@@ -40,6 +40,8 @@ const failingErrorRecord = (
 const successfulCallRecord = (
   url: string,
   recoverFiredFor: string[] = [],
+  output = "ok",
+  mutationEpoch = 0,
 ): SessionDiagnostics.ToolCallRecord => ({
   sessionID,
   parentID,
@@ -51,6 +53,8 @@ const successfulCallRecord = (
       loop: {
         inputHash: inputHashFor({ url }),
         targetHash: targetHashFor(url),
+        outputHash: SessionDiagnostics.outputHash(output),
+        mutationEpoch,
         outcome: "success",
         targetRepeatCount: 1,
         loopRecoverFiredFor: recoverFiredFor.length ? recoverFiredFor : undefined,
@@ -63,6 +67,8 @@ const successfulToolCallRecord = (
   tool: string,
   input: unknown,
   recoverFiredFor: string[] = [],
+  output = "ok",
+  mutationEpoch = 0,
 ): SessionDiagnostics.ToolCallRecord => ({
   sessionID,
   parentID,
@@ -74,6 +80,8 @@ const successfulToolCallRecord = (
       loop: {
         inputHash: inputHashFor(input),
         targetHash: targetHashForInput(tool, input),
+        outputHash: SessionDiagnostics.outputHash(output),
+        mutationEpoch,
         outcome: "success",
         targetRepeatCount: 1,
         loopRecoverFiredFor: recoverFiredFor.length ? recoverFiredFor : undefined,
@@ -258,6 +266,61 @@ describe("SessionDiagnostics.queryGateAction", () => {
     }
   })
 
+  test("does not block successful exact-input repeats when output changes", () => {
+    const input = { command: "bun test" }
+    const inputHash = inputHashFor(input)
+    const inputSigKey = `success:input:bash:${inputHash}`
+    const state = SessionDiagnostics.deriveParentLoopState({
+      successRecords: [
+        successfulToolCallRecord("bash", input, [], "1 test failed"),
+        successfulToolCallRecord("bash", input, [], "all tests passed"),
+        successfulToolCallRecord("bash", input, [inputSigKey], "all tests passed\ncached"),
+      ],
+      errorRecords: [],
+      syntheticBlockSigKeys: [],
+      parentID,
+    })
+
+    const decision = SessionDiagnostics.queryGateAction({
+      parentLoopState: state,
+      tool: "bash",
+      inputHash,
+      targetHash: targetHashForInput("bash", input),
+      outcome: "success",
+    })
+
+    expect(decision.action).toBe("observe")
+    expect(state.signatures[inputSigKey]?.completedCount).toBe(1)
+  })
+
+  test("does not block successful exact-input repeats across mutation epochs", () => {
+    const input = { command: "bun test" }
+    const inputHash = inputHashFor(input)
+    const inputSigKey = `success:input:bash:${inputHash}`
+    const state = SessionDiagnostics.deriveParentLoopState({
+      successRecords: [
+        successfulToolCallRecord("bash", input, [], "all tests passed", 0),
+        successfulToolCallRecord("bash", input, [], "all tests passed", 0),
+        successfulToolCallRecord("bash", input, [inputSigKey], "all tests passed", 0),
+      ],
+      errorRecords: [],
+      syntheticBlockSigKeys: [],
+      parentID,
+      currentMutationEpoch: 1,
+    })
+
+    const decision = SessionDiagnostics.queryGateAction({
+      parentLoopState: state,
+      tool: "bash",
+      inputHash,
+      targetHash: targetHashForInput("bash", input),
+      outcome: "success",
+    })
+
+    expect(decision.action).toBe("observe")
+    expect(state.signatures[inputSigKey]).toBeUndefined()
+  })
+
   test("chooses stop over block across success and failure decisions", () => {
     const successStop = {
       action: "stop",
@@ -380,7 +443,21 @@ describe("SessionDiagnostics.queryGateAction", () => {
         modelID: "model" as any,
         providerID: "provider" as any,
       })
-      records = [...records, observed.record]
+      records = [
+        ...records,
+        {
+          ...observed.record,
+          outputHash: SessionDiagnostics.outputHash("ok"),
+          metadata: {
+            diagnostics: {
+              loop: {
+                ...observed.record.metadata.diagnostics?.loop,
+                outputHash: SessionDiagnostics.outputHash("ok"),
+              },
+            },
+          },
+        },
+      ]
     }
 
     const inputHash = inputHashFor(input)

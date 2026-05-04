@@ -30,6 +30,7 @@ export namespace SessionDiagnostics {
     outcome: LoopOutcome
     kind: SignatureKind
     completedCount: number
+    outputHash?: string
     completedFailures?: number
     recoverEmitted: boolean
     blockEmitted: boolean
@@ -66,6 +67,7 @@ export namespace SessionDiagnostics {
   export type LoopMetadata = {
     inputHash?: string
     inputRepeatCount?: number
+    outputHash?: string
     targetSummary?: string
     targetHash?: string
     targetRepeatCount?: number
@@ -95,6 +97,7 @@ export namespace SessionDiagnostics {
     loopLastError?: unknown
     attemptedInput?: unknown
     stepIndex?: number
+    mutationEpoch?: number
   }
 
   export type Metadata = {
@@ -109,6 +112,8 @@ export namespace SessionDiagnostics {
     tool: string
     inputHash: string
     targetHash: string
+    outputHash?: string
+    mutationEpoch?: number
     metadata: Metadata
   }
 
@@ -128,6 +133,12 @@ export namespace SessionDiagnostics {
     return createHash("sha256").update(value).digest("hex").slice(0, 16)
   }
 
+  export function outputHash(output: unknown) {
+    const value = normalizeValue(output)
+    const serialized = JSON.stringify(value) ?? String(value)
+    return hash(serialized)
+  }
+
   export function signatureKey(input: {
     outcome: LoopOutcome
     kind: SignatureKind
@@ -138,6 +149,7 @@ export namespace SessionDiagnostics {
   }
 
   const RENDERER_BYTE_LIMIT = 1024
+  const DIAGNOSTIC_VALUE_BYTE_LIMIT = 4096
 
   export function truncateForRenderer(value: unknown): string {
     let s: string
@@ -166,6 +178,20 @@ export namespace SessionDiagnostics {
       return slice + "…"
     }
     return "…"
+  }
+
+  export function compactDiagnosticValue(value: unknown): unknown {
+    let s: string
+    try {
+      s = JSON.stringify(value) ?? String(value)
+    } catch {
+      s = String(value)
+    }
+    if (Buffer.byteLength(s, "utf8") <= DIAGNOSTIC_VALUE_BYTE_LIMIT) return value
+    return {
+      truncated: true,
+      preview: truncateForRenderer(value),
+    }
   }
 
   export function normalizeInput(input: unknown): { value: unknown; serialized: string; hash: string } {
@@ -437,6 +463,7 @@ export namespace SessionDiagnostics {
     syntheticBlockSigKeys: string[]
     parentID: MessageID
     currentStepIndex?: number
+    currentMutationEpoch?: number
   }): ParentLoopState {
     const signatures: Record<string, SignatureState> = {}
 
@@ -455,6 +482,22 @@ export namespace SessionDiagnostics {
         isFromPreviousStep(r),
     )
 
+    const successInputBuckets = new Map<
+      string,
+      {
+        sigKey: string
+        kind: "input"
+        outputHash: string
+        completedCount: number
+        recoverEmitted: boolean
+      }
+    >()
+
+    const sameMutationEpoch = (record: ToolCallRecord) => {
+      if (input.currentMutationEpoch === undefined) return true
+      return (record.mutationEpoch ?? record.metadata.diagnostics?.loop?.mutationEpoch ?? 0) === input.currentMutationEpoch
+    }
+
     for (const r of successes) {
       const loop = r.metadata.diagnostics?.loop
       const inputSigKey = r.inputHash
@@ -464,20 +507,46 @@ export namespace SessionDiagnostics {
         ? signatureKey({ outcome: "success", kind: "target", tool: r.tool, hash: r.targetHash })
         : null
       const fired = loop?.loopRecoverFiredFor ?? []
-      for (const [sigKey, kind] of [
-        [inputSigKey, "input"] as const,
-        [targetSigKey, "target"] as const,
-      ]) {
-        if (!sigKey) continue
-        const s = (signatures[sigKey] ??= {
+      if (inputSigKey && sameMutationEpoch(r)) {
+        const outHash = r.outputHash ?? loop?.outputHash
+        if (outHash) {
+          const bucketKey = `${inputSigKey}:${outHash}`
+          const bucket = (successInputBuckets.get(bucketKey) ?? {
+            sigKey: inputSigKey,
+            kind: "input" as const,
+            outputHash: outHash,
+            completedCount: 0,
+            recoverEmitted: false,
+          })
+          bucket.completedCount += 1
+          if (fired.includes(inputSigKey)) bucket.recoverEmitted = true
+          successInputBuckets.set(bucketKey, bucket)
+        }
+      }
+
+      if (targetSigKey) {
+        const s = (signatures[targetSigKey] ??= {
           outcome: "success",
-          kind,
+          kind: "target",
           completedCount: 0,
           recoverEmitted: false,
           blockEmitted: false,
         })
         s.completedCount += 1
-        if (fired.includes(sigKey)) s.recoverEmitted = true
+        if (fired.includes(targetSigKey)) s.recoverEmitted = true
+      }
+    }
+
+    for (const bucket of successInputBuckets.values()) {
+      const existing = signatures[bucket.sigKey]
+      if (existing && existing.completedCount > bucket.completedCount) continue
+      signatures[bucket.sigKey] = {
+        outcome: "success",
+        kind: bucket.kind,
+        completedCount: bucket.completedCount,
+        outputHash: bucket.outputHash,
+        recoverEmitted: bucket.recoverEmitted || existing?.recoverEmitted === true,
+        blockEmitted: existing?.blockEmitted ?? false,
       }
     }
 
@@ -657,7 +726,8 @@ export namespace SessionDiagnostics {
     if (!pending.length) return { parts }
     const lines: string[] = ["<system-reminder>"]
     const parsed = pending.map((r) => parseReminderKey(r.key))
-    const sawSuccess = parsed.some((r) => r.outcome === "success")
+    const sawSuccessInput = parsed.some((r) => r.outcome === "success" && r.kind === "input")
+    const sawSuccessTarget = parsed.some((r) => r.outcome === "success" && r.kind === "target")
     const sawFailureInput = parsed.some((r) => (r.outcome === "failure" || r.legacy) && r.kind === "input")
     const sawFailureTarget = parsed.some((r) => (r.outcome === "failure" || r.legacy) && r.kind === "target")
     // Backward-compat: v0 reminders persisted with `error:` (or other) prefixes. Without this
@@ -665,9 +735,14 @@ export namespace SessionDiagnostics {
     // text, which loses the warning entirely. Emit the legacy generic copy so old sessions still
     // surface a reminder during migration.
     const sawLegacy = parsed.some((r) => r.legacy && !r.kind)
-    if (sawSuccess) {
+    if (sawSuccessInput) {
       lines.push(
         "You are repeating the same tool request. Change strategy: summarize what you already learned, choose a different target or method, or answer the user directly. Do not repeat the same request in this turn.",
+      )
+    }
+    if (sawSuccessTarget) {
+      lines.push(
+        "You are looking at the same target again. Summarize what you already learned; if you continue, use a new range, query, or hypothesis.",
       )
     }
     if (sawFailureInput) {
