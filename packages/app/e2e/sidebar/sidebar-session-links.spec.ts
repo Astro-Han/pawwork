@@ -1,7 +1,8 @@
-import type { Page } from "@playwright/test"
+import type { Page, Route } from "@playwright/test"
 import { test, expect } from "../fixtures"
-import { cleanupSession, cleanupTestProject, createTestProject, openSidebar, waitSession } from "../actions"
-import { promptSelector } from "../selectors"
+import { cleanupSession, cleanupTestProject, createTestProject, openSidebar, waitSession, withSession } from "../actions"
+import { promptSelector, sessionTurnListSelector } from "../selectors"
+import type { createSdk } from "../utils"
 
 async function expectUrlToStayMatched(page: Page, pattern: RegExp, stableFor = 300) {
   let stableSince = Date.now()
@@ -13,6 +14,31 @@ async function expectUrlToStayMatched(page: Page, pattern: RegExp, stableFor = 3
       }
       return Date.now() - stableSince >= stableFor
     })
+    .toBe(true)
+}
+
+async function seedUserMessage(input: {
+  sdk: ReturnType<typeof createSdk>
+  sessionID: string
+  text: string
+}) {
+  await input.sdk.session.promptAsync({
+    sessionID: input.sessionID,
+    noReply: true,
+    parts: [{ type: "text", text: input.text }],
+  })
+
+  await expect
+    .poll(
+      async () => {
+        const messages = await input.sdk.session.messages({ sessionID: input.sessionID, limit: 20 }).then((r) => r.data ?? [])
+        return messages.some((message) =>
+          message.info.role === "user" &&
+          message.parts.some((part) => part.type === "text" && part.text.includes(input.text)),
+        )
+      },
+      { timeout: 30_000 },
+    )
     .toBe(true)
 }
 
@@ -86,4 +112,52 @@ test("sidebar session links can switch workspaces without opening the error boun
     if (targetID) await cleanupSession({ sdk: otherSdk, sessionID: targetID })
     await cleanupTestProject(other)
   }
+})
+
+test("opening a delayed sidebar session never shows the previous session as loading UI", async ({ page, slug, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const sourceText = `e2e stale source ${stamp}`
+  const targetText = `e2e delayed target ${stamp}`
+
+  await withSession(sdk, `e2e stale source title ${stamp}`, async (source) => {
+    await withSession(sdk, `e2e delayed target title ${stamp}`, async (target) => {
+      await seedUserMessage({ sdk, sessionID: source.id, text: sourceText })
+      await seedUserMessage({ sdk, sessionID: target.id, text: targetText })
+
+      let releaseMessages: (() => void) | undefined
+      const messagesReleased = new Promise<void>((resolve) => {
+        releaseMessages = resolve
+      })
+      let targetMessageRequests = 0
+      const delayTargetMessages = async (route: Route) => {
+        targetMessageRequests++
+        await messagesReleased
+        await route.continue().catch(() => undefined)
+      }
+
+      await page.route(`**/session/${target.id}/message*`, delayTargetMessages)
+
+      try {
+        await gotoSession(source.id)
+        await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toBeVisible()
+        await openSidebar(page)
+
+        await page.locator(`[data-session-id="${target.id}"] a`).first().click()
+
+        await expect(page).toHaveURL(new RegExp(`/${slug}/session/${target.id}(?:\\?|#|$)`))
+        await expect.poll(() => targetMessageRequests, { timeout: 10_000 }).toBeGreaterThan(0)
+        await expect(page.locator('[data-component="session-opening-state"]')).toBeVisible()
+        await expect(page.locator(sessionTurnListSelector).getByText(sourceText)).toHaveCount(0)
+        await expect(page.locator(sessionTurnListSelector).getByText(targetText)).toHaveCount(0)
+        await expect(page.locator(promptSelector)).toHaveCount(0)
+
+        await page.locator('[data-component="session-opening-state"]').getByRole("button", { name: "New session" }).click()
+        await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
+        await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
+      } finally {
+        releaseMessages?.()
+        await page.unroute(`**/session/${target.id}/message*`, delayTargetMessages)
+      }
+    })
+  })
 })
