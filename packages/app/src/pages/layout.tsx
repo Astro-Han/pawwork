@@ -2125,7 +2125,15 @@ export default function Layout(props: ParentProps) {
         },
       }}
     >
-      <ShellSurfaceContext.Provider value={{ settingsOpen, openSettings, closeSettings }}>
+      <ShellSurfaceContext.Provider
+        value={{
+          settingsOpen,
+          openNewSession: openPawworkHome,
+          openSession: navigateToSession,
+          openSettings,
+          closeSettings,
+        }}
+      >
       <div
         data-component="desktop-shell"
         data-platform={platform.platform}

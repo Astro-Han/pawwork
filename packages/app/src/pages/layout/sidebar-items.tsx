@@ -16,7 +16,7 @@ import { sessionTitle } from "@/utils/session-title"
 import { sessionPermissionRequest } from "../session/blockers/request-tree"
 import { createSessionRunning } from "../session/session-running-state"
 import { childSessionOnPath, hasProjectPermissions } from "./helpers"
-import { defaultNewSessionHref, defaultSessionHref, openSidebarLinkWithShell } from "./sidebar-item-navigation"
+import { defaultNewSessionHref, defaultSessionHref, openShellLinkWithOwner } from "./sidebar-item-navigation"
 
 export const ProjectIcon = (props: { project: LocalProject; class?: string; notify?: boolean }): JSX.Element => {
   const globalSync = useGlobalSync()
@@ -174,7 +174,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       href={props.hrefForSession?.(props.session) ?? defaultSessionHref(props.slug, props.session)}
       onOpenSession={(event) => {
         if (!props.onOpenSession) return
-        openSidebarLinkWithShell(event, () => props.onOpenSession?.(props.session))
+        openShellLinkWithOwner(event, () => props.onOpenSession?.(props.session))
       }}
       warmPress={() => warm(2, "high")}
       warmFocus={() => warm(2, "high")}
@@ -257,7 +257,7 @@ export const NewSessionItem = (props: {
       class={`flex items-center gap-2 min-w-0 w-full text-left focus:outline-none leading-[1.4] ${props.dense ? "py-1" : "py-[5px]"}`}
       onClick={(event) => {
         if (!props.onOpenNewSession) return
-        openSidebarLinkWithShell(event, props.onOpenNewSession)
+        openShellLinkWithOwner(event, props.onOpenNewSession)
       }}
     >
       <div data-leading-slot class="shrink-0 w-4 h-4 flex items-center">

@@ -1,6 +1,6 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
 
-export type SidebarLinkClick = {
+export type ShellLinkClick = {
   defaultPrevented: boolean
   button: number
   metaKey: boolean
@@ -9,7 +9,7 @@ export type SidebarLinkClick = {
   altKey: boolean
 }
 
-export type SidebarShellLinkEvent = SidebarLinkClick & {
+export type ShellOwnerLinkEvent = ShellLinkClick & {
   preventDefault: () => void
 }
 
@@ -21,15 +21,15 @@ export function defaultNewSessionHref(slug: string) {
   return `/${slug}/session`
 }
 
-export function shouldOpenLinkWithShell(event: SidebarLinkClick) {
+export function shouldUseShellOwnerForLink(event: ShellLinkClick) {
   if (event.defaultPrevented) return false
   if (event.button !== 0) return false
   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false
   return true
 }
 
-export function openSidebarLinkWithShell(event: SidebarShellLinkEvent, open: () => void) {
-  if (!shouldOpenLinkWithShell(event)) return false
+export function openShellLinkWithOwner(event: ShellOwnerLinkEvent, open: () => void) {
+  if (!shouldUseShellOwnerForLink(event)) return false
   event.preventDefault()
   open()
   return true
