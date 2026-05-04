@@ -1,9 +1,14 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
-import type { followupPreviewText as PreviewText, shouldAutoSendFollowup as ShouldAutoSend } from "./use-session-followups"
+import type {
+  followupDraftForDirectory as DraftForDirectory,
+  followupPreviewText as PreviewText,
+  shouldAutoSendFollowup as ShouldAutoSend,
+} from "./use-session-followups"
 
 let followupPreviewText: typeof PreviewText
 let shouldAutoSendFollowup: typeof ShouldAutoSend
+let followupDraftForDirectory: typeof DraftForDirectory
 
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
   sessionID: "ses_1",
@@ -30,6 +35,7 @@ beforeAll(async () => {
   const mod = await import("./use-session-followups")
   followupPreviewText = mod.followupPreviewText
   shouldAutoSendFollowup = mod.shouldAutoSendFollowup
+  followupDraftForDirectory = mod.followupDraftForDirectory
 })
 
 describe("session followups", () => {
@@ -101,5 +107,24 @@ describe("session followups", () => {
 
     const afterHalt = { ...recovering, busy: false }
     expect(shouldAutoSendFollowup(afterHalt)).toBe(true)
+  })
+
+  test("rebases a queued followup to the current execution directory before send", () => {
+    const item = {
+      id: "msg_1",
+      ...draft({
+        prompt: [{ type: "text", content: "continue", start: 0, end: 8 }],
+        context: [],
+      }),
+    }
+
+    const next = followupDraftForDirectory(item, "/repo")
+    expect(next).toBe(item)
+
+    const rebased = followupDraftForDirectory(item, "/repo-root")
+    expect(rebased).not.toBe(item)
+    expect(rebased.sessionDirectory).toBe("/repo-root")
+    expect(rebased.sessionID).toBe(item.sessionID)
+    expect(rebased.prompt).toBe(item.prompt)
   })
 })

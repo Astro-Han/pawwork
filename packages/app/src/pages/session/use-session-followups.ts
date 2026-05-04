@@ -55,9 +55,14 @@ export function shouldAutoSendFollowup(input: {
   )
 }
 
+export function followupDraftForDirectory(item: FollowupItem, directory: string): FollowupItem {
+  if (item.sessionDirectory === directory) return item
+  return { ...item, sessionDirectory: directory }
+}
+
 export function createSessionFollowups(input: {
-  directory: string
-  client: ReturnType<typeof useSDK>["client"]
+  directory: () => string
+  client: () => ReturnType<typeof useSDK>["client"]
   sessionID: () => string | undefined
   isChildSession: () => boolean
   busy: () => boolean
@@ -70,7 +75,7 @@ export function createSessionFollowups(input: {
   attachmentLabel: () => string
 }) {
   const [followup, setFollowup] = persisted(
-    Persist.workspace(input.directory, "followup", ["followup.v1"]),
+    Persist.global("session-followup.v1", ["followup.v1"]),
     createStore<{
       items: Record<string, FollowupItem[] | undefined>
       failed: Record<string, string | undefined>
@@ -104,12 +109,14 @@ export function createSessionFollowups(input: {
       if (params.manual) setFollowup("paused", params.sessionID, undefined)
       setFollowup("failed", params.sessionID, undefined)
 
+      const directory = input.directory()
+      const draft = followupDraftForDirectory(item, directory)
       const ok = await sendFollowupDraft({
-        client: input.client,
+        client: input.client(),
         sync: input.sync,
         globalSync: input.globalSync,
-        draft: item,
-        optimisticBusy: item.sessionDirectory === input.directory,
+        draft,
+        optimisticBusy: draft.sessionDirectory === directory,
       }).catch((err) => {
         setFollowup("failed", params.sessionID, params.id)
         input.fail(err)

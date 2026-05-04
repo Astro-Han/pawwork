@@ -39,7 +39,7 @@ export function deriveReviewArtifactFiles(input: {
 }
 
 export function createSessionReviewState(input: {
-  directory: string
+  directory: () => string
   sessionKey: () => string
   sessionID: () => string | undefined
   sync: ReturnType<typeof useSync>
@@ -168,7 +168,7 @@ export function createSessionReviewState(input: {
   })
   const artifactFiles = createMemo(() =>
     deriveReviewArtifactFiles({
-      directory: input.directory,
+      directory: input.directory(),
       sessionID: input.sessionID(),
       history: artifactHistory.latest,
       turnDiffs: input.turnDiffs(),

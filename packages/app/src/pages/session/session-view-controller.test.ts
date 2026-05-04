@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
-import { createSessionViewController, nextSessionViewState } from "./session-view-controller"
+import { createSessionViewController, nextSessionViewState, timelineIdentity } from "./session-view-controller"
+
+describe("timelineIdentity", () => {
+  test("uses stable session identity without directory input", () => {
+    expect(timelineIdentity({ sessionID: "ses_target" })).toBe("ses_target")
+    expect(timelineIdentity({ sessionID: undefined })).toBe("")
+  })
+})
 
 describe("createSessionViewController", () => {
   test("exposes route and visible session state through separate accessors", () => {

@@ -281,7 +281,7 @@ export default function Page() {
       : mobileChanges(),
   )
   const reviewState = createSessionReviewState({
-    directory: sdk.directory,
+    directory: () => sdk.directory,
     sessionKey,
     sessionID: timelineSessionID,
     sync,
@@ -447,8 +447,8 @@ export default function Page() {
   const busy = () => timelineRunning()
 
   const followups = createSessionFollowups({
-    directory: sdk.directory,
-    client: sdk.client,
+    directory: () => sdk.directory,
+    client: () => sdk.client,
     sessionID: timelineSessionID,
     isChildSession: timelineIsChildSession,
     busy,
@@ -468,7 +468,7 @@ export default function Page() {
     lineText: line,
     prompt,
     sync,
-    client: sdk.client,
+    client: () => sdk.client,
     halt,
     draft,
     fail,

@@ -32,7 +32,7 @@ export function createSessionRevert(input: {
   lineText: (id: string) => string
   prompt: ReturnType<typeof usePrompt>
   sync: ReturnType<typeof useSync>
-  client: ReturnType<typeof useSDK>["client"]
+  client: () => ReturnType<typeof useSDK>["client"]
   halt: (sessionID: string) => Promise<unknown>
   draft: (id: string) => Prompt
   fail: (err: unknown) => void
@@ -50,7 +50,7 @@ export function createSessionRevert(input: {
       })
       await input
         .halt(request.sessionID)
-        .then(() => input.client.session.revert(request, { throwOnError: true }))
+        .then(() => input.client().session.revert(request, { throwOnError: true }))
         .then((result) => {
           if (result.data) input.merge(result.data)
         })
@@ -83,9 +83,9 @@ export function createSessionRevert(input: {
       const task = !next
         ? input
             .halt(request.sessionID)
-            .then(() => input.client.session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
+            .then(() => input.client().session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
         : input.halt(request.sessionID).then(() =>
-            input.client.session.revert(
+            input.client().session.revert(
               {
                 sessionID: request.sessionID,
                 messageID: next.id,

@@ -1,5 +1,7 @@
 import { createMemo, type Accessor } from "solid-js"
 
+export type TimelineIdentity = string
+
 export type SessionViewStateInput = {
   routeSessionID: string | undefined
   routeMessagesReady: boolean
@@ -11,8 +13,8 @@ export type SessionViewState = {
   routeReady: boolean
   visibleSessionID: string | undefined
   transitioning: boolean
-  routeSessionKey: string
-  visibleSessionKey: string
+  routeSessionKey: TimelineIdentity
+  visibleSessionKey: TimelineIdentity
 }
 
 export type SessionViewControllerInput = {
@@ -20,10 +22,12 @@ export type SessionViewControllerInput = {
   routeMessagesReady: Accessor<boolean>
 }
 
-export function sessionKey(input: { sessionID: string | undefined }) {
+export function timelineIdentity(input: { sessionID: string | undefined }): TimelineIdentity {
   // Timeline identity follows the stable session only; execution directory is mutable.
   return input.sessionID ?? ""
 }
+
+export const sessionKey = timelineIdentity
 
 export function nextSessionViewState(input: SessionViewStateInput) {
   const sameSession =
@@ -40,8 +44,8 @@ export function nextSessionViewState(input: SessionViewStateInput) {
     routeReady,
     visibleSessionID,
     transitioning: !routeReady,
-    routeSessionKey: sessionKey({ sessionID: input.routeSessionID }),
-    visibleSessionKey: sessionKey({ sessionID: visibleSessionID }),
+    routeSessionKey: timelineIdentity({ sessionID: input.routeSessionID }),
+    visibleSessionKey: timelineIdentity({ sessionID: visibleSessionID }),
   }
 }
 
