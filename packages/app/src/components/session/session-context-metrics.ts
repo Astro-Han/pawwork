@@ -1,6 +1,6 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
 import {
-  contextUsageDefaultOutputReserve,
+  contextUsageModelOutputLimit,
   contextUsageUsedTokens,
   deriveContextUsage,
 } from "@opencode-ai/util/context-usage"
@@ -33,7 +33,6 @@ type Context = {
   model?: Model
   providerLabel: string
   modelLabel: string
-  limit: number | undefined
   effectiveInputLimit: number | undefined
   contextWindow: number | undefined
   compactThreshold: number | undefined
@@ -79,7 +78,7 @@ const build = (messages: Message[] = [], providers: Provider[] = [], config: Con
     model,
     tokens: message.tokens,
     compaction: config.compaction,
-    defaultOutputReserve: contextUsageDefaultOutputReserve(model),
+    defaultReserveTokens: contextUsageModelOutputLimit(model),
   })
 
   return {
@@ -90,7 +89,6 @@ const build = (messages: Message[] = [], providers: Provider[] = [], config: Con
       model,
       providerLabel: provider?.name ?? message.providerID,
       modelLabel: model?.name ?? message.modelID,
-      limit: usage.effectiveInputLimit,
       effectiveInputLimit: usage.effectiveInputLimit,
       contextWindow: model?.limit.context || undefined,
       compactThreshold: usage.compactThreshold,

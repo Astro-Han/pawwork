@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { contextUsageDefaultOutputReserve, deriveContextUsage } from "../src/context-usage"
+import { contextUsageModelOutputLimit, deriveContextUsage } from "../src/context-usage"
 
 const tokens = (input: {
   total?: number
@@ -25,7 +25,7 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 400_000, input: 272_000, output: 128_000 } },
       tokens: tokens({ total: 238_000 }),
       compaction: {},
-      defaultOutputReserve: 20_000,
+      defaultReserveTokens: 20_000,
     })
 
     expect(usage.usedTokens).toBe(238_000)
@@ -40,7 +40,7 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 128_000, output: 16_000 } },
       tokens: tokens({ input: 40_000, output: 4_000, cacheRead: 8_000, cacheWrite: 1_000, reasoning: 9_000 }),
       compaction: {},
-      defaultOutputReserve: 16_000,
+      defaultReserveTokens: 16_000,
     })
 
     expect(usage.usedTokens).toBe(53_000)
@@ -54,7 +54,7 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 128_000, input: 0, output: 16_000 } },
       tokens: tokens({ input: 10_000 }),
       compaction: {},
-      defaultOutputReserve: 16_000,
+      defaultReserveTokens: 16_000,
     })
 
     expect(usage.effectiveInputLimit).toBe(0)
@@ -67,7 +67,7 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 0, output: 16_000 } },
       tokens: tokens({ total: 20_000 }),
       compaction: {},
-      defaultOutputReserve: 16_000,
+      defaultReserveTokens: 16_000,
     })
 
     expect(usage.usedTokens).toBe(20_000)
@@ -81,13 +81,13 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 100_000, output: 10_000 } },
       tokens: tokens({ total: 70_000, input: 10_000, output: 10_000, cacheRead: 10_000, cacheWrite: 10_000 }),
       compaction: {},
-      defaultOutputReserve: 10_000,
+      defaultReserveTokens: 10_000,
     })
     const zeroTotal = deriveContextUsage({
       model: { limit: { context: 100_000, output: 10_000 } },
       tokens: tokens({ total: 0, input: 10_000, output: 2_000, cacheRead: 3_000, cacheWrite: 4_000 }),
       compaction: {},
-      defaultOutputReserve: 10_000,
+      defaultReserveTokens: 10_000,
     })
 
     expect(withTotal.usedTokens).toBe(70_000)
@@ -99,23 +99,23 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 100_000, output: 10_000 } },
       tokens: tokens({ input: 1_000 }),
       compaction: { reserved: 50_000 },
-      defaultOutputReserve: 10_000,
+      defaultReserveTokens: 10_000,
     })
     const zero = deriveContextUsage({
       model: { limit: { context: 100_000, output: 10_000 } },
       tokens: tokens({ input: 1_000 }),
       compaction: { reserved: 0 },
-      defaultOutputReserve: 10_000,
+      defaultReserveTokens: 10_000,
     })
 
     expect(custom.compactThreshold).toBe(50_000)
     expect(zero.compactThreshold).toBe(100_000)
   })
 
-  test("derives the default output reserve from the model metadata", () => {
-    expect(contextUsageDefaultOutputReserve({ limit: { context: 100_000, output: 12_000 } })).toBe(12_000)
-    expect(contextUsageDefaultOutputReserve({ limit: { context: 100_000, output: 0 } })).toBe(0)
-    expect(contextUsageDefaultOutputReserve()).toBeUndefined()
+  test("derives the reserve source from the model output limit", () => {
+    expect(contextUsageModelOutputLimit({ limit: { context: 100_000, output: 12_000 } })).toBe(12_000)
+    expect(contextUsageModelOutputLimit({ limit: { context: 100_000, output: 0 } })).toBe(0)
+    expect(contextUsageModelOutputLimit()).toBeUndefined()
   })
 
   test("preserves zero output reserve when deriving the compact threshold", () => {
@@ -123,7 +123,7 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 100_000, output: 0 } },
       tokens: tokens({ input: 1_000 }),
       compaction: {},
-      defaultOutputReserve: contextUsageDefaultOutputReserve({ limit: { context: 100_000, output: 0 } }),
+      defaultReserveTokens: contextUsageModelOutputLimit({ limit: { context: 100_000, output: 0 } }),
     })
 
     expect(usage.compactThreshold).toBe(100_000)
@@ -134,7 +134,7 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 10_000, output: 50_000 } },
       tokens: tokens({ input: 12_000 }),
       compaction: { reserved: 20_000 },
-      defaultOutputReserve: 50_000,
+      defaultReserveTokens: 50_000,
     })
 
     expect(usage.compactThreshold).toBe(0)
@@ -146,7 +146,7 @@ describe("deriveContextUsage", () => {
       model: { limit: { context: 100_000, output: 10_000 } },
       tokens: tokens({ input: 1_000 }),
       compaction: { auto: false },
-      defaultOutputReserve: 10_000,
+      defaultReserveTokens: 10_000,
     })
 
     expect(usage.autoCompactEnabled).toBe(false)

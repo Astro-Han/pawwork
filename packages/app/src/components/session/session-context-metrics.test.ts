@@ -87,7 +87,7 @@ describe("getSessionContextMetrics", () => {
 
     const metrics = getSessionContextMetrics(messages, providers, { compaction: { reserved: 20_000 } })
 
-    expect(metrics.context?.limit).toBe(272_000)
+    expect(metrics.context?.effectiveInputLimit).toBe(272_000)
     expect(metrics.context?.contextWindow).toBe(400_000)
     expect(metrics.context?.usedTokens).toBe(238_000)
     expect(metrics.context?.compactThreshold).toBe(252_000)
@@ -152,7 +152,7 @@ describe("getSessionContextMetrics", () => {
     const metrics = getSessionContextMetrics(messages, providers)
 
     expect(metrics.context?.usedTokens).toBe(20_000)
-    expect(metrics.context?.limit).toBeUndefined()
+    expect(metrics.context?.effectiveInputLimit).toBeUndefined()
     expect(metrics.context?.compactThreshold).toBeUndefined()
     expect(metrics.context?.usage).toBeNull()
   })
@@ -165,7 +165,7 @@ describe("getSessionContextMetrics", () => {
 
     expect(metrics.context?.providerLabel).toBe("p-1")
     expect(metrics.context?.modelLabel).toBe("m-1")
-    expect(metrics.context?.limit).toBeUndefined()
+    expect(metrics.context?.effectiveInputLimit).toBeUndefined()
     expect(metrics.context?.compactThreshold).toBeUndefined()
     expect(metrics.context?.usage).toBeNull()
   })

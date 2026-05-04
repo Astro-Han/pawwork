@@ -1,6 +1,6 @@
 import type { Config } from "@/config"
 import type { Provider } from "@/provider"
-import { contextUsageDefaultOutputReserve, deriveContextUsage } from "@opencode-ai/util/context-usage"
+import { contextUsageModelOutputLimit, deriveContextUsage } from "@opencode-ai/util/context-usage"
 import type { MessageV2 } from "./message-v2"
 
 export function usable(input: { cfg: Config.Info; model: Provider.Model }) {
@@ -9,7 +9,7 @@ export function usable(input: { cfg: Config.Info; model: Provider.Model }) {
       model: input.model,
       tokens: emptyTokens,
       compaction: input.cfg.compaction,
-      defaultOutputReserve: contextUsageDefaultOutputReserve(input.model),
+      defaultReserveTokens: contextUsageModelOutputLimit(input.model),
     }).compactThreshold ?? 0
   )
 }
@@ -22,7 +22,7 @@ export function isOverflow(input: { cfg: Config.Info; tokens: MessageV2.Assistan
     model: input.model,
     tokens: input.tokens,
     compaction: input.cfg.compaction,
-    defaultOutputReserve: contextUsageDefaultOutputReserve(input.model),
+    defaultReserveTokens: contextUsageModelOutputLimit(input.model),
   })
   return usage.compactThreshold !== undefined && usage.usedTokens >= usage.compactThreshold
 }

@@ -26,7 +26,7 @@ export type ContextUsageInput = {
   model?: ContextUsageModel
   tokens: ContextUsageTokens
   compaction?: ContextUsageCompaction
-  defaultOutputReserve?: number
+  defaultReserveTokens?: number
 }
 
 export type ContextUsage = {
@@ -40,12 +40,12 @@ export type ContextUsage = {
 const COMPACTION_BUFFER = 20_000
 
 export function contextUsageUsedTokens(tokens: ContextUsageTokens) {
-  // Match overflow accounting: provider `total` wins when present; otherwise
+  // Match overflow accounting: non-zero provider `total` wins; otherwise
   // reasoning is excluded because providers may also report it inside output.
   return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
 }
 
-export function contextUsageDefaultOutputReserve(model?: ContextUsageModel) {
+export function contextUsageModelOutputLimit(model?: ContextUsageModel) {
   return model?.limit.output
 }
 
@@ -65,8 +65,10 @@ export function deriveContextUsage(input: ContextUsageInput): ContextUsage {
   }
 
   const effectiveInputLimit = input.model?.limit.input ?? context
+  // The caller passes the reserve source tokens. This helper applies the shared
+  // 20K cap so runtime and UI cannot drift.
   const reserved =
-    input.compaction?.reserved ?? Math.min(COMPACTION_BUFFER, input.defaultOutputReserve ?? COMPACTION_BUFFER)
+    input.compaction?.reserved ?? Math.min(COMPACTION_BUFFER, input.defaultReserveTokens ?? COMPACTION_BUFFER)
   const compactThreshold = Math.max(0, effectiveInputLimit - reserved)
   const usagePercent = effectiveInputLimit > 0 ? (usedTokens / effectiveInputLimit) * 100 : null
 

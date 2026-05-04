@@ -53,8 +53,8 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const compactStatus = () => {
     const ctx = context()
     if (!ctx) return undefined
-    if (ctx.effectiveInputLimit === undefined) return language.t("context.usage.limitUnknown")
     if (!ctx.autoCompactEnabled) return language.t("context.usage.autoCompactOff")
+    if (ctx.effectiveInputLimit === undefined) return language.t("context.usage.limitUnknown")
     if (ctx.compactThreshold === undefined) return undefined
     return language.t("context.usage.autoCompactsAround", {
       threshold: ctx.compactThreshold.toLocaleString(language.intl()),
