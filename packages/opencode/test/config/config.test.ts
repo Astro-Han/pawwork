@@ -32,6 +32,7 @@ import { withConfigDepsLock } from "../shared/config-deps-lock"
 import { writeInstalledConfigDeps } from "../shared/mock-npm-install"
 import { Npm } from "@opencode-ai/core/npm"
 import { Installation } from "../../src/installation"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 
 const emptyAccount = Layer.mock(Account.Service)({
   active: () => Effect.succeed(Option.none()),
@@ -265,8 +266,11 @@ test("loads and updates global PawWork config aliases", async () => {
   await withPawWorkRuntime(async () => {
     await using globalTmp = await tmpdir()
     await using tmp = await tmpdir()
+    await using home = await tmpdir()
     const prev = Global.Path.config
+    const previousHome = process.env.OPENCODE_TEST_HOME
     ;(Global.Path as { config: string }).config = globalTmp.path
+    process.env.OPENCODE_TEST_HOME = home.path
     await writeInstalledConfigDeps(globalTmp.path)
     await clear()
     try {
@@ -295,11 +299,15 @@ test("loads and updates global PawWork config aliases", async () => {
         },
       })
 
-      const content = await Filesystem.readJson<{ username?: string }>(path.join(globalTmp.path, "pawwork.json"))
+      const content = await Filesystem.readJson<{ username?: string }>(path.join(PawWorkHome.primary(), "pawwork.json"))
       expect(content.username).toBe("updated-pawwork")
+      const legacy = await Filesystem.readJson<{ username?: string }>(path.join(globalTmp.path, "pawwork.json"))
+      expect(legacy.username).toBe("global-pawwork")
       expect(await Filesystem.exists(path.join(globalTmp.path, "opencode.jsonc"))).toBe(false)
     } finally {
       ;(Global.Path as { config: string }).config = prev
+      if (previousHome === undefined) delete process.env.OPENCODE_TEST_HOME
+      else process.env.OPENCODE_TEST_HOME = previousHome
       await clear()
     }
   })

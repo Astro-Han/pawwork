@@ -3,6 +3,7 @@ import path from "path"
 import { Effect } from "effect"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Instruction, projectFiles } from "../../src/session/instruction"
+import { Config } from "../../src/config"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { Instance } from "../../src/project/instance"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -11,6 +12,14 @@ import { tmpdir } from "../fixture/fixture"
 
 const run = <A>(effect: Effect.Effect<A, any, Instruction.Service>) =>
   Effect.runPromise(effect.pipe(Effect.provide(Instruction.defaultLayer)))
+
+beforeEach(async () => {
+  await Config.invalidate(true)
+})
+
+afterEach(async () => {
+  await Config.invalidate(true)
+})
 
 function loaded(filepath: string): MessageV2.WithParts[] {
   const sessionID = SessionID.make("session-loaded-1")
@@ -1123,6 +1132,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     await using pawworkConfig = await tmpdir({
       init: async (dir) => {
         await Bun.write(path.join(dir, "rules", "extra.md"), "# PawWork Relative Instructions")
+        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/extra.md"] }))
       },
     })
     await using opencodeConfig = await tmpdir({
@@ -1130,17 +1140,16 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
         await Bun.write(path.join(dir, "rules", "extra.md"), "# OpenCode Relative Instructions")
       },
     })
-    await using globalTmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/extra.md"] }))
-      },
-    })
+    await using globalTmp = await tmpdir()
     await using projectTmp = await tmpdir()
 
     process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
     process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1"
     process.env.OPENCODE_CONFIG_DIR = opencodeConfig.path
+    delete process.env.PAWWORK_HOME
     process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_CONTENT
+    await Config.invalidate(true)
     const originalGlobalConfig = Global.Path.config
     ;(Global.Path as { config: string }).config = globalTmp.path
 

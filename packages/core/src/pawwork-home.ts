@@ -5,12 +5,25 @@ import { Flag } from "./flag/flag"
 import { Global } from "./global"
 
 function resolveHome(input: string) {
-  const expanded = input === "~" ? Global.Path.home : input.startsWith("~/") ? path.join(Global.Path.home, input.slice(2)) : input
+  const expanded =
+    input === "~" || input === "~\\"
+      ? Global.Path.home
+      : input.startsWith("~/") || input.startsWith("~\\")
+        ? path.join(Global.Path.home, input.slice(2))
+        : input
   return path.resolve(expanded)
 }
 
 function unique(items: string[]) {
-  return Array.from(new Set(items))
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const item of items) {
+    const key = normalize(item)
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(item)
+  }
+  return result
 }
 
 function envPath(input: string | undefined) {
@@ -48,7 +61,7 @@ export namespace PawWorkHome {
   }
 
   export function configFileCandidates() {
-    return candidates().flatMap((dir) => [path.join(dir, "pawwork.jsonc"), path.join(dir, "pawwork.json")])
+    return candidates().flatMap((dir) => [path.join(dir, "pawwork.json"), path.join(dir, "pawwork.jsonc")])
   }
 
   export async function ensurePrimary() {

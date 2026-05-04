@@ -1218,7 +1218,7 @@ export default function Layout(props: ParentProps) {
         category: language.t("command.category.settings"),
         disabled: !platform.openPath,
         onSelect: async () => {
-          const target = globalSync.data.path.config || (await globalSDK.client.path.get().then((x) => x.data?.config))
+          const target = await globalSDK.client.path.get({ ensureConfig: true }).then((x) => x.data?.config)
           if (target) await platform.openPath?.(target)
         },
       },

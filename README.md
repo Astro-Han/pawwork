@@ -60,6 +60,12 @@ PawWork includes a free plan powered by OpenCode Zen, plus built-in web search w
 
 When you want more model choice or control, connect your own accounts. PawWork supports API keys, OAuth where available, OpenAI-compatible providers, and supported coding plans, including OpenAI, Claude, DeepSeek, Gemini, Kimi, GLM, and more.
 
+## Configuration
+
+PawWork keeps human-editable global configuration in `~/.pawwork` by default. Set `PAWWORK_HOME` to use another folder. The older `PAWWORK_CONFIG_DIR` variable is still accepted as a legacy alias.
+
+Runtime data is separate. Sessions, databases, cache, logs, and downloaded helper binaries continue to use the operating system's app data, cache, state, and log directories, not `~/.pawwork`.
+
 ## Download
 
 Download the latest macOS and Windows builds from [GitHub Releases](https://github.com/Astro-Han/pawwork/releases/latest).

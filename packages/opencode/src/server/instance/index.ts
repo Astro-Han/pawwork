@@ -68,6 +68,17 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         summary: "Get paths",
         description: "Retrieve the current working directory and related path information for the OpenCode instance.",
         operationId: "path.get",
+        parameters: [
+          {
+            name: "ensureConfig",
+            in: "query",
+            required: false,
+            schema: {
+              type: "boolean",
+            },
+            description: "Create the global config directory before returning it.",
+          },
+        ],
         responses: {
           200: {
             description: "Path",
@@ -92,7 +103,12 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
-        const config = Runtime.isPawWork() ? await PawWorkHome.ensurePrimary() : Global.Path.config
+        const ensureConfig = c.req.query("ensureConfig") === "true"
+        const config = Runtime.isPawWork()
+          ? ensureConfig
+            ? await PawWorkHome.ensurePrimary()
+            : PawWorkHome.primary()
+          : Global.Path.config
         return c.json({
           home: Global.Path.home,
           state: Global.Path.state,

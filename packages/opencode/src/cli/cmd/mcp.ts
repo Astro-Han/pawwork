@@ -433,8 +433,7 @@ async function resolveConfigPath(baseDir: string, global = false) {
     }
   }
 
-  // Default to pawwork.json if none exist.
-  return candidates[0]
+  return Runtime.isPawWork() ? path.join(baseDir, "pawwork.json") : path.join(baseDir, "opencode.json")
 }
 
 async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: string) {
@@ -531,6 +530,7 @@ export const McpAddCommand = cmd({
             command: command.split(" "),
           }
 
+          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.updateGlobal({})
           await addMcpToConfig(name, mcpConfig, configPath)
           prompts.log.success(`MCP server "${name}" added to ${configPath}`)
           prompts.outro("MCP server added successfully")
@@ -609,6 +609,7 @@ export const McpAddCommand = cmd({
             }
           }
 
+          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.updateGlobal({})
           await addMcpToConfig(name, mcpConfig, configPath)
           prompts.log.success(`MCP server "${name}" added to ${configPath}`)
         }

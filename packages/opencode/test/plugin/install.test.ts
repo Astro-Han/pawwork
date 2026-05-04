@@ -26,7 +26,10 @@ function deps(global: string, target: string | Error): PlugDeps {
       await Filesystem.write(file, text)
     },
     exists: (file) => Filesystem.exists(file),
-    files: (dir, name) => [path.join(dir, `${name}.jsonc`), path.join(dir, `${name}.json`)],
+    files: (dir, name) =>
+      name === "pawwork"
+        ? [path.join(dir, `${name}.json`), path.join(dir, `${name}.jsonc`)]
+        : [path.join(dir, `${name}.jsonc`), path.join(dir, `${name}.json`)],
     global,
   }
 }
@@ -111,7 +114,7 @@ async function read(file: string) {
 }
 
 describe("plugin.install.task", () => {
-  test("writes PawWork global plugin config to pawwork.jsonc", async () => {
+  test("writes PawWork global plugin config to pawwork.json", async () => {
     await using tmp = await tmpdir()
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
     process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
@@ -129,9 +132,43 @@ describe("plugin.install.task", () => {
       const ok = await run(ctx(tmp.path))
       expect(ok).toBe(true)
 
-      const config = await read(path.join(tmp.path, "global", "pawwork.jsonc"))
+      const config = await read(path.join(tmp.path, "global", "pawwork.json"))
       expect(config.plugin).toEqual(["acme@1.2.3"])
       expect(await Filesystem.exists(path.join(tmp.path, "global", "opencode.jsonc"))).toBe(false)
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
+  test("seeds PawWork global plugin config before patching it", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      const target = await plugin(tmp.path, ["server"])
+      const dep = deps(path.join(tmp.path, "global"), target)
+      dep.seedGlobalConfig = async () => {
+        await Filesystem.write(path.join(tmp.path, "global", "pawwork.json"), JSON.stringify({ username: "legacy-user" }))
+      }
+      const run = createPlugTask(
+        {
+          mod: "acme@1.2.3",
+          global: true,
+        },
+        dep,
+      )
+
+      const ok = await run(ctx(tmp.path))
+      expect(ok).toBe(true)
+
+      const config = await Filesystem.readJson<{
+        username?: string
+        plugin?: unknown[]
+      }>(path.join(tmp.path, "global", "pawwork.json"))
+      expect(config.username).toBe("legacy-user")
+      expect(config.plugin).toEqual(["acme@1.2.3"])
     } finally {
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime

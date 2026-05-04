@@ -238,6 +238,32 @@ describe("PawWork global config isolation", () => {
     expect(PawWorkHome.candidates()[0]).toBe(path.join(home.path, ".pawwork"))
   })
 
+  test("expands Windows-style tilde in PAWWORK_HOME", async () => {
+    await using home = await tmpdir()
+    process.env.OPENCODE_TEST_HOME = home.path
+    process.env.PAWWORK_HOME = "~\\PawWorkHome"
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    expect(PawWorkHome.primary()).toBe(path.join(home.path, "PawWorkHome"))
+  })
+
+  test("resolves relative PAWWORK_HOME to an absolute path", () => {
+    process.env.PAWWORK_HOME = "relative-pawwork-home"
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    expect(PawWorkHome.primary()).toBe(path.resolve("relative-pawwork-home"))
+  })
+
+  test("deduplicates equivalent PawWork Home candidates", async () => {
+    await using home = await tmpdir()
+    process.env.OPENCODE_TEST_HOME = home.path
+    process.env.PAWWORK_HOME = "~/same"
+    process.env.PAWWORK_CONFIG_DIR = path.join(home.path, "same")
+
+    const candidates = PawWorkHome.candidates()
+    expect(candidates.filter((candidate) => candidate === path.join(home.path, "same"))).toHaveLength(1)
+  })
+
   test("global config reads PAWWORK_HOME before PAWWORK_CONFIG_DIR and legacy config", async () => {
     await using primary = await tmpdir()
     await using envLegacy = await tmpdir()

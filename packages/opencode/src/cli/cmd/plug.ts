@@ -2,6 +2,7 @@ import { intro, log, outro, spinner } from "@clack/prompts"
 import type { Argv } from "yargs"
 
 import { ConfigPaths } from "../../config/paths"
+import { Config } from "../../config/config"
 import { Global } from "../../global"
 import { installPlugin, patchPluginConfig, readPluginManifest } from "../../plugin/install"
 import { resolvePluginTarget } from "../../plugin/shared"
@@ -32,6 +33,7 @@ export type PlugDeps = {
   exists: (file: string) => Promise<boolean>
   files: (dir: string, name: "opencode" | "pawwork") => string[]
   global: string
+  seedGlobalConfig?: () => Promise<void>
 }
 
 export type PlugInput = {
@@ -61,6 +63,9 @@ const defaultPlugDeps: PlugDeps = {
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
   global: Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config,
+  seedGlobalConfig: async () => {
+    await Config.updateGlobal({})
+  },
 }
 
 function cause(err: unknown) {
@@ -131,6 +136,7 @@ export function createPlugTask(input: PlugInput, dep: PlugDeps = defaultPlugDeps
 
     const patch = dep.spinner()
     patch.start("Updating plugin config...")
+    if (global && Runtime.isPawWork()) await dep.seedGlobalConfig?.()
     const out = await patchPluginConfig(
       {
         spec: mod,
