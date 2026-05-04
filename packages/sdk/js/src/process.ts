@@ -37,12 +37,22 @@ export function stop(proc: ChildProcess) {
     return
   }
   const children = descendants(proc.pid)
+  const clearKillTimer = () => {
+    clearTimeout(killTimer)
+    proc.off("exit", clearKillTimer)
+    proc.off("close", clearKillTimer)
+    proc.off("error", clearKillTimer)
+  }
   signal(proc.pid, "SIGTERM")
   for (const child of children) signal(child, "SIGTERM")
   const killTimer = setTimeout(() => {
+    clearKillTimer()
     signal(proc.pid!, "SIGKILL")
     for (const child of children) signal(child, "SIGKILL")
   }, 500)
+  proc.once("exit", clearKillTimer)
+  proc.once("close", clearKillTimer)
+  proc.once("error", clearKillTimer)
   killTimer.unref?.()
 }
 
