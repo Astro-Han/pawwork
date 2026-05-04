@@ -1,6 +1,6 @@
 import { newSessionRoute, openSessionRoute } from "./helpers"
 
-export type ShellNavigationReleaseReason = "new-session" | "session" | "settings" | "project" | "choose-project"
+export type ShellNavigationReleaseReason = "new-session" | "session" | "settings" | "choose-project"
 
 export type ShellNavigationSession = {
   directory: string

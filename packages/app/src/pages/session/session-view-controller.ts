@@ -16,18 +16,9 @@ export function sessionKey(input: { directory: string; sessionID: string | undef
   return `${input.directory}${input.sessionID ? `/${input.sessionID}` : ""}`
 }
 
-export function nextVisibleSessionID(input: {
-  route: string | undefined
-}) {
-  if (!input.route) return undefined
-  return input.route
-}
-
 export function nextSessionViewState(input: SessionViewStateInput) {
   const routeReady = !input.routeSessionID || input.routeMessagesReady
-  const visibleSessionID = nextVisibleSessionID({
-    route: input.routeSessionID,
-  })
+  const visibleSessionID = input.routeSessionID
 
   return {
     routeSessionID: input.routeSessionID,

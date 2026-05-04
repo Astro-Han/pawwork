@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "@solidjs/router"
+import { useParams } from "@solidjs/router"
 import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSortable } from "@thisbeyond/solid-dnd"
@@ -35,6 +35,7 @@ export type WorkspaceSidebarContext = {
   navList: Accessor<Session[]>
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   openSession: (session: Session) => void
+  openNewSession: (directory: string) => void
   workspaceName: (directory: string, projectId?: string, branch?: string) => string | undefined
   renameWorkspace: (directory: string, next: string, projectId?: string, branch?: string) => void
   editorOpen: (id: string) => boolean
@@ -145,7 +146,7 @@ const WorkspaceActions = (props: {
   showResetWorkspaceDialog: WorkspaceSidebarContext["showResetWorkspaceDialog"]
   showDeleteWorkspaceDialog: WorkspaceSidebarContext["showDeleteWorkspaceDialog"]
   root: string
-  navigateToNewSession: () => void
+  openNewSession: () => void
 }): JSX.Element => (
   <div
     class="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity"
@@ -217,7 +218,7 @@ const WorkspaceActions = (props: {
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            props.navigateToNewSession()
+            props.openNewSession()
           }}
         />
       </Tooltip>
@@ -227,6 +228,7 @@ const WorkspaceActions = (props: {
 
 const WorkspaceSessionList = (props: {
   slug: Accessor<string>
+  directory: string
   ctx: WorkspaceSidebarContext
   showNew: Accessor<boolean>
   loading: Accessor<boolean>
@@ -237,7 +239,7 @@ const WorkspaceSessionList = (props: {
 }): JSX.Element => (
   <nav class="flex flex-col gap-1">
     <Show when={props.showNew()}>
-      <NewSessionItem slug={props.slug()} />
+      <NewSessionItem slug={props.slug()} onOpenNewSession={() => props.ctx.openNewSession(props.directory)} />
     </Show>
     <Show when={props.loading()}>
       <SessionSkeleton />
@@ -278,7 +280,6 @@ export const SortableWorkspace = (props: {
   directory: string
   project: LocalProject
 }): JSX.Element => {
-  const navigate = useNavigate()
   const params = useParams()
   const globalSync = useGlobalSync()
   const language = useLanguage()
@@ -395,7 +396,7 @@ export const SortableWorkspace = (props: {
                 showResetWorkspaceDialog={props.ctx.showResetWorkspaceDialog}
                 showDeleteWorkspaceDialog={props.ctx.showDeleteWorkspaceDialog}
                 root={props.project.worktree}
-                navigateToNewSession={() => navigate(`/${slug()}/session`)}
+                openNewSession={() => props.ctx.openNewSession(props.directory)}
               />
             </div>
           </div>
@@ -404,6 +405,7 @@ export const SortableWorkspace = (props: {
         <Collapsible.Content>
           <WorkspaceSessionList
             slug={slug}
+            directory={props.directory}
             ctx={props.ctx}
             showNew={showNew}
             loading={loading}
@@ -446,6 +448,7 @@ export const LocalWorkspace = (props: {
     >
       <WorkspaceSessionList
         slug={slug}
+        directory={props.project.worktree}
         ctx={props.ctx}
         showNew={() => false}
         loading={loading}

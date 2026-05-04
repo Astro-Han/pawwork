@@ -59,6 +59,14 @@ export function SessionMainView(props: {
   files: ReturnType<typeof createSessionReviewState>["artifactFiles"]
   size: ReturnType<typeof createSizing>
 }) {
+  const showSessionOpeningState = () =>
+    shouldShowSessionOpeningState({
+      activeSessionID: props.activeSessionID,
+      routeSessionID: props.routeSessionID,
+      routeReady: props.routeReady,
+      timelineSessionID: props.timelineSessionID,
+    })
+
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
@@ -91,14 +99,7 @@ export function SessionMainView(props: {
         <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-background-stronger flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
-              <Match
-                when={shouldShowSessionOpeningState({
-                  activeSessionID: props.activeSessionID,
-                  routeSessionID: props.routeSessionID,
-                  routeReady: props.routeReady,
-                  timelineSessionID: props.timelineSessionID,
-                })}
-              >
+              <Match when={showSessionOpeningState()}>
                 <div
                   class="size-full flex items-center justify-center px-6 text-center"
                   role="status"
@@ -172,7 +173,7 @@ export function SessionMainView(props: {
               </Match>
             </Switch>
           </div>
-          <Show when={props.activeSessionID}>{props.composerSession}</Show>
+          <Show when={props.activeSessionID && !showSessionOpeningState()}>{props.composerSession}</Show>
         </div>
 
         <SessionSidePanel

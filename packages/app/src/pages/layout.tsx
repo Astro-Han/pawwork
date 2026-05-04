@@ -2052,6 +2052,7 @@ export default function Layout(props: ParentProps) {
     navList: currentSessions,
     prefetchSession,
     openSession: navigateToSession,
+    openNewSession: openPawworkHome,
     workspaceName,
     renameWorkspace,
     editorOpen,
