@@ -10,6 +10,7 @@ import { lazy } from "@opencode-ai/util/lazy"
 import { Shell } from "@/shell/shell"
 import { Plugin } from "@/plugin"
 import { envValueCaseInsensitive, withoutInternalServerAuthEnv } from "@/util/env"
+import { Process } from "@/util/process"
 import { PtyID } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
@@ -19,6 +20,7 @@ export namespace Pty {
 
   const BUFFER_LIMIT = 1024 * 1024 * 2
   const BUFFER_CHUNK = 64 * 1024
+  const EXIT_WAIT_MS = 1000
   const encoder = new TextEncoder()
 
   type Socket = {
@@ -33,6 +35,7 @@ export namespace Pty {
   type Active = {
     info: Info
     process: Proc
+    exitCode?: number
     buffer: string
     bufferCursor: number
     cursor: number
@@ -42,6 +45,7 @@ export namespace Pty {
   type State = {
     dir: string
     sessions: Map<PtyID, Active>
+    cleanupTasks: Set<Promise<void>>
   }
 
   // WebSocket control frame: 0x00 + UTF-8 JSON.
@@ -121,10 +125,8 @@ export namespace Pty {
     Effect.gen(function* () {
       const bus = yield* Bus.Service
       const plugin = yield* Plugin.Service
-      function teardown(session: Active) {
-        try {
-          session.process.kill()
-        } catch {}
+
+      function closeSubscribers(session: Active) {
         for (const [sub, ws] of session.subscribers.entries()) {
           try {
             if (sock(ws) === sub) ws.close()
@@ -133,17 +135,71 @@ export namespace Pty {
         session.subscribers.clear()
       }
 
+      function waitForExit(session: Active) {
+        if (session.info.status === "exited") return Promise.resolve(session.exitCode)
+        return new Promise<number | undefined>((resolve) => {
+          let timer: ReturnType<typeof setTimeout> | undefined
+          const sub = session.process.onExit(({ exitCode }) => {
+            if (timer) clearTimeout(timer)
+            sub.dispose()
+            session.exitCode = exitCode
+            resolve(exitCode)
+          })
+          timer = setTimeout(() => {
+            sub.dispose()
+            resolve(undefined)
+          }, EXIT_WAIT_MS)
+        })
+      }
+
+      const hasExited = (session: Active) => session.info.status === "exited" || !Process.exists(session.process.pid)
+
+      function signalProcess(session: Active, signal: string) {
+        if (session.info.status === "exited") return
+        try {
+          session.process.kill(signal)
+        } catch {}
+      }
+
+      const terminate = Effect.fn("Pty.terminate")(function* (session: Active) {
+        if (hasExited(session)) return session.exitCode
+        const exited = waitForExit(session)
+        if (process.platform === "win32") {
+          signalProcess(session, "SIGTERM")
+          return yield* Effect.promise(() => exited)
+        }
+
+        yield* Effect.promise(() =>
+          Process.terminateTree({
+            pid: session.process.pid,
+            signalRoot: (signal) => session.process.kill(signal),
+            waitForExit: exited,
+          }),
+        )
+        if (hasExited(session)) return session.exitCode
+        return yield* Effect.promise(() => exited)
+      })
+
+      const teardown = Effect.fn("Pty.teardown")(function* (session: Active) {
+        closeSubscribers(session)
+        return yield* terminate(session)
+      })
+
       const state = yield* InstanceState.make<State>(
         Effect.fn("Pty.state")(function* (ctx) {
           const state = {
             dir: ctx.directory,
             sessions: new Map<PtyID, Active>(),
+            cleanupTasks: new Set<Promise<void>>(),
           }
 
           yield* Effect.addFinalizer(() =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
+              if (state.cleanupTasks.size) {
+                yield* Effect.promise(() => Promise.allSettled(state.cleanupTasks)).pipe(Effect.asVoid)
+              }
               for (const session of state.sessions.values()) {
-                teardown(session)
+                yield* teardown(session)
               }
               state.sessions.clear()
             }),
@@ -153,13 +209,30 @@ export namespace Pty {
         }),
       )
 
+      const trackCleanup = (s: State, id: PtyID, effect: Effect.Effect<void>) => {
+        const task = Effect.runPromise(effect.pipe(Effect.provide(EffectLogger.layer)))
+          .catch((error) => {
+            log.error("cleanup task failed", { id, error })
+          })
+          .finally(() => {
+            s.cleanupTasks.delete(task)
+          })
+        s.cleanupTasks.add(task)
+      }
+
       const remove = Effect.fn("Pty.remove")(function* (id: PtyID) {
         const s = yield* InstanceState.get(state)
         const session = s.sessions.get(id)
         if (!session) return
         s.sessions.delete(id)
         log.info("removing session", { id })
-        teardown(session)
+        const alreadyExited = session.info.status === "exited"
+        const exitCode = yield* teardown(session)
+        if (!alreadyExited && session.info.status !== "exited") {
+          session.info.status = "exited"
+          session.exitCode = exitCode ?? -1
+          yield* bus.publish(Event.Exited, { id: session.info.id, exitCode: session.exitCode })
+        }
         yield* bus.publish(Event.Deleted, { id: session.info.id })
       })
 
@@ -261,11 +334,18 @@ export namespace Pty {
         )
         proc.onExit(
           Instance.bind(({ exitCode }) => {
-            if (session.info.status === "exited") return
+            if (session.info.status === "exited" || !s.sessions.has(id)) return
             log.info("session exited", { id, exitCode })
             session.info.status = "exited"
-            Effect.runFork(bus.publish(Event.Exited, { id, exitCode }).pipe(Effect.provide(EffectLogger.layer)))
-            Effect.runFork(remove(id).pipe(Effect.provide(EffectLogger.layer)))
+            session.exitCode = exitCode
+            trackCleanup(
+              s,
+              id,
+              Effect.gen(function* () {
+                yield* bus.publish(Event.Exited, { id, exitCode })
+                yield* remove(id)
+              }),
+            )
           }),
         )
         yield* bus.publish(Event.Created, { info })

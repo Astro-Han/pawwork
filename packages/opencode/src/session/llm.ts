@@ -1,6 +1,6 @@
 import { Provider } from "@/provider/provider"
 import { Log } from "@opencode-ai/core/util/log"
-import { Context, Effect, Layer, Record } from "effect"
+import { Context, Duration, Effect, Layer, Record } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
 import { mergeDeep, pipe } from "remeda"
@@ -25,6 +25,7 @@ import * as Option from "effect/Option"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
+export const SILENT_STREAM_TIMEOUT_MS = Duration.toMillis(Duration.minutes(10))
 type Result = Awaited<ReturnType<typeof streamText>>
 
 export type StreamInput = {
@@ -39,6 +40,7 @@ export type StreamInput = {
   small?: boolean
   tools: Record<string, Tool>
   retries?: number
+  streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
 }
 
@@ -399,14 +401,38 @@ const live: Layer.Layer<
       Stream.scoped(
         Stream.unwrap(
           Effect.gen(function* () {
-            const ctrl = yield* Effect.acquireRelease(
-              Effect.sync(() => new AbortController()),
-              (ctrl) => Effect.sync(() => ctrl.abort()),
+            const timeoutMsInput = input.streamTimeoutMs
+            const timeoutMs =
+              typeof timeoutMsInput === "number" && Number.isFinite(timeoutMsInput) && timeoutMsInput > 0
+                ? timeoutMsInput
+                : SILENT_STREAM_TIMEOUT_MS
+            const request = yield* Effect.acquireRelease(
+              Effect.sync(() => {
+                const ctrl = new AbortController()
+                let timeout = setTimeout(() => ctrl.abort(), timeoutMs)
+                return {
+                  ctrl,
+                  resetTimeout() {
+                    clearTimeout(timeout)
+                    timeout = setTimeout(() => ctrl.abort(), timeoutMs)
+                  },
+                  cleanup() {
+                    clearTimeout(timeout)
+                    ctrl.abort()
+                  },
+                }
+              }),
+              (request) => Effect.sync(() => request.cleanup()),
             )
 
-            const result = yield* run({ ...input, abort: ctrl.signal })
+            const result = yield* run({ ...input, abort: request.ctrl.signal })
 
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e))))
+            // This is a silent-stream timeout: it limits how long we wait for
+            // the next provider event, not the total model runtime.
+            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e)))).pipe(
+              Stream.tap(() => Effect.sync(() => request.resetTimeout())),
+              Stream.timeout(Duration.millis(timeoutMs)),
+            )
           }),
         ),
       )

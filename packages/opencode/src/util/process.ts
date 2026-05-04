@@ -1,9 +1,15 @@
 import { type ChildProcess } from "child_process"
 import launch from "cross-spawn"
 import { buffer } from "node:stream/consumers"
+import { setTimeout as sleep } from "node:timers/promises"
 import { errorMessage } from "./error"
+import { Log } from "@opencode-ai/core/util/log"
+
+const log = Log.create({ service: "util.process" })
 
 export namespace Process {
+  export const TERMINATION_GRACE_MS = 500
+
   export type Stdio = "inherit" | "pipe" | "ignore"
   export type Shell = boolean | string
 
@@ -69,24 +75,37 @@ export namespace Process {
     })
 
     let closed = false
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let exited: Promise<number>
 
     const abort = () => {
       if (closed) return
       if (proc.exitCode !== null || proc.signalCode !== null) return
       closed = true
 
-      proc.kill(opts.kill ?? "SIGTERM")
-
       const ms = opts.timeout ?? 5_000
-      if (ms <= 0) return
-      timer = setTimeout(() => proc.kill("SIGKILL"), ms)
+      if (ms <= 0) {
+        proc.kill(opts.kill ?? "SIGTERM")
+        return
+      }
+      if (!proc.pid) {
+        proc.kill(opts.kill ?? "SIGTERM")
+        return
+      }
+
+      void terminateTree({
+        pid: proc.pid,
+        graceMs: ms,
+        signalRoot: (signal) => proc.kill(signal),
+        waitForExit: exited,
+      }).catch((error) => {
+        log.debug("failed to terminate aborted process tree", { pid: proc.pid, error: errorMessage(error) })
+        proc.kill("SIGKILL")
+      })
     }
 
-    const exited = new Promise<number>((resolve, reject) => {
+    exited = new Promise<number>((resolve, reject) => {
       const done = () => {
         opts.abort?.removeEventListener("abort", abort)
-        if (timer) clearTimeout(timer)
       }
 
       proc.once("exit", (code, signal) => {
@@ -144,22 +163,136 @@ export namespace Process {
     throw new RunFailedError(cmd, out.code, out.stdout, out.stderr)
   }
 
-  // Duplicated in `packages/sdk/js/src/process.ts` because the SDK cannot import
-  // `opencode` without creating a cycle. Keep both copies in sync.
+  // The SDK keeps a sync stop variant because it cannot import opencode without
+  // creating a cycle. Keep platform behavior aligned when changing this path.
   export async function stop(proc: ChildProcess) {
     if (proc.exitCode !== null || proc.signalCode !== null) return
 
-    if (process.platform !== "win32" || !proc.pid) {
+    if (!proc.pid) {
       proc.kill()
       return
     }
 
-    const out = await run(["taskkill", "/pid", String(proc.pid), "/T", "/F"], {
-      nothrow: true,
+    const waitForExit = new Promise<void>((resolve) => {
+      const done = () => {
+        proc.off("exit", done)
+        proc.off("error", done)
+        resolve()
+      }
+      proc.once("exit", done)
+      proc.once("error", done)
     })
 
-    if (out.code === 0) return
-    proc.kill()
+    await terminateTree({
+      pid: proc.pid,
+      signalRoot: (signal) => proc.kill(signal),
+      waitForExit,
+    })
+  }
+
+  export function exists(pid: number) {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  export async function descendants(pid: number): Promise<number[]> {
+    if (process.platform === "win32") return []
+    const seen = new Set<number>()
+    const pending = [pid]
+    while (pending.length) {
+      const parent = pending.pop()!
+      const out = await Bun.$`pgrep -P ${parent}`
+        .quiet()
+        .nothrow()
+        .text()
+        .catch((error) => {
+          log.debug("failed to enumerate child processes", { pid: parent, error: errorMessage(error) })
+          return ""
+        })
+      for (const line of out.split(/\s+/)) {
+        const child = Number(line)
+        if (!Number.isInteger(child) || child <= 0 || seen.has(child)) continue
+        seen.add(child)
+        pending.push(child)
+      }
+    }
+    return Array.from(seen)
+  }
+
+  function signalPid(pid: number, signal: NodeJS.Signals) {
+    try {
+      if (exists(pid)) process.kill(pid, signal)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function signalGroup(pid: number, signal: NodeJS.Signals) {
+    try {
+      process.kill(-pid, signal)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  export async function terminateTree(input: {
+    pid: number
+    graceMs?: number
+    signalRoot?: (signal: NodeJS.Signals) => void
+    waitForExit?: Promise<unknown>
+    findDescendants?: (pid: number) => Promise<number[]>
+  }) {
+    const graceMs = input.graceMs ?? TERMINATION_GRACE_MS
+    if (process.platform === "win32") {
+      await Bun.$`taskkill /pid ${input.pid} /f /t`.quiet().nothrow()
+      return
+    }
+
+    // Descendants are a best-effort snapshot for normal child processes. A
+    // daemonized double-fork can intentionally leave this tree before cleanup.
+    const children = await (input.findDescendants ?? descendants)(input.pid).catch((error) => {
+      log.debug("failed to enumerate process tree", { pid: input.pid, error: errorMessage(error) })
+      return []
+    })
+    const signalRoot = (signal: NodeJS.Signals) => {
+      if (input.signalRoot && exists(input.pid)) {
+        try {
+          input.signalRoot(signal)
+          return
+        } catch {}
+      }
+      signalPid(input.pid, signal)
+    }
+
+    const groupSignaled = signalGroup(input.pid, "SIGTERM")
+    log.debug("sent process tree terminate signal", { pid: input.pid, groupSignaled, descendantCount: children.length })
+    if (!groupSignaled) {
+      signalRoot("SIGTERM")
+      for (const child of children) signalPid(child, "SIGTERM")
+    }
+
+    // With waitForExit, worst case is one grace period before SIGKILL and one
+    // bounded wait after SIGKILL so callers can observe the final exit.
+    const rootExited = await (input.waitForExit
+      ? Promise.race([input.waitForExit.then(() => true, () => true), sleep(graceMs).then(() => false)])
+      : sleep(graceMs).then(() => false))
+
+    if (!exists(input.pid) && children.every((child) => !exists(child))) return
+    if (groupSignaled && !rootExited && exists(input.pid)) {
+      signalGroup(input.pid, "SIGKILL")
+      log.debug("sent process group kill signal", { pid: input.pid })
+    } else {
+      signalRoot("SIGKILL")
+    }
+    for (const child of children) signalPid(child, "SIGKILL")
+    log.debug("sent process tree kill signals", { pid: input.pid, groupSignaled, descendantCount: children.length })
+    if (input.waitForExit) await Promise.race([input.waitForExit.catch(() => undefined), sleep(graceMs)])
   }
 
   export async function text(cmd: string[], opts: RunOptions = {}): Promise<TextResult> {

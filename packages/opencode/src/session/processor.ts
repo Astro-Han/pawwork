@@ -23,6 +23,7 @@ import { isRecord } from "@/util/record"
 import { TurnChange } from "./turn-change"
 
 const log = Log.create({ service: "session.processor" })
+const TOOL_CLEANUP_TIMEOUT_MS = 1_000
 
 export type Result = "compact" | "stop" | "continue"
 
@@ -99,8 +100,24 @@ type ToolCall = {
   done: Deferred.Deferred<void>
 }
 
+type PendingLoopAction = {
+  loopAction: "block" | "stop"
+  tool: string
+  sigKey: string
+  kind: SessionDiagnostics.SignatureKind
+  outcome: SessionDiagnostics.LoopOutcome
+  completedCount: number
+  completedFailures?: number
+  nextOccurrenceCount: number
+  attemptedInput?: unknown
+  errorMessage: string
+  renderedText?: string
+}
+
 interface ProcessorContext extends Input {
   toolcalls: Record<string, ToolCall>
+  pendingLoopActions: Record<string, PendingLoopAction>
+  pendingToolUpdates: Record<string, Array<(part: MessageV2.ToolPart) => MessageV2.ToolPart>>
   shouldBreak: boolean
   snapshot: string | undefined
   blocked: boolean
@@ -150,6 +167,8 @@ export const layer: Layer.Layer<
         sessionID: input.sessionID,
         model: input.model,
         toolcalls: {},
+        pendingLoopActions: {},
+        pendingToolUpdates: {},
         shouldBreak: false,
         snapshot: initialSnapshot,
         blocked: false,
@@ -192,7 +211,10 @@ export const layer: Layer.Layer<
         update: (part: MessageV2.ToolPart) => MessageV2.ToolPart,
       ) {
         const match = yield* readToolCall(toolCallID)
-        if (!match) return
+        if (!match) {
+          ;(ctx.pendingToolUpdates[toolCallID] ??= []).push(update)
+          return
+        }
         const part = yield* session.updatePart(update(match.part))
         ctx.toolcalls[toolCallID] = {
           ...match.call,
@@ -201,6 +223,22 @@ export const layer: Layer.Layer<
           sessionID: part.sessionID,
         }
         return part
+      })
+
+      const applyPendingToolUpdates = Effect.fn("SessionProcessor.applyPendingToolUpdates")(function* (toolCallID: string) {
+        const pending = ctx.pendingToolUpdates[toolCallID]
+        if (!pending?.length) return
+        const match = yield* readToolCall(toolCallID)
+        if (!match) return
+        const next = pending.reduce((part, update) => update(part), match.part)
+        const part = yield* session.updatePart(next)
+        delete ctx.pendingToolUpdates[toolCallID]
+        ctx.toolcalls[toolCallID] = {
+          ...match.call,
+          partID: part.id,
+          messageID: part.messageID,
+          sessionID: part.sessionID,
+        }
       })
 
       const toolStateMetadata = (part: MessageV2.ToolPart) =>
@@ -440,6 +478,50 @@ export const layer: Layer.Layer<
       const failToolCall = Effect.fn("SessionProcessor.failToolCall")(function* (toolCallID: string, error: unknown) {
         const match = yield* readToolCall(toolCallID)
         if (!match) return false
+        const pending = ctx.pendingLoopActions[toolCallID]
+        if (pending) {
+          delete ctx.pendingLoopActions[toolCallID]
+          const existingMeta = toolStateMetadata(match.part)
+          const metadata = SessionDiagnostics.mergeMetadata(existingMeta, {
+            diagnostics: {
+              loop: {
+                loopAction: pending.loopAction,
+                loopType: pending.kind,
+                loopSigKey: pending.sigKey,
+                outcome: pending.outcome,
+                loopCompletedCount: pending.completedCount,
+                loopCompletedFailures: pending.completedFailures,
+                loopOccurrenceCount: pending.nextOccurrenceCount,
+                attemptedInput: pending.attemptedInput,
+              },
+            },
+          })
+          const end = Date.now()
+          const start = "time" in match.part.state ? match.part.state.time.start : end
+          yield* session.updatePart({
+            ...match.part,
+            state: {
+              status: "error",
+              input: match.part.state.input,
+              error: pending.errorMessage,
+              metadata,
+              time: { start, end },
+            },
+          })
+          if (pending.loopAction === "stop" && pending.renderedText) {
+            yield* session.updatePart({
+              id: PartID.ascending(),
+              sessionID: ctx.sessionID,
+              messageID: ctx.assistantMessage.id,
+              type: "text",
+              text: pending.renderedText,
+              synthetic: true,
+            })
+            ctx.blocked = true
+          }
+          yield* settleToolCall(toolCallID)
+          return true
+        }
         if (match.part.state.status !== "running") {
           yield* settleToolCall(toolCallID)
           return false
@@ -539,6 +621,7 @@ export const layer: Layer.Layer<
               messageID: part.messageID,
               sessionID: part.sessionID,
             }
+            yield* applyPendingToolUpdates(value.id)
             return
 
           case "tool-input-delta":
@@ -551,7 +634,7 @@ export const layer: Layer.Layer<
             if (ctx.assistantMessage.summary) {
               throw new Error(`Tool call not allowed while generating summary: ${value.toolName}`)
             }
-            const running = yield* updateToolCall(value.toolCallId, (match) => ({
+            let running = yield* updateToolCall(value.toolCallId, (match) => ({
               ...match,
               tool: value.toolName,
               state: {
@@ -564,7 +647,10 @@ export const layer: Layer.Layer<
                 ? { ...value.providerMetadata, providerExecuted: true }
                 : value.providerMetadata,
             }))
-            if (!running || !ctx.assistantMessage.parentID) return
+            yield* applyPendingToolUpdates(value.toolCallId)
+            const refreshed = yield* readToolCall(value.toolCallId)
+            if (refreshed) running = refreshed.part
+            if (!ctx.assistantMessage.parentID) return
             const info = yield* session.get(ctx.sessionID)
             const observed = SessionDiagnostics.observeToolCall({
               records: loopRecords(ctx.assistantMessage.parentID),
@@ -577,13 +663,15 @@ export const layer: Layer.Layer<
               modelID: ctx.model.id,
               providerID: ctx.model.providerID,
             })
-            yield* session.updatePart({
-              ...running,
+            const withDiagnostics = (part: MessageV2.ToolPart) => ({
+              ...part,
               state: {
-                ...running.state,
-                metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(running), observed.record.metadata),
+                ...part.state,
+                metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(part), observed.record.metadata),
               },
             })
+            if (running) yield* session.updatePart(withDiagnostics(running))
+            else yield* updateToolCall(value.toolCallId, withDiagnostics)
             return
           }
 
@@ -751,7 +839,7 @@ export const layer: Layer.Layer<
 
         yield* Effect.forEach(
           Object.values(ctx.toolcalls),
-          (call) => Deferred.await(call.done).pipe(Effect.timeout("250 millis"), Effect.ignore),
+          (call) => Deferred.await(call.done).pipe(Effect.timeout(`${TOOL_CLEANUP_TIMEOUT_MS} millis`), Effect.ignore),
           { concurrency: "unbounded" },
         )
 
@@ -860,8 +948,21 @@ export const layer: Layer.Layer<
         attemptedInput?: unknown
         errorMessage: string
       }) {
+        ctx.pendingLoopActions[input.toolCallId] = {
+          loopAction: "block",
+          tool: input.tool,
+          sigKey: input.sigKey,
+          kind: input.kind,
+          outcome: input.outcome,
+          completedCount: input.completedCount,
+          completedFailures: input.completedFailures,
+          nextOccurrenceCount: input.nextOccurrenceCount,
+          attemptedInput: input.attemptedInput,
+          errorMessage: input.errorMessage,
+        }
         const match = yield* readToolCall(input.toolCallId)
         if (!match) return
+        delete ctx.pendingLoopActions[input.toolCallId]
         // Idempotence guard: if the model emits multiple parallel tool calls of the same
         // sigKey within one assistant step, applyLoopGate can decide block for several of
         // them before any has persisted. Re-check existing block sigKeys here so we record
@@ -935,8 +1036,22 @@ export const layer: Layer.Layer<
         renderedText: string
         toolErrorMessage: string
       }) {
+        ctx.pendingLoopActions[input.toolCallId] = {
+          loopAction: "stop",
+          tool: input.tool,
+          sigKey: input.sigKey,
+          kind: input.kind,
+          outcome: input.outcome,
+          completedCount: input.completedCount,
+          completedFailures: input.completedFailures,
+          nextOccurrenceCount: input.nextOccurrenceCount,
+          attemptedInput: input.attemptedInput,
+          errorMessage: input.toolErrorMessage,
+          renderedText: input.renderedText,
+        }
         const match = yield* readToolCall(input.toolCallId)
         if (!match) return
+        delete ctx.pendingLoopActions[input.toolCallId]
         // Idempotence guard (see recordSyntheticBlock for the full rationale): re-check
         // hasStopped here. The duplicate-stop case writes two Chinese summaries which is
         // visible UX noise; this guard closes the most common parallel-call window.

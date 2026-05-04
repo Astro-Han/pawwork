@@ -13,6 +13,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { fileURLToPath } from "url"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Shell } from "@/shell/shell"
+import { Process } from "@/util/process"
 
 import { BashArity } from "@/permission/arity"
 import * as Truncate from "./truncate"
@@ -513,11 +514,15 @@ export const BashTool = Tool.define(
 
           if (exit.kind === "abort") {
             aborted = true
-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+            yield* Effect.promise(() =>
+              Process.terminateTree({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }),
+            ).pipe(Effect.orDie)
           }
           if (exit.kind === "timeout") {
             expired = true
-            yield* handle.kill({ forceKillAfter: "3 seconds" }).pipe(Effect.orDie)
+            yield* Effect.promise(() =>
+              Process.terminateTree({ pid: handle.pid, waitForExit: Effect.runPromise(handle.exitCode) }),
+            ).pipe(Effect.orDie)
           }
 
           return exit.kind === "exit" ? exit.code : null

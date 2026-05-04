@@ -615,7 +615,7 @@ registerAboutIpc()
 
 function killSidecar() {
   if (!server) return
-  server.stop()
+  server.stop(true)
   server = null
 }
 

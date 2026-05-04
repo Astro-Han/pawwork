@@ -3,6 +3,8 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import fs from "node:fs"
 import os from "os"
 import path from "path"
+import { existsSync } from "node:fs"
+import { setTimeout as sleep } from "node:timers/promises"
 import { Shell } from "../../src/shell/shell"
 import { BashTool } from "../../src/tool/bash"
 import { Instance } from "../../src/project/instance"
@@ -89,6 +91,15 @@ const forms = (dir: string) => {
   const slash = full.replaceAll("\\", "/")
   const root = slash.replace(/^[A-Za-z]:/, "")
   return Array.from(new Set([full, slash, root, root.toLowerCase()]))
+}
+
+const wait = async (fn: () => boolean, ms = 5000) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (fn()) return
+    await sleep(25)
+  }
+  throw new Error("timeout waiting for condition")
 }
 
 const withShell = (item: { label: string; shell: string }, fn: () => Promise<void>) => async () => {
@@ -1075,6 +1086,52 @@ describe("tool.bash abort", () => {
         expect(res.output).toContain("before")
         expect(res.output).toContain("User aborted the command")
         expect(collected.length).toBeGreaterThan(0)
+      },
+    })
+  }, 15_000)
+
+  test("terminates child processes that ignore TERM on abort", async () => {
+    if (process.platform === "win32") return
+
+    await using dir = await tmpdir()
+
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const bash = await initBash()
+        const controller = new AbortController()
+        const pidFile = path.join(dir.path, "bash-child.pid")
+        const child = `trap '' HUP TERM; echo $$ > ${JSON.stringify(pidFile)}; while :; do sleep 1; done`
+        const res = await Effect.runPromise(
+          bash.execute(
+            {
+              command: `/bin/sh -c ${JSON.stringify(child)} & echo before; wait`,
+              description: "Abort child tree",
+            },
+            {
+              ...ctx,
+              abort: controller.signal,
+              metadata: (input) =>
+                Effect.sync(() => {
+                  const output = (input.metadata as { output?: string })?.output
+                  if (output?.includes("before") && !controller.signal.aborted) controller.abort()
+                }),
+            },
+          ),
+        )
+
+        expect(res.output).toContain("before")
+        expect(res.output).toContain("User aborted the command")
+        await wait(() => existsSync(pidFile))
+        const pid = Number((await Bun.file(pidFile).text()).trim())
+        await wait(() => {
+          try {
+            process.kill(pid, 0)
+            return false
+          } catch {
+            return true
+          }
+        })
       },
     })
   }, 15_000)
