@@ -59,15 +59,14 @@ describe("findRunningQuestionFallbackSession", () => {
     ).toBeUndefined()
   })
 
-  test("ignores running question parts older than the lookback window", () => {
+  test("recovers running question parts even when they are older than the lookback window", () => {
     expect(
       findRunningQuestionFallbackSession({
         sessionID: "s",
         hasQuestionRequest: false,
-        lookback: 2,
         messages: [message("old"), message("recent-1"), message("recent-2")],
         partsByMessageID: { old: [toolPart("question")] },
       }),
-    ).toBeUndefined()
+    ).toBe("s")
   })
 })
