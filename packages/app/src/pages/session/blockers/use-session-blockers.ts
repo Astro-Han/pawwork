@@ -124,6 +124,9 @@ export function createSessionBlockers(input: {
             sessionID,
             err,
           })
+          // retry:true asks the clock to re-arm one follow-up timer (see
+          // ReverifyOutcome in question-recovery-clock.ts) so a transient
+          // server failure does not dead-end auto-heal for this edge.
           return { proceed: false, retry: true }
         }
         // Re-check the local guards after the await — state may have moved.
