@@ -214,34 +214,34 @@ export const layer: Layer.Layer<
 
       const loopRecords = (parentID: MessageV2.Assistant["parentID"]) => {
         if (!parentID) return []
-        return Array.from(MessageV2.stream(ctx.sessionID)).flatMap((message) => {
-          if (message.info.role !== "assistant" || message.info.parentID !== parentID) return []
-          let mutationEpoch = 0
-          return message.parts.flatMap((part) => {
+        const out: SessionDiagnostics.ToolCallRecord[] = []
+        let mutationEpoch = 0
+        for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
+          if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
+          for (const part of message.parts) {
             if (part.type === "patch") {
               mutationEpoch += 1
-              return []
+              continue
             }
-            if (part.type !== "tool") return []
-            if (part.state.status !== "completed") return []
+            if (part.type !== "tool") continue
+            if (part.state.status !== "completed") continue
             const loop = toolDiagnostics(part)?.loop
-            if (!loop?.inputHash) return []
-            if (loop.errorFingerprint || loop.loopAction) return []
+            if (!loop?.inputHash) continue
+            if (loop.errorFingerprint || loop.loopAction) continue
             const loopWithEpoch = { ...loop, mutationEpoch: loop.mutationEpoch ?? mutationEpoch }
-            return [
-              {
-                sessionID: ctx.sessionID,
-                parentID,
-                tool: part.tool,
-                inputHash: loop.inputHash,
-                targetHash: loop.targetHash ?? "",
-                outputHash: loop.outputHash,
-                mutationEpoch: loopWithEpoch.mutationEpoch,
-                metadata: { diagnostics: { loop: loopWithEpoch } },
-              } satisfies SessionDiagnostics.ToolCallRecord,
-            ]
-          })
-        })
+            out.push({
+              sessionID: ctx.sessionID,
+              parentID,
+              tool: part.tool,
+              inputHash: loop.inputHash,
+              targetHash: loop.targetHash ?? "",
+              outputHash: loop.outputHash,
+              mutationEpoch: loopWithEpoch.mutationEpoch,
+              metadata: { diagnostics: { loop: loopWithEpoch } },
+            } satisfies SessionDiagnostics.ToolCallRecord)
+          }
+        }
+        return out
       }
 
       // Surface tool parts that represent a loop-relevant failure: real tool errors (carry
@@ -314,6 +314,7 @@ export const layer: Layer.Layer<
         const syntheticBlockSigKeysOut: string[] = []
         let hasStoppedOut = false
         let currentStepIndex: number | undefined
+        let mutationEpoch = 0
         let currentMutationEpoch = 0
         if (!parentID) {
           return {
@@ -325,14 +326,14 @@ export const layer: Layer.Layer<
             currentMutationEpoch,
           }
         }
-        for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
+        for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           let stepIndex = 0
-          let mutationEpoch = 0
           let sawStepStart = false
           let afterStepFinish = false
+          const currentMessage = message.info.id === ctx.assistantMessage.id
+          if (currentMessage) currentMutationEpoch = mutationEpoch
           for (const part of message.parts) {
-            const currentMessage = message.info.id === ctx.assistantMessage.id
             if (part.type === "patch") {
               mutationEpoch += 1
               if (currentMessage) currentMutationEpoch = mutationEpoch

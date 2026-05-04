@@ -735,6 +735,51 @@ it.live("loop gate allows successful read calls for different ranges of the same
   ),
 )
 
+unix("bash file mutation records a patch part for mutation epoch tracking", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Loop gate bash mutation patch",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        const file = path.join(dir, "loop-gate-bash-mutation.txt")
+
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "write file with bash" }],
+        })
+        yield* llm.tool("bash", {
+          command: `printf 'changed\\n' > ${JSON.stringify(file)}`,
+          description: "write test file",
+        })
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const completedBashParts = allParts.filter(
+          (part): part is CompletedToolPart =>
+            part.type === "tool" && part.tool === "bash" && part.state.status === "completed",
+        )
+        const patchParts = allParts.filter((part): part is MessageV2.PatchPart => part.type === "patch")
+
+        expect(completedBashParts).toHaveLength(1)
+        expect(patchParts.length).toBeGreaterThan(0)
+        expect(patchParts.flatMap((part) => part.files).some((item) => item.endsWith("loop-gate-bash-mutation.txt"))).toBe(
+          true,
+        )
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("loop gate stops repeated tool errors across model steps", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
