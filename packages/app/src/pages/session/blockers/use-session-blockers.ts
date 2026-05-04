@@ -29,7 +29,10 @@ export function createSessionBlockers(input: { sessionID: () => string | undefin
     const sessionID = activeSessionID()
     return findRunningQuestionFallbackSession({
       sessionID,
-      hasQuestionRequest: !!questionRequest(),
+      // Pass the per-session entries so fallback can match by (messageID,
+      // callID) — not the tree-walked sessionQuestionRequest result, which
+      // would mask local multi-pending loss. See #419.
+      syncQuestions: sessionID ? (sync.data.question[sessionID] ?? []) : [],
       messages: sessionID ? sync.data.message[sessionID] : undefined,
       partsByMessageID: sync.data.part,
     })

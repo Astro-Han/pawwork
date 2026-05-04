@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part, ToolState } from "@opencode-ai/sdk/v2"
+import type { Message, Part, QuestionRequest, ToolState } from "@opencode-ai/sdk/v2"
 import { findRunningQuestionFallbackSession } from "./question-fallback"
 
 const message = (id: string): Message => ({ id }) as Message
@@ -13,37 +13,69 @@ const toolState = (status: ToolState["status"]): ToolState =>
     time: { start: 0 },
   }) as ToolState
 
-const toolPart = (tool: string, status: ToolState["status"] = "running"): Part =>
+const toolPart = (
+  id: string,
+  tool: string,
+  status: ToolState["status"] = "running",
+  attrs?: { messageID?: string; callID?: string },
+): Part =>
   ({
-    id: `part-${tool}-${status}`,
+    id,
     type: "tool",
     tool,
     state: toolState(status),
+    messageID: attrs?.messageID,
+    callID: attrs?.callID,
   }) as Part
+
+const syncQ = (id: string, sessionID: string, tool?: { messageID: string; callID: string }): QuestionRequest =>
+  ({
+    id,
+    sessionID,
+    questions: [{ header: "h", question: "q", options: [] }],
+    tool,
+  }) as QuestionRequest
 
 describe("findRunningQuestionFallbackSession", () => {
   test("returns undefined without a session", () => {
-    expect(findRunningQuestionFallbackSession({ hasQuestionRequest: false, partsByMessageID: {} })).toBeUndefined()
+    expect(findRunningQuestionFallbackSession({ syncQuestions: [], partsByMessageID: {} })).toBeUndefined()
   })
 
-  test("returns undefined when a question request already exists", () => {
+  test("returns undefined when sync entry matches the running part by (messageID, callID)", () => {
     expect(
       findRunningQuestionFallbackSession({
         sessionID: "s",
-        hasQuestionRequest: true,
-        messages: [message("m")],
-        partsByMessageID: { m: [toolPart("question")] },
+        syncQuestions: [syncQ("q1", "s", { messageID: "m1", callID: "c1" })],
+        messages: [message("m1")],
+        partsByMessageID: { m1: [toolPart("p1", "question", "running", { messageID: "m1", callID: "c1" })] },
       }),
     ).toBeUndefined()
   })
 
-  test("returns the session when a recent running question tool part exists", () => {
+  test("triggers when running part has no matching sync entry by identity", () => {
     expect(
       findRunningQuestionFallbackSession({
         sessionID: "s",
-        hasQuestionRequest: false,
-        messages: [message("m")],
-        partsByMessageID: { m: [toolPart("question")] },
+        // sync has an entry, but its tool identity points to a different call
+        syncQuestions: [syncQ("q_other", "s", { messageID: "m1", callID: "c_other" })],
+        messages: [message("m1")],
+        partsByMessageID: { m1: [toolPart("p1", "question", "running", { messageID: "m1", callID: "c1" })] },
+      }),
+    ).toBe("s")
+  })
+
+  test("triggers when running parts outnumber matched sync entries (multi-pending parallel)", () => {
+    expect(
+      findRunningQuestionFallbackSession({
+        sessionID: "s",
+        // only q1 matches; q2 q3 are running but unknown to sync
+        syncQuestions: [syncQ("q1", "s", { messageID: "m1", callID: "c1" })],
+        messages: [message("m1"), message("m2"), message("m3")],
+        partsByMessageID: {
+          m1: [toolPart("p1", "question", "running", { messageID: "m1", callID: "c1" })],
+          m2: [toolPart("p2", "question", "running", { messageID: "m2", callID: "c2" })],
+          m3: [toolPart("p3", "question", "running", { messageID: "m3", callID: "c3" })],
+        },
       }),
     ).toBe("s")
   })
@@ -52,20 +84,50 @@ describe("findRunningQuestionFallbackSession", () => {
     expect(
       findRunningQuestionFallbackSession({
         sessionID: "s",
-        hasQuestionRequest: false,
+        syncQuestions: [],
         messages: [message("m1"), message("m2")],
-        partsByMessageID: { m1: [toolPart("question", "completed")], m2: [toolPart("todowrite", "running")] },
+        partsByMessageID: {
+          m1: [toolPart("p1", "question", "completed", { messageID: "m1", callID: "c1" })],
+          m2: [toolPart("p2", "todowrite", "running", { messageID: "m2", callID: "c2" })],
+        },
       }),
     ).toBeUndefined()
   })
 
-  test("recovers running question parts even when they are older than the lookback window", () => {
+  test("triggers for a running question part beyond the legacy 5-message window", () => {
+    const messages = Array.from({ length: 50 }, (_, i) => message(`m${i}`))
     expect(
       findRunningQuestionFallbackSession({
         sessionID: "s",
-        hasQuestionRequest: false,
-        messages: [message("old"), message("recent-1"), message("recent-2")],
-        partsByMessageID: { old: [toolPart("question")] },
+        syncQuestions: [],
+        messages,
+        partsByMessageID: { m0: [toolPart("p0", "question", "running", { messageID: "m0", callID: "c0" })] },
+      }),
+    ).toBe("s")
+  })
+
+  test("falls back to count check when neither side has tool identity", () => {
+    expect(
+      findRunningQuestionFallbackSession({
+        sessionID: "s",
+        // sync entry without tool identity, running part also missing identity
+        syncQuestions: [syncQ("q1", "s")],
+        messages: [message("m1")],
+        partsByMessageID: { m1: [toolPart("p1", "question", "running")] },
+      }),
+    ).toBeUndefined()
+  })
+
+  test("count fallback triggers when running-without-identity exceeds entries-without-identity", () => {
+    expect(
+      findRunningQuestionFallbackSession({
+        sessionID: "s",
+        syncQuestions: [],
+        messages: [message("m1"), message("m2")],
+        partsByMessageID: {
+          m1: [toolPart("p1", "question", "running")],
+          m2: [toolPart("p2", "question", "running")],
+        },
       }),
     ).toBe("s")
   })
