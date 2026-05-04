@@ -132,6 +132,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
     syntheticBlockSigKeys: loopCtx.syntheticBlockSigKeys,
     parentID,
     currentStepIndex: loopCtx.currentStepIndex,
+    currentMutationEpoch: loopCtx.currentMutationEpoch,
   })
 
   const failureDecision = SessionDiagnostics.queryGateAction({
@@ -169,6 +170,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
       completedCount: decision.completedCount,
       completedFailures: decision.completedFailures,
       nextOccurrenceCount: decision.nextOccurrenceCount,
+      attemptedInput: SessionDiagnostics.compactDiagnosticValue(args),
       errorMessage: userFacing,
     })
     return { kind: "block", userFacing } satisfies GateOutcome
@@ -188,6 +190,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
     completedCount: decision.completedCount,
     completedFailures: decision.completedFailures,
     nextOccurrenceCount: decision.nextOccurrenceCount,
+    attemptedInput: SessionDiagnostics.compactDiagnosticValue(args),
     renderedText,
     toolErrorMessage,
   })

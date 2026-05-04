@@ -39,6 +39,19 @@ describe("SessionDiagnostics.normalizeInput", () => {
   })
 })
 
+describe("SessionDiagnostics.compactDiagnosticValue", () => {
+  test("keeps small diagnostic inputs raw and truncates large values", () => {
+    const small = { command: "bun test" }
+    expect(SessionDiagnostics.compactDiagnosticValue(small)).toEqual(small)
+
+    const large = { command: "x".repeat(5000) }
+    expect(SessionDiagnostics.compactDiagnosticValue(large)).toMatchObject({
+      truncated: true,
+      preview: expect.any(String),
+    })
+  })
+})
+
 describe("SessionDiagnostics.observeToolCall", () => {
   test("creates a success-repeat reminder on the 3rd identical successful call", () => {
     let records: SessionDiagnostics.ToolCallRecord[] = []
@@ -713,5 +726,63 @@ describe("SessionDiagnostics.consumeReminders", () => {
     const result = SessionDiagnostics.consumeReminders({ messages, parentID, now: 10 })
     expect(result.text).toContain("failed against the same target")
     expect(result.text).not.toContain("class of tool error")
+  })
+
+  test("success target reminder asks for a new range or hypothesis without a hard retry ban", () => {
+    const part: MessageV2.ToolPart = {
+      id: PartID.make("prt_success_target"),
+      messageID: MessageID.make("msg_assistant_success_target"),
+      sessionID,
+      type: "tool",
+      tool: "read",
+      callID: "call_success_target",
+      state: {
+        status: "completed",
+        input: { filePath: "/tmp/a.ts", offset: 120, limit: 80 },
+        output: "ok",
+        title: "ok",
+        metadata: {
+          diagnostics: {
+            loop: {
+              reminders: [
+                {
+                  key: "success:target:read:abc",
+                  type: "target_repeat",
+                  status: "pending",
+                  count: 3,
+                  createdAt: 1,
+                },
+              ],
+            },
+          },
+        },
+        time: { start: 1, end: 2 },
+      },
+    }
+    const messages: MessageV2.WithParts[] = [
+      {
+        info: {
+          id: MessageID.make("msg_assistant_success_target"),
+          role: "assistant",
+          sessionID,
+          mode: "build",
+          agent: "build",
+          path: { cwd: "/tmp", root: "/tmp" },
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          modelID,
+          providerID,
+          parentID,
+          time: { created: 1 },
+        },
+        parts: [part],
+      },
+    ]
+
+    const result = SessionDiagnostics.consumeReminders({ messages, parentID, now: 10 })
+
+    expect(result.text).toContain("same target again")
+    expect(result.text).toContain("new range, query, or hypothesis")
+    expect(result.text).not.toContain("Do not repeat the same request")
   })
 })

@@ -53,6 +53,7 @@ export interface Handle {
     syntheticBlockSigKeys: string[]
     hasStopped: boolean
     currentStepIndex?: number
+    currentMutationEpoch?: number
   }
   readonly recordSyntheticBlock: (input: {
     toolCallId: string
@@ -63,6 +64,7 @@ export interface Handle {
     completedCount: number
     completedFailures?: number
     nextOccurrenceCount: number
+    attemptedInput?: unknown
     errorMessage: string
   }) => Effect.Effect<void>
   readonly recordSyntheticStop: (input: {
@@ -74,6 +76,7 @@ export interface Handle {
     completedCount: number
     completedFailures?: number
     nextOccurrenceCount: number
+    attemptedInput?: unknown
     renderedText: string
     toolErrorMessage: string
   }) => Effect.Effect<void>
@@ -211,26 +214,34 @@ export const layer: Layer.Layer<
 
       const loopRecords = (parentID: MessageV2.Assistant["parentID"]) => {
         if (!parentID) return []
-        return Array.from(MessageV2.stream(ctx.sessionID)).flatMap((message) => {
-          if (message.info.role !== "assistant" || message.info.parentID !== parentID) return []
-          return message.parts.flatMap((part) => {
-            if (part.type !== "tool") return []
-            if (part.state.status !== "completed") return []
+        const out: SessionDiagnostics.ToolCallRecord[] = []
+        let mutationEpoch = 0
+        for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
+          if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
+          for (const part of message.parts) {
+            if (part.type === "patch") {
+              mutationEpoch += 1
+              continue
+            }
+            if (part.type !== "tool") continue
+            if (part.state.status !== "completed") continue
             const loop = toolDiagnostics(part)?.loop
-            if (!loop?.inputHash) return []
-            if (loop.errorFingerprint || loop.loopAction) return []
-            return [
-              {
-                sessionID: ctx.sessionID,
-                parentID,
-                tool: part.tool,
-                inputHash: loop.inputHash,
-                targetHash: loop.targetHash ?? "",
-                metadata: { diagnostics: { loop } },
-              } satisfies SessionDiagnostics.ToolCallRecord,
-            ]
-          })
-        })
+            if (!loop?.inputHash) continue
+            if (loop.errorFingerprint || loop.loopAction) continue
+            const loopWithEpoch = { ...loop, mutationEpoch: loop.mutationEpoch ?? mutationEpoch }
+            out.push({
+              sessionID: ctx.sessionID,
+              parentID,
+              tool: part.tool,
+              inputHash: loop.inputHash,
+              targetHash: loop.targetHash ?? "",
+              outputHash: loop.outputHash,
+              mutationEpoch: loopWithEpoch.mutationEpoch,
+              metadata: { diagnostics: { loop: loopWithEpoch } },
+            } satisfies SessionDiagnostics.ToolCallRecord)
+          }
+        }
+        return out
       }
 
       // Surface tool parts that represent a loop-relevant failure: real tool errors (carry
@@ -303,6 +314,8 @@ export const layer: Layer.Layer<
         const syntheticBlockSigKeysOut: string[] = []
         let hasStoppedOut = false
         let currentStepIndex: number | undefined
+        let mutationEpoch = 0
+        let currentMutationEpoch = 0
         if (!parentID) {
           return {
             successRecords: successRecordsOut,
@@ -310,21 +323,28 @@ export const layer: Layer.Layer<
             syntheticBlockSigKeys: syntheticBlockSigKeysOut,
             hasStopped: hasStoppedOut,
             currentStepIndex,
+            currentMutationEpoch,
           }
         }
-        for (const message of Array.from(MessageV2.stream(ctx.sessionID))) {
+        for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           let stepIndex = 0
           let sawStepStart = false
           let afterStepFinish = false
+          const currentMessage = message.info.id === ctx.assistantMessage.id
+          if (currentMessage) currentMutationEpoch = mutationEpoch
           for (const part of message.parts) {
+            if (part.type === "patch") {
+              mutationEpoch += 1
+              if (currentMessage) currentMutationEpoch = mutationEpoch
+              continue
+            }
             if (part.type === "step-start") {
               sawStepStart = true
               afterStepFinish = false
               stepIndex += 1
               continue
             }
-            const currentMessage = message.info.id === ctx.assistantMessage.id
             const activeStepIndex = !sawStepStart || afterStepFinish ? stepIndex + 1 : stepIndex
             if (currentMessage) currentStepIndex = activeStepIndex
             if (part.type === "step-finish") {
@@ -335,7 +355,11 @@ export const layer: Layer.Layer<
             const loop = toolDiagnostics(part)?.loop
             if (!loop) continue
             const observedStepIndex = currentMessage ? activeStepIndex : -1
-            const loopWithStep = { ...loop, stepIndex: loop.stepIndex ?? observedStepIndex }
+            const loopWithStep = {
+              ...loop,
+              stepIndex: loop.stepIndex ?? observedStepIndex,
+              mutationEpoch: loop.mutationEpoch ?? mutationEpoch,
+            }
             if (loop.loopAction === "stop") hasStoppedOut = true
             if (loop.loopAction === "block" && loop.loopSigKey) syntheticBlockSigKeysOut.push(loop.loopSigKey)
             if (part.state.status === "completed" && loop.inputHash && !loop.errorFingerprint && !loop.loopAction) {
@@ -345,6 +369,8 @@ export const layer: Layer.Layer<
                 tool: part.tool,
                 inputHash: loop.inputHash,
                 targetHash: loop.targetHash ?? "",
+                outputHash: loop.outputHash,
+                mutationEpoch: loopWithStep.mutationEpoch,
                 metadata: { diagnostics: { loop: loopWithStep } },
               } satisfies SessionDiagnostics.ToolCallRecord)
             }
@@ -370,6 +396,7 @@ export const layer: Layer.Layer<
           syntheticBlockSigKeys: syntheticBlockSigKeysOut,
           hasStopped: hasStoppedOut,
           currentStepIndex,
+          currentMutationEpoch,
         }
       }
 
@@ -391,7 +418,17 @@ export const layer: Layer.Layer<
             status: "completed",
             input: match.part.state.input,
             output: output.output,
-            metadata: diagnostics ? SessionDiagnostics.mergeMetadata(output.metadata, { diagnostics }) : output.metadata,
+            metadata: diagnostics
+              ? SessionDiagnostics.mergeMetadata(output.metadata, {
+                  diagnostics: {
+                    ...diagnostics,
+                    loop: {
+                      ...diagnostics.loop,
+                      outputHash: SessionDiagnostics.outputHash(output.output),
+                    },
+                  },
+                })
+              : output.metadata,
             title: output.title,
             time: { start: match.part.state.time.start, end: Date.now() },
             attachments: output.attachments,
@@ -820,6 +857,7 @@ export const layer: Layer.Layer<
         completedCount: number
         completedFailures?: number
         nextOccurrenceCount: number
+        attemptedInput?: unknown
         errorMessage: string
       }) {
         const match = yield* readToolCall(input.toolCallId)
@@ -863,8 +901,9 @@ export const layer: Layer.Layer<
               loopSigKey: input.sigKey,
               outcome: input.outcome,
               loopCompletedCount: input.completedCount,
-              loopCompletedFailures: input.completedFailures ?? input.completedCount,
+              loopCompletedFailures: input.completedFailures,
               loopOccurrenceCount: input.nextOccurrenceCount,
+              attemptedInput: input.attemptedInput,
             },
           },
         })
@@ -892,6 +931,7 @@ export const layer: Layer.Layer<
         completedCount: number
         completedFailures?: number
         nextOccurrenceCount: number
+        attemptedInput?: unknown
         renderedText: string
         toolErrorMessage: string
       }) {
@@ -929,8 +969,9 @@ export const layer: Layer.Layer<
               loopSigKey: input.sigKey,
               outcome: input.outcome,
               loopCompletedCount: input.completedCount,
-              loopCompletedFailures: input.completedFailures ?? input.completedCount,
+              loopCompletedFailures: input.completedFailures,
               loopOccurrenceCount: input.nextOccurrenceCount,
+              attemptedInput: input.attemptedInput,
             },
           },
         })
