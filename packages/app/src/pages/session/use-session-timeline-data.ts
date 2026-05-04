@@ -12,10 +12,17 @@ import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { diffs as list } from "@/utils/diffs"
 import { same } from "@/utils/same"
 
-type LastGoodMessages = { sessionID: string; messages: ReturnType<typeof readSessionMessages> } | undefined
+type LastGoodMessages =
+  | {
+      identity: string
+      sessionID: string
+      messages: ReturnType<typeof readSessionMessages>
+    }
+  | undefined
 
 export function readTimelineMessages(input: {
   sessionID: string | undefined
+  identity?: string
   raw: unknown
   lastGood: LastGoodMessages
 }): { messages: ReturnType<typeof readSessionMessages>; lastGood: LastGoodMessages } {
@@ -23,12 +30,14 @@ export function readTimelineMessages(input: {
     return { messages: emptyMessages, lastGood: undefined }
   }
 
+  const identity = input.identity ?? input.sessionID
+
   if (input.raw !== undefined) {
     const messages = readSessionMessages(input.raw)
-    return { messages, lastGood: { sessionID: input.sessionID, messages } }
+    return { messages, lastGood: { identity, sessionID: input.sessionID, messages } }
   }
 
-  if (input.lastGood?.sessionID === input.sessionID) {
+  if (input.lastGood?.identity === identity && input.lastGood.sessionID === input.sessionID) {
     return { messages: input.lastGood.messages, lastGood: input.lastGood }
   }
 
@@ -78,6 +87,7 @@ export function createSessionTimelineData(input: {
       const id = sessionID()
       const next = readTimelineMessages({
         sessionID: id,
+        identity: id ? `${id}:${sessionInfo()?.time.created ?? ""}` : undefined,
         raw: id ? input.sync.data.message[id] : undefined,
         lastGood: lastGoodMessages,
       })

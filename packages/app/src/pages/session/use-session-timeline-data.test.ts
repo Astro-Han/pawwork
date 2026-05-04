@@ -65,6 +65,26 @@ describe("readTimelineMessages", () => {
     expect(missing.lastGood).toBe(ready.lastGood)
   })
 
+  test("does not reuse last-good messages after the same session id gets a different identity scope", () => {
+    const loaded = [userMessage("msg_1")]
+    const ready = readTimelineMessages({
+      sessionID: "ses_target",
+      identity: "server-a:ses_target",
+      raw: loaded,
+      lastGood: undefined,
+    })
+
+    const missing = readTimelineMessages({
+      sessionID: "ses_target",
+      identity: "server-b:ses_target",
+      raw: undefined,
+      lastGood: ready.lastGood,
+    })
+
+    expect(missing.messages).toEqual([])
+    expect(missing.lastGood).toBe(ready.lastGood)
+  })
+
   test("clears last-good messages when there is no active session", () => {
     const loaded = [userMessage("msg_1")]
     const ready = readTimelineMessages({
