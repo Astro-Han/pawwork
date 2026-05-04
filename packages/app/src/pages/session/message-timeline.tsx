@@ -457,19 +457,29 @@ export function MessageTimeline(props: {
               title={language.t("ui.sessionTurn.turnChanges.confirmTitle")}
               description={language.t("ui.sessionTurn.turnChanges.confirmDescription")}
               size="normal"
+              fit
             >
-              <div class="flex flex-col gap-3">
+              <div class="flex flex-col gap-4 px-5 pb-5 pt-2">
                 <Show when={conflictPaths.length > 0}>
-                  <ul class="text-13-regular text-text-strong space-y-1 max-h-40 overflow-auto">
+                  <div class="flex flex-col rounded-md border border-border-base bg-surface-base max-h-44 overflow-auto">
                     <For each={conflictPaths.slice(0, 6)}>
-                      {(item) => <li class="truncate">{item}</li>}
+                      {(item) => (
+                        <div
+                          class="px-3 py-1.5 text-13-regular text-text-strong font-mono truncate"
+                          title={item}
+                        >
+                          {item}
+                        </div>
+                      )}
                     </For>
-                  </ul>
-                  <Show when={conflictPaths.length > 6}>
-                    <span class="text-12-regular text-text-weak">+{conflictPaths.length - 6}</span>
-                  </Show>
+                    <Show when={conflictPaths.length > 6}>
+                      <div class="px-3 py-1.5 text-12-regular text-text-weak border-t border-border-base">
+                        +{conflictPaths.length - 6} more
+                      </div>
+                    </Show>
+                  </div>
                 </Show>
-                <div class="flex justify-end gap-2 pt-2">
+                <div class="flex justify-end gap-2">
                   <Button
                     variant="ghost"
                     onClick={() => {

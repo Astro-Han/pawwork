@@ -21,6 +21,7 @@ import { DiffChanges } from "./diff-changes"
 import { Icon } from "./icon"
 import { IconButton } from "./icon-button"
 import { TextShimmer } from "./text-shimmer"
+import { Tooltip } from "./tooltip"
 import { SessionRetry } from "./session-retry"
 import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
@@ -590,27 +591,31 @@ export function SessionTurn(
                                   </Show>
                                 </span>
                                 <span data-slot="session-turn-change-actions" onClick={(event) => event.stopPropagation()}>
-                                  <IconButton
-                                    icon="open-file"
-                                    size="small"
-                                    variant="ghost"
-                                    aria-label={i18n.t("ui.sessionTurn.turnChanges.openFile")}
-                                    disabled={file.status === "deleted" || !file.openPath || !props.turnChangeActions?.openFile}
-                                    onClick={() => file.openPath && props.turnChangeActions?.openFile?.(file.openPath)}
-                                  />
-                                  <IconButton
-                                    icon="folder-add-left"
-                                    size="small"
-                                    variant="ghost"
-                                    aria-label={i18n.t("ui.sessionTurn.turnChanges.showInFolder")}
-                                    disabled={!file.openPath || !props.turnChangeActions?.showInFolder}
-                                    onClick={() =>
-                                      file.openPath &&
-                                      props.turnChangeActions?.showInFolder?.(
-                                        file.status === "deleted" ? getDirectory(file.openPath) : file.openPath,
-                                      )
-                                    }
-                                  />
+                                  <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.openFile")} placement="top">
+                                    <IconButton
+                                      icon="open-file"
+                                      size="small"
+                                      variant="ghost"
+                                      aria-label={i18n.t("ui.sessionTurn.turnChanges.openFile")}
+                                      disabled={file.status === "deleted" || !file.openPath || !props.turnChangeActions?.openFile}
+                                      onClick={() => file.openPath && props.turnChangeActions?.openFile?.(file.openPath)}
+                                    />
+                                  </Tooltip>
+                                  <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.showInFolder")} placement="top">
+                                    <IconButton
+                                      icon="folder-add-left"
+                                      size="small"
+                                      variant="ghost"
+                                      aria-label={i18n.t("ui.sessionTurn.turnChanges.showInFolder")}
+                                      disabled={!file.openPath || !props.turnChangeActions?.showInFolder}
+                                      onClick={() =>
+                                        file.openPath &&
+                                        props.turnChangeActions?.showInFolder?.(
+                                          file.status === "deleted" ? getDirectory(file.openPath) : file.openPath,
+                                        )
+                                      }
+                                    />
+                                  </Tooltip>
                                 </span>
                               </div>
                               <Show when={expanded() && view()}>

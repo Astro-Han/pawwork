@@ -628,13 +628,13 @@ export const dict = {
   "session.messages.jumpToLatest": "Jump to latest",
   "session.turnChange.undoBlocked": "Undo blocked",
   "session.turnChange.redoBlocked": "Redo blocked",
-  "session.turnChange.blocked.conflict": "The file changed after this turn, so PawWork did not overwrite it.",
+  "session.turnChange.blocked.conflict": "This file was changed after the turn ran, so PawWork left it alone.",
   "session.turnChange.blocked.unsupportedSize":
-    "This turn includes a file without restore data, so PawWork did not change anything.",
-  "session.turnChange.blocked.permissionDenied": "PawWork does not have permission to change this file.",
+    "This turn includes a file too large to restore, so PawWork didn't apply any changes.",
+  "session.turnChange.blocked.permissionDenied": "PawWork doesn't have permission to change this file.",
   "session.turnChange.blocked.rollbackFailed":
-    "PawWork could not fully roll back. Some files may be in an inconsistent state, review them manually.",
-  "session.turnChange.blocked.generic": "PawWork could not apply this change.",
+    "PawWork couldn't fully undo this turn. Some files may be partly changed, please review them.",
+  "session.turnChange.blocked.generic": "PawWork couldn't apply this change.",
   "session.turnChange.blocked.files": "Affected: {{files}}",
   "session.turnChange.blocked.more": ", +{{count}} more",
 
