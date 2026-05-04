@@ -101,6 +101,33 @@ const restart: Platform["restart"] = async () => {
   window.location.reload()
 }
 
+const shellOsFrom = (value: unknown): NonNullable<Platform["shell"]>["os"] | undefined => {
+  return value === "macos" || value === "windows" || value === "linux" ? value : undefined
+}
+
+const detectRuntimeShellOs = (): NonNullable<Platform["shell"]>["os"] | undefined => {
+  if (typeof navigator !== "object") return undefined
+  const ua = navigator.userAgent
+  if (ua.includes("Windows")) return "windows"
+  if (ua.includes("Linux")) return "linux"
+  if (ua.includes("Mac")) return "macos"
+  return undefined
+}
+
+const readRuntimeShellOsOverride = (): NonNullable<Platform["shell"]>["os"] | undefined => {
+  return shellOsFrom((globalThis as { __PAWWORK_SHELL_OS?: unknown }).__PAWWORK_SHELL_OS)
+}
+
+const detectShellOs = (): NonNullable<Platform["shell"]>["os"] => {
+  const runtimeOverride = readRuntimeShellOsOverride()
+  const envOverride = shellOsFrom(import.meta.env.VITE_PAWWORK_SHELL_OS)
+  const runtimeDetectedOs = detectRuntimeShellOs()
+  if (runtimeOverride) return runtimeOverride
+  if (envOverride) return envOverride
+  if (runtimeDetectedOs) return runtimeDetectedOs
+  return "macos"
+}
+
 const root = document.getElementById("root")
 if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
@@ -121,6 +148,7 @@ const getDefaultUrl = () => {
 
 const platform: Platform = {
   platform: "web",
+  shell: { kind: "desktop", os: detectShellOs() },
   version: pkg.version,
   openLink,
   back,

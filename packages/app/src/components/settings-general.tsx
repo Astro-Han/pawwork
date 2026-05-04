@@ -12,7 +12,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { useParams } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
-import { usePlatform } from "@/context/platform"
+import { canCheckUpdate, canUseDisplayBackend, usePlatform } from "@/context/platform"
 import {
   monoDefault,
   monoFontFamily,
@@ -83,7 +83,7 @@ export const SettingsGeneral: Component = () => {
     checking: false,
   })
 
-  const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
+  const linux = createMemo(() => platform.os === "linux" && canUseDisplayBackend(platform))
   const dir = createMemo(() => decode64(params.dir))
   const accepting = createMemo(() => {
     const value = dir()
@@ -111,11 +111,11 @@ export const SettingsGeneral: Component = () => {
   }
 
   const check = () => {
-    if (!platform.checkUpdate) return
+    const checkUpdate = platform.checkUpdate
+    if (!canCheckUpdate(platform) || !checkUpdate) return
     setStore("checking", true)
 
-    void platform
-      .checkUpdate()
+    void checkUpdate()
       .then((result) => {
         if (result.status === "busy") {
           showToast({
@@ -596,7 +596,7 @@ export const SettingsGeneral: Component = () => {
           <div data-action="settings-updates-startup">
             <Switch
               checked={settings.updates.startup()}
-              disabled={!platform.checkUpdate}
+              disabled={!canCheckUpdate(platform)}
               onChange={(checked) => settings.updates.setStartup(checked)}
             />
           </div>
@@ -618,7 +618,7 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.updates.row.check.title")}
           description={language.t("settings.updates.row.check.description")}
         >
-          <Button size="small" variant="secondary" disabled={store.checking || !platform.checkUpdate} onClick={check}>
+          <Button size="small" variant="secondary" disabled={store.checking || !canCheckUpdate(platform)} onClick={check}>
             {store.checking
               ? language.t("settings.updates.action.checking")
               : language.t("settings.updates.action.checkNow")}

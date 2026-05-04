@@ -18,7 +18,7 @@ test("macOS traffic lights stay centered when shell titlebar height increases", 
   const wideDesktopQuery = css.indexOf("@media (min-width: 1280px)")
 
   expect(wideDesktopQuery).toBeGreaterThan(-1)
-  expect(css).toContain('[data-component="desktop-shell"][data-platform="desktop"] {')
+  expect(css).toContain('[data-component="desktop-shell"][data-shell="desktop"] {')
   expect(css).toContain("--shell-titlebar-height: 44px;")
   expect(css).not.toContain("--shell-titlebar-height: 40px;")
   expect(css).not.toContain("--shell-titlebar-height: 48px;")

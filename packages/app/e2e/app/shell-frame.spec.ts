@@ -4,10 +4,18 @@ import {
   desktopShellFrameSelector,
   desktopShellMainSelector,
   desktopShellSelector,
+  settingsUpdatesStartupSelector,
   titlebarLeftSelector,
   titlebarRightSelector,
   titlebarShellSelector,
 } from "../selectors"
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const win = window as typeof window & { __PAWWORK_SHELL_OS?: "macos" }
+    win.__PAWWORK_SHELL_OS = "macos"
+  })
+})
 
 test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSession }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -17,17 +25,38 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
   await expect(page.locator(desktopShellFrameSelector)).toBeVisible()
   await expect(page.locator(titlebarShellSelector)).toBeVisible()
   await expect(page.locator(desktopShellMainSelector)).toBeVisible()
+  await expect(page.locator(desktopShellSelector)).toHaveAttribute("data-platform", "web")
+  await expect(page.locator(desktopShellSelector)).toHaveAttribute("data-shell", "desktop")
+  await expect(page.locator(titlebarShellSelector)).toHaveAttribute("data-shell", "desktop")
+  await expect(page.locator(titlebarShellSelector)).toHaveAttribute("data-shell-os", "macos")
   await expect(page.locator(titlebarLeftSelector)).toHaveCount(1)
   await expect(page.locator(titlebarLeftSelector)).toContainText(/new session/i)
   await expect(page.locator(`${titlebarRightSelector} button`).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /toggle sidebar/i }).first()).toBeVisible()
 
+  const titlebarBox = await page.locator(titlebarShellSelector).boundingBox()
+  expect(titlebarBox?.height ?? 0).toBeGreaterThanOrEqual(43.5)
+  expect(titlebarBox?.height ?? 0).toBeLessThanOrEqual(44.5)
+
   const settings = await openSettings(page)
   await expect(settings.getByRole("heading", { level: 2 })).toBeVisible()
+  await expect(settings.locator(settingsUpdatesStartupSelector).locator('[data-slot="switch-input"]')).toBeDisabled()
+  await expect(settings.getByRole("button", { name: /check now/i })).toBeDisabled()
   await closeSettingsPanel(page, settings)
 
   const palette = await openPalette(page)
   await closeDialog(page, palette)
+})
+
+test("web desktop shell keeps the browser-safe project picker fallback", async ({ page }) => {
+  await page.goto("/")
+
+  await page.getByRole("button", { name: /open project/i }).last().click()
+
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByPlaceholder("Search folders")).toBeVisible()
+  await closeDialog(page, dialog)
 })
 
 test("home titlebar left slot shows the current view title instead of the old file search affordance", async ({
@@ -53,6 +82,7 @@ test("session titlebar left slot shows a project and session breadcrumb", async 
     const buttons = left.getByRole("button")
 
     await expect(buttons).toHaveCount(1)
+    await expect(buttons.first()).toBeDisabled()
     await expect(buttons.first()).toContainText(/.+/)
     await expect(left).toContainText(title)
     await expect(left.getByRole("button", { name: /search files/i })).toHaveCount(0)
