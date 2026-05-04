@@ -142,7 +142,8 @@ export namespace Export {
           outcome?: "success" | "failure"
           completedCount?: number
           occurrenceCount?: number
-          completedFailures: number
+          completedFailures?: number
+          attemptedInput?: unknown
         }
       }
     }
@@ -164,7 +165,8 @@ export namespace Export {
         outcome?: "success" | "failure"
         completedCount?: number
         occurrenceCount?: number
-        completedFailures: number
+        completedFailures?: number
+        attemptedInput?: unknown
       }
     }
   } {
@@ -178,7 +180,8 @@ export namespace Export {
           outcome?: "success" | "failure"
           completedCount?: number
           occurrenceCount?: number
-          completedFailures: number
+          completedFailures?: number
+          attemptedInput?: unknown
         }
       | undefined
     const walk = (t: Tree) => {
@@ -195,6 +198,7 @@ export namespace Export {
                 loopCompletedCount?: number
                 loopCompletedFailures?: number
                 loopOccurrenceCount?: number
+                attemptedInput?: unknown
               }
             | undefined
           if (!loop || (loop.loopAction !== "block" && loop.loopAction !== "stop")) continue
@@ -215,7 +219,8 @@ export namespace Export {
             outcome: loop.outcome,
             completedCount,
             occurrenceCount: loop.loopOccurrenceCount,
-            completedFailures: loop.loopCompletedFailures ?? completedCount,
+            completedFailures: loop.loopCompletedFailures,
+            attemptedInput: loop.attemptedInput,
           }
         }
       }

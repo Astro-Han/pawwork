@@ -7,6 +7,11 @@ const parentID = MessageID.make("msg_user")
 
 const inputHashFor = (input: unknown) => SessionDiagnostics.normalizeInput(input).hash
 const targetHashFor = (url: string) => SessionDiagnostics.hash("url:" + SessionDiagnostics.hash(url))
+const targetHashForInput = (tool: string, input: unknown) => {
+  const target = SessionDiagnostics.targetSummary(tool, input)
+  if (target.isFallback) throw new Error("expected recognized target")
+  return SessionDiagnostics.hash(target.summary)
+}
 
 const failingErrorRecord = (
   url: string,
@@ -46,6 +51,29 @@ const successfulCallRecord = (
       loop: {
         inputHash: inputHashFor({ url }),
         targetHash: targetHashFor(url),
+        outcome: "success",
+        targetRepeatCount: 1,
+        loopRecoverFiredFor: recoverFiredFor.length ? recoverFiredFor : undefined,
+      },
+    },
+  },
+})
+
+const successfulToolCallRecord = (
+  tool: string,
+  input: unknown,
+  recoverFiredFor: string[] = [],
+): SessionDiagnostics.ToolCallRecord => ({
+  sessionID,
+  parentID,
+  tool,
+  inputHash: inputHashFor(input),
+  targetHash: targetHashForInput(tool, input),
+  metadata: {
+    diagnostics: {
+      loop: {
+        inputHash: inputHashFor(input),
+        targetHash: targetHashForInput(tool, input),
         outcome: "success",
         targetRepeatCount: 1,
         loopRecoverFiredFor: recoverFiredFor.length ? recoverFiredFor : undefined,
@@ -119,7 +147,7 @@ describe("SessionDiagnostics.deriveParentLoopState", () => {
 })
 
 describe("SessionDiagnostics.queryGateAction", () => {
-  test("blocks the 4th successful occurrence after a 3rd-occurrence reminder", () => {
+  test("does not hard block successful same-target repeats", () => {
     const url = "https://x.com/a"
     const sigKey = `success:target:webfetch:${targetHashFor(url)}`
     const state = SessionDiagnostics.deriveParentLoopState({
@@ -141,15 +169,10 @@ describe("SessionDiagnostics.queryGateAction", () => {
       outcome: "success",
     })
 
-    expect(decision.action).toBe("block")
-    if (decision.action === "block") {
-      expect(decision.kind).toBe("target")
-      expect(decision.completedCount).toBe(3)
-      expect(decision.nextOccurrenceCount).toBe(4)
-    }
+    expect(decision.action).toBe("observe")
   })
 
-  test("stops the 5th successful occurrence after quarantine", () => {
+  test("does not stop successful same-target repeats after quarantine", () => {
     const url = "https://x.com/a"
     const sigKey = `success:target:webfetch:${targetHashFor(url)}`
     const state = SessionDiagnostics.deriveParentLoopState({
@@ -171,8 +194,65 @@ describe("SessionDiagnostics.queryGateAction", () => {
       outcome: "success",
     })
 
-    expect(decision.action).toBe("stop")
-    if (decision.action === "stop") expect(decision.nextOccurrenceCount).toBe(5)
+    expect(decision.action).toBe("observe")
+  })
+
+  test("does not block successful read calls for different ranges of the same file", () => {
+    const filePath = "/tmp/project/src/session.ts"
+    const targetHash = targetHashForInput("read", { filePath, offset: 1, limit: 80 })
+    const targetSigKey = `success:target:read:${targetHash}`
+    const state = SessionDiagnostics.deriveParentLoopState({
+      successRecords: [
+        successfulToolCallRecord("read", { filePath, offset: 1, limit: 80 }),
+        successfulToolCallRecord("read", { filePath, offset: 120, limit: 80 }),
+        successfulToolCallRecord("read", { filePath, offset: 240, limit: 80 }, [targetSigKey]),
+      ],
+      errorRecords: [],
+      syntheticBlockSigKeys: [],
+      parentID,
+    })
+
+    const decision = SessionDiagnostics.queryGateAction({
+      parentLoopState: state,
+      tool: "read",
+      inputHash: inputHashFor({ filePath, offset: 360, limit: 80 }),
+      targetHash,
+      outcome: "success",
+    })
+
+    expect(decision.action).toBe("observe")
+  })
+
+  test("blocks successful exact-input repeats by signature", () => {
+    const input = { pattern: "**/*.txt" }
+    const inputHash = inputHashFor(input)
+    const inputSigKey = `success:input:glob:${inputHash}`
+    const state = SessionDiagnostics.deriveParentLoopState({
+      successRecords: [
+        successfulToolCallRecord("glob", input),
+        successfulToolCallRecord("glob", input),
+        successfulToolCallRecord("glob", input, [inputSigKey]),
+      ],
+      errorRecords: [],
+      syntheticBlockSigKeys: [],
+      parentID,
+    })
+
+    const decision = SessionDiagnostics.queryGateAction({
+      parentLoopState: state,
+      tool: "glob",
+      inputHash,
+      targetHash: targetHashForInput("glob", input),
+      outcome: "success",
+    })
+
+    expect(decision.action).toBe("block")
+    if (decision.action === "block") {
+      expect(decision.kind).toBe("input")
+      expect(decision.completedCount).toBe(3)
+      expect(decision.completedFailures).toBeUndefined()
+      expect(decision.nextOccurrenceCount).toBe(4)
+    }
   })
 
   test("chooses stop over block across success and failure decisions", () => {

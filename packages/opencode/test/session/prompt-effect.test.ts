@@ -616,6 +616,7 @@ it.live("loop gate blocks repeated tool errors across model steps", () =>
         )
         expect(blockParts).toHaveLength(1)
         expect(blockParts[0].state.metadata?.diagnostics?.loop?.loopCompletedFailures).toBe(3)
+        expect(blockParts[0].state.metadata?.diagnostics?.loop?.attemptedInput).toEqual(input)
       }),
     { git: true, config: providerCfg },
   ),
@@ -725,6 +726,7 @@ it.live("loop gate stops repeated tool errors across model steps", () =>
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.outcome).toBe("failure")
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopCompletedCount).toBe(3)
         expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopOccurrenceCount).toBe(5)
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.attemptedInput).toEqual(input)
         expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(false)
       }),
     { git: true, config: providerCfg },

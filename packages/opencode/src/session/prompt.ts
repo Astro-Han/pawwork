@@ -169,6 +169,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
       completedCount: decision.completedCount,
       completedFailures: decision.completedFailures,
       nextOccurrenceCount: decision.nextOccurrenceCount,
+      attemptedInput: args,
       errorMessage: userFacing,
     })
     return { kind: "block", userFacing } satisfies GateOutcome
@@ -188,6 +189,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
     completedCount: decision.completedCount,
     completedFailures: decision.completedFailures,
     nextOccurrenceCount: decision.nextOccurrenceCount,
+    attemptedInput: args,
     renderedText,
     toolErrorMessage,
   })

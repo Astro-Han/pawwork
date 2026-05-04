@@ -63,6 +63,7 @@ export interface Handle {
     completedCount: number
     completedFailures?: number
     nextOccurrenceCount: number
+    attemptedInput?: unknown
     errorMessage: string
   }) => Effect.Effect<void>
   readonly recordSyntheticStop: (input: {
@@ -74,6 +75,7 @@ export interface Handle {
     completedCount: number
     completedFailures?: number
     nextOccurrenceCount: number
+    attemptedInput?: unknown
     renderedText: string
     toolErrorMessage: string
   }) => Effect.Effect<void>
@@ -820,6 +822,7 @@ export const layer: Layer.Layer<
         completedCount: number
         completedFailures?: number
         nextOccurrenceCount: number
+        attemptedInput?: unknown
         errorMessage: string
       }) {
         const match = yield* readToolCall(input.toolCallId)
@@ -863,8 +866,9 @@ export const layer: Layer.Layer<
               loopSigKey: input.sigKey,
               outcome: input.outcome,
               loopCompletedCount: input.completedCount,
-              loopCompletedFailures: input.completedFailures ?? input.completedCount,
+              loopCompletedFailures: input.completedFailures,
               loopOccurrenceCount: input.nextOccurrenceCount,
+              attemptedInput: input.attemptedInput,
             },
           },
         })
@@ -892,6 +896,7 @@ export const layer: Layer.Layer<
         completedCount: number
         completedFailures?: number
         nextOccurrenceCount: number
+        attemptedInput?: unknown
         renderedText: string
         toolErrorMessage: string
       }) {
@@ -929,8 +934,9 @@ export const layer: Layer.Layer<
               loopSigKey: input.sigKey,
               outcome: input.outcome,
               loopCompletedCount: input.completedCount,
-              loopCompletedFailures: input.completedFailures ?? input.completedCount,
+              loopCompletedFailures: input.completedFailures,
               loopOccurrenceCount: input.nextOccurrenceCount,
+              attemptedInput: input.attemptedInput,
             },
           },
         })

@@ -93,6 +93,7 @@ export namespace SessionDiagnostics {
     targetHashIsFallback?: boolean
     loopLastInput?: unknown
     loopLastError?: unknown
+    attemptedInput?: unknown
     stepIndex?: number
   }
 
@@ -548,13 +549,11 @@ export namespace SessionDiagnostics {
     const inputKey = signatureKey({ outcome, kind: "input", tool, hash: inputHash })
     const targetKey = targetHash ? signatureKey({ outcome, kind: "target", tool, hash: targetHash }) : null
 
-    // Iteration order is intentional: target is checked first because the spec treats
-    // same_target as the more general signal (the model is hitting the same goal in
-    // different ways). When same_input and same_target both reach threshold, we fire on
-    // the target sigKey only; the input sigKey's blockEmitted stays false. This is fine
-    // in practice because same_input ⊆ same_target (same input always has same target),
-    // so the model can't evade by varying targets without also changing input.
-    for (const sigKey of [targetKey, inputKey] as const) {
+    // Successful same_target repeats are weak evidence: reading different ranges of the same
+    // file or fetching the same URL after context changes can be normal progress. Keep hard
+    // gating for successful exact-input repeats, while failed repeats still check target first.
+    const candidates = outcome === "success" ? [inputKey] as const : [targetKey, inputKey] as const
+    for (const sigKey of candidates) {
       if (!sigKey) continue
       const s = state.signatures[sigKey]
       if (!s) continue

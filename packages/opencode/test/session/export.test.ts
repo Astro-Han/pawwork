@@ -395,7 +395,36 @@ describe("Export.deriveSnapshotDiagnostics", () => {
     expect(result.loop?.last?.outcome).toBe("success")
     expect(result.loop?.last?.completedCount).toBe(4)
     expect(result.loop?.last?.occurrenceCount).toBe(5)
-    expect(result.loop?.last?.completedFailures).toBe(4)
+    expect(result.loop?.last?.completedFailures).toBeUndefined()
+  })
+
+  test("exports attempted input for synthetic block diagnostics", () => {
+    const info = makeAssistantInfo()
+    const block = blockToolPartAt(info.id, 100, "attempted-input")
+    const attemptedInput = { filePath: "/tmp/project/src/session.ts", offset: 360, limit: 80 }
+    if (block.state.status !== "error") throw new Error("expected error tool state")
+    block.state.metadata = {
+      ...block.state.metadata,
+      diagnostics: {
+        loop: {
+          ...block.state.metadata?.diagnostics?.loop,
+          attemptedInput,
+        },
+      },
+    }
+    const tree: Export.Tree = {
+      ...makeTree(),
+      messages: [
+        {
+          info,
+          parts: [block],
+        },
+      ],
+      children: [],
+    }
+
+    const result = Export.deriveSnapshotDiagnostics(tree)
+    expect(result.loop?.last?.attemptedInput).toEqual(attemptedInput)
   })
 })
 
