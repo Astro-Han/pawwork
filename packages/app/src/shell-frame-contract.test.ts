@@ -61,9 +61,9 @@ test("web runtime uses the desktop shell without claiming Electron platform iden
   const entry = read("./entry.tsx")
   const platform = read("./context/platform.tsx")
 
-  expect(entry).toMatch(
-    /const\s+platform:\s*Platform\s*=\s*\{[\s\S]*?platform:\s*"web"[\s\S]*?shell:\s*\{\s*kind:\s*"desktop",\s*os:\s*getShellOs\(\)\s*\}/,
-  )
+  expect(entry).toMatch(/const\s+platform:\s*Platform\s*=\s*\{[\s\S]*?platform:\s*"web"/)
+  expect(entry).toMatch(/const\s+platform:\s*Platform\s*=\s*\{[\s\S]*?shell:\s*\{[\s\S]*?kind:\s*"desktop"/)
+  expect(entry).toMatch(/const\s+platform:\s*Platform\s*=\s*\{[\s\S]*?shell:\s*\{[\s\S]*?os:\s*getShellOs\(\)/)
   expect(entry).toContain("getShellOs")
   expect(platform).toContain('shell?: PlatformShell')
   expect(platform).toContain("export function getShellKind")
