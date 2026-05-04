@@ -1,9 +1,14 @@
 import { expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 
 function read(relativePath: string) {
   return fs.readFileSync(path.join(import.meta.dir, relativePath), "utf8").replaceAll("\r\n", "\n")
+}
+
+function hash(relativePath: string) {
+  return createHash("sha256").update(fs.readFileSync(path.join(import.meta.dir, relativePath))).digest("hex")
 }
 
 test("desktop shell shares titlebar height across titlebar and narrow sidebar geometry", () => {
@@ -58,10 +63,18 @@ test("web favicon uses PawWork branding instead of the inherited OpenCode mark",
   const html = read("../index.html")
   const favicon = read("../../ui/src/assets/favicon/favicon-v3.svg")
 
+  expect(html).toContain("/favicon-96x96-v3.png")
   expect(html).toContain("/favicon-v3.svg")
+  expect(html).toContain("/favicon-v3.ico")
   expect(favicon).toContain("#FF6B2B")
   expect(favicon).toContain("#FFF8F0")
   expect(favicon).not.toContain("#131010")
+  expect(hash("../../ui/src/assets/favicon/favicon-96x96-v3.png")).not.toBe(
+    "aa34092540de60c889610edfa3c25316e215f12d88af29cfba530d09aee7265c",
+  )
+  expect(hash("../../ui/src/assets/favicon/favicon-v3.ico")).not.toBe(
+    "808e1ca7659cb52e0240aac075ccecdf5539047da02150f2b95e0aa78a44056f",
+  )
 })
 
 test("session composer is docked outside the scroll-clipped timeline region", () => {
