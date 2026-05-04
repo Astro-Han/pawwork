@@ -20,6 +20,7 @@ export type TurnChangeDisplay = {
   redoAvailable: boolean
   truncated?: boolean
   omittedCount?: number
+  skippedCount?: number
   files: TurnChangeFile[]
 }
 

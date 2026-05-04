@@ -162,8 +162,14 @@ export function SessionTurn(
     editToolDefaultOpen?: boolean
     turnChanges?: Record<string, TurnChangeDisplay | null | undefined>
     turnChangeActions?: {
-      undo?: (messageID: string) => Promise<TurnChangeDisplay | undefined> | void
-      redo?: (messageID: string) => Promise<TurnChangeDisplay | undefined> | void
+      undo?: (
+        userMessageID: string,
+        options?: { force?: boolean },
+      ) => Promise<TurnChangeDisplay | undefined> | void
+      redo?: (
+        userMessageID: string,
+        options?: { force?: boolean },
+      ) => Promise<TurnChangeDisplay | undefined> | void
       openFile?: (path: string) => void
       showInFolder?: (path: string) => void
     }
@@ -294,16 +300,11 @@ export function SessionTurn(
     { equals: same },
   )
 
-  const turnChangeMessageID = createMemo(() => {
+  const turnChange = createMemo(() => props.turnChanges?.[props.messageID])
+  const turnInProgress = createMemo(() => {
     const messages = assistantMessages()
-    return (
-      messages.findLast((item) => item.time.completed && hasVisibleTurnChanges(props.turnChanges?.[item.id]))?.id ??
-      messages.findLast((item) => item.time.completed)?.id
-    )
-  })
-  const turnChange = createMemo(() => {
-    const id = turnChangeMessageID()
-    return id ? props.turnChanges?.[id] : undefined
+    if (!messages.length) return false
+    return messages.some((item) => typeof item.time.completed !== "number")
   })
   const turnFiles = createMemo(() => turnChange()?.files ?? emptyTurnFiles)
   const turnEdited = createMemo(() => turnFiles().length)
@@ -340,12 +341,16 @@ export function SessionTurn(
     const current = turnChange()
     const action = turnChangeAction(current)
     if (!action) return ""
-    const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.redo")
+    const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
     return confirmAction() === action
       ? action === "undo"
         ? i18n.t("ui.sessionTurn.turnChanges.undoConfirm")
         : i18n.t("ui.sessionTurn.turnChanges.redoConfirm")
       : base
+  })
+  const isUndoneTurn = createMemo(() => {
+    const current = turnChange()
+    return !!(current && current.redoAvailable && !current.undoAvailable)
   })
   const turnStatusLabel = (status: TurnChangeFile["status"]) => {
     if (status === "added") return i18n.t("ui.sessionTurn.turnChanges.status.added")
@@ -497,7 +502,7 @@ export function SessionTurn(
                   </div>
                 </Show>
                 <SessionRetry status={status()} show={active()} />
-                <Show when={hasVisibleTurnChanges(turnChange()) && !working()}>
+                <Show when={hasVisibleTurnChanges(turnChange()) && !working() && !turnInProgress()}>
                   <div data-slot="session-turn-changes" data-component="session-turn-changes">
                     <div data-slot="session-turn-changes-header">
                       <div data-slot="session-turn-changes-summary">
@@ -514,6 +519,11 @@ export function SessionTurn(
                         <Show when={turnChange()?.truncated && (turnChange()?.omittedCount ?? 0) > 0}>
                           <span data-slot="session-turn-changes-omitted">
                             {i18n.t("ui.sessionTurn.turnChanges.omitted", { count: turnChange()?.omittedCount ?? 0 })}
+                          </span>
+                        </Show>
+                        <Show when={isUndoneTurn()}>
+                          <span data-slot="session-turn-changes-undone">
+                            {i18n.t("ui.sessionTurn.turnChanges.undone")}
                           </span>
                         </Show>
                       </div>
@@ -573,6 +583,11 @@ export function SessionTurn(
                                     <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
                                     <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
                                   </Show>
+                                  <Show when={file.large && file.restoreAvailable === false}>
+                                    <span data-slot="session-turn-change-unrestorable">
+                                      {i18n.t("ui.sessionTurn.turnChanges.unrestorable")}
+                                    </span>
+                                  </Show>
                                 </span>
                                 <span data-slot="session-turn-change-actions" onClick={(event) => event.stopPropagation()}>
                                   <IconButton
@@ -610,6 +625,13 @@ export function SessionTurn(
                         }}
                       </For>
                     </div>
+                    <Show when={(turnChange()?.skippedCount ?? 0) > 0}>
+                      <div data-slot="session-turn-changes-skipped-notice">
+                        {i18n.t("ui.sessionTurn.turnChanges.skippedNotice", {
+                          count: turnChange()?.skippedCount ?? 0,
+                        })}
+                      </div>
+                    </Show>
                   </div>
                 </Show>
                 <Show when={props.turnChanges === undefined && turnEdited() === 0 && edited() > 0 && !working()}>

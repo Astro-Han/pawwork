@@ -142,6 +142,12 @@
     font-weight: var(--font-weight-regular);
   }
 
+  [data-slot="session-turn-changes-undone"] {
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-regular);
+  }
+
   [data-slot="session-turn-changes-action"] {
     width: 72px;
     height: 28px;
@@ -231,6 +237,11 @@
     color: var(--text-weak);
   }
 
+  [data-slot="session-turn-change-unrestorable"] {
+    color: var(--text-weak);
+    font-size: var(--font-size-small);
+  }
+
   [data-slot="session-turn-change-actions"] {
     width: 64px;
     display: inline-flex;
@@ -242,6 +253,16 @@
     max-height: 420px;
     overflow: auto;
     background: var(--surface-inset-base);
+  }
+
+  [data-slot="session-turn-changes-skipped-notice"] {
+    border-top: 1px solid var(--border-base);
+    padding: 8px 12px;
+    background: var(--surface-warning-base, var(--surface-base));
+    color: var(--text-warning-base, var(--text-weak));
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-small);
+    line-height: var(--line-height-large);
   }
 
   [data-slot="session-turn-diffs-header"] {
