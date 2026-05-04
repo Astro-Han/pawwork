@@ -1,4 +1,4 @@
-import { Deferred, Effect, Layer, Schema, Context } from "effect"
+import { Cause, Deferred, Effect, Layer, Schema, Context } from "effect"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
@@ -260,7 +260,7 @@ export namespace Question {
         // Effect.onInterrupt arm below is defence for direct fiber kill
         // (layer shutdown / supervisor) when signal is undefined. The abort
         // callback fires from the JS event loop, so we capture the parent
-        // Effect context here and re-provide it on each runFork.
+        // Effect context here and re-provide it on a single runFork.
         const signal = input.signal
         let removeListener: (() => void) | undefined
         const sessionID = input.sessionID
@@ -270,11 +270,28 @@ export namespace Question {
           if (!entry) return
           pending.delete(id)
           log.info("rejected", { requestID: id, reason: "aborted" })
+          // Publish then fail in a single Effect so order is deterministic
+          // (subscribers see Rejected before any awaiter unblocks) and any
+          // failure inside is logged once instead of disappearing into two
+          // independent forks.
           Effect.runFork(
-            Effect.provide(bus.publish(Event.Rejected, { sessionID, requestID: id }), ctx),
-          )
-          Effect.runFork(
-            Effect.provide(Deferred.fail(entry.deferred, new RejectedError({ cancelled: true })), ctx),
+            Effect.provide(
+              Effect.gen(function* () {
+                yield* bus.publish(Event.Rejected, { sessionID, requestID: id })
+                yield* Deferred.fail(entry.deferred, new RejectedError({ cancelled: true }))
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.sync(() =>
+                    log.error("failFromAbort failed", {
+                      requestID: id,
+                      sessionID,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                ),
+              ),
+              ctx,
+            ),
           )
         })
 
