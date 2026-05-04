@@ -342,7 +342,7 @@ describe("TurnChange", () => {
       fn: async () => {
         const turn = await createTurn()
         const target = path.join(fixture.path, "large.txt")
-        const large = "x".repeat(2 * 1024 * 1024 + 1)
+        const large = "x".repeat(20 * 1024 * 1024 + 1)
         await fs.rm(target, { force: true })
 
         TurnChange.recordWrite({
@@ -446,7 +446,7 @@ describe("TurnChange", () => {
           after: { exists: true, content: "after\n" },
         })
         TurnChange.finalize(turn)
-        await fs.writeFile(target, "x".repeat(2 * 1024 * 1024 + 1), "utf-8")
+        await fs.writeFile(target, "x".repeat(20 * 1024 * 1024 + 1), "utf-8")
 
         const readFile = spyOn(fs, "readFile")
         try {

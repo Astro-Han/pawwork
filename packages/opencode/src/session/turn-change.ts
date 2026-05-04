@@ -88,7 +88,7 @@ type RestoreTableRow = Omit<RestoreRow, "data"> & {
 }
 
 const DISPLAY_LIMIT = 2 * 1024 * 1024
-const RESTORE_LIMIT = 2 * 1024 * 1024
+const RESTORE_LIMIT = 20 * 1024 * 1024
 const MAX_FILES = 200
 const OVERFLOW_PATH = "__pawwork_turn_change_overflow__"
 const log = Log.create({ service: "session.turn-change" })
