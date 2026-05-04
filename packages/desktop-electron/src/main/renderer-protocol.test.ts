@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import {
   rendererHost,
@@ -20,7 +20,11 @@ describe("desktop renderer protocol", () => {
   })
 
   test("resolves only files under the renderer output root", () => {
-    const root = "/Applications/PawWork.app/Contents/Resources/app.asar/out/renderer"
+    // `resolveRendererFile` calls `path.resolve` internally, which on Windows
+    // prepends the CWD's drive letter to a drive-less posix path. Run the
+    // fixture root through `resolve` once so the expected and received forms
+    // match on every platform.
+    const root = resolve("/Applications/PawWork.app/Contents/Resources/app.asar/out/renderer")
 
     expect(resolveRendererFile(root, "pawwork-renderer://renderer/index.html")).toBe(join(root, "index.html"))
     expect(resolveRendererFile(root, "pawwork-renderer://renderer/assets/app.js")).toBe(
