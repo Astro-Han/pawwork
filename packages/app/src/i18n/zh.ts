@@ -585,6 +585,7 @@ export const dict = {
   "session.messages.loadingEarlier": "正在加载更早的消息...",
   "session.messages.loadEarlier": "加载更早的消息",
   "session.messages.loading": "正在加载消息...",
+  "session.opening": "正在打开会话...",
   "session.messages.jumpToLatest": "跳转到最新",
   "session.turnChange.undoBlocked": "无法撤销",
   "session.turnChange.redoBlocked": "无法重做",

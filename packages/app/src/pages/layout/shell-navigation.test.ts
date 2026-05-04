@@ -64,6 +64,6 @@ describe("createShellNavigation", () => {
 
     shell.openNewSession()
 
-    expect(calls).toEqual(["release:new-session", "chooseProject"])
+    expect(calls).toEqual(["release:choose-project", "chooseProject"])
   })
 })

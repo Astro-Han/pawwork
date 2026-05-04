@@ -549,6 +549,7 @@ export default function Page() {
       language={language}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}
+      timelineMessagesReady={timelineMessagesReady()}
       timelineMessages={timelineMessages()}
       mobileChanges={mobileChanges()}
       mobileFallback={reviewPanel.mobileFallback()}

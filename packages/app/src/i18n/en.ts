@@ -623,6 +623,7 @@ export const dict = {
   "session.messages.loadingEarlier": "Loading earlier messages...",
   "session.messages.loadEarlier": "Load earlier messages",
   "session.messages.loading": "Loading messages...",
+  "session.opening": "Opening session...",
   "session.messages.jumpToLatest": "Jump to latest",
   "session.turnChange.undoBlocked": "Undo blocked",
   "session.turnChange.redoBlocked": "Redo blocked",

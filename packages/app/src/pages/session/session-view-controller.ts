@@ -33,7 +33,7 @@ export function nextSessionViewState(input: SessionViewStateInput) {
     routeSessionID: input.routeSessionID,
     routeReady,
     visibleSessionID,
-    transitioning: !!input.routeSessionID && (!routeReady || visibleSessionID !== input.routeSessionID),
+    transitioning: !!input.routeSessionID && !routeReady,
     routeSessionKey: sessionKey({ directory: input.directory, sessionID: input.routeSessionID }),
     visibleSessionKey: sessionKey({ directory: input.directory, sessionID: visibleSessionID }),
   }

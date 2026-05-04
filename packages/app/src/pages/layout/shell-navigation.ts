@@ -1,6 +1,6 @@
 import { newSessionRoute, openSessionRoute } from "./helpers"
 
-export type ShellNavigationReleaseReason = "new-session" | "session" | "settings" | "project"
+export type ShellNavigationReleaseReason = "new-session" | "session" | "settings" | "project" | "choose-project"
 
 export type ShellNavigationSession = {
   directory: string
@@ -21,12 +21,13 @@ export function createShellNavigation(input: {
   }
 
   const openNewSession = (directory?: string) => {
-    input.releaseTransientLocks("new-session")
     const root = resolveNewSessionRoot(directory)
     if (!root) {
+      input.releaseTransientLocks("choose-project")
       input.chooseProject()
       return
     }
+    input.releaseTransientLocks("new-session")
     input.navigate(newSessionRoute(root))
   }
 
