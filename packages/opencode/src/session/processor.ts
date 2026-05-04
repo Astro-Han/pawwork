@@ -459,13 +459,22 @@ export const layer: Layer.Layer<
               error,
             }).record.metadata.diagnostics
           : toolDiagnostics(match.part)
+        // The UI's interrupted-hint variant is gated on metadata.interrupted,
+        // so when a question tool errors out via session cancel (Question.ask
+        // routed RejectedError through here, not via the cleanup path at the
+        // bottom of the stream), we must mark it the same way the cleanup
+        // path does. See #419.
+        const questionInterrupted = match.part.tool === "question" && error instanceof Question.RejectedError
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "error",
             input: match.part.state.input,
             error: errorMessage(error),
-            metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(match.part), { diagnostics }),
+            metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(match.part), {
+              diagnostics,
+              ...(questionInterrupted ? { interrupted: true } : {}),
+            }),
             time: { start: match.part.state.time.start, end: Date.now() },
           },
         })
@@ -761,12 +770,22 @@ export const layer: Layer.Layer<
           const part = match.part
           const end = Date.now()
           const metadata = "metadata" in part.state && isRecord(part.state.metadata) ? part.state.metadata : {}
+          // Question tool deserves a clearer post-cancel message: the LLM
+          // reads this string as the tool result, and "Tool execution aborted"
+          // is ambiguous between "user dismissed your question" and "the run
+          // was cancelled before they answered". State only the certain fact
+          // (cancelled before answered), don't claim whether the user saw it
+          // — they may have. See issue #419.
+          const errorText =
+            part.tool === "question"
+              ? "Question cancelled before the user answered it."
+              : "Tool execution aborted"
           yield* session.updatePart({
             ...part,
             state: {
               ...part.state,
               status: "error",
-              error: "Tool execution aborted",
+              error: errorText,
               metadata: { ...metadata, interrupted: true },
               time: { start: "time" in part.state ? part.state.time.start : end, end },
             },
