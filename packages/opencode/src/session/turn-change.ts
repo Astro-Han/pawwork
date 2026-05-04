@@ -61,7 +61,7 @@ export type SkippedMessage = {
 }
 
 export type MutationResult =
-  | { status: "applied"; display: Display; skipped?: SkippedMessage[] }
+  | { status: "applied"; display: Display; skipped?: SkippedMessage[]; mutatedPaths?: string[] }
   | {
       status: "blocked"
       reason: "conflict" | "restore_missing" | "permission_denied" | "unsupported_size" | "write_failed"
@@ -374,6 +374,7 @@ export namespace TurnChange {
       status: z.literal("applied"),
       display: DisplaySchema,
       skipped: z.array(SkippedMessageSchema).optional(),
+      mutatedPaths: z.array(z.string()).optional(),
     }),
     z.object({
       status: z.literal("blocked"),
@@ -640,13 +641,11 @@ export namespace TurnChange {
   }
 
   function collapseRestoreFiles(allRows: RestoreRow[]): RestoreFile[] {
-    const order: string[] = []
     const merged = new Map<string, RestoreFile>()
     for (const row of allRows) {
-      const key = row.data.displayPath
+      const key = row.data.path
       const existing = merged.get(key)
       if (!existing) {
-        order.push(key)
         merged.set(key, row.data)
       } else {
         merged.set(key, {
@@ -657,7 +656,7 @@ export namespace TurnChange {
         })
       }
     }
-    return order.map((key) => merged.get(key)!)
+    return Array.from(merged.values())
   }
 
   function aggregateTurnInternal(input: {
@@ -669,22 +668,18 @@ export namespace TurnChange {
 
     const allRestore: RestoreRow[] = []
     let anyDisplay = false
-    let undoable = true
-    let redoable = true
+    let hasApplied = false
+    let hasUndone = false
     let truncatedCount = 0
     for (const messageID of assistants) {
       const display = displayRow(input.sessionID, messageID)
       if (display) {
         anyDisplay = true
-        if (display.state !== "applied") undoable = false
-        if (display.state !== "undone") redoable = false
+        if (display.state === "applied") hasApplied = true
+        if (display.state === "undone") hasUndone = true
         if (display.data.truncated) {
           truncatedCount += display.data.omittedCount ?? 0
         }
-      } else {
-        // assistant has no finalized display row — not undoable as a whole
-        undoable = false
-        redoable = false
       }
       const restoreRows = rows(input.sessionID, messageID)
       for (const row of restoreRows) allRestore.push(row)
@@ -700,8 +695,8 @@ export namespace TurnChange {
       sessionID: input.sessionID,
       turnID: input.userMessageID,
       messageID: input.userMessageID,
-      undoAvailable: undoable && truncatedCount === 0,
-      redoAvailable: redoable && truncatedCount === 0,
+      undoAvailable: hasApplied && truncatedCount === 0,
+      redoAvailable: hasUndone && truncatedCount === 0,
       ...(truncatedCount > 0 ? { truncated: true, omittedCount: truncatedCount } : {}),
       files,
     }
@@ -898,19 +893,59 @@ export namespace TurnChange {
       return { status: "blocked", reason: "restore_missing", files: [] }
     }
 
+    const aggregatedSkipped: SkippedMessage[] = [...preflight.skipped]
+    const mutatedPaths: string[] = []
+    const mutatedSet = new Set<string>()
     for (const messageID of preflight.actionable) {
       const result = await mutate({ sessionID: input.sessionID, messageID, mode: input.mode })
       if (result.status === "blocked") {
-        return { status: "blocked", reason: result.reason, files: result.files, skipped: preflight.skipped }
+        const reason: SkippedMessage["reason"] = result.reason === "permission_denied" ? "permission_denied" : "conflict"
+        aggregatedSkipped.push({
+          messageID,
+          reason,
+          files: result.files.map((f) => ({ path: f.path, reason: f.reason })),
+        })
+        continue
+      }
+      const restore = rows(input.sessionID, messageID)
+      for (const row of restore) {
+        if (mutatedSet.has(row.data.path)) continue
+        mutatedSet.add(row.data.path)
+        mutatedPaths.push(row.data.path)
       }
     }
 
+    if (!mutatedPaths.length) {
+      const reason = aggregatedSkipped.some((item) => item.reason === "permission_denied") ? "permission_denied" : "conflict"
+      const files = aggregatedSkipped.flatMap((item) => item.files)
+      return { status: "blocked", reason, files, ...(aggregatedSkipped.length ? { skipped: aggregatedSkipped } : {}) }
+    }
+
     const aggregated = aggregateTurnInternal({ sessionID: input.sessionID, userMessageID: input.userMessageID })
-    if (!aggregated) return { status: "blocked", reason: "restore_missing", files: [], skipped: preflight.skipped }
+    const display: Display = aggregated ?? (() => {
+      const assistants = listAssistantsForUser(input.sessionID, input.userMessageID)
+      let hasApplied = false
+      let hasUndone = false
+      for (const messageID of assistants) {
+        const row = displayRow(input.sessionID, messageID)
+        if (!row) continue
+        if (row.state === "applied") hasApplied = true
+        if (row.state === "undone") hasUndone = true
+      }
+      return {
+        sessionID: input.sessionID,
+        turnID: input.userMessageID,
+        messageID: input.userMessageID,
+        undoAvailable: hasApplied,
+        redoAvailable: hasUndone,
+        files: [],
+      }
+    })()
     return {
       status: "applied",
-      display: aggregated,
-      ...(preflight.skipped.length ? { skipped: preflight.skipped } : {}),
+      display,
+      mutatedPaths,
+      ...(aggregatedSkipped.length ? { skipped: aggregatedSkipped } : {}),
     }
   }
 

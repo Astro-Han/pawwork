@@ -375,6 +375,134 @@ describe("TurnChange.aggregateTurnUndo / aggregateTurnRedo", () => {
     })
   })
 
+  test("two assistants editing different absolute paths sharing a basename do not merge", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "collide" })
+        const userMessageID = await makeUser(session.id, "collide")
+        const a1 = await makeAssistant(session.id, userMessageID, "c-a1")
+        const a2 = await makeAssistant(session.id, userMessageID, "c-a2")
+        const dirA = path.join(fixture.path, "alpha")
+        const dirB = path.join(fixture.path, "beta")
+        await fs.mkdir(dirA, { recursive: true })
+        await fs.mkdir(dirB, { recursive: true })
+        const fileA = path.join(dirA, "shared.txt")
+        const fileB = path.join(dirB, "shared.txt")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a1,
+          path: fileA,
+          before: { exists: false },
+          after: { exists: true, content: "A\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a2,
+          path: fileB,
+          before: { exists: false },
+          after: { exists: true, content: "B\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+
+        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        expect(display?.files).toHaveLength(2)
+        const openPaths = (display?.files ?? []).map((f) => f.openPath).sort()
+        expect(openPaths).toEqual([fileA, fileB].sort())
+      },
+    })
+  })
+
+  test("mixed-state turn (one applied, one undone) keeps both undo and redo available", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "mixed" })
+        const userMessageID = await makeUser(session.id, "mix")
+        const a1 = await makeAssistant(session.id, userMessageID, "m-a1")
+        const a2 = await makeAssistant(session.id, userMessageID, "m-a2")
+        const fileA = path.join(fixture.path, "m-a.txt")
+        const fileB = path.join(fixture.path, "m-b.txt")
+        await fs.writeFile(fileA, "A\n", "utf-8")
+        await fs.writeFile(fileB, "B\n", "utf-8")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a1,
+          path: fileA,
+          before: { exists: false },
+          after: { exists: true, content: "A\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a2,
+          path: fileB,
+          before: { exists: false },
+          after: { exists: true, content: "B\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+
+        const undoSecond = await TurnChange.undo({ sessionID: session.id, messageID: a2 })
+        expect(undoSecond.status).toBe("applied")
+
+        const display = TurnChange.aggregateTurn({ sessionID: session.id, userMessageID })
+        expect(display?.undoAvailable).toBe(true)
+        expect(display?.redoAvailable).toBe(true)
+      },
+    })
+  })
+
+  test("aggregateTurnUndo reports mutatedPaths only for messages actually written", async () => {
+    await resetDatabase()
+    await using fixture = await tmpdir()
+    await Instance.provide({
+      directory: fixture.path,
+      fn: async () => {
+        const session = await SessionNs.create({ title: "mutated" })
+        const userMessageID = await makeUser(session.id, "mp")
+        const a1 = await makeAssistant(session.id, userMessageID, "mp-a1")
+        const a2 = await makeAssistant(session.id, userMessageID, "mp-a2")
+        const ok = path.join(fixture.path, "mp-ok.txt")
+        const conflict = path.join(fixture.path, "mp-cnf.txt")
+        await fs.writeFile(ok, "OK\n", "utf-8")
+        await fs.writeFile(conflict, "tampered\n", "utf-8")
+
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a1,
+          path: ok,
+          before: { exists: false },
+          after: { exists: true, content: "OK\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a1 })
+        TurnChange.recordWrite({
+          sessionID: session.id,
+          messageID: a2,
+          path: conflict,
+          before: { exists: false },
+          after: { exists: true, content: "expectedConflict\n" },
+        })
+        TurnChange.finalize({ sessionID: session.id, messageID: a2 })
+
+        const result = await TurnChange.aggregateTurnUndo({
+          sessionID: session.id,
+          userMessageID,
+          force: true,
+        })
+        expect(result.status).toBe("applied")
+        if (result.status !== "applied") return
+        expect(result.mutatedPaths).toEqual([ok])
+      },
+    })
+  })
+
   test("force=true skips conflicting message and reports skipped[]", async () => {
     await resetDatabase()
     await using fixture = await tmpdir()

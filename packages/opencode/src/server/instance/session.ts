@@ -36,12 +36,14 @@ import { LSP } from "@/lsp"
 
 const log = Log.create({ service: "server" })
 
-function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo") {
+function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
   return Effect.gen(function* () {
     const bus = yield* Bus.Service
     const lsp = yield* LSP.Service
+    const allowed = mutatedPaths ? new Set(mutatedPaths) : undefined
     for (const file of display.files) {
       if (!file.openPath) continue
+      if (allowed && !allowed.has(file.openPath)) continue
       const event =
         mode === "redo"
           ? file.status === "added"
@@ -746,7 +748,7 @@ export const SessionRoutes = lazy(() =>
             const turnChange = yield* TurnChange.Service
             yield* state.assertNotBusy(params.sessionID)
             const result = yield* turnChange.aggregateTurnUndo({ ...params, force: body.force })
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo")
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "undo", result.mutatedPaths)
             return result
           }),
         )
@@ -787,7 +789,7 @@ export const SessionRoutes = lazy(() =>
             const turnChange = yield* TurnChange.Service
             yield* state.assertNotBusy(params.sessionID)
             const result = yield* turnChange.aggregateTurnRedo({ ...params, force: body.force })
-            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo")
+            if (result.status === "applied") yield* publishTurnChangeFiles(result.display, "redo", result.mutatedPaths)
             return result
           }),
         )
