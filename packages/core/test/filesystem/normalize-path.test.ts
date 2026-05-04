@@ -114,8 +114,11 @@ test.skipIf(process.platform !== "win32")(
     // The probe only repairs existing paths; documenting behavior so future
     // changes don't accidentally start guessing for write targets.
     const driveless = "/this/path/should/not/exist/anywhere/marker.txt"
+    const cwdDrive = process.cwd().match(/^([A-Za-z]:)/)![1].toUpperCase()
+    const expected = path.win32.normalize(path.win32.join(`${cwdDrive}\\`, driveless.replaceAll("/", "\\")))
     const result = AppFileSystem.normalizePath(driveless)
-    expect(result).toMatch(/^[A-Za-z]:/)
+
+    expect(result.toUpperCase()).toBe(expected.toUpperCase())
   },
 )
 
