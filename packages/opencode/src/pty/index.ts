@@ -13,12 +13,15 @@ import { envValueCaseInsensitive, withoutInternalServerAuthEnv } from "@/util/en
 import { PtyID } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
+import { setTimeout as sleep } from "node:timers/promises"
 
 export namespace Pty {
   const log = Log.create({ service: "pty" })
 
   const BUFFER_LIMIT = 1024 * 1024 * 2
   const BUFFER_CHUNK = 64 * 1024
+  const TERMINATION_GRACE_MS = 200
+  const EXIT_WAIT_MS = 1000
   const encoder = new TextEncoder()
 
   type Socket = {
@@ -121,16 +124,86 @@ export namespace Pty {
     Effect.gen(function* () {
       const bus = yield* Bus.Service
       const plugin = yield* Plugin.Service
-      function teardown(session: Active) {
-        try {
-          session.process.kill("SIGTERM")
-        } catch {}
+
+      function closeSubscribers(session: Active) {
         for (const [sub, ws] of session.subscribers.entries()) {
           try {
             if (sock(ws) === sub) ws.close()
           } catch {}
         }
         session.subscribers.clear()
+      }
+
+      function waitForExit(session: Active) {
+        if (session.info.status === "exited") return Promise.resolve()
+        return new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, EXIT_WAIT_MS)
+          const sub = session.process.onExit(() => {
+            clearTimeout(timer)
+            sub.dispose()
+            resolve()
+          })
+        })
+      }
+
+      function signalGroup(session: Active, signal: string) {
+        try {
+          process.kill(-session.process.pid, signal)
+          return true
+        } catch {
+          return false
+        }
+      }
+
+      function signalProcess(session: Active, signal: string) {
+        try {
+          session.process.kill(signal)
+        } catch {}
+      }
+
+      const terminate = Effect.fn("Pty.terminate")(function* (session: Active) {
+        const exited = waitForExit(session)
+        if (process.platform === "win32") {
+          signalProcess(session, "SIGTERM")
+          yield* Effect.promise(() => exited)
+          return
+        }
+
+        if (signalGroup(session, "SIGTERM")) {
+          yield* Effect.promise(() => sleep(TERMINATION_GRACE_MS))
+          signalGroup(session, "SIGKILL")
+        } else {
+          signalProcess(session, "SIGTERM")
+          yield* Effect.promise(() => sleep(TERMINATION_GRACE_MS))
+          signalProcess(session, "SIGKILL")
+        }
+        yield* Effect.promise(() => exited)
+      })
+
+      const terminateSync = (session: Active) => {
+        if (process.platform === "win32") {
+          signalProcess(session, "SIGTERM")
+          return
+        }
+
+        const killedGroup = signalGroup(session, "SIGTERM")
+        if (!killedGroup) {
+          signalProcess(session, "SIGTERM")
+        }
+        setTimeout(() => {
+          if (killedGroup) signalGroup(session, "SIGKILL")
+          else signalProcess(session, "SIGKILL")
+        }, TERMINATION_GRACE_MS).unref()
+      }
+
+      const teardown = Effect.fn("Pty.teardown")(function* (session: Active) {
+        closeSubscribers(session)
+        yield* terminate(session)
+      })
+
+      function teardownSync(session: Active) {
+        closeSubscribers(session)
+        terminateSync(session)
       }
 
       const state = yield* InstanceState.make<State>(
@@ -142,9 +215,7 @@ export namespace Pty {
 
           yield* Effect.addFinalizer(() =>
             Effect.sync(() => {
-              for (const session of state.sessions.values()) {
-                teardown(session)
-              }
+              for (const session of state.sessions.values()) teardownSync(session)
               state.sessions.clear()
             }),
           )
@@ -159,7 +230,7 @@ export namespace Pty {
         if (!session) return
         s.sessions.delete(id)
         log.info("removing session", { id })
-        teardown(session)
+        yield* teardown(session)
         yield* bus.publish(Event.Deleted, { id: session.info.id })
       })
 

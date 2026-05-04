@@ -5,6 +5,7 @@ import { Pty } from "../../src/pty"
 import type { PtyID } from "../../src/pty/schema"
 import { tmpdir } from "../fixture/fixture"
 import { setTimeout as sleep } from "node:timers/promises"
+import { existsSync } from "node:fs"
 
 const wait = async (fn: () => boolean, ms = 5000) => {
   const end = Date.now() + ms
@@ -84,6 +85,44 @@ describe("pty", () => {
           expect(pick(log, id!)).toEqual(["created", "exited", "deleted"])
         } finally {
           off.forEach((x) => x())
+          if (id) await Pty.remove(id)
+        }
+      },
+    })
+  })
+
+  test("remove terminates child processes started inside the pty", async () => {
+    if (process.platform === "win32") return
+
+    await using dir = await tmpdir({ git: true })
+
+    await Instance.provide({
+      directory: dir.path,
+      fn: async () => {
+        const pidFile = `${dir.path}/pty-child.pid`
+        let id: PtyID | undefined
+        try {
+          const info = await Pty.create({
+            command: "/bin/sh",
+            args: ["-c", `trap '' HUP TERM; sleep 30 & echo $! > ${JSON.stringify(pidFile)}; wait`],
+            title: "child-tree",
+          })
+          id = info.id
+
+          await wait(() => existsSync(pidFile))
+          const pid = Number((await Bun.file(pidFile).text()).trim())
+          expect(pid).toBeGreaterThan(0)
+
+          await Pty.remove(id)
+          await wait(() => {
+            try {
+              process.kill(pid, 0)
+              return false
+            } catch {
+              return true
+            }
+          })
+        } finally {
           if (id) await Pty.remove(id)
         }
       },
