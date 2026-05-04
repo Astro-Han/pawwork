@@ -23,7 +23,7 @@ describe("createSessionViewController", () => {
     })
   })
 
-  test("keeps route and visible state distinct while the route session is not ready", () => {
+  test("keeps route and visible identity aligned while the route session is not ready", () => {
     createRoot((dispose) => {
       const controller = createSessionViewController({
         directory: () => "repo",
@@ -34,8 +34,8 @@ describe("createSessionViewController", () => {
       expect(controller.route.id()).toBe("ses_target")
       expect(controller.route.key()).toBe("repo/ses_target")
       expect(controller.route.ready()).toBe(false)
-      expect(controller.visible.id()).toBeUndefined()
-      expect(controller.visible.key()).toBe("repo")
+      expect(controller.visible.id()).toBe("ses_target")
+      expect(controller.visible.key()).toBe("repo/ses_target")
       expect(controller.visible.ready()).toBe(false)
       expect(controller.transitioning()).toBe(true)
 
@@ -45,9 +45,8 @@ describe("createSessionViewController", () => {
 })
 
 describe("nextSessionViewState", () => {
-  test("keeps visible session on the previous ready session while route session loads", () => {
+  test("does not keep the previous visible session while the route session loads", () => {
     const loading = nextSessionViewState({
-      currentVisibleSessionID: "ses_source",
       directory: "repo",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
@@ -56,14 +55,13 @@ describe("nextSessionViewState", () => {
     expect(loading).toMatchObject({
       routeSessionID: "ses_target",
       routeReady: false,
-      visibleSessionID: "ses_source",
+      visibleSessionID: "ses_target",
       transitioning: true,
       routeSessionKey: "repo/ses_target",
-      visibleSessionKey: "repo/ses_source",
+      visibleSessionKey: "repo/ses_target",
     })
 
     const ready = nextSessionViewState({
-      currentVisibleSessionID: loading.visibleSessionID,
       directory: "repo",
       routeSessionID: "ses_target",
       routeMessagesReady: true,
@@ -81,7 +79,6 @@ describe("nextSessionViewState", () => {
 
   test("clears visible session when leaving a concrete session route", () => {
     const next = nextSessionViewState({
-      currentVisibleSessionID: "ses_source",
       directory: "repo",
       routeSessionID: undefined,
       routeMessagesReady: true,
@@ -95,10 +92,8 @@ describe("nextSessionViewState", () => {
     expect(next.transitioning).toBe(false)
   })
 
-  test("does not carry visible session state across directories", () => {
+  test("uses the target route identity when changing directories", () => {
     const next = nextSessionViewState({
-      currentVisibleDirectory: "repo-a",
-      currentVisibleSessionID: "ses_source",
       directory: "repo-b",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
@@ -107,10 +102,10 @@ describe("nextSessionViewState", () => {
     expect(next).toMatchObject({
       routeSessionID: "ses_target",
       routeReady: false,
-      visibleSessionID: undefined,
+      visibleSessionID: "ses_target",
       transitioning: true,
       routeSessionKey: "repo-b/ses_target",
-      visibleSessionKey: "repo-b",
+      visibleSessionKey: "repo-b/ses_target",
     })
   })
 })

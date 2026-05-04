@@ -41,6 +41,7 @@ export function createSessionTimelineData(input: {
   })
   const sessionID = sessionView.visible.id
   const sessionKey = sessionView.visible.key
+  const transitioning = sessionView.transitioning
   const sessionInfo = createMemo(() => {
     const id = sessionID()
     if (!id) return
@@ -131,6 +132,7 @@ export function createSessionTimelineData(input: {
     routeMessagesReady,
     sessionID,
     sessionKey,
+    transitioning,
     sessionInfo,
     isChildSession,
     messages,

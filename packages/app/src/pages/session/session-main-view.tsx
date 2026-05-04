@@ -7,6 +7,7 @@ import type { createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { SessionSidePanel } from "@/pages/session/session-side-panel"
 import { TerminalPanel } from "@/pages/session/terminal-panel"
+import { shouldShowSessionOpeningState } from "@/pages/session/session-main-view-state"
 import type { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import type { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import type { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
@@ -19,8 +20,12 @@ export function SessionMainView(props: {
   mobileTab: "session" | "changes"
   setMobileTab: (tab: "session" | "changes") => void
   language: ReturnType<typeof useLanguage>
+  routeSessionID?: string
+  routeReady: boolean
+  transitioning: boolean
   timelineSessionID?: string
   timelineSessionKey: string
+  timelineMessagesReady: boolean
   timelineMessages: TimelineProps["sessionMessages"]
   mobileChanges: boolean
   mobileFallback: JSX.Element
@@ -39,6 +44,8 @@ export function SessionMainView(props: {
   historyMore: boolean
   historyLoading: boolean
   anchor: TimelineProps["anchor"]
+  onRetryOpenSession: () => void
+  onOpenNewSession: () => void
   composerSession: JSX.Element
   composerHome: (ctx: {
     onModeChange: (mode: "normal" | "shell") => void
@@ -52,6 +59,14 @@ export function SessionMainView(props: {
   files: ReturnType<typeof createSessionReviewState>["artifactFiles"]
   size: ReturnType<typeof createSizing>
 }) {
+  const showSessionOpeningState = () =>
+    shouldShowSessionOpeningState({
+      activeSessionID: props.activeSessionID,
+      routeSessionID: props.routeSessionID,
+      routeReady: props.routeReady,
+      timelineSessionID: props.timelineSessionID,
+    })
+
   return (
     <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
@@ -84,37 +99,71 @@ export function SessionMainView(props: {
         <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-background-stronger flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
-              <Match when={props.activeSessionID && props.timelineSessionID}>
-                {(sessionID) => (
-                  <MessageTimeline
-                    sessionID={sessionID()}
-                    sessionKey={props.timelineSessionKey}
-                    sessionMessages={props.timelineMessages}
-                    mobileChanges={props.mobileChanges}
-                    mobileFallback={props.mobileFallback}
-                    actions={props.actions}
-                    scroll={props.scroll}
-                    onResumeScroll={props.resumeScroll}
-                    setScrollRef={props.setScrollRef}
-                    onScheduleScrollState={props.scheduleScrollState}
-                    onAutoScrollHandleScroll={props.autoScroll.handleScroll}
-                    onMarkScrollGesture={props.markScrollGesture}
-                    hasScrollGesture={props.hasScrollGesture}
-                    onUserScroll={props.markUserScroll}
-                    onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
-                    onAutoScrollInteraction={props.autoScroll.handleInteraction}
-                    centered={props.centered}
-                    setContentRef={props.setContentRef}
-                    turnStart={props.historyWindow.turnStart()}
-                    historyMore={props.historyMore}
-                    historyLoading={props.historyLoading}
-                    onLoadEarlier={() => {
-                      void props.historyWindow.loadAndReveal()
-                    }}
-                    renderedUserMessages={props.historyWindow.renderedUserMessages()}
-                    anchor={props.anchor}
-                  />
-                )}
+              <Match when={showSessionOpeningState()}>
+                <div
+                  class="size-full flex items-center justify-center px-6 text-center"
+                  role="status"
+                  data-component="session-opening-state"
+                  data-transitioning={props.transitioning ? "true" : "false"}
+                >
+                  <div class="flex flex-col items-center gap-2">
+                    <div class="size-8 rounded-full border border-border-subtle border-t-accent-base animate-spin" />
+                    <div class="text-13-medium text-text-strong">{props.language.t("session.opening")}</div>
+                    <div class="text-12-regular text-text-weak">{props.language.t("session.messages.loading")}</div>
+                    <div class="mt-2 flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        class="rounded-md border border-border-subtle px-3 py-1 text-13-regular text-text-base transition-colors hover:bg-surface-raised-base-hover focus:outline-none focus-visible:bg-surface-raised-base-hover"
+                        onClick={props.onRetryOpenSession}
+                      >
+                        {props.language.t("common.retry")}
+                      </button>
+                      <button
+                        type="button"
+                        class="rounded-md border border-border-subtle px-3 py-1 text-13-regular text-text-base transition-colors hover:bg-surface-raised-base-hover focus:outline-none focus-visible:bg-surface-raised-base-hover"
+                        onClick={props.onOpenNewSession}
+                      >
+                        {props.language.t("command.session.new")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </Match>
+              <Match
+                when={
+                  props.activeSessionID && props.timelineSessionID && props.timelineMessagesReady
+                    ? props.timelineSessionID
+                    : undefined
+                }
+              >
+                <MessageTimeline
+                  sessionID={props.timelineSessionID ?? ""}
+                  sessionKey={props.timelineSessionKey}
+                  sessionMessages={props.timelineMessages}
+                  mobileChanges={props.mobileChanges}
+                  mobileFallback={props.mobileFallback}
+                  actions={props.actions}
+                  scroll={props.scroll}
+                  onResumeScroll={props.resumeScroll}
+                  setScrollRef={props.setScrollRef}
+                  onScheduleScrollState={props.scheduleScrollState}
+                  onAutoScrollHandleScroll={props.autoScroll.handleScroll}
+                  onMarkScrollGesture={props.markScrollGesture}
+                  hasScrollGesture={props.hasScrollGesture}
+                  onUserScroll={props.markUserScroll}
+                  onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
+                  onAutoScrollInteraction={props.autoScroll.handleInteraction}
+                  centered={props.centered}
+                  setContentRef={props.setContentRef}
+                  turnStart={props.historyWindow.turnStart()}
+                  historyMore={props.historyMore}
+                  historyLoading={props.historyLoading}
+                  onLoadEarlier={() => {
+                    void props.historyWindow.loadAndReveal()
+                  }}
+                  renderedUserMessages={props.historyWindow.renderedUserMessages()}
+                  anchor={props.anchor}
+                />
               </Match>
               <Match when={!props.activeSessionID}>
                 <NewSessionView composer={props.composerHome} />
@@ -124,7 +173,7 @@ export function SessionMainView(props: {
               </Match>
             </Switch>
           </div>
-          <Show when={props.activeSessionID}>{props.composerSession}</Show>
+          <Show when={props.activeSessionID && !showSessionOpeningState()}>{props.composerSession}</Show>
         </div>
 
         <SessionSidePanel

@@ -66,9 +66,7 @@ import {
   displayName,
   effectiveWorkspaceOrder,
   errorMessage,
-  newSessionRoute,
   openProjectRoute,
-  openSessionRoute,
   startupAutoselectDirectory,
   sortedRootSessions,
   workspaceKey,
@@ -84,6 +82,7 @@ import {
   pawworkSessionDirectories,
   sortPawworkSidebarSessions,
 } from "./layout/pawwork-session-source"
+import { createShellNavigation } from "./layout/shell-navigation"
 import {
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
@@ -1364,9 +1363,13 @@ export default function Layout(props: ParentProps) {
     })
   }
 
-  function openSettings() {
+  function openSettingsSurface() {
     setSettingsTab("general")
     setSettingsOpen(true)
+  }
+
+  function openSettings() {
+    shellNavigation.openSettings()
   }
 
   createEffect(() => {
@@ -1415,6 +1418,14 @@ export default function Layout(props: ParentProps) {
     return currentProject()?.worktree ?? projectRoot(directory)
   }
 
+  function releaseTransientShellLocks() {
+    if (sizet !== undefined) {
+      clearTimeout(sizet)
+      sizet = undefined
+    }
+    setState("sizing", false)
+  }
+
   function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
     notification.session.markViewed(id)
     const expanded = untrack(() => store.workspaceExpanded[directory])
@@ -1433,18 +1444,21 @@ export default function Layout(props: ParentProps) {
   }
 
   function navigateToSession(session: Session | undefined) {
-    if (!session) return
-    navigate(openSessionRoute(session.directory, session.id))
+    shellNavigation.openSession(session)
   }
 
   function openPawworkHome(directory?: string) {
-    const root = directory ? projectRoot(directory) : currentProject()?.worktree ?? projectRoot(currentDir())
-    if (!root) {
-      chooseProject()
-      return
-    }
-    navigate(newSessionRoute(root))
+    shellNavigation.openNewSession(directory)
   }
+
+  const shellNavigation = createShellNavigation({
+    navigate,
+    releaseTransientLocks: releaseTransientShellLocks,
+    resolveProjectRoot: projectRoot,
+    currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(currentDir()),
+    chooseProject,
+    openSettingsSurface,
+  })
 
   function openProject(directory: string, shouldNavigate = true) {
     layout.projects.open(directory)
@@ -2037,6 +2051,8 @@ export default function Layout(props: ParentProps) {
     currentDir,
     navList: currentSessions,
     prefetchSession,
+    openSession: navigateToSession,
+    openNewSession: openPawworkHome,
     workspaceName,
     renameWorkspace,
     editorOpen,
@@ -2079,6 +2095,7 @@ export default function Layout(props: ParentProps) {
       sortMode={() => store.pawworkSortMode}
       setScrollContainerRef={workspaceSidebarCtx.setScrollContainerRef}
       prefetchSession={prefetchSession}
+      onOpenSession={navigateToSession}
       onRenameSession={renamePawworkSession}
       onTogglePinnedSession={togglePinnedSession}
       exportSessionAvailable={exportSessionAvailable}
@@ -2107,7 +2124,15 @@ export default function Layout(props: ParentProps) {
         },
       }}
     >
-      <ShellSurfaceContext.Provider value={{ settingsOpen, openSettings, closeSettings }}>
+      <ShellSurfaceContext.Provider
+        value={{
+          settingsOpen,
+          openNewSession: openPawworkHome,
+          openSession: navigateToSession,
+          openSettings,
+          closeSettings,
+        }}
+      >
       <div
         data-component="desktop-shell"
         data-platform={platform.platform}

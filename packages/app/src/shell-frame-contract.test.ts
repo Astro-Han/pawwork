@@ -159,7 +159,7 @@ test("session composer is docked outside the scroll-clipped timeline region", ()
   expect(session).toContain('variant: "session" | "home"')
   expect(sessionMainView).toContain('<div class="flex-1 min-h-0 overflow-hidden">')
   expect(sessionMainView).toContain(
-    "</div>\n          <Show when={props.activeSessionID}>{props.composerSession}</Show>",
+    "</div>\n          <Show when={props.activeSessionID && !showSessionOpeningState()}>{props.composerSession}</Show>",
   )
   expect(messageTimeline).toContain('"padding-bottom": "calc(var(--composer-dock-height, 0px) + 32px)"')
 })

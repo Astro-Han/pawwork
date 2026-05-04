@@ -1,8 +1,6 @@
 import { createMemo, type Accessor } from "solid-js"
 
 export type SessionViewStateInput = {
-  currentVisibleDirectory?: string
-  currentVisibleSessionID: string | undefined
   directory: string
   routeSessionID: string | undefined
   routeMessagesReady: boolean
@@ -18,33 +16,15 @@ export function sessionKey(input: { directory: string; sessionID: string | undef
   return `${input.directory}${input.sessionID ? `/${input.sessionID}` : ""}`
 }
 
-export function nextVisibleSessionID(input: {
-  current: string | undefined
-  route: string | undefined
-  routeReady: boolean
-}) {
-  if (!input.route) return undefined
-  if (input.routeReady) return input.route
-  return input.current
-}
-
 export function nextSessionViewState(input: SessionViewStateInput) {
   const routeReady = !input.routeSessionID || input.routeMessagesReady
-  const currentVisibleSessionID =
-    input.currentVisibleDirectory && input.currentVisibleDirectory !== input.directory
-      ? undefined
-      : input.currentVisibleSessionID
-  const visibleSessionID = nextVisibleSessionID({
-    current: currentVisibleSessionID,
-    route: input.routeSessionID,
-    routeReady,
-  })
+  const visibleSessionID = input.routeSessionID
 
   return {
     routeSessionID: input.routeSessionID,
     routeReady,
     visibleSessionID,
-    transitioning: visibleSessionID !== input.routeSessionID,
+    transitioning: !routeReady,
     routeSessionKey: sessionKey({ directory: input.directory, sessionID: input.routeSessionID }),
     visibleSessionKey: sessionKey({ directory: input.directory, sessionID: visibleSessionID }),
   }
@@ -56,8 +36,6 @@ export function createSessionViewController(input: SessionViewControllerInput) {
     const directory = input.directory()
     return {
       ...nextSessionViewState({
-        currentVisibleDirectory: current?.directory,
-        currentVisibleSessionID: current?.visibleSessionID,
         directory,
         routeSessionID: input.routeSessionID(),
         routeMessagesReady: input.routeMessagesReady(),
@@ -66,12 +44,7 @@ export function createSessionViewController(input: SessionViewControllerInput) {
     }
   })
 
-  const visibleReady = () => {
-    const next = state()
-    if (!next.visibleSessionID) return !next.routeSessionID || next.routeReady
-    if (next.visibleSessionID !== next.routeSessionID) return true
-    return next.routeReady
-  }
+  const visibleReady = () => state().routeReady
 
   return {
     route: {

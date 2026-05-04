@@ -14,6 +14,7 @@ import { usePrompt } from "@/context/prompt"
 import { createSessionPerformanceDiagnostics, emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
+import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
@@ -38,6 +39,7 @@ import { createSessionTimelineData } from "@/pages/session/use-session-timeline-
 import { createSessionTimelineInteraction } from "@/pages/session/use-session-timeline-interaction"
 import { useSessionVcsRefresh } from "@/pages/session/use-session-vcs-refresh"
 import { diffs as list } from "@/utils/diffs"
+import { decode64 } from "@/utils/base64"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { formatServerError } from "@/utils/server-errors"
 
@@ -51,6 +53,7 @@ export default function Page() {
   const language = useLanguage()
   const sdk = useSDK()
   const settings = useSettings()
+  const shellSurface = useShellSurface()
   const prompt = usePrompt()
   const comments = useComments()
   const terminal = useTerminal()
@@ -540,6 +543,18 @@ export default function Page() {
     />
   )
 
+  const retryOpenRouteSession = () => {
+    const id = params.id
+    if (!id) return
+    void sync.session.sync(id, { force: true })
+  }
+
+  const openNewRouteSession = () => {
+    const directory = decode64(params.dir)
+    if (!directory) return
+    shellSurface.openNewSession(directory)
+  }
+
   return (
     <SessionMainView
       activeSessionID={params.id}
@@ -547,8 +562,12 @@ export default function Page() {
       mobileTab={mobileTab()}
       setMobileTab={setMobileTab}
       language={language}
+      routeSessionID={params.id}
+      routeReady={timeline.routeMessagesReady()}
+      transitioning={timeline.transitioning()}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}
+      timelineMessagesReady={timelineMessagesReady()}
       timelineMessages={timelineMessages()}
       mobileChanges={mobileChanges()}
       mobileFallback={reviewPanel.mobileFallback()}
@@ -567,6 +586,8 @@ export default function Page() {
       historyMore={timelineHistoryMore()}
       historyLoading={timelineHistoryLoading()}
       anchor={timelineInteraction.anchor}
+      onRetryOpenSession={retryOpenRouteSession}
+      onOpenNewSession={openNewRouteSession}
       composerSession={renderComposerRegion("session")}
       composerHome={(ctx) => renderComposerRegion("home", ctx)}
       canReview={canReview}
