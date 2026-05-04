@@ -649,7 +649,7 @@ export const layer: Layer.Layer<
             yield* applyPendingToolUpdates(value.toolCallId)
             const refreshed = yield* readToolCall(value.toolCallId)
             if (refreshed) running = refreshed.part
-            if (!running || !ctx.assistantMessage.parentID) return
+            if (!ctx.assistantMessage.parentID) return
             const info = yield* session.get(ctx.sessionID)
             const observed = SessionDiagnostics.observeToolCall({
               records: loopRecords(ctx.assistantMessage.parentID),
@@ -662,13 +662,15 @@ export const layer: Layer.Layer<
               modelID: ctx.model.id,
               providerID: ctx.model.providerID,
             })
-            yield* session.updatePart({
-              ...running,
+            const withDiagnostics = (part: MessageV2.ToolPart) => ({
+              ...part,
               state: {
-                ...running.state,
-                metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(running), observed.record.metadata),
+                ...part.state,
+                metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(part), observed.record.metadata),
               },
             })
+            if (running) yield* session.updatePart(withDiagnostics(running))
+            else yield* updateToolCall(value.toolCallId, withDiagnostics)
             return
           }
 
