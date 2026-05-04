@@ -23,7 +23,7 @@ export interface ReverifyDeps<Q> {
 //   4. server confirms the running question part is still uncovered
 // Transient list() failures ask the clock for one bounded follow-up.
 export async function questionRecoveryReverify<
-  Q extends { sessionID: string; messageID?: string; callID?: string; id?: string },
+  Q extends { sessionID: string; tool?: { messageID: string; callID: string }; id?: string },
 >(deps: ReverifyDeps<Q>, sessionID: string, ctx: ReverifyContext): Promise<ReverifyOutcome> {
   const localGuards = () => {
     if (deps.snapshot().kind !== "missingRunning") return false
@@ -47,7 +47,7 @@ export async function questionRecoveryReverify<
 
   const stillUncovered = findRunningQuestionFallbackSession({
     sessionID,
-    syncQuestions: filtered as never,
+    syncQuestions: filtered,
     messages: deps.messagesFor(sessionID) as never,
     partsByMessageID: deps.partsByMessageID() as never,
   })

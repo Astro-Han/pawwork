@@ -1,4 +1,12 @@
-import type { Message, Part, QuestionRequest } from "@opencode-ai/sdk/v2"
+import type { Message, Part } from "@opencode-ai/sdk/v2"
+
+// Minimal sync-entry shape this matcher needs. Widened from the full
+// QuestionRequest so callers (e.g. reverify) can pass narrower generics
+// without `as never` while keeping QuestionRequest[] callers happy via
+// structural subtyping.
+export interface QuestionFallbackEntry {
+  tool?: { messageID: string; callID: string }
+}
 
 // Triggers fallback recovery when a running question tool part on this session
 // has no matching entry in sync. Identity is (messageID, callID) so a model
@@ -13,7 +21,7 @@ import type { Message, Part, QuestionRequest } from "@opencode-ai/sdk/v2"
 // See #419.
 export function findRunningQuestionFallbackSession(input: {
   sessionID?: string
-  syncQuestions: ReadonlyArray<QuestionRequest>
+  syncQuestions: ReadonlyArray<QuestionFallbackEntry>
   messages?: Message[]
   partsByMessageID: Record<string, Part[] | undefined>
 }): string | undefined {
