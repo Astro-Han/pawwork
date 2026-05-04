@@ -4,7 +4,7 @@ import { getSessionContextMetrics } from "./session-context-metrics"
 
 const assistant = (
   id: string,
-  tokens: { input: number; output: number; reasoning: number; read: number; write: number },
+  tokens: { total?: number; input: number; output: number; reasoning: number; read: number; write: number },
   cost: number,
   providerID = "openai",
   modelID = "gpt-4.1",
@@ -16,6 +16,7 @@ const assistant = (
     modelID,
     cost,
     tokens: {
+      total: tokens.total,
       input: tokens.input,
       output: tokens.output,
       reasoning: tokens.reasoning,
@@ -51,7 +52,7 @@ describe("getSessionContextMetrics", () => {
         models: {
           "gpt-4.1": {
             name: "GPT-4.1",
-            limit: { context: 1000 },
+            limit: { context: 1000, output: 100 },
           },
         },
       },
@@ -61,10 +62,99 @@ describe("getSessionContextMetrics", () => {
 
     expect(metrics.totalCost).toBe(1.75)
     expect(metrics.context?.message.id).toBe("a2")
-    expect(metrics.context?.total).toBe(500)
-    expect(metrics.context?.usage).toBe(50)
+    expect(metrics.context?.total).toBe(450)
+    expect(metrics.context?.usedTokens).toBe(450)
+    expect(metrics.context?.effectiveInputLimit).toBe(1000)
+    expect(metrics.context?.compactThreshold).toBe(900)
+    expect(metrics.context?.usagePercent).toBe(45)
+    expect(metrics.context?.usage).toBe(45)
     expect(metrics.context?.providerLabel).toBe("OpenAI")
     expect(metrics.context?.modelLabel).toBe("GPT-4.1")
+  })
+
+  test("uses input limit and custom compaction reserve for usage metrics", () => {
+    const messages = [assistant("a1", { total: 238_000, input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 1)]
+    const providers = [
+      {
+        id: "openai",
+        models: {
+          "gpt-4.1": {
+            limit: { context: 400_000, input: 272_000, output: 128_000 },
+          },
+        },
+      },
+    ]
+
+    const metrics = getSessionContextMetrics(messages, providers, { compaction: { reserved: 20_000 } })
+
+    expect(metrics.context?.effectiveInputLimit).toBe(272_000)
+    expect(metrics.context?.contextWindow).toBe(400_000)
+    expect(metrics.context?.usedTokens).toBe(238_000)
+    expect(metrics.context?.compactThreshold).toBe(252_000)
+    expect(metrics.context?.usagePercent).toBeCloseTo((238_000 / 272_000) * 100, 5)
+    expect(metrics.context?.usage).toBe(Math.round((238_000 / 272_000) * 100))
+  })
+
+  test("keeps raw usage separate from rounded display usage", () => {
+    const messages = [assistant("a1", { total: 696, input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 1)]
+    const providers = [
+      {
+        id: "openai",
+        models: {
+          "gpt-4.1": {
+            limit: { context: 1_000, output: 100 },
+          },
+        },
+      },
+    ]
+
+    const metrics = getSessionContextMetrics(messages, providers)
+
+    expect(metrics.context?.usagePercent).toBe(69.6)
+    expect(metrics.context?.usage).toBe(70)
+  })
+
+  test("selects the latest assistant when only total tokens are reported", () => {
+    const messages = [
+      assistant("a1", { input: 10, output: 10, reasoning: 0, read: 0, write: 0 }, 0.1),
+      assistant("a2", { total: 70_000, input: 0, output: 0, reasoning: 0, read: 0, write: 0 }, 0.2),
+    ]
+    const providers = [
+      {
+        id: "openai",
+        models: {
+          "gpt-4.1": {
+            limit: { context: 100_000, output: 10_000 },
+          },
+        },
+      },
+    ]
+
+    const metrics = getSessionContextMetrics(messages, providers)
+
+    expect(metrics.context?.message.id).toBe("a2")
+    expect(metrics.context?.usedTokens).toBe(70_000)
+  })
+
+  test("treats zero context limit as unknown", () => {
+    const messages = [assistant("a1", { total: 20_000, input: 1, output: 1, reasoning: 1, read: 1, write: 1 }, 1)]
+    const providers = [
+      {
+        id: "openai",
+        models: {
+          "gpt-4.1": {
+            limit: { context: 0, output: 0 },
+          },
+        },
+      },
+    ]
+
+    const metrics = getSessionContextMetrics(messages, providers)
+
+    expect(metrics.context?.usedTokens).toBe(20_000)
+    expect(metrics.context?.effectiveInputLimit).toBeUndefined()
+    expect(metrics.context?.compactThreshold).toBeUndefined()
+    expect(metrics.context?.usage).toBeNull()
   })
 
   test("preserves fallback labels and null usage when model metadata is missing", () => {
@@ -75,7 +165,8 @@ describe("getSessionContextMetrics", () => {
 
     expect(metrics.context?.providerLabel).toBe("p-1")
     expect(metrics.context?.modelLabel).toBe("m-1")
-    expect(metrics.context?.limit).toBeUndefined()
+    expect(metrics.context?.effectiveInputLimit).toBeUndefined()
+    expect(metrics.context?.compactThreshold).toBeUndefined()
     expect(metrics.context?.usage).toBeNull()
   })
 

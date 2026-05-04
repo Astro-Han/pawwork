@@ -1,4 +1,9 @@
 import type { AssistantMessage, Message } from "@opencode-ai/sdk/v2/client"
+import {
+  contextUsageModelOutputLimit,
+  contextUsageUsedTokens,
+  deriveContextUsage,
+} from "@opencode-ai/util/context-usage"
 
 type Provider = {
   id: string
@@ -10,6 +15,15 @@ type Model = {
   name?: string
   limit: {
     context: number
+    input?: number
+    output?: number
+  }
+}
+
+type Config = {
+  compaction?: {
+    auto?: boolean
+    reserved?: number
   }
 }
 
@@ -19,13 +33,18 @@ type Context = {
   model?: Model
   providerLabel: string
   modelLabel: string
-  limit: number | undefined
+  effectiveInputLimit: number | undefined
+  contextWindow: number | undefined
+  compactThreshold: number | undefined
+  autoCompactEnabled: boolean
+  usedTokens: number
   input: number
   output: number
   reasoning: number
   cacheRead: number
   cacheWrite: number
   total: number
+  usagePercent: number | null
   usage: number | null
 }
 
@@ -35,7 +54,7 @@ type Metrics = {
 }
 
 const tokenTotal = (msg: AssistantMessage) => {
-  return msg.tokens.input + msg.tokens.output + msg.tokens.reasoning + msg.tokens.cache.read + msg.tokens.cache.write
+  return contextUsageUsedTokens(msg.tokens)
 }
 
 const lastAssistantWithTokens = (messages: Message[]) => {
@@ -47,15 +66,20 @@ const lastAssistantWithTokens = (messages: Message[]) => {
   }
 }
 
-const build = (messages: Message[] = [], providers: Provider[] = []): Metrics => {
+const build = (messages: Message[] = [], providers: Provider[] = [], config: Config = {}): Metrics => {
   const totalCost = messages.reduce((sum, msg) => sum + (msg.role === "assistant" ? msg.cost : 0), 0)
   const message = lastAssistantWithTokens(messages)
   if (!message) return { totalCost, context: undefined }
 
   const provider = providers.find((item) => item.id === message.providerID)
   const model = provider?.models[message.modelID]
-  const limit = model?.limit.context
   const total = tokenTotal(message)
+  const usage = deriveContextUsage({
+    model,
+    tokens: message.tokens,
+    compaction: config.compaction,
+    defaultReserveTokens: contextUsageModelOutputLimit(model),
+  })
 
   return {
     totalCost,
@@ -65,18 +89,23 @@ const build = (messages: Message[] = [], providers: Provider[] = []): Metrics =>
       model,
       providerLabel: provider?.name ?? message.providerID,
       modelLabel: model?.name ?? message.modelID,
-      limit,
+      effectiveInputLimit: usage.effectiveInputLimit,
+      contextWindow: model?.limit.context || undefined,
+      compactThreshold: usage.compactThreshold,
+      autoCompactEnabled: usage.autoCompactEnabled,
+      usedTokens: usage.usedTokens,
       input: message.tokens.input,
       output: message.tokens.output,
       reasoning: message.tokens.reasoning,
       cacheRead: message.tokens.cache.read,
       cacheWrite: message.tokens.cache.write,
       total,
-      usage: limit ? Math.round((total / limit) * 100) : null,
+      usagePercent: usage.usagePercent,
+      usage: usage.usagePercent === null ? null : Math.round(usage.usagePercent),
     },
   }
 }
 
-export function getSessionContextMetrics(messages: Message[] = [], providers: Provider[] = []) {
-  return build(messages, providers)
+export function getSessionContextMetrics(messages: Message[] = [], providers: Provider[] = [], config: Config = {}) {
+  return build(messages, providers, config)
 }

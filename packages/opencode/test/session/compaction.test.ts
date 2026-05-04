@@ -402,6 +402,30 @@ describe("session.compaction.isOverflow", () => {
   )
 
   it.live(
+    "includes cache.write in token count",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const tokens = { input: 60_000, output: 10_000, reasoning: 0, cache: { read: 0, write: 10_000 } }
+        expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
+      }),
+    ),
+  )
+
+  it.live(
+    "uses total tokens when reported by the provider",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const model = createModel({ context: 100_000, output: 32_000 })
+        const tokens = { total: 90_000, input: 1, output: 1, reasoning: 80_000, cache: { read: 1, write: 1 } }
+        expect(yield* compact.isOverflow({ tokens, model })).toBe(true)
+      }),
+    ),
+  )
+
+  it.live(
     "respects input limit for input caps",
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
