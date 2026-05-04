@@ -165,10 +165,10 @@ describe("createQuestionRecoveryClock", () => {
     h.dispose()
   })
 
-  // Bounded retry: persistent transient failures must give up after a
-  // bounded number of follow-up attempts. The clock then waits for a fresh
-  // snapshot edge instead of looping the server every delayMs forever.
-  test("reverify retry=true exhausts MAX_RETRIES then logs warn and stops", async () => {
+  // Bounded retry: persistent transient failures retry up to MAX_RETRIES,
+  // then escalate to halt. Leaving the user stuck on a hidden blocker is
+  // worse than a conservative halt they could have triggered manually.
+  test("reverify retry=true exhausts MAX_RETRIES then escalates to halt", async () => {
     let attempts = 0
     const h = setupHarness({
       reverifyImpl: async () => {
@@ -185,28 +185,37 @@ describe("createQuestionRecoveryClock", () => {
       await flush()
       expect(attempts).toBe(i + 1)
       expect(h.fk.pending()).toBe(1)
+      expect(h.haltCalls).toEqual([])
     }
 
-    // The (MAX_RETRIES + 1)-th attempt is the last one; it returns retry=true
-    // but the budget is now exhausted, so the clock warns and stops.
+    // The (MAX_RETRIES + 1)-th attempt returns retry=true but the budget is
+    // now exhausted — clock warns and escalates to halt instead of leaving
+    // the user stuck on a hidden blocker.
     h.fk.advance(HEAL_DELAY_MS)
     await flush()
     expect(attempts).toBe(MAX_RETRIES + 1)
+    expect(h.haltCalls).toEqual(["s"])
+    expect(h.fk.pending()).toBe(0)
+    expect(h.warnCalls.some((w) => w.message.includes("escalating to halt"))).toBe(true)
+    h.dispose()
+  })
+
+  // Non-retry proceed=false (e.g. guard failed, server says still covered)
+  // must NOT trigger any retry/halt — only retry=true counts toward escalation.
+  test("reverify proceed=false retry=false → no retry, no halt", async () => {
+    let attempts = 0
+    const h = setupHarness({
+      reverifyImpl: async () => {
+        attempts++
+        return { proceed: false }
+      },
+    })
+    h.setSnap(missing)
+    h.fk.advance(HEAL_DELAY_MS)
+    await flush()
+    expect(attempts).toBe(1)
     expect(h.haltCalls).toEqual([])
     expect(h.fk.pending()).toBe(0)
-    expect(h.warnCalls.some((w) => w.message.includes("retry budget exhausted"))).toBe(true)
-
-    // A long wait without snapshot change does not revive the clock.
-    h.fk.advance(HEAL_DELAY_MS * 10)
-    await flush()
-    expect(attempts).toBe(MAX_RETRIES + 1)
-    expect(h.haltCalls).toEqual([])
-
-    // A fresh snapshot edge (none → missing) starts a new arm with a fresh
-    // retry budget.
-    h.setSnap(none)
-    h.setSnap(missing)
-    expect(h.fk.pending()).toBe(1)
     h.dispose()
   })
 

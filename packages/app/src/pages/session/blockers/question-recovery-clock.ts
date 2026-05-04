@@ -106,31 +106,35 @@ export function createQuestionRecoveryClock(input: ClockInput): Clock {
     if (disposed) return
     if (!outcome.proceed) {
       // Bounded retry: up to MAX_RETRIES follow-up attempts per arm. After
-      // the budget is exhausted, log structured warn and stop — wait for a
-      // fresh snapshot edge or session navigation instead of looping the
-      // server every delayMs forever.
+      // the budget is exhausted, escalate to halt — leaving the user stuck
+      // on a hidden blocker is worse than a conservative halt they could
+      // have triggered manually anyway. Fresh snapshot edge or session
+      // navigation still resets the budget for a new arm.
       if (outcome.retry && input.activeSessionID() === sessionID) {
         if (entry.retries >= MAX_RETRIES) {
-          warn("question-recovery: retry budget exhausted", {
+          warn("question-recovery: retry budget exhausted, escalating to halt", {
             sessionID,
             directory: entry.armedDirectory,
             armedAt: entry.armedAt,
             firedAt: ctx.firedAt,
             retries: entry.retries,
           })
+          // fall through to halt below
+        } else {
+          const handle = setTimer(() => {
+            void fire(sessionID)
+          }, delayMs)
+          pending.set(sessionID, {
+            handle,
+            armedAt: now(),
+            armedDirectory: entry.armedDirectory,
+            retries: entry.retries + 1,
+          })
           return
         }
-        const handle = setTimer(() => {
-          void fire(sessionID)
-        }, delayMs)
-        pending.set(sessionID, {
-          handle,
-          armedAt: now(),
-          armedDirectory: entry.armedDirectory,
-          retries: entry.retries + 1,
-        })
+      } else {
+        return
       }
-      return
     }
 
     try {
