@@ -36,6 +36,7 @@ export namespace Pty {
   type Active = {
     info: Info
     process: Proc
+    exitCode?: number
     buffer: string
     bufferCursor: number
     cursor: number
@@ -136,14 +137,19 @@ export namespace Pty {
       }
 
       function waitForExit(session: Active) {
-        if (session.info.status === "exited") return Promise.resolve()
-        return new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, EXIT_WAIT_MS)
-          const sub = session.process.onExit(() => {
-            clearTimeout(timer)
+        if (session.info.status === "exited") return Promise.resolve(session.exitCode)
+        return new Promise<number | undefined>((resolve) => {
+          let timer: ReturnType<typeof setTimeout> | undefined
+          const sub = session.process.onExit(({ exitCode }) => {
+            if (timer) clearTimeout(timer)
             sub.dispose()
-            resolve()
+            session.exitCode = exitCode
+            resolve(exitCode)
           })
+          timer = setTimeout(() => {
+            sub.dispose()
+            resolve(undefined)
+          }, EXIT_WAIT_MS)
         })
       }
 
@@ -183,12 +189,11 @@ export namespace Pty {
       }
 
       const terminate = Effect.fn("Pty.terminate")(function* (session: Active) {
-        if (hasExited(session)) return
+        if (hasExited(session)) return session.exitCode
         const exited = waitForExit(session)
         if (process.platform === "win32") {
           signalProcess(session, "SIGTERM")
-          yield* Effect.promise(() => exited)
-          return
+          return yield* Effect.promise(() => exited)
         }
 
         const descendants = yield* Effect.promise(() => descendantPids(session.process.pid))
@@ -201,19 +206,19 @@ export namespace Pty {
         yield* Effect.promise(() =>
           Promise.race([exited.then(() => true), sleep(TERMINATION_GRACE_MS).then(() => false)]),
         )
-        if (hasExited(session)) return
+        if (hasExited(session)) return session.exitCode
         signalProcess(session, "SIGKILL")
         for (const child of descendants) {
           try {
             if (processExists(child)) process.kill(child, "SIGKILL")
           } catch {}
         }
-        yield* Effect.promise(() => exited)
+        return yield* Effect.promise(() => exited)
       })
 
       const teardown = Effect.fn("Pty.teardown")(function* (session: Active) {
         closeSubscribers(session)
-        yield* terminate(session)
+        return yield* terminate(session)
       })
 
       const state = yield* InstanceState.make<State>(
@@ -253,7 +258,13 @@ export namespace Pty {
         if (!session) return
         s.sessions.delete(id)
         log.info("removing session", { id })
-        yield* teardown(session)
+        const alreadyExited = session.info.status === "exited"
+        const exitCode = yield* teardown(session)
+        if (!alreadyExited && session.info.status !== "exited") {
+          session.info.status = "exited"
+          session.exitCode = exitCode ?? -1
+          yield* bus.publish(Event.Exited, { id: session.info.id, exitCode: session.exitCode })
+        }
         yield* bus.publish(Event.Deleted, { id: session.info.id })
       })
 
@@ -355,9 +366,10 @@ export namespace Pty {
         )
         proc.onExit(
           Instance.bind(({ exitCode }) => {
-            if (session.info.status === "exited") return
+            if (session.info.status === "exited" || !s.sessions.has(id)) return
             log.info("session exited", { id, exitCode })
             session.info.status = "exited"
+            session.exitCode = exitCode
             trackCleanup(
               s,
               Effect.gen(function* () {

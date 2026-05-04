@@ -401,7 +401,11 @@ const live: Layer.Layer<
       Stream.scoped(
         Stream.unwrap(
           Effect.gen(function* () {
-            const timeoutMs = input.streamTimeoutMs ?? SILENT_STREAM_TIMEOUT_MS
+            const timeoutMsInput = input.streamTimeoutMs
+            const timeoutMs =
+              typeof timeoutMsInput === "number" && Number.isFinite(timeoutMsInput) && timeoutMsInput > 0
+                ? timeoutMsInput
+                : SILENT_STREAM_TIMEOUT_MS
             const request = yield* Effect.acquireRelease(
               Effect.sync(() => {
                 const ctrl = new AbortController()
