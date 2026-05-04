@@ -263,6 +263,7 @@ export function SessionSidePanel(props: {
     <Show when={isDesktop()}>
       <aside
         id="right-panel"
+        data-component="right-panel"
         aria-label={language.t("session.panel.utility")}
         aria-hidden={!open()}
         inert={!open()}
@@ -275,7 +276,7 @@ export function SessionSidePanel(props: {
         style={{ width: panelWidth() }}
       >
         <div
-          data-testid="right-panel-resize-wrapper"
+          data-component="right-panel-resize-wrapper"
           onPointerDown={() => props.size.start()}
           class="absolute top-0 left-0 h-full z-10"
         >

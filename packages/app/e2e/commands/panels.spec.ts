@@ -1,12 +1,13 @@
 import { test, expect } from "../fixtures"
-import { titlebarRightSelector } from "../selectors"
+import { openSidebar } from "../actions"
+import { pawworkSessionNewSelector, titlebarRightSelector } from "../selectors"
 import { modKey } from "../utils"
 
 test("desktop right-panel tabs switch between review and files within a unified utility shell", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-  const rightPanel = page.locator("#right-panel")
+  const rightPanel = page.locator('[data-component="right-panel"]')
   await expect(rightToggle).toBeVisible()
   await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
@@ -34,6 +35,22 @@ test("desktop right-panel tabs switch between review and files within a unified 
   await page.keyboard.press(`${modKey}+Shift+R`)
   await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
   await expect(reviewTab).toHaveAttribute("aria-selected", "true")
+})
+
+test("desktop remains clickable after right-panel resize ends with mouseup", async ({ page, gotoSession, slug }) => {
+  await gotoSession()
+  await openSidebar(page)
+
+  const rightPanel = page.locator("#right-panel")
+  await page.keyboard.press(`${modKey}+Shift+R`)
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+
+  await page.locator('[data-component="right-panel-resize-wrapper"]').dispatchEvent("pointerdown")
+  await page.mouse.up()
+
+  await page.locator(pawworkSessionNewSelector).click()
+  await expect(page).toHaveURL(new RegExp(`/${slug}/session(?:\\?|#|$)`))
+  await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
 })
 
 test("desktop session keeps a single right-panel toggle and icon-first utility tabs", async ({ page, gotoSession }) => {

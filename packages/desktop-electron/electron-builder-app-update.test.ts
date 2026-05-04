@@ -4,7 +4,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import type { Configuration } from "electron-builder"
-import { createConfig, getPublishConfig } from "./electron-builder.config"
+import {
+  createConfig,
+  getPublishConfig,
+  nativeWatcherFileSets,
+  nativeWatcherPackageNames,
+} from "./electron-builder.config"
 import { serializeAppUpdateConfig } from "./scripts/write-app-update-config"
 
 const roots: string[] = []
@@ -71,6 +76,38 @@ describe("electron builder app-update config", () => {
           to: "THIRD_PARTY_NOTICES.md",
         }),
       ]),
+    )
+  })
+
+  test("native watcher package list covers desktop targets", () => {
+    expect(nativeWatcherPackageNames()).toEqual([
+      "@parcel/watcher-darwin-arm64",
+      "@parcel/watcher-darwin-x64",
+      "@parcel/watcher-linux-arm64-glibc",
+      "@parcel/watcher-linux-arm64-musl",
+      "@parcel/watcher-linux-x64-glibc",
+      "@parcel/watcher-linux-x64-musl",
+      "@parcel/watcher-win32-arm64",
+      "@parcel/watcher-win32-x64",
+    ])
+  })
+
+  test("packages native file watcher bindings for the embedded server", () => {
+    const config = createConfig("prod")
+    const resources = nativeWatcherFileSets()
+
+    expect(config.extraResources).toEqual(
+      expect.arrayContaining(
+        resources.map((resource) =>
+          expect.objectContaining({
+            from: resource.from,
+            to: resource.to,
+          }),
+        ),
+      ),
+    )
+    expect(resources.map((resource) => resource.to)).toEqual(
+      nativeWatcherPackageNames().map((packageName) => join("node_modules", ...packageName.split("/"))),
     )
   })
 
