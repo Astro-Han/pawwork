@@ -278,19 +278,24 @@ export namespace Question {
         const signal = input.signal
         let removeListener: (() => void) | undefined
         const sessionID = input.sessionID
-        // bus.publish reads InstanceState (directory/workspace/context), which
-        // requires either Effect fiber context or JS ALS to be set. The abort
-        // listener fires from the JS event loop on signal dispatch — not
-        // necessarily inside our parent Effect's runtime — so wrap with
-        // InstanceState.bind to capture the current instance ALS context and
-        // restore it whenever the callback runs.
+        // Capture the parent fiber's Effect context so the abort callback
+        // (which fires from the JS event loop, outside any fiber) forks the
+        // publish + Deferred.fail effects onto a runtime that already
+        // carries our service layer + InstanceRef. The wrapping
+        // InstanceState.bind is a belt-and-braces fallback for log.info and
+        // any consumer still on the ALS path.
+        const ctx = yield* Effect.context<never>()
         const failFromAbort = InstanceState.bind(() => {
           const entry = pending.get(id)
           if (!entry) return
           pending.delete(id)
           log.info("rejected", { requestID: id, reason: "aborted" })
-          Effect.runFork(bus.publish(Event.Rejected, { sessionID, requestID: id }))
-          Effect.runFork(Deferred.fail(entry.deferred, new RejectedError({ cancelled: true })))
+          Effect.runFork(
+            Effect.provide(bus.publish(Event.Rejected, { sessionID, requestID: id }), ctx),
+          )
+          Effect.runFork(
+            Effect.provide(Deferred.fail(entry.deferred, new RejectedError({ cancelled: true })), ctx),
+          )
         })
 
         if (signal) {
