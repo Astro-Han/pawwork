@@ -66,4 +66,20 @@ describe("createShellNavigation", () => {
 
     expect(calls).toEqual(["release:choose-project", "chooseProject"])
   })
+
+  test("falls back to project chooser when an explicit directory cannot be resolved", () => {
+    const calls: string[] = []
+    const shell = createShellNavigation({
+      navigate: (route) => calls.push(`navigate:${route}`),
+      releaseTransientLocks: (reason) => calls.push(`release:${reason}`),
+      resolveProjectRoot: () => undefined,
+      currentProjectRoot: () => "/current",
+      chooseProject: () => calls.push("chooseProject"),
+      openSettingsSurface: () => calls.push("settings"),
+    })
+
+    shell.openNewSession("/repo")
+
+    expect(calls).toEqual(["release:choose-project", "chooseProject"])
+  })
 })

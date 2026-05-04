@@ -33,7 +33,7 @@ export function nextSessionViewState(input: SessionViewStateInput) {
     routeSessionID: input.routeSessionID,
     routeReady,
     visibleSessionID,
-    transitioning: !!input.routeSessionID && !routeReady,
+    transitioning: !routeReady,
     routeSessionKey: sessionKey({ directory: input.directory, sessionID: input.routeSessionID }),
     visibleSessionKey: sessionKey({ directory: input.directory, sessionID: visibleSessionID }),
   }
@@ -53,11 +53,7 @@ export function createSessionViewController(input: SessionViewControllerInput) {
     }
   })
 
-  const visibleReady = () => {
-    const next = state()
-    if (!next.visibleSessionID) return !next.routeSessionID || next.routeReady
-    return next.routeReady
-  }
+  const visibleReady = () => state().routeReady
 
   return {
     route: {
