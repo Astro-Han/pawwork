@@ -123,7 +123,7 @@ export namespace Pty {
       const plugin = yield* Plugin.Service
       function teardown(session: Active) {
         try {
-          session.process.kill()
+          session.process.kill("SIGTERM")
         } catch {}
         for (const [sub, ws] of session.subscribers.entries()) {
           try {
