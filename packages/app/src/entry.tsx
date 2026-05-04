@@ -101,13 +101,24 @@ const restart: Platform["restart"] = async () => {
   window.location.reload()
 }
 
-const getShellOs = (): NonNullable<Platform["shell"]>["os"] => {
-  const override = import.meta.env.VITE_PAWWORK_SHELL_OS
-  if (override === "macos" || override === "windows" || override === "linux") return override
-  if (typeof navigator !== "object") return "macos"
+const shellOsFrom = (value: unknown): NonNullable<Platform["shell"]>["os"] | undefined => {
+  return value === "macos" || value === "windows" || value === "linux" ? value : undefined
+}
+
+const detectRuntimeShellOs = (): NonNullable<Platform["shell"]>["os"] | undefined => {
+  if (typeof navigator !== "object") return undefined
   const ua = navigator.userAgent
   if (ua.includes("Windows")) return "windows"
   if (ua.includes("Linux")) return "linux"
+  if (ua.includes("Mac")) return "macos"
+  return undefined
+}
+
+const detectShellOs = (): NonNullable<Platform["shell"]>["os"] => {
+  const envOverride = shellOsFrom(import.meta.env.VITE_PAWWORK_SHELL_OS)
+  const runtimeDetectedOs = detectRuntimeShellOs()
+  if (envOverride) return envOverride
+  if (runtimeDetectedOs) return runtimeDetectedOs
   return "macos"
 }
 
@@ -131,7 +142,7 @@ const getDefaultUrl = () => {
 
 const platform: Platform = {
   platform: "web",
-  shell: { kind: "desktop", os: getShellOs() },
+  shell: { kind: "desktop", os: detectShellOs() },
   version: pkg.version,
   openLink,
   back,
