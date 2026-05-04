@@ -39,8 +39,11 @@ export function stop(proc: ChildProcess) {
   const children = descendants(proc.pid)
   signal(proc.pid, "SIGTERM")
   for (const child of children) signal(child, "SIGTERM")
-  signal(proc.pid, "SIGKILL")
-  for (const child of children) signal(child, "SIGKILL")
+  const killTimer = setTimeout(() => {
+    signal(proc.pid!, "SIGKILL")
+    for (const child of children) signal(child, "SIGKILL")
+  }, 500)
+  killTimer.unref?.()
 }
 
 export function bindAbort(proc: ChildProcess, signal?: AbortSignal, onAbort?: () => void) {
