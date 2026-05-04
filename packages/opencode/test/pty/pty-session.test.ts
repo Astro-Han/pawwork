@@ -45,11 +45,9 @@ describe("pty", () => {
           })
           id = info.id
 
-          await wait(() => pick(log, id!).includes("exited"))
-
-          await Pty.remove(id)
           await wait(() => pick(log, id!).length >= 3)
           expect(pick(log, id!)).toEqual(["created", "exited", "deleted"])
+          expect(await Pty.get(id)).toBeUndefined()
         } finally {
           off.forEach((x) => x())
           if (id) await Pty.remove(id)

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { NamedError } from "@opencode-ai/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Schedule } from "effect"
+import { Effect, Exit, Schedule } from "effect"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
 import { ProviderID } from "../../src/provider/schema"
@@ -120,6 +120,33 @@ describe("session.retry.delay", () => {
         })
       },
     })
+  })
+
+  test("policy stops retrying after the configured max attempts", async () => {
+    const attempts: number[] = []
+    let runs = 0
+    const error = apiError({ "retry-after-ms": "0" })
+
+    const exit = await Effect.runPromiseExit(
+      Effect.try({
+        try: () => {
+          runs++
+          throw error
+        },
+        catch: (err) => err as MessageV2.APIError,
+      }).pipe(
+        Effect.retry(
+          SessionRetry.policy({
+            parse: (err) => err as MessageV2.APIError,
+            set: (info) => Effect.sync(() => attempts.push(info.attempt)),
+          }),
+        ),
+      ),
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(runs).toBe(SessionRetry.RETRY_MAX_ATTEMPTS)
+    expect(attempts).toEqual(Array.from({ length: SessionRetry.RETRY_MAX_ATTEMPTS - 1 }, (_, index) => index + 1))
   })
 })
 

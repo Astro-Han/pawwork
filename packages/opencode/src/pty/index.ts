@@ -45,6 +45,7 @@ export namespace Pty {
   type State = {
     dir: string
     sessions: Map<PtyID, Active>
+    cleanupTasks: Set<Promise<void>>
   }
 
   // WebSocket control frame: 0x00 + UTF-8 JSON.
@@ -220,10 +221,14 @@ export namespace Pty {
           const state = {
             dir: ctx.directory,
             sessions: new Map<PtyID, Active>(),
+            cleanupTasks: new Set<Promise<void>>(),
           }
 
           yield* Effect.addFinalizer(() =>
             Effect.gen(function* () {
+              if (state.cleanupTasks.size) {
+                yield* Effect.promise(() => Promise.allSettled(state.cleanupTasks)).pipe(Effect.asVoid)
+              }
               for (const session of state.sessions.values()) {
                 yield* teardown(session)
               }
@@ -234,6 +239,13 @@ export namespace Pty {
           return state
         }),
       )
+
+      const trackCleanup = (s: State, effect: Effect.Effect<void>) => {
+        const task = Effect.runPromise(effect.pipe(Effect.provide(EffectLogger.layer))).finally(() => {
+          s.cleanupTasks.delete(task)
+        })
+        s.cleanupTasks.add(task)
+      }
 
       const remove = Effect.fn("Pty.remove")(function* (id: PtyID) {
         const s = yield* InstanceState.get(state)
@@ -346,8 +358,13 @@ export namespace Pty {
             if (session.info.status === "exited") return
             log.info("session exited", { id, exitCode })
             session.info.status = "exited"
-            Effect.runFork(bus.publish(Event.Exited, { id, exitCode }).pipe(Effect.provide(EffectLogger.layer)))
-            Effect.runFork(remove(id).pipe(Effect.provide(EffectLogger.layer)))
+            trackCleanup(
+              s,
+              Effect.gen(function* () {
+                yield* bus.publish(Event.Exited, { id, exitCode })
+                yield* remove(id)
+              }),
+            )
           }),
         )
         yield* bus.publish(Event.Created, { info })
