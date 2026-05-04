@@ -227,11 +227,11 @@ export const layer: Layer.Layer<
       const applyPendingToolUpdates = Effect.fn("SessionProcessor.applyPendingToolUpdates")(function* (toolCallID: string) {
         const pending = ctx.pendingToolUpdates[toolCallID]
         if (!pending?.length) return
-        delete ctx.pendingToolUpdates[toolCallID]
         const match = yield* readToolCall(toolCallID)
         if (!match) return
         const next = pending.reduce((part, update) => update(part), match.part)
         const part = yield* session.updatePart(next)
+        delete ctx.pendingToolUpdates[toolCallID]
         ctx.toolcalls[toolCallID] = {
           ...match.call,
           partID: part.id,
