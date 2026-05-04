@@ -131,6 +131,70 @@ describe("persist localStorage resilience", () => {
     expect(result).toBeUndefined()
   })
 
+  test("current key wins over same-storage legacy keys", () => {
+    const current = persistTesting.localStorageWithPrefix("pawwork.global.dat")
+    const legacy = persistTesting.localStorageDirect()
+    current.removeItem("layout-page")
+    current.removeItem("layout.page")
+    current.setItem("layout-page", JSON.stringify({ pinned: ["current"] }))
+    current.setItem("layout.page", JSON.stringify({ pinned: ["old"] }))
+
+    const result = persistTesting.readPersistedSync({
+      current,
+      legacyStore: legacy,
+      key: "layout-page",
+      defaults: { pinned: [] as string[] },
+      currentLegacy: ["layout.page"],
+      legacy: [],
+    })
+
+    expect(JSON.parse(result ?? "{}")).toEqual({ pinned: ["current"] })
+  })
+
+  test("same-storage legacy keys migrate into the current key", () => {
+    const current = persistTesting.localStorageWithPrefix("pawwork.global.dat")
+    const legacy = persistTesting.localStorageDirect()
+    current.removeItem("layout-page")
+    current.removeItem("layout.page")
+    current.setItem("layout.page", JSON.stringify({ pinned: ["old"] }))
+
+    const result = persistTesting.readPersistedSync({
+      current,
+      legacyStore: legacy,
+      key: "layout-page",
+      defaults: { pinned: [] as string[] },
+      currentLegacy: ["layout.page"],
+      legacy: [],
+    })
+
+    expect(JSON.parse(result ?? "{}")).toEqual({ pinned: ["old"] })
+    expect(JSON.parse(storage.getItem("pawwork.global.dat:layout-page") ?? "{}")).toEqual({
+      pinned: ["old"],
+    })
+  })
+
+  test("invalid same-storage legacy values do not block legacy storage fallback", () => {
+    const current = persistTesting.localStorageWithPrefix("pawwork.global.dat")
+    const legacy = persistTesting.localStorageDirect()
+    current.removeItem("layout-page")
+    current.removeItem("layout")
+    current.setItem("layout", JSON.stringify({ sidebar: { opened: true } }))
+    legacy.setItem("layout.page.v1", JSON.stringify({ pinned: ["legacy"] }))
+
+    const result = persistTesting.readPersistedSync({
+      current,
+      legacyStore: legacy,
+      key: "layout-page",
+      defaults: { pinned: [] as string[] },
+      currentLegacy: ["layout"],
+      legacy: ["layout.page.v1"],
+      migrate: (value) => ("pinned" in (value as Record<string, unknown>) ? value : undefined),
+    })
+
+    expect(JSON.parse(result ?? "{}")).toEqual({ pinned: ["legacy"] })
+    expect(legacy.getItem("layout.page.v1")).toBeNull()
+  })
+
   test("workspace storage sanitizes Windows filename characters", () => {
     const result = persistTesting.workspaceStorage("C:\\Users\\foo")
 
