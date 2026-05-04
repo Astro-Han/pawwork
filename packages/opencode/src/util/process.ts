@@ -270,12 +270,11 @@ export namespace Process {
     if (groupSignaled && !rootExited && exists(input.pid)) {
       signalGroup(input.pid, "SIGKILL")
       log.debug("sent process group kill signal", { pid: input.pid })
-      if (input.waitForExit) await Promise.race([input.waitForExit.catch(() => undefined), sleep(graceMs)])
-      return
+    } else {
+      signalRoot("SIGKILL")
     }
-    signalRoot("SIGKILL")
     for (const child of children) signalPid(child, "SIGKILL")
-    log.debug("sent fallback process kill signals", { pid: input.pid, descendantCount: children.length })
+    log.debug("sent process tree kill signals", { pid: input.pid, groupSignaled, descendantCount: children.length })
     if (input.waitForExit) await Promise.race([input.waitForExit.catch(() => undefined), sleep(graceMs)])
   }
 
