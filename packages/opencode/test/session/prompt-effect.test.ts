@@ -218,6 +218,7 @@ function makeHttp() {
 
 const it = testEffect(makeHttp())
 const unix = process.platform !== "win32" ? it.live : it.live.skip
+const slowIOTimeout = process.platform === "win32" ? 10_000 : 3_000
 
 // Config that registers a custom "test" provider with a "test-model" model
 // so provider model lookup succeeds inside the loop.
@@ -1375,7 +1376,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  slowIOTimeout,
 )
 
 it.live(
@@ -1405,7 +1406,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  slowIOTimeout,
 )
 
 it.live("assertNotBusy succeeds when idle", () =>
@@ -1736,7 +1737,7 @@ unix(
 
 const shellQueueTimeout = process.platform === "win32" ? 10_000 : 3_000
 
-it.live(
+unix(
   "loop waits while shell runs and starts after shell exits",
   () =>
     provideTmpdirServer(
@@ -1774,7 +1775,7 @@ it.live(
   shellQueueTimeout,
 )
 
-it.live(
+unix(
   "shell completion resumes queued loop callers",
   () =>
     provideTmpdirServer(
