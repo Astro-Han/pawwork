@@ -210,6 +210,22 @@ export function isWindowsShell(platform: Pick<Platform, "platform" | "shell" | "
   return isDesktopShell(platform) && getShellOs(platform) === "windows"
 }
 
+export function canOpenLocalPath(platform: Pick<Platform, "openPath">) {
+  return !!platform.openPath
+}
+
+export function canCheckUpdate(platform: Pick<Platform, "checkUpdate">) {
+  return !!platform.checkUpdate
+}
+
+export function canUseDisplayBackend(platform: Pick<Platform, "getDisplayBackend" | "setDisplayBackend">) {
+  return !!platform.getDisplayBackend && !!platform.setDisplayBackend
+}
+
+export function canUseNativeFilePicker(platform: Pick<Platform, "openFilePickerDialog">) {
+  return !!platform.openFilePickerDialog
+}
+
 export const { use: usePlatform, provider: PlatformProvider } = createSimpleContext({
   name: "Platform",
   init: (props: { value: Platform }) => {

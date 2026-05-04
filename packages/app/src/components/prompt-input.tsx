@@ -35,7 +35,7 @@ import { useCommand } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
-import { usePlatform } from "@/context/platform"
+import { canUseNativeFilePicker, usePlatform } from "@/context/platform"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
 import { promptEnabled, promptProbe } from "@/testing/prompt"
@@ -455,8 +455,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const escBlur = () => platform.platform === "desktop" && platform.os === "macos"
 
   const pick = () => {
+    const openFilePickerDialog = platform.openFilePickerDialog
     void pickAttachments({
-      openFilePickerDialog: platform.openFilePickerDialog,
+      openFilePickerDialog: canUseNativeFilePicker(platform) ? openFilePickerDialog : undefined,
       addPickedPaths,
       fallbackInputClick: () => fileInputRef?.click(),
     })

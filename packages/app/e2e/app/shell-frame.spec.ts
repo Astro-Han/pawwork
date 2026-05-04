@@ -10,6 +10,13 @@ import {
   titlebarShellSelector,
 } from "../selectors"
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const win = window as typeof window & { __PAWWORK_SHELL_OS?: "macos" }
+    win.__PAWWORK_SHELL_OS = "macos"
+  })
+})
+
 test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSession }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await gotoSession()
@@ -28,7 +35,8 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
   await expect(page.getByRole("button", { name: /toggle sidebar/i }).first()).toBeVisible()
 
   const titlebarBox = await page.locator(titlebarShellSelector).boundingBox()
-  expect(Math.round(titlebarBox?.height ?? 0)).toBe(44)
+  expect(titlebarBox?.height ?? 0).toBeGreaterThanOrEqual(43.5)
+  expect(titlebarBox?.height ?? 0).toBeLessThanOrEqual(44.5)
 
   const settings = await openSettings(page)
   await expect(settings.getByRole("heading", { level: 2 })).toBeVisible()

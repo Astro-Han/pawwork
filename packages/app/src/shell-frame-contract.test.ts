@@ -2,7 +2,18 @@ import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { getShellKind, getShellOs, isDesktopShell, isMacShell, isWindowsShell, shellAttrs } from "./context/platform"
+import {
+  canCheckUpdate,
+  canOpenLocalPath,
+  canUseDisplayBackend,
+  canUseNativeFilePicker,
+  getShellKind,
+  getShellOs,
+  isDesktopShell,
+  isMacShell,
+  isWindowsShell,
+  shellAttrs,
+} from "./context/platform"
 
 function read(relativePath: string) {
   return fs.readFileSync(path.join(import.meta.dir, relativePath), "utf8").replaceAll("\r\n", "\n")
@@ -65,7 +76,7 @@ test("web runtime uses the desktop shell without claiming Electron platform iden
   expect(entry).toMatch(/const\s+platform:\s*Platform\s*=\s*\{[\s\S]*?shell:\s*\{[\s\S]*?kind:\s*"desktop"/)
   expect(entry).toMatch(/const\s+platform:\s*Platform\s*=\s*\{[\s\S]*?shell:\s*\{[\s\S]*?os:\s*detectShellOs\(\)/)
   expect(entry).toContain("const detectShellOs")
-  expect(entry).toMatch(/envOverride[\s\S]*runtimeDetectedOs[\s\S]*"macos"/)
+  expect(entry).toMatch(/runtimeOverride[\s\S]*envOverride[\s\S]*runtimeDetectedOs[\s\S]*"macos"/)
   expect(platform).toContain('shell?: PlatformShell')
   expect(platform).toContain("export function getShellKind")
   expect(platform).toContain("export function getShellOs")
@@ -73,6 +84,10 @@ test("web runtime uses the desktop shell without claiming Electron platform iden
   expect(platform).toContain("export function isDesktopShell")
   expect(platform).toContain("export function isMacShell")
   expect(platform).toContain("export function isWindowsShell")
+  expect(platform).toContain("export function canOpenLocalPath")
+  expect(platform).toContain("export function canCheckUpdate")
+  expect(platform).toContain("export function canUseDisplayBackend")
+  expect(platform).toContain("export function canUseNativeFilePicker")
 })
 
 test("shell helpers keep runtime identity separate from visual shell identity", () => {
@@ -86,6 +101,18 @@ test("shell helpers keep runtime identity separate from visual shell identity", 
   expect(shellAttrs(webDesktop)).toEqual({ "data-shell": "desktop", "data-shell-os": "macos" })
   expect(isDesktopShell({ platform: "web" })).toBe(false)
   expect(isDesktopShell({ platform: "desktop" })).toBe(true)
+  expect(canOpenLocalPath({})).toBe(false)
+  expect(canOpenLocalPath({ openPath: async () => undefined })).toBe(true)
+  expect(canCheckUpdate({})).toBe(false)
+  expect(
+    canCheckUpdate({
+      checkUpdate: async () => ({ updateAvailable: false, status: "none" }),
+    }),
+  ).toBe(true)
+  expect(canUseDisplayBackend({ getDisplayBackend: () => null })).toBe(false)
+  expect(canUseDisplayBackend({ getDisplayBackend: () => null, setDisplayBackend: async () => undefined })).toBe(true)
+  expect(canUseNativeFilePicker({})).toBe(false)
+  expect(canUseNativeFilePicker({ openFilePickerDialog: async () => null })).toBe(true)
 })
 
 test("visual shell files do not key appearance from runtime platform identity", () => {

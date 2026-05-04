@@ -114,9 +114,15 @@ const detectRuntimeShellOs = (): NonNullable<Platform["shell"]>["os"] | undefine
   return undefined
 }
 
+const readRuntimeShellOsOverride = (): NonNullable<Platform["shell"]>["os"] | undefined => {
+  return shellOsFrom((globalThis as { __PAWWORK_SHELL_OS?: unknown }).__PAWWORK_SHELL_OS)
+}
+
 const detectShellOs = (): NonNullable<Platform["shell"]>["os"] => {
+  const runtimeOverride = readRuntimeShellOsOverride()
   const envOverride = shellOsFrom(import.meta.env.VITE_PAWWORK_SHELL_OS)
   const runtimeDetectedOs = detectRuntimeShellOs()
+  if (runtimeOverride) return runtimeOverride
   if (envOverride) return envOverride
   if (runtimeDetectedOs) return runtimeDetectedOs
   return "macos"
