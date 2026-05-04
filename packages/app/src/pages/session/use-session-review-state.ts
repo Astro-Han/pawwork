@@ -20,11 +20,16 @@ type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
 export function deriveReviewArtifactFiles(input: {
   directory: string
   sessionID: string | undefined
-  history: { sessionID: string; artifacts: SessionArtifactFile[] } | undefined
+  history: { directory?: string; sessionID: string; artifacts: SessionArtifactFile[] } | undefined
   turnDiffs?: Array<{ file: string; status?: string }>
 }) {
   const history = input.history
-  if (history && history.sessionID === input.sessionID && history.artifacts.length > 0) {
+  if (
+    history &&
+    history.sessionID === input.sessionID &&
+    (history.directory === undefined || history.directory === input.directory) &&
+    history.artifacts.length > 0
+  ) {
     return deriveArtifactFiles(input.directory, history.artifacts)
   }
 
@@ -141,15 +146,20 @@ export function createSessionReviewState(input: {
   })
 
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
-    input.sessionID,
-    async (sessionID) => ({
+    () => {
+      const sessionID = input.sessionID()
+      if (!sessionID) return
+      return { directory: input.directory(), sessionID }
+    },
+    async ({ directory, sessionID }) => ({
+      directory,
       sessionID,
       artifacts: await input.sdk.client.session
         .artifacts({ sessionID })
         .then((res) => res.data ?? [])
         .catch(() => []),
     }),
-    { initialValue: { sessionID: "", artifacts: [] as SessionArtifactFile[] } },
+    { initialValue: { directory: "", sessionID: "", artifacts: [] as SessionArtifactFile[] } },
   )
   let artifactHistoryFrame: number | undefined
   let artifactHistoryPending = false

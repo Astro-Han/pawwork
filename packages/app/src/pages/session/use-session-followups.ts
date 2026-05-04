@@ -76,7 +76,8 @@ export function createSessionFollowups(input: {
 }) {
   // This persisted store intentionally moved from Persist.workspace(..., "followup", ["followup.v1"]) to
   // Persist.global("session-followup.v1"). Legacy workspace-scoped followup.v1 queues are not migrated
-  // because their saved execution directory can be stale after worktree exit.
+  // because their saved execution directory can be stale after worktree exit. Entries remain keyed by
+  // sessionID for Stage 1; server-scoped identity belongs with the later session-scoped store migration.
   const [followup, setFollowup] = persisted(
     Persist.global("session-followup.v1", ["followup.v1"]),
     createStore<{

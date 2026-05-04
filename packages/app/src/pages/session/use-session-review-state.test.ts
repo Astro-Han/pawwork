@@ -17,6 +17,21 @@ describe("session review state", () => {
     expect(files.map((file) => file.path)).not.toContain("/repo/fallback.md")
   })
 
+  test("falls back while artifact history belongs to a previous execution directory", () => {
+    const files = deriveReviewArtifactFiles({
+      directory: "/repo-root",
+      sessionID: "ses_1",
+      history: {
+        directory: "/repo-worktree",
+        sessionID: "ses_1",
+        artifacts: [{ file: "stale.md", kind: "added" }],
+      },
+      turnDiffs: [{ file: "fallback.md", status: "added" }],
+    })
+
+    expect(files.map((file) => file.path)).toEqual(["/repo-root/fallback.md"])
+  })
+
   test("falls back to added and modified turn diffs", () => {
     const files = deriveReviewArtifactFiles({
       directory: "/repo",

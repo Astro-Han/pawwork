@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
 import { readTimelineMessages } from "./use-session-timeline-data"
 
-const userMessage = (id: string): Message =>
+const userMessage = (id: string, sessionID = "ses_target"): Message =>
   ({
     id,
     role: "user",
-    sessionID: "ses_target",
+    sessionID,
     time: { created: 1 },
   }) as Message
 
@@ -48,7 +48,7 @@ describe("readTimelineMessages", () => {
   })
 
   test("does not reuse last-good messages after switching to another session", () => {
-    const loaded = [userMessage("msg_1")]
+    const loaded = [userMessage("msg_1", "ses_source")]
     const ready = readTimelineMessages({
       sessionID: "ses_source",
       raw: loaded,
@@ -69,14 +69,14 @@ describe("readTimelineMessages", () => {
     const loaded = [userMessage("msg_1")]
     const ready = readTimelineMessages({
       sessionID: "ses_target",
-      identity: "server-a:ses_target",
+      dataIdentity: "server-a:ses_target",
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessages({
       sessionID: "ses_target",
-      identity: "server-b:ses_target",
+      dataIdentity: "server-b:ses_target",
       raw: undefined,
       lastGood: ready.lastGood,
     })
@@ -85,8 +85,28 @@ describe("readTimelineMessages", () => {
     expect(missing.lastGood).toBe(ready.lastGood)
   })
 
+  test("keeps last-good messages when the same session cache misses before session info reloads", () => {
+    const loaded = [userMessage("msg_1"), userMessage("msg_2")]
+    const ready = readTimelineMessages({
+      sessionID: "ses_target",
+      dataIdentity: "ses_target:123",
+      raw: loaded,
+      lastGood: undefined,
+    })
+
+    const missing = readTimelineMessages({
+      sessionID: "ses_target",
+      dataIdentity: undefined,
+      raw: undefined,
+      lastGood: ready.lastGood,
+    })
+
+    expect(missing.messages).toBe(loaded)
+    expect(missing.lastGood).toBe(ready.lastGood)
+  })
+
   test("clears last-good messages when there is no active session", () => {
-    const loaded = [userMessage("msg_1")]
+    const loaded = [userMessage("msg_1", "ses_source")]
     const ready = readTimelineMessages({
       sessionID: "ses_source",
       raw: loaded,

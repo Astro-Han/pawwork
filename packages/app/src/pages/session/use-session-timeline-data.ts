@@ -14,7 +14,7 @@ import { same } from "@/utils/same"
 
 type LastGoodMessages =
   | {
-      identity: string
+      dataIdentity: string
       sessionID: string
       messages: ReturnType<typeof readSessionMessages>
     }
@@ -22,7 +22,7 @@ type LastGoodMessages =
 
 export function readTimelineMessages(input: {
   sessionID: string | undefined
-  identity?: string
+  dataIdentity?: string
   raw: unknown
   lastGood: LastGoodMessages
 }): { messages: ReturnType<typeof readSessionMessages>; lastGood: LastGoodMessages } {
@@ -30,14 +30,15 @@ export function readTimelineMessages(input: {
     return { messages: emptyMessages, lastGood: undefined }
   }
 
-  const identity = input.identity ?? input.sessionID
+  const dataIdentity =
+    input.dataIdentity ?? (input.lastGood?.sessionID === input.sessionID ? input.lastGood.dataIdentity : input.sessionID)
 
   if (input.raw !== undefined) {
     const messages = readSessionMessages(input.raw)
-    return { messages, lastGood: { identity, sessionID: input.sessionID, messages } }
+    return { messages, lastGood: { dataIdentity, sessionID: input.sessionID, messages } }
   }
 
-  if (input.lastGood?.identity === identity && input.lastGood.sessionID === input.sessionID) {
+  if (input.lastGood?.dataIdentity === dataIdentity && input.lastGood.sessionID === input.sessionID) {
     return { messages: input.lastGood.messages, lastGood: input.lastGood }
   }
 
@@ -82,12 +83,18 @@ export function createSessionTimelineData(input: {
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)
   // Only reuse last-good messages for a same-session transient cache miss.
   let lastGoodMessages: LastGoodMessages
+  const sessionDataIdentity = createMemo(() => {
+    const id = sessionID()
+    const created = sessionInfo()?.time.created
+    if (!id || created === undefined) return
+    return `${id}:${created}`
+  })
   const messages = createMemo(
     () => {
       const id = sessionID()
       const next = readTimelineMessages({
         sessionID: id,
-        identity: id ? `${id}:${sessionInfo()?.time.created ?? ""}` : undefined,
+        dataIdentity: sessionDataIdentity(),
         raw: id ? input.sync.data.message[id] : undefined,
         lastGood: lastGoodMessages,
       })
