@@ -1,3 +1,4 @@
+import type { Message, Part } from "@opencode-ai/sdk/v2"
 import type { ReverifyContext, ReverifyOutcome } from "./question-recovery-clock"
 import type { QuestionRecoverySnapshot } from "./question-recovery-snapshot"
 import { findRunningQuestionFallbackSession } from "./question-fallback"
@@ -8,8 +9,8 @@ export interface ReverifyDeps<Q> {
   activeDirectory: () => string
   isSessionBusy: (sessionID: string) => boolean
   listQuestions: () => Promise<readonly Q[]>
-  partsByMessageID: () => Record<string, ReadonlyArray<unknown>>
-  messagesFor: (sessionID: string) => unknown
+  partsByMessageID: () => Record<string, ReadonlyArray<Part> | undefined>
+  messagesFor: (sessionID: string) => ReadonlyArray<Message> | undefined
   applyHydration: (sessionID: string, questions: readonly Q[]) => void
   warn?: (message: string, payload: Record<string, unknown>) => void
 }
@@ -48,8 +49,8 @@ export async function questionRecoveryReverify<
   const stillUncovered = findRunningQuestionFallbackSession({
     sessionID,
     syncQuestions: filtered,
-    messages: deps.messagesFor(sessionID) as never,
-    partsByMessageID: deps.partsByMessageID() as never,
+    messages: deps.messagesFor(sessionID),
+    partsByMessageID: deps.partsByMessageID(),
   })
   if (stillUncovered === sessionID) return { proceed: true }
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import type { Message, Part } from "@opencode-ai/sdk/v2"
 import { questionRecoveryReverify, type ReverifyDeps } from "./question-recovery-reverify"
 import type { ReverifyContext } from "./question-recovery-clock"
 import type { QuestionRecoverySnapshot } from "./question-recovery-snapshot"
@@ -18,14 +19,17 @@ const ctx: ReverifyContext = {
 const missing: QuestionRecoverySnapshot = { kind: "missingRunning" }
 const ready: QuestionRecoverySnapshot = { kind: "ready" }
 
+// Test fixtures are minimal stand-ins; cast to the SDK shapes at the harness
+// boundary so tests stay terse but the deps signature still enforces the
+// real ReadonlyArray<Message> / ReadonlyArray<Part> contract on production.
 interface HarnessOpts {
   snapshot?: QuestionRecoverySnapshot
   activeSid?: string
   directory?: string
   busy?: boolean
   list?: () => Promise<readonly FakeQuestion[]>
-  messages?: unknown
-  parts?: Record<string, ReadonlyArray<unknown>>
+  messages?: ReadonlyArray<{ id: string; role: string }>
+  parts?: Record<string, ReadonlyArray<object> | undefined>
 }
 
 const setup = (opts: HarnessOpts = {}) => {
@@ -37,8 +41,8 @@ const setup = (opts: HarnessOpts = {}) => {
     activeDirectory: () => opts.directory ?? "/dir",
     isSessionBusy: () => opts.busy ?? true,
     listQuestions: opts.list ?? (async () => []),
-    messagesFor: () => opts.messages,
-    partsByMessageID: () => opts.parts ?? {},
+    messagesFor: () => opts.messages as ReadonlyArray<Message> | undefined,
+    partsByMessageID: () => (opts.parts ?? {}) as Record<string, ReadonlyArray<Part> | undefined>,
     applyHydration: (sid, questions) => {
       hydrated.push({ sid, questions })
     },

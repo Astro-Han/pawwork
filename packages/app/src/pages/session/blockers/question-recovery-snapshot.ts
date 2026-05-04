@@ -10,8 +10,8 @@ export interface ResolveSnapshotInput {
   sessionID: string | undefined
   sessionTreeQuestionRequest: unknown
   activeSessionSyncQuestions: ReadonlyArray<QuestionRequest>
-  activeSessionMessages: Message[] | undefined
-  partsByMessageID: Record<string, Part[] | undefined>
+  activeSessionMessages: ReadonlyArray<Message> | undefined
+  partsByMessageID: Record<string, ReadonlyArray<Part> | undefined>
 }
 
 // Pure reducer: drives the auto-heal clock. Delegates missingRunning detection

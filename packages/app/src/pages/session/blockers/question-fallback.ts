@@ -22,8 +22,8 @@ export interface QuestionFallbackEntry {
 export function findRunningQuestionFallbackSession(input: {
   sessionID?: string
   syncQuestions: ReadonlyArray<QuestionFallbackEntry>
-  messages?: Message[]
-  partsByMessageID: Record<string, Part[] | undefined>
+  messages?: ReadonlyArray<Message>
+  partsByMessageID: Record<string, ReadonlyArray<Part> | undefined>
 }): string | undefined {
   if (!input.sessionID) return undefined
   const messages = input.messages
