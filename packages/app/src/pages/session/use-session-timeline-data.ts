@@ -51,6 +51,7 @@ export function createSessionTimelineData(input: {
   })
   const routeSessionCount = createMemo(() => Math.max(routeInfo()?.summary?.files ?? 0, routeDiffs().length))
   const routeHasSessionReview = createMemo(() => routeSessionCount() > 0)
+  // Route readiness is raw cache state. The timeline controller decides when to preserve the mounted view.
   const routeMessagesReady = createMemo(() => {
     const id = input.routeSessionID()
     if (!id) return true
@@ -58,7 +59,6 @@ export function createSessionTimelineData(input: {
   })
 
   const sessionView = createSessionViewController({
-    directory: input.directory,
     routeSessionID: input.routeSessionID,
     routeMessagesReady,
   })
@@ -71,6 +71,7 @@ export function createSessionTimelineData(input: {
     return input.sync.session.get(id)
   })
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)
+  // Only reuse last-good messages for a same-session transient cache miss.
   let lastGoodMessages: LastGoodMessages
   const messages = createMemo(
     () => {

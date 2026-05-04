@@ -1,7 +1,6 @@
 import { createMemo, type Accessor } from "solid-js"
 
 export type SessionViewStateInput = {
-  directory: string
   routeSessionID: string | undefined
   routeMessagesReady: boolean
   previous?: SessionViewState
@@ -17,12 +16,12 @@ export type SessionViewState = {
 }
 
 export type SessionViewControllerInput = {
-  directory: Accessor<string>
   routeSessionID: Accessor<string | undefined>
   routeMessagesReady: Accessor<boolean>
 }
 
 export function sessionKey(input: { sessionID: string | undefined }) {
+  // Timeline identity follows the stable session only; execution directory is mutable.
   return input.sessionID ?? ""
 }
 
@@ -31,6 +30,7 @@ export function nextSessionViewState(input: SessionViewStateInput) {
     input.previous?.routeSessionID === input.routeSessionID &&
     input.previous?.visibleSessionID === input.routeSessionID &&
     !!input.routeSessionID
+  // A same-session directory cache miss is a loading state, not a timeline identity change.
   const keepReady = sameSession && !!input.previous?.routeReady && !input.routeMessagesReady
   const routeReady = !input.routeSessionID || input.routeMessagesReady || keepReady
   const visibleSessionID = input.routeSessionID
@@ -46,18 +46,12 @@ export function nextSessionViewState(input: SessionViewStateInput) {
 }
 
 export function createSessionViewController(input: SessionViewControllerInput) {
-  type State = SessionViewState & { directory: string }
-  const state = createMemo((current: State | undefined): State => {
-    const directory = input.directory()
-    return {
-      ...nextSessionViewState({
-        directory,
-        routeSessionID: input.routeSessionID(),
-        routeMessagesReady: input.routeMessagesReady(),
-        previous: current,
-      }),
-      directory,
-    }
+  const state = createMemo((current: SessionViewState | undefined): SessionViewState => {
+    return nextSessionViewState({
+      routeSessionID: input.routeSessionID(),
+      routeMessagesReady: input.routeMessagesReady(),
+      previous: current,
+    })
   })
 
   const visibleReady = () => state().routeReady

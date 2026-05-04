@@ -6,7 +6,6 @@ describe("createSessionViewController", () => {
   test("exposes route and visible session state through separate accessors", () => {
     createRoot((dispose) => {
       const controller = createSessionViewController({
-        directory: () => "repo",
         routeSessionID: () => "ses_source",
         routeMessagesReady: () => true,
       })
@@ -26,7 +25,6 @@ describe("createSessionViewController", () => {
   test("keeps route and visible identity aligned while the route session is not ready", () => {
     createRoot((dispose) => {
       const controller = createSessionViewController({
-        directory: () => "repo",
         routeSessionID: () => "ses_target",
         routeMessagesReady: () => false,
       })
@@ -47,7 +45,6 @@ describe("createSessionViewController", () => {
 describe("nextSessionViewState", () => {
   test("does not keep the previous visible session while the route session loads", () => {
     const loading = nextSessionViewState({
-      directory: "repo",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
     })
@@ -62,7 +59,6 @@ describe("nextSessionViewState", () => {
     })
 
     const ready = nextSessionViewState({
-      directory: "repo",
       routeSessionID: "ses_target",
       routeMessagesReady: true,
     })
@@ -79,7 +75,6 @@ describe("nextSessionViewState", () => {
 
   test("clears visible session when leaving a concrete session route", () => {
     const next = nextSessionViewState({
-      directory: "repo",
       routeSessionID: undefined,
       routeMessagesReady: true,
     })
@@ -92,9 +87,8 @@ describe("nextSessionViewState", () => {
     expect(next.transitioning).toBe(false)
   })
 
-  test("uses the target route identity when changing directories", () => {
+  test("uses session identity without a directory input", () => {
     const next = nextSessionViewState({
-      directory: "repo-b",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
     })
@@ -111,13 +105,11 @@ describe("nextSessionViewState", () => {
 
   test("keeps the same timeline identity and ready state across a transient directory cache miss", () => {
     const ready = nextSessionViewState({
-      directory: "repo-worktree",
       routeSessionID: "ses_target",
       routeMessagesReady: true,
     })
 
     const next = nextSessionViewState({
-      directory: "repo-root",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
       previous: ready,
@@ -131,13 +123,11 @@ describe("nextSessionViewState", () => {
 
   test("does not keep ready state when switching to another session", () => {
     const ready = nextSessionViewState({
-      directory: "repo",
       routeSessionID: "ses_source",
       routeMessagesReady: true,
     })
 
     const next = nextSessionViewState({
-      directory: "repo",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
       previous: ready,
