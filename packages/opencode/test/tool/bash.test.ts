@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
+import fs from "node:fs"
 import os from "os"
 import path from "path"
 import { Shell } from "../../src/shell/shell"
@@ -165,14 +166,25 @@ describe("tool.bash", () => {
     process.env.OPENCODE_SERVER_PASSWORD = "secret"
     process.env.opencode_server_password = "lower-secret"
     process.env.PAWWORK_E2E_CUSTOM_ENV = "kept"
-    const code = [
-      'console.log("username=" + (process.env.OPENCODE_SERVER_USERNAME ?? "unset"))',
-      'console.log("usernameLower=" + (process.env.opencode_server_username ?? "unset"))',
-      'console.log("password=" + (process.env.OPENCODE_SERVER_PASSWORD ?? "unset"))',
-      'console.log("passwordLower=" + (process.env.opencode_server_password ?? "unset"))',
-      'console.log("custom=" + (process.env.PAWWORK_E2E_CUSTOM_ENV ?? "unset"))',
-    ].join(";")
-    const command = `${PS.has(sh()) ? "& " : ""}${bin} -e ${evalarg(code)}`
+    // Write the script to a tmp file rather than passing it inline as `bun -e`.
+    // PowerShell 5.1 and cmd reparse embedded double quotes inside an inline
+    // arg before forwarding it to the native exe, which breaks the JS source
+    // and made the user command exit 1 before any env assertion ran. Loading
+    // from a file avoids every shell-specific quoting trap.
+    await using tmp = await tmpdir()
+    const scriptPath = path.join(tmp.path, "env-probe.mjs")
+    fs.writeFileSync(
+      scriptPath,
+      [
+        'console.log("username=" + (process.env.OPENCODE_SERVER_USERNAME ?? "unset"))',
+        'console.log("usernameLower=" + (process.env.opencode_server_username ?? "unset"))',
+        'console.log("password=" + (process.env.OPENCODE_SERVER_PASSWORD ?? "unset"))',
+        'console.log("passwordLower=" + (process.env.opencode_server_password ?? "unset"))',
+        'console.log("custom=" + (process.env.PAWWORK_E2E_CUSTOM_ENV ?? "unset"))',
+      ].join("\n"),
+    )
+    const scriptArg = quote(scriptPath.replaceAll("\\", "/"))
+    const command = `${PS.has(sh()) ? "& " : ""}${bin} ${scriptArg}`
 
     try {
       await Instance.provide({
