@@ -60,12 +60,6 @@
 
 如果你需要更多模型选择或更强控制权，可以连接自己的模型账号。爪印 PawWork 支持 API 密钥，也支持可用提供商的 OAuth 登录、OpenAI 兼容提供商和可用的 Coding Plan，包括 OpenAI、Claude、DeepSeek、Gemini、Kimi、GLM 等。
 
-## 配置
-
-爪印 PawWork 默认把用户可编辑的全局配置放在 `~/.pawwork`。如果你想换位置，可以设置 `PAWWORK_HOME`。旧的 `PAWWORK_CONFIG_DIR` 仍然兼容，作为 legacy alias 使用。
-
-运行时数据会继续分开保存。会话、数据库、缓存、日志和下载的辅助工具仍然放在系统的 app data、cache、state、log 等目录，不会写进 `~/.pawwork`。
-
 ## 下载
 
 从 [GitHub Releases](https://github.com/Astro-Han/pawwork/releases/latest) 下载最新的 macOS 和 Windows 版本。
