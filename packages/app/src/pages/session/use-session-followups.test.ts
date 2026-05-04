@@ -79,4 +79,27 @@ describe("session followups", () => {
     expect(shouldAutoSendFollowup({ ...base, blocked: true })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, followupBusy: true })).toBe(false)
   })
+
+  // Auto-heal flow: while the recovery clock is armed (running question
+  // part with no UI dock) the session is still busy AND blocked is false
+  // (the dock never surfaced). Auto-send must stay off. Once the clock
+  // halts the session, busy flips false on the next status sync and the
+  // queued followup must be eligible for auto-send. This locks step 6 of
+  // the v6 spec merge gate.
+  test("queued followup auto-sends after halt-induced idle (auto-heal flow)", () => {
+    const recovering = {
+      hasSession: true,
+      hasItem: true,
+      busy: true,
+      failed: false,
+      paused: false,
+      childSession: false,
+      blocked: false,
+      followupBusy: false,
+    }
+    expect(shouldAutoSendFollowup(recovering)).toBe(false)
+
+    const afterHalt = { ...recovering, busy: false }
+    expect(shouldAutoSendFollowup(afterHalt)).toBe(true)
+  })
 })

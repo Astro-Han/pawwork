@@ -114,7 +114,19 @@ export default function Page() {
   const timelineSessionID = timeline.sessionID
   const timelineSessionKey = timeline.sessionKey
   const timelineIsChildSession = timeline.isChildSession
-  const composer = createSessionComposerState({ sessionID: timelineSessionID, fallbackSessionID: () => params.id })
+  const haltAbort = (sessionID: string) =>
+    isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
+      ? sdk.client.session.abort({ sessionID })
+      : Promise.resolve()
+  // sessionRevert chains halt with .then(), so its existing outer .catch
+  // already handles abort failures. The auto-heal clock wants to see the
+  // error so it can structured-warn — pass haltAbort directly there.
+  const halt = (sessionID: string) => haltAbort(sessionID).catch(() => {})
+  const composer = createSessionComposerState({
+    sessionID: timelineSessionID,
+    fallbackSessionID: () => params.id,
+    halt: haltAbort,
+  })
   const timelineMessages = timeline.messages
   const timelineMessagesReady = timeline.messagesReady
   const timelineDiffs = timeline.diffs
@@ -448,11 +460,6 @@ export default function Page() {
     resumeScroll,
     attachmentLabel: () => language.t("common.attachment"),
   })
-
-  const halt = (sessionID: string) =>
-    isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
-      ? sdk.client.session.abort({ sessionID }).catch(() => {})
-      : Promise.resolve()
 
   const sessionRevert = createSessionRevert({
     sessionID: timelineSessionID,

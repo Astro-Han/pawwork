@@ -818,6 +818,83 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
   ),
 )
 
+// Question tool aborted on cleanup gets a clearer message than the generic
+// "Tool execution aborted". The LLM reads part.state.error as the tool result
+// and the generic phrasing made models think the user dismissed the question.
+// See issue #419.
+it.live("session.processor effect tests rewrite aborted question tool error to friendly message", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.toolHang("question", {
+          questions: [
+            {
+              question: "Pick one",
+              header: "Pick",
+              options: [
+                { label: "A", description: "first" },
+                { label: "B", description: "second" },
+              ],
+            },
+          ],
+        })
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "question abort")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const run = yield* handle
+          .process({
+            user: {
+              id: parent.id,
+              sessionID: chat.id,
+              role: "user",
+              time: parent.time,
+              agent: parent.agent,
+              model: { providerID: ref.providerID, modelID: ref.modelID },
+            } satisfies MessageV2.User,
+            sessionID: chat.id,
+            model: mdl,
+            agent: agent(),
+            system: [],
+            messages: [{ role: "user", content: "question abort" }],
+            tools: {},
+          })
+          .pipe(Effect.forkChild)
+
+        yield* llm.wait(1)
+        yield* Effect.promise(async () => {
+          const end = Date.now() + 500
+          while (Date.now() < end) {
+            const parts = await MessageV2.parts(msg.id)
+            if (parts.some((part) => part.type === "tool")) return
+            await Bun.sleep(10)
+          }
+        })
+        yield* Fiber.interrupt(run)
+        yield* Fiber.await(run)
+
+        const parts = MessageV2.parts(msg.id)
+        const call = parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
+
+        expect(call?.state.status).toBe("error")
+        if (call?.state.status === "error") {
+          expect(call.state.error).toBe("Question cancelled before the user answered it.")
+          expect(call.state.metadata?.interrupted).toBe(true)
+        }
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests record aborted errors and idle state", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

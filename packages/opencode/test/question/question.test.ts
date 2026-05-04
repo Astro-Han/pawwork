@@ -1,13 +1,16 @@
 import { afterEach, test, expect } from "bun:test"
 import { Question } from "../../src/question"
+import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { QuestionID } from "../../src/question/schema"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID } from "../../src/session/schema"
 import { AppRuntime } from "../../src/effect/app-runtime"
 
-const ask = (input: { sessionID: SessionID; questions: Question.Info[]; tool?: { messageID: any; callID: string } }) =>
-  AppRuntime.runPromise(Question.Service.use((svc) => svc.ask(input)))
+const ask = (
+  input: { sessionID: SessionID; questions: Question.Info[]; tool?: { messageID: any; callID: string } },
+  options?: { signal?: AbortSignal },
+) => AppRuntime.runPromise(Question.Service.use((svc) => svc.ask(input)), options)
 
 const list = () => AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))
 
@@ -26,6 +29,19 @@ async function rejectAll() {
   for (const req of pending) {
     await reject(req.id)
   }
+}
+
+/** Wait until exactly one pending question shows up, then assert it landed.
+ *  Returns the pending request so the caller can drive the next step. */
+async function waitForPending(timeoutMs = 1000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const pending = await list()
+    if (pending.length === 1) return pending[0]!
+    await Bun.sleep(10)
+  }
+  expect(await list(), "expected exactly one pending question before continuing").toHaveLength(1)
+  throw new Error("unreachable: assertion above always throws on miss")
 }
 
 test("ask - returns pending promise", async () => {
@@ -472,6 +488,158 @@ test("questions stay isolated by directory", async () => {
 
   await p1.catch(() => {})
   await p2.catch(() => {})
+})
+
+// interrupt path: when the ask fiber is interrupted (e.g. session cancel),
+// Question.ask must publish question.rejected so the frontend can clear the
+// dock, AND remove the entry from pending so question.list() won't return a
+// phantom. See issue #419.
+//
+// Two complementary coverage paths:
+//   1. input.signal abort (production cancel route — EffectBridge.run.promise
+//      breaks fiber interrupt, so the AbortSignal is the only working channel)
+//   2. fiber interrupt via runPromise options.signal (defence-in-depth path
+//      for direct supervisor kill / layer shutdown)
+
+test("ask - publishes question.rejected on input.signal abort", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const events: { sessionID: SessionID; requestID: QuestionID }[] = []
+      const unsub = Bus.subscribe(Question.Event.Rejected, (evt) => {
+        events.push(evt.properties)
+      })
+
+      const controller = new AbortController()
+      // Pass signal as `input.signal` (NOT to runPromise) so we exercise the
+      // signal.addEventListener("abort", failFromAbort) branch, which is the
+      // only one that survives in production where EffectBridge.run.promise
+      // strips fiber interrupts.
+      const promise = AppRuntime.runPromise(
+        Question.Service.use((svc) =>
+          svc.ask({
+            sessionID: SessionID.make("ses_signal"),
+            questions: [
+              {
+                question: "Pick one",
+                header: "Pick",
+                options: [
+                  { label: "A", description: "first" },
+                  { label: "B", description: "second" },
+                ],
+              },
+            ],
+            signal: controller.signal,
+          }),
+        ),
+      ).catch((err) => err)
+
+      await waitForPending()
+
+      controller.abort()
+      const result = await promise
+
+      expect(events).toHaveLength(1)
+      expect(events[0]?.sessionID).toBe(SessionID.make("ses_signal"))
+      expect(result).toBeInstanceOf(Question.RejectedError)
+      expect((result as Question.RejectedError).cancelled).toBe(true)
+      expect((result as Question.RejectedError).message).toBe("Question cancelled before the user answered it.")
+
+      const after = await list()
+      expect(after).toHaveLength(0)
+
+      unsub()
+    },
+  })
+})
+
+test("ask - publishes question.rejected on fiber interrupt", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const events: { sessionID: SessionID; requestID: QuestionID }[] = []
+      const unsub = Bus.subscribe(Question.Event.Rejected, (evt) => {
+        events.push(evt.properties)
+      })
+
+      const controller = new AbortController()
+      const promise = ask(
+        {
+          sessionID: SessionID.make("ses_interrupt"),
+          questions: [
+            {
+              question: "Pick one",
+              header: "Pick",
+              options: [
+                { label: "A", description: "first" },
+                { label: "B", description: "second" },
+              ],
+            },
+          ],
+        },
+        { signal: controller.signal },
+      ).catch(() => {})
+
+      await waitForPending()
+
+      controller.abort()
+      await promise
+
+      expect(events).toHaveLength(1)
+      expect(events[0]?.sessionID).toBe(SessionID.make("ses_interrupt"))
+
+      const after = await list()
+      expect(after).toHaveLength(0)
+
+      unsub()
+    },
+  })
+})
+
+test("reject - leaves cancelled flag false (user dismiss, not session cancel)", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const promise = ask({
+        sessionID: SessionID.make("ses_dismiss"),
+        questions: [
+          {
+            question: "Dismiss me?",
+            header: "Dismiss",
+            options: [
+              { label: "Yes", description: "Yes" },
+              { label: "No", description: "No" },
+            ],
+          },
+        ],
+      })
+
+      const pending = await list()
+      await reject(pending[0]!.id)
+
+      const result = await promise.catch((err) => err)
+      expect(result).toBeInstanceOf(Question.RejectedError)
+      expect((result as Question.RejectedError).cancelled).toBeFalsy()
+      expect((result as Question.RejectedError).message).toBe("The user dismissed this question")
+    },
+  })
+})
+
+// processor.failToolCall writes `errorMessage(error)` into part.state.error
+// for the abort-signal path (failed != cleanup). The message getter has to
+// branch on `cancelled` so consumers (state.error, logs, telemetry) read the
+// same friendly copy as the legacy fiber-cleanup path. See #419.
+test("RejectedError - message branches on cancelled flag", () => {
+  const dismissed = new Question.RejectedError()
+  expect(dismissed.cancelled).toBeFalsy()
+  expect(dismissed.message).toBe("The user dismissed this question")
+
+  const cancelled = new Question.RejectedError({ cancelled: true })
+  expect(cancelled.cancelled).toBe(true)
+  expect(cancelled.message).toBe("Question cancelled before the user answered it.")
 })
 
 test("pending question rejects on instance dispose", async () => {

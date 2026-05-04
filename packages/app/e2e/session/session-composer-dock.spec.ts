@@ -1460,3 +1460,47 @@ test("question text renders source newlines as visible line breaks", async ({ pa
     { trackSession: project.trackSession },
   )
 })
+
+// Cancelling a session while a question tool is awaiting an answer must clear
+// the dock AND surface a friendly hint in the message stream so the user is
+// not left staring at a stuck UI. See #419.
+test("cancelled question tool surfaces interrupted hint in message stream", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock question cancelled",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+
+        await llm.toolMatch(inputMatch({ questions: defaultQuestions }), "question", { questions: defaultQuestions })
+        await seedSessionQuestion(project.sdk, {
+          sessionID: session.id,
+          questions: defaultQuestions,
+        })
+
+        await expectQuestionBlocked(page)
+
+        await project.sdk.session.abort({ sessionID: session.id })
+
+        // Dock disappears via the live `question.rejected` SSE event published
+        // by Question.ask's abort handler — no reload needed for this leg.
+        await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 10_000 })
+
+        // The message stream isn't subscribed to mid-session message updates
+        // in this dock-focused test setup (matching the permission-flow tests
+        // which also reload before asserting on tool-result UI). Reload so the
+        // initial render walks the full message history and our error tool
+        // part with `metadata.interrupted = true` lands.
+        await page.goto(page.url())
+
+        // Hint string lives in packages/ui/src/i18n/en.ts (not the app dict);
+        // hardcode it here as the contract anchor for this fix.
+        await expect(
+          page.getByText("This question was cancelled before it was answered. Ask again below if you want to continue."),
+        ).toBeVisible({ timeout: 10_000 })
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})

@@ -33,6 +33,9 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
             sessionID: ctx.sessionID,
             questions: params.questions,
             tool: ctx.callID ? { messageID: ctx.messageID, callID: ctx.callID } : undefined,
+            // ctx.abort is the only signal that survives the EffectBridge
+            // promise wrapper around tool execution. See Question.ask doc.
+            signal: ctx.abort,
           })
 
           const formatted = params.questions

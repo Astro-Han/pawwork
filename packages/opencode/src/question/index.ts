@@ -1,4 +1,4 @@
-import { Deferred, Effect, Layer, Schema, Context } from "effect"
+import { Cause, Deferred, Effect, Layer, Schema, Context } from "effect"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
@@ -143,9 +143,19 @@ export namespace Question {
     Rejected: BusEvent.define("question.rejected", Rejected.zod),
   }
 
-  export class RejectedError extends Schema.TaggedErrorClass<RejectedError>()("QuestionRejectedError", {}) {
+  // `cancelled` distinguishes a session-cancel-driven rejection (signal abort
+  // or fiber interrupt) from an intentional user dismissal. The processor
+  // uses this to set metadata.interrupted only on cancel — a dismiss is a
+  // completed user action, not an interruption. The message branches the
+  // same way so consumers (state.error, logs, telemetry) read accurately
+  // without each having to inspect the cancelled flag. See #419.
+  export class RejectedError extends Schema.TaggedErrorClass<RejectedError>()("QuestionRejectedError", {
+    cancelled: Schema.optional(Schema.Boolean),
+  }) {
     override get message() {
-      return "The user dismissed this question"
+      return this.cancelled
+        ? "Question cancelled before the user answered it."
+        : "The user dismissed this question"
     }
   }
 
@@ -165,6 +175,10 @@ export namespace Question {
       sessionID: SessionID
       questions: ReadonlyArray<Info>
       tool?: Tool
+      // Production cancellation channel. EffectBridge.run.promise does not
+      // propagate parent fiber interrupts, so without a signal a session
+      // cancel leaks the pending entry and the dock stays forever. See #419.
+      signal?: AbortSignal
     }) => Effect.Effect<ReadonlyArray<Answer>, RejectedError>
     readonly reply: (input: { requestID: QuestionID; answers: ReadonlyArray<Answer> }) => Effect.Effect<void>
     readonly reject: (requestID: QuestionID) => Effect.Effect<void>
@@ -186,7 +200,7 @@ export namespace Question {
           yield* Effect.addFinalizer(() =>
             Effect.gen(function* () {
               for (const item of state.pending.values()) {
-                yield* Deferred.fail(item.deferred, new RejectedError())
+                yield* Deferred.fail(item.deferred, new RejectedError({ cancelled: true }))
               }
               state.pending.clear()
             }),
@@ -200,6 +214,7 @@ export namespace Question {
         sessionID: SessionID
         questions: ReadonlyArray<Info>
         tool?: Tool
+        signal?: AbortSignal
       }) {
         // Replies are mapped back by label string, so duplicate labels within
         // a question would make answers ambiguous. Reject before publishing.
@@ -241,11 +256,69 @@ export namespace Question {
         // event payload to mutate the pending entry either.
         yield* bus.publish(Event.Asked, structuredClone(info))
 
-        return yield* Effect.ensuring(
-          Deferred.await(deferred),
-          Effect.sync(() => {
-            pending.delete(id)
-          }),
+        // Cancellation: input.signal is the production channel; the
+        // Effect.onInterrupt arm below is defence for direct fiber kill
+        // (layer shutdown / supervisor) when signal is undefined. The abort
+        // callback fires from the JS event loop, so we capture the parent
+        // Effect context here and re-provide it on a single runFork.
+        const signal = input.signal
+        let removeListener: (() => void) | undefined
+        const sessionID = input.sessionID
+        const ctx = yield* Effect.context<never>()
+        const failFromAbort = InstanceState.bind(() => {
+          const entry = pending.get(id)
+          if (!entry) return
+          pending.delete(id)
+          log.info("rejected", { requestID: id, reason: "aborted" })
+          // Publish then fail in a single Effect so order is deterministic
+          // (subscribers see Rejected before any awaiter unblocks) and any
+          // failure inside is logged once instead of disappearing into two
+          // independent forks.
+          Effect.runFork(
+            Effect.provide(
+              Effect.gen(function* () {
+                yield* bus.publish(Event.Rejected, { sessionID, requestID: id })
+                yield* Deferred.fail(entry.deferred, new RejectedError({ cancelled: true }))
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.sync(() =>
+                    log.error("failFromAbort failed", {
+                      requestID: id,
+                      sessionID,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                ),
+              ),
+              ctx,
+            ),
+          )
+        })
+
+        if (signal) {
+          if (signal.aborted) {
+            failFromAbort()
+          } else {
+            signal.addEventListener("abort", failFromAbort, { once: true })
+            removeListener = () => signal.removeEventListener("abort", failFromAbort)
+          }
+        }
+
+        return yield* Deferred.await(deferred).pipe(
+          Effect.onInterrupt(() =>
+            Effect.gen(function* () {
+              if (!pending.has(id)) return
+              pending.delete(id)
+              log.info("rejected", { requestID: id, reason: "interrupted" })
+              yield* bus.publish(Event.Rejected, { sessionID, requestID: id })
+            }),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (removeListener) removeListener()
+              pending.delete(id)
+            }),
+          ),
         )
       })
 

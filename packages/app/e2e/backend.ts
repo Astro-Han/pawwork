@@ -60,6 +60,30 @@ const LOG_CAP = 100
 
 const INTERNAL_SERVER_AUTH_ENV = new Set(["opencode_server_password", "opencode_server_username"])
 
+// Strip any host-provided AI provider credentials from the spawned backend's
+// environment so the test fixture's OPENCODE_E2E_LLM_URL routing always wins.
+// Without this, a developer with e.g. GEMINI_API_KEY exported on their host
+// gets that provider auto-picked as default model in the worker backend, and
+// the test silently makes a real network call (or fails with auth errors)
+// instead of routing through the in-process e2e LLM fixture.
+//
+// Pattern catches `*_API_KEY` / `*_API_TOKEN` (the bulk of provider env names
+// in models.dev). Explicit set covers the long tail that doesn't match
+// (e.g. `GITHUB_TOKEN` for Copilot, `HF_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`).
+const PROVIDER_ENV_PATTERN = /_API_(KEY|TOKEN)$/
+const PROVIDER_ENV_EXTRA = new Set([
+  "AWS_BEARER_TOKEN_BEDROCK",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "BAILING_API_TOKEN",
+  "DIGITALOCEAN_ACCESS_TOKEN",
+  "FRIENDLI_TOKEN",
+  "GITHUB_TOKEN",
+  "GITLAB_TOKEN",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "HF_TOKEN",
+])
+
 function cap(input: string[]) {
   if (input.length > LOG_CAP) input.splice(0, input.length - LOG_CAP)
 }
@@ -90,6 +114,7 @@ export function createBackendEnv(input: {
   }
   for (const key of Object.keys(env)) {
     if (INTERNAL_SERVER_AUTH_ENV.has(key.toLowerCase())) delete env[key]
+    else if (PROVIDER_ENV_PATTERN.test(key) || PROVIDER_ENV_EXTRA.has(key)) delete env[key]
   }
   return env
 }

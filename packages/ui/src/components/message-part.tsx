@@ -1384,6 +1384,21 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   </div>
                 )
               }
+              // Cancelled question: the run was interrupted before the user
+              // saw or answered. Show a short, action-oriented hint instead of
+              // the raw "Question cancelled..." string so non-technical users
+              // know they can just re-ask. Identify by metadata.interrupted
+              // (written by processor cleanup) so this is independent of the
+              // exact error string used in the backend. See #419.
+              if (part().tool === "question" && partMetadata()?.interrupted === true) {
+                return (
+                  <div style="width: 100%; display: flex; justify-content: flex-end;">
+                    <span class="text-13-regular text-text-weak cursor-default">
+                      {i18n.t("ui.messagePart.questions.interrupted")}
+                    </span>
+                  </div>
+                )
+              }
               return (
                 <ToolErrorCard
                   tool={part().tool}

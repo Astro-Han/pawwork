@@ -6,9 +6,10 @@ import { composerEnabled, composerStateProbe } from "@/testing/session-composer"
 export function createSessionComposerState(input: {
   sessionID: () => string | undefined
   fallbackSessionID?: () => string | undefined
+  halt?: (sessionID: string) => Promise<unknown>
 }) {
   const activeSessionID = input.sessionID
-  const blockers = createSessionBlockers({ sessionID: activeSessionID })
+  const blockers = createSessionBlockers({ sessionID: activeSessionID, halt: input.halt })
   const todo = createSessionTodoModel({ sessionID: activeSessionID, fallbackSessionID: input.fallbackSessionID })
 
   createEffect(() => {
