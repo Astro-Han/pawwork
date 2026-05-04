@@ -25,7 +25,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { getFilename } from "@opencode-ai/util/path"
 import { Session, type GlobalSession, type Message } from "@opencode-ai/sdk/v2/client"
-import { isMacShell, usePlatform } from "@/context/platform"
+import { getShellKind, getShellOs, isMacShell, usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { createStore, produce, reconcile } from "solid-js/store"
 import type { DragEvent } from "@thisbeyond/solid-dnd"
@@ -2097,8 +2097,8 @@ export default function Layout(props: ParentProps) {
   )
   const sidebarContent = () =>
     renderPawworkPanel(pawworkSessions, { directory: currentProject()?.worktree, scope: "main" })
-  const shellKind = () => platform.shell?.kind ?? (platform.platform === "desktop" ? "desktop" : "web")
-  const shellOs = () => platform.shell?.os ?? platform.os
+  const shellKind = () => getShellKind(platform)
+  const shellOs = () => getShellOs(platform)
 
   return (
     <LayoutPageContext.Provider

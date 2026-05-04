@@ -6,7 +6,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 
 import { useLayout } from "@/context/layout"
-import { isDesktopShell, isMacShell, isWindowsShell, usePlatform } from "@/context/platform"
+import { getShellKind, getShellOs, isDesktopShell, isMacShell, isWindowsShell, usePlatform } from "@/context/platform"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { applyPath, backPath, forwardPath } from "./titlebar-history"
@@ -20,8 +20,8 @@ export function Titlebar() {
   const location = useLocation()
   const params = useParams()
 
-  const shellKind = () => platform.shell?.kind ?? (platform.platform === "desktop" ? "desktop" : "web")
-  const shellOs = () => platform.shell?.os ?? platform.os
+  const shellKind = () => getShellKind(platform)
+  const shellOs = () => getShellOs(platform)
   const mac = createMemo(() => isMacShell(platform))
   const windows = createMemo(() => isWindowsShell(platform))
   const zoom = () => platform.webviewZoom?.() ?? 1

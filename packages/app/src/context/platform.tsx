@@ -183,17 +183,24 @@ export type PlatformShell = {
   os?: "macos" | "windows" | "linux"
 }
 
+export function getShellKind(platform: Pick<Platform, "platform" | "shell">) {
+  return platform.shell?.kind ?? (platform.platform === "desktop" ? "desktop" : "web")
+}
+
+export function getShellOs(platform: Pick<Platform, "shell" | "os">) {
+  return platform.shell?.os ?? platform.os
+}
+
 export function isDesktopShell(platform: Pick<Platform, "platform" | "shell">) {
-  const kind = platform.shell?.kind ?? (platform.platform === "desktop" ? "desktop" : "web")
-  return kind === "desktop"
+  return getShellKind(platform) === "desktop"
 }
 
 export function isMacShell(platform: Pick<Platform, "platform" | "shell" | "os">) {
-  return isDesktopShell(platform) && (platform.shell?.os ?? platform.os) === "macos"
+  return isDesktopShell(platform) && getShellOs(platform) === "macos"
 }
 
 export function isWindowsShell(platform: Pick<Platform, "platform" | "shell" | "os">) {
-  return isDesktopShell(platform) && (platform.shell?.os ?? platform.os) === "windows"
+  return isDesktopShell(platform) && getShellOs(platform) === "windows"
 }
 
 export const { use: usePlatform, provider: PlatformProvider } = createSimpleContext({

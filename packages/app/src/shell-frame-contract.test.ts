@@ -50,10 +50,13 @@ test("web runtime uses the desktop shell without claiming Electron platform iden
   const entry = read("./entry.tsx")
   const platform = read("./context/platform.tsx")
 
-  expect(entry).toContain('platform: "web"')
-  expect(entry).toContain('shell: { kind: "desktop"')
+  expect(entry).toMatch(
+    /const\s+platform:\s*Platform\s*=\s*\{[\s\S]*?platform:\s*"web"[\s\S]*?shell:\s*\{\s*kind:\s*"desktop",\s*os:\s*getShellOs\(\)\s*\}/,
+  )
   expect(entry).toContain("getShellOs")
   expect(platform).toContain('shell?: PlatformShell')
+  expect(platform).toContain("export function getShellKind")
+  expect(platform).toContain("export function getShellOs")
   expect(platform).toContain("export function isDesktopShell")
   expect(platform).toContain("export function isMacShell")
   expect(platform).toContain("export function isWindowsShell")
@@ -66,9 +69,9 @@ test("web favicon uses PawWork branding instead of the inherited OpenCode mark",
   expect(html).toContain("/favicon-96x96-v3.png")
   expect(html).toContain("/favicon-v3.svg")
   expect(html).toContain("/favicon-v3.ico")
-  expect(favicon).toContain("#FF6B2B")
-  expect(favicon).toContain("#FFF8F0")
-  expect(favicon).not.toContain("#131010")
+  expect(favicon).toMatch(/#ff6b2b/i)
+  expect(favicon).toMatch(/#fff8f0/i)
+  expect(favicon).not.toMatch(/#131010/i)
   expect(hash("../../ui/src/assets/favicon/favicon-96x96-v3.png")).not.toBe(
     "aa34092540de60c889610edfa3c25316e215f12d88af29cfba530d09aee7265c",
   )
