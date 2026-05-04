@@ -17,7 +17,7 @@ import { makeEventListener } from "@solid-primitives/event-listener"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
-import { Persist, persisted } from "@/utils/persist"
+import { persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -92,6 +92,7 @@ import {
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
+import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
 import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { sessionTitle } from "@/utils/session-title"
@@ -99,18 +100,8 @@ import { sizingStopEvents } from "@/pages/session/helpers"
 
 export default function Layout(props: ParentProps) {
   const [store, setStore, , ready] = persisted(
-    Persist.global("layout.page", ["layout.page.v1"]),
-    createStore({
-      activeProject: undefined as string | undefined,
-      activeWorkspace: undefined as string | undefined,
-      workspaceOrder: {} as Record<string, string[]>,
-      workspaceName: {} as Record<string, string>,
-      workspaceBranchName: {} as Record<string, Record<string, string>>,
-      workspaceExpanded: {} as Record<string, boolean>,
-      gettingStartedDismissed: false,
-      pawworkPinnedSessions: [] as string[],
-      pawworkSortMode: "time" as "time" | "project",
-    }),
+    createLayoutPagePersistTarget(),
+    createStore(createDefaultLayoutPageState()),
   )
 
   const pageReady = createMemo(() => ready())
