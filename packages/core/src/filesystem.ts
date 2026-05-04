@@ -230,6 +230,11 @@ export namespace AppFileSystem {
   // bind such a path to the cwd's drive, which silently mismatches when the
   // file actually lives on a different drive. Probe each known drive root for
   // an existing file and fall back to win32.resolve only when none match.
+  //
+  // Important: this only repairs *existing* rooted-driveless paths. Targets
+  // that have not been created yet (e.g. write destinations) still fall back
+  // to the cwd-drive answer that win32.resolve produces. Callers that need
+  // a stable drive for a future path should pre-resolve via the project root.
   function normalizeWindowsAbsolutePath(p: string): string {
     const existing = resolveRootedWindowsVariant(p)
     return win32.normalize(existing ?? win32.resolve(p))
