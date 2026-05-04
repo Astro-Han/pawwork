@@ -238,9 +238,9 @@ export namespace Process {
       for (const child of children) signalPid(child, "SIGTERM")
     }
 
-    const rootExited = input.waitForExit
-      ? await Promise.race([input.waitForExit.then(() => true), sleep(graceMs).then(() => false)])
-      : false
+    const rootExited = await (input.waitForExit
+      ? Promise.race([input.waitForExit.then(() => true), sleep(graceMs).then(() => false)])
+      : sleep(graceMs).then(() => false))
 
     if (!exists(input.pid) && children.every((child) => !exists(child))) return
     if (groupSignaled && !rootExited && exists(input.pid)) {

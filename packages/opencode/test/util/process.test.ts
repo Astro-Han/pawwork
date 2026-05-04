@@ -73,6 +73,18 @@ describe("util.process", () => {
     expect(exit).not.toBe(0)
   }, 5000)
 
+  test("terminateTree honors grace period without waitForExit", async () => {
+    if (process.platform === "win32") return
+
+    const proc = Process.spawn(node('process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'))
+    const started = Date.now()
+    await Process.terminateTree({ pid: proc.pid!, graceMs: 120 })
+    const elapsed = Date.now() - started
+
+    expect(elapsed).toBeGreaterThanOrEqual(100)
+    expect(await proc.exited).not.toBe(0)
+  }, 3000)
+
   test("uses cwd when spawning commands", async () => {
     await using tmp = await tmpdir()
     const out = await Process.run(node("process.stdout.write(process.cwd())"), {
