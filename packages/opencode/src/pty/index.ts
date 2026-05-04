@@ -10,17 +10,16 @@ import { lazy } from "@opencode-ai/util/lazy"
 import { Shell } from "@/shell/shell"
 import { Plugin } from "@/plugin"
 import { envValueCaseInsensitive, withoutInternalServerAuthEnv } from "@/util/env"
+import { Process } from "@/util/process"
 import { PtyID } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
-import { setTimeout as sleep } from "node:timers/promises"
 
 export namespace Pty {
   const log = Log.create({ service: "pty" })
 
   const BUFFER_LIMIT = 1024 * 1024 * 2
   const BUFFER_CHUNK = 64 * 1024
-  const TERMINATION_GRACE_MS = 200
   const EXIT_WAIT_MS = 1000
   const encoder = new TextEncoder()
 
@@ -153,33 +152,7 @@ export namespace Pty {
         })
       }
 
-      function processExists(pid: number) {
-        try {
-          process.kill(pid, 0)
-          return true
-        } catch {
-          return false
-        }
-      }
-
-      const hasExited = (session: Active) => session.info.status === "exited" || !processExists(session.process.pid)
-
-      async function descendantPids(pid: number) {
-        if (process.platform === "win32") return []
-        const seen = new Set<number>()
-        const pending = [pid]
-        while (pending.length) {
-          const parent = pending.pop()!
-          const out = await Bun.$`pgrep -P ${parent}`.quiet().nothrow().text()
-          for (const line of out.split(/\s+/)) {
-            const child = Number(line)
-            if (!Number.isInteger(child) || child <= 0 || seen.has(child)) continue
-            seen.add(child)
-            pending.push(child)
-          }
-        }
-        return Array.from(seen)
-      }
+      const hasExited = (session: Active) => session.info.status === "exited" || !Process.exists(session.process.pid)
 
       function signalProcess(session: Active, signal: string) {
         if (session.info.status === "exited") return
@@ -196,23 +169,14 @@ export namespace Pty {
           return yield* Effect.promise(() => exited)
         }
 
-        const descendants = yield* Effect.promise(() => descendantPids(session.process.pid))
-        signalProcess(session, "SIGTERM")
-        for (const child of descendants) {
-          try {
-            if (processExists(child)) process.kill(child, "SIGTERM")
-          } catch {}
-        }
         yield* Effect.promise(() =>
-          Promise.race([exited.then(() => true), sleep(TERMINATION_GRACE_MS).then(() => false)]),
+          Process.terminateTree({
+            pid: session.process.pid,
+            signalRoot: (signal) => session.process.kill(signal),
+            waitForExit: exited,
+          }),
         )
         if (hasExited(session)) return session.exitCode
-        signalProcess(session, "SIGKILL")
-        for (const child of descendants) {
-          try {
-            if (processExists(child)) process.kill(child, "SIGKILL")
-          } catch {}
-        }
         return yield* Effect.promise(() => exited)
       })
 
@@ -246,9 +210,13 @@ export namespace Pty {
       )
 
       const trackCleanup = (s: State, effect: Effect.Effect<void>) => {
-        const task = Effect.runPromise(effect.pipe(Effect.provide(EffectLogger.layer))).finally(() => {
-          s.cleanupTasks.delete(task)
-        })
+        const task = Effect.runPromise(effect.pipe(Effect.provide(EffectLogger.layer)))
+          .catch((error) => {
+            log.error("cleanup task failed", { error })
+          })
+          .finally(() => {
+            s.cleanupTasks.delete(task)
+          })
         s.cleanupTasks.add(task)
       }
 

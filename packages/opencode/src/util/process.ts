@@ -1,9 +1,12 @@
 import { type ChildProcess } from "child_process"
 import launch from "cross-spawn"
 import { buffer } from "node:stream/consumers"
+import { setTimeout as sleep } from "node:timers/promises"
 import { errorMessage } from "./error"
 
 export namespace Process {
+  export const TERMINATION_GRACE_MS = 500
+
   export type Stdio = "inherit" | "pipe" | "ignore"
   export type Shell = boolean | string
 
@@ -160,6 +163,92 @@ export namespace Process {
 
     if (out.code === 0) return
     proc.kill()
+  }
+
+  export function exists(pid: number) {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  export async function descendants(pid: number): Promise<number[]> {
+    if (process.platform === "win32") return []
+    const seen = new Set<number>()
+    const pending = [pid]
+    while (pending.length) {
+      const parent = pending.pop()!
+      const out = await Bun.$`pgrep -P ${parent}`.quiet().nothrow().text()
+      for (const line of out.split(/\s+/)) {
+        const child = Number(line)
+        if (!Number.isInteger(child) || child <= 0 || seen.has(child)) continue
+        seen.add(child)
+        pending.push(child)
+      }
+    }
+    return Array.from(seen)
+  }
+
+  function signalPid(pid: number, signal: NodeJS.Signals) {
+    try {
+      if (exists(pid)) process.kill(pid, signal)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function signalGroup(pid: number, signal: NodeJS.Signals) {
+    try {
+      process.kill(-pid, signal)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  export async function terminateTree(input: {
+    pid: number
+    graceMs?: number
+    signalRoot?: (signal: NodeJS.Signals) => void
+    waitForExit?: Promise<unknown>
+  }) {
+    const graceMs = input.graceMs ?? TERMINATION_GRACE_MS
+    if (process.platform === "win32") {
+      await Bun.$`taskkill /pid ${input.pid} /f /t`.quiet().nothrow()
+      return
+    }
+
+    const children = await descendants(input.pid)
+    const signalRoot = (signal: NodeJS.Signals) => {
+      if (input.signalRoot && exists(input.pid)) {
+        try {
+          input.signalRoot(signal)
+          return
+        } catch {}
+      }
+      signalPid(input.pid, signal)
+    }
+
+    const groupSignaled = signalGroup(input.pid, "SIGTERM")
+    if (!groupSignaled) {
+      signalRoot("SIGTERM")
+      for (const child of children) signalPid(child, "SIGTERM")
+    }
+
+    const rootExited = input.waitForExit
+      ? await Promise.race([input.waitForExit.then(() => true), sleep(graceMs).then(() => false)])
+      : false
+
+    if (!exists(input.pid) && children.every((child) => !exists(child))) return
+    if (groupSignaled && !rootExited && exists(input.pid)) {
+      signalGroup(input.pid, "SIGKILL")
+      return
+    }
+    signalRoot("SIGKILL")
+    for (const child of children) signalPid(child, "SIGKILL")
   }
 
   export async function text(cmd: string[], opts: RunOptions = {}): Promise<TextResult> {

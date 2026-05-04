@@ -60,6 +60,19 @@ describe("util.process", () => {
     expect(Date.now() - started).toBeLessThan(1000)
   }, 3000)
 
+  test("terminateTree uses the platform process-tree cleanup path on Windows", async () => {
+    if (process.platform !== "win32") return
+
+    const proc = Process.spawn(node("setInterval(() => {}, 1000)"))
+    await Process.terminateTree({ pid: proc.pid! })
+    const exit = await Promise.race([
+      proc.exited,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout waiting for process exit")), 3000)),
+    ])
+
+    expect(exit).not.toBe(0)
+  }, 5000)
+
   test("uses cwd when spawning commands", async () => {
     await using tmp = await tmpdir()
     const out = await Process.run(node("process.stdout.write(process.cwd())"), {
