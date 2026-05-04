@@ -165,6 +165,13 @@ export namespace Question {
       sessionID: SessionID
       questions: ReadonlyArray<Info>
       tool?: Tool
+      // Bridge for the AbortSignal that travels via Tool.Context. The Effect
+      // surrounding the tool runs through EffectBridge.run.promise, which does
+      // NOT propagate parent fiber interrupts into the spawned Effect — so a
+      // session cancel never fires Effect.onInterrupt here. The signal is the
+      // only reliable cancellation channel; without it the pending entry leaks
+      // and the dock stays visible forever. See #419.
+      signal?: AbortSignal
     }) => Effect.Effect<ReadonlyArray<Answer>, RejectedError>
     readonly reply: (input: { requestID: QuestionID; answers: ReadonlyArray<Answer> }) => Effect.Effect<void>
     readonly reject: (requestID: QuestionID) => Effect.Effect<void>
@@ -200,6 +207,7 @@ export namespace Question {
         sessionID: SessionID
         questions: ReadonlyArray<Info>
         tool?: Tool
+        signal?: AbortSignal
       }) {
         // Replies are mapped back by label string, so duplicate labels within
         // a question would make answers ambiguous. Reject before publishing.
@@ -241,11 +249,65 @@ export namespace Question {
         // event payload to mutate the pending entry either.
         yield* bus.publish(Event.Asked, structuredClone(info))
 
-        return yield* Effect.ensuring(
-          Deferred.await(deferred),
-          Effect.sync(() => {
-            pending.delete(id)
-          }),
+        // Wait for either the user reply (via Deferred) or the tool's
+        // AbortSignal firing. The signal is the only cancellation channel that
+        // survives — `EffectBridge.run.promise` runs the tool Effect via
+        // `Effect.runPromise`, so a parent fiber interrupt does NOT propagate
+        // here. Without the signal arm, session cancel leaves the entry in
+        // `pending` forever and the dock stays visible. See #419.
+        //
+        // The Effect.onInterrupt arm below is a defence-in-depth catch for
+        // *direct* fiber interrupts (e.g. layer shutdown / supervisor kill
+        // during tests), where `signal` is undefined. The `pending.has` guard
+        // makes the second arm a no-op if both fire.
+        // The tool's AbortSignal is our only reliable cancel channel: the
+        // surrounding tool Effect runs through `EffectBridge.run.promise`
+        // (which is `Effect.runPromise`), so a parent fiber interrupt does
+        // not propagate here, and `Effect.runFork(Deferred.fail)` does not
+        // get scheduled until layer disposal because we are parked on
+        // `Deferred.await` ahead of it. We therefore mutate pending + publish
+        // Rejected + fail the deferred *eagerly* in the abort handler. The
+        // Deferred failure still drives the Effect to unwind, but the user-
+        // facing state is correct immediately. See #419.
+        const signal = input.signal
+        let removeListener: (() => void) | undefined
+        const sessionID = input.sessionID
+        const failFromAbort = () => {
+          const entry = pending.get(id)
+          if (!entry) return
+          pending.delete(id)
+          log.info("rejected", { requestID: id, reason: "aborted" })
+          Effect.runFork(bus.publish(Event.Rejected, { sessionID, requestID: id }))
+          Effect.runFork(Deferred.fail(entry.deferred, new RejectedError()))
+        }
+
+        if (signal) {
+          if (signal.aborted) {
+            failFromAbort()
+          } else {
+            signal.addEventListener("abort", failFromAbort, { once: true })
+            removeListener = () => signal.removeEventListener("abort", failFromAbort)
+          }
+        }
+
+        // Defence-in-depth onInterrupt arm catches direct fiber interrupts
+        // (layer shutdown, supervisor kill) when no signal is present. The
+        // `pending.has` guard keeps both arms idempotent.
+        return yield* Deferred.await(deferred).pipe(
+          Effect.onInterrupt(() =>
+            Effect.gen(function* () {
+              if (!pending.has(id)) return
+              pending.delete(id)
+              log.info("rejected", { requestID: id, reason: "interrupted" })
+              yield* bus.publish(Event.Rejected, { sessionID, requestID: id })
+            }),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (removeListener) removeListener()
+              pending.delete(id)
+            }),
+          ),
         )
       })
 

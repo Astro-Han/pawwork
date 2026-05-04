@@ -1,13 +1,16 @@
 import { afterEach, test, expect } from "bun:test"
 import { Question } from "../../src/question"
+import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { QuestionID } from "../../src/question/schema"
 import { tmpdir } from "../fixture/fixture"
 import { SessionID } from "../../src/session/schema"
 import { AppRuntime } from "../../src/effect/app-runtime"
 
-const ask = (input: { sessionID: SessionID; questions: Question.Info[]; tool?: { messageID: any; callID: string } }) =>
-  AppRuntime.runPromise(Question.Service.use((svc) => svc.ask(input)))
+const ask = (
+  input: { sessionID: SessionID; questions: Question.Info[]; tool?: { messageID: any; callID: string } },
+  options?: { signal?: AbortSignal },
+) => AppRuntime.runPromise(Question.Service.use((svc) => svc.ask(input)), options)
 
 const list = () => AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))
 
@@ -472,6 +475,62 @@ test("questions stay isolated by directory", async () => {
 
   await p1.catch(() => {})
   await p2.catch(() => {})
+})
+
+// interrupt path: when the ask fiber is interrupted (e.g. session cancel),
+// Question.ask must publish question.rejected so the frontend can clear the
+// dock, AND remove the entry from pending so question.list() won't return a
+// phantom. See issue #419.
+
+test("ask - publishes question.rejected on interrupt", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const events: { sessionID: SessionID; requestID: QuestionID }[] = []
+      const unsub = Bus.subscribe(Question.Event.Rejected, (evt) => {
+        events.push(evt.properties)
+      })
+
+      const controller = new AbortController()
+      const promise = ask(
+        {
+          sessionID: SessionID.make("ses_interrupt"),
+          questions: [
+            {
+              question: "Pick one",
+              header: "Pick",
+              options: [
+                { label: "A", description: "first" },
+                { label: "B", description: "second" },
+              ],
+            },
+          ],
+        },
+        { signal: controller.signal },
+      ).catch(() => {})
+
+      // Wait until pending registered so we know publish(Asked) has run
+      // before we trigger the interrupt.
+      const start = Date.now()
+      while (Date.now() - start < 1000) {
+        const pending = await list()
+        if (pending.length === 1) break
+        await Bun.sleep(10)
+      }
+
+      controller.abort()
+      await promise
+
+      expect(events).toHaveLength(1)
+      expect(events[0]?.sessionID).toBe(SessionID.make("ses_interrupt"))
+
+      const after = await list()
+      expect(after).toHaveLength(0)
+
+      unsub()
+    },
+  })
 })
 
 test("pending question rejects on instance dispose", async () => {
