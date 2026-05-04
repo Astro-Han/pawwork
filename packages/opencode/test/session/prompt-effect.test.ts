@@ -735,7 +735,7 @@ it.live("loop gate allows successful read calls for different ranges of the same
   ),
 )
 
-unix("bash file mutation records a patch part for mutation epoch tracking", () =>
+unix("bash file mutation resets successful exact-input loop gating", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
       Effect.gen(function* () {
@@ -753,10 +753,11 @@ unix("bash file mutation records a patch part for mutation epoch tracking", () =
           noReply: true,
           parts: [{ type: "text", text: "write file with bash" }],
         })
-        yield* llm.tool("bash", {
-          command: `printf 'changed\\n' > ${JSON.stringify(file)}`,
+        const input = {
+          command: `printf 'changed\\n' > ${JSON.stringify(file)} && printf 'ok\\n'`,
           description: "write test file",
-        })
+        }
+        for (let i = 0; i < 4; i++) yield* llm.tool("bash", input)
         yield* llm.text("done")
 
         const result = yield* prompt.loop({ sessionID: session.id })
@@ -768,13 +769,21 @@ unix("bash file mutation records a patch part for mutation epoch tracking", () =
           (part): part is CompletedToolPart =>
             part.type === "tool" && part.tool === "bash" && part.state.status === "completed",
         )
+        const loopGateParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction !== undefined,
+        )
         const patchParts = allParts.filter((part): part is MessageV2.PatchPart => part.type === "patch")
 
-        expect(completedBashParts).toHaveLength(1)
+        expect(completedBashParts).toHaveLength(4)
+        expect(loopGateParts).toHaveLength(0)
         expect(patchParts.length).toBeGreaterThan(0)
         expect(patchParts.flatMap((part) => part.files).some((item) => item.endsWith("loop-gate-bash-mutation.txt"))).toBe(
           true,
         )
+        expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(true)
       }),
     { git: true, config: providerCfg },
   ),
