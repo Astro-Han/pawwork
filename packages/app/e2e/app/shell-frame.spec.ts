@@ -17,10 +17,17 @@ test("@smoke shell frame exposes stable desktop hooks", async ({ page, gotoSessi
   await expect(page.locator(desktopShellFrameSelector)).toBeVisible()
   await expect(page.locator(titlebarShellSelector)).toBeVisible()
   await expect(page.locator(desktopShellMainSelector)).toBeVisible()
+  await expect(page.locator(desktopShellSelector)).toHaveAttribute("data-platform", "web")
+  await expect(page.locator(desktopShellSelector)).toHaveAttribute("data-shell", "desktop")
+  await expect(page.locator(titlebarShellSelector)).toHaveAttribute("data-shell", "desktop")
+  await expect(page.locator(titlebarShellSelector)).toHaveAttribute("data-os", "macos")
   await expect(page.locator(titlebarLeftSelector)).toHaveCount(1)
   await expect(page.locator(titlebarLeftSelector)).toContainText(/new session/i)
   await expect(page.locator(`${titlebarRightSelector} button`).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /toggle sidebar/i }).first()).toBeVisible()
+
+  const titlebarBox = await page.locator(titlebarShellSelector).boundingBox()
+  expect(Math.round(titlebarBox?.height ?? 0)).toBe(44)
 
   const settings = await openSettings(page)
   await expect(settings.getByRole("heading", { level: 2 })).toBeVisible()

@@ -68,6 +68,9 @@ export type Platform = {
   /** Platform discriminator */
   platform: "web" | "desktop"
 
+  /** Visual shell contract. Runtime identity stays separate from appearance. */
+  shell?: PlatformShell
+
   /** Desktop OS (desktop only) */
   os?: "macos" | "windows" | "linux"
 
@@ -174,6 +177,24 @@ export type Platform = {
 }
 
 export type DisplayBackend = "auto" | "wayland"
+
+export type PlatformShell = {
+  kind: "desktop" | "web"
+  os?: "macos" | "windows" | "linux"
+}
+
+export function isDesktopShell(platform: Pick<Platform, "platform" | "shell">) {
+  const kind = platform.shell?.kind ?? (platform.platform === "desktop" ? "desktop" : "web")
+  return kind === "desktop"
+}
+
+export function isMacShell(platform: Pick<Platform, "platform" | "shell" | "os">) {
+  return isDesktopShell(platform) && (platform.shell?.os ?? platform.os) === "macos"
+}
+
+export function isWindowsShell(platform: Pick<Platform, "platform" | "shell" | "os">) {
+  return isDesktopShell(platform) && (platform.shell?.os ?? platform.os) === "windows"
+}
 
 export const { use: usePlatform, provider: PlatformProvider } = createSimpleContext({
   name: "Platform",

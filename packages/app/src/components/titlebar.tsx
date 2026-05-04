@@ -6,7 +6,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 
 import { useLayout } from "@/context/layout"
-import { usePlatform } from "@/context/platform"
+import { isDesktopShell, isMacShell, isWindowsShell, usePlatform } from "@/context/platform"
 import { useCommand } from "@/context/command"
 import { useLanguage } from "@/context/language"
 import { applyPath, backPath, forwardPath } from "./titlebar-history"
@@ -20,9 +20,10 @@ export function Titlebar() {
   const location = useLocation()
   const params = useParams()
 
-  const mac = createMemo(() => platform.platform === "desktop" && platform.os === "macos")
-  const windows = createMemo(() => platform.platform === "desktop" && platform.os === "windows")
-  const web = createMemo(() => platform.platform === "web")
+  const shellKind = () => platform.shell?.kind ?? (platform.platform === "desktop" ? "desktop" : "web")
+  const shellOs = () => platform.shell?.os ?? platform.os
+  const mac = createMemo(() => isMacShell(platform))
+  const windows = createMemo(() => isWindowsShell(platform))
   const zoom = () => platform.webviewZoom?.() ?? 1
   const currentTitlebarHeight = () =>
     mac() ? "var(--shell-titlebar-current-height, var(--shell-titlebar-height, 40px))" : undefined
@@ -84,9 +85,10 @@ export function Titlebar() {
     <header
       data-component="titlebar-shell"
       data-platform={platform.platform}
-      data-os={platform.os}
+      data-shell={shellKind()}
+      data-os={shellOs()}
       class="shrink-0 relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center"
-      classList={{ "h-11": platform.platform === "desktop" && !mac() }}
+      classList={{ "h-11": isDesktopShell(platform) && !mac() }}
       style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}
       data-shell-drag-region={!windows() || undefined}
     >
@@ -101,7 +103,7 @@ export function Titlebar() {
         </Show>
         <div class="flex items-center gap-1 shrink-0">
           <TooltipKeybind
-            class={web() ? "flex shrink-0 ml-14" : "flex shrink-0 ml-2"}
+            class="flex shrink-0 ml-2"
             placement="bottom"
             title={language.t("command.sidebar.toggle")}
             keybind={command.keybind("sidebar.toggle")}

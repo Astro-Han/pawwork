@@ -13,14 +13,10 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   const sessionHeader = read("./components/session/session-header.tsx")
   const pawworkTitlebar = read("./pages/layout/pawwork-titlebar.tsx")
   const wideDesktopQuery = css.indexOf("@media (min-width: 1280px)")
-  const macMainSeamRule = css.indexOf(
-    '[data-component="desktop-shell-main"][data-platform="desktop"][data-os="macos"] {',
-  )
-  const wideFrameRule = css.indexOf(
-    '[data-component="desktop-shell-frame"][data-platform="desktop"][data-os="linux"] {',
-  )
+  const macMainSeamRule = css.indexOf('[data-component="desktop-shell-main"][data-shell="desktop"][data-os="macos"] {')
+  const wideFrameRule = css.indexOf('[data-component="desktop-shell-frame"][data-shell="desktop"][data-os="linux"] {')
 
-  expect(css).toContain('[data-component="desktop-shell"][data-platform="desktop"] {')
+  expect(css).toContain('[data-component="desktop-shell"][data-shell="desktop"] {')
   expect(css).toContain("--shell-titlebar-height: 44px;")
   expect(css).not.toContain("--shell-titlebar-height: 40px;")
   expect(css).not.toContain("--shell-titlebar-height: 48px;")
@@ -31,9 +27,9 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(macMainSeamRule).toBeGreaterThan(-1)
   expect(macMainSeamRule).toBeLessThan(wideDesktopQuery)
   expect(layout).toContain('"--shell-titlebar-current-height"')
-  expect(layout).toContain('platform.os === "macos"')
+  expect(layout).toContain("isMacShell(platform)")
   expect(layout).not.toContain("top-10")
-  expect(titlebar).toContain('"h-11": platform.platform === "desktop" && !mac()')
+  expect(titlebar).toContain('"h-11": isDesktopShell(platform) && !mac()')
   expect(titlebar).toContain('style={{ height: currentTitlebarHeight(), "min-height": currentTitlebarHeight() }}')
   expect(titlebar).toContain("--sidebar-width")
   expect(titlebar).toContain("--right-panel-width")
@@ -43,6 +39,19 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(sessionHeader).toMatch(/document\.getElementById\(["']pawwork-titlebar-left["']\)/)
   expect(sessionHeader).toMatch(/document\.getElementById\(["']pawwork-titlebar-right["']\)/)
   expect(pawworkTitlebar).toMatch(/document\.getElementById\(["']pawwork-titlebar-center["']\)/)
+})
+
+test("web runtime uses the desktop shell without claiming Electron platform identity", () => {
+  const entry = read("./entry.tsx")
+  const platform = read("./context/platform.tsx")
+
+  expect(entry).toContain('platform: "web"')
+  expect(entry).toContain('shell: { kind: "desktop"')
+  expect(entry).toContain("getShellOs")
+  expect(platform).toContain('shell?: PlatformShell')
+  expect(platform).toContain("export function isDesktopShell")
+  expect(platform).toContain("export function isMacShell")
+  expect(platform).toContain("export function isWindowsShell")
 })
 
 test("session composer is docked outside the scroll-clipped timeline region", () => {

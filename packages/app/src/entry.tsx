@@ -101,6 +101,16 @@ const restart: Platform["restart"] = async () => {
   window.location.reload()
 }
 
+const getShellOs = (): NonNullable<Platform["shell"]>["os"] => {
+  const override = import.meta.env.VITE_PAWWORK_SHELL_OS
+  if (override === "macos" || override === "windows" || override === "linux") return override
+  if (typeof navigator !== "object") return "macos"
+  const ua = navigator.userAgent
+  if (ua.includes("Windows")) return "windows"
+  if (ua.includes("Linux")) return "linux"
+  return "macos"
+}
+
 const root = document.getElementById("root")
 if (!(root instanceof HTMLElement) && import.meta.env.DEV) {
   throw new Error(getRootNotFoundError())
@@ -121,6 +131,7 @@ const getDefaultUrl = () => {
 
 const platform: Platform = {
   platform: "web",
+  shell: { kind: "desktop", os: getShellOs() },
   version: pkg.version,
   openLink,
   back,
