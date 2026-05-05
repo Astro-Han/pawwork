@@ -58,6 +58,7 @@ import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
+import { promptKeyActionReady, promptSendDisabled } from "./prompt-input/readiness"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 
@@ -301,9 +302,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   })
   const stopping = createMemo(() => working() && blank())
   const tip = () => {
-    if (!actionReady()) return language.t("prompt.loading")
-
-    if (stopping()) {
+    if (stopping() && abortReady()) {
       return (
         <div class="flex items-center gap-2">
           <span>{language.t("prompt.action.stop")}</span>
@@ -311,6 +310,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         </div>
       )
     }
+
+    if (!actionReady()) return language.t("prompt.loading")
 
     return (
       <div class="flex items-center gap-2">
@@ -1285,7 +1286,15 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   )
 
   const handleKeyDown = (event: KeyboardEvent) => {
-    if (!actionReady()) {
+    if (
+      !promptKeyActionReady({
+        key: event.key,
+        working: working(),
+        stopping: stopping(),
+        actionReady: actionReady(),
+        abortReady: abortReady(),
+      })
+    ) {
       if (event.key === "Enter" || event.key === "Escape") {
         event.preventDefault()
         event.stopPropagation()
@@ -1438,16 +1447,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
-      if (
-        working() &&
-        prompt
-          .current()
-          .map((part) => ("content" in part ? part.content : ""))
-          .join("")
-          .trim().length === 0 &&
-        imageAttachments().length === 0 &&
-        commentCount() === 0
-      ) {
+      if (stopping()) {
+        handleSubmit(event)
         return
       }
       handleSubmit(event)
@@ -1638,7 +1639,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               <Tooltip placement="top" inactive={(working() ? abortReady() : actionReady()) && !working() && blank()} value={tip()}>
                 <SendButton
                   stopping={stopping()}
-                  disabled={working() ? !abortReady() : !actionReady() || (blank() && !props.selectedSkill?.())}
+                  disabled={promptSendDisabled({
+                    stopping: stopping(),
+                    actionReady: actionReady(),
+                    abortReady: abortReady(),
+                    blank: blank(),
+                    selectedSkill: !!props.selectedSkill?.(),
+                  })}
                   aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
                 />
               </Tooltip>

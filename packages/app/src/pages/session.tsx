@@ -115,6 +115,7 @@ export default function Page() {
   const timelineSessionKey = timeline.sessionKey
   const sessionActionReady = timeline.sessionActionReady
   const submitReady = timeline.actionReady
+  const workspaceSubmitReady = timeline.workspaceSubmitReady
   const timelineIsChildSession = timeline.isChildSession
   const haltAbort = (sessionID: string) =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
@@ -537,8 +538,8 @@ export default function Page() {
     <SessionPageComposerRegion
       variant={variant}
       state={composer}
-      ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : sessionActionReady())}
-      actionReady={variant === "home" ? true : submitReady()}
+      ready={!deferRender() && (variant === "home" ? workspaceSubmitReady() : sessionActionReady())}
+      actionReady={variant === "home" ? workspaceSubmitReady() : submitReady()}
       abortReady={variant === "home" ? true : sessionActionReady()}
       displaySessionID={variant === "session" ? timelineSessionID() : undefined}
       displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}

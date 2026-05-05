@@ -91,6 +91,10 @@ export function currentSessionSubmitReady(input: {
   return currentSessionActionReady(input) && input.localReady && input.providerUsable
 }
 
+export function currentWorkspaceSubmitReady(input: { localReady: boolean; providerUsable: boolean }) {
+  return input.localReady && input.providerUsable
+}
+
 export function currentDirectoryProviderUsable(input: { providerReady: boolean; providerCount: number }) {
   return input.providerReady || input.providerCount > 0
 }
@@ -198,6 +202,15 @@ export function createSessionTimelineData(input: {
       }),
     })
   })
+  const workspaceSubmitReady = createMemo(() =>
+    currentWorkspaceSubmitReady({
+      localReady: input.local.session.ready(),
+      providerUsable: currentDirectoryProviderUsable({
+        providerReady: input.sync.data.provider_ready,
+        providerCount: input.sync.data.provider.all.length,
+      }),
+    }),
+  )
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)
   // Only reuse last-good messages for a same-session transient cache miss.
   let lastGoodMessages: LastGoodMessages
@@ -305,6 +318,7 @@ export function createSessionTimelineData(input: {
     currentSessionCacheReady: currentSessionCacheReadyMemo,
     sessionActionReady,
     actionReady,
+    workspaceSubmitReady,
     isChildSession,
     messages,
     messagesReady,

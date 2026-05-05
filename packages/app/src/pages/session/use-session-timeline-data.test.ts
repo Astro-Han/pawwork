@@ -5,6 +5,7 @@ import {
   currentSessionActionReady,
   currentSessionCacheReady,
   currentSessionSubmitReady,
+  currentWorkspaceSubmitReady,
   readTimelineMessages,
   readTimelineMessagesFromCache,
   sessionStatusKnown,
@@ -262,6 +263,14 @@ describe("currentSessionSubmitReady", () => {
     expect(currentSessionSubmitReady({ ...ready, localReady: false, providerUsable: true })).toBe(false)
     expect(currentSessionSubmitReady({ ...ready, localReady: true, providerUsable: false })).toBe(false)
     expect(currentSessionSubmitReady({ ...ready, localReady: true, providerUsable: true })).toBe(true)
+  })
+})
+
+describe("currentWorkspaceSubmitReady", () => {
+  test("waits for model selection and provider readiness when there is no session", () => {
+    expect(currentWorkspaceSubmitReady({ localReady: false, providerUsable: true })).toBe(false)
+    expect(currentWorkspaceSubmitReady({ localReady: true, providerUsable: false })).toBe(false)
+    expect(currentWorkspaceSubmitReady({ localReady: true, providerUsable: true })).toBe(true)
   })
 })
 
