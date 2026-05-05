@@ -17,7 +17,7 @@ export const ExitWorktreeTool = Tool.define(
     const run = (_params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
       Effect.gen(function* () {
         if (ctx.callID) {
-          const inFlight = yield* hasInFlightToolCallsExcept(sessions, ctx.sessionID, ctx.callID)
+          const inFlight = yield* hasInFlightToolCallsExcept(sessions, ctx.sessionID, ctx.messageID, ctx.callID)
           if (inFlight) {
             return yield* Effect.fail(
               new Error("Cannot exit a worktree while another tool call is running in this session."),
