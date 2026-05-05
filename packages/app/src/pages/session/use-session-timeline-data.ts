@@ -2,6 +2,7 @@ import { createEffect, createMemo, on } from "solid-js"
 import type { useLocal } from "@/context/local"
 import type { useSync } from "@/context/sync"
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
+import type { SessionStatusState } from "@/context/global-sync/types"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
 import {
   emptyMessages,
@@ -75,8 +76,8 @@ export function currentSessionActionReady(input: {
   return currentSessionCacheReady(input) && input.statusReady
 }
 
-export function sessionStatusKnown(input: { statusReady: boolean; status: SessionStatus | undefined }) {
-  if (input.statusReady) return true
+export function sessionStatusKnown(input: { statusState: SessionStatusState; status: SessionStatus | undefined }) {
+  if (input.statusState === "ready" || input.statusState === "error") return true
   return input.status?.type === "busy" || input.status?.type === "retry"
 }
 
@@ -143,7 +144,7 @@ export function createSessionTimelineData(input: {
     const id = sessionID()
     if (!id) return true
     return sessionStatusKnown({
-      statusReady: input.sync.data.session_status_ready,
+      statusState: input.sync.data.session_status_state,
       status: input.sync.data.session_status[id],
     })
   })

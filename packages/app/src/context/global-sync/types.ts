@@ -30,6 +30,8 @@ export type ProjectMeta = {
   }
 }
 
+export type SessionStatusState = "loading" | "ready" | "error"
+
 export type State = {
   status: "loading" | "partial" | "complete"
   agent: Agent[]
@@ -46,6 +48,7 @@ export type State = {
   session_status: {
     [sessionID: string]: SessionStatus
   }
+  session_status_state: SessionStatusState
   session_status_ready: boolean
   session_diff: {
     [sessionID: string]: SnapshotFileDiff[]

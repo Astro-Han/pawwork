@@ -222,6 +222,7 @@ export async function bootstrapDirectory(input: {
   input.setStore("mcp", {})
   input.setStore("lsp_ready", false)
   input.setStore("lsp", [])
+  input.setStore("session_status_state", "loading")
   input.setStore("session_status_ready", false)
   input.setStore("session_status", reconcile({}))
   if (loading) input.setStore("status", "partial")
@@ -254,9 +255,14 @@ export async function bootstrapDirectory(input: {
         retry(() =>
           input.sdk.session.status().then((x) => {
             input.setStore("session_status", x.data!)
+            input.setStore("session_status_state", "ready")
             input.setStore("session_status_ready", true)
           }),
-        ),
+        ).catch((err) => {
+          input.setStore("session_status_state", "error")
+          input.setStore("session_status_ready", false)
+          throw err
+        }),
       () =>
         seededProject
           ? Promise.resolve()

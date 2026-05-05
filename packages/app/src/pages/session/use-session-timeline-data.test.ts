@@ -233,20 +233,32 @@ describe("currentSessionActionReady", () => {
 
 describe("sessionStatusKnown", () => {
   test("does not trust stale idle status while the status list is refreshing", () => {
-    expect(sessionStatusKnown({ statusReady: false, status: { type: "idle" } })).toBe(false)
+    expect(sessionStatusKnown({ statusState: "loading", status: { type: "idle" } })).toBe(false)
   })
 
   test("trusts active statuses before the status list finishes refreshing", () => {
-    expect(sessionStatusKnown({ statusReady: false, status: { type: "busy" } })).toBe(true)
+    expect(sessionStatusKnown({ statusState: "loading", status: { type: "busy" } })).toBe(true)
     expect(
       sessionStatusKnown({
-        statusReady: false,
+        statusState: "loading",
         status: {
           type: "retry",
           attempt: 1,
           message: "retrying",
           next: Date.now(),
         },
+      }),
+    ).toBe(true)
+  })
+
+  test("allows degraded actions after status list hydration fails", () => {
+    expect(sessionStatusKnown({ statusState: "error", status: undefined })).toBe(true)
+    expect(
+      currentSessionActionReady({
+        sessionID: "ses",
+        sessionInfo: { id: "ses" },
+        rawMessages: [],
+        statusReady: sessionStatusKnown({ statusState: "error", status: undefined }),
       }),
     ).toBe(true)
   })

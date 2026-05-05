@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, mock, test } from "bun:test"
 import type { Config, Path, Project, ProviderListResponse, VcsInfo } from "@opencode-ai/sdk/v2/client"
 import { QueryClient } from "@tanstack/solid-query"
 import { createStore } from "solid-js/store"
@@ -21,6 +21,7 @@ function createState(): State {
     session: [],
     sessionTotal: 0,
     session_status: {},
+    session_status_state: "loading",
     session_status_ready: false,
     session_diff: {},
     todo: {},
@@ -123,6 +124,7 @@ describe("bootstrapDirectory", () => {
 
     expect(store.provider_ready).toBe(true)
     expect(store.provider).toEqual(providers[0])
+    expect(store.session_status_state).toBe("ready")
     expect(store.session_status_ready).toBe(true)
 
     await bootstrapDirectory({
@@ -147,5 +149,59 @@ describe("bootstrapDirectory", () => {
     expect(providerCalls).toBe(2)
     expect(store.provider_ready).toBe(true)
     expect(store.provider).toEqual(providers[1])
+  })
+
+  test("marks session status as error when status hydration fails", async () => {
+    const originalError = console.error
+    console.error = mock(() => undefined) as typeof console.error
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => {
+          throw new Error("status failed")
+        },
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    try {
+      await bootstrapDirectory({
+        directory,
+        sdk,
+        store,
+        setStore,
+        vcsCache: createVcsCache(),
+        loadSessions: () => undefined,
+        translate: (key) => key,
+        global: {
+          config: {} as Config,
+          path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+          project: [] as Project[],
+          provider: { all: [], connected: [], default: {} },
+        },
+        queryClient,
+      })
+
+      await waitFor(() => store.provider_ready)
+
+      expect(store.session_status_state).toBe("error")
+      expect(store.session_status_ready).toBe(false)
+      expect(store.session_status).toEqual({})
+    } finally {
+      console.error = originalError
+    }
   })
 })

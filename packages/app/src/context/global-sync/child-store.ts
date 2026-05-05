@@ -185,6 +185,7 @@ export function createChildStoreManager(input: {
             session: [],
             sessionTotal: 0,
             session_status: {},
+            session_status_state: "loading",
             session_status_ready: false,
             session_diff: {},
             todo: {},
