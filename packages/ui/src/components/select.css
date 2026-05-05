@@ -48,14 +48,12 @@
       }
       [data-slot="select-select-trigger-icon"] {
         width: 16px;
-        height: 20px;
+        height: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
         color: var(--fg-weak);
-        background-color: var(--surface-raised);
-        border-radius: 4px;
         transition: transform 0.1s ease-in-out;
       }
 

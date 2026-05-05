@@ -92,8 +92,7 @@
     justify-content: center;
 
     [data-component="icon"] {
-      color: var(--fg-on-brand);
-      /* color: var(--fg-on-brand); */
+      color: inherit;
     }
   }
 
@@ -114,7 +113,7 @@
   }
 
   [data-slot="toast-title"] {
-    color: var(--fg-on-brand);
+    color: inherit;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -131,7 +130,7 @@
   }
 
   [data-slot="toast-description"] {
-    color: var(--fg-on-brand);
+    color: inherit;
     text-wrap-style: pretty;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -165,7 +164,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 
-    color: var(--fg-on-brand);
+    color: inherit;
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
@@ -177,7 +176,7 @@
     }
 
     &:first-child {
-      color: var(--fg-on-brand);
+      color: inherit;
     }
   }
 

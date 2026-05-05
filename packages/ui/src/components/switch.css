@@ -28,7 +28,7 @@
     flex-shrink: 0;
     border-radius: 9999px;
     border: 1px solid var(--border-weak);
-    background: var(--bg-base);
+    background: var(--surface-raised);
     transition:
       background-color var(--duration-base),
       border-color var(--duration-base);
@@ -113,8 +113,8 @@
   }
 
   &[data-disabled] [data-slot="switch-control"] {
-    border-color: var(--border-weaker);
-    background-color: var(--surface-sunken);
+    border-color: var(--border-weak);
+    background-color: var(--surface-raised);
   }
 
   &[data-disabled] [data-slot="switch-thumb"] {
