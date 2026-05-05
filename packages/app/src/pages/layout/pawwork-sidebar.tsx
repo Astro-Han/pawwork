@@ -185,7 +185,7 @@ export const PawworkSidebar = (props: {
                   as={IconButton}
                   icon="dot-grid"
                   variant="ghost"
-                  size="small"
+
                   class="rounded-md"
                   data-action="session-row-menu"
                   aria-label={language.t("common.moreOptions")}
@@ -295,7 +295,7 @@ export const PawworkSidebar = (props: {
             <div class="flex w-full flex-col gap-3">
               <div class="text-13-medium text-fg-strong">{language.t("sidebar.empty.title")}</div>
               <p class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.empty.description")}</p>
-              <Button data-action="pawwork-open-project" size="large" onClick={props.onOpenProject}>
+              <Button data-action="pawwork-open-project" onClick={props.onOpenProject}>
                 {language.t("command.project.open")}
               </Button>
             </div>

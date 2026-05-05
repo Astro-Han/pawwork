@@ -483,7 +483,7 @@ export function DialogSelectServer() {
     if (!isFormMode()) return language.t("dialog.server.title")
     return (
       <div class="flex items-center gap-2 -ml-2">
-        <IconButton icon="arrow-left" variant="ghost" onClick={resetForm} aria-label={language.t("common.goBack")} />
+        <IconButton icon="arrow-left" onClick={resetForm} aria-label={language.t("common.goBack")} />
         <span>{isAddMode() ? language.t("dialog.server.add.title") : language.t("dialog.server.edit.title")}</span>
       </div>
     )
@@ -634,7 +634,7 @@ export function DialogSelectServer() {
               </Button>
             }
           >
-            <Button variant="primary" size="large" onClick={submitForm} disabled={formBusy()} class="px-3 py-1.5">
+            <Button variant="primary" onClick={submitForm} disabled={formBusy()} class="px-3 py-1.5">
               {formBusy()
                 ? language.t("dialog.server.add.checking")
                 : isAddMode()

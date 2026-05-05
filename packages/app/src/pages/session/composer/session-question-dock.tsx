@@ -473,18 +473,18 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       }
       footer={
         <>
-          <Button variant="ghost" size="large" disabled={sending()} onClick={skipCurrent}>
+          <Button variant="ghost" disabled={sending()} onClick={skipCurrent}>
             {language.t("session.question.skipCurrent")}
           </Button>
           <div data-slot="question-footer-actions">
             <Show when={store.tab > 0}>
-              <Button variant="secondary" size="large" disabled={sending()} onClick={back}>
+              <Button variant="secondary" disabled={sending()} onClick={back}>
                 {language.t("ui.common.back")}
               </Button>
             </Show>
             <Button
               variant={last() ? "primary" : "secondary"}
-              size="large"
+
               disabled={sending()}
               onClick={next}
               aria-keyshortcuts="Meta+Enter Control+Enter"

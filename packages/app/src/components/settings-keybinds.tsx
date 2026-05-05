@@ -377,7 +377,7 @@ export const SettingsKeybinds: Component = () => {
         <div class="flex flex-col gap-4 pt-6 pb-6 max-w-[720px]">
           <div class="flex items-center justify-between gap-4">
             <h2 class="text-16-medium text-fg-strong">{language.t("settings.shortcuts.title")}</h2>
-            <Button size="small" variant="secondary" onClick={resetAll} disabled={!hasOverrides()}>
+            <Button variant="secondary" onClick={resetAll} disabled={!hasOverrides()}>
               {language.t("settings.shortcuts.reset.button")}
             </Button>
           </div>
@@ -397,7 +397,7 @@ export const SettingsKeybinds: Component = () => {
               class="flex-1"
             />
             <Show when={store.filter}>
-              <IconButton icon="circle-x" variant="ghost" onClick={() => setStore("filter", "")} />
+              <IconButton icon="circle-x" onClick={() => setStore("filter", "")} aria-label="Clear filter" />
             </Show>
           </div>
         </div>

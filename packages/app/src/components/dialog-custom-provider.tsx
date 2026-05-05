@@ -264,7 +264,7 @@ export function DialogCustomProvider(props: Props) {
                 </div>
               )}
             </For>
-            <Button type="button" size="small" variant="ghost" icon="plus-small" onClick={addModel} class="self-start">
+            <Button type="button" variant="ghost" icon="plus-small" onClick={addModel} class="self-start">
               {language.t("provider.custom.models.add")}
             </Button>
           </div>
@@ -308,7 +308,7 @@ export function DialogCustomProvider(props: Props) {
                 </div>
               )}
             </For>
-            <Button type="button" size="small" variant="ghost" icon="plus-small" onClick={addHeader} class="self-start">
+            <Button type="button" variant="ghost" icon="plus-small" onClick={addHeader} class="self-start">
               {language.t("provider.custom.headers.add")}
             </Button>
           </div>

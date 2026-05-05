@@ -32,10 +32,10 @@ export function DialogDeleteSession(props: {
           </span>
         </div>
         <div class="flex justify-end gap-2">
-          <Button variant="ghost" size="large" onClick={() => dialog.close()} disabled={deleting()}>
+          <Button variant="ghost" onClick={() => dialog.close()} disabled={deleting()}>
             {language.t("common.cancel")}
           </Button>
-          <Button variant="primary" size="large" onClick={handleDelete} disabled={deleting()}>
+          <Button variant="primary" onClick={handleDelete} disabled={deleting()}>
             {language.t("common.delete")}
           </Button>
         </div>

@@ -262,10 +262,10 @@ export function DialogEditProject(props: { project: LocalProject }) {
         </div>
 
         <div class="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="large" onClick={() => dialog.close()}>
+          <Button type="button" variant="ghost" onClick={() => dialog.close()}>
             {language.t("common.cancel")}
           </Button>
-          <Button type="submit" variant="primary" size="large" disabled={saveMutation.isPending}>
+          <Button type="submit" variant="primary" disabled={saveMutation.isPending}>
             {saveMutation.isPending ? language.t("common.saving") : language.t("common.save")}
           </Button>
         </div>

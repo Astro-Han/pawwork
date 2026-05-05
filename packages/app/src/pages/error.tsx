@@ -141,12 +141,12 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
           <Show
             when={platform.checkUpdate && store.version}
             fallback={
-              <Button size="large" onClick={platform.restart}>
+              <Button onClick={platform.restart}>
                 {language.t("error.page.action.restart")}
               </Button>
             }
           >
-            <Button size="large" onClick={installUpdate}>
+            <Button onClick={installUpdate}>
               {language.t("error.page.action.updateTo", { version: store.version ?? "" })}
             </Button>
           </Show>
@@ -206,13 +206,13 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
             <div class="mt-1 flex items-center gap-2">
               <Button
                 variant="ghost"
-                size="large"
+
                 onClick={() => setStore("reportConfirmOpen", false)}
                 disabled={store.reporting}
               >
                 {language.t("common.cancel")}
               </Button>
-              <Button size="large" onClick={reportProblem} disabled={store.reporting}>
+              <Button onClick={reportProblem} disabled={store.reporting}>
                 {language.t("error.page.report.confirm.continue")}
               </Button>
             </div>
