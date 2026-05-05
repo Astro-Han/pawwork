@@ -339,6 +339,15 @@ async function benchScenario(scenario: Scenario, config: BenchConfig): Promise<B
 
   for (let i = 0; i < config.warmups; i++) {
     const warmup = await timed(scenario.run)
+    if (warmup.status === "skipped") {
+      return {
+        name: scenario.name,
+        layer: scenario.layer,
+        group: scenario.group,
+        status: "skipped",
+        notes: warmup.notes,
+      }
+    }
     if (warmup.status === "error") {
       return {
         name: scenario.name,
