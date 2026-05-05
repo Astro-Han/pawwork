@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { Buffer } from "node:buffer"
+import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
@@ -39,12 +40,14 @@ type ScenarioRun =
 
 type Scenario = {
   name: string
+  layer: "production path" | "CLI floor" | "approximation"
   group: "file" | "git" | "patch" | "process"
   run: () => Promise<Omit<RunMetrics, "durationMs">>
 }
 
 type BenchResult = {
   name: string
+  layer: Scenario["layer"]
   group: Scenario["group"]
   status: "ok" | "skipped" | "error"
   firstRunMs?: number
@@ -68,6 +71,7 @@ type Environment = {
   bun: string
   node: string
   git: string
+  ripgrep: string
   repo: string
   path: string
   files: string
@@ -81,6 +85,10 @@ class SkipScenario extends Error {
     this.name = "SkipScenario"
   }
 }
+
+const commandTimeoutMs = 30_000
+const maxIterations = 100
+const maxWarmups = 20
 
 const gitConfig = [
   "--no-optional-locks",
@@ -96,7 +104,7 @@ const gitConfig = [
   "core.quotepath=false",
 ] as const
 
-const rgFilesArgs = ["--no-config", "--files", "--hidden", "--glob=!.git/*", "."] as const
+const rgFilesArgs = ["--no-config", "--files", "--hidden", "-0", "--glob=!.git/*", "."] as const
 
 const scenarioQueries = ["session", "worktree", "git", "index", "config"] as const
 
@@ -169,21 +177,33 @@ function requiredValue(flag: string, args: string[]) {
 }
 
 function parsePositiveInteger(flag: string, value: string) {
+  if (!/^[1-9]\d*$/.test(value)) throw new Error(`${flag} must be a positive integer`)
   const n = Number.parseInt(value, 10)
-  if (!Number.isInteger(n) || n <= 0) throw new Error(`${flag} must be a positive integer`)
+  if (!Number.isSafeInteger(n)) throw new Error(`${flag} is too large`)
+  if (flag === "--iterations" && n > maxIterations) throw new Error(`${flag} must be <= ${maxIterations}`)
   return n
 }
 
 function parseNonNegativeInteger(flag: string, value: string) {
+  if (!/^(0|[1-9]\d*)$/.test(value)) throw new Error(`${flag} must be a non-negative integer`)
   const n = Number.parseInt(value, 10)
-  if (!Number.isInteger(n) || n < 0) throw new Error(`${flag} must be a non-negative integer`)
+  if (!Number.isSafeInteger(n)) throw new Error(`${flag} is too large`)
+  if (flag === "--warmups" && n > maxWarmups) throw new Error(`${flag} must be <= ${maxWarmups}`)
   return n
 }
 
 async function runCommand(cmd: string[], cwd: string): Promise<CommandResult> {
   if (cmd.length === 0) throw new Error("Command is required")
+  let proc: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined
+  let timedOut = false
+  let forceKill: Timer | undefined
+  const timeout = setTimeout(() => {
+    timedOut = true
+    proc?.kill("SIGTERM")
+    forceKill = setTimeout(() => proc?.kill("SIGKILL"), 500)
+  }, commandTimeoutMs)
   try {
-    const proc = Bun.spawn(cmd, {
+    proc = Bun.spawn(cmd, {
       cwd,
       stdin: "ignore",
       stdout: "pipe",
@@ -194,6 +214,7 @@ async function runCommand(cmd: string[], cwd: string): Promise<CommandResult> {
       new Response(proc.stdout).arrayBuffer(),
       new Response(proc.stderr).arrayBuffer(),
     ])
+    if (timedOut) throw new Error(`command timed out after ${commandTimeoutMs}ms`)
     return {
       code,
       stdout: Buffer.from(stdout),
@@ -202,7 +223,20 @@ async function runCommand(cmd: string[], cwd: string): Promise<CommandResult> {
     }
   } catch (error) {
     throw new Error(sanitizeError(error, cwd))
+  } finally {
+    clearTimeout(timeout)
+    if (forceKill) clearTimeout(forceKill)
   }
+}
+
+async function validateCwd(cwd: string) {
+  let stat
+  try {
+    stat = await fs.stat(cwd)
+  } catch {
+    throw new Error(`--cwd does not exist: ${cwd}`)
+  }
+  if (!stat.isDirectory()) throw new Error(`--cwd is not a directory: ${cwd}`)
 }
 
 async function runGit(args: string[], cwd: string) {
@@ -224,7 +258,7 @@ async function runRgFiles(cwd: string) {
   }
   return {
     ...result,
-    files: splitLines(result.stdout.toString("utf8")),
+    files: splitNul(result.stdout.toString()),
   }
 }
 
@@ -261,6 +295,10 @@ function scenarioMatches(filter: string | undefined, scenario: Scenario) {
   return slug(scenario.name) === wanted || slug(`${scenario.group} ${scenario.name}`) === wanted
 }
 
+function scenarioSlugList(scenarios: Scenario[]) {
+  return scenarios.map((scenario) => `  - ${slug(scenario.name)}`).join("\n")
+}
+
 async function timed(run: () => Promise<Omit<RunMetrics, "durationMs">>): Promise<ScenarioRun> {
   const start = performance.now()
   try {
@@ -283,6 +321,7 @@ async function benchScenario(scenario: Scenario, config: BenchConfig): Promise<B
   if (first.status === "skipped") {
     return {
       name: scenario.name,
+      layer: scenario.layer,
       group: scenario.group,
       status: "skipped",
       notes: first.notes,
@@ -291,6 +330,7 @@ async function benchScenario(scenario: Scenario, config: BenchConfig): Promise<B
   if (first.status === "error") {
     return {
       name: scenario.name,
+      layer: scenario.layer,
       group: scenario.group,
       status: "error",
       notes: first.error,
@@ -302,6 +342,7 @@ async function benchScenario(scenario: Scenario, config: BenchConfig): Promise<B
     if (warmup.status === "error") {
       return {
         name: scenario.name,
+        layer: scenario.layer,
         group: scenario.group,
         status: "error",
         notes: `warmup failed: ${warmup.error}`,
@@ -315,6 +356,7 @@ async function benchScenario(scenario: Scenario, config: BenchConfig): Promise<B
     if (run.status === "skipped") {
       return {
         name: scenario.name,
+        layer: scenario.layer,
         group: scenario.group,
         status: "skipped",
         notes: run.notes,
@@ -323,6 +365,7 @@ async function benchScenario(scenario: Scenario, config: BenchConfig): Promise<B
     if (run.status === "error") {
       return {
         name: scenario.name,
+        layer: scenario.layer,
         group: scenario.group,
         status: "error",
         notes: run.error,
@@ -333,6 +376,7 @@ async function benchScenario(scenario: Scenario, config: BenchConfig): Promise<B
 
   return {
     name: scenario.name,
+    layer: scenario.layer,
     group: scenario.group,
     status: "ok",
     firstRunMs: first.metrics.durationMs,
@@ -373,14 +417,33 @@ function makeSyntheticPatch(hunks: number) {
 }
 
 function parseStatusCount(stdout: Buffer) {
-  return splitNul(stdout.toString("utf8")).filter((item) => item.slice(3)).length
+  const parts = splitNul(stdout.toString())
+  let count = 0
+  for (let i = 0; i < parts.length; i++) {
+    const item = parts[i]
+    const code = item.slice(0, 2)
+    const file = item.slice(3)
+    if (!code.trim() || !file) continue
+    count++
+    if (code.includes("R") || code.includes("C")) i++
+  }
+  return count
 }
 
 function parseNameStatusCount(stdout: Buffer) {
-  const parts = splitNul(stdout.toString("utf8"))
+  const parts = splitNul(stdout.toString())
   let count = 0
-  for (let i = 0; i < parts.length; i += 2) {
-    if (parts[i] && parts[i + 1]) count++
+  for (let i = 0; i < parts.length; ) {
+    const code = parts[i++]
+    if (!code) continue
+    if (code.startsWith("R") || code.startsWith("C")) {
+      const oldPath = parts[i++]
+      const newPath = parts[i++]
+      if (oldPath && newPath) count++
+      continue
+    }
+    const file = parts[i++]
+    if (file) count++
   }
   return count
 }
@@ -439,6 +502,9 @@ async function collectEnvironment(config: BenchConfig, summary: RepoSummary): Pr
   const gitVersion = await runCommand(["git", "--version"], config.cwd)
     .then((result) => (result.code === 0 ? result.stdout.toString("utf8").trim() : "unknown"))
     .catch(() => "unknown")
+  const ripgrepVersion = await runCommand(["rg", "--version"], config.cwd)
+    .then((result) => (result.code === 0 ? splitLines(result.stdout.toString("utf8"))[0] : "unknown"))
+    .catch(() => "unknown")
   const cpu = os.cpus()[0]
   return {
     os: `${os.type()} ${os.release()} ${os.arch()}`,
@@ -446,6 +512,7 @@ async function collectEnvironment(config: BenchConfig, summary: RepoSummary): Pr
     bun: Bun.version,
     node: process.version,
     git: gitVersion || "unknown",
+    ripgrep: `${ripgrepVersion || "unknown"}; source=system PATH`,
     repo: config.label,
     path: config.showPath ? config.cwd : "redacted",
     files: formatCount(summary.fileCount),
@@ -461,6 +528,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
   return [
     {
       name: "file scan: rg --files",
+      layer: "CLI floor",
       group: "file",
       run: async () => {
         const result = await runRgFiles(config.cwd)
@@ -468,11 +536,13 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: result.files.length,
           outputBytes: result.stdout.length,
+          notes: "CLI floor; system PATH rg; production Ripgrep.Service may add managed binary/env/stream cleanup overhead",
         }
       },
     },
     {
       name: "file index approximation: dirs cache",
+      layer: "approximation",
       group: "file",
       run: async () => {
         if (files.length === 0) throw new SkipScenario("rg --files unavailable during setup")
@@ -498,6 +568,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
     },
     {
       name: "file fuzzy search approximation",
+      layer: "approximation",
       group: "file",
       run: async () => {
         if (files.length === 0) throw new SkipScenario("rg --files unavailable during setup")
@@ -516,6 +587,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
     },
     {
       name: "git status",
+      layer: "CLI floor",
       group: "git",
       run: async () => {
         const result = await runGit(
@@ -527,11 +599,13 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: parseStatusCount(result.stdout),
           outputBytes: result.stdout.length,
+          notes: "CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper",
         }
       },
     },
     {
       name: "git diff name-status",
+      layer: "CLI floor",
       group: "git",
       run: async () => {
         const result = await runGit(["diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", "HEAD", "--", "."], config.cwd)
@@ -540,11 +614,13 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: parseNameStatusCount(result.stdout),
           outputBytes: result.stdout.length,
+          notes: "CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper",
         }
       },
     },
     {
       name: "git diff numstat",
+      layer: "CLI floor",
       group: "git",
       run: async () => {
         const result = await runGit(["diff", "--no-ext-diff", "--no-renames", "--numstat", "-z", "HEAD", "--", "."], config.cwd)
@@ -554,12 +630,13 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: stats.files,
           outputBytes: result.stdout.length,
-          notes: `additions=${stats.additions}; deletions=${stats.deletions}`,
+          notes: `CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper; additions=${stats.additions}; deletions=${stats.deletions}`,
         }
       },
     },
     {
       name: "git worktree list parse",
+      layer: "CLI floor",
       group: "git",
       run: async () => {
         const result = await runGit(["worktree", "list", "--porcelain"], config.cwd)
@@ -568,11 +645,13 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: parseWorktreeCount(result.stdout),
           outputBytes: result.stdout.length,
+          notes: "CLI floor; parses porcelain output without Worktree service orchestration",
         }
       },
     },
     {
       name: "apply_patch parse small",
+      layer: "production path",
       group: "patch",
       run: async () => {
         const parsed = Patch.parsePatch(smallPatch)
@@ -580,12 +659,13 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: 0,
           resultCount: parsed.hunks.length,
           outputBytes: Buffer.byteLength(smallPatch),
-          notes: "synthetic patch; parse only",
+          notes: "synthetic patch; parse only; not a verify/preview/content replacement benchmark",
         }
       },
     },
     {
       name: "apply_patch parse large",
+      layer: "production path",
       group: "patch",
       run: async () => {
         const parsed = Patch.parsePatch(largePatch)
@@ -593,18 +673,18 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: 0,
           resultCount: parsed.hunks.length,
           outputBytes: Buffer.byteLength(largePatch),
-          notes: "synthetic patch; parse only",
+          notes: "synthetic patch; parse only; 500 update chunks in one file hunk; not a verify/preview/content replacement benchmark",
         }
       },
     },
     {
       name: "process spawn noop",
+      layer: "production path",
       group: "process",
       run: async () => {
         const result = await Process.run([process.execPath, "-e", "0"], { nothrow: true })
         return {
           spawnCount: 1,
-          resultCount: result.code,
           outputBytes: result.stdout.length + result.stderr.length,
           notes: `exitCode=${result.code}`,
         }
@@ -612,6 +692,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
     },
     {
       name: "process timeout abort",
+      layer: "production path",
       group: "process",
       run: async () => {
         const controller = new AbortController()
@@ -624,9 +705,8 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           })
           return {
             spawnCount: 1,
-            resultCount: result.code,
             outputBytes: result.stdout.length + result.stderr.length,
-            notes: `exitCode=${result.code}`,
+            notes: `single-process abort only; no process-tree fixture in first PR; exitCode=${result.code}`,
           }
         } finally {
           clearTimeout(timer)
@@ -642,34 +722,37 @@ function formatMarkdown(env: Environment, results: BenchResult[]) {
     `## Native-core baseline - ${new Date().toISOString().slice(0, 10)}`,
     "",
     "Environment:",
-    `- OS: ${env.os}`,
-    `- CPU: ${env.cpu}`,
-    `- Bun: ${env.bun}`,
-    `- Node: ${env.node}`,
-    `- Git: ${env.git}`,
-    `- Repo: ${env.repo}`,
-    `- Path: ${env.path}`,
-    `- Files: ${env.files}`,
-    `- Dirs: ${env.dirs}`,
-    `- Git status: ${env.gitStatus}`,
+    `- OS: ${escapeMarkdownInline(env.os)}`,
+    `- CPU: ${escapeMarkdownInline(env.cpu)}`,
+    `- Bun: ${escapeMarkdownInline(env.bun)}`,
+    `- Node: ${escapeMarkdownInline(env.node)}`,
+    `- Git: ${escapeMarkdownInline(env.git)}`,
+    `- Ripgrep: ${escapeMarkdownInline(env.ripgrep)}`,
+    `- Repo: ${escapeMarkdownInline(env.repo)}`,
+    `- Path: ${escapeMarkdownInline(env.path)}`,
+    `- Files: ${escapeMarkdownInline(env.files)}`,
+    `- Dirs: ${escapeMarkdownInline(env.dirs)}`,
+    `- Git status: ${escapeMarkdownInline(env.gitStatus)}`,
+    "- Setup note: file/repo summary collection runs before scenario timing, so first measured values are not cold-start measurements.",
     "",
-    "| Scenario | First run | Repeat p50 | Repeat p95 | Spawn count | Result count | Output bytes | Notes |",
-    "|---|---:|---:|---:|---:|---:|---:|---|",
+    "| Scenario | Layer | First measured | Repeat p50 | Repeat p95 | Spawn count | Result count | Output bytes | Notes |",
+    "|---|---|---:|---:|---:|---:|---:|---:|---|",
   ]
 
   for (const result of results) {
     lines.push(
       [
         result.name,
+        result.layer,
         result.status === "ok" ? formatMs(result.firstRunMs) : result.status,
         result.status === "ok" ? formatMs(result.repeatP50Ms) : result.status,
         result.status === "ok" ? formatMs(result.repeatP95Ms) : result.status,
-        result.status === "ok" ? formatCount(result.spawnCount) : "",
-        result.status === "ok" ? formatCount(result.resultCount) : "",
-        result.status === "ok" ? formatCount(result.outputBytes) : "",
-        sanitizeCell(result.notes ?? ""),
+        result.status === "ok" ? formatMetricCount(result.spawnCount) : "",
+        result.status === "ok" ? formatMetricCount(result.resultCount) : "",
+        result.status === "ok" ? formatMetricCount(result.outputBytes) : "",
+        result.notes ?? "",
       ]
-        .map((cell) => ` ${cell} `)
+        .map((cell) => ` ${escapeMarkdownTableCell(cell)} `)
         .join("|")
         .replace(/^/, "|")
         .replace(/$/, "|"),
@@ -690,8 +773,16 @@ function formatCount(value?: number) {
   return value === undefined ? "unknown" : new Intl.NumberFormat("en-US").format(value)
 }
 
-function sanitizeCell(value: string) {
-  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim()
+function formatMetricCount(value?: number) {
+  return value === undefined ? "" : new Intl.NumberFormat("en-US").format(value)
+}
+
+function escapeMarkdownInline(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim()
+}
+
+function escapeMarkdownTableCell(value: string) {
+  return escapeMarkdownInline(value)
 }
 
 function sanitizeError(error: unknown, cwd?: string) {
@@ -714,15 +805,23 @@ async function main() {
     process.exit(1)
   }
 
+  try {
+    await validateCwd(config.cwd)
+  } catch (error) {
+    console.error(sanitizeError(error, config.cwd))
+    process.exit(1)
+  }
+
   const fileSummary = await collectFileSummary(config.cwd)
   const repoSummary = await collectRepoSummary(config.cwd, fileSummary.fileCount, fileSummary.dirCount)
   const env = await collectEnvironment(config, repoSummary)
-  const scenarios = buildScenarios(config, fileSummary.files, fileSummary.dirs).filter((scenario) =>
-    scenarioMatches(config.scenario, scenario),
-  )
+  const allScenarios = buildScenarios(config, fileSummary.files, fileSummary.dirs)
+  const scenarios = allScenarios.filter((scenario) => scenarioMatches(config.scenario, scenario))
 
   if (scenarios.length === 0) {
     console.error(`No scenario matched: ${config.scenario}`)
+    console.error("Available scenario slugs:")
+    console.error(scenarioSlugList(allScenarios))
     process.exit(1)
   }
 
@@ -733,6 +832,7 @@ async function main() {
 
   console.log(formatMarkdown(env, results))
 
+  if (results.some((result) => result.status === "error")) process.exit(1)
   if (!results.some((result) => result.status === "ok")) process.exit(1)
 }
 
