@@ -126,8 +126,6 @@ function ReviewCommentMenu(props: {
         <DropdownMenu.Trigger
           as={IconButton}
           icon="dot-grid"
-          variant="ghost"
-          size="small"
           class="size-6 rounded-md"
           aria-label={props.labels.moreLabel}
         />
@@ -350,8 +348,6 @@ export const SessionReview = (props: SessionReviewProps) => {
           <Show when={hasDiffs() && props.onDiffStyleChange}>
             <div data-slot="session-review-diff-toggle" style={{ display: "flex", gap: "2px" }}>
               <IconButton
-                size="small"
-                variant="ghost"
                 icon="diff-unified"
                 aria-pressed={diffStyle() === "unified"}
                 aria-label={i18n.t("ui.sessionReview.diffStyle.unified")}
@@ -359,8 +355,6 @@ export const SessionReview = (props: SessionReviewProps) => {
                 onClick={() => props.onDiffStyleChange?.("unified")}
               />
               <IconButton
-                size="small"
-                variant="ghost"
                 icon="diff-split"
                 aria-pressed={diffStyle() === "split"}
                 aria-label={i18n.t("ui.sessionReview.diffStyle.split")}

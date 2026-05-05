@@ -173,8 +173,6 @@ export function SessionTodoDock(props: {
               data-action="session-todo-toggle-button"
               data-collapsed={store.collapsed ? "true" : "false"}
               icon="chevron-down"
-              size="normal"
-              variant="ghost"
               style={{ transform: `rotate(${turn() * 180}deg)` }}
               onMouseDown={(event) => {
                 event.preventDefault()
@@ -233,12 +231,24 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
               }}
             >
               <Icon
-                name={todo().status === "completed" ? "circle-check" : "circle"}
+                name={
+                  todo().status === "completed"
+                    ? "checklist"
+                    : todo().status === "in_progress"
+                      ? "circle"
+                      : "bullet-list"
+                }
                 size="small"
                 style={{
-                  color: "var(--icon-base)",
+                  color:
+                    todo().status === "in_progress"
+                      ? "var(--brand-primary)"
+                      : "var(--icon-base)",
                   "flex-shrink": "0",
                   "margin-top": "1px",
+                  ...(todo().status === "in_progress"
+                    ? { animation: "var(--animate-pw-spin)" }
+                    : {}),
                 }}
               />
               <TextStrikethrough
