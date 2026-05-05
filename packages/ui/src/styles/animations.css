@@ -1,6 +1,11 @@
 :root {
   --animate-pulse: pulse-opacity 2s ease-in-out infinite;
   --animate-pulse-scale: pulse-scale 1.2s ease-in-out infinite;
+
+  /* PawWork motion primitives · STANDARDS L22 */
+  --animate-pw-spin:    pw-spin 700ms linear infinite;
+  --animate-pw-rail:    pw-rail 1400ms linear infinite;
+  --animate-pw-shimmer: pw-shimmer 1200ms linear infinite;
 }
 
 @keyframes pulse-opacity {
@@ -42,6 +47,26 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ────────── PawWork motion keyframes · STANDARDS L22 ────────── */
+
+/* Circular geometry only (spinner / thinking ring); non-circular icons must not use this */
+@keyframes pw-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Running-state bottom separator rail: a highlight element sweeps left → right */
+@keyframes pw-rail {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+
+/* Tool-name shimmer when trow is running: gradient sweep across text via background-position */
+@keyframes pw-shimmer {
+  from { background-position: 200% center; }
+  to   { background-position: -200% center; }
 }
 
 .fade-up-text {
