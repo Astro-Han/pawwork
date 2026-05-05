@@ -134,6 +134,12 @@
   --duration-base: 120ms;
   --duration-slow: 240ms;
 
+  /* ────────── Hover overlays · STANDARDS L22 ────────── */
+  /* White/raised surface: 4% black overlay */
+  --hover-overlay:      rgba(0, 0, 0, 0.04);
+  /* Warm cream surface (sidebar, bg-cream): 6% for perceptual parity */
+  --hover-overlay-warm: rgba(0, 0, 0, 0.06);
+
   color-scheme: light;
 
   /* ──────────────────────────────────────────────────────────────────────
@@ -513,4 +519,21 @@ body {
   font: var(--type-body);
   color: var(--fg-strong);
   background: var(--bg-base);
+}
+
+/* ────────── Reduced-motion global kill-switch · STANDARDS L22 ────────── */
+/* Matches prefers-reduced-motion: reduce. Durations and delays are all set to
+ * 0.001ms (effectively instant) so staggered animations don't leave elements
+ * stuck at their start state while waiting for a delay to fire. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }
