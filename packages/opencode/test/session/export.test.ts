@@ -10,6 +10,7 @@ import { AppRuntime } from "../../src/effect/app-runtime"
 import { Export, getRuntimeNamespace, redactPart } from "../../src/session/export"
 import { Global } from "../../src/global"
 import { tmpdir } from "../fixture/fixture"
+import { Config } from "../../src/config"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -223,6 +224,99 @@ describe("Export.session", () => {
       else process.env.PAWWORK_HOME = previousHome
       if (previousConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
       else process.env.PAWWORK_CONFIG_DIR = previousConfigDir
+    }
+  })
+
+  test("exports loaded project CLAUDE.md instruction source", async () => {
+    await using project = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.writeFile(path.join(dir, "CLAUDE.md"), "project claude instructions")
+      },
+    })
+    await using globalConfig = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousDisableClaude = process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const previousGlobalConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    ;(Global.Path as { config: string }).config = globalConfig.path
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "claude provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const projectSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "project")
+            expect(projectSources.some((source) => source.path === path.join(project.path, "CLAUDE.md"))).toBe(true)
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousDisableClaude === undefined) delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+      else process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT = previousDisableClaude
+    }
+  })
+
+  test("exports loaded config.instructions local file and URL sources", async () => {
+    await using project = await tmpdir({ git: true })
+    await using globalConfig = await tmpdir()
+    await using instructions = await tmpdir({
+      init: async (dir) => {
+        await fs.writeFile(path.join(dir, "extra.md"), "local config instructions")
+      },
+    })
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response("remote config instructions")
+      },
+    })
+    const previousConfig = process.env.OPENCODE_CONFIG_CONTENT
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousGlobalConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = globalConfig.path
+    const localFile = path.join(instructions.path, "extra.md")
+    const url = `${server.url}instructions.md`
+    process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+      instructions: [localFile, url],
+    })
+    await Config.invalidate(true)
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "config instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            expect(result.runtime_context.instruction_sources.some((source) => source.kind === "config" && source.path === localFile)).toBe(
+              true,
+            )
+            expect(result.runtime_context.instruction_sources.some((source) => source.kind === "remote" && source.url === url)).toBe(
+              true,
+            )
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      server.stop(true)
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
+      else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
+      await Config.invalidate(true)
     }
   })
 

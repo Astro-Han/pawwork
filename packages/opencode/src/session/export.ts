@@ -15,9 +15,8 @@ import { Installation } from "../installation"
 import { Provider } from "../provider/provider"
 import { ProviderID, ModelID } from "../provider/schema"
 import { Instance } from "../project/instance"
-import { Global } from "../global"
-import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
+import { Instruction } from "./instruction"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -299,26 +298,23 @@ export namespace Export {
 
   const collectInstructionSources = Effect.fn("Export.instructionSources")(function* () {
     const sources: InstructionSource[] = []
-    let worktree: string | undefined
-    try {
-      worktree = Instance.worktree
-    } catch {
-      worktree = undefined
+    const instruction = yield* Instruction.Service
+    const loaded = (yield* instruction.sources()).filter((source) => source.status === "loaded")
+
+    for (const source of loaded) {
+      if (source.kind === "remote") {
+        sources.push({ kind: source.kind, url: source.path })
+        continue
+      }
+
+      const hash = yield* Effect.promise(() => hashFile(source.path))
+      if (hash) sources.push({ kind: source.kind, path: source.path, hash })
     }
-    const globalInstruction = Runtime.isPawWork()
-      ? yield* Effect.promise(() => PawWorkHome.firstLoadedInstructionFile())
-      : path.join(Global.Path.config, "AGENTS.md")
-    const candidates: Array<{ kind: string; file: string }> = [
-      ...(globalInstruction ? [{ kind: "global", file: globalInstruction }] : []),
-      ...(worktree ? [{ kind: "project", file: path.join(worktree, "AGENTS.md") }] : []),
-      // Bundled pawwork prompt — present in the repo at packages/opencode/src/session/prompt/pawwork.txt.
-      // hashFile silently returns undefined and the entry is skipped if the file is missing.
-      { kind: "bundled", file: path.join(__dirname, "prompt", "pawwork.txt") },
-    ]
-    for (const c of candidates) {
-      const hash = yield* Effect.promise(() => hashFile(c.file))
-      if (hash) sources.push({ kind: c.kind, path: c.file, hash })
-    }
+
+    const bundled = path.join(__dirname, "prompt", "pawwork.txt")
+    const bundledHash = yield* Effect.promise(() => hashFile(bundled))
+    if (bundledHash) sources.push({ kind: "bundled", path: bundled, hash: bundledHash })
+
     return sources.sort((a, b) => {
       if (a.kind !== b.kind) return a.kind.localeCompare(b.kind)
       return (a.path ?? a.url ?? "").localeCompare(b.path ?? b.url ?? "")
