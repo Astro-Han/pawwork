@@ -1,21 +1,27 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
-import { createSessionViewController, nextSessionViewState } from "./session-view-controller"
+import { createSessionViewController, nextSessionViewState, timelineIdentity } from "./session-view-controller"
+
+describe("timelineIdentity", () => {
+  test("uses stable session identity without directory input", () => {
+    expect(timelineIdentity({ sessionID: "ses_target" })).toBe("ses_target")
+    expect(timelineIdentity({ sessionID: undefined })).toBe("")
+  })
+})
 
 describe("createSessionViewController", () => {
   test("exposes route and visible session state through separate accessors", () => {
     createRoot((dispose) => {
       const controller = createSessionViewController({
-        directory: () => "repo",
         routeSessionID: () => "ses_source",
         routeMessagesReady: () => true,
       })
 
       expect(controller.route.id()).toBe("ses_source")
-      expect(controller.route.key()).toBe("repo/ses_source")
+      expect(controller.route.key()).toBe("ses_source")
       expect(controller.route.ready()).toBe(true)
       expect(controller.visible.id()).toBe("ses_source")
-      expect(controller.visible.key()).toBe("repo/ses_source")
+      expect(controller.visible.key()).toBe("ses_source")
       expect(controller.visible.ready()).toBe(true)
       expect(controller.transitioning()).toBe(false)
 
@@ -26,16 +32,15 @@ describe("createSessionViewController", () => {
   test("keeps route and visible identity aligned while the route session is not ready", () => {
     createRoot((dispose) => {
       const controller = createSessionViewController({
-        directory: () => "repo",
         routeSessionID: () => "ses_target",
         routeMessagesReady: () => false,
       })
 
       expect(controller.route.id()).toBe("ses_target")
-      expect(controller.route.key()).toBe("repo/ses_target")
+      expect(controller.route.key()).toBe("ses_target")
       expect(controller.route.ready()).toBe(false)
       expect(controller.visible.id()).toBe("ses_target")
-      expect(controller.visible.key()).toBe("repo/ses_target")
+      expect(controller.visible.key()).toBe("ses_target")
       expect(controller.visible.ready()).toBe(false)
       expect(controller.transitioning()).toBe(true)
 
@@ -47,7 +52,6 @@ describe("createSessionViewController", () => {
 describe("nextSessionViewState", () => {
   test("does not keep the previous visible session while the route session loads", () => {
     const loading = nextSessionViewState({
-      directory: "repo",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
     })
@@ -57,12 +61,11 @@ describe("nextSessionViewState", () => {
       routeReady: false,
       visibleSessionID: "ses_target",
       transitioning: true,
-      routeSessionKey: "repo/ses_target",
-      visibleSessionKey: "repo/ses_target",
+      routeSessionKey: "ses_target",
+      visibleSessionKey: "ses_target",
     })
 
     const ready = nextSessionViewState({
-      directory: "repo",
       routeSessionID: "ses_target",
       routeMessagesReady: true,
     })
@@ -72,29 +75,27 @@ describe("nextSessionViewState", () => {
       routeReady: true,
       visibleSessionID: "ses_target",
       transitioning: false,
-      routeSessionKey: "repo/ses_target",
-      visibleSessionKey: "repo/ses_target",
+      routeSessionKey: "ses_target",
+      visibleSessionKey: "ses_target",
     })
   })
 
   test("clears visible session when leaving a concrete session route", () => {
     const next = nextSessionViewState({
-      directory: "repo",
       routeSessionID: undefined,
       routeMessagesReady: true,
     })
 
     expect(next.routeSessionID).toBeUndefined()
-    expect(next.routeSessionKey).toBe("repo")
+    expect(next.routeSessionKey).toBe("")
     expect(next.visibleSessionID).toBeUndefined()
-    expect(next.visibleSessionKey).toBe("repo")
+    expect(next.visibleSessionKey).toBe("")
     expect(next.routeReady).toBe(true)
     expect(next.transitioning).toBe(false)
   })
 
-  test("uses the target route identity when changing directories", () => {
+  test("uses session identity without a directory input", () => {
     const next = nextSessionViewState({
-      directory: "repo-b",
       routeSessionID: "ses_target",
       routeMessagesReady: false,
     })
@@ -104,8 +105,44 @@ describe("nextSessionViewState", () => {
       routeReady: false,
       visibleSessionID: "ses_target",
       transitioning: true,
-      routeSessionKey: "repo-b/ses_target",
-      visibleSessionKey: "repo-b/ses_target",
+      routeSessionKey: "ses_target",
+      visibleSessionKey: "ses_target",
     })
+  })
+
+  test("keeps the same timeline identity and ready state across a transient directory cache miss", () => {
+    const ready = nextSessionViewState({
+      routeSessionID: "ses_target",
+      routeMessagesReady: true,
+    })
+
+    const next = nextSessionViewState({
+      routeSessionID: "ses_target",
+      routeMessagesReady: false,
+      previous: ready,
+    })
+
+    expect(next.routeSessionKey).toBe("ses_target")
+    expect(next.visibleSessionKey).toBe("ses_target")
+    expect(next.routeReady).toBe(true)
+    expect(next.transitioning).toBe(false)
+  })
+
+  test("does not keep ready state when switching to another session", () => {
+    const ready = nextSessionViewState({
+      routeSessionID: "ses_source",
+      routeMessagesReady: true,
+    })
+
+    const next = nextSessionViewState({
+      routeSessionID: "ses_target",
+      routeMessagesReady: false,
+      previous: ready,
+    })
+
+    expect(next.routeSessionID).toBe("ses_target")
+    expect(next.visibleSessionID).toBe("ses_target")
+    expect(next.routeReady).toBe(false)
+    expect(next.transitioning).toBe(true)
   })
 })

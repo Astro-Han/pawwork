@@ -19,6 +19,9 @@ describe("syncSessionModel", () => {
     syncSessionModel(
       {
         session: {
+          ready() {
+            return true
+          },
           restore(value) {
             calls.push(value)
           },
@@ -40,6 +43,9 @@ describe("resetSessionModel", () => {
 
     resetSessionModel({
       session: {
+        ready() {
+          return true
+        },
         reset() {
           calls.push("reset")
         },

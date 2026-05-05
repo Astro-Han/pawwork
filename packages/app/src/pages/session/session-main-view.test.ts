@@ -32,6 +32,17 @@ describe("shouldShowSessionOpeningState", () => {
     ).toBe(false)
   })
 
+  test("does not replace an already-ready same-session timeline during a transient cache miss", () => {
+    expect(
+      shouldShowSessionOpeningState({
+        activeSessionID: "ses_target",
+        routeSessionID: "ses_target",
+        routeReady: true,
+        timelineSessionID: "ses_target",
+      }),
+    ).toBe(false)
+  })
+
   test("does not show loading for a mismatched timeline identity", () => {
     expect(
       shouldShowSessionOpeningState({

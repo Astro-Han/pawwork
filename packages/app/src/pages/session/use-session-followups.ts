@@ -36,6 +36,7 @@ export function followupPreviewText(input: {
 export function shouldAutoSendFollowup(input: {
   hasSession: boolean
   hasItem: boolean
+  actionReady: boolean
   busy: boolean
   failed: boolean
   paused: boolean
@@ -46,6 +47,7 @@ export function shouldAutoSendFollowup(input: {
   return (
     input.hasSession &&
     input.hasItem &&
+    input.actionReady &&
     !input.busy &&
     !input.failed &&
     !input.paused &&
@@ -55,10 +57,16 @@ export function shouldAutoSendFollowup(input: {
   )
 }
 
+export function followupDraftForDirectory(item: FollowupItem, directory: string): FollowupItem {
+  if (item.sessionDirectory === directory) return item
+  return { ...item, sessionDirectory: directory }
+}
+
 export function createSessionFollowups(input: {
-  directory: string
-  client: ReturnType<typeof useSDK>["client"]
+  directory: () => string
+  client: () => ReturnType<typeof useSDK>["client"]
   sessionID: () => string | undefined
+  actionReady: () => boolean
   isChildSession: () => boolean
   busy: () => boolean
   blocked: () => boolean
@@ -69,8 +77,12 @@ export function createSessionFollowups(input: {
   resumeScroll: () => void
   attachmentLabel: () => string
 }) {
+  // This persisted store intentionally moved from Persist.workspace(..., "followup", ["followup.v1"]) to
+  // Persist.global("session-followup.v1"). Legacy workspace-scoped followup.v1 queues are not migrated
+  // because their saved execution directory can be stale after worktree exit. Entries remain keyed by
+  // sessionID for Stage 1; server-scoped identity belongs with the later session-scoped store migration.
   const [followup, setFollowup] = persisted(
-    Persist.workspace(input.directory, "followup", ["followup.v1"]),
+    Persist.global("session-followup.v1", ["followup.v1"]),
     createStore<{
       items: Record<string, FollowupItem[] | undefined>
       failed: Record<string, string | undefined>
@@ -104,12 +116,14 @@ export function createSessionFollowups(input: {
       if (params.manual) setFollowup("paused", params.sessionID, undefined)
       setFollowup("failed", params.sessionID, undefined)
 
+      const directory = input.directory()
+      const draft = followupDraftForDirectory(item, directory)
       const ok = await sendFollowupDraft({
-        client: input.client,
+        client: input.client(),
         sync: input.sync,
         globalSync: input.globalSync,
-        draft: item,
-        optimisticBusy: item.sessionDirectory === input.directory,
+        draft,
+        optimisticBusy: draft.sessionDirectory === directory,
       }).catch((err) => {
         setFollowup("failed", params.sessionID, params.id)
         input.fail(err)
@@ -135,7 +149,13 @@ export function createSessionFollowups(input: {
   const queueEnabled = createMemo(() => {
     const id = input.sessionID()
     if (!id) return false
-    return input.settings.general.followup() === "queue" && input.busy() && !input.blocked() && !input.isChildSession()
+    return (
+      input.actionReady() &&
+      input.settings.general.followup() === "queue" &&
+      input.busy() &&
+      !input.blocked() &&
+      !input.isChildSession()
+    )
   })
 
   const queueFollowup = (draft: FollowupDraft) => {
@@ -155,6 +175,7 @@ export function createSessionFollowups(input: {
   )
 
   const sendFollowup = (sessionID: string, id: string, opts?: { manual?: boolean }) => {
+    if (!input.actionReady()) return Promise.resolve()
     if (input.sync.session.get(sessionID)?.parentID) return Promise.resolve()
     const item = (followup.items[sessionID] ?? []).find((entry) => entry.id === id)
     if (!item) return Promise.resolve()
@@ -194,6 +215,7 @@ export function createSessionFollowups(input: {
       !shouldAutoSendFollowup({
         hasSession: !!sessionID,
         hasItem: !!item,
+        actionReady: input.actionReady(),
         busy: input.busy(),
         failed: !!(sessionID && item && followup.failed[sessionID] === item.id),
         paused: !!(sessionID && followup.paused[sessionID]),

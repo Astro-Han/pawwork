@@ -160,6 +160,31 @@ function mergeSession(setStore: SetStoreFunction<State>, session: Session) {
   })
 }
 
+export function activeSessionStatuses(input: State["session_status"]) {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, status]) => status?.type === "busy" || status?.type === "retry"),
+  )
+}
+
+function sameSessionStatus(a: State["session_status"][string] | undefined, b: State["session_status"][string] | undefined) {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+export function mergeSessionStatusSnapshot(input: {
+  current: State["session_status"]
+  snapshot: State["session_status"]
+  baseline?: State["session_status"]
+}) {
+  const active = activeSessionStatuses(input.current)
+  const changedActive = Object.fromEntries(
+    Object.entries(active).filter(([sessionID, status]) => !sameSessionStatus(input.baseline?.[sessionID], status)),
+  )
+  return {
+    ...input.snapshot,
+    ...changedActive,
+  }
+}
+
 function warmSessions(input: {
   ids: string[]
   store: Store<State>
@@ -218,10 +243,14 @@ export async function bootstrapDirectory(input: {
   if (loading || input.store.provider.all.length === 0) {
     input.setStore("provider_ready", false)
   }
+  const statusBaseline = activeSessionStatuses(input.store.session_status)
   input.setStore("mcp_ready", false)
   input.setStore("mcp", {})
   input.setStore("lsp_ready", false)
   input.setStore("lsp", [])
+  input.setStore("session_status_state", "loading")
+  input.setStore("session_status_ready", false)
+  input.setStore("session_status", reconcile(statusBaseline))
   if (loading) input.setStore("status", "partial")
 
   const fast = [() => Promise.resolve(input.loadSessions(input.directory))]
@@ -238,6 +267,30 @@ export async function bootstrapDirectory(input: {
   }
 
   ;(async () => {
+    const refreshProviders = () => {
+      const rev = (providerRev.get(input.directory) ?? 0) + 1
+      providerRev.set(input.directory, rev)
+      return retry(() => input.sdk.provider.list())
+        .then((x) => {
+          if (providerRev.get(input.directory) !== rev) return
+          input.queryClient.setQueryData(loadProvidersQuery(input.directory).queryKey, null)
+          input.setStore("provider", normalizeProviderList(x.data!))
+          input.setStore("provider_ready", true)
+        })
+        .catch((err) => {
+          if (providerRev.get(input.directory) !== rev) return
+          console.error("Failed to refresh provider list", err)
+          const project = getFilename(input.directory)
+          showToast({
+            variant: "error",
+            title: input.translate("toast.project.reloadFailed.title", { project }),
+            description: formatServerError(err, input.translate),
+          })
+        })
+    }
+
+    void refreshProviders()
+
     const slow = [
       () =>
         input.queryClient.ensureQueryData({
@@ -248,7 +301,27 @@ export async function bootstrapDirectory(input: {
             ),
         }),
       () => retry(() => input.sdk.config.get().then((x) => input.setStore("config", x.data!))),
-      () => retry(() => input.sdk.session.status().then((x) => input.setStore("session_status", x.data!))),
+      () =>
+        retry(() =>
+          input.sdk.session.status().then((x) => {
+            input.setStore(
+              "session_status",
+              reconcile(
+                mergeSessionStatusSnapshot({
+                  current: input.store.session_status,
+                  snapshot: x.data!,
+                  baseline: statusBaseline,
+                }),
+              ),
+            )
+            input.setStore("session_status_state", "ready")
+            input.setStore("session_status_ready", true)
+          }),
+        ).catch((err) => {
+          input.setStore("session_status_state", "error")
+          input.setStore("session_status_ready", false)
+          throw err
+        }),
       () =>
         seededProject
           ? Promise.resolve()
@@ -348,27 +421,5 @@ export async function bootstrapDirectory(input: {
 
     if (loading && errs.length === 0 && slowErrs.length === 0) input.setStore("status", "complete")
 
-    const rev = (providerRev.get(input.directory) ?? 0) + 1
-    providerRev.set(input.directory, rev)
-    void input.queryClient.fetchQuery({
-      ...loadProvidersQuery(input.directory),
-      queryFn: () =>
-        retry(() => input.sdk.provider.list())
-          .then((x) => {
-            if (providerRev.get(input.directory) !== rev) return
-            input.setStore("provider", normalizeProviderList(x.data!))
-            input.setStore("provider_ready", true)
-          })
-          .catch((err) => {
-            if (providerRev.get(input.directory) !== rev) console.error("Failed to refresh provider list", err)
-            const project = getFilename(input.directory)
-            showToast({
-              variant: "error",
-              title: input.translate("toast.project.reloadFailed.title", { project }),
-              description: formatServerError(err, input.translate),
-            })
-          })
-          .then(() => null),
-    })
   })()
 }

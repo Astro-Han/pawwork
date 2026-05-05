@@ -180,4 +180,30 @@ describe("renderer diagnostics", () => {
       }),
     ])
   })
+
+  test("does not flag an exit-worktree-like same-session refresh without remount, clear, or top jump", () => {
+    const detect = createRendererIncidentDetector()
+
+    expect(detect({ name: "session.timeline.mount", timeline_session_id: "session-1", data: {} })).toEqual([])
+    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 80 } })).toEqual(
+      [],
+    )
+    expect(
+      detect({
+        name: "session.scroll.sample",
+        timeline_session_id: "session-1",
+        data: { scroll_top: 20451, distance_from_bottom: 0, client_height: 720, user_scrolled: false },
+      }),
+    ).toEqual([])
+    expect(detect({ name: "session.timeline.visible", timeline_session_id: "session-1", data: { rendered_count: 80 } })).toEqual(
+      [],
+    )
+    expect(
+      detect({
+        name: "session.scroll.sample",
+        timeline_session_id: "session-1",
+        data: { scroll_top: 20440, distance_from_bottom: 12, client_height: 720, user_scrolled: false },
+      }),
+    ).toEqual([])
+  })
 })

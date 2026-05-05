@@ -292,6 +292,76 @@ describe("prompt submit worktree selection", () => {
     expect(childTodoSets).toEqual([])
   })
 
+  test("does not abort or submit while session actions are not ready", async () => {
+    params = { id: "session-visible" }
+    const aborts: string[] = []
+    const submits: string[] = []
+    const submit = createPromptSubmit({
+      sessionID: () => "session-visible",
+      isNewSession: () => false,
+      info: () => ({ id: "session-visible" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => true,
+      actionReady: () => false,
+      abortReady: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => submits.push("history"),
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onAbort: () => aborts.push("called"),
+      onSubmit: () => submits.push("submit"),
+    })
+
+    await submit.abort()
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(aborts).toEqual([])
+    expect(submits).toEqual([])
+    expect(abortedSessions).toEqual([])
+    expect(promptAsyncCalls).toEqual([])
+  })
+
+  test("allows abort while submit readiness is blocked", async () => {
+    params = { id: "session-visible" }
+    promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
+    const aborts: string[] = []
+    const submits: string[] = []
+    const submit = createPromptSubmit({
+      sessionID: () => "session-visible",
+      isNewSession: () => false,
+      info: () => ({ id: "session-visible" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => true,
+      actionReady: () => false,
+      abortReady: () => true,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => submits.push("history"),
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onAbort: () => aborts.push("called"),
+      onSubmit: () => submits.push("submit"),
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(aborts).toEqual(["called"])
+    expect(abortedSessions).toEqual(["session-visible"])
+    expect(submits).toEqual([])
+    expect(promptAsyncCalls).toEqual([])
+  })
+
   test("reads the latest worktree accessor value per submit", async () => {
     const submit = createPromptSubmit({
       info: () => undefined,

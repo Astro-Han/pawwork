@@ -1,6 +1,6 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
-import { nextRestoreTarget, rolledRevertItems } from "./use-session-revert"
+import { nextRestoreTarget, revertRequestPayload, rolledRevertItems } from "./use-session-revert"
 
 const message = (id: string) => ({ id, role: "user" }) as UserMessage
 
@@ -24,5 +24,23 @@ describe("session revert", () => {
     expect(nextRestoreTarget(messages, "msg_10")?.id).toBe("msg_2")
     expect(nextRestoreTarget(messages, "msg_30")).toBeUndefined()
     expect(nextRestoreTarget(messages, "missing")).toBeUndefined()
+  })
+
+  test("sends only the API payload for revert requests", () => {
+    const payload = revertRequestPayload({
+      sessionID: "ses_1",
+      messageID: "msg_1",
+      snapshot: {
+        store: {},
+        client: {},
+        release: () => undefined,
+      },
+    } as never)
+
+    expect(payload).toEqual({ sessionID: "ses_1", messageID: "msg_1" })
+    expect("snapshot" in payload).toBe(false)
+    expect("store" in payload).toBe(false)
+    expect("client" in payload).toBe(false)
+    expect("release" in payload).toBe(false)
   })
 })

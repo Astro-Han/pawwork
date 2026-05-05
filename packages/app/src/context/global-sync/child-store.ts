@@ -185,6 +185,8 @@ export function createChildStoreManager(input: {
             session: [],
             sessionTotal: 0,
             session_status: {},
+            session_status_state: "loading",
+            session_status_ready: false,
             session_diff: {},
             todo: {},
             permission: {},
@@ -236,7 +238,7 @@ export function createChildStoreManager(input: {
 
   function child(directory: string, options: ChildOptions = {}) {
     const childStore = ensureChild(directory)
-    pinForOwner(directory)
+    if (options.pin !== false) pinForOwner(directory)
     const shouldBootstrap = options.bootstrap ?? true
     if (shouldBootstrap && childStore[0].status === "loading") {
       input.onBootstrap(directory)

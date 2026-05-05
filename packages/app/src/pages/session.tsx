@@ -113,10 +113,20 @@ export default function Page() {
   const activeFileTab = tabState.activeFileTab
   const timelineSessionID = timeline.sessionID
   const timelineSessionKey = timeline.sessionKey
+  const sessionActionReady = timeline.sessionActionReady
+  const submitReady = timeline.actionReady
+  const workspaceSubmitReady = timeline.workspaceSubmitReady
   const timelineIsChildSession = timeline.isChildSession
   const haltAbort = (sessionID: string) =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
       ? sdk.client.session.abort({ sessionID })
+      : Promise.resolve()
+  const haltWithSnapshot = (
+    snapshot: ReturnType<typeof sync.retainDirectory> & { client: typeof sdk.client },
+    sessionID: string,
+  ) =>
+    isSessionRunning(snapshot.store.session_status[sessionID], snapshot.store.message[sessionID])
+      ? snapshot.client.session.abort({ sessionID })
       : Promise.resolve()
   // sessionRevert chains halt with .then(), so its existing outer .catch
   // already handles abort failures. The auto-heal clock wants to see the
@@ -163,6 +173,10 @@ export default function Page() {
           visibleSessionID,
           routeReady: timeline.routeMessagesReady(),
           visibleReady: timelineMessagesReady(),
+          actionReady: submitReady(),
+          messageCachePresent: timeline.messageCachePresent(),
+          sessionInfoPresent: timeline.sessionInfoPresent(),
+          statusKnown: timeline.statusKnown(),
           transitioning: !!routeSessionID && !!visibleSessionID && routeSessionID !== visibleSessionID,
           messageCount: metrics.messageCount,
           partCount: metrics.partCount,
@@ -182,6 +196,10 @@ export default function Page() {
             timeline_session_id: state.visibleSessionID,
             route_ready: state.routeReady,
             visible_ready: state.visibleReady,
+            action_ready: state.actionReady,
+            message_cache_present: state.messageCachePresent,
+            session_info_present: state.sessionInfoPresent,
+            status_known: state.statusKnown,
             transitioning: state.transitioning,
             message_count: state.messageCount,
             part_count: state.partCount,
@@ -281,7 +299,7 @@ export default function Page() {
       : mobileChanges(),
   )
   const reviewState = createSessionReviewState({
-    directory: sdk.directory,
+    directory: () => sdk.directory,
     sessionKey,
     sessionID: timelineSessionID,
     sync,
@@ -357,7 +375,7 @@ export default function Page() {
 
   const timelineInteraction = createSessionTimelineInteraction({
     routeSessionID: () => params.id,
-    sessionKey,
+    sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
     messagesReady: timelineMessagesReady,
     loadedMessages: () => timelineMessages().length,
@@ -392,14 +410,15 @@ export default function Page() {
     review: reviewTab,
   })
 
-  const draft = (id: string) =>
-    extractPromptFromParts(sync.data.part[id] ?? [], {
-      directory: sdk.directory,
+  type SyncStore = typeof sync.data
+  const draftFrom = (source: { directory: string; store: SyncStore }, id: string) =>
+    extractPromptFromParts(source.store.part[id] ?? [], {
+      directory: source.directory,
       attachmentName: language.t("common.attachment"),
     })
 
   const line = (id: string) => {
-    const text = draft(id)
+    const text = draftFrom({ directory: sdk.directory, store: sync.data }, id)
       .map((part) => (part.type === "image" ? `[image:${part.filename}]` : part.content))
       .join("")
       .replace(/\s+/g, " ")
@@ -416,8 +435,9 @@ export default function Page() {
     })
   }
 
-  const merge = (next: NonNullable<ReturnType<typeof timeline.routeInfo>>) =>
-    sync.set("session", (list) => {
+  type SyncSetter = typeof sync.set
+  const merge = (setStore: SyncSetter, next: NonNullable<ReturnType<typeof timeline.routeInfo>>) =>
+    setStore("session", (list) => {
       const idx = list.findIndex((item) => item.id === next.id)
       if (idx < 0) return list
       const out = list.slice()
@@ -425,8 +445,12 @@ export default function Page() {
       return out
     })
 
-  const roll = (sessionID: string, next: NonNullable<ReturnType<typeof timeline.routeInfo>>["revert"]) =>
-    sync.set("session", (list) => {
+  const roll = (
+    setStore: SyncSetter,
+    sessionID: string,
+    next: NonNullable<ReturnType<typeof timeline.routeInfo>>["revert"],
+  ) =>
+    setStore("session", (list) => {
       const idx = list.findIndex((item) => item.id === sessionID)
       if (idx < 0) return list
       const out = list.slice()
@@ -444,12 +468,13 @@ export default function Page() {
       return id ? sync.data.message[id] : undefined
     },
   )
-  const busy = () => timelineRunning()
+  const busy = () => !sessionActionReady() || timelineRunning()
 
   const followups = createSessionFollowups({
-    directory: sdk.directory,
-    client: sdk.client,
+    directory: () => sdk.directory,
+    client: () => sdk.client,
     sessionID: timelineSessionID,
+    actionReady: submitReady,
     isChildSession: timelineIsChildSession,
     busy,
     blocked: composer.blocked,
@@ -468,9 +493,25 @@ export default function Page() {
     lineText: line,
     prompt,
     sync,
-    client: sdk.client,
-    halt,
-    draft,
+    snapshot: () => {
+      const directory = sdk.directory
+      const handle = sync.retainDirectory(directory)
+      return {
+        client: sdk.createClient({ directory, throwOnError: true }),
+        store: handle.store,
+        setStore: handle.setStore,
+        prompt: prompt.current().slice(),
+        promptScope: {
+          dir: params.dir ?? directory,
+          id: timelineSessionID(),
+        },
+        release: handle.release,
+        directory,
+      }
+    },
+    actionReady: sessionActionReady,
+    halt: haltWithSnapshot,
+    draft: draftFrom,
     fail,
     merge,
     roll,
@@ -497,7 +538,9 @@ export default function Page() {
     <SessionPageComposerRegion
       variant={variant}
       state={composer}
-      ready={!deferRender() && timelineMessagesReady()}
+      ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : sessionActionReady())}
+      actionReady={variant === "home" ? workspaceSubmitReady() : submitReady()}
+      abortReady={variant === "home" ? true : sessionActionReady()}
       displaySessionID={variant === "session" ? timelineSessionID() : undefined}
       displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}
@@ -514,7 +557,7 @@ export default function Page() {
       onModeChange={ctx?.onModeChange}
       selectedSkill={ctx?.selectedSkill}
       followup={
-        variant === "session" && timelineSessionID() && !timelineIsChildSession()
+        variant === "session" && timelineSessionID() && submitReady() && !timelineIsChildSession()
           ? {
               queue: followups.queueEnabled,
               items: followups.followupDock(),
@@ -541,7 +584,7 @@ export default function Page() {
           ? {
               items: sessionRevert.rolled(),
               restoring: sessionRevert.restoring(),
-              disabled: sessionRevert.reverting(),
+              disabled: sessionRevert.reverting() || !sessionActionReady(),
               onRestore: sessionRevert.restore,
             }
           : undefined
@@ -570,7 +613,7 @@ export default function Page() {
       setMobileTab={setMobileTab}
       language={language}
       routeSessionID={params.id}
-      routeReady={timeline.routeMessagesReady()}
+      routeReady={timelineMessagesReady()}
       transitioning={timeline.transitioning()}
       timelineSessionID={timelineSessionID()}
       timelineSessionKey={timelineSessionKey()}

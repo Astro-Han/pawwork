@@ -6,6 +6,30 @@ import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
 
+type SyncSetter = ReturnType<typeof useSync>["set"]
+type SyncStore = ReturnType<typeof useSync>["data"]
+type RevertSnapshot = {
+  directory: string
+  client: ReturnType<typeof useSDK>["client"]
+  store: SyncStore
+  setStore: SyncSetter
+  prompt: Prompt
+  promptScope: {
+    dir: string
+    id?: string
+  }
+  release: VoidFunction
+}
+
+const findSession = (store: SyncStore, sessionID: string) => store.session.find((item) => item.id === sessionID)
+
+export function revertRequestPayload(input: { sessionID: string; messageID: string }) {
+  return {
+    sessionID: input.sessionID,
+    messageID: input.messageID,
+  }
+}
+
 export function rolledRevertItems(input: {
   revertMessageID: string | undefined
   messages: UserMessage[]
@@ -32,79 +56,90 @@ export function createSessionRevert(input: {
   lineText: (id: string) => string
   prompt: ReturnType<typeof usePrompt>
   sync: ReturnType<typeof useSync>
-  client: ReturnType<typeof useSDK>["client"]
-  halt: (sessionID: string) => Promise<unknown>
-  draft: (id: string) => Prompt
+  snapshot: () => RevertSnapshot
+  actionReady: () => boolean
+  halt: (snapshot: RevertSnapshot, sessionID: string) => Promise<unknown>
+  draft: (source: Pick<RevertSnapshot, "directory" | "store">, id: string) => Prompt
   fail: (err: unknown) => void
-  merge: (next: Session) => void
-  roll: (sessionID: string, next: Session["revert"]) => void
+  merge: (setStore: SyncSetter, next: Session) => void
+  roll: (setStore: SyncSetter, sessionID: string, next: Session["revert"]) => void
 }) {
   const revertMutation = useMutation(() => ({
-    mutationFn: async (request: { sessionID: string; messageID: string }) => {
-      const prev = input.prompt.current().slice()
-      const last = input.sync.session.get(request.sessionID)?.revert
-      const value = input.draft(request.messageID)
-      batch(() => {
-        input.roll(request.sessionID, { messageID: request.messageID })
-        input.prompt.set(value)
-      })
-      await input
-        .halt(request.sessionID)
-        .then(() => input.client.session.revert(request, { throwOnError: true }))
-        .then((result) => {
-          if (result.data) input.merge(result.data)
+    mutationFn: async (request: { sessionID: string; messageID: string; snapshot: RevertSnapshot }) => {
+      const snapshot = request.snapshot
+      try {
+        const prev = snapshot.prompt
+        const last = findSession(snapshot.store, request.sessionID)?.revert
+        const value = input.draft(snapshot, request.messageID)
+        batch(() => {
+          input.roll(snapshot.setStore, request.sessionID, { messageID: request.messageID })
+          input.prompt.set(value, undefined, snapshot.promptScope)
         })
-        .catch((err) => {
-          batch(() => {
-            input.roll(request.sessionID, last)
-            input.prompt.set(prev)
+        await input
+          .halt(snapshot, request.sessionID)
+          .then(() => snapshot.client.session.revert(revertRequestPayload(request), { throwOnError: true }))
+          .then((result) => {
+            if (result.data) input.merge(snapshot.setStore, result.data)
           })
-          input.fail(err)
-        })
+          .catch((err) => {
+            batch(() => {
+              input.roll(snapshot.setStore, request.sessionID, last)
+              input.prompt.set(prev, undefined, snapshot.promptScope)
+            })
+            input.fail(err)
+          })
+      } finally {
+        snapshot.release()
+      }
     },
   }))
 
   const restoreMutation = useMutation(() => ({
-    mutationFn: async (request: { sessionID: string; id: string }) => {
-      const messages = readUserMessages(readSessionMessages(input.sync.data.message[request.sessionID]))
-      const next = nextRestoreTarget(messages, request.id)
-      const prev = input.prompt.current().slice()
-      const last = input.sync.session.get(request.sessionID)?.revert
+    mutationFn: async (request: { sessionID: string; id: string; snapshot: RevertSnapshot }) => {
+      const snapshot = request.snapshot
+      try {
+        const messages = readUserMessages(readSessionMessages(snapshot.store.message[request.sessionID]))
+        const next = nextRestoreTarget(messages, request.id)
+        const prev = snapshot.prompt
+        const last = findSession(snapshot.store, request.sessionID)?.revert
 
-      batch(() => {
-        input.roll(request.sessionID, next ? { messageID: next.id } : undefined)
-        if (next) {
-          input.prompt.set(input.draft(next.id))
-        } else {
-          input.prompt.reset()
-        }
-      })
-
-      const task = !next
-        ? input
-            .halt(request.sessionID)
-            .then(() => input.client.session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
-        : input.halt(request.sessionID).then(() =>
-            input.client.session.revert(
-              {
-                sessionID: request.sessionID,
-                messageID: next.id,
-              },
-              { throwOnError: true },
-            ),
-          )
-
-      await task
-        .then((result) => {
-          if (result.data) input.merge(result.data)
+        batch(() => {
+          input.roll(snapshot.setStore, request.sessionID, next ? { messageID: next.id } : undefined)
+          if (next) {
+            input.prompt.set(input.draft(snapshot, next.id), undefined, snapshot.promptScope)
+          } else {
+            input.prompt.reset(snapshot.promptScope)
+          }
         })
-        .catch((err) => {
-          batch(() => {
-            input.roll(request.sessionID, last)
-            input.prompt.set(prev)
+
+        const task = !next
+          ? input
+              .halt(snapshot, request.sessionID)
+              .then(() => snapshot.client.session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
+          : input.halt(snapshot, request.sessionID).then(() =>
+              snapshot.client.session.revert(
+                {
+                  sessionID: request.sessionID,
+                  messageID: next.id,
+                },
+                { throwOnError: true },
+              ),
+            )
+
+        await task
+          .then((result) => {
+            if (result.data) input.merge(snapshot.setStore, result.data)
           })
-          input.fail(err)
-        })
+          .catch((err) => {
+            batch(() => {
+              input.roll(snapshot.setStore, request.sessionID, last)
+              input.prompt.set(prev, undefined, snapshot.promptScope)
+            })
+            input.fail(err)
+          })
+      } finally {
+        snapshot.release()
+      }
     },
   }))
 
@@ -129,12 +164,14 @@ export function createSessionRevert(input: {
     rolled,
     revert(request: { sessionID: string; messageID: string }) {
       if (reverting()) return
-      return revertMutation.mutateAsync(request)
+      if (!input.actionReady()) return
+      return revertMutation.mutateAsync({ ...request, snapshot: input.snapshot() })
     },
     restore(id: string) {
       const sessionID = input.sessionID()
       if (!sessionID || reverting()) return
-      return restoreMutation.mutateAsync({ sessionID, id })
+      if (!input.actionReady()) return
+      return restoreMutation.mutateAsync({ sessionID, id, snapshot: input.snapshot() })
     },
   }
 }

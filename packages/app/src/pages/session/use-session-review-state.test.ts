@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { deriveReviewArtifactFiles } from "./use-session-review-state"
+import { deriveReviewArtifactFiles, shouldApplyVcsDiffResult, vcsTaskKey } from "./use-session-review-state"
 
 describe("session review state", () => {
   test("uses session artifact history when it matches the visible session", () => {
@@ -15,6 +15,21 @@ describe("session review state", () => {
 
     expect(files.map((file) => file.path)).toContain("/repo/report.md")
     expect(files.map((file) => file.path)).not.toContain("/repo/fallback.md")
+  })
+
+  test("falls back while artifact history belongs to a previous execution directory", () => {
+    const files = deriveReviewArtifactFiles({
+      directory: "/repo-root",
+      sessionID: "ses_1",
+      history: {
+        directory: "/repo-worktree",
+        sessionID: "ses_1",
+        artifacts: [{ file: "stale.md", kind: "added" }],
+      },
+      turnDiffs: [{ file: "fallback.md", status: "added" }],
+    })
+
+    expect(files.map((file) => file.path)).toEqual(["/repo-root/fallback.md"])
   })
 
   test("falls back to added and modified turn diffs", () => {
@@ -52,5 +67,30 @@ describe("session review state", () => {
         turnDiffs: undefined,
       }),
     ).not.toThrow()
+  })
+
+  test("rejects stale VCS diff results from a previous execution directory", () => {
+    expect(
+      shouldApplyVcsDiffResult({
+        requestedDirectory: "/repo-worktree",
+        currentDirectory: "/repo-root",
+        requestedRun: 1,
+        currentRun: 1,
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldApplyVcsDiffResult({
+        requestedDirectory: "/repo-root",
+        currentDirectory: "/repo-root",
+        requestedRun: 1,
+        currentRun: 1,
+      }),
+    ).toBe(true)
+  })
+
+  test("keys pending VCS diff tasks by directory and mode", () => {
+    expect(vcsTaskKey("/repo-worktree", "unstaged")).not.toBe(vcsTaskKey("/repo-root", "unstaged"))
+    expect(vcsTaskKey("/repo-root", "unstaged")).not.toBe(vcsTaskKey("/repo-root", "staged"))
   })
 })

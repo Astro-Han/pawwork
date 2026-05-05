@@ -1,4 +1,4 @@
-import { batch, createMemo } from "solid-js"
+import { batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Binary } from "@opencode-ai/util/binary"
 import { retry } from "@opencode-ai/util/retry"
@@ -76,6 +76,11 @@ export function createCurrentSyncChild<Child>(input: { directory: () => string |
 
     return input.child(lastDirectory ?? (directory as string))
   }
+}
+
+export function syncChildOptionsForTarget(input: { currentDirectory: string | undefined; targetDirectory?: string }) {
+  if (!input.targetDirectory || input.targetDirectory === input.currentDirectory) return
+  return { bootstrap: false, pin: false } as const
 }
 
 type MessagePage = {
@@ -191,13 +196,37 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     type Child = ReturnType<(typeof globalSync)["child"]>
     type Setter = Child[1]
 
+    createEffect(() => {
+      const directory = sdk.directory
+      if (!directory) return
+      const retained = globalSync.retainDirectory(directory)
+      onCleanup(() => retained.release())
+    })
+
     const current = createCurrentSyncChild({
       directory: () => sdk.directory,
-      child: globalSync.child,
+      child: (directory) => globalSync.child(directory, { pin: false }),
     })
     const target = (directory?: string) => {
-      if (!directory || directory === sdk.directory) return current()
-      return globalSync.child(directory)
+      const options = syncChildOptionsForTarget({ currentDirectory: sdk.directory, targetDirectory: directory })
+      if (!options || !directory) return current()
+      return globalSync.child(directory, options)
+    }
+    const retainTarget = (directory?: string) => {
+      const targetDirectory = directory || sdk.directory
+      if (!targetDirectory) {
+        return {
+          directory: "",
+          get store() {
+            return current()[0]
+          },
+          get setStore() {
+            return current()[1]
+          },
+          release() {},
+        }
+      }
+      return globalSync.retainDirectory(targetDirectory)
     }
     const absolute = (path: string) => (current()[0].path.directory + "/" + path).replace("//", "/")
     const initialMessagePageSize = 80
@@ -393,6 +422,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       },
       get set(): Setter {
         return current()[1]
+      },
+      setFor(directory?: string): Setter {
+        return target(directory)[1]
+      },
+      storeFor(directory?: string): Child[0] {
+        return target(directory)[0]
+      },
+      retainDirectory(directory?: string) {
+        return retainTarget(directory)
       },
       get status() {
         return current()[0].status

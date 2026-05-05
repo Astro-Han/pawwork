@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createRoot, getOwner } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
+import { MAX_DIR_STORES } from "./types"
 import { createChildStoreManager } from "./child-store"
 import { ChildStoreError, type ChildStorePersistedFactory } from "./child-store-error"
 
@@ -43,6 +44,26 @@ describe("createChildStoreManager", () => {
     manager.mark(directory)
 
     expect(manager.children[directory]).toBeDefined()
+  })
+
+  test("unpinned child access can evict old directories beyond the store limit", () => {
+    const manager = createManager((_target, store) => [
+      store[0],
+      store[1],
+      null,
+      Object.assign(() => true, { promise: undefined }),
+    ])
+
+    createRoot((dispose) => {
+      Array.from({ length: MAX_DIR_STORES + 1 }, (_, index) => `/tmp/project-${index}`).forEach((directory) => {
+        manager.child(directory, { bootstrap: false, pin: false })
+      })
+      dispose()
+    })
+
+    expect(Object.keys(manager.children)).toHaveLength(MAX_DIR_STORES)
+    expect(manager.children["/tmp/project-0"]).toBeUndefined()
+    expect(manager.children[`/tmp/project-${MAX_DIR_STORES}`]).toBeDefined()
   })
 
   test("rejects invalid runtime directories before persisted cache setup", () => {
