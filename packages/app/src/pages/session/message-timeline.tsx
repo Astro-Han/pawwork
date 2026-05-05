@@ -1093,6 +1093,7 @@ export function MessageTimeline(props: {
           >
             <div
               role="log"
+              data-component="session-timeline-column"
               data-slot="session-turn-list"
               class="flex flex-col items-start justify-start pb-4 transition-[margin]"
               classList={{
