@@ -31,20 +31,38 @@ function envPath(input: string | undefined) {
   return value ? value : undefined
 }
 
-function normalize(input: string) {
+function realpathOrResolved(input: string) {
   const resolved = path.resolve(input)
   try {
     return fsNode.realpathSync.native(resolved)
-  } catch {
-    return process.platform === "win32" ? resolved.toLowerCase() : resolved
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") return process.platform === "win32" ? resolved.toLowerCase() : resolved
+    throw error
   }
+}
+
+function normalize(input: string) {
+  return realpathOrResolved(input)
 }
 
 function isFile(input: string) {
   try {
     return fsNode.statSync(input).isFile()
-  } catch {
-    return false
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") return false
+    throw error
+  }
+}
+
+function isDirectory(input: string) {
+  try {
+    return fsNode.statSync(input).isDirectory()
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") return false
+    throw error
   }
 }
 
@@ -97,13 +115,7 @@ export namespace PawWorkHome {
 
   export function existingResourceDirectories() {
     return candidates()
-      .filter((dir) => {
-        try {
-          return fsNode.statSync(dir).isDirectory()
-        } catch {
-          return false
-        }
-      })
+      .filter(isDirectory)
       .toReversed()
   }
 

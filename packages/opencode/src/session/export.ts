@@ -296,10 +296,20 @@ export namespace Export {
     return { session_count, message_count, part_count, omitted_attachment_count }
   }
 
-  const collectInstructionSources = Effect.fn("Export.instructionSources")(function* () {
+  const collectInstructionSources = Effect.fn("Export.instructionSources")(function* (directory?: string) {
     const sources: InstructionSource[] = []
     const instruction = yield* Instruction.Service
-    const instructionSources = (yield* instruction.sources({ fetchRemote: false })).filter(
+    const resolvedSources =
+      directory && path.resolve(directory) !== path.resolve(Instance.directory)
+        ? yield* Effect.promise(async () => {
+            const fromSessionDirectory = await Instance.provide({
+              directory,
+              fn: () => Effect.runPromise(instruction.sources({ fetchRemote: false })),
+            })
+            return await fromSessionDirectory
+          })
+        : yield* instruction.sources({ fetchRemote: false })
+    const instructionSources = resolvedSources.filter(
       (source) =>
         source.status === "loaded" ||
         (source.status === "considered" && source.kind === "remote" && source.reason === "configured but not fetched"),
@@ -373,7 +383,7 @@ export namespace Export {
     const root = yield* climbToRoot(svc, anyID)
     const ctx = { count: { omitted: 0 } }
     const tree = yield* exportTree(svc, root, ctx)
-    const instruction_sources = yield* collectInstructionSources()
+    const instruction_sources = yield* collectInstructionSources(root.directory)
     const model_refs = yield* collectModelRefs(tree)
     return {
       schema_version: 1 as const,

@@ -144,6 +144,36 @@ describe("Export.session", () => {
     })
   })
 
+  test("resolves project instruction sources from the exported session directory", async () => {
+    await using sessionProject = await tmpdir({ git: true })
+    await using currentProject = await tmpdir({ git: true })
+    await fs.writeFile(path.join(sessionProject.path, "CLAUDE.md"), "session project instructions")
+    await fs.writeFile(path.join(currentProject.path, "AGENTS.md"), "current project instructions")
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: sessionProject.path,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "export source directory" })
+        sessionID = root.id
+      },
+    })
+
+    try {
+      await Instance.provide({
+        directory: currentProject.path,
+        fn: async () => {
+          const result = await AppRuntime.runPromise(Export.session(sessionID!))
+          const projectSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "project")
+          expect(projectSources.map((source) => source.path)).toContain(path.join(sessionProject.path, "CLAUDE.md"))
+          expect(projectSources.map((source) => source.path)).not.toContain(path.join(currentProject.path, "AGENTS.md"))
+        },
+      })
+    } finally {
+      if (sessionID) await SessionNs.remove(sessionID)
+    }
+  })
+
   test("exports only the loaded PawWork global AGENTS.md source", async () => {
     await using primary = await tmpdir()
     await using legacy = await tmpdir()

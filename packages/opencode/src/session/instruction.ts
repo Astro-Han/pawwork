@@ -161,8 +161,12 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           for (const file of FILES()) {
             const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
-            if (matches.length > 0) {
-              matches.forEach((item) => paths.add(path.resolve(item)))
+            const stats = yield* Effect.forEach(matches, (item) =>
+              fs.isFile(item).pipe(Effect.map((isFile) => ({ item, isFile }))),
+            )
+            const files = stats.filter((item) => item.isFile).map((item) => item.item)
+            if (files.length > 0) {
+              files.forEach((item) => paths.add(path.resolve(item)))
               break
             }
           }
@@ -242,8 +246,12 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
           let projectLoaded = false
           for (const file of FILES()) {
             const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
-            if (matches.length === 0) continue
-            for (const match of matches) {
+            const stats = yield* Effect.forEach(matches, (item) =>
+              fs.isFile(item).pipe(Effect.map((isFile) => ({ item, isFile }))),
+            )
+            const files = stats.filter((item) => item.isFile).map((item) => item.item)
+            if (files.length === 0) continue
+            for (const match of files) {
               const resolved = path.resolve(match)
               if (loadedPaths.has(resolved)) continue
               if (!projectLoaded) {

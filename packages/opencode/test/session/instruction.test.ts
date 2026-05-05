@@ -852,6 +852,26 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     }
   })
 
+  test("systemPaths() skips project instruction candidates that are not files", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.mkdir(path.join(tmp.path, "AGENTS.md"))
+    await fs.writeFile(path.join(tmp.path, "CLAUDE.md"), "claude instructions")
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const paths = yield* svc.systemPaths()
+              expect(paths.has(path.join(tmp.path, "AGENTS.md"))).toBe(false)
+              expect(paths.has(path.join(tmp.path, "CLAUDE.md"))).toBe(true)
+            }),
+          ),
+        ),
+    })
+  })
+
   test("sources() lists loaded project AGENTS.md", async () => {
     await using fakeHome = await tmpdir()
     await using pawworkConfig = await tmpdir()

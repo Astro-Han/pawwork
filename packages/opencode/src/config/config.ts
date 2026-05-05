@@ -500,12 +500,36 @@ function resolveSeedPath(value: string, sourceFile: string) {
   return path.resolve(path.dirname(sourceFile), value)
 }
 
+function hasConfigPlaceholder(value: string) {
+  return /\{[A-Za-z][A-Za-z\d_-]*:/.test(value)
+}
+
+function resolveSeedInstructionPath(value: string, sourceFile: string) {
+  const rewritten = rewriteFilePlaceholders(value, sourceFile)
+  if (hasConfigPlaceholder(rewritten)) return rewritten
+  return resolveSeedPath(rewritten, sourceFile)
+}
+
 function rewriteFilePlaceholders(value: string, sourceFile: string) {
   return value.replace(/\{file:([^}]+)\}/g, (match, filePath: string) => {
     const trimmed = filePath.trim()
     if (!trimmed || isAbsoluteOrExternalPath(trimmed)) return match
     return `{file:${path.resolve(path.dirname(sourceFile), trimmed)}}`
   })
+}
+
+function rewriteFilePlaceholdersDeep(value: unknown, sourceFile: string): unknown {
+  if (typeof value === "string") return rewriteFilePlaceholders(value, sourceFile)
+  if (Array.isArray(value)) return value.map((item) => rewriteFilePlaceholdersDeep(item, sourceFile))
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, childValue]) => [
+        childKey,
+        rewriteFilePlaceholdersDeep(childValue, sourceFile),
+      ]),
+    )
+  }
+  return value
 }
 
 function rewriteSeedPluginSpec(value: unknown, sourceFile: string): unknown {
@@ -515,36 +539,32 @@ function rewriteSeedPluginSpec(value: unknown, sourceFile: string): unknown {
   }
   if (Array.isArray(value) && typeof value[0] === "string") {
     const rewritten = rewriteFilePlaceholders(value[0], sourceFile)
-    return [rewritten.startsWith(".") ? resolveSeedPath(rewritten, sourceFile) : rewritten, ...value.slice(1)]
+    return [
+      rewritten.startsWith(".") ? resolveSeedPath(rewritten, sourceFile) : rewritten,
+      ...value.slice(1).map((item) => rewriteFilePlaceholdersDeep(item, sourceFile)),
+    ]
   }
-  return rewriteSeedValue(value, sourceFile)
+  return rewriteFilePlaceholdersDeep(value, sourceFile)
 }
 
-function rewriteSeedValue(value: unknown, sourceFile: string, key?: string): unknown {
-  if (typeof value === "string") return rewriteFilePlaceholders(value, sourceFile)
-  if (Array.isArray(value)) {
-    if (key === "instructions") {
-      return value.map((item) => (typeof item === "string" ? resolveSeedPath(item, sourceFile) : item))
-    }
-    if (key === "plugin") return value.map((item) => rewriteSeedPluginSpec(item, sourceFile))
-    return value.map((item) => rewriteSeedValue(item, sourceFile))
-  }
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([childKey, childValue]) => [
-        childKey,
-        rewriteSeedValue(childValue, sourceFile, childKey),
-      ]),
+function rewriteSeedConfig(value: Record<string, unknown>, sourceFile: string): Record<string, unknown> {
+  const next = rewriteFilePlaceholdersDeep(value, sourceFile) as Record<string, unknown>
+  if (Array.isArray(value.instructions)) {
+    next.instructions = value.instructions.map((item) =>
+      typeof item === "string" ? resolveSeedInstructionPath(item, sourceFile) : rewriteFilePlaceholdersDeep(item, sourceFile),
     )
   }
-  return value
+  if (Array.isArray(value.plugin)) {
+    next.plugin = value.plugin.map((item) => rewriteSeedPluginSpec(item, sourceFile))
+  }
+  return next
 }
 
 function seedConfigValueFromSource(text: string, sourceFile: string) {
   const stripped = stripDefaultAgent(text).text
   const parsed = ConfigParse.jsonc(stripped, sourceFile)
   if (!isRecord(parsed)) return stripped
-  return rewriteSeedValue(parsed, sourceFile)
+  return rewriteSeedConfig(parsed, sourceFile)
 }
 
 function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
@@ -555,6 +575,19 @@ function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
   }, {})
   if (!isRecord(merged)) return "{}"
   return JSON.stringify(merged, null, 2)
+}
+
+async function writeLegacyTomlMigration(target: string, legacyConfig: Info) {
+  let next = legacyConfig
+  const existingText = await fsNode.readFile(target, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+  if (existingText !== undefined) {
+    const existing = ConfigParse.jsonc(existingText, target)
+    if (isRecord(existing)) next = mergeDeep(legacyConfig, existing) as Info
+  }
+  await withConfigFileLock(target, () => writeConfigTextAtomic(target, JSON.stringify(next, null, 2)))
 }
 
 export const ConfigDirectoryTypoError = NamedError.create(
@@ -605,7 +638,9 @@ const rawLayer = Layer.effect(
       if (!data.$schema) {
         data.$schema = "https://opencode.ai/config.json"
         const updated = text.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
-        yield* fs.writeFileString(options.path, updated).pipe(Effect.catch(() => Effect.void))
+        yield* Effect.promise(() =>
+          withConfigFileLock(options.path, () => writeConfigTextAtomic(options.path, updated)),
+        ).pipe(Effect.catch(() => Effect.void))
       }
       return data
     })
@@ -646,9 +681,9 @@ const rawLayer = Layer.effect(
               if (!Runtime.isPawWork() || globalFiles.length === 0) {
                 result = mergeDeep(result, legacyConfig)
               }
-              await fsNode.writeFile(
+              await writeLegacyTomlMigration(
                 path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json"),
-                JSON.stringify(legacyConfig, null, 2),
+                legacyConfig,
               )
               await fsNode.unlink(legacy)
             })

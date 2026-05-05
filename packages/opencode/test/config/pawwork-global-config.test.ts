@@ -344,6 +344,39 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("legacy TOML migration preserves existing legacy JSON config", async () => {
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = path.join(platformLegacy.path, "empty-home")
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacyJson = path.join(platformLegacy.path, "pawwork.json")
+      await Filesystem.write(legacyJson, JSON.stringify({ model: "json/model", username: "json-user" }, null, 2))
+      await Filesystem.write(
+        path.join(platformLegacy.path, "config"),
+        ['provider = "toml"', 'model = "model"', 'username = "toml-user"'].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.model).toBe("json/model")
+          expect(config.username).toBe("json-user")
+          expect(await Bun.file(path.join(platformLegacy.path, "config")).exists()).toBeFalse()
+          const migrated = JSON.parse(await Bun.file(legacyJson).text())
+          expect(migrated.model).toBe("json/model")
+          expect(migrated.username).toBe("json-user")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("legacy fallback JSON config is read without schema or default_agent writeback", async () => {
     await using home = await tmpdir()
     await using platformLegacy = await tmpdir()
@@ -498,6 +531,60 @@ describe("PawWork global config isolation", () => {
           expect(saved.instructions).toEqual([instructionFile])
           expect(saved.plugin).toEqual([pluginFile])
           expect(saved.model).toBe("updated/model")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("first global update seeds only top-level instructions and plugin paths", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const pluginFile = path.join(platformLegacy.path, "plugins", "plugin.ts")
+      const optionSecret = path.join(platformLegacy.path, "secrets", "plugin-token")
+      await Filesystem.write(pluginFile, "export const Plugin = {}")
+      await Filesystem.write(optionSecret, "secret")
+      await Filesystem.write(
+        path.join(platformLegacy.path, "pawwork.json"),
+        JSON.stringify(
+          {
+            instructions: ["{env:RULES}/a.md", "./rules/AGENTS.md"],
+            provider: {
+              demo: {
+                options: {
+                  instructions: ["./provider-owned.md"],
+                  plugin: ["./provider-plugin.ts"],
+                  token: "{file:secrets/provider-token}",
+                },
+              },
+            },
+            plugin: [["./plugins/plugin.ts", { token: "{file:secrets/plugin-token}" }]],
+          },
+          null,
+          2,
+        ),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await saveGlobal({ model: "updated/model" })
+          const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
+
+          expect(saved.instructions).toEqual(["{env:RULES}/a.md", path.join(platformLegacy.path, "rules", "AGENTS.md")])
+          expect(saved.provider.demo.options.instructions).toEqual(["./provider-owned.md"])
+          expect(saved.provider.demo.options.plugin).toEqual(["./provider-plugin.ts"])
+          expect(saved.provider.demo.options.token).toBe(`{file:${path.join(platformLegacy.path, "secrets", "provider-token")}}`)
+          expect(saved.plugin).toEqual([[pluginFile, { token: `{file:${optionSecret}}` }]])
         },
       })
     } finally {
