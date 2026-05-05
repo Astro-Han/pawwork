@@ -185,6 +185,47 @@ describe("Export.session", () => {
     }
   })
 
+  test("does not export lower-priority PawWork global AGENTS.md when the first existing candidate is empty", async () => {
+    await using primary = await tmpdir()
+    await using legacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousHome = process.env.PAWWORK_HOME
+    const previousConfigDir = process.env.PAWWORK_CONFIG_DIR
+    const previousGlobalConfig = Global.Path.config
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.PAWWORK_HOME = primary.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = legacy.path
+
+    try {
+      await fs.writeFile(path.join(primary.path, "AGENTS.md"), "")
+      await fs.writeFile(path.join(legacy.path, "AGENTS.md"), "legacy instructions")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "empty instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const globalSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "global")
+            expect(globalSources).toHaveLength(0)
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousHome === undefined) delete process.env.PAWWORK_HOME
+      else process.env.PAWWORK_HOME = previousHome
+      if (previousConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
+      else process.env.PAWWORK_CONFIG_DIR = previousConfigDir
+    }
+  })
+
   test("collectModelRefs marks unknown providers as unresolved with a reason", async () => {
     await Instance.provide({
       directory: projectRoot,

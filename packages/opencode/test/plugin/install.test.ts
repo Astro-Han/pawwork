@@ -176,6 +176,37 @@ describe("plugin.install.task", () => {
     }
   })
 
+  test("returns false when PawWork global plugin config seeding fails", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      const target = await plugin(tmp.path, ["server"])
+      const dep = deps(path.join(tmp.path, "global"), target)
+      const errors: string[] = []
+      dep.log.error = (msg) => errors.push(msg)
+      dep.seedGlobalConfig = async () => {
+        throw new Error("seed failed")
+      }
+      const run = createPlugTask(
+        {
+          mod: "acme@1.2.3",
+          global: true,
+        },
+        dep,
+      )
+
+      const ok = await run(ctx(tmp.path))
+      expect(ok).toBe(false)
+      expect(errors.some((item) => item.includes("seed failed"))).toBe(true)
+      expect(await Filesystem.exists(path.join(tmp.path, "global", "pawwork.json"))).toBe(false)
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
   test("writes PawWork global plugin config to an existing pawwork.jsonc", async () => {
     await using tmp = await tmpdir()
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE

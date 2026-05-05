@@ -306,7 +306,7 @@ export namespace Export {
       worktree = undefined
     }
     const globalInstruction = Runtime.isPawWork()
-      ? yield* Effect.promise(() => PawWorkHome.firstNonEmptyInstructionFile())
+      ? yield* Effect.promise(() => PawWorkHome.firstLoadedInstructionFile())
       : path.join(Global.Path.config, "AGENTS.md")
     const candidates: Array<{ kind: string; file: string }> = [
       ...(globalInstruction ? [{ kind: "global", file: globalInstruction }] : []),

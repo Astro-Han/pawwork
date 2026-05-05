@@ -94,10 +94,15 @@ export namespace PawWorkHome {
       .toReversed()
   }
 
-  export async function firstNonEmptyInstructionFile() {
+  export async function firstLoadedInstructionFile() {
     for (const file of instructionFiles()) {
+      const stat = await fs.stat(file).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        return "exists"
+      })
+      if (!stat) continue
       const content = await fs.readFile(file, "utf8").catch(() => "")
-      if (content) return file
+      return content ? file : undefined
     }
     return undefined
   }

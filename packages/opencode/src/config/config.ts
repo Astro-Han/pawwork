@@ -407,6 +407,10 @@ function projectConfigFile(dir: string) {
   return path.join(dir, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
 }
 
+export function projectConfigFileForWrite(dir: string) {
+  return projectConfigFile(dir)
+}
+
 function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
   if (!isRecord(patch)) {
     const edits = modify(input, path, patch, {
@@ -1014,6 +1018,7 @@ const ConfigUpdate = update
 const ConfigUpdateGlobal = updateGlobal
 const ConfigSeedGlobalConfig = seedGlobalConfig
 const ConfigGlobalConfigFileForWrite = globalConfigFileForWrite
+const ConfigProjectConfigFileForWrite = projectConfigFileForWrite
 const ConfigInvalidate = invalidate
 const ConfigDirectories = directories
 const ConfigWaitForDependencies = waitForDependencies
@@ -1058,6 +1063,7 @@ export namespace Config {
   export const updateGlobal = ConfigUpdateGlobal
   export const seedGlobalConfig = ConfigSeedGlobalConfig
   export const globalConfigFileForWrite = ConfigGlobalConfigFileForWrite
+  export const projectConfigFileForWrite = ConfigProjectConfigFileForWrite
   export const invalidate = ConfigInvalidate
   export const directories = ConfigDirectories
   export const waitForDependencies = ConfigWaitForDependencies

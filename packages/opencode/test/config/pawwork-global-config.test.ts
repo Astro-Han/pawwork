@@ -15,6 +15,7 @@ import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
+import { resolveConfigPath } from "../../src/cli/cmd/mcp"
 
 const infra = CrossSpawnSpawner.defaultLayer.pipe(
   Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
@@ -190,6 +191,22 @@ describe("default OpenCode config compatibility", () => {
       })
     } finally {
       ;(Global.Path as { config: string }).config = previousConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
+  test("OpenCode MCP local resolver ignores PawWork project config aliases", async () => {
+    await using project = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+
+    try {
+      await Filesystem.write(path.join(project.path, "pawwork.json"), JSON.stringify({ model: "leaked/project" }))
+      await Filesystem.write(path.join(project.path, "opencode.json"), JSON.stringify({ model: "expected/project" }))
+
+      expect(await resolveConfigPath(project.path)).toBe(path.join(project.path, "opencode.json"))
+    } finally {
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
     }

@@ -20,18 +20,21 @@ are resolved to absolute paths.
 
 ## Files
 
-PawWork reads these user-editable files from the highest-priority Home that
-contains each artifact:
+PawWork reads these user-editable files from PawWork Home candidates:
 
 - `AGENTS.md`
 - `pawwork.jsonc`
 - `pawwork.json`
-- `command/`
-- `agent/`
+- `command/` and `commands/`
+- `agent/` and `agents/`
 - `skills/`
 
 For `pawwork.jsonc` and `pawwork.json`, PawWork loads the first Home containing
 either file. Within that Home, `pawwork.jsonc` wins over `pawwork.json`.
+
+Resource directories such as `command/`, `agent/`, and `skills/` are cumulative
+across existing Home candidates. Lower-priority directories are loaded first, so
+higher-priority Home entries override same-name legacy entries.
 
 New global writes go only to the primary Home. PawWork does not write new global
 configuration to the legacy platform config directory.

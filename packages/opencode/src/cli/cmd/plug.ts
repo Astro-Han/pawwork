@@ -134,7 +134,15 @@ export function createPlugTask(input: PlugInput, dep: PlugDeps = defaultPlugDeps
 
     const patch = dep.spinner()
     patch.start("Updating plugin config...")
-    if (global && Runtime.isPawWork()) await dep.seedGlobalConfig?.()
+    if (global && Runtime.isPawWork()) {
+      try {
+        await dep.seedGlobalConfig?.()
+      } catch (err) {
+        patch.stop("Failed updating plugin config", 1)
+        dep.log.error(errorMessage(err))
+        return false
+      }
+    }
     const out = await patchPluginConfig(
       {
         spec: mod,

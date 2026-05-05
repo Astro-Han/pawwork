@@ -16,6 +16,7 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { modify, applyEdits } from "jsonc-parser"
 import { Filesystem } from "../../util/filesystem"
+import { errorMessage } from "../../util/error"
 import { Bus } from "../../bus"
 import { AppRuntime } from "../../effect/app-runtime"
 import { Effect } from "effect"
@@ -409,31 +410,9 @@ export const McpLogoutCommand = cmd({
   },
 })
 
-async function resolveConfigPath(baseDir: string, global = false) {
+export async function resolveConfigPath(baseDir: string, global = false) {
   if (global) return Config.globalConfigFileForWrite()
-
-  // Check for existing config files. Prefer PawWork JSONC/JSON, then fall back to legacy OpenCode names.
-  const candidates = [
-    path.join(baseDir, "pawwork.jsonc"),
-    path.join(baseDir, "pawwork.json"),
-    path.join(baseDir, "opencode.jsonc"),
-    path.join(baseDir, "opencode.json"),
-  ]
-
-  candidates.push(
-    path.join(baseDir, ".opencode", "pawwork.jsonc"),
-    path.join(baseDir, ".opencode", "pawwork.json"),
-    path.join(baseDir, ".opencode", "opencode.jsonc"),
-    path.join(baseDir, ".opencode", "opencode.json"),
-  )
-
-  for (const candidate of candidates) {
-    if (await Filesystem.exists(candidate)) {
-      return candidate
-    }
-  }
-
-  return Runtime.isPawWork() ? path.join(baseDir, "pawwork.json") : path.join(baseDir, "opencode.json")
+  return Config.projectConfigFileForWrite(baseDir)
 }
 
 async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: string) {
@@ -451,6 +430,18 @@ async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: s
   await Filesystem.write(configPath, result)
 
   return configPath
+}
+
+async function seedGlobalConfigIfNeeded(configPath: string, globalConfigPath: string) {
+  if (!Runtime.isPawWork() || configPath !== globalConfigPath) return true
+  try {
+    await Config.seedGlobalConfig()
+    return true
+  } catch (err) {
+    prompts.log.error(errorMessage(err))
+    prompts.outro("MCP server was not added")
+    return false
+  }
 }
 
 export const McpAddCommand = cmd({
@@ -530,7 +521,7 @@ export const McpAddCommand = cmd({
             command: command.split(" "),
           }
 
-          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.seedGlobalConfig()
+          if (!(await seedGlobalConfigIfNeeded(configPath, globalConfigPath))) return
           await addMcpToConfig(name, mcpConfig, configPath)
           prompts.log.success(`MCP server "${name}" added to ${configPath}`)
           prompts.outro("MCP server added successfully")
@@ -609,7 +600,7 @@ export const McpAddCommand = cmd({
             }
           }
 
-          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.seedGlobalConfig()
+          if (!(await seedGlobalConfigIfNeeded(configPath, globalConfigPath))) return
           await addMcpToConfig(name, mcpConfig, configPath)
           prompts.log.success(`MCP server "${name}" added to ${configPath}`)
         }
