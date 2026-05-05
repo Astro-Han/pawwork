@@ -52,6 +52,10 @@ export function shouldApplyVcsDiffResult(input: {
   return input.requestedDirectory === input.currentDirectory && input.requestedRun === input.currentRun
 }
 
+export function vcsTaskKey(directory: string, mode: VcsReviewMode) {
+  return `${directory}\n${mode}`
+}
+
 export function createSessionReviewState(input: {
   directory: () => string
   sessionKey: () => string
@@ -78,20 +82,23 @@ export function createSessionReviewState(input: {
     },
   })
 
-  const vcsTask = new Map<VcsReviewMode, Promise<void>>()
-  const vcsRun = new Map<VcsReviewMode, number>()
+  const vcsTask = new Map<string, Promise<void>>()
+  const vcsRun = new Map<string, number>()
 
-  const bumpVcs = (mode: VcsReviewMode) => {
-    const next = (vcsRun.get(mode) ?? 0) + 1
-    vcsRun.set(mode, next)
+  const bumpVcs = (directory: string, mode: VcsReviewMode) => {
+    const key = vcsTaskKey(directory, mode)
+    const next = (vcsRun.get(key) ?? 0) + 1
+    vcsRun.set(key, next)
     return next
   }
 
   const resetVcs = (mode?: VcsReviewMode) => {
+    const directory = input.directory()
     const modes = mode ? [mode] : (["unstaged", "staged", "branch"] as const)
     modes.forEach((item) => {
-      bumpVcs(item)
-      vcsTask.delete(item)
+      const key = vcsTaskKey(directory, item)
+      bumpVcs(directory, item)
+      vcsTask.delete(key)
       setVcs("diff", item, [])
       setVcs("ready", item, false)
     })
@@ -101,16 +108,17 @@ export function createSessionReviewState(input: {
     if (input.sync.project?.vcs !== "git") return Promise.resolve()
     if (!force && vcs.ready[mode]) return Promise.resolve()
     const directory = input.directory()
+    const key = vcsTaskKey(directory, mode)
 
     if (force) {
-      if (vcsTask.has(mode)) bumpVcs(mode)
-      vcsTask.delete(mode)
+      if (vcsTask.has(key)) bumpVcs(directory, mode)
+      vcsTask.delete(key)
       setVcs("ready", mode, false)
     }
 
-    const current = vcsTask.get(mode)
+    const current = vcsTask.get(key)
     if (current) return current
-    const run = bumpVcs(mode)
+    const run = bumpVcs(directory, mode)
     const client = input.sdk.createClient({ directory, throwOnError: true })
 
     const task = client.vcs
@@ -121,7 +129,7 @@ export function createSessionReviewState(input: {
             requestedDirectory: directory,
             currentDirectory: input.directory(),
             requestedRun: run,
-            currentRun: vcsRun.get(mode),
+            currentRun: vcsRun.get(key),
           })
         ) {
           return
@@ -135,7 +143,7 @@ export function createSessionReviewState(input: {
             requestedDirectory: directory,
             currentDirectory: input.directory(),
             requestedRun: run,
-            currentRun: vcsRun.get(mode),
+            currentRun: vcsRun.get(key),
           })
         ) {
           return
@@ -145,10 +153,10 @@ export function createSessionReviewState(input: {
         setVcs("ready", mode, true)
       })
       .finally(() => {
-        if (vcsTask.get(mode) === task) vcsTask.delete(mode)
+        if (vcsTask.get(key) === task) vcsTask.delete(key)
       })
 
-    vcsTask.set(mode, task)
+    vcsTask.set(key, task)
     return task
   }
 

@@ -166,6 +166,16 @@ export function activeSessionStatuses(input: State["session_status"]) {
   )
 }
 
+export function mergeSessionStatusSnapshot(input: {
+  current: State["session_status"]
+  snapshot: State["session_status"]
+}) {
+  return {
+    ...input.snapshot,
+    ...activeSessionStatuses(input.current),
+  }
+}
+
 function warmSessions(input: {
   ids: string[]
   store: Store<State>
@@ -260,7 +270,15 @@ export async function bootstrapDirectory(input: {
       () =>
         retry(() =>
           input.sdk.session.status().then((x) => {
-            input.setStore("session_status", x.data!)
+            input.setStore(
+              "session_status",
+              reconcile(
+                mergeSessionStatusSnapshot({
+                  current: input.store.session_status,
+                  snapshot: x.data!,
+                }),
+              ),
+            )
             input.setStore("session_status_state", "ready")
             input.setStore("session_status_ready", true)
           }),

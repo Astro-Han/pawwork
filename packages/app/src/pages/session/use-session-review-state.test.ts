@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { deriveReviewArtifactFiles, shouldApplyVcsDiffResult } from "./use-session-review-state"
+import { deriveReviewArtifactFiles, shouldApplyVcsDiffResult, vcsTaskKey } from "./use-session-review-state"
 
 describe("session review state", () => {
   test("uses session artifact history when it matches the visible session", () => {
@@ -87,5 +87,10 @@ describe("session review state", () => {
         currentRun: 1,
       }),
     ).toBe(true)
+  })
+
+  test("keys pending VCS diff tasks by directory and mode", () => {
+    expect(vcsTaskKey("/repo-worktree", "unstaged")).not.toBe(vcsTaskKey("/repo-root", "unstaged"))
+    expect(vcsTaskKey("/repo-root", "unstaged")).not.toBe(vcsTaskKey("/repo-root", "staged"))
   })
 })

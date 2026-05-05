@@ -47,6 +47,14 @@ function createVcsCache(): VcsCache {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
 async function waitFor(check: () => boolean, timeoutMs = 300) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -218,5 +226,59 @@ describe("bootstrapDirectory", () => {
     } finally {
       console.error = originalError
     }
+  })
+
+  test("keeps active status events that arrive before the status snapshot resolves", async () => {
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    const status = deferred<{ data: State["session_status"] }>()
+    let statusStarted = false
+
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => {
+          statusStarted = true
+          return status.promise
+        },
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    await bootstrapDirectory({
+      directory,
+      sdk,
+      store,
+      setStore,
+      vcsCache: createVcsCache(),
+      loadSessions: () => undefined,
+      translate: (key) => key,
+      global: {
+        config: {} as Config,
+        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        project: [] as Project[],
+        provider: { all: [], connected: [], default: {} },
+      },
+      queryClient,
+    })
+
+    await waitFor(() => statusStarted)
+    setStore("session_status", "ses_1", { type: "busy" })
+
+    status.resolve({ data: { ses_1: { type: "idle" } } })
+    await waitFor(() => store.session_status_state === "ready")
+
+    expect(store.session_status.ses_1).toEqual({ type: "busy" })
+    expect(store.session_status_ready).toBe(true)
   })
 })
