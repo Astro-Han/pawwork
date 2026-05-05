@@ -78,6 +78,11 @@ export function createCurrentSyncChild<Child>(input: { directory: () => string |
   }
 }
 
+export function syncChildOptionsForTarget(input: { currentDirectory: string | undefined; targetDirectory?: string }) {
+  if (!input.targetDirectory || input.targetDirectory === input.currentDirectory) return
+  return { bootstrap: false, pin: false } as const
+}
+
 type MessagePage = {
   session: Message[]
   part: { id: string; part: Part[] }[]
@@ -203,8 +208,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       child: (directory) => globalSync.child(directory, { pin: false }),
     })
     const target = (directory?: string) => {
-      if (!directory || directory === sdk.directory) return current()
-      return globalSync.child(directory)
+      const options = syncChildOptionsForTarget({ currentDirectory: sdk.directory, targetDirectory: directory })
+      if (!options || !directory) return current()
+      return globalSync.child(directory, options)
     }
     const retainTarget = (directory?: string) => {
       const targetDirectory = directory || sdk.directory

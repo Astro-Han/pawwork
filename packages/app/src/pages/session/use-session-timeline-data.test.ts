@@ -212,6 +212,8 @@ describe("currentSessionActionReady", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: false,
+        localReady: true,
+        providerReady: true,
       }),
     ).toBe(false)
 
@@ -221,8 +223,23 @@ describe("currentSessionActionReady", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: true,
+        localReady: true,
+        providerReady: true,
       }),
     ).toBe(true)
+  })
+
+  test("waits for directory-local model selection and provider hydration", () => {
+    const ready = {
+      sessionID: "ses",
+      sessionInfo: { id: "ses" },
+      rawMessages: [],
+      statusReady: true,
+    }
+
+    expect(currentSessionActionReady({ ...ready, localReady: false, providerReady: true })).toBe(false)
+    expect(currentSessionActionReady({ ...ready, localReady: true, providerReady: false })).toBe(false)
+    expect(currentSessionActionReady({ ...ready, localReady: true, providerReady: true })).toBe(true)
   })
 
   test("treats a loaded empty status list as idle for an otherwise hydrated session", () => {
@@ -232,6 +249,8 @@ describe("currentSessionActionReady", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: true,
+        localReady: true,
+        providerReady: true,
       }),
     ).toBe(true)
   })
@@ -265,6 +284,8 @@ describe("sessionStatusKnown", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: sessionStatusKnown({ statusState: "error", status: undefined }),
+        localReady: true,
+        providerReady: true,
       }),
     ).toBe(true)
   })
