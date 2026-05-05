@@ -196,7 +196,7 @@ const live: Layer.Layer<
       )
 
       const tools = resolveTools(input)
-      const activeToolNames = Object.keys(tools).filter((x) => x !== "invalid")
+      const traceToolCount = Object.keys(tools).filter((x) => x !== "invalid").length
 
       // LiteLLM and some Anthropic proxies require the tools parameter to be present
       // when message history contains tool calls, even if no tools are being used.
@@ -318,11 +318,12 @@ const live: Layer.Layer<
       }
 
       const tracer = undefined
+      const activeToolNames = Object.keys(tools).filter((x) => x !== "invalid")
 
       input.trace?.request(
         LLMTrace.requestSummary({
           streaming: true,
-          toolCount: activeToolNames.length,
+          toolCount: traceToolCount,
           toolChoice: input.toolChoice,
           small: input.small ?? false,
           reasoningCapability: input.model.capabilities.reasoning,

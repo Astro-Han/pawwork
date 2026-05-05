@@ -666,6 +666,113 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test("keeps noop compatibility tool active for LiteLLM tool-call history", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "test-litellm"
+    const source = await loadFixture("alibaba", "qwen-plus")
+    const model = source.model
+    const request = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                name: "Test LiteLLM",
+                env: ["TEST_LITELLM_API_KEY"],
+                npm: "@ai-sdk/openai-compatible",
+                api: `${server.url.origin}/v1`,
+                models: {
+                  [model.id]: model,
+                },
+                options: {
+                  apiKey: "test-litellm-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-noop-tool")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const user = {
+          id: MessageID.make("user-noop-tool"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+        } satisfies MessageV2.User
+
+        const ctrl = new AbortController()
+        const run = llm.runPromiseExit(
+          (svc) =>
+            svc
+              .stream({
+                user,
+                sessionID,
+                model: resolved,
+                agent,
+                system: ["You are a helpful assistant."],
+                messages: [
+                  { role: "user", content: "Read a file" },
+                  {
+                    role: "assistant",
+                    content: [{ type: "tool-call", toolCallId: "call-1", toolName: "read", input: {} }],
+                  },
+                  {
+                    role: "tool",
+                    content: [
+                      {
+                        type: "tool-result",
+                        toolCallId: "call-1",
+                        toolName: "read",
+                        output: { type: "text", value: "done" },
+                      },
+                    ],
+                  },
+                ] as ModelMessage[],
+                tools: {},
+              })
+              .pipe(Stream.runDrain),
+          { signal: ctrl.signal },
+        )
+
+        const capture = await Promise.race([request, timeout(500)])
+        const tools = capture.body.tools as Array<{ function?: { name?: string } }> | undefined
+        expect(tools?.some((item) => item.function?.name === "_noop")).toBe(true)
+        ctrl.abort()
+        await run
+      },
+    })
+  })
+
   test("sends responses API payload for OpenAI models", async () => {
     const server = state.server
     if (!server) {
