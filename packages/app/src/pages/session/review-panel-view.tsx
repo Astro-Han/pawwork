@@ -42,7 +42,7 @@ export function createReviewPanelView(input: {
 
   const empty = (text: string) => (
     <div class="h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6">
-      <div class="text-13-regular text-text-weak max-w-56">{text}</div>
+      <div class="text-13-regular text-fg-weak max-w-56">{text}</div>
     </div>
   )
 
@@ -67,7 +67,7 @@ export function createReviewPanelView(input: {
 
     return (
       <div class={emptyInput.emptyClass}>
-        <div class="text-13-regular text-text-weak max-w-56">{reviewEmptyText()}</div>
+        <div class="text-13-regular text-fg-weak max-w-56">{reviewEmptyText()}</div>
       </div>
     )
   }
@@ -109,10 +109,10 @@ export function createReviewPanelView(input: {
   )
 
   const reviewPanel = () => (
-    <div class="flex flex-col h-full overflow-hidden bg-background-stronger contain-strict">
+    <div class="flex flex-col h-full overflow-hidden bg-bg-base contain-strict">
       <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
         {reviewContent({
-          loadingClass: "px-6 py-4 text-text-weak",
+          loadingClass: "px-6 py-4 text-fg-weak",
           emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
         })}
       </div>
@@ -126,7 +126,7 @@ export function createReviewPanelView(input: {
         header: "px-4",
         container: "px-4",
       },
-      loadingClass: "px-4 py-4 text-text-weak",
+      loadingClass: "px-4 py-4 text-fg-weak",
       emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
     })
 

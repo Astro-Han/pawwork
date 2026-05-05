@@ -166,7 +166,7 @@ export function ModelSelectorPopover(props: {
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="w-72 h-80 flex flex-col bg-surface-raised-stronger-non-alpha z-50 outline-none overflow-hidden"
+          class="w-72 h-80 flex flex-col bg-surface-raised z-50 outline-none overflow-hidden"
           style={{ "border-radius": "14px", "box-shadow": "var(--shadow-floating)" }}
           onEscapeKeyDown={(event) => {
             close("escape")
@@ -249,7 +249,7 @@ export const DialogSelectModel: Component<{ provider?: string; model?: ModelStat
       }
     >
       <ModelList provider={props.provider} model={props.model} onSelect={() => dialog.close()} />
-      <Button variant="ghost" class="ml-3 mt-5 mb-6 text-text-base self-start" onClick={manage}>
+      <Button variant="ghost" class="ml-3 mt-5 mb-6 text-fg-base self-start" onClick={manage}>
         {language.t("dialog.model.manage")}
       </Button>
     </Dialog>

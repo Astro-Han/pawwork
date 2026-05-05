@@ -76,16 +76,16 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
         <SessionContextUsage variant="indicator" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "status"}>
-        <Icon name="status" size="small" class="text-text-weaker" />
+        <Icon name="status" size="small" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "folder"}>
-        <Icon name="folder" size="small" class="text-text-weaker" />
+        <Icon name="folder" size="small" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "review"}>
-        <Icon name={props.active ? "review-active" : "review"} size="small" class="text-text-weaker" />
+        <Icon name={props.active ? "review-active" : "review"} size="small" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "terminal"}>
-        <Icon name={props.active ? "terminal-active" : "terminal"} size="small" class="text-text-weaker" />
+        <Icon name={props.active ? "terminal-active" : "terminal"} size="small" class="text-fg-weaker" />
       </Match>
     </Switch>
   )
@@ -267,7 +267,7 @@ export function SessionSidePanel(props: {
         aria-label={language.t("session.panel.utility")}
         aria-hidden={!open()}
         inert={!open()}
-        class="relative min-w-0 h-full flex shrink-0 overflow-hidden bg-background-base"
+        class="relative min-w-0 h-full flex shrink-0 overflow-hidden bg-bg-base"
         classList={{
           "pointer-events-none": !open(),
           "transition-[width] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none":
@@ -289,7 +289,7 @@ export function SessionSidePanel(props: {
             onResize={makeRightPanelResizeHandler(props.size, layout)}
           />
         </div>
-        <div class="size-full border-l border-border-weaker-base">
+        <div class="size-full border-l border-border-weaker">
           <DragDropProvider
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -305,7 +305,7 @@ export function SessionSidePanel(props: {
               class="h-full flex flex-col"
               data-scope="right-panel"
             >
-              <Tabs.List class="h-11 shrink-0 px-2 py-0 border-b border-border-weaker-base gap-1 items-center">
+              <Tabs.List class="h-11 shrink-0 px-2 py-0 border-b border-border-weaker gap-1 items-center">
                 <SortableProvider ids={sortableShellTabIds(view().sidePanel.openTabs())}>
                   <For each={shellTabs()}>
                     {(tab) => (
@@ -352,7 +352,7 @@ export function SessionSidePanel(props: {
                       <DropdownMenu.Item onSelect={() => openFilePicker(showAllFiles)}>
                         <Icon name="open-file" size="small" />
                         <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
-                        <span class="ml-auto text-13-regular text-text-weaker">{command.keybind("file.open")}</span>
+                        <span class="ml-auto text-13-regular text-fg-weaker">{command.keybind("file.open")}</span>
                       </DropdownMenu.Item>
                       <Show when={closableMissingTabs().length > 0}>
                         <DropdownMenu.Separator />
@@ -363,7 +363,7 @@ export function SessionSidePanel(props: {
                               <DropdownMenu.ItemLabel>{tab.label}</DropdownMenu.ItemLabel>
                               <Show when={tab.keybind}>
                                 {(keybind) => (
-                                  <span class="ml-auto text-13-regular text-text-weaker">{keybind()}</span>
+                                  <span class="ml-auto text-13-regular text-fg-weaker">{keybind()}</span>
                                 )}
                               </Show>
                             </DropdownMenu.Item>
@@ -384,8 +384,8 @@ export function SessionSidePanel(props: {
             </Tabs.Content>
 
             <Tabs.Content value="review" class="min-h-0 flex-1 overflow-hidden">
-              <div class="relative min-w-0 h-full flex-1 overflow-hidden bg-background-base">
-                <div class="size-full min-w-0 h-full bg-background-base">
+              <div class="relative min-w-0 h-full flex-1 overflow-hidden bg-bg-base">
+                <div class="size-full min-w-0 h-full bg-bg-base">
                     <DragDropProvider
                       onDragStart={handleDragStart}
                       onDragEnd={handleDragEnd}
@@ -400,7 +400,7 @@ export function SessionSidePanel(props: {
                             when={showSecondaryReviewTabs()}
                             fallback={
                               <Show when={shouldShowReviewFileOpenButton(activeTab(), false)}>
-                                <div class="w-full bg-background-stronger flex items-center justify-end px-3 py-1.5">
+                                <div class="w-full bg-bg-base flex items-center justify-end px-3 py-1.5">
                                   <TooltipKeybind
                                     title={language.t("command.file.open")}
                                     keybind={command.keybind("file.open")}
@@ -438,7 +438,7 @@ export function SessionSidePanel(props: {
                               <SortableProvider ids={openedTabs()}>
                                 <For each={openedTabs()}>{(tab) => <SortableTab tab={tab} onTabClose={tabs().close} />}</For>
                               </SortableProvider>
-                              <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
+                              <div class="bg-bg-base h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
                                 <TooltipKeybind
                                   title={language.t("command.file.open")}
                                   keybind={command.keybind("file.open")}
@@ -469,7 +469,7 @@ export function SessionSidePanel(props: {
                             <div class="relative pt-2 flex-1 min-h-0 overflow-hidden">
                               <div class="h-full px-6 pb-42 -mt-4 flex flex-col items-center justify-center text-center gap-6">
                                 <Mark class="w-14 opacity-10" />
-                                <div class="text-13-regular text-text-weak max-w-56">
+                                <div class="text-13-regular text-fg-weak max-w-56">
                                   {language.t("session.files.selectToOpen")}
                                 </div>
                               </div>
@@ -503,7 +503,7 @@ export function SessionSidePanel(props: {
                   <Show
                     when={props.terminalPanel}
                     fallback={
-                      <div class="px-4 py-3 text-13-regular text-text-weak">{language.t("terminal.loading")}</div>
+                      <div class="px-4 py-3 text-13-regular text-fg-weak">{language.t("terminal.loading")}</div>
                     }
                   >
                     {(renderTerminal) => renderTerminal()()}

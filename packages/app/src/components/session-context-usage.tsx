@@ -28,9 +28,9 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
   const context = createMemo(() => metrics().context)
   const tone = createMemo(() => contextUsageTone(context()?.usagePercent))
   const ringColor = createMemo(() => {
-    if (tone() === "danger") return "var(--icon-error-base)"
-    if (tone() === "warning") return "var(--icon-warning-base)"
-    return "var(--border-active)"
+    if (tone() === "danger") return "var(--error)"
+    if (tone() === "warning") return "var(--warning)"
+    return "var(--border-base)"
   })
   const cost = createMemo(() =>
     new Intl.NumberFormat(language.intl(), {
@@ -79,20 +79,20 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
         {(ctx) => (
           <>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{language.t("context.usage.title")}</span>
+              <span class="text-fg-on-brand">{language.t("context.usage.title")}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-text-invert-strong">{contextUsedText(ctx())}</span>
+              <span class="text-fg-on-brand">{contextUsedText(ctx())}</span>
             </div>
             <Show when={compactStatus()}>
-              {(status) => <div class="text-text-invert-base">{status()}</div>}
+              {(status) => <div class="text-fg-on-brand">{status()}</div>}
             </Show>
           </>
         )}
       </Show>
       <div class="flex items-center gap-2">
-        <span class="text-text-invert-strong">{cost()}</span>
-        <span class="text-text-invert-base">{language.t("context.usage.cost")}</span>
+        <span class="text-fg-on-brand">{cost()}</span>
+        <span class="text-fg-on-brand">{language.t("context.usage.cost")}</span>
       </div>
     </div>
   )

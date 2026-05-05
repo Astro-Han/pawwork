@@ -119,7 +119,7 @@ export const SubtitleAction = {
     const [message, setMessage] = createSignal("Subtitle not clicked")
     return (
       <div style={{ display: "grid", gap: "8px" }}>
-        <div style={{ "font-size": "12px", color: "var(--text-weak)" }}>{message()}</div>
+        <div style={{ "font-size": "12px", color: "var(--fg-weak)" }}>{message()}</div>
         <mod.BasicTool
           icon="mcp"
           trigger={{ title: "Clickable subtitle", subtitle: "Click me" }}

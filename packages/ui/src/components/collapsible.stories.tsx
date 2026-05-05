@@ -59,7 +59,7 @@ export const Basic = {
         </div>
       </mod.Collapsible.Trigger>
       <mod.Collapsible.Content data-slot="collapsible-content">
-        <div style={{ color: "var(--text-weak)", "padding-top": "8px" }}>Optional details sit here.</div>
+        <div style={{ color: "var(--fg-weak)", "padding-top": "8px" }}>Optional details sit here.</div>
       </mod.Collapsible.Content>
     </mod.Collapsible>
   ),
@@ -79,7 +79,7 @@ export const Ghost = {
         </div>
       </mod.Collapsible.Trigger>
       <mod.Collapsible.Content data-slot="collapsible-content">
-        <div style={{ color: "var(--text-weak)", "padding-top": "8px" }}>Ghost content.</div>
+        <div style={{ color: "var(--fg-weak)", "padding-top": "8px" }}>Ghost content.</div>
       </mod.Collapsible.Content>
     </mod.Collapsible>
   ),

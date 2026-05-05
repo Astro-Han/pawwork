@@ -160,7 +160,7 @@ export const MiddleClick = {
     const [message, setMessage] = createSignal("Middle click a tab")
     return (
       <div style={{ display: "grid", gap: "8px" }}>
-        <div style={{ "font-size": "12px", color: "var(--text-weak)" }}>{message()}</div>
+        <div style={{ "font-size": "12px", color: "var(--fg-weak)" }}>{message()}</div>
         <mod.Tabs {...props}>
           <mod.Tabs.List>
             <mod.Tabs.Trigger value="tab-1" onMiddleClick={() => setMessage("Middle clicked tab-1")}>

@@ -5,9 +5,9 @@
   user-select: none;
 
   border-radius: var(--radius-xs);
-  border: 0.5px solid var(--border-weak-base);
-  background: var(--surface-raised-base);
-  color: var(--text-base);
+  border: 0.5px solid var(--border-weak);
+  background: var(--surface-raised);
+  color: var(--fg-base);
 
   &[data-size="normal"] {
     height: 18px;

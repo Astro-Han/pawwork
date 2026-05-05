@@ -149,7 +149,7 @@ export function SessionTodoDock(props: {
         >
           <span
             data-slot="session-todo-progress"
-            class="text-13-regular text-text-strong cursor-default inline-flex items-baseline shrink-0 overflow-visible"
+            class="text-13-regular text-fg-strong cursor-default inline-flex items-baseline shrink-0 overflow-visible"
             aria-label={label()}
             style={{
               "--tool-motion-odometer-ms": "600ms",
@@ -181,7 +181,7 @@ export function SessionTodoDock(props: {
             }}
           >
             <TextReveal
-              class="text-13-regular text-text-base cursor-default"
+              class="text-13-regular text-fg-base cursor-default"
               text={store.collapsed ? preview() : undefined}
               duration={600}
               travel={25}
@@ -271,8 +271,8 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
                     "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
                   color:
                     todo().status === "completed" || todo().status === "cancelled"
-                      ? "var(--text-weak)"
-                      : "var(--text-strong)",
+                      ? "var(--fg-weak)"
+                      : "var(--fg-strong)",
                   opacity: todo().status === "pending" ? "0.92" : "1",
                 }}
               />
@@ -283,7 +283,7 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
       <div
         class="pointer-events-none absolute top-0 left-0 right-0 h-4 transition-opacity duration-150"
         style={{
-          background: "linear-gradient(to bottom, var(--background-base), transparent)",
+          background: "linear-gradient(to bottom, var(--bg-base), transparent)",
           opacity: store.stuck ? 1 : 0,
         }}
       />

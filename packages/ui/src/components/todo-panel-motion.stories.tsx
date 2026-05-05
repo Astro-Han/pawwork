@@ -43,9 +43,9 @@ const btn = (accent?: boolean) =>
   ({
     padding: "6px 14px",
     "border-radius": "6px",
-    border: "1px solid var(--color-divider, #333)",
-    background: accent ? "var(--color-accent, #58f)" : "var(--color-fill-element, #222)",
-    color: "var(--color-text, #eee)",
+    border: "1px solid var(--border-weak, #333)",
+    background: accent ? "var(--brand-primary, #58f)" : "var(--surface-base, #222)",
+    color: "var(--fg-base, #eee)",
     cursor: "pointer",
     "font-size": "13px",
   }) as const
@@ -69,8 +69,8 @@ const css = `
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--background-base);
-  border: 1px solid var(--border-weak-base);
+  background: var(--bg-base);
+  border: 1px solid var(--border-weak);
   border-radius: 12px;
 }
 
@@ -88,7 +88,7 @@ const css = `
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--background-stronger);
+  background: var(--bg-base);
 }
 
 [data-slot="todo-preview-content"] {
@@ -114,16 +114,16 @@ const css = `
 
 [data-slot="todo-preview-msg"] {
   border-radius: 8px;
-  border: 1px solid var(--border-weak-base);
+  border: 1px solid var(--border-weak);
   background: var(--surface-base);
-  color: var(--text-weak);
+  color: var(--fg-weak);
   padding: 8px 10px;
   font-size: 13px;
   line-height: 1.35;
 }
 
 [data-slot="todo-preview-msg"][data-strong="true"] {
-  color: var(--text-strong);
+  color: var(--fg-strong);
 }
 `
 
@@ -317,9 +317,9 @@ export const Playground = {
         </div>
 
         <div style={{ display: "grid", gap: "10px", "max-width": "560px" }}>
-          <div style={{ "font-size": "12px", color: "var(--color-text-secondary, #a3a3a3)" }}>Dock open</div>
+          <div style={{ "font-size": "12px", color: "var(--fg-weak, #a3a3a3)" }}>Dock open</div>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               duration
             </span>
             <input
@@ -336,7 +336,7 @@ export const Playground = {
             </span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               bounce
             </span>
             <input
@@ -353,11 +353,11 @@ export const Playground = {
             </span>
           </label>
 
-          <div style={{ "font-size": "12px", color: "var(--color-text-secondary, #a3a3a3)", "margin-top": "4px" }}>
+          <div style={{ "font-size": "12px", color: "var(--fg-weak, #a3a3a3)", "margin-top": "4px" }}>
             Dock close
           </div>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               duration
             </span>
             <input
@@ -374,7 +374,7 @@ export const Playground = {
             </span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               bounce
             </span>
             <input
@@ -391,11 +391,11 @@ export const Playground = {
             </span>
           </label>
 
-          <div style={{ "font-size": "12px", color: "var(--color-text-secondary, #a3a3a3)", "margin-top": "4px" }}>
+          <div style={{ "font-size": "12px", color: "var(--fg-weak, #a3a3a3)", "margin-top": "4px" }}>
             Drawer expand
           </div>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               duration
             </span>
             <input
@@ -412,7 +412,7 @@ export const Playground = {
             </span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               bounce
             </span>
             <input
@@ -429,11 +429,11 @@ export const Playground = {
             </span>
           </label>
 
-          <div style={{ "font-size": "12px", color: "var(--color-text-secondary, #a3a3a3)", "margin-top": "4px" }}>
+          <div style={{ "font-size": "12px", color: "var(--fg-weak, #a3a3a3)", "margin-top": "4px" }}>
             Drawer collapse
           </div>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               duration
             </span>
             <input
@@ -450,7 +450,7 @@ export const Playground = {
             </span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               bounce
             </span>
             <input
@@ -467,11 +467,11 @@ export const Playground = {
             </span>
           </label>
 
-          <div style={{ "font-size": "12px", color: "var(--color-text-secondary, #a3a3a3)", "margin-top": "4px" }}>
+          <div style={{ "font-size": "12px", color: "var(--fg-weak, #a3a3a3)", "margin-top": "4px" }}>
             Subtitle odometer
           </div>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               duration
             </span>
             <input
@@ -488,7 +488,7 @@ export const Playground = {
             </span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               auto fit
             </span>
             <input
@@ -501,7 +501,7 @@ export const Playground = {
             </span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               travel
             </span>
             <input
@@ -516,7 +516,7 @@ export const Playground = {
             <span style={{ width: "64px", "text-align": "right", "font-size": "13px" }}>{subtitleTravel()}px</span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               edge
             </span>
             <input
@@ -531,11 +531,11 @@ export const Playground = {
             <span style={{ width: "64px", "text-align": "right", "font-size": "13px" }}>{subtitleEdge()}%</span>
           </label>
 
-          <div style={{ "font-size": "12px", color: "var(--color-text-secondary, #a3a3a3)", "margin-top": "4px" }}>
+          <div style={{ "font-size": "12px", color: "var(--fg-weak, #a3a3a3)", "margin-top": "4px" }}>
             Count odometer
           </div>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               duration
             </span>
             <input
@@ -552,7 +552,7 @@ export const Playground = {
             </span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               mask
             </span>
             <input
@@ -567,7 +567,7 @@ export const Playground = {
             <span style={{ width: "64px", "text-align": "right", "font-size": "13px" }}>{countMask()}%</span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               mask height
             </span>
             <input
@@ -582,7 +582,7 @@ export const Playground = {
             <span style={{ width: "64px", "text-align": "right", "font-size": "13px" }}>{countMaskHeight()}px</span>
           </label>
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
-            <span style={{ width: "110px", "font-size": "13px", color: "var(--color-text-secondary, #a3a3a3)" }}>
+            <span style={{ width: "110px", "font-size": "13px", color: "var(--fg-weak, #a3a3a3)" }}>
               width spring
             </span>
             <input

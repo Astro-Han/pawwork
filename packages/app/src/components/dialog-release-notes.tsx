@@ -81,7 +81,7 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
           {/* Top section - feature content (fixed position from top) */}
           <div class="flex flex-col flex-1 min-h-0 gap-2 pt-22 pb-4">
             <div class="flex items-center gap-2 shrink-0">
-              <h1 id="release-notes-title" class="text-16-medium text-text-strong">
+              <h1 id="release-notes-title" class="text-16-medium text-fg-strong">
                 {feature()?.title ?? ""}
               </h1>
             </div>
@@ -90,7 +90,7 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
               role="region"
               aria-labelledby="release-notes-title"
               tabIndex={0}
-              class="text-13-regular text-text-base whitespace-pre-line overflow-y-auto min-h-0 flex-1 pr-2"
+              class="text-13-regular text-fg-base whitespace-pre-line overflow-y-auto min-h-0 flex-1 pr-2"
             >
               {feature()?.description ?? ""}
             </p>
@@ -129,8 +129,8 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
                     <div
                       class="w-full h-0.5 rounded-[1px] transition-colors duration-200"
                       classList={{
-                        "bg-icon-strong-base": i === index(),
-                        "bg-icon-weak-base": i !== index(),
+                        "bg-icon-strong": i === index(),
+                        "bg-icon-weak": i !== index(),
                       }}
                     />
                   </button>

@@ -45,7 +45,7 @@ test("desktop shell shares titlebar height across titlebar and narrow sidebar ge
   expect(css).toContain("--shell-titlebar-height: 44px;")
   expect(css).not.toContain("--shell-titlebar-height: 40px;")
   expect(css).not.toContain("--shell-titlebar-height: 48px;")
-  expect(css).toContain(':root[data-color-scheme="dark"] {')
+  expect(css).toContain(':root[data-color-scheme="dark"]')
   expect(css).not.toContain("@media (prefers-color-scheme: dark)")
   expect(wideDesktopQuery).toBeGreaterThan(-1)
   expect(wideFrameRule).toBeGreaterThan(wideDesktopQuery)

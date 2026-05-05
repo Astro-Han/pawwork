@@ -13,7 +13,7 @@ const POLL_MS = 10_000
 type CategoryState = "ok" | "warn" | "empty"
 
 function EmptyHint(props: { text: string }) {
-  return <div class="text-13-regular text-text-weaker py-1">{props.text}</div>
+  return <div class="text-13-regular text-fg-weaker py-1">{props.text}</div>
 }
 
 function SectionRow(props: {
@@ -25,26 +25,26 @@ function SectionRow(props: {
   children?: JSX.Element
 }) {
   const dot = () => {
-    if (props.state === "warn") return "bg-icon-critical-base"
+    if (props.state === "warn") return "bg-error"
     if (props.state === "ok") return "bg-icon-success-base"
-    return "bg-border-weak-base"
+    return "bg-border-weak"
   }
   return (
-    <div class="border-b border-border-weaker-base last:border-b-0">
+    <div class="border-b border-border-weaker last:border-b-0">
       <button
         type="button"
-        class="flex items-center gap-2 w-full px-4 py-2.5 hover:bg-surface-raised-base-hover text-left"
+        class="flex items-center gap-2 w-full px-4 py-2.5 hover:bg-surface-raised text-left"
         onClick={props.onToggle}
         aria-expanded={props.expanded}
       >
         <div class={`size-1.5 rounded-full shrink-0 ${dot()}`} aria-hidden />
-        <div class="text-13-regular text-text-base">{props.title}</div>
-        <div class="text-13-regular text-text-weaker">{props.count}</div>
+        <div class="text-13-regular text-fg-base">{props.title}</div>
+        <div class="text-13-regular text-fg-weaker">{props.count}</div>
         <div class="flex-1" />
         <Icon
           name="chevron-down"
           size="small"
-          class="text-icon-weaker transition-transform"
+          class="text-icon-disabled transition-transform"
           classList={{ "rotate-180": props.expanded }}
         />
       </button>
@@ -175,7 +175,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
 
   return (
     <div class="flex flex-col">
-      <div class="text-13-medium uppercase tracking-wide text-text-weaker px-4 py-3 pb-1">
+      <div class="text-13-medium uppercase tracking-wide text-fg-weaker px-4 py-3 pb-1">
         {language.t("status.connections.title")}
       </div>
 
@@ -192,15 +192,15 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
               const key = ServerConnection.key(conn)
               const dotClass = () => {
                 const probe = health[key]?.healthy
-                if (probe === false) return "bg-icon-critical-base"
+                if (probe === false) return "bg-error"
                 if (probe === true) return "bg-icon-success-base"
                 // Unprobed / in-flight: match the aggregate grey so parent and row agree.
-                return "bg-border-weak-base"
+                return "bg-border-weak"
               }
               return (
                 <div class="flex items-center gap-2 py-1">
                   <div class={`size-1.5 rounded-full shrink-0 ${dotClass()}`} aria-hidden />
-                  <span class="text-13-regular text-text-base truncate min-w-0">{conn.http.url}</span>
+                  <span class="text-13-regular text-fg-base truncate min-w-0">{conn.http.url}</span>
                 </div>
               )
             }}
@@ -234,15 +234,15 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
                   <div
                     classList={{
                       "size-1.5 rounded-full shrink-0": true,
-                      "bg-icon-critical-base": bad(),
+                      "bg-error": bad(),
                       "bg-icon-success-base": s() === "connected",
-                      "bg-border-weak-base": s() === "disabled" || !s(),
+                      "bg-border-weak": s() === "disabled" || !s(),
                     }}
                     aria-hidden
                   />
-                  <span class="text-13-regular text-text-base truncate min-w-0">{name}</span>
+                  <span class="text-13-regular text-fg-base truncate min-w-0">{name}</span>
                   <Show when={label()}>
-                    <span class="text-13-regular text-text-weaker ml-auto">{label()}</span>
+                    <span class="text-13-regular text-fg-weaker ml-auto">{label()}</span>
                   </Show>
                 </div>
               )
@@ -265,14 +265,14 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
                 <div
                   classList={{
                     "size-1.5 rounded-full shrink-0": true,
-                    "bg-icon-critical-base": item.status === "error",
+                    "bg-error": item.status === "error",
                     "bg-icon-success-base": item.status === "connected",
                     // Fallback for transient states (starting, stopped, unknown) so the dot stays visible.
-                    "bg-border-weak-base": item.status !== "error" && item.status !== "connected",
+                    "bg-border-weak": item.status !== "error" && item.status !== "connected",
                   }}
                   aria-hidden
                 />
-                <span class="text-13-regular text-text-base truncate min-w-0">{item.name || item.id}</span>
+                <span class="text-13-regular text-fg-base truncate min-w-0">{item.name || item.id}</span>
               </div>
             )}
           </For>
@@ -291,7 +291,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
             {(plugin) => (
               <div class="flex items-center gap-2 py-1">
                 <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" aria-hidden />
-                <span class="text-13-regular text-text-base truncate min-w-0">{plugin}</span>
+                <span class="text-13-regular text-fg-base truncate min-w-0">{plugin}</span>
               </div>
             )}
           </For>

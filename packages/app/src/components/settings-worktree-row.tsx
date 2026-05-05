@@ -24,21 +24,21 @@ export function SettingsWorktreeRow(props: {
 
   return (
     <li
-      class="flex items-center gap-3 min-h-[56px] py-2.5 px-2 -mx-2 rounded-md border-b border-border-weak-base last:border-none transition-colors"
+      class="flex items-center gap-3 min-h-[56px] py-2.5 px-2 -mx-2 rounded-md border-b border-border-weak last:border-none transition-colors"
       classList={{
-        "bg-surface-warning-weak": props.confirming,
+        "bg-warning-bg": props.confirming,
       }}
     >
       <Show
         when={!props.confirming}
         fallback={
           <>
-            <Icon name="worktree" size="normal" class="shrink-0 text-text-base" />
+            <Icon name="worktree" size="normal" class="shrink-0 text-fg-base" />
             <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
-              <span class="truncate text-13-medium text-text-strong">
+              <span class="truncate text-13-medium text-fg-strong">
                 {language.t("settings.worktrees.confirmDelete.question", { name: name() })}
               </span>
-              <span class="truncate text-12-regular text-text-weak" title={directory()}>
+              <span class="truncate text-12-regular text-fg-weak" title={directory()}>
                 {language.t("settings.worktrees.confirmDelete.warning")}
               </span>
             </div>
@@ -58,10 +58,10 @@ export function SettingsWorktreeRow(props: {
           </>
         }
       >
-        <Icon name="worktree" size="normal" class="shrink-0 text-text-weak" />
+        <Icon name="worktree" size="normal" class="shrink-0 text-fg-weak" />
         <div class="flex min-w-0 flex-1 flex-col gap-[2px]" title={rowTooltip()}>
-          <span class="truncate text-12-regular text-text-weak">{props.ownerName}</span>
-          <span class="truncate text-13-medium text-text-strong">{identity()}</span>
+          <span class="truncate text-12-regular text-fg-weak">{props.ownerName}</span>
+          <span class="truncate text-13-medium text-fg-strong">{identity()}</span>
         </div>
         <div class="flex shrink-0 items-center">
           <Show

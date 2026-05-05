@@ -41,15 +41,15 @@ export const Basic = {
   render: () => (
     <div style={{ display: "grid", gap: "16px", "align-items": "start" }}>
       <div>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Mark</div>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Mark</div>
         <mod.Mark />
       </div>
       <div>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Splash</div>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Splash</div>
         <mod.Splash style={{ width: "80px", height: "100px" }} />
       </div>
       <div>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Logo</div>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Logo</div>
         <mod.Logo style={{ width: "200px" }} />
       </div>
     </div>

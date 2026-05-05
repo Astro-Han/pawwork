@@ -555,7 +555,7 @@ export function DialogSelectServer() {
                     class="flex items-center gap-3 min-w-0 flex-1"
                     badge={
                       <Show when={defaultKey() === ServerConnection.key(i)}>
-                        <span class="text-text-base bg-surface-base text-13-regular px-1.5 rounded-xs">
+                        <span class="text-fg-base bg-surface-base text-13-regular px-1.5 rounded-xs">
                           {language.t("dialog.server.status.default")}
                         </span>
                       </Show>
@@ -573,7 +573,7 @@ export function DialogSelectServer() {
                           as={IconButton}
                           icon="dot-grid"
                           variant="ghost"
-                          class="shrink-0 size-8 hover:bg-surface-base-hover data-[expanded]:bg-surface-base-active"
+                          class="shrink-0 size-8 hover:bg-surface-sunken data-[expanded]:bg-surface-base-active"
                           onClick={(e: MouseEvent) => e.stopPropagation()}
                           onPointerDown={(e: PointerEvent) => e.stopPropagation()}
                         />
@@ -604,7 +604,7 @@ export function DialogSelectServer() {
                             <DropdownMenu.Separator />
                             <DropdownMenu.Item
                               onSelect={() => handleRemove(ServerConnection.key(i))}
-                              class="text-text-on-critical-base hover:bg-surface-critical-weak"
+                              class="text-error-text hover:bg-error-bg"
                             >
                               <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.delete")}</DropdownMenu.ItemLabel>
                             </DropdownMenu.Item>

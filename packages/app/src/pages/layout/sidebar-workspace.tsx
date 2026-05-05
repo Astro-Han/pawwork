@@ -73,7 +73,7 @@ export const WorkspaceDragOverlay = (props: {
 
   return (
     <Show when={label()}>
-      {(value) => <div class="bg-background-base rounded-md px-2 py-1 text-13-medium text-text-strong">{value()}</div>}
+      {(value) => <div class="bg-bg-base rounded-md px-2 py-1 text-13-medium text-fg-strong">{value()}</div>}
     </Show>
   )
 }
@@ -98,13 +98,13 @@ const WorkspaceHeader = (props: {
         <Spinner class="size-[15px]" />
       </Show>
     </div>
-    <span class="text-13-medium text-text-base shrink-0">
+    <span class="text-13-medium text-fg-base shrink-0">
       {props.local() ? props.language.t("workspace.type.local") : props.language.t("workspace.type.sandbox")} :
     </span>
     <Show
       when={!props.local()}
       fallback={
-        <span class="text-13-medium text-text-base min-w-0 truncate">
+        <span class="text-13-medium text-fg-base min-w-0 truncate">
           {props.branch() ?? getFilename(props.directory)}
         </span>
       }
@@ -118,8 +118,8 @@ const WorkspaceHeader = (props: {
           props.renameWorkspace(props.directory, trimmed, props.projectId, props.branch())
           props.setEditor("value", props.workspaceValue())
         }}
-        class="text-13-medium text-text-base min-w-0 truncate"
-        displayClass="text-13-medium text-text-base min-w-0 truncate"
+        class="text-13-medium text-fg-base min-w-0 truncate"
+        displayClass="text-13-medium text-fg-base min-w-0 truncate"
         editing={props.workspaceEditActive()}
         stopPropagation={false}
         openOnDblClick={false}
@@ -261,7 +261,7 @@ const WorkspaceSessionList = (props: {
       <div class="relative w-full py-1">
         <Button
           variant="ghost"
-          class="flex w-full text-left justify-start text-13-regular text-text-weak pl-2 pr-10"
+          class="flex w-full text-left justify-start text-13-regular text-fg-weak pl-2 pr-10"
           size="large"
           onClick={(e: MouseEvent) => {
             props.loadMore()
@@ -363,7 +363,7 @@ export const SortableWorkspace = (props: {
                 when={workspaceEditActive()}
                 fallback={
                   <Collapsible.Trigger
-                    class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md hover:bg-surface-raised-base-hover transition-[padding] duration-200 ${
+                    class={`flex items-center justify-between w-full pl-2 py-1.5 rounded-md hover:bg-surface-raised transition-[padding] duration-200 ${
                       menu.open ? "pr-16" : "pr-2"
                     } group-hover/workspace:pr-16 group-focus-within/workspace:pr-16`}
                     data-action="workspace-toggle"

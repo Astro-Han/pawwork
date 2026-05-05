@@ -35,16 +35,16 @@ const unsafeCSS = `
   --diffs-bg-addition-number: var(--diffs-bg-addition-number-override, light-dark( color-mix(in lab, var(--diffs-bg) 91%, var(--diffs-addition-base)), color-mix(in lab, var(--diffs-bg) 85%, var(--diffs-addition-base))));
   --diffs-bg-addition-hover: var(--diffs-bg-addition-hover-override, light-dark( color-mix(in lab, var(--diffs-bg) 80%, var(--diffs-addition-base)), color-mix(in lab, var(--diffs-bg) 70%, var(--diffs-addition-base))));
   --diffs-bg-addition-emphasis: var(--diffs-bg-addition-emphasis-override, light-dark(rgb(from var(--diffs-addition-base) r g b / 0.07), rgb(from var(--diffs-addition-base) r g b / 0.1)));
-  --diffs-selection-base: var(--surface-warning-strong);
-  --diffs-selection-border: var(--border-warning-base);
+  --diffs-selection-base: var(--warning-bg);
+  --diffs-selection-border: var(--warning);
   --diffs-selection-number-fg: #1c1917;
   /* Use explicit alpha instead of color-mix(..., transparent) to avoid Safari's non-premultiplied interpolation bugs. */
-  --diffs-bg-selection: var(--diffs-bg-selection-override, rgb(from var(--surface-warning-base) r g b / 0.65));
+  --diffs-bg-selection: var(--diffs-bg-selection-override, rgb(from var(--warning-bg) r g b / 0.65));
   --diffs-bg-selection-number: var(
     --diffs-bg-selection-number-override,
-    rgb(from var(--surface-warning-base) r g b / 0.85)
+    rgb(from var(--warning-bg) r g b / 0.85)
   );
-  --diffs-bg-selection-text: rgb(from var(--surface-warning-strong) r g b / 0.2);
+  --diffs-bg-selection-text: rgb(from var(--warning-bg) r g b / 0.2);
 }
 
 :host([data-color-scheme='dark']) [data-diff],
@@ -63,11 +63,11 @@ const unsafeCSS = `
 }
 
 ::highlight(opencode-find) {
-  background-color: rgb(from var(--surface-warning-base) r g b / 0.35);
+  background-color: rgb(from var(--warning-bg) r g b / 0.35);
 }
 
 ::highlight(opencode-find-current) {
-  background-color: rgb(from var(--surface-warning-strong) r g b / 0.55);
+  background-color: rgb(from var(--warning-bg) r g b / 0.55);
 }
 
 [data-diff] [data-line][data-comment-selected]:not([data-selected-line]) {
@@ -138,7 +138,7 @@ const unsafeCSS = `
     height: 24px;
   }
   [data-column-number] {
-    background-color: var(--background-stronger);
+    background-color: var(--bg-base);
     cursor: default !important;
   }
 

@@ -50,7 +50,7 @@
     margin-top: 12px;
     width: 100%;
     min-width: 0;
-    color: var(--text-weak);
+    color: var(--fg-weak);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
@@ -66,12 +66,12 @@
   [data-component="text-reveal"].session-turn-thinking-heading {
     flex: 1 1 auto;
     min-width: 0;
-    color: var(--text-weaker);
+    color: var(--fg-weaker);
     font-weight: var(--font-weight-regular);
   }
 
   .error-card {
-    color: var(--text-on-critical-base);
+    color: var(--error-text);
     max-height: 240px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -122,28 +122,28 @@
     font-size: var(--font-size-base);
     line-height: var(--line-height-large);
     font-weight: var(--font-weight-medium);
-    color: var(--text-strong);
+    color: var(--fg-strong);
     white-space: nowrap;
   }
 
   [data-slot="session-turn-changes-additions"] {
-    color: var(--text-diff-add-base);
+    color: var(--success-text);
     font-variant-numeric: tabular-nums;
   }
 
   [data-slot="session-turn-changes-deletions"] {
-    color: var(--text-diff-delete-base);
+    color: var(--error-text);
     font-variant-numeric: tabular-nums;
   }
 
   [data-slot="session-turn-changes-omitted"] {
-    color: var(--text-muted);
+    color: var(--fg-weaker);
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-regular);
   }
 
   [data-slot="session-turn-changes-undone"] {
-    color: var(--text-muted);
+    color: var(--fg-weaker);
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-regular);
   }
@@ -154,7 +154,7 @@
     border: 0;
     border-radius: 6px;
     background: transparent;
-    color: var(--text-weak);
+    color: var(--fg-weak);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
     line-height: 24px;
@@ -163,12 +163,12 @@
   }
 
   [data-slot="session-turn-changes-action"]:hover {
-    background: var(--button-ghost-hover);
-    color: var(--text-strong);
+    background: var(--surface-sunken);
+    color: var(--fg-strong);
   }
 
   [data-slot="session-turn-changes-action"][data-confirm] {
-    color: var(--icon-warning-base);
+    color: var(--warning);
   }
 
   [data-slot="session-turn-changes-list"] {
@@ -194,7 +194,7 @@
   }
 
   [data-slot="session-turn-change-row"]:hover {
-    background: var(--surface-base-hover);
+    background: var(--surface-sunken);
   }
 
   [data-slot="session-turn-change-chevron"] {
@@ -203,7 +203,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: var(--icon-weaker);
+    color: var(--icon-disabled);
     transform: rotate(-90deg);
     transition: transform 0.15s ease;
   }
@@ -217,7 +217,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text-strong);
+    color: var(--fg-strong);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
     line-height: var(--line-height-large);
@@ -234,11 +234,11 @@
   }
 
   [data-slot="session-turn-change-status"] {
-    color: var(--text-weak);
+    color: var(--fg-weak);
   }
 
   [data-slot="session-turn-change-unrestorable"] {
-    color: var(--text-weak);
+    color: var(--fg-weak);
     font-size: var(--font-size-small);
   }
 
@@ -252,14 +252,14 @@
   [data-slot="session-turn-change-diff"] {
     max-height: 420px;
     overflow: auto;
-    background: var(--surface-inset-base);
+    background: var(--surface-sunken);
   }
 
   [data-slot="session-turn-changes-skipped-notice"] {
     border-top: 1px solid var(--border-base);
     padding: 6px 10px;
-    background: var(--surface-warning-base, var(--surface-base));
-    color: var(--text-warning-base, var(--text-weak));
+    background: var(--warning-bg, var(--surface-base));
+    color: var(--warning-text, var(--fg-weak));
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
     line-height: var(--line-height-large);
@@ -274,13 +274,13 @@
     position: sticky;
     top: var(--sticky-accordion-top, 0px);
     z-index: 20;
-    background-color: var(--background-stronger);
+    background-color: var(--bg-base);
     height: 44px;
   }
 
   [data-slot="session-turn-diffs-label"] {
     font-variant-numeric: tabular-nums;
-    color: var(--text-strong);
+    color: var(--fg-strong);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
@@ -288,7 +288,7 @@
   }
 
   [data-slot="session-turn-diffs-toggle"] {
-    color: var(--text-interactive-base);
+    color: var(--brand-primary);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-regular);
@@ -308,7 +308,7 @@
   }
 
   [data-slot="session-turn-diffs-more"] {
-    color: var(--text-weak);
+    color: var(--fg-weak);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
     line-height: var(--line-height-large);
@@ -318,7 +318,7 @@
     transition: color 0.15s ease;
 
     &:hover {
-      color: var(--text-link-base);
+      color: var(--brand-primary);
     }
   }
 
@@ -348,7 +348,7 @@
   }
 
   [data-slot="session-turn-diff-directory"] {
-    color: var(--text-base);
+    color: var(--fg-base);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -358,7 +358,7 @@
 
   [data-slot="session-turn-diff-filename"] {
     min-width: 0;
-    color: var(--text-strong);
+    color: var(--fg-strong);
     font-weight: var(--font-weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -374,7 +374,7 @@
 
   [data-slot="session-turn-diff-chevron"] {
     display: inline-flex;
-    color: var(--icon-weaker);
+    color: var(--icon-disabled);
     transform: rotate(-90deg);
     transition: transform 0.15s ease;
   }
@@ -384,7 +384,7 @@
   }
 
   [data-slot="session-turn-diff-view"] {
-    background-color: var(--surface-inset-base);
+    background-color: var(--surface-sunken);
     width: 100%;
     min-width: 0;
     overflow-y: auto;

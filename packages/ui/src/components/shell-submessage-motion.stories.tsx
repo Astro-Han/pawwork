@@ -31,9 +31,9 @@ const btn = (accent?: boolean) =>
   ({
     padding: "6px 14px",
     "border-radius": "6px",
-    border: "1px solid var(--color-divider, #333)",
-    background: accent ? "var(--color-accent, #58f)" : "var(--color-fill-element, #222)",
-    color: "var(--color-text, #eee)",
+    border: "1px solid var(--border-weak, #333)",
+    background: accent ? "var(--brand-primary, #58f)" : "var(--surface-base, #222)",
+    color: "var(--fg-base, #eee)",
     cursor: "pointer",
     "font-size": "13px",
   }) as const
@@ -41,7 +41,7 @@ const btn = (accent?: boolean) =>
 const sliderLabel = {
   "font-size": "11px",
   "font-family": "monospace",
-  color: "var(--color-text-weak, #666)",
+  color: "var(--color-fg-weak, #666)",
   "min-width": "84px",
   "flex-shrink": "0",
   "text-align": "right",
@@ -50,7 +50,7 @@ const sliderLabel = {
 const sliderValue = {
   "font-family": "monospace",
   "font-size": "11px",
-  color: "var(--color-text-weak, #aaa)",
+  color: "var(--color-fg-weak, #aaa)",
   "min-width": "76px",
 }
 
@@ -218,12 +218,12 @@ export const Playground = {
           <div
             style={{
               "border-radius": "8px",
-              border: "1px solid var(--color-divider, #333)",
-              background: "var(--color-fill-secondary, #161616)",
+              border: "1px solid var(--border-weak, #333)",
+              background: "var(--surface-raised, #161616)",
               padding: "14px 16px",
               "font-family": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
               "font-size": "18px",
-              color: "var(--color-text, #eee)",
+              color: "var(--fg-base, #eee)",
               "white-space": "pre-wrap",
             }}
           >
@@ -247,7 +247,7 @@ export const Playground = {
           style={{
             display: "grid",
             gap: "10px",
-            "border-top": "1px solid var(--color-divider, #333)",
+            "border-top": "1px solid var(--border-weak, #333)",
             "padding-top": "14px",
           }}
         >
@@ -261,9 +261,9 @@ export const Playground = {
                 "max-width": "100%",
                 padding: "6px 8px",
                 "border-radius": "6px",
-                border: "1px solid var(--color-divider, #333)",
-                background: "var(--color-fill-element, #222)",
-                color: "var(--color-text, #eee)",
+                border: "1px solid var(--border-weak, #333)",
+                background: "var(--surface-base, #222)",
+                color: "var(--fg-base, #eee)",
               }}
             />
           </div>

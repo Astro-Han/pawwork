@@ -19,7 +19,7 @@ export const pawworkSkillCards: readonly PawworkSkillCard[] = [
     name: "document-processing",
     iconName: "doc-processing",
     homeIcon: "doc-processing",
-    homeIconClass: "text-icon-warning-base",
+    homeIconClass: "text-warning",
     titleKey: "session.new.card.document.title",
     descriptionKey: "session.new.card.document.description",
   },

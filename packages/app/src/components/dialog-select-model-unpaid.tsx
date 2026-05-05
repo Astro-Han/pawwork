@@ -43,7 +43,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
       class="overflow-y-auto [&_[data-slot=dialog-body]]:overflow-visible [&_[data-slot=dialog-body]]:flex-none"
     >
       <div class="flex flex-col gap-3 px-2.5" onKeyDown={handleKeyDown}>
-        <div class="text-13-medium text-text-base px-2.5">{language.t("dialog.model.unpaid.freeModels.title")}</div>
+        <div class="text-13-medium text-fg-base px-2.5">{language.t("dialog.model.unpaid.freeModels.title")}</div>
         <List
           class="[&_[data-slot=list-scroll]]:overflow-visible"
           ref={(ref) => (listRef = ref)}
@@ -85,9 +85,9 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
         </List>
       </div>
       <div class="px-1.5 pb-1.5">
-        <div class="w-full rounded-sm border border-border-weak-base bg-surface-raised-base">
+        <div class="w-full rounded-sm border border-border-weak bg-surface-raised">
           <div class="w-full flex flex-col items-start gap-4 px-1.5 pt-4 pb-4">
-            <div class="px-2 text-13-medium text-text-base">{language.t("dialog.model.unpaid.addMore.title")}</div>
+            <div class="px-2 text-13-medium text-fg-base">{language.t("dialog.model.unpaid.addMore.title")}</div>
             <div class="w-full">
               <List
                 class="w-full px-0"
@@ -109,21 +109,21 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
                     <ProviderIcon data-slot="list-item-extra-icon" id={i.id} />
                     <span>{i.name}</span>
                     <Show when={i.id === "opencode"}>
-                      <div class="text-13-regular text-text-weak">{language.t("dialog.provider.opencode.tagline")}</div>
+                      <div class="text-13-regular text-fg-weak">{language.t("dialog.provider.opencode.tagline")}</div>
                     </Show>
                     <Show when={i.id === "opencode"}>
                       <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                     </Show>
                     <Show when={i.id === "opencode-go"}>
                       <>
-                        <div class="text-13-regular text-text-weak">
+                        <div class="text-13-regular text-fg-weak">
                           {language.t("dialog.provider.opencodeGo.tagline")}
                         </div>
                         <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </>
                     </Show>
                     <Show when={i.id === "anthropic"}>
-                      <div class="text-13-regular text-text-weak">{language.t("dialog.provider.anthropic.note")}</div>
+                      <div class="text-13-regular text-fg-weak">{language.t("dialog.provider.anthropic.note")}</div>
                     </Show>
                   </div>
                 )}

@@ -21,7 +21,7 @@
 
   [data-slot="session-review-header"] {
     z-index: 120;
-    background-color: var(--background-stronger);
+    background-color: var(--bg-base);
     height: 40px;
     padding-bottom: 8px;
     flex-shrink: 0;
@@ -36,7 +36,7 @@
     font-size: var(--font-size-large);
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
-    color: var(--text-strong);
+    color: var(--fg-strong);
   }
 
   [data-slot="session-review-actions"] {
@@ -115,7 +115,7 @@
   }
 
   [data-slot="session-review-directory"] {
-    color: var(--text-base);
+    color: var(--fg-base);
     text-overflow: ellipsis;
     overflow: hidden;
     white-space: nowrap;
@@ -124,7 +124,7 @@
   }
 
   [data-slot="session-review-filename"] {
-    color: var(--text-strong);
+    color: var(--fg-strong);
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -139,7 +139,7 @@
     margin-left: 8px;
     border: none;
     background: transparent;
-    color: var(--text-base);
+    color: var(--fg-base);
     cursor: pointer;
     border-radius: 4px;
     opacity: 0;
@@ -148,7 +148,7 @@
     transition: opacity 0.15s ease;
 
     &:hover {
-      color: var(--text-strong);
+      color: var(--fg-strong);
       background: var(--surface-base);
     }
   }
@@ -167,7 +167,7 @@
 
   [data-slot="session-review-diff-chevron"] {
     display: inline-flex;
-    color: var(--icon-weaker);
+    color: var(--icon-disabled);
     transform: rotate(-90deg);
     transition: transform 0.15s ease;
   }
@@ -189,15 +189,15 @@
   }
 
   [data-slot="session-review-change"][data-type="added"] {
-    color: var(--icon-diff-add-base);
+    color: var(--success);
   }
 
   [data-slot="session-review-change"][data-type="removed"] {
-    color: var(--icon-diff-delete-base);
+    color: var(--error);
   }
 
   [data-slot="session-review-change"][data-type="modified"] {
-    color: var(--icon-diff-modified-base);
+    color: var(--warning);
   }
 
   [data-slot="session-review-diff-wrapper"] {
@@ -211,21 +211,21 @@
 
   [data-slot="session-review-large-diff"] {
     padding: 12px;
-    background: var(--background-stronger);
+    background: var(--bg-base);
   }
 
   [data-slot="session-review-large-diff-title"] {
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
     font-weight: var(--font-weight-medium);
-    color: var(--text-strong);
+    color: var(--fg-strong);
     margin-bottom: 4px;
   }
 
   [data-slot="session-review-large-diff-meta"] {
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
-    color: var(--text-weak);
+    color: var(--fg-weak);
     word-break: break-word;
   }
 

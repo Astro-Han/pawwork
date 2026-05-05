@@ -38,9 +38,9 @@ const btn = (accent?: boolean) =>
   ({
     padding: "5px 12px",
     "border-radius": "6px",
-    border: accent ? "1px solid var(--color-accent, #58f)" : "1px solid var(--color-divider, #333)",
-    background: accent ? "var(--color-accent, #58f)" : "var(--color-fill-element, #222)",
-    color: "var(--color-text, #eee)",
+    border: accent ? "1px solid var(--brand-primary, #58f)" : "1px solid var(--border-weak, #333)",
+    background: accent ? "var(--brand-primary, #58f)" : "var(--surface-base, #222)",
+    color: "var(--fg-base, #eee)",
     cursor: "pointer",
     "font-size": "12px",
   }) as const
@@ -48,15 +48,15 @@ const btn = (accent?: boolean) =>
 const sliderLabel = {
   width: "90px",
   "font-size": "12px",
-  color: "var(--color-text-secondary, #a3a3a3)",
+  color: "var(--fg-weak, #a3a3a3)",
   "flex-shrink": "0",
 } as const
 
 const cardStyle = {
   padding: "20px 24px",
   "border-radius": "10px",
-  border: "1px solid var(--color-divider, #333)",
-  background: "var(--color-fill-element, #1a1a1a)",
+  border: "1px solid var(--border-weak, #333)",
+  background: "var(--surface-base, #1a1a1a)",
   display: "grid",
   gap: "12px",
 } as const
@@ -64,7 +64,7 @@ const cardStyle = {
 const cardLabel = {
   "font-size": "11px",
   "font-family": "monospace",
-  color: "var(--color-text-weak, #666)",
+  color: "var(--color-fg-weak, #666)",
 } as const
 
 const previewRow = {
@@ -74,7 +74,7 @@ const previewRow = {
   "font-size": "14px",
   "font-weight": "500",
   "line-height": "20px",
-  color: "var(--text-weak, #aaa)",
+  color: "var(--fg-weak, #aaa)",
   "min-height": "20px",
   overflow: "visible",
 } as const
@@ -82,7 +82,7 @@ const previewRow = {
 const headingSlot = {
   "min-width": "0",
   overflow: "visible",
-  color: "var(--text-weaker, #888)",
+  color: "var(--fg-weaker, #888)",
   "font-weight": "400",
 } as const
 
@@ -204,7 +204,7 @@ export const Playground = {
         </div>
 
         <div style={{ display: "grid", gap: "8px", "max-width": "480px" }}>
-          <div style={{ "font-size": "11px", color: "var(--color-text-weak, #666)" }}>Hybrid (wipe + slide)</div>
+          <div style={{ "font-size": "11px", color: "var(--color-fg-weak, #666)" }}>Hybrid (wipe + slide)</div>
 
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
             <span style={sliderLabel}>edge</span>
@@ -234,7 +234,7 @@ export const Playground = {
             <span style={{ width: "60px", "text-align": "right", "font-size": "12px" }}>{hybridTravel()}px</span>
           </label>
 
-          <div style={{ "font-size": "11px", color: "var(--color-text-weak, #666)", "margin-top": "8px" }}>Shared</div>
+          <div style={{ "font-size": "11px", color: "var(--color-fg-weak, #666)", "margin-top": "8px" }}>Shared</div>
 
           <label style={{ display: "flex", "align-items": "center", gap: "12px" }}>
             <span style={sliderLabel}>duration</span>
@@ -278,7 +278,7 @@ export const Playground = {
             <span style={{ width: "60px", "text-align": "right", "font-size": "12px" }}>{bounceSoft().toFixed(2)}</span>
           </label>
 
-          <div style={{ "font-size": "11px", color: "var(--color-text-weak, #666)", "margin-top": "8px" }}>
+          <div style={{ "font-size": "11px", color: "var(--color-fg-weak, #666)", "margin-top": "8px" }}>
             Wipe only
           </div>
 
@@ -311,7 +311,7 @@ export const Playground = {
           </label>
         </div>
 
-        <div style={{ "font-size": "11px", color: "var(--color-text-weak, #888)", "font-family": "monospace" }}>
+        <div style={{ "font-size": "11px", color: "var(--color-fg-weak, #888)", "font-family": "monospace" }}>
           text: {text() ?? "(none)"} · growOnly: {growOnly() ? "on" : "off"}
         </div>
       </div>

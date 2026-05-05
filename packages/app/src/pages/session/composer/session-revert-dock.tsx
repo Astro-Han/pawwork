@@ -44,9 +44,9 @@ export function SessionRevertDock(props: {
           toggle()
         }}
       >
-        <span class="shrink-0 text-13-regular text-text-strong cursor-default">{label()}</span>
+        <span class="shrink-0 text-13-regular text-fg-strong cursor-default">{label()}</span>
         <Show when={store.collapsed && preview()}>
-          <span class="min-w-0 flex-1 truncate text-13-regular text-text-base cursor-default">{preview()}</span>
+          <span class="min-w-0 flex-1 truncate text-13-regular text-fg-base cursor-default">{preview()}</span>
         </Show>
         <div class="ml-auto shrink-0">
           <IconButton
@@ -79,7 +79,7 @@ export function SessionRevertDock(props: {
           <For each={props.items}>
             {(item) => (
               <div class="flex items-center gap-2 min-w-0 py-1">
-                <span class="min-w-0 flex-1 truncate text-13-regular text-text-strong">{item.text}</span>
+                <span class="min-w-0 flex-1 truncate text-13-regular text-fg-strong">{item.text}</span>
                 <Button
                   size="small"
                   variant="secondary"

@@ -99,7 +99,7 @@ export const DialogFork: Component = () => {
         {(item) => (
           <div class="w-full flex items-center gap-2">
             <span class="truncate flex-1 min-w-0 text-left font-normal">{item.text}</span>
-            <span class="text-text-weak shrink-0 font-normal">{item.time}</span>
+            <span class="text-fg-weak shrink-0 font-normal">{item.time}</span>
           </div>
         )}
       </List>

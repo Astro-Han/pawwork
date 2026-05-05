@@ -30,8 +30,8 @@ export const lineCommentStyles = `
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--icon-interactive-base);
-  box-shadow: var(--shadow-xs);
+  background: var(--brand-primary);
+  box-shadow: var(--shadow-raised);
   cursor: default;
   border: none;
 }
@@ -67,7 +67,7 @@ export const lineCommentStyles = `
   max-width: none;
   box-sizing: border-box;
   border-radius: 8px;
-  background: var(--surface-raised-stronger-non-alpha);
+  background: var(--surface-raised);
   box-shadow: var(--shadow-xxs-border);
   padding: 12px;
 }
@@ -125,7 +125,7 @@ export const lineCommentStyles = `
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-x-large);
   letter-spacing: var(--letter-spacing-normal);
-  color: var(--text-strong);
+  color: var(--fg-strong);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -145,7 +145,7 @@ export const lineCommentStyles = `
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-large);
   letter-spacing: var(--letter-spacing-normal);
-  color: var(--text-weak);
+  color: var(--fg-weak);
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -167,7 +167,7 @@ export const lineCommentStyles = `
   border-radius: var(--radius-md);
   background: var(--surface-base);
   border: 1px solid var(--border-base);
-  color: var(--text-strong);
+  color: var(--fg-strong);
   font-family: var(--font-family-sans);
   font-size: var(--font-size-small);
   line-height: var(--line-height-large);
@@ -200,12 +200,12 @@ export const lineCommentStyles = `
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-strong);
+  color: var(--fg-strong);
   text-align: left;
 }
 
 [data-component="line-comment"] [data-slot="line-comment-mention-item"][data-active] {
-  background: var(--surface-raised-base-hover);
+  background: var(--surface-raised);
 }
 
 [data-component="line-comment"] [data-slot="line-comment-mention-path"] {
@@ -219,14 +219,14 @@ export const lineCommentStyles = `
 
 [data-component="line-comment"] [data-slot="line-comment-mention-dir"] {
   min-width: 0;
-  color: var(--text-weak);
+  color: var(--fg-weak);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 [data-component="line-comment"] [data-slot="line-comment-mention-file"] {
-  color: var(--text-strong);
+  color: var(--fg-strong);
   white-space: nowrap;
 }
 
@@ -247,7 +247,7 @@ export const lineCommentStyles = `
 [data-component="line-comment"] [data-slot="line-comment-action"] {
   border: 1px solid var(--border-base);
   background: var(--surface-base);
-  color: var(--text-strong);
+  color: var(--fg-strong);
   border-radius: var(--radius-md);
   height: 28px;
   padding: 0 10px;
@@ -261,9 +261,9 @@ export const lineCommentStyles = `
 }
 
 [data-component="line-comment"] [data-slot="line-comment-action"][data-variant="primary"] {
-  background: var(--text-strong);
-  border-color: var(--text-strong);
-  color: var(--background-base);
+  background: var(--fg-strong);
+  border-color: var(--fg-strong);
+  color: var(--bg-base);
 }
 
 [data-component="line-comment"] [data-slot="line-comment-action"]:disabled {

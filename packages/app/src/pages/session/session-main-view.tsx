@@ -68,7 +68,7 @@ export function SessionMainView(props: {
     })
 
   return (
-    <div class="relative bg-background-base size-full overflow-hidden flex flex-col">
+    <div class="relative bg-bg-base size-full overflow-hidden flex flex-col">
       <SessionHeader />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!props.isDesktop && !!props.activeSessionID}>
@@ -96,7 +96,7 @@ export function SessionMainView(props: {
           </Tabs>
         </Show>
 
-        <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-background-stronger flex-1">
+        <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-bg-base flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
               <Match when={showSessionOpeningState()}>
@@ -107,20 +107,20 @@ export function SessionMainView(props: {
                   data-transitioning={props.transitioning ? "true" : "false"}
                 >
                   <div class="flex flex-col items-center gap-2">
-                    <div class="size-8 rounded-full border border-border-subtle border-t-accent-base animate-spin" />
-                    <div class="text-13-medium text-text-strong">{props.language.t("session.opening")}</div>
-                    <div class="text-12-regular text-text-weak">{props.language.t("session.messages.loading")}</div>
+                    <div class="size-8 rounded-full border border-border-weak border-t-brand-primary animate-spin" />
+                    <div class="text-13-medium text-fg-strong">{props.language.t("session.opening")}</div>
+                    <div class="text-12-regular text-fg-weak">{props.language.t("session.messages.loading")}</div>
                     <div class="mt-2 flex items-center justify-center gap-2">
                       <button
                         type="button"
-                        class="rounded-md border border-border-subtle px-3 py-1 text-13-regular text-text-base transition-colors hover:bg-surface-raised-base-hover focus:outline-none focus-visible:bg-surface-raised-base-hover"
+                        class="rounded-md border border-border-weak px-3 py-1 text-13-regular text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
                         onClick={props.onRetryOpenSession}
                       >
                         {props.language.t("common.retry")}
                       </button>
                       <button
                         type="button"
-                        class="rounded-md border border-border-subtle px-3 py-1 text-13-regular text-text-base transition-colors hover:bg-surface-raised-base-hover focus:outline-none focus-visible:bg-surface-raised-base-hover"
+                        class="rounded-md border border-border-weak px-3 py-1 text-13-regular text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
                         onClick={props.onOpenNewSession}
                       >
                         {props.language.t("command.session.new")}

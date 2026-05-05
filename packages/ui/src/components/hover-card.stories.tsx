@@ -44,7 +44,7 @@ export const Basic = {
     <mod.HoverCard trigger={<span style={{ "text-decoration": "underline", cursor: "default" }}>Hover me</span>}>
       <div style={{ display: "grid", gap: "6px" }}>
         <div style={{ "font-weight": 600 }}>Preview</div>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Short supporting text.</div>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Short supporting text.</div>
       </div>
     </mod.HoverCard>
   ),
@@ -61,7 +61,7 @@ export const InlineMount = {
         >
           <div style={{ display: "grid", gap: "6px" }}>
             <div style={{ "font-weight": 600 }}>Mounted inside</div>
-            <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Uses custom mount node.</div>
+            <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Uses custom mount node.</div>
           </div>
         </mod.HoverCard>
       </div>

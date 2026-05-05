@@ -24,7 +24,7 @@
     height: 16px;
     flex-shrink: 0;
     border-radius: 3px;
-    border: 1px solid var(--border-weak-base);
+    border: 1px solid var(--border-weak);
     background: var(--surface-base);
     transition:
       background-color 150ms,
@@ -38,7 +38,7 @@
 
     border-radius: 2px;
     border: 1px solid var(--border-base);
-    background: var(--icon-invert-base);
+    background: var(--fg-on-brand);
 
     /* shadows/shadow-xs */
     box-shadow:
@@ -54,7 +54,7 @@
 
   [data-slot="switch-label"] {
     user-select: none;
-    color: var(--text-base);
+    color: var(--fg-base);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
     font-style: normal;
@@ -64,7 +64,7 @@
   }
 
   [data-slot="switch-description"] {
-    color: var(--text-base);
+    color: var(--fg-base);
     font-family: var(--font-family-sans);
     font-size: 12px;
     font-weight: var(--font-weight-regular);
@@ -73,7 +73,7 @@
   }
 
   [data-slot="switch-error"] {
-    color: var(--text-error);
+    color: var(--error-text);
     font-family: var(--font-family-sans);
     font-size: 12px;
     font-weight: var(--font-weight-regular);
@@ -82,30 +82,30 @@
   }
 
   &:hover:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
-    border-color: var(--border-hover);
-    background-color: var(--surface-hover);
+    border-color: var(--border-base);
+    background-color: var(--surface-raised);
   }
 
   &:not([data-readonly]) [data-slot="switch-input"]:focus-visible ~ [data-slot="switch-control"] {
-    border-color: var(--border-focus);
+    border-color: var(--brand-primary);
     box-shadow: var(--shadow-xs-border-focus);
   }
 
   &[data-checked] [data-slot="switch-control"] {
     box-sizing: border-box;
-    border-color: var(--icon-strong-base);
-    background-color: var(--icon-strong-base);
+    border-color: var(--icon-strong);
+    background-color: var(--icon-strong);
   }
 
   &[data-checked] [data-slot="switch-thumb"] {
     border: none;
     transform: translateX(12px);
-    background-color: var(--icon-invert-base);
+    background-color: var(--fg-on-brand);
   }
 
   &[data-checked]:hover:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
-    border-color: var(--border-hover);
-    background-color: var(--surface-hover);
+    border-color: var(--border-base);
+    background-color: var(--surface-raised);
   }
 
   &[data-disabled] {
@@ -113,8 +113,8 @@
   }
 
   &[data-disabled] [data-slot="switch-control"] {
-    border-color: var(--border-disabled);
-    background-color: var(--surface-disabled);
+    border-color: var(--border-weaker);
+    background-color: var(--surface-sunken);
   }
 
   &[data-disabled] [data-slot="switch-thumb"] {
@@ -122,7 +122,7 @@
   }
 
   &[data-invalid] [data-slot="switch-control"] {
-    border-color: var(--border-error);
+    border-color: var(--error);
   }
 
   &[data-readonly] {

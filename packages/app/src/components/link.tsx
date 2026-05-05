@@ -12,7 +12,7 @@ export function Link(props: LinkProps) {
   return (
     <a
       href={local.href}
-      class={`text-text-strong underline ${local.class ?? ""}`}
+      class={`text-fg-strong underline ${local.class ?? ""}`}
       onClick={(event) => {
         if (!local.href) return
         event.preventDefault()

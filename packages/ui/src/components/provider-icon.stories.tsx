@@ -61,7 +61,7 @@ export const AllIcons = {
       {iconNames.map((id) => (
         <div style={{ display: "grid", gap: "6px", "justify-items": "center" }}>
           <mod.ProviderIcon id={id} width="28" height="28" aria-label={id} />
-          <div style={{ "font-size": "10px", color: "var(--text-weak)", "text-align": "center" }}>{id}</div>
+          <div style={{ "font-size": "10px", color: "var(--fg-weak)", "text-align": "center" }}>{id}</div>
         </div>
       ))}
     </div>

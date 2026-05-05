@@ -139,7 +139,7 @@ export const Gallery = {
       {names.map((name) => (
         <div style={{ display: "grid", gap: "6px", "justify-items": "center" }}>
           <mod.Icon name={name} />
-          <div style={{ "font-size": "10px", color: "var(--text-weak)", "text-align": "center" }}>{name}</div>
+          <div style={{ "font-size": "10px", color: "var(--fg-weak)", "text-align": "center" }}>{name}</div>
         </div>
       ))}
     </div>

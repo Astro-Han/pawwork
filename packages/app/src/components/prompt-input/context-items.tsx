@@ -30,7 +30,7 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
               <Tooltip
                 value={
                   <span class="flex max-w-[300px]">
-                    <span class="text-text-invert-base truncate-start [unicode-bidi:plaintext] min-w-0">
+                    <span class="text-fg-on-brand truncate-start [unicode-bidi:plaintext] min-w-0">
                       {directory}
                     </span>
                     <span class="shrink-0">{filename}</span>
@@ -42,19 +42,19 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                 <div
                   classList={{
                     "group shrink-0 flex flex-col rounded-[6px] pl-2 pr-1 py-1 max-w-[200px] h-12 cursor-default transition-all transition-transform shadow-xs-border hover:shadow-xs-border-hover": true,
-                    "hover:bg-surface-interactive-weak": !!item.commentID && !selected,
+                    "hover:bg-surface-interactive-base": !!item.commentID && !selected,
                     "bg-surface-interactive-hover hover:bg-surface-interactive-hover shadow-xs-border-hover": selected,
-                    "bg-background-stronger": !selected,
+                    "bg-bg-base": !selected,
                   }}
                   onClick={() => props.openComment(item)}
                 >
                   <div class="flex items-center gap-1.5">
                     <FileIcon node={{ path: item.path, type: "file" }} class="shrink-0 size-3.5" />
                     <div class="flex items-center text-13-regular min-w-0 font-medium">
-                      <span class="text-text-strong whitespace-nowrap">{label}</span>
+                      <span class="text-fg-strong whitespace-nowrap">{label}</span>
                       <Show when={item.selection}>
                         {(sel) => (
-                          <span class="text-text-weak whitespace-nowrap shrink-0">
+                          <span class="text-fg-weak whitespace-nowrap shrink-0">
                             {sel().startLine === sel().endLine
                               ? `:${sel().startLine}`
                               : `:${sel().startLine}-${sel().endLine}`}
@@ -66,7 +66,7 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                       type="button"
                       icon="close-small"
                       variant="ghost"
-                      class="ml-auto size-3.5 text-text-weak hover:text-text-strong transition-all"
+                      class="ml-auto size-3.5 text-fg-weak hover:text-fg-strong transition-all"
                       onClick={(e) => {
                         e.stopPropagation()
                         props.remove(item)
@@ -75,7 +75,7 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                     />
                   </div>
                   <Show when={item.comment}>
-                    {(comment) => <div class="text-13-regular text-text-strong ml-5 pr-1 truncate">{comment()}</div>}
+                    {(comment) => <div class="text-13-regular text-fg-strong ml-5 pr-1 truncate">{comment()}</div>}
                   </Show>
                 </div>
               </Tooltip>

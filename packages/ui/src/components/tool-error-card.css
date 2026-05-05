@@ -43,12 +43,12 @@
   }
 
   [data-slot="tool-error-card-content"] :where(*)::selection {
-    background: var(--surface-critical-base);
-    color: var(--text-on-critical-base);
+    background: var(--error-bg);
+    color: var(--error-text);
   }
 
   [data-slot="tool-error-card-content"] :where(*)::-moz-selection {
-    background: var(--surface-critical-base);
-    color: var(--text-on-critical-base);
+    background: var(--error-bg);
+    color: var(--error-text);
   }
 }

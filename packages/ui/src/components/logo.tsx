@@ -21,7 +21,7 @@ export const Mark = (props: { class?: string }) => {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <PawMarkShape fill="var(--icon-strong-base)" />
+      <PawMarkShape fill="var(--icon-strong)" />
     </svg>
   )
 }
@@ -50,7 +50,7 @@ export const Logo = (props: { class?: string }) => {
       fill="none"
       classList={{ [props.class ?? ""]: !!props.class }}
     >
-      <PawMarkShape fill="var(--icon-strong-base)" />
+      <PawMarkShape fill="var(--icon-strong)" />
     </svg>
   )
 }

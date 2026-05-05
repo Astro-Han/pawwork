@@ -924,7 +924,7 @@ const CSS_CONTROLS: CSSControl[] = [
       file: MD,
       anchor: "/* Blockquotes */",
       prop: "border-left",
-      format: (v) => `${v}px solid var(--border-weak-base)`,
+      format: (v) => `${v}px solid var(--border-weak)`,
     },
   },
 
@@ -1126,7 +1126,7 @@ const CSS_CONTROLS: CSSControl[] = [
 // Playground component
 // ---------------------------------------------------------------------------
 function FileStub() {
-  return <div style={{ padding: "8px", color: "var(--text-weak)", "font-size": "13px" }}>File viewer stub</div>
+  return <div style={{ padding: "8px", color: "var(--fg-weak)", "font-size": "13px" }}>File viewer stub</div>
 }
 
 function Playground() {
@@ -1554,7 +1554,7 @@ function Playground() {
   // ---- Shared button styles ----
   const sectionLabel = {
     "font-size": "11px",
-    color: "var(--text-weak)",
+    color: "var(--fg-weak)",
     "margin-bottom": "4px",
     "text-transform": "uppercase",
     "letter-spacing": "0.5px",
@@ -1562,24 +1562,24 @@ function Playground() {
   const btnStyle = {
     padding: "4px 8px",
     "border-radius": "4px",
-    border: "1px solid var(--border-weak-base)",
+    border: "1px solid var(--border-weak)",
     background: "var(--surface-base)",
     cursor: "pointer",
     "font-size": "12px",
-    color: "var(--text-base)",
+    color: "var(--fg-base)",
   } as const
   const btnAccent = {
     ...btnStyle,
-    border: "1px solid var(--border-interactive-base)",
-    background: "var(--surface-interactive-weak)",
+    border: "1px solid var(--brand-primary)",
+    background: "var(--surface-interactive-base)",
     "font-weight": "500",
-    color: "var(--text-interactive-base)",
+    color: "var(--brand-primary)",
   } as const
   const btnDanger = {
     ...btnStyle,
-    border: "1px solid var(--border-critical-base)",
+    border: "1px solid var(--error)",
     background: "transparent",
-    color: "var(--text-on-critical-base)",
+    color: "var(--error-text)",
   } as const
 
   return (
@@ -1592,14 +1592,14 @@ function Playground() {
         style={{
           width: "320px",
           "min-width": "320px",
-          "border-right": "1px solid var(--border-weak-base)",
+          "border-right": "1px solid var(--border-weak)",
           overflow: "auto",
-          "background-color": "var(--background-stronger)",
+          "background-color": "var(--bg-base)",
           "scrollbar-width": "none",
         }}
       >
         {/* Generate section */}
-        <div style={{ "border-bottom": "1px solid var(--border-weak-base)" }}>
+        <div style={{ "border-bottom": "1px solid var(--border-weak)" }}>
           <button
             style={{
               width: "100%",
@@ -1612,7 +1612,7 @@ function Playground() {
               cursor: "pointer",
               "font-weight": "500",
               "font-size": "13px",
-              color: "var(--text-strong)",
+              color: "var(--fg-strong)",
             }}
             onClick={() => setPanels("generators", (v) => !v)}
           >
@@ -1623,7 +1623,7 @@ function Playground() {
             <div style={{ padding: "0 12px 12px", display: "flex", "flex-direction": "column", gap: "6px" }}>
               {/* ---- Session import ---- */}
               <div style={sectionLabel}>Import session</div>
-              <div style={{ "font-size": "10px", color: "var(--text-weaker)", "margin-bottom": "2px" }}>
+              <div style={{ "font-size": "10px", color: "var(--fg-weaker)", "margin-bottom": "2px" }}>
                 Replaces the current timeline with an `opencode export` JSON file
               </div>
               <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px" }}>
@@ -1639,20 +1639,20 @@ function Playground() {
                 />
               </div>
               <Show when={loaded()}>
-                <div style={{ "font-size": "10px", color: "var(--text-weaker)", "line-height": "1.4" }}>
+                <div style={{ "font-size": "10px", color: "var(--fg-weaker)", "line-height": "1.4" }}>
                   {loaded()} • {session().title || session().id} • {state.messages.length} message
                   {state.messages.length === 1 ? "" : "s"}
                 </div>
               </Show>
               <Show when={issue()}>
-                <div style={{ "font-size": "10px", color: "var(--text-on-critical-base)", "line-height": "1.4" }}>
+                <div style={{ "font-size": "10px", color: "var(--error-text)", "line-height": "1.4" }}>
                   {issue()}
                 </div>
               </Show>
 
               {/* ---- User messages ---- */}
               <div style={sectionLabel}>User messages</div>
-              <div style={{ "font-size": "10px", color: "var(--text-weaker)", "margin-bottom": "2px" }}>
+              <div style={{ "font-size": "10px", color: "var(--fg-weaker)", "margin-bottom": "2px" }}>
                 Creates a new turn (user + empty assistant)
               </div>
               <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px" }}>
@@ -1680,7 +1680,7 @@ function Playground() {
 
               {/* ---- Text and reasoning blocks ---- */}
               <div style={{ ...sectionLabel, "margin-top": "8px" }}>Text and reasoning blocks</div>
-              <div style={{ "font-size": "10px", color: "var(--text-weaker)", "margin-bottom": "2px" }}>
+              <div style={{ "font-size": "10px", color: "var(--fg-weaker)", "margin-bottom": "2px" }}>
                 Appends to the last turn's assistant parts
               </div>
               <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px" }}>
@@ -1698,7 +1698,7 @@ function Playground() {
 
               {/* ---- Tool calls ---- */}
               <div style={{ ...sectionLabel, "margin-top": "8px" }}>Tool calls</div>
-              <div style={{ "font-size": "10px", color: "var(--text-weaker)", "margin-bottom": "2px" }}>
+              <div style={{ "font-size": "10px", color: "var(--fg-weaker)", "margin-bottom": "2px" }}>
                 Appends to the last turn's assistant parts
               </div>
               <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px" }}>
@@ -1713,7 +1713,7 @@ function Playground() {
 
               {/* ---- Composite (full turns) ---- */}
               <div style={{ ...sectionLabel, "margin-top": "8px" }}>Composite turns</div>
-              <div style={{ "font-size": "10px", color: "var(--text-weaker)", "margin-bottom": "2px" }}>
+              <div style={{ "font-size": "10px", color: "var(--fg-weaker)", "margin-bottom": "2px" }}>
                 Creates complete user + assistant turns
               </div>
               <div style={{ display: "flex", "flex-wrap": "wrap", gap: "4px" }}>
@@ -1738,7 +1738,7 @@ function Playground() {
         </div>
 
         {/* CSS Controls section */}
-        <div style={{ "border-bottom": "1px solid var(--border-weak-base)" }}>
+        <div style={{ "border-bottom": "1px solid var(--border-weak)" }}>
           <button
             style={{
               width: "100%",
@@ -1751,7 +1751,7 @@ function Playground() {
               cursor: "pointer",
               "font-weight": "500",
               "font-size": "13px",
-              color: "var(--text-strong)",
+              color: "var(--fg-strong)",
             }}
             onClick={() => setPanels("css", (v) => !v)}
           >
@@ -1764,11 +1764,11 @@ function Playground() {
                 style={{
                   padding: "4px 8px",
                   "border-radius": "4px",
-                  border: "1px solid var(--border-weak-base)",
+                  border: "1px solid var(--border-weak)",
                   background: "var(--surface-base)",
                   cursor: "pointer",
                   "font-size": "11px",
-                  color: "var(--text-base)",
+                  color: "var(--fg-base)",
                   "margin-bottom": "8px",
                 }}
                 onClick={resetCss}
@@ -1788,11 +1788,11 @@ function Playground() {
                         padding: "6px 0",
                         background: "none",
                         border: "none",
-                        "border-bottom": "1px solid var(--border-weaker-base)",
+                        "border-bottom": "1px solid var(--border-weaker)",
                         cursor: "pointer",
                         "font-size": "11px",
                         "font-weight": "500",
-                        color: "var(--text-base)",
+                        color: "var(--fg-base)",
                         "text-transform": "uppercase",
                         "letter-spacing": "0.5px",
                       }}
@@ -1812,7 +1812,7 @@ function Playground() {
                                 <label
                                   style={{
                                     "font-size": "11px",
-                                    color: "var(--text-base)",
+                                    color: "var(--fg-base)",
                                   }}
                                 >
                                   {ctrl.label}
@@ -1821,7 +1821,7 @@ function Playground() {
                                   style={{
                                     "font-size": "11px",
                                     color:
-                                      css[ctrl.key] !== undefined ? "var(--text-interactive-base)" : "var(--text-weak)",
+                                      css[ctrl.key] !== undefined ? "var(--brand-primary)" : "var(--fg-weak)",
                                     "font-family": "var(--font-family-mono)",
                                     "min-width": "40px",
                                     "text-align": "right",
@@ -1841,7 +1841,7 @@ function Playground() {
                                 style={{
                                   width: "100%",
                                   height: "4px",
-                                  "accent-color": "var(--text-interactive-base)",
+                                  "accent-color": "var(--brand-primary)",
                                   cursor: "pointer",
                                 }}
                               />
@@ -1858,7 +1858,7 @@ function Playground() {
         </div>
 
         {/* Export section */}
-        <div style={{ "border-bottom": "1px solid var(--border-weak-base)" }}>
+        <div style={{ "border-bottom": "1px solid var(--border-weak)" }}>
           <button
             style={{
               width: "100%",
@@ -1871,7 +1871,7 @@ function Playground() {
               cursor: "pointer",
               "font-weight": "500",
               "font-size": "13px",
-              color: "var(--text-strong)",
+              color: "var(--fg-strong)",
             }}
             onClick={() => setPanels("export", (v) => !v)}
           >
@@ -1900,7 +1900,7 @@ function Playground() {
                 <div
                   style={{
                     "font-size": "10px",
-                    color: "var(--text-weaker)",
+                    color: "var(--fg-weaker)",
                     "line-height": "1.4",
                   }}
                 >
@@ -1919,8 +1919,8 @@ function Playground() {
                   style={{
                     padding: "8px",
                     "border-radius": "4px",
-                    background: "var(--surface-inset-base)",
-                    border: "1px solid var(--border-weak-base)",
+                    background: "var(--surface-sunken)",
+                    border: "1px solid var(--border-weak)",
                     "font-size": "11px",
                     "font-family": "var(--font-family-mono)",
                     "line-height": "1.5",
@@ -1928,7 +1928,7 @@ function Playground() {
                     "word-break": "break-all",
                     "max-height": "200px",
                     "overflow-y": "auto",
-                    color: "var(--text-base)",
+                    color: "var(--fg-base)",
                   }}
                 >
                   {applyResult()}
@@ -1939,8 +1939,8 @@ function Playground() {
                   style={{
                     padding: "8px",
                     "border-radius": "4px",
-                    background: "var(--surface-inset-base)",
-                    border: "1px solid var(--border-weak-base)",
+                    background: "var(--surface-sunken)",
+                    border: "1px solid var(--border-weak)",
                     "font-size": "11px",
                     "font-family": "var(--font-family-mono)",
                     "line-height": "1.5",
@@ -1948,7 +1948,7 @@ function Playground() {
                     "word-break": "break-all",
                     "max-height": "300px",
                     "overflow-y": "auto",
-                    color: "var(--text-base)",
+                    color: "var(--fg-base)",
                   }}
                 >
                   {exported()}
@@ -1962,7 +1962,7 @@ function Playground() {
       {/* Main area: timeline preview */}
       <div
         ref={previewRef!}
-        style={{ flex: "1", overflow: "auto", "min-width": "0", "background-color": "var(--background-stronger)" }}
+        style={{ flex: "1", overflow: "auto", "min-width": "0", "background-color": "var(--bg-base)" }}
       >
         <DataProvider data={data()} directory="/project">
           <FileComponentProvider component={FileStub}>
@@ -1982,7 +1982,7 @@ function Playground() {
                       "align-items": "center",
                       "justify-content": "center",
                       height: "400px",
-                      color: "var(--text-weak)",
+                      color: "var(--fg-weak)",
                       "font-size": "14px",
                     }}
                   >

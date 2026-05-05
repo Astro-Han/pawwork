@@ -48,7 +48,7 @@
       /* padding: 8px; */
       /* padding: 8px 8px 0 8px; */
       border-radius: 14px;
-      background: var(--surface-raised-stronger-non-alpha);
+      background: var(--surface-raised);
       background-clip: padding-box;
       box-shadow: var(--shadow-modal);
 
@@ -61,7 +61,7 @@
         align-self: stretch;
 
         [data-slot="dialog-title"] {
-          color: var(--text-strong);
+          color: var(--fg-strong);
 
           /* text-16-medium */
           font-family: var(--font-family-sans);
@@ -85,7 +85,7 @@
         flex-shrink: 0;
         align-self: stretch;
 
-        color: var(--text-base);
+        color: var(--fg-base);
 
         /* text-14-regular */
         font-family: var(--font-family-sans);

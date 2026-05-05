@@ -47,26 +47,26 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "h-[28px] px-1.5 inline-flex items-center gap-1.5 rounded-xl text-13-regular text-text-base transition-colors hover:bg-surface-base-hover",
+            "h-[28px] px-1.5 inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-colors hover:bg-surface-sunken",
           style: props.style,
         } as any
       }
       trigger={
         <>
-          <Icon name="folder" size="small" class="shrink-0 text-text-weak" />
+          <Icon name="folder" size="small" class="shrink-0 text-fg-weak" />
           <span class="max-w-[120px] truncate transition-[max-width] duration-200 ease-out @max-[24rem]/composer:max-w-0">{label()}</span>
-          <Icon name="chevron-down" size="small" class="shrink-0 text-text-weak" />
+          <Icon name="chevron-down" size="small" class="shrink-0 text-fg-weak" />
         </>
       }
-      class="min-w-56 max-w-xs bg-surface-raised-stronger-non-alpha"
+      class="min-w-56 max-w-xs bg-surface-raised"
     >
       <div role="menu" aria-label={language.t("workspace.chip.popover.title")}>
-        <div class="px-2 pt-0.5 pb-2 text-13-regular text-text-weak">
+        <div class="px-2 pt-0.5 pb-2 text-13-regular text-fg-weak">
           {language.t("workspace.chip.popover.title")}
         </div>
         <Show
           when={workspaces().length > 0}
-          fallback={<div class="px-2 py-2 text-13-regular text-text-weak">{language.t("workspace.chip.empty")}</div>}
+          fallback={<div class="px-2 py-2 text-13-regular text-fg-weak">{language.t("workspace.chip.empty")}</div>}
         >
           <For each={workspaces()}>
             {(workspace) => {
@@ -79,36 +79,36 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                   type="button"
                   role="menuitemradio"
                   aria-checked={active()}
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none hover:bg-surface-raised focus-visible:bg-surface-raised"
                   onClick={() => {
                     navigate(`/${base64Encode(workspace.path)}/session`)
                     setOpen(false)
                   }}
                 >
-                  <Icon name="folder" size="small" class="shrink-0 text-text-weak" />
-                  <span class="min-w-0 flex-1 truncate text-text-strong">
+                  <Icon name="folder" size="small" class="shrink-0 text-fg-weak" />
+                  <span class="min-w-0 flex-1 truncate text-fg-strong">
                     {getFilename(workspace.path)}
                   </span>
                   <Show when={active()}>
-                    <Icon name="check" size="small" class="shrink-0 text-text-strong" data-icon="check" />
+                    <Icon name="check" size="small" class="shrink-0 text-fg-strong" data-icon="check" />
                   </Show>
                 </button>
               )
             }}
           </For>
         </Show>
-        <div class="mt-1 border-t border-border-weaker-base pt-1">
+        <div class="mt-1 border-t border-border-weaker pt-1">
           <button
             type="button"
             role="menuitem"
             data-action="workspace-chip-add"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-text-base outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-surface-raised focus-visible:bg-surface-raised"
             onClick={() => {
               setOpen(false)
               layoutPage.openProject()
             }}
           >
-            <Icon name="folder-add-left" size="small" class="shrink-0 text-text-weak" />
+            <Icon name="folder-add-left" size="small" class="shrink-0 text-fg-weak" />
             <span class="min-w-0 flex-1 truncate">{language.t("workspace.chip.add")}</span>
           </button>
         </div>

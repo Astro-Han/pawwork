@@ -45,12 +45,12 @@ export const Basic = {
     const [size, setSize] = createSignal(240)
     return (
       <div style={{ display: "grid", gap: "8px" }}>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Size: {size()}px</div>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Size: {size()}px</div>
         <div
           style={{
             width: `${size()}px`,
             height: "48px",
-            "background-color": "var(--background-stronger)",
+            "background-color": "var(--bg-base)",
             "border-radius": "6px",
           }}
         />
@@ -60,7 +60,7 @@ export const Basic = {
           min={120}
           max={480}
           onResize={setSize}
-          style="height:24px;border:1px dashed color-mix(in oklab, var(--text-base) 20%, transparent)"
+          style="height:24px;border:1px dashed color-mix(in oklab, var(--fg-base) 20%, transparent)"
         />
       </div>
     )
@@ -72,11 +72,11 @@ export const Vertical = {
     const [size, setSize] = createSignal(180)
     return (
       <div style={{ display: "grid", gap: "8px", width: "220px" }}>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Size: {size()}px</div>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Size: {size()}px</div>
         <div
           style={{
             height: `${size()}px`,
-            "background-color": "var(--background-stronger)",
+            "background-color": "var(--bg-base)",
             "border-radius": "6px",
           }}
         />
@@ -86,7 +86,7 @@ export const Vertical = {
           min={120}
           max={320}
           onResize={setSize}
-          style="width:24px;border:1px dashed color-mix(in oklab, var(--text-base) 20%, transparent)"
+          style="width:24px;border:1px dashed color-mix(in oklab, var(--fg-base) 20%, transparent)"
         />
       </div>
     )
@@ -103,14 +103,14 @@ export const Collapse = {
     const collapsed = () => state.collapsed
     return (
       <div style={{ display: "grid", gap: "8px" }}>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>
           {collapsed() ? "Collapsed" : `Size: ${size()}px`}
         </div>
         <div
           style={{
             width: `${collapsed() ? 0 : size()}px`,
             height: "48px",
-            "background-color": "var(--background-stronger)",
+            "background-color": "var(--bg-base)",
             "border-radius": "6px",
           }}
         />
@@ -125,7 +125,7 @@ export const Collapse = {
             setState("size", next)
           }}
           onCollapse={() => setState("collapsed", true)}
-          style="height:24px;border:1px dashed color-mix(in oklab, var(--text-base) 20%, transparent)"
+          style="height:24px;border:1px dashed color-mix(in oklab, var(--fg-base) 20%, transparent)"
         />
       </div>
     )
@@ -137,12 +137,12 @@ export const EdgeStart = {
     const [size, setSize] = createSignal(240)
     return (
       <div style={{ display: "grid", gap: "8px" }}>
-        <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>Size: {size()}px</div>
+        <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>Size: {size()}px</div>
         <div
           style={{
             width: `${size()}px`,
             height: "48px",
-            "background-color": "var(--background-stronger)",
+            "background-color": "var(--bg-base)",
             "border-radius": "6px",
           }}
         />
@@ -153,7 +153,7 @@ export const EdgeStart = {
           min={120}
           max={480}
           onResize={setSize}
-          style="height:24px;border:1px dashed color-mix(in oklab, var(--text-base) 20%, transparent)"
+          style="height:24px;border:1px dashed color-mix(in oklab, var(--fg-base) 20%, transparent)"
         />
       </div>
     )

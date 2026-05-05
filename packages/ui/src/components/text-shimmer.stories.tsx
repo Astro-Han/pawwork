@@ -30,7 +30,7 @@ Use for pending states inside buttons or list rows.
 const defaults = {
   text: "Loading...",
   active: true,
-  class: "text-14-medium text-text-strong",
+  class: "text-14-medium text-fg-strong",
   offset: 0,
 } as const
 
@@ -71,9 +71,9 @@ export const Basic = {
             padding: "4px 10px",
             "font-size": "12px",
             "border-radius": "6px",
-            border: "1px solid var(--color-divider, #333)",
-            background: "var(--color-fill-element, #222)",
-            color: "var(--color-text, #eee)",
+            border: "1px solid var(--border-weak, #333)",
+            background: "var(--surface-base, #222)",
+            color: "var(--fg-base, #eee)",
             cursor: "pointer",
           }}
         >

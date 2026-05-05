@@ -9,68 +9,60 @@
   flex-shrink: 0;
 
   &[data-variant="primary"] {
-    background-color: var(--icon-strong-base);
+    background-color: var(--brand-primary);
 
     [data-slot="icon-svg"] {
-      /* color: var(--icon-weak-base); */
-      color: var(--icon-invert-base);
-
-      /* &:hover:not(:disabled) { */
-      /*   color: var(--icon-weak-hover); */
-      /* } */
-      /* &:active:not(:disabled) { */
-      /*   color: var(--icon-strong-active); */
-      /* } */
+      color: var(--fg-on-brand);
     }
 
     &:hover:not(:disabled) {
-      background-color: var(--icon-strong-hover);
+      background-color: var(--brand-primary-hover);
     }
     &:focus:not(:disabled) {
-      background-color: var(--icon-strong-focus);
+      background-color: var(--brand-primary-hover);
     }
     &:active:not(:disabled) {
-      background-color: var(--icon-strong-active);
+      background-color: var(--brand-primary-hover);
     }
     &:disabled {
-      background-color: var(--icon-strong-disabled);
+      background-color: var(--icon-disabled);
 
       [data-slot="icon-svg"] {
-        color: var(--icon-invert-base);
+        color: var(--fg-on-brand);
       }
     }
   }
 
   &[data-variant="secondary"] {
     border: transparent;
-    background-color: var(--button-secondary-base);
-    color: var(--text-strong);
+    background-color: var(--surface-raised);
+    color: var(--fg-strong);
     box-shadow: var(--shadow-xs-border-base);
 
     &:hover:not(:disabled) {
-      background-color: var(--button-secondary-hover);
+      background-color: var(--surface-sunken);
     }
     &:focus:not(:disabled) {
-      background-color: var(--button-secondary-base);
+      background-color: var(--surface-raised);
     }
     &:focus-visible:not(:active) {
-      background-color: var(--button-secondary-base);
+      background-color: var(--surface-raised);
       box-shadow: var(--shadow-xs-border-focus);
     }
     &:focus-visible:active {
       box-shadow: none;
     }
     &:active:not(:disabled) {
-      background-color: var(--button-secondary-base);
+      background-color: var(--surface-raised);
     }
 
     [data-slot="icon-svg"] {
-      color: var(--icon-strong-base);
+      color: var(--icon-strong);
     }
 
     &:disabled {
-      background-color: var(--icon-strong-disabled);
-      color: var(--icon-invert-base);
+      background-color: var(--icon-disabled);
+      color: var(--fg-on-brand);
       cursor: not-allowed;
     }
   }
@@ -84,29 +76,29 @@
     }
 
     &:hover:not(:disabled) {
-      background-color: var(--surface-base-hover);
+      background-color: var(--surface-sunken);
 
       /* [data-slot="icon-svg"] { */
-      /*   color: var(--icon-hover); */
+      /*   color: var(--icon-base); */
       /* } */
     }
     &:focus-visible:not(:disabled) {
-      background-color: var(--surface-base-hover);
+      background-color: var(--surface-sunken);
     }
     &:active:not(:disabled) {
       background-color: var(--surface-base-active);
       /* [data-slot="icon-svg"] { */
-      /*   color: var(--icon-active); */
+      /*   color: var(--icon-strong); */
       /* } */
     }
     &:selected:not(:disabled) {
       background-color: var(--surface-base-active);
       /* [data-slot="icon-svg"] { */
-      /*   color: var(--icon-selected); */
+      /*   color: var(--icon-strong); */
       /* } */
     }
     &:disabled {
-      color: var(--icon-invert-base);
+      color: var(--fg-on-brand);
       cursor: not-allowed;
     }
   }
@@ -169,13 +161,13 @@
 }
 
 [data-component="icon-button"].titlebar-icon[data-variant="ghost"][aria-expanded="true"] {
-  background-color: var(--surface-raised-base-active);
+  background-color: var(--surface-base);
 }
 
 [data-component="icon-button"].titlebar-icon[data-variant="ghost"][aria-expanded="true"] [data-slot="icon-svg"] {
-  color: var(--icon-strong-base);
+  color: var(--icon-strong);
 }
 
 [data-component="icon-button"].titlebar-icon[data-variant="ghost"][aria-expanded="true"]:hover:not(:disabled) {
-  background-color: var(--surface-raised-base-active);
+  background-color: var(--surface-base);
 }

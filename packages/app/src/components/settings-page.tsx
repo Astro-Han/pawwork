@@ -79,7 +79,7 @@ export const SettingsPage: Component<{
     <section
       ref={(el) => (root = el)}
       data-component="settings-page"
-      class="flex size-full min-h-0 bg-background-base"
+      class="flex size-full min-h-0 bg-bg-base"
       onKeyDown={handleKeyDown}
     >
       <Tabs
@@ -103,7 +103,7 @@ export const SettingsPage: Component<{
           <div class="flex h-full w-full flex-col justify-between">
             <div class="flex w-full flex-col gap-3 pt-3">
               <div class="flex items-center justify-between px-1">
-                <h1 class="text-16-medium text-text-strong">{language.t("sidebar.settings")}</h1>
+                <h1 class="text-16-medium text-fg-strong">{language.t("sidebar.settings")}</h1>
                 <Button
                   data-action="settings-page-close"
                   variant="ghost"
@@ -151,7 +151,7 @@ export const SettingsPage: Component<{
               </div>
             </div>
 
-            <div class="flex flex-col gap-1 pl-1 py-1 text-13-medium text-text-weak">
+            <div class="flex flex-col gap-1 pl-1 py-1 text-13-medium text-fg-weak">
               <span>{language.t("app.name.desktop")}</span>
               <span class="text-13-regular">v{platform.version}</span>
             </div>

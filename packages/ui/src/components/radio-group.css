@@ -7,7 +7,7 @@
 
   [data-slot="radio-group-wrapper"] {
     all: unset;
-    background-color: var(--surface-inset-base);
+    background-color: var(--surface-sunken);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-xxs-border);
     display: inline-flex;
@@ -38,7 +38,7 @@
   }
 
   [data-slot="radio-group-indicator"] {
-    background: var(--button-secondary-base);
+    background: var(--surface-raised);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-xs-border-base);
     content: "";
@@ -79,7 +79,7 @@
   }
 
   [data-slot="radio-group-item-label"] {
-    color: var(--text-weak);
+    color: var(--fg-weak);
     cursor: default;
     display: flex;
     align-items: center;
@@ -120,14 +120,14 @@
 
   /* Checked state */
   [data-slot="radio-group-item-input"][data-checked] + [data-slot="radio-group-item-label"] {
-    color: var(--text-strong);
+    color: var(--fg-strong);
   }
 
   /* Hover state: match the inset background (adds subtle density) */
   [data-slot="radio-group-item-input"]:not([data-checked], [data-disabled])
     + [data-slot="radio-group-item-label"]:hover
     [data-slot="radio-group-item-control"] {
-    background-color: var(--surface-inset-base);
+    background-color: var(--surface-sunken);
   }
 
   /* Do not overlay hover on the active segment */
