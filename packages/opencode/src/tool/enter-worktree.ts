@@ -33,10 +33,10 @@ export const EnterWorktreeTool = Tool.define(
     const subagents = yield* SubagentRun.Service
     const spawner = yield* ChildProcessSpawner
 
-    const guard = (sessionID: SessionID, callID: string | undefined) =>
+    const guard = (sessionID: SessionID, messageID: Tool.Context["messageID"], callID: string | undefined) =>
       Effect.gen(function* () {
         if (callID) {
-          const inFlight = yield* hasInFlightToolCallsExcept(sessions, sessionID, callID)
+          const inFlight = yield* hasInFlightToolCallsExcept(sessions, sessionID, messageID, callID)
           if (inFlight) {
             return yield* Effect.fail(
               new Error("Cannot enter a worktree while another tool call is running in this session."),
@@ -93,7 +93,7 @@ export const EnterWorktreeTool = Tool.define(
           return yield* Effect.fail(new Error(`name max ${MAX_SLUG_LEN} chars`))
         }
 
-        yield* guard(ctx.sessionID, ctx.callID)
+        yield* guard(ctx.sessionID, ctx.messageID, ctx.callID)
 
         const project = Instance.project
         if (project.vcs !== "git") {
