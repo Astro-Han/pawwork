@@ -14,9 +14,9 @@ const btn = (active?: boolean) =>
   ({
     padding: "8px 18px",
     "border-radius": "6px",
-    border: "1px solid var(--color-divider, #444)",
-    background: active ? "var(--color-accent, #58f)" : "var(--color-fill-element, #222)",
-    color: "var(--color-text, #eee)",
+    border: "1px solid var(--border-weak, #444)",
+    background: active ? "var(--brand-primary, #58f)" : "var(--surface-base, #222)",
+    color: "var(--fg-base, #eee)",
     cursor: "pointer",
     "font-size": "14px",
     "font-weight": "500",
@@ -27,14 +27,14 @@ const heading = {
   "font-weight": "600",
   "text-transform": "uppercase" as const,
   "letter-spacing": "0.05em",
-  color: "var(--text-weak, #888)",
+  color: "var(--fg-weak, #888)",
   "margin-bottom": "4px",
 }
 
 const card = {
   padding: "16px 20px",
   "border-radius": "10px",
-  border: "1px solid var(--border-weak-base, #333)",
+  border: "1px solid var(--border-weak, #333)",
   background: "var(--surface-base, #1a1a1a)",
 }
 
@@ -49,7 +49,7 @@ function VariantA(props: { active: boolean; text: string }) {
       style={{
         position: "relative",
         display: "block",
-        color: props.active ? "var(--text-weak, #888)" : "var(--text-strong, #eee)",
+        color: props.active ? "var(--fg-weak, #888)" : "var(--fg-strong, #eee)",
         transition: "color 220ms ease",
       }}
     >
@@ -81,7 +81,7 @@ function VariantD(props: { active: boolean; text: string }) {
     <span
       style={{
         display: "block",
-        color: props.active ? "var(--text-weak, #888)" : "var(--text-strong, #eee)",
+        color: props.active ? "var(--fg-weak, #888)" : "var(--fg-strong, #eee)",
         transition: "color 220ms ease",
         "background-image": "linear-gradient(currentColor, currentColor)",
         "background-repeat": "no-repeat",
@@ -104,7 +104,7 @@ function VariantE(props: { active: boolean; text: string }) {
     <span
       style={{
         display: "grid",
-        color: props.active ? "var(--text-weak, #888)" : "var(--text-strong, #eee)",
+        color: props.active ? "var(--fg-weak, #888)" : "var(--fg-strong, #eee)",
         transition: "color 220ms ease",
       }}
     >
@@ -161,7 +161,7 @@ function VariantF(props: { active: boolean; text: string }) {
       ref={containerRef}
       style={{
         display: "grid",
-        color: props.active ? "var(--text-weak, #888)" : "var(--text-strong, #eee)",
+        color: props.active ? "var(--fg-weak, #888)" : "var(--fg-strong, #eee)",
         transition: "color 220ms ease",
       }}
     >
@@ -218,7 +218,7 @@ export const Playground = {
             active={active()}
             text={TEXT_SHORT}
             style={{
-              color: active() ? "var(--text-weak, #888)" : "var(--text-strong, #eee)",
+              color: active() ? "var(--fg-weak, #888)" : "var(--fg-strong, #eee)",
               transition: "color 220ms ease",
             }}
           />
@@ -227,7 +227,7 @@ export const Playground = {
             active={active()}
             text={TEXT_MED}
             style={{
-              color: active() ? "var(--text-weak, #888)" : "var(--text-strong, #eee)",
+              color: active() ? "var(--fg-weak, #888)" : "var(--fg-strong, #eee)",
               transition: "color 220ms ease",
             }}
           />
@@ -236,7 +236,7 @@ export const Playground = {
             active={active()}
             text={TEXT_LONG}
             style={{
-              color: active() ? "var(--text-weak, #888)" : "var(--text-strong, #eee)",
+              color: active() ? "var(--fg-weak, #888)" : "var(--fg-strong, #eee)",
               transition: "color 220ms ease",
             }}
           />

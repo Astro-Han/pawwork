@@ -62,9 +62,9 @@
   --radius-lg: 0.5rem;
   --radius-xl: 0.875rem;
 
-  --shadow-xs: var(--shadow-xs);
-  --shadow-md: var(--shadow-md);
-  --shadow-xs-border: var(--shadow-xs-border);
+  --shadow-xs: var(--shadow-raised);
+  --shadow-md: var(--shadow-floating);
+  --shadow-xs-border: var(--shadow-xs-border-base);
   --shadow-xs-border-base: var(--shadow-xs-border-base);
   --shadow-xs-border-select: var(--shadow-xs-border-select);
   --shadow-xs-border-focus: var(--shadow-xs-border-focus);

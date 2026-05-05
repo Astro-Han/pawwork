@@ -214,7 +214,7 @@ export function SessionComposerRegion(props: {
                 </Show>
                 <div
                   data-dock-surface="shell"
-                  class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-text-weak whitespace-pre-wrap pointer-events-none"
+                  class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none"
                 >
                   {handoffPrompt() || language.t("prompt.loading")}
                 </div>
@@ -301,13 +301,13 @@ export function SessionComposerRegion(props: {
               >
                 <div
                   ref={props.inputRef}
-                  class="w-full rounded-[12px] border border-border-weak-base bg-background-base p-3 text-16-regular text-text-weak"
+                  class="w-full rounded-[12px] border border-border-weak bg-bg-base p-3 text-16-regular text-fg-weak"
                 >
                   <span>{language.t("session.child.promptDisabled")} </span>
                   <Show when={parentID()}>
                     <button
                       type="button"
-                      class="text-text-base transition-colors hover:text-text-strong"
+                      class="text-fg-base transition-colors hover:text-fg-strong"
                       onClick={openParent}
                     >
                       {language.t("session.child.backToParent")}

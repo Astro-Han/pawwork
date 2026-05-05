@@ -24,7 +24,7 @@ const pluginEmptyMessage = (value: string, file: string): JSXElement => {
   return (
     <>
       {parts[0]}
-      <code class="bg-surface-raised-base px-1.5 py-0.5 rounded-sm text-text-base">{file}</code>
+      <code class="bg-surface-raised px-1.5 py-0.5 rounded-sm text-fg-base">{file}</code>
       {parts.slice(1).join(file)}
     </>
   )
@@ -249,7 +249,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
     <div class="flex items-center gap-1 w-[360px] rounded-xl shadow-[var(--shadow-lg-border-base)]">
       <Tabs
         aria-label={language.t("status.popover.ariaLabel")}
-        class="tabs bg-background-strong rounded-xl overflow-hidden"
+        class="tabs bg-surface-raised rounded-xl overflow-hidden"
         data-component="tabs"
         data-active="servers"
         defaultValue="servers"
@@ -276,7 +276,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
 
         <Tabs.Content value="servers">
           <div class="flex flex-col px-2 pb-2">
-            <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+            <div class="flex flex-col p-3 bg-bg-base rounded-sm min-h-14">
               <For each={sortedServers()}>
                 {(s) => {
                   const key = ServerConnection.key(s)
@@ -286,7 +286,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                       type="button"
                       class="flex items-center gap-2 w-full h-8 pl-3 pr-1.5 py-1.5 rounded-md transition-colors text-left"
                       classList={{
-                        "hover:bg-surface-raised-base-hover": !blocked(),
+                        "hover:bg-surface-raised": !blocked(),
                         "cursor-not-allowed": blocked(),
                       }}
                       aria-disabled={blocked()}
@@ -302,11 +302,11 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                         dimmed={blocked()}
                         status={health[key]}
                         class="flex items-center gap-2 w-full min-w-0"
-                        nameClass="text-13-regular text-text-base truncate"
-                        versionClass="text-13-regular text-text-weak truncate"
+                        nameClass="text-13-regular text-fg-base truncate"
+                        versionClass="text-13-regular text-fg-weak truncate"
                         badge={
                           <Show when={key === defaultServer.key()}>
-                            <span class="text-13-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
+                            <span class="text-13-regular text-fg-base bg-surface-base px-1.5 py-0.5 rounded-md">
                               {language.t("common.default")}
                             </span>
                           </Show>
@@ -341,11 +341,11 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
 
         <Tabs.Content value="mcp">
           <div class="flex flex-col px-2 pb-2">
-            <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+            <div class="flex flex-col p-3 bg-bg-base rounded-sm min-h-14">
               <Show
                 when={mcpNames().length > 0}
                 fallback={
-                  <div class="text-13-regular text-text-base text-center my-auto">{language.t("dialog.mcp.empty")}</div>
+                  <div class="text-13-regular text-fg-base text-center my-auto">{language.t("dialog.mcp.empty")}</div>
                 }
               >
                 <For each={mcpNames()}>
@@ -355,7 +355,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                     return (
                       <button
                         type="button"
-                        class="flex items-center gap-2 w-full h-8 pl-3 pr-2 py-1 rounded-md hover:bg-surface-raised-base-hover transition-colors text-left"
+                        class="flex items-center gap-2 w-full h-8 pl-3 pr-2 py-1 rounded-md hover:bg-surface-raised transition-colors text-left"
                         onClick={() => {
                           if (toggleMcp.isPending) return
                           toggleMcp.mutate(name)
@@ -366,13 +366,13 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                           classList={{
                             "size-1.5 rounded-full shrink-0": true,
                             "bg-icon-success-base": status() === "connected",
-                            "bg-icon-critical-base": status() === "failed",
-                            "bg-border-weak-base": status() === "disabled",
-                            "bg-icon-warning-base":
+                            "bg-error": status() === "failed",
+                            "bg-border-weak": status() === "disabled",
+                            "bg-warning":
                               status() === "needs_auth" || status() === "needs_client_registration",
                           }}
                         />
-                        <span class="text-13-regular text-text-base truncate flex-1">{name}</span>
+                        <span class="text-13-regular text-fg-base truncate flex-1">{name}</span>
                         <div onClick={(event) => event.stopPropagation()}>
                           <Switch
                             checked={enabled()}
@@ -394,11 +394,11 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
 
         <Tabs.Content value="lsp">
           <div class="flex flex-col px-2 pb-2">
-            <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+            <div class="flex flex-col p-3 bg-bg-base rounded-sm min-h-14">
               <Show
                 when={lspItems().length > 0}
                 fallback={
-                  <div class="text-13-regular text-text-base text-center my-auto">{language.t("dialog.lsp.empty")}</div>
+                  <div class="text-13-regular text-fg-base text-center my-auto">{language.t("dialog.lsp.empty")}</div>
                 }
               >
                 <For each={lspItems()}>
@@ -408,10 +408,10 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                         classList={{
                           "size-1.5 rounded-full shrink-0": true,
                           "bg-icon-success-base": item.status === "connected",
-                          "bg-icon-critical-base": item.status === "error",
+                          "bg-error": item.status === "error",
                         }}
                       />
-                      <span class="text-13-regular text-text-base truncate">{item.name || item.id}</span>
+                      <span class="text-13-regular text-fg-base truncate">{item.name || item.id}</span>
                     </div>
                   )}
                 </For>
@@ -422,16 +422,16 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
 
         <Tabs.Content value="plugins">
           <div class="flex flex-col px-2 pb-2">
-            <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+            <div class="flex flex-col p-3 bg-bg-base rounded-sm min-h-14">
               <Show
                 when={plugins().length > 0}
-                fallback={<div class="text-13-regular text-text-base text-center my-auto">{pluginEmpty()}</div>}
+                fallback={<div class="text-13-regular text-fg-base text-center my-auto">{pluginEmpty()}</div>}
               >
                 <For each={plugins()}>
                   {(plugin) => (
                     <div class="flex items-center gap-2 w-full px-2 py-1">
                       <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" />
-                      <span class="text-13-regular text-text-base truncate">{plugin}</span>
+                      <span class="text-13-regular text-fg-base truncate">{plugin}</span>
                     </div>
                   )}
                 </For>

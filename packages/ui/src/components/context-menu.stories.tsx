@@ -47,7 +47,7 @@ export const Basic = {
             padding: "20px",
             border: "1px dashed var(--border-weak)",
             "border-radius": "8px",
-            color: "var(--text-weak)",
+            color: "var(--fg-weak)",
           }}
         >
           Right click (or open) here
@@ -91,7 +91,7 @@ export const CheckboxRadio = {
             padding: "20px",
             border: "1px dashed var(--border-weak)",
             "border-radius": "8px",
-            color: "var(--text-weak)",
+            color: "var(--fg-weak)",
           }}
         >
           Right click (or open) here

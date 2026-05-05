@@ -51,9 +51,9 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
         <div
           classList={{
             "absolute top-px right-px size-1.5 rounded-full z-10": true,
-            "bg-surface-warning-strong": hasPermissions(),
-            "bg-icon-critical-base": !hasPermissions() && hasError(),
-            "bg-text-interactive-base": !hasPermissions() && !hasError(),
+            "bg-warning-bg": hasPermissions(),
+            "bg-error": !hasPermissions() && hasError(),
+            "bg-brand-primary": !hasPermissions() && !hasError(),
           }}
         />
       </Show>
@@ -99,7 +99,7 @@ const SessionRow = (props: {
       onFocus={props.warmFocus}
       onClick={props.onOpenSession}
     >
-      <Show when={props.titleContent} fallback={<span class="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate">{title()}</span>}>
+      <Show when={props.titleContent} fallback={<span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">{title()}</span>}>
         {props.titleContent}
       </Show>
     </A>
@@ -137,11 +137,11 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
   const isPinned = createMemo(() => props.pinned?.(props.session) ?? false)
   const statusGlyph = () => {
-    if (isWorking()) return <Spinner class="size-[14px]" style={{ color: tint() ?? "var(--icon-interactive-base)" }} />
-    if (hasPermissions()) return <div class="size-1.5 rounded-full bg-surface-warning-strong" />
-    if (hasError()) return <div class="size-1.5 rounded-full bg-text-diff-delete-base" />
-    if (unseenCount() > 0) return <div class="size-1.5 rounded-full bg-text-interactive-base" />
-    if (isPinned()) return <Icon name="pin" size="small" class="text-text-weak" />
+    if (isWorking()) return <Spinner class="size-[14px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
+    if (hasPermissions()) return <div class="size-1.5 rounded-full bg-warning-bg" />
+    if (hasError()) return <div class="size-1.5 rounded-full bg-error-text" />
+    if (unseenCount() > 0) return <div class="size-1.5 rounded-full bg-brand-primary" />
+    if (isPinned()) return <Icon name="pin" size="small" class="text-fg-weak" />
     return null
   }
   const statusTime = () => (statusGlyph() ? undefined : props.timeText?.(props.session))
@@ -186,7 +186,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <>
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[[data-expanded]]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active"
+        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-surface-raised [&:has(:focus-visible)]:bg-surface-raised has-[[data-expanded]]:bg-surface-raised has-[.active]:bg-surface-base-active"
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
       >
         <div class="flex min-w-0 items-center gap-1">
@@ -219,7 +219,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
               {/* fallback time text — free width, fades on hover */}
               <Show when={statusTime()}>
                 {(time) => (
-                  <span class="pointer-events-none text-12-regular text-text-weaker transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0">
+                  <span class="pointer-events-none text-12-regular text-fg-weaker transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0">
                     {time()}
                   </span>
                 )}
@@ -263,12 +263,12 @@ export const NewSessionItem = (props: {
       <div data-leading-slot class="shrink-0 w-4 h-4 flex items-center">
         <Icon name="new-session" size="small" class="text-icon-weak" />
       </div>
-      <span class="text-13-regular text-text-base [.active_&]:text-text-strong min-w-0 flex-1 truncate">{label}</span>
+      <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">{label}</span>
     </A>
   )
 
   return (
-    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-2 hover:bg-surface-raised-base-hover [&:has(:focus-visible)]:bg-surface-raised-base-hover has-[.active]:bg-surface-base-active">
+    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-2 hover:bg-surface-raised [&:has(:focus-visible)]:bg-surface-raised has-[.active]:bg-surface-base-active">
       {item}
     </div>
   )
@@ -279,7 +279,7 @@ export const SessionSkeleton = (props: { count?: number }): JSX.Element => {
   return (
     <div class="flex flex-col gap-0.5">
       <For each={items}>
-        {() => <div class="h-8 w-full rounded-md bg-surface-raised-base opacity-60 animate-pulse" />}
+        {() => <div class="h-8 w-full rounded-md bg-surface-raised opacity-60 animate-pulse" />}
       </For>
     </div>
   )

@@ -20,7 +20,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
   return (
     <div data-component="session-new-home" class="size-full overflow-y-auto">
       <div class="mx-auto flex w-full max-w-200 flex-col items-center px-6 pt-[28vh] pb-10 text-center md:px-8">
-        <h1 class="text-28-regular text-text-strong">{language.t("session.new.title")}</h1>
+        <h1 class="text-28-regular text-fg-strong">{language.t("session.new.title")}</h1>
 
         <Show when={props.composer}>
           <div class="mt-12 flex w-full max-w-[720px] flex-col items-center">
@@ -39,9 +39,9 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   aria-pressed={isSelected()}
                   classList={{
                     "inline-flex h-7 items-center gap-1.5 rounded-xl border px-3 text-13-regular transition-colors": true,
-                    "border-border-strong-base bg-transparent text-text-base hover:bg-surface-base-hover":
+                    "border-border-base bg-transparent text-fg-base hover:bg-surface-sunken":
                       !isSelected(),
-                    "border-border-interactive-base bg-surface-interactive-weak text-text-strong":
+                    "border-brand-primary bg-surface-interactive-base text-fg-strong":
                       isSelected(),
                   }}
                   onClick={() => toggleSkill(card.name)}

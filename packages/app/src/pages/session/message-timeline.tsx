@@ -476,7 +476,7 @@ export function MessageTimeline(props: {
                     <For each={conflictPaths.slice(0, 6)}>
                       {(item) => (
                         <div
-                          class="px-3 py-1.5 text-13-regular text-text-strong font-mono truncate"
+                          class="px-3 py-1.5 text-13-regular text-fg-strong font-mono truncate"
                           title={item}
                         >
                           {item}
@@ -484,7 +484,7 @@ export function MessageTimeline(props: {
                       )}
                     </For>
                     <Show when={conflictPaths.length > 6}>
-                      <div class="px-3 py-1.5 text-12-regular text-text-weak border-t border-border-base">
+                      <div class="px-3 py-1.5 text-12-regular text-fg-weak border-t border-border-base">
                         {language.t("ui.sessionTurn.turnChanges.confirmListMore", {
                           count: conflictPaths.length - 6,
                         })}
@@ -964,7 +964,7 @@ export function MessageTimeline(props: {
       <Dialog title={language.t("session.delete.title")} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
           <div class="flex flex-col gap-1">
-            <span class="text-13-regular text-text-strong">
+            <span class="text-13-regular text-fg-strong">
               {language.t("session.delete.confirm", { name: name() })}
             </span>
           </div>
@@ -997,7 +997,7 @@ export function MessageTimeline(props: {
         >
           <button
             type="button"
-            class="pointer-events-auto size-8 rounded-full border border-border-weaker-base bg-surface-raised-stronger-non-alpha flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-surface-raised-base-hover hover:border-border-weak-base hover:[--icon-base:var(--icon-hover)]"
+            class="pointer-events-auto size-8 rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-surface-raised hover:border-border-weak hover:[--icon-base:var(--icon-base)]"
             style={{ "box-shadow": "var(--shadow-floating)" }}
             onClick={props.onResumeScroll}
             aria-label={language.t("session.messages.jumpToLatest")}
@@ -1155,8 +1155,8 @@ export function MessageTimeline(props: {
                                   return (
                                     <Show when={comment()}>
                                       {(c) => (
-                                        <div class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak-base bg-background-stronger px-2.5 py-2">
-                                          <div class="flex items-center gap-1.5 min-w-0 text-13-medium text-text-strong">
+                                        <div class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak bg-bg-base px-2.5 py-2">
+                                          <div class="flex items-center gap-1.5 min-w-0 text-13-medium text-fg-strong">
                                             <FileIcon
                                               node={{ path: c().path, type: "file" }}
                                               class="size-3.5 shrink-0"
@@ -1164,7 +1164,7 @@ export function MessageTimeline(props: {
                                             <span class="truncate">{getFilename(c().path)}</span>
                                             <Show when={c().selection}>
                                               {(selection) => (
-                                                <span class="shrink-0 text-text-weak">
+                                                <span class="shrink-0 text-fg-weak">
                                                   {selection().startLine === selection().endLine
                                                     ? `:${selection().startLine}`
                                                     : `:${selection().startLine}-${selection().endLine}`}
@@ -1172,7 +1172,7 @@ export function MessageTimeline(props: {
                                               )}
                                             </Show>
                                           </div>
-                                          <div class="pt-1 text-13-regular text-text-strong whitespace-pre-wrap break-words">
+                                          <div class="pt-1 text-13-regular text-fg-strong whitespace-pre-wrap break-words">
                                             {c().comment}
                                           </div>
                                         </div>

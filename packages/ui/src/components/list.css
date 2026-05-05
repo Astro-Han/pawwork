@@ -47,11 +47,11 @@
       }
 
       &:hover:not(:disabled) [data-slot="icon-svg"] {
-        color: var(--icon-hover);
+        color: var(--icon-base);
       }
 
       &:active:not(:disabled) [data-slot="icon-svg"] {
-        color: var(--icon-active);
+        color: var(--icon-strong);
       }
     }
   }
@@ -98,11 +98,11 @@
       }
 
       &:hover:not(:disabled) [data-slot="icon-svg"] {
-        color: var(--icon-hover);
+        color: var(--icon-base);
       }
 
       &:active:not(:disabled) [data-slot="icon-svg"] {
-        color: var(--icon-active);
+        color: var(--icon-strong);
       }
     }
 
@@ -116,11 +116,11 @@
       }
 
       &:hover:not(:disabled) [data-slot="icon-svg"] {
-        color: var(--icon-hover);
+        color: var(--icon-base);
       }
 
       &:active:not(:disabled) [data-slot="icon-svg"] {
-        color: var(--icon-active);
+        color: var(--icon-strong);
       }
     }
   }
@@ -156,7 +156,7 @@
         align-items: center;
         gap: 2px;
         max-width: 100%;
-        color: var(--text-weak);
+        color: var(--fg-weak);
         white-space: nowrap;
 
         /* text-14-regular */
@@ -169,7 +169,7 @@
       }
 
       [data-slot="list-filter"] {
-        color: var(--text-strong);
+        color: var(--fg-strong);
         overflow: hidden;
         text-overflow: ellipsis;
       }
@@ -191,11 +191,11 @@
         justify-content: space-between;
         align-items: center;
         align-self: stretch;
-        background: var(--surface-raised-stronger-non-alpha);
+        background: var(--surface-raised);
         position: sticky;
         top: 0;
 
-        color: var(--text-weak);
+        color: var(--fg-weak);
 
         /* text-12-regular — aligned with sidebar section headers */
         font-family: var(--font-family-sans);
@@ -212,7 +212,7 @@
           left: 0;
           right: 0;
           height: 16px;
-          background: linear-gradient(to bottom, var(--surface-raised-stronger-non-alpha), transparent);
+          background: linear-gradient(to bottom, var(--surface-raised), transparent);
           pointer-events: none;
           opacity: 0;
           transition: opacity 0.15s ease;
@@ -235,7 +235,7 @@
           width: 100%;
           padding: 6px 8px 6px 8px;
           align-items: center;
-          color: var(--text-strong);
+          color: var(--fg-strong);
           scroll-margin-top: 28px;
 
           /* text-14-medium */
@@ -253,7 +253,7 @@
             flex-shrink: 0;
             aspect-ratio: 1/1;
             [data-component="icon"] {
-              color: var(--icon-strong-base);
+              color: var(--icon-strong);
             }
           }
           [data-slot="list-item-active-icon"] {
@@ -263,7 +263,7 @@
             flex-shrink: 0;
             aspect-ratio: 1/1;
             [data-component="icon"] {
-              color: var(--icon-strong-base);
+              color: var(--icon-strong);
             }
           }
 
@@ -278,7 +278,7 @@
             left: var(--list-divider-inset, 16px);
             right: var(--list-divider-inset, 16px);
             height: 1px;
-            background: var(--border-weak-base);
+            background: var(--border-weak);
             pointer-events: none;
           }
 
@@ -288,17 +288,17 @@
 
           &[data-active="true"] {
             border-radius: var(--radius-md);
-            background: var(--surface-raised-base-hover);
+            background: var(--surface-raised);
             [data-slot="list-item-active-icon"] {
               display: inline-flex;
             }
             [data-slot="list-item-extra-icon"] {
               display: block !important;
-              color: var(--icon-strong-base) !important;
+              color: var(--icon-strong) !important;
             }
           }
           &:active {
-            background: var(--surface-raised-base-active);
+            background: var(--surface-base);
           }
           &:focus-visible {
             outline: none;
@@ -311,7 +311,7 @@
           width: 100%;
           padding: 6px 8px 6px 8px;
           align-items: center;
-          color: var(--text-strong);
+          color: var(--fg-strong);
 
           /* text-14-medium */
           font-family: var(--font-family-sans);

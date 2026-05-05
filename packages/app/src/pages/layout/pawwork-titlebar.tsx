@@ -13,7 +13,7 @@ export function PawworkTitlebar(props: { visible: Accessor<boolean>; title: Acce
       {(mount) => (
         <Portal mount={mount()}>
           <div class="hidden md:flex min-w-0 items-center gap-1.5 text-13-medium">
-            <div class="min-w-0 truncate text-text-strong">{props.title()}</div>
+            <div class="min-w-0 truncate text-fg-strong">{props.title()}</div>
           </div>
         </Portal>
       )}

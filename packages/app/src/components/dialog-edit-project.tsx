@@ -138,7 +138,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
           />
 
           <div class="flex flex-col gap-2">
-            <label class="text-13-medium text-text-weak">{language.t("dialog.project.edit.icon")}</label>
+            <label class="text-13-medium text-fg-weak">{language.t("dialog.project.edit.icon")}</label>
             <div class="flex gap-3 items-start">
               <div
                 class="relative"
@@ -148,8 +148,8 @@ export function DialogEditProject(props: { project: LocalProject }) {
                 <div
                   class="relative size-16 rounded-md transition-colors cursor-pointer"
                   classList={{
-                    "border-text-interactive-base bg-surface-info-base/20": store.dragOver,
-                    "border-border-base hover:border-border-strong": !store.dragOver,
+                    "border-brand-primary bg-bg-cream/20": store.dragOver,
+                    "border-border-base hover:border-border-base": !store.dragOver,
                     "overflow-hidden": !!store.iconUrl,
                   }}
                   onDrop={handleDrop}
@@ -183,7 +183,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
                   </Show>
                 </div>
                 <div
-                  class="absolute inset-0 size-16 bg-surface-raised-stronger-non-alpha/90 rounded-[6px] z-10 pointer-events-none flex items-center justify-center transition-opacity"
+                  class="absolute inset-0 size-16 bg-surface-raised/90 rounded-[6px] z-10 pointer-events-none flex items-center justify-center transition-opacity"
                   classList={{
                     "opacity-100": store.iconHover && !store.iconUrl,
                     "opacity-0": !(store.iconHover && !store.iconUrl),
@@ -192,7 +192,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
                   <Icon name="cloud-upload" size="large" class="text-icon-on-interactive-base drop-shadow-sm" />
                 </div>
                 <div
-                  class="absolute inset-0 size-16 bg-surface-raised-stronger-non-alpha/90 rounded-[6px] z-10 pointer-events-none flex items-center justify-center transition-opacity"
+                  class="absolute inset-0 size-16 bg-surface-raised/90 rounded-[6px] z-10 pointer-events-none flex items-center justify-center transition-opacity"
                   classList={{
                     "opacity-100": store.iconHover && !!store.iconUrl,
                     "opacity-0": !(store.iconHover && !!store.iconUrl),
@@ -211,7 +211,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
                 class="hidden"
                 onChange={handleInputChange}
               />
-              <div class="flex flex-col gap-1.5 text-13-regular text-text-weak self-center">
+              <div class="flex flex-col gap-1.5 text-13-regular text-fg-weak self-center">
                 <span>{language.t("dialog.project.edit.icon.hint")}</span>
                 <span>{language.t("dialog.project.edit.icon.recommended")}</span>
               </div>
@@ -220,7 +220,7 @@ export function DialogEditProject(props: { project: LocalProject }) {
 
           <Show when={!store.iconUrl}>
             <div class="flex flex-col gap-2">
-              <label class="text-13-medium text-text-weak">{language.t("dialog.project.edit.color")}</label>
+              <label class="text-13-medium text-fg-weak">{language.t("dialog.project.edit.color")}</label>
               <div class="flex gap-1.5">
                 <For each={AVATAR_COLOR_KEYS}>
                   {(color) => (
@@ -230,9 +230,9 @@ export function DialogEditProject(props: { project: LocalProject }) {
                       aria-pressed={store.color === color}
                       classList={{
                         "flex items-center justify-center size-10 p-0.5 rounded-lg overflow-hidden transition-colors cursor-default": true,
-                        "bg-transparent border-2 border-icon-strong-base hover:bg-surface-base-hover":
+                        "bg-transparent border-2 border-icon-strong hover:bg-surface-sunken":
                           store.color === color,
-                        "bg-transparent border border-transparent hover:bg-surface-base-hover hover:border-border-weak-base":
+                        "bg-transparent border border-transparent hover:bg-surface-sunken hover:border-border-weak":
                           store.color !== color,
                       }}
                       onClick={() => setStore("color", color)}

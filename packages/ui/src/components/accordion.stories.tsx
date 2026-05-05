@@ -83,7 +83,7 @@ export const Basic = {
               <mod.Accordion.Trigger>First</mod.Accordion.Trigger>
             </mod.Accordion.Header>
             <mod.Accordion.Content>
-              <div style={{ color: "var(--text-weak)", padding: "8px 0" }}>Accordion content.</div>
+              <div style={{ color: "var(--fg-weak)", padding: "8px 0" }}>Accordion content.</div>
             </mod.Accordion.Content>
           </mod.Accordion.Item>
           <mod.Accordion.Item value="second">
@@ -91,7 +91,7 @@ export const Basic = {
               <mod.Accordion.Trigger>Second</mod.Accordion.Trigger>
             </mod.Accordion.Header>
             <mod.Accordion.Content>
-              <div style={{ color: "var(--text-weak)", padding: "8px 0" }}>More content.</div>
+              <div style={{ color: "var(--fg-weak)", padding: "8px 0" }}>More content.</div>
             </mod.Accordion.Content>
           </mod.Accordion.Item>
         </mod.Accordion>
@@ -113,7 +113,7 @@ export const Multiple = {
           <mod.Accordion.Trigger>First</mod.Accordion.Trigger>
         </mod.Accordion.Header>
         <mod.Accordion.Content>
-          <div style={{ color: "var(--text-weak)", padding: "8px 0" }}>Accordion content.</div>
+          <div style={{ color: "var(--fg-weak)", padding: "8px 0" }}>Accordion content.</div>
         </mod.Accordion.Content>
       </mod.Accordion.Item>
       <mod.Accordion.Item value="second">
@@ -121,7 +121,7 @@ export const Multiple = {
           <mod.Accordion.Trigger>Second</mod.Accordion.Trigger>
         </mod.Accordion.Header>
         <mod.Accordion.Content>
-          <div style={{ color: "var(--text-weak)", padding: "8px 0" }}>More content.</div>
+          <div style={{ color: "var(--fg-weak)", padding: "8px 0" }}>More content.</div>
         </mod.Accordion.Content>
       </mod.Accordion.Item>
     </mod.Accordion>
@@ -141,7 +141,7 @@ export const NonCollapsible = {
           <mod.Accordion.Trigger>First</mod.Accordion.Trigger>
         </mod.Accordion.Header>
         <mod.Accordion.Content>
-          <div style={{ color: "var(--text-weak)", padding: "8px 0" }}>Accordion content.</div>
+          <div style={{ color: "var(--fg-weak)", padding: "8px 0" }}>Accordion content.</div>
         </mod.Accordion.Content>
       </mod.Accordion.Item>
     </mod.Accordion>

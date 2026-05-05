@@ -68,15 +68,15 @@ const kindLabel = (kind: Kind) => {
 }
 
 const kindTextColor = (kind: Kind) => {
-  if (kind === "add") return "color: var(--icon-diff-add-base)"
-  if (kind === "del") return "color: var(--icon-diff-delete-base)"
-  return "color: var(--icon-diff-modified-base)"
+  if (kind === "add") return "color: var(--success)"
+  if (kind === "del") return "color: var(--error)"
+  return "color: var(--warning)"
 }
 
 const kindDotColor = (kind: Kind) => {
-  if (kind === "add") return "background-color: var(--icon-diff-add-base)"
-  if (kind === "del") return "background-color: var(--icon-diff-delete-base)"
-  return "background-color: var(--icon-diff-modified-base)"
+  if (kind === "add") return "background-color: var(--success)"
+  if (kind === "del") return "background-color: var(--error)"
+  return "background-color: var(--warning)"
 }
 
 const visibleKind = (node: FileNode, kinds?: ReadonlyMap<string, Kind>, marks?: Set<string>) => {
@@ -93,7 +93,7 @@ const buildDragImage = (target: HTMLElement) => {
 
   const image = document.createElement("div")
   image.className =
-    "flex items-center gap-x-2 px-2 py-1 bg-surface-raised-base rounded-md border border-border-base text-13-regular text-text-strong"
+    "flex items-center gap-x-2 px-2 py-1 bg-surface-raised rounded-md border border-border-base text-13-regular text-fg-strong"
   image.style.position = "absolute"
   image.style.top = "-1000px"
   image.innerHTML = (icon as SVGElement).outerHTML + (text as HTMLSpanElement).outerHTML
@@ -147,7 +147,7 @@ const FileTreeNode = (
     <Dynamic
       component={local.as ?? "div"}
       classList={{
-        "w-full min-w-0 h-6 flex items-center justify-start gap-x-1.5 rounded-md px-1.5 py-0 text-left hover:bg-surface-raised-base-hover active:bg-surface-base-active transition-colors cursor-pointer": true,
+        "w-full min-w-0 h-6 flex items-center justify-start gap-x-1.5 rounded-md px-1.5 py-0 text-left hover:bg-surface-raised active:bg-surface-base-active transition-colors cursor-pointer": true,
         "bg-surface-base-active": local.node.path === local.active,
         ...(local.classList ?? {}),
         [local.class ?? ""]: !!local.class,
@@ -168,8 +168,8 @@ const FileTreeNode = (
       <span
         classList={{
           "flex-1 min-w-0 text-13-medium whitespace-nowrap truncate": true,
-          "text-text-weaker": local.node.ignored,
-          "text-text-weak": !local.node.ignored && !active(),
+          "text-fg-weaker": local.node.ignored,
+          "text-fg-weak": !local.node.ignored && !active(),
         }}
         style={active() ? color() : undefined}
       >
@@ -422,7 +422,7 @@ export default function FileTree(props: {
                   <Collapsible.Content class="relative pt-0.5">
                     <div
                       classList={{
-                        "absolute top-0 bottom-0 w-px pointer-events-none bg-border-weak-base opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none": true,
+                        "absolute top-0 bottom-0 w-px pointer-events-none bg-border-weak opacity-0 transition-opacity duration-150 ease-out motion-reduce:transition-none": true,
                         "group-hover/filetree:opacity-100": expanded() && deep() === level,
                         "group-hover/filetree:opacity-50": !(expanded() && deep() === level),
                       }}
@@ -430,7 +430,7 @@ export default function FileTree(props: {
                     />
                     <Show
                       when={level < MAX_DEPTH && !chain.includes(key(node.path))}
-                      fallback={<div class="px-2 py-1 text-13-regular text-text-weak">...</div>}
+                      fallback={<div class="px-2 py-1 text-13-regular text-fg-weak">...</div>}
                     >
                       <FileTree
                         path={node.path}
@@ -470,7 +470,7 @@ export default function FileTree(props: {
                       <FileIcon
                         node={node}
                         class="size-4 filetree-icon filetree-icon--mono"
-                        style="color: var(--icon-weak-base)"
+                        style="color: var(--icon-weak)"
                         mono
                       />
                     </Match>

@@ -284,9 +284,9 @@ const agentPalette = [
   "var(--syntax-warning)",
   "var(--syntax-property)",
   "var(--syntax-constant)",
-  "var(--text-diff-add-base)",
-  "var(--text-diff-delete-base)",
-  "var(--icon-warning-base)",
+  "var(--success-text)",
+  "var(--error-text)",
+  "var(--warning)",
 ]
 
 function tone(name: string) {
@@ -952,7 +952,7 @@ function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
         <div data-component="context-tool-group-trigger">
           <span
             data-slot="context-tool-group-title"
-            class="min-w-0 flex items-center gap-2 text-13-medium text-text-strong"
+            class="min-w-0 flex items-center gap-2 text-13-medium text-fg-strong"
           >
             <span data-slot="context-tool-group-label" class="shrink-0">
               <ToolStatusTitle
@@ -964,7 +964,7 @@ function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
             </span>
             <span
               data-slot="context-tool-group-summary"
-              class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal text-text-base"
+              class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-normal text-fg-base"
             >
               <AnimatedCountList
                 items={[
@@ -1152,17 +1152,17 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
             <Show when={metaHead() || metaTail()}>
               <span data-slot="user-message-meta-wrap">
                 <Show when={metaHead()}>
-                  <span data-slot="user-message-meta" class="text-13-regular text-text-weak cursor-default">
+                  <span data-slot="user-message-meta" class="text-13-regular text-fg-weak cursor-default">
                     {metaHead()}
                   </span>
                 </Show>
                 <Show when={metaHead() && metaTail()}>
-                  <span data-slot="user-message-meta-sep" class="text-13-regular text-text-weak cursor-default">
+                  <span data-slot="user-message-meta-sep" class="text-13-regular text-fg-weak cursor-default">
                     {"\u00A0\u00B7\u00A0"}
                   </span>
                 </Show>
                 <Show when={metaTail()}>
-                  <span data-slot="user-message-meta-tail" class="text-13-regular text-text-weak cursor-default">
+                  <span data-slot="user-message-meta-tail" class="text-13-regular text-fg-weak cursor-default">
                     {metaTail()}
                   </span>
                 </Show>
@@ -1378,7 +1378,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               if (part().tool === "question" && cleaned.includes("dismissed this question")) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
-                    <span class="text-13-regular text-text-weak cursor-default">
+                    <span class="text-13-regular text-fg-weak cursor-default">
                       {i18n.t("ui.messagePart.questions.dismissed")}
                     </span>
                   </div>
@@ -1393,7 +1393,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               if (part().tool === "question" && partMetadata()?.interrupted === true) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
-                    <span class="text-13-regular text-text-weak cursor-default">
+                    <span class="text-13-regular text-fg-weak cursor-default">
                       {i18n.t("ui.messagePart.questions.interrupted")}
                     </span>
                   </div>
@@ -1434,7 +1434,7 @@ export function MessageDivider(props: { label: string }) {
     <div data-component="compaction-part">
       <div data-slot="compaction-part-divider">
         <span data-slot="compaction-part-line" />
-        <span data-slot="compaction-part-label" class="text-13-regular text-text-weak">
+        <span data-slot="compaction-part-label" class="text-13-regular text-fg-weak">
           {props.label}
         </span>
         <span data-slot="compaction-part-line" />
@@ -1549,7 +1549,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
               />
             </Tooltip>
             <Show when={meta()}>
-              <span data-slot="text-part-meta" class="text-13-regular text-text-weak cursor-default">
+              <span data-slot="text-part-meta" class="text-13-regular text-fg-weak cursor-default">
                 {meta()}
               </span>
             </Show>
@@ -1865,11 +1865,11 @@ const renderAgentToolPart: ToolComponent = (props) => {
       <div data-slot="basic-tool-tool-info-structured">
         <div data-slot="basic-tool-tool-info-main">
           <Show when={running()}>
-            <span data-component="task-tool-spinner" style={{ color: tone() ?? "var(--icon-interactive-base)" }}>
+            <span data-component="task-tool-spinner" style={{ color: tone() ?? "var(--brand-primary)" }}>
               <Spinner />
             </span>
           </Show>
-          <span data-component="task-tool-title" style={{ color: tone() ?? "var(--text-strong)" }}>
+          <span data-component="task-tool-title" style={{ color: tone() ?? "var(--fg-strong)" }}>
             {title()}
           </span>
           <Show when={subtitle()}>

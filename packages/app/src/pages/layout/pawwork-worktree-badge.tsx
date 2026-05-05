@@ -5,11 +5,11 @@ import { Tooltip } from "@opencode-ai/ui/tooltip"
 function WorktreeTooltipRow(props: { label: string; value?: string; emphasis?: boolean }) {
   return (
     <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
-      <span class="text-12-regular [color:var(--text-invert-weaker)]">{props.label}</span>
+      <span class="text-12-regular [color:var(--fg-on-brand)]">{props.label}</span>
       <span
         classList={{
-          "text-13-medium [color:var(--text-invert-strong)]": props.emphasis,
-          "text-13-regular [color:var(--text-invert-base)]": !props.emphasis,
+          "text-13-medium [color:var(--fg-on-brand)]": props.emphasis,
+          "text-13-regular [color:var(--fg-on-brand)]": !props.emphasis,
         }}
         class="min-w-0 break-all leading-[1.45]"
       >
@@ -42,7 +42,7 @@ export function PawworkWorktreeBadge(props: {
         type="button"
         variant="ghost"
         size="small"
-        class="group h-6 max-w-[280px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-text-weak transition-colors hover:bg-surface-raised-base-hover hover:text-text-strong"
+        class="group h-6 max-w-[280px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-fg-weak transition-colors hover:bg-surface-raised hover:text-fg-strong"
         data-component="pawwork-worktree-badge"
         onClick={props.onClick}
         aria-label={props.ariaLabel}
@@ -51,7 +51,7 @@ export function PawworkWorktreeBadge(props: {
         <Icon
           name="worktree"
           size="small"
-          class="shrink-0 text-text-weak transition-colors group-hover:text-text-strong"
+          class="shrink-0 text-fg-weak transition-colors group-hover:text-fg-strong"
         />
         <span class="min-w-0 truncate">{label()}</span>
       </Button>

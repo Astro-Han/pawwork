@@ -208,9 +208,9 @@ export function TerminalPanel(props: { embedded?: boolean }) {
       aria-label={language.t("terminal.title")}
       aria-hidden={props.embedded ? undefined : !opened()}
       inert={props.embedded ? undefined : !opened()}
-      class={props.embedded ? "h-full min-h-0 flex flex-col bg-background-stronger" : "relative w-full shrink-0 overflow-hidden bg-background-stronger"}
+      class={props.embedded ? "h-full min-h-0 flex flex-col bg-bg-base" : "relative w-full shrink-0 overflow-hidden bg-bg-base"}
       classList={{
-        "border-t border-border-weak-base": !props.embedded && opened(),
+        "border-t border-border-weak": !props.embedded && opened(),
         "transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[height] motion-reduce:transition-none":
           !props.embedded && !size.active(),
       }}
@@ -241,21 +241,21 @@ export function TerminalPanel(props: { embedded?: boolean }) {
           when={terminal.ready()}
           fallback={
             <div class="flex flex-col h-full pointer-events-none">
-              <div class="h-10 flex items-center gap-2 px-2 border-b border-border-weaker-base bg-background-stronger overflow-hidden">
+              <div class="h-10 flex items-center gap-2 px-2 border-b border-border-weaker bg-bg-base overflow-hidden">
                 <For each={handoff()}>
                   {(title) => (
-                    <div class="px-2 py-1 rounded-md bg-surface-base text-13-regular text-text-weak truncate max-w-40">
+                    <div class="px-2 py-1 rounded-md bg-surface-base text-13-regular text-fg-weak truncate max-w-40">
                       {title}
                     </div>
                   )}
                 </For>
                 <div class="flex-1" />
-                <div class="text-text-weak pr-2">
+                <div class="text-fg-weak pr-2">
                   {language.t("common.loading")}
                   {language.t("common.loading.ellipsis")}
                 </div>
               </div>
-              <div class="flex-1 flex items-center justify-center text-text-weak">{language.t("terminal.loading")}</div>
+              <div class="flex-1 flex items-center justify-center text-fg-weak">{language.t("terminal.loading")}</div>
             </div>
           }
         >
@@ -274,7 +274,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
                 onChange={(id) => terminal.open(id)}
                 class="!h-auto !flex-none"
               >
-                <Tabs.List class="h-10 border-b border-border-weaker-base">
+                <Tabs.List class="h-10 border-b border-border-weaker">
                   <SortableProvider ids={ids()}>
                     <For each={all()}>
                       {(pty) => <SortableTerminalTab terminal={pty} totalCount={all().length} onClose={close} />}
@@ -325,7 +325,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
                 {(id) => (
                   <Show when={all().find((pty) => pty.id === id)}>
                     {(t) => (
-                      <div class="relative p-1 h-10 flex items-center bg-background-stronger text-13-regular">
+                      <div class="relative p-1 h-10 flex items-center bg-bg-base text-13-regular">
                         {terminalTabLabel({
                           title: t().title,
                           titleNumber: t().titleNumber,

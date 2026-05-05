@@ -1779,10 +1779,10 @@ export default function Layout(props: ParentProps) {
       <Dialog title={language.t("workspace.delete.title")} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
           <div class="flex flex-col gap-1">
-            <span class="text-13-regular text-text-strong">
+            <span class="text-13-regular text-fg-strong">
               {language.t("workspace.delete.confirm", { name: name() })}
             </span>
-            <span class="text-13-regular text-text-weak">{description()}</span>
+            <span class="text-13-regular text-fg-weak">{description()}</span>
           </div>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" size="large" onClick={() => dialog.close()}>
@@ -1853,10 +1853,10 @@ export default function Layout(props: ParentProps) {
       <Dialog title={language.t("workspace.reset.title")} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
           <div class="flex flex-col gap-1">
-            <span class="text-13-regular text-text-strong">
+            <span class="text-13-regular text-fg-strong">
               {language.t("workspace.reset.confirm", { name: name() })}
             </span>
-            <span class="text-13-regular text-text-weak">
+            <span class="text-13-regular text-fg-weak">
               {description()} {archivedLabel()} {language.t("workspace.reset.note")}
             </span>
           </div>
@@ -2155,7 +2155,7 @@ export default function Layout(props: ParentProps) {
         data-component="desktop-shell"
         data-platform={platform.platform}
         {...shellAttrs(platform)}
-        class="relative bg-background-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
+        class="relative bg-bg-base flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
         classList={{
           "[transition:--sidebar-width_200ms_cubic-bezier(0.22,1,0.36,1),--right-panel-width_240ms_cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none":
             !state.sizing,
@@ -2167,7 +2167,7 @@ export default function Layout(props: ParentProps) {
               : "var(--shell-titlebar-height, 40px)",
           "--sidebar-width": layout.sidebar.opened() ? `${side()}px` : "0px",
           "--right-panel-width": layout.rightPanel.opened() ? `${layout.rightPanel.width()}px` : "0px",
-          "--right-panel-divider": layout.rightPanel.opened() ? "var(--border-weaker-base)" : "transparent",
+          "--right-panel-divider": layout.rightPanel.opened() ? "var(--border-weaker)" : "transparent",
         }}
       >
         <div
@@ -2215,7 +2215,7 @@ export default function Layout(props: ParentProps) {
               </Show>
 
               <div
-                class="pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker-base"
+                class="pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker"
                 style={{ left: "var(--sidebar-width)" }}
               />
 
@@ -2235,7 +2235,7 @@ export default function Layout(props: ParentProps) {
                   data-platform={platform.platform}
                   {...shellAttrs(platform)}
                   classList={{
-                    "size-full overflow-x-hidden flex flex-col items-start contain-strict bg-background-base": true,
+                    "size-full overflow-x-hidden flex flex-col items-start contain-strict bg-bg-base": true,
                   }}
                 >
                   <div class="relative size-full">

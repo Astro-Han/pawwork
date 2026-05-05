@@ -65,13 +65,13 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
 
     if (!TEXT_PREVIEW_EXTENSIONS.has(ext) && !IMAGE_EXTENSIONS.has(ext)) {
       return (
-        <div class="text-13-regular text-text-weak">
+        <div class="text-13-regular text-fg-weak">
           {OFFICE_EXTENSIONS.has(ext) ? entry.file : language.t("session.files.binaryContent")}
         </div>
       )
     }
 
-    if (state?.loading) return <div class="text-13-regular text-text-weak">{language.t("common.loading")}...</div>
+    if (state?.loading) return <div class="text-13-regular text-fg-weak">{language.t("common.loading")}...</div>
     if (!content) return null
 
     if (IMAGE_EXTENSIONS.has(ext) || content.mimeType?.startsWith("image/")) {
@@ -83,17 +83,17 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
         <img
           src={src}
           alt={entry.file}
-          class="max-h-48 w-full rounded-md border border-border-weaker-base object-contain bg-background-base"
+          class="max-h-48 w-full rounded-md border border-border-weaker object-contain bg-bg-base"
         />
       )
     }
 
     if (content.type !== "text") {
-      return <div class="text-13-regular text-text-weak">{language.t("session.files.binaryContent")}</div>
+      return <div class="text-13-regular text-fg-weak">{language.t("session.files.binaryContent")}</div>
     }
 
     return (
-      <div class="max-h-56 overflow-hidden rounded-md border border-border-weaker-base bg-background-base">
+      <div class="max-h-56 overflow-hidden rounded-md border border-border-weaker bg-bg-base">
         <Dynamic
           component={fileComponent}
           mode="text"
@@ -112,7 +112,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
       <Show
         when={props.files.length > 0}
         fallback={
-          <div class="px-6 py-6 text-13-regular text-text-weak">
+          <div class="px-6 py-6 text-13-regular text-fg-weak">
             {language.t("session.files.empty")}
           </div>
         }
@@ -125,13 +125,13 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
               return (
                 <section
                   data-artifact-file={entry.file}
-                  class="rounded-xl border border-border-weaker-base bg-background-stronger p-3 flex flex-col gap-3"
+                  class="rounded-xl border border-border-weaker bg-bg-base p-3 flex flex-col gap-3"
                 >
                   <div class="flex items-start gap-3">
                     <FileIcon node={{ path: entry.path, type: "file" }} class="shrink-0 mt-0.5" />
                     <div class="min-w-0 flex-1">
-                      <div class="text-13-medium text-text-strong break-all">{entry.file}</div>
-                      <div class="mt-1 flex items-center gap-2 text-13-regular text-text-weak">
+                      <div class="text-13-medium text-fg-strong break-all">{entry.file}</div>
+                      <div class="mt-1 flex items-center gap-2 text-13-regular text-fg-weak">
                         <span>
                           {entry.kind === "added"
                             ? language.t("session.files.status.added")
@@ -145,7 +145,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
 
                   <Switch>
                     <Match when={!meta().exists}>
-                      <div class="text-13-regular text-text-weak">{language.t("session.files.notFound")}</div>
+                      <div class="text-13-regular text-fg-weak">{language.t("session.files.notFound")}</div>
                     </Match>
                     <Match when={true}>{preview(entry)}</Match>
                   </Switch>

@@ -121,18 +121,18 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
   }
 
   return (
-    <div class="relative flex-1 h-screen w-screen min-h-0 overflow-y-auto bg-background-base font-sans">
+    <div class="relative flex-1 h-screen w-screen min-h-0 overflow-y-auto bg-bg-base font-sans">
       <div class="w-full max-w-[32rem] flex flex-col pt-[28vh] pb-16 pl-[clamp(1.5rem,10vw,6rem)] pr-6">
         <div class="flex flex-col gap-3">
-          <h1 class="text-28-regular text-text-strong text-balance">{language.t("error.page.title")}</h1>
-          <p class="text-16-regular text-text-base text-balance">{language.t("error.page.description")}</p>
+          <h1 class="text-28-regular text-fg-strong text-balance">{language.t("error.page.title")}</h1>
+          <p class="text-16-regular text-fg-base text-balance">{language.t("error.page.description")}</p>
         </div>
 
         <Show when={knownError()}>
           {(known) => (
             <div class="mt-8 flex flex-col gap-2">
-              <div class="text-13-medium text-text-strong">{known().title}</div>
-              <p class="text-13-regular text-text-weak leading-relaxed">{known().description}</p>
+              <div class="text-13-medium text-fg-strong">{known().title}</div>
+              <p class="text-13-regular text-fg-weak leading-relaxed">{known().description}</p>
             </div>
           )}
         </Show>
@@ -150,14 +150,14 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               {language.t("error.page.action.updateTo", { version: store.version ?? "" })}
             </Button>
           </Show>
-          <div class="flex items-center gap-2 text-13-regular text-text-base">
+          <div class="flex items-center gap-2 text-13-regular text-fg-base">
             <Show
               when={platform.checkUpdate && store.version}
               fallback={
                 <Show when={platform.checkUpdate}>
                   <button
                     type="button"
-                    class="hover:text-text-strong transition-colors disabled:opacity-50"
+                    class="hover:text-fg-strong transition-colors disabled:opacity-50"
                     onClick={checkForUpdates}
                     disabled={store.checking}
                   >
@@ -168,18 +168,18 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
                 </Show>
               }
             >
-              <button type="button" class="hover:text-text-strong transition-colors" onClick={platform.restart}>
+              <button type="button" class="hover:text-fg-strong transition-colors" onClick={platform.restart}>
                 {language.t("error.page.action.restart")}
               </button>
             </Show>
             <Show when={platform.checkUpdate}>
-              <span class="text-text-weaker" aria-hidden="true">
+              <span class="text-fg-weaker" aria-hidden="true">
                 ·
               </span>
             </Show>
             <button
               type="button"
-              class="hover:text-text-strong transition-colors disabled:opacity-50"
+              class="hover:text-fg-strong transition-colors disabled:opacity-50"
               onClick={() => setStore("reportConfirmOpen", true)}
               disabled={store.reporting}
             >
@@ -190,10 +190,10 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
 
         <Show when={store.reportConfirmOpen}>
           <div class="mt-8 flex flex-col gap-3 text-13-regular">
-            <p class="text-text-base leading-relaxed">{language.t("error.page.report.confirm.description")}</p>
-            <p class="text-text-weak leading-relaxed">{language.t("error.page.report.confirm.privacy")}</p>
-            <details class="text-text-weak">
-              <summary class="cursor-pointer text-text-interactive-base select-none">
+            <p class="text-fg-base leading-relaxed">{language.t("error.page.report.confirm.description")}</p>
+            <p class="text-fg-weak leading-relaxed">{language.t("error.page.report.confirm.privacy")}</p>
+            <details class="text-fg-weak">
+              <summary class="cursor-pointer text-brand-primary select-none">
                 {language.t("error.page.report.confirm.details")}
               </summary>
               <ul class="mt-2 list-disc pl-5">
@@ -220,14 +220,14 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
         </Show>
 
         <Show when={store.actionError}>
-          {(message) => <p class="mt-6 text-12-regular text-text-danger-base">{message()}</p>}
+          {(message) => <p class="mt-6 text-12-regular text-error">{message()}</p>}
         </Show>
         <Show when={store.actionMessage}>
-          {(message) => <p class="mt-6 text-12-regular text-text-weak">{message()}</p>}
+          {(message) => <p class="mt-6 text-12-regular text-fg-weak">{message()}</p>}
         </Show>
 
         <details class="group mt-16">
-          <summary class="cursor-pointer select-none text-13-regular text-text-weak hover:text-text-base transition-colors list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+          <summary class="cursor-pointer select-none text-13-regular text-fg-weak hover:text-fg-base transition-colors list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
             <svg
               width="10"
               height="10"
@@ -250,12 +250,12 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               label={language.t("error.page.details.label")}
               hideLabel
             />
-            <div class="flex items-center gap-2 text-12-regular text-text-weaker">
+            <div class="flex items-center gap-2 text-12-regular text-fg-weaker">
               <Show when={platform.version}>
                 {(version) => (
                   <>
                     <span>{language.t("error.page.version", { version: version() })}</span>
-                    <span class="text-text-weaker" aria-hidden="true">
+                    <span class="text-fg-weaker" aria-hidden="true">
                       ·
                     </span>
                   </>
@@ -263,7 +263,7 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
               </Show>
               <button
                 type="button"
-                class="hover:text-text-weak transition-colors"
+                class="hover:text-fg-weak transition-colors"
                 onClick={() => platform.openLink(store.feedbackUrl ?? PAWWORK_GITHUB_ISSUE_URL)}
               >
                 {store.feedbackUrl

@@ -1143,7 +1143,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               as="div"
               variant="ghost"
               size="normal"
-              class="h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover"
+              class="h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-surface-sunken"
               style={triggerStyle()}
               onClick={() => {
                 if (!actionReady()) return
@@ -1184,7 +1184,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover",
+                "h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-surface-sunken",
               "data-action": "prompt-model",
               disabled: !actionReady(),
             }}
@@ -1240,19 +1240,19 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               disabled: !actionReady(),
               style: triggerStyle(),
               class:
-                "h-[28px] px-2 max-w-[160px] @max-[20rem]/composer:max-w-[80px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-text-base transition-[max-width,colors] duration-200 ease-out hover:bg-surface-base-hover",
+                "h-[28px] px-2 max-w-[160px] @max-[20rem]/composer:max-w-[80px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-[max-width,colors] duration-200 ease-out hover:bg-surface-sunken",
             } as any
           }
           trigger={
             <>
               <span class="truncate">{translateVariant(language.t, local.model.variant.current() ?? "default")}</span>
-              <Icon name="chevron-down" size="small" class="text-text-weak" />
+              <Icon name="chevron-down" size="small" class="text-fg-weak" />
             </>
           }
-          class="min-w-32 bg-surface-raised-stronger-non-alpha"
+          class="min-w-32 bg-surface-raised"
         >
           <div role="menu">
-            <div class="px-2 pt-0.5 pb-2 text-13-regular text-text-weak">
+            <div class="px-2 pt-0.5 pb-2 text-13-regular text-fg-weak">
               {language.t("prompt.variant.popover.title")}
             </div>
             <For each={variants()}>
@@ -1263,7 +1263,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     type="button"
                     role="menuitemradio"
                     aria-checked={active()}
-                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-text-strong outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
+                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-strong outline-none hover:bg-surface-raised focus-visible:bg-surface-raised"
                     onClick={() => {
                       if (!actionReady()) return
                       local.model.variant.set(variant === "default" ? undefined : variant)
@@ -1273,7 +1273,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   >
                     <span class="truncate">{translateVariant(language.t, variant)}</span>
                     <Show when={active()}>
-                      <Icon name="check" size="small" class="shrink-0 text-text-strong" data-icon="check" />
+                      <Icon name="check" size="small" class="shrink-0 text-fg-strong" data-icon="check" />
                     </Show>
                   </button>
                 )
@@ -1476,7 +1476,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         onSubmit={handleSubmit}
         classList={{
           "group/prompt-input @container/composer": true,
-          "border-icon-info-active border-dashed": store.draggingType !== null,
+          "border-fg-base border-dashed": store.draggingType !== null,
           "opacity-75": !actionReady(),
           [props.class ?? ""]: !!props.class,
         }}
@@ -1555,18 +1555,18 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               onKeyDown={handleKeyDown}
               classList={{
                 "select-text": true,
-                "w-full pl-4 pr-4 pt-4 text-13-regular text-text-strong focus:outline-none whitespace-pre-wrap": true,
+                "w-full pl-4 pr-4 pt-4 text-13-regular text-fg-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
-                "cursor-wait text-text-weak": !actionReady(),
+                "cursor-wait text-fg-weak": !actionReady(),
               }}
               style={{ "padding-bottom": space }}
             />
             <Show when={!prompt.dirty()}>
               <div
                 data-component="prompt-placeholder"
-                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-13-regular text-text-weak pointer-events-none whitespace-nowrap truncate"
+                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-13-regular text-fg-weak pointer-events-none whitespace-nowrap truncate"
                 classList={{ "font-mono!": store.mode === "shell" }}
                 style={{ "padding-bottom": space }}
               >
@@ -1581,7 +1581,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             style={{
               height: space,
               background:
-                "linear-gradient(to top, var(--surface-raised-stronger-non-alpha) calc(100% - 20px), transparent)",
+                "linear-gradient(to top, var(--surface-raised) calc(100% - 20px), transparent)",
             }}
           />
 

@@ -12,9 +12,9 @@ type PromptImageAttachmentsProps = {
 
 const fallbackClass = "size-16 rounded-md bg-surface-base flex items-center justify-center border border-border-base"
 const imageClass =
-  "size-16 rounded-md object-cover border border-border-base hover:border-border-strong-base transition-colors"
+  "size-16 rounded-md object-cover border border-border-base hover:border-border-base transition-colors"
 const removeClass =
-  "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-surface-raised-stronger-non-alpha border border-border-base flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-raised-base-hover"
+  "absolute -top-1.5 -right-1.5 size-5 rounded-full bg-surface-raised border border-border-base flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-raised"
 const nameClass = "absolute bottom-0 left-0 right-0 px-1 py-0.5 bg-black/50 rounded-b-md"
 
 export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (props) => {
@@ -29,7 +29,7 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                   when={attachment.mime.startsWith("image/")}
                   fallback={
                     <div class={fallbackClass}>
-                      <Icon name="folder" class="size-6 text-text-weak" />
+                      <Icon name="folder" class="size-6 text-fg-weak" />
                     </div>
                   }
                 >
@@ -46,7 +46,7 @@ export const PromptImageAttachments: Component<PromptImageAttachmentsProps> = (p
                   class={removeClass}
                   aria-label={props.removeLabel}
                 >
-                  <Icon name="close" class="size-3 text-text-weak" />
+                  <Icon name="close" class="size-3 text-fg-weak" />
                 </button>
                 <div class={nameClass}>
                   <span class="text-13-regular text-white truncate block">{attachment.filename}</span>

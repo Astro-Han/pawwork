@@ -351,7 +351,7 @@ input[type="range"].heading-slider {
   width: 140px;
   height: 4px;
   border-radius: 2px;
-  background: var(--color-divider, #444);
+  background: var(--border-weak, #444);
   outline: none;
 }
 input[type="range"].heading-slider::-webkit-slider-thumb {
@@ -360,7 +360,7 @@ input[type="range"].heading-slider::-webkit-slider-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--color-accent, #58f);
+  background: var(--brand-primary, #58f);
   cursor: pointer;
   border: none;
 }
@@ -480,9 +480,9 @@ function AnimatedHeading(props) {
 const btn = (accent) => ({
   padding: "6px 14px",
   "border-radius": "6px",
-  border: "1px solid var(--color-divider, #333)",
-  background: accent ? "var(--color-danger-fill, #c33)" : "var(--color-fill-element, #222)",
-  color: "var(--color-text, #eee)",
+  border: "1px solid var(--border-weak, #333)",
+  background: accent ? "var(--error, #c33)" : "var(--surface-base, #222)",
+  color: "var(--fg-base, #eee)",
   cursor: "pointer",
   "font-size": "13px",
 })
@@ -490,9 +490,9 @@ const btn = (accent) => ({
 const smallBtn = (active) => ({
   padding: "4px 12px",
   "border-radius": "6px",
-  border: active ? "1px solid var(--color-accent, #58f)" : "1px solid var(--color-divider, #333)",
-  background: active ? "var(--color-accent, #58f)" : "var(--color-fill-element, #222)",
-  color: "var(--color-text, #eee)",
+  border: active ? "1px solid var(--brand-primary, #58f)" : "1px solid var(--border-weak, #333)",
+  background: active ? "var(--brand-primary, #58f)" : "var(--surface-base, #222)",
+  color: "var(--fg-base, #eee)",
   cursor: "pointer",
   "font-size": "12px",
 })
@@ -500,7 +500,7 @@ const smallBtn = (active) => ({
 const sliderLabel = {
   "font-size": "11px",
   "font-family": "monospace",
-  color: "var(--color-text-weak, #666)",
+  color: "var(--color-fg-weak, #666)",
   "min-width": "70px",
   "flex-shrink": "0",
   "text-align": "right",
@@ -509,14 +509,14 @@ const sliderLabel = {
 const sliderValue = {
   "font-family": "monospace",
   "font-size": "11px",
-  color: "var(--color-text-weak, #aaa)",
+  color: "var(--color-fg-weak, #aaa)",
   "min-width": "60px",
 }
 
 const cardLabel = {
   "font-size": "11px",
   "font-family": "monospace",
-  color: "var(--color-text-weak, #666)",
+  color: "var(--color-fg-weak, #666)",
 }
 
 const thinkingRow = {
@@ -528,21 +528,21 @@ const thinkingRow = {
   "font-weight": "500",
   "line-height": "20px",
   "min-height": "20px",
-  color: "var(--text-weak, #aaa)",
+  color: "var(--fg-weak, #aaa)",
 }
 
 const headingSlot = {
   "min-width": "0",
   overflow: "visible",
   "white-space": "nowrap",
-  color: "var(--text-weaker, #888)",
+  color: "var(--fg-weaker, #888)",
   "font-weight": "400",
 }
 
 const cardStyle = {
   padding: "16px 20px",
   "border-radius": "10px",
-  border: "1px solid var(--color-divider, #333)",
+  border: "1px solid var(--border-weak, #333)",
   background: "var(--h-mask-bg, #1a1a1a)",
   display: "grid",
   gap: "8px",
@@ -688,7 +688,7 @@ export const Playground = {
         {/* ── Sliders ──────────────────────────────────────── */}
         <div
           style={{
-            "border-top": "1px solid var(--color-divider, #333)",
+            "border-top": "1px solid var(--border-weak, #333)",
             "padding-top": "16px",
             display: "grid",
             gap: "10px",
@@ -840,7 +840,7 @@ export const Playground = {
           <div
             style={{
               "font-size": "11px",
-              color: "var(--color-text-weak, #888)",
+              color: "var(--color-fg-weak, #888)",
               "font-family": "monospace",
             }}
           >

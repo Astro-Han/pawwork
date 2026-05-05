@@ -1,12 +1,5 @@
 @import "@opencode-ai/ui/styles/tailwind";
 
-@theme {
-  --color-accent-brand: var(--accent-brand);
-  --color-accent-brand-hover: var(--accent-brand-hover);
-  --color-accent-brand-on: var(--accent-brand-on);
-  --color-sidebar: var(--sidebar);
-}
-
 @layer components {
   [data-component="getting-started"] {
     container-type: inline-size;
@@ -74,20 +67,6 @@
     --shell-titlebar-border: color-mix(in srgb, var(--shell-border-weak) 72%, var(--shell-border-base) 28%);
   }
 
-  :root {
-    --accent-brand: #ff5910;
-    --accent-brand-hover: #e04e0e;
-    --accent-brand-on: #ffffff;
-    --sidebar: #F9F9F9;
-  }
-
-  :root[data-color-scheme="dark"] {
-    --accent-brand: #ff5910;
-    --accent-brand-hover: #ff7a3a;
-    --accent-brand-on: #ffffff;
-    --sidebar: #181818;
-  }
-
   /* Register --sidebar-width as a length so the titlebar gradient interpolates
      smoothly when sidebar toggles open/close. */
   @property --sidebar-width {
@@ -118,10 +97,10 @@
     padding-inline: 8px;
     background: linear-gradient(
       to right,
-      var(--background-weak) 0,
-      var(--background-weak) var(--sidebar-width, 0px),
-      var(--background-base) var(--sidebar-width, 0px),
-      var(--background-base) 100%
+      var(--bg-cream) 0,
+      var(--bg-cream) var(--sidebar-width, 0px),
+      var(--bg-base) var(--sidebar-width, 0px),
+      var(--bg-base) 100%
     );
   }
 
@@ -140,7 +119,7 @@
 
   [data-component="titlebar-shell"][data-shell="desktop"][data-shell-os="macos"]
     :is([data-component="button"], [data-component="icon-button"]).titlebar-icon[data-variant="ghost"]:hover:not(:disabled) {
-    background-color: var(--surface-base-hover);
+    background-color: var(--surface-sunken);
   }
 
   [data-component="desktop-shell-main"][data-shell="desktop"][data-shell-os="macos"] {

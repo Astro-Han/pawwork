@@ -14,5 +14,5 @@
   font-size: 12px;
   font-weight: var(--font-weight-regular);
   line-height: 1;
-  color: var(--text-weak);
+  color: var(--fg-weak);
 }

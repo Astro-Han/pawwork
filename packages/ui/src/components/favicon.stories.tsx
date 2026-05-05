@@ -41,7 +41,7 @@ export const Basic = {
   render: () => (
     <div style={{ display: "grid", gap: "8px" }}>
       <mod.Favicon />
-      <div style={{ color: "var(--text-weak)", "font-size": "12px" }}>
+      <div style={{ color: "var(--fg-weak)", "font-size": "12px" }}>
         Head tags are injected for favicon and app icons.
       </div>
     </div>

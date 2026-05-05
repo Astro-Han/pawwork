@@ -35,12 +35,12 @@
         cursor: default;
         user-select: none;
 
-        background-color: var(--background-stronger);
-        border: 1px solid var(--border-weak-base);
+        background-color: var(--bg-base);
+        border: 1px solid var(--border-weak);
         border-radius: 0;
         box-shadow: none;
         overflow: clip;
-        color: var(--text-strong);
+        color: var(--fg-strong);
         transition: background-color 0.15s ease;
 
         /* text-13-regular */
@@ -52,7 +52,7 @@
         letter-spacing: var(--letter-spacing-normal);
 
         &:hover:not([data-disabled]) {
-          background-color: var(--surface-base-hover);
+          background-color: var(--surface-sunken);
         }
         &:active:not([data-disabled]) {
           background-color: var(--surface-base-active);
@@ -82,9 +82,9 @@
 
     &[data-expanded] {
       [data-slot="accordion-content"] {
-        border: 1px solid var(--border-weak-base);
+        border: 1px solid var(--border-weak);
         border-top: 0;
-        background-color: var(--background-stronger);
+        background-color: var(--bg-base);
       }
     }
 

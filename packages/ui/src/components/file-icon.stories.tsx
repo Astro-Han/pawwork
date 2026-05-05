@@ -85,7 +85,7 @@ export const Samples = {
         {items.map((node) => (
           <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
             <mod.FileIcon node={{ path: node.path, type: node.type }} mono={false} />
-            <div style={{ "font-size": "12px", color: "var(--text-weak)" }}>{node.path}</div>
+            <div style={{ "font-size": "12px", color: "var(--fg-weak)" }}>{node.path}</div>
           </div>
         ))}
       </div>

@@ -83,7 +83,7 @@ function Cell(props: { bad?: boolean; dim?: boolean; label: string; tip: string;
         <div
           classList={{
             "text-[13px] leading-none font-bold tabular-nums sm:text-[14px]": true,
-            "text-text-on-critical-base": !!props.bad,
+            "text-error-text": !!props.bad,
             "opacity-70": !!props.dim,
           }}
         >
@@ -393,7 +393,7 @@ export function DebugBar() {
           type="button"
           aria-label="Show debug bar"
           onClick={toggle}
-          class="pointer-events-auto fixed bottom-3 right-3 z-50 rounded-full border border-border-base bg-surface-raised-stronger-non-alpha px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-text-strong opacity-60 shadow-[var(--shadow-lg-border-base)] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-interactive-base sm:bottom-4 sm:right-4"
+          class="pointer-events-auto fixed bottom-3 right-3 z-50 rounded-full border border-border-base bg-surface-raised px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-fg-strong opacity-60 shadow-[var(--shadow-lg-border-base)] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary sm:bottom-4 sm:right-4"
         >
           debug
         </button>
@@ -401,13 +401,13 @@ export function DebugBar() {
     >
     <aside
       aria-label={language.t("debugBar.ariaLabel")}
-      class="pointer-events-auto fixed bottom-3 right-3 z-50 w-[308px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border-base bg-surface-raised-stronger-non-alpha p-0.5 text-text-strong shadow-[var(--shadow-lg-border-base)] sm:bottom-4 sm:right-4 sm:w-[324px]"
+      class="pointer-events-auto fixed bottom-3 right-3 z-50 w-[308px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border-base bg-surface-raised p-0.5 text-fg-strong shadow-[var(--shadow-lg-border-base)] sm:bottom-4 sm:right-4 sm:w-[324px]"
     >
       <button
         type="button"
         aria-label="Hide debug bar"
         onClick={toggle}
-        class="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-[14px] leading-none opacity-60 hover:bg-surface-raised-base hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-interactive-base"
+        class="absolute right-1 top-1 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-[14px] leading-none opacity-60 hover:bg-surface-raised hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
       >
         ×
       </button>

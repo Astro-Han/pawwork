@@ -46,7 +46,7 @@ export const Basic = {
           <Accordion.Trigger>Sticky header</Accordion.Trigger>
         </mod.StickyAccordionHeader>
         <Accordion.Content>
-          <div style={{ color: "var(--text-weak)", padding: "8px 0" }}>Accordion content.</div>
+          <div style={{ color: "var(--fg-weak)", padding: "8px 0" }}>Accordion content.</div>
         </Accordion.Content>
       </Accordion.Item>
     </Accordion>

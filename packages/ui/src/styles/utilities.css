@@ -6,9 +6,9 @@
   }
 
   /* ::selection { */
-  /*   background-color: color-mix(in srgb, var(--color-primary) 33%, transparent); */
-  /*   background-color: var(--color-primary); */
-  /*   color: var(--color-background); */
+  /*   background-color: color-mix(in srgb, var(--brand-primary) 33%, transparent); */
+  /*   background-color: var(--brand-primary); */
+  /*   color: var(--bg-base); */
   /* } */
 }
 

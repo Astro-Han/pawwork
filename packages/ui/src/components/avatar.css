@@ -1,12 +1,12 @@
 [data-component="avatar"] {
-  --avatar-bg: var(--color-surface-info-base);
-  --avatar-fg: var(--color-text-base);
+  --avatar-bg: var(--color-bg-cream);
+  --avatar-fg: var(--color-fg-base);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-weak-base);
+  border: 1px solid var(--color-border-weak);
   font-family: var(--font-mono);
   font-weight: 500;
   text-transform: uppercase;

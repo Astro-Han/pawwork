@@ -55,7 +55,7 @@
   }
 
   [data-slot="tool-status-done"] {
-    color: var(--text-strong);
+    color: var(--fg-strong);
     opacity: 1;
     filter: blur(0);
     transform: translateY(0);

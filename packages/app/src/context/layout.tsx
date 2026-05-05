@@ -48,8 +48,8 @@ export function getAvatarColors(key?: string) {
     }
   }
   return {
-    background: "var(--surface-info-base)",
-    foreground: "var(--text-base)",
+    background: "var(--bg-cream)",
+    foreground: "var(--fg-base)",
   }
 }
 

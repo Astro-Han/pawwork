@@ -172,27 +172,27 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
 
             if (deleted()) {
               return (
-                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
+                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-fg-weak">
                   {i18n.t("ui.fileMedia.state.removed", { kind: label })}
                 </div>
               )
             }
             if (status() === "loading") {
               return (
-                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
+                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-fg-weak">
                   {i18n.t("ui.fileMedia.state.loading", { kind: label })}
                 </div>
               )
             }
             if (status() === "error") {
               return (
-                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
+                <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-fg-weak">
                   {i18n.t("ui.fileMedia.state.error", { kind: label })}
                 </div>
               )
             }
             return (
-              <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-text-weak">
+              <div class="flex min-h-40 items-center justify-center px-6 py-4 text-center text-fg-weak">
                 {i18n.t("ui.fileMedia.state.unavailable", { kind: label })}
               </div>
             )
@@ -203,11 +203,11 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
             if (k !== "image" && k !== "audio") return props.fallback()
             if (k === "image") {
               return (
-                <div class="flex justify-center bg-background-stronger px-6 py-4">
+                <div class="flex justify-center bg-bg-base px-6 py-4">
                   <img
                     src={value()}
                     alt={cfg()?.path}
-                    class="max-h-[60vh] max-w-full rounded border border-border-weak-base bg-background-base object-contain"
+                    class="max-h-[60vh] max-w-full rounded border border-border-weak bg-bg-base object-contain"
                     onLoad={onLoad}
                   />
                 </div>
@@ -215,7 +215,7 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
             }
 
             return (
-              <div class="flex justify-center bg-background-stronger px-6 py-4">
+              <div class="flex justify-center bg-bg-base px-6 py-4">
                 <audio class="w-full max-w-xl" controls preload="metadata" onLoadedMetadata={onLoad}>
                   <source src={value()} type={audioMime()} />
                 </audio>
@@ -237,7 +237,7 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
                     <img
                       src={value()}
                       alt={cfg()?.path}
-                      class="max-h-[60vh] max-w-full rounded border border-border-weak-base bg-background-base object-contain"
+                      class="max-h-[60vh] max-w-full rounded border border-border-weak bg-bg-base object-contain"
                       onLoad={onLoad}
                     />
                   </div>
@@ -249,10 +249,10 @@ export function FileMedia(props: { media?: FileMediaOptions; fallback: () => JSX
       </Match>
       <Match when={isBinary()}>
         <div class="flex min-h-56 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
-          <div class="text-14-semibold text-text-strong">
+          <div class="text-14-semibold text-fg-strong">
             {cfg()?.path?.split("/").pop() ?? i18n.t("ui.fileMedia.binary.title")}
           </div>
-          <div class="text-13-regular text-text-weak">
+          <div class="text-13-regular text-fg-weak">
             {(() => {
               const path = cfg()?.path
               if (!path) return i18n.t("ui.fileMedia.binary.description.default")

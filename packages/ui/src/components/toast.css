@@ -41,10 +41,10 @@
   transition: all 150ms ease-out;
 
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-weak-base);
-  background: var(--surface-float-base);
-  color: var(--text-invert-base);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-weak);
+  background: var(--fg-strong);
+  color: var(--bg-cream);
+  box-shadow: var(--shadow-floating);
 
   [data-slot="toast-inner"] {
     display: flex;
@@ -74,15 +74,15 @@
   }
 
   /* &[data-variant="success"] { */
-  /*   border-color: var(--color-semantic-positive); */
+  /*   border-color: var(--success); */
   /* } */
   /**/
   /* &[data-variant="error"] { */
-  /*   border-color: var(--color-semantic-danger); */
+  /*   border-color: var(--error); */
   /* } */
   /**/
   /* &[data-variant="loading"] { */
-  /*   border-color: var(--color-semantic-info); */
+  /*   border-color: var(--fg-base); */
   /* } */
 
   [data-slot="toast-icon"] {
@@ -92,8 +92,8 @@
     justify-content: center;
 
     [data-component="icon"] {
-      color: var(--text-invert-stronger);
-      /* color: var(--icon-invert-base); */
+      color: var(--fg-on-brand);
+      /* color: var(--fg-on-brand); */
     }
   }
 
@@ -114,7 +114,7 @@
   }
 
   [data-slot="toast-title"] {
-    color: var(--text-invert-strong);
+    color: var(--fg-on-brand);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -131,7 +131,7 @@
   }
 
   [data-slot="toast-description"] {
-    color: var(--text-invert-base);
+    color: var(--fg-on-brand);
     text-wrap-style: pretty;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -165,7 +165,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 
-    color: var(--text-invert-weak);
+    color: var(--fg-on-brand);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
@@ -177,7 +177,7 @@
     }
 
     &:first-child {
-      color: var(--text-invert-strong);
+      color: var(--fg-on-brand);
     }
   }
 
@@ -199,7 +199,7 @@
   [data-slot="toast-progress-fill"] {
     height: 100%;
     width: var(--kb-toast-progress-fill-width);
-    background-color: var(--color-primary);
+    background-color: var(--brand-primary);
     transition: width 250ms linear;
   }
 }

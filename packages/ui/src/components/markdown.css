@@ -3,7 +3,7 @@
   min-width: 0;
   max-width: 100%;
   overflow-wrap: break-word;
-  color: var(--text-strong);
+  color: var(--fg-strong);
   font-family: var(--font-family-sans);
   font-size: var(--font-size-base); /* 13px */
   line-height: 160%;
@@ -24,7 +24,7 @@
   h5,
   h6 {
     font-size: var(--font-size-hierarchy);
-    color: var(--text-strong);
+    color: var(--fg-strong);
     font-weight: var(--font-weight-medium);
     margin-top: 0px;
     margin-bottom: 24px;
@@ -34,7 +34,7 @@
   /* Emphasis & Strong: Neutral strong color */
   strong,
   b {
-    color: var(--text-strong);
+    color: var(--fg-strong);
     font-weight: var(--font-weight-medium);
   }
 
@@ -45,7 +45,7 @@
 
   /* Links */
   a {
-    color: var(--text-interactive-base);
+    color: var(--brand-primary);
     text-decoration: none;
     font-weight: inherit;
   }
@@ -89,7 +89,7 @@
   }
 
   li::marker {
-    color: var(--text-weak);
+    color: var(--fg-weak);
   }
 
   /* Nested lists spacing */
@@ -106,10 +106,10 @@
 
   /* Blockquotes */
   blockquote {
-    border-left: 2px solid var(--border-weak-base);
+    border-left: 2px solid var(--border-weak);
     margin: 1.5rem 0;
     padding-left: 0.5rem;
-    color: var(--text-weak);
+    color: var(--fg-weak);
     font-style: normal;
   }
 
@@ -124,7 +124,7 @@
     font-size: var(--font-size-x-small);
     padding: 12px;
     border-radius: 6px;
-    border: 0.5px solid var(--border-weak-base);
+    border: 0.5px solid var(--border-weak);
   }
 
   [data-component="markdown-code"] {
@@ -149,11 +149,11 @@
 
       max-width: 320px;
       border-radius: var(--radius-sm);
-      background: var(--surface-float-base);
-      color: var(--text-invert-strong);
+      background: var(--surface-raised);
+      color: var(--fg-on-brand);
       padding: 2px 8px;
-      border: 1px solid var(--border-weak-base, rgba(0, 0, 0, 0.07));
-      box-shadow: var(--shadow-md);
+      border: 1px solid var(--border-weak, rgba(0, 0, 0, 0.07));
+      box-shadow: var(--shadow-floating);
 
       pointer-events: none;
       white-space: nowrap;
@@ -177,7 +177,7 @@
 
   [data-slot="markdown-copy-button"][data-variant="secondary"] {
     box-shadow: none;
-    border: 1px solid var(--border-weak-base);
+    border: 1px solid var(--border-weak);
   }
 
   [data-slot="markdown-copy-button"][data-variant="secondary"] [data-slot="icon-svg"] {
@@ -222,7 +222,7 @@
     /* margin: 0 1.5px; */
     /* border-radius: 2px; */
     /* background: var(--surface-base); */
-    /* box-shadow: 0 0 0 0.5px var(--border-weak-base); */
+    /* box-shadow: 0 0 0 0.5px var(--border-weak); */
   }
 
   /* Tables */
@@ -238,16 +238,16 @@
   th,
   td {
     /* Minimal borders for structure, matching TUI "lines" roughly but keeping it web-clean */
-    border-bottom: 1px solid var(--border-weaker-base);
+    border-bottom: 1px solid var(--border-weaker);
     padding: 12px;
     text-align: left;
     vertical-align: top;
   }
 
   th {
-    color: var(--text-strong);
+    color: var(--fg-strong);
     font-weight: var(--font-weight-medium);
-    border-bottom: 1px solid var(--border-weak-base);
+    border-bottom: 1px solid var(--border-weak);
   }
 
   /* Images */

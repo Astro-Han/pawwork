@@ -97,9 +97,9 @@ export function SessionHeader() {
             <div class="hidden md:flex w-full min-w-0 max-w-[720px] items-center overflow-hidden text-13-medium">
               <Show
                 when={params.id}
-                fallback={<div class="min-w-0 truncate text-text-strong">{homeTitle()}</div>}
+                fallback={<div class="min-w-0 truncate text-fg-strong">{homeTitle()}</div>}
               >
-                <span class="max-w-full shrink-0 truncate text-13-medium text-text-strong" title={sessionTitle()}>
+                <span class="max-w-full shrink-0 truncate text-13-medium text-fg-strong" title={sessionTitle()}>
                   {sessionTitle()}
                 </span>
                 <div class="ml-3 flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
@@ -108,7 +108,7 @@ export function SessionHeader() {
                       type="button"
                       variant="ghost"
                       size="small"
-                      class="group h-6 max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-text-weak hover:text-text-strong"
+                      class="group h-6 max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-fg-weak hover:text-fg-strong"
                       onClick={openProjectDirectory}
                       aria-label={
                         canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined
@@ -120,7 +120,7 @@ export function SessionHeader() {
                       }
                       disabled={!canOpenProjectDirectory()}
                     >
-                      <Icon name="folder" size="small" class="shrink-0 text-text-weak transition-colors group-hover:text-text-strong" />
+                      <Icon name="folder" size="small" class="shrink-0 text-fg-weak transition-colors group-hover:text-fg-strong" />
                       <span class="min-w-0 truncate">{name()}</span>
                     </Button>
                   </Show>

@@ -20,14 +20,14 @@
       aspect-ratio: 1;
       width: 24px;
       height: 24px;
-      color: var(--icon-strong-base);
+      color: var(--icon-strong);
     }
   }
 
   [data-slot="diff-hunk-separator-content"] {
     position: sticky;
     background-color: var(--surface-diff-hidden-base);
-    color: var(--text-base);
+    color: var(--fg-base);
     width: var(--diffs-column-content-width);
     left: var(--diffs-column-number-width);
     padding-left: 8px;

@@ -340,18 +340,18 @@ export function resolveThemeVariant(variant: ThemeVariant, isDark: boolean): Res
   tokens["icon-diff-modified-base"] = modified()
 
   if (colors.compact) {
-    tokens["syntax-comment"] = "var(--text-weak)"
-    tokens["syntax-regexp"] = "var(--text-base)"
+    tokens["syntax-comment"] = "var(--fg-weak)"
+    tokens["syntax-regexp"] = "var(--fg-base)"
     tokens["syntax-string"] = content(colors.success, success)
     tokens["syntax-keyword"] = content(colors.accent, accent)
     tokens["syntax-primitive"] = content(colors.primary, primary)
-    tokens["syntax-operator"] = isDark ? "var(--text-weak)" : "var(--text-base)"
-    tokens["syntax-variable"] = "var(--text-strong)"
+    tokens["syntax-operator"] = isDark ? "var(--fg-weak)" : "var(--fg-base)"
+    tokens["syntax-variable"] = "var(--fg-strong)"
     tokens["syntax-property"] = content(colors.info, info)
     tokens["syntax-type"] = content(colors.warning, warning)
     tokens["syntax-constant"] = content(colors.accent, accent)
-    tokens["syntax-punctuation"] = isDark ? "var(--text-weak)" : "var(--text-base)"
-    tokens["syntax-object"] = "var(--text-strong)"
+    tokens["syntax-punctuation"] = isDark ? "var(--fg-weak)" : "var(--fg-base)"
+    tokens["syntax-object"] = "var(--fg-strong)"
     tokens["syntax-success"] = success[10]
     tokens["syntax-warning"] = amber[10]
     tokens["syntax-critical"] = error[10]
@@ -377,18 +377,18 @@ export function resolveThemeVariant(variant: ThemeVariant, isDark: boolean): Res
   }
 
   if (!colors.compact) {
-    tokens["syntax-comment"] = "var(--text-weak)"
-    tokens["syntax-regexp"] = "var(--text-base)"
+    tokens["syntax-comment"] = "var(--fg-weak)"
+    tokens["syntax-regexp"] = "var(--fg-base)"
     tokens["syntax-string"] = isDark ? "#00ceb9" : "#006656"
-    tokens["syntax-keyword"] = "var(--text-weak)"
+    tokens["syntax-keyword"] = "var(--fg-weak)"
     tokens["syntax-primitive"] = isDark ? "#ffba92" : "#fb4804"
-    tokens["syntax-operator"] = isDark ? "var(--text-weak)" : "var(--text-base)"
-    tokens["syntax-variable"] = "var(--text-strong)"
+    tokens["syntax-operator"] = isDark ? "var(--fg-weak)" : "var(--fg-base)"
+    tokens["syntax-variable"] = "var(--fg-strong)"
     tokens["syntax-property"] = isDark ? "#ff9ae2" : "#ed6dc8"
     tokens["syntax-type"] = isDark ? "#ecf58c" : "#596600"
     tokens["syntax-constant"] = isDark ? "#93e9f6" : "#007b80"
-    tokens["syntax-punctuation"] = isDark ? "var(--text-weak)" : "var(--text-base)"
-    tokens["syntax-object"] = "var(--text-strong)"
+    tokens["syntax-punctuation"] = isDark ? "var(--fg-weak)" : "var(--fg-base)"
+    tokens["syntax-object"] = "var(--fg-strong)"
     tokens["syntax-success"] = success[10]
     tokens["syntax-warning"] = amber[10]
     tokens["syntax-critical"] = error[10]

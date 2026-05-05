@@ -33,8 +33,8 @@ export default function Home() {
   const serverDotClass = createMemo(() => {
     const healthy = server.healthy()
     if (healthy === true) return "bg-icon-success-base"
-    if (healthy === false) return "bg-icon-critical-base"
-    return "bg-border-weak-base"
+    if (healthy === false) return "bg-error"
+    return "bg-border-weak"
   })
 
   function openProject(directory: string) {
@@ -74,7 +74,7 @@ export default function Home() {
       <Button
         size="large"
         variant="ghost"
-        class="mt-4 mx-auto text-13-regular text-text-weak"
+        class="mt-4 mx-auto text-13-regular text-fg-weak"
         onClick={() => dialog.show(() => <DialogSelectServer />)}
       >
         <div
@@ -89,7 +89,7 @@ export default function Home() {
         <Match when={sync.data.project.length > 0}>
           <div class="mt-20 w-full flex flex-col gap-4">
             <div class="flex gap-2 items-center justify-between pl-3">
-              <div class="text-13-medium text-text-strong">{language.t("home.recentProjects")}</div>
+              <div class="text-13-medium text-fg-strong">{language.t("home.recentProjects")}</div>
               <Button icon="folder-add-left" size="normal" class="pl-2 pr-3" onClick={chooseProject}>
                 {language.t("command.project.open")}
               </Button>
@@ -104,7 +104,7 @@ export default function Home() {
                     onClick={() => openProject(project.worktree)}
                   >
                     {project.worktree.replace(homedir(), "~")}
-                    <div class="text-13-regular text-text-weak">
+                    <div class="text-13-regular text-fg-weak">
                       {DateTime.fromMillis(project.time.updated ?? project.time.created).toRelative()}
                     </div>
                   </Button>
@@ -115,7 +115,7 @@ export default function Home() {
         </Match>
         <Match when={!sync.ready}>
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
-            <div class="text-13-regular text-text-weak">{language.t("common.loading")}</div>
+            <div class="text-13-regular text-fg-weak">{language.t("common.loading")}</div>
             <Button class="px-3" onClick={chooseProject}>
               {language.t("command.project.open")}
             </Button>
@@ -125,8 +125,8 @@ export default function Home() {
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
             <Icon name="folder-add-left" size="large" />
             <div class="flex flex-col gap-1 items-center justify-center">
-              <div class="text-13-medium text-text-strong">{language.t("home.empty.title")}</div>
-              <div class="text-13-regular text-text-weak">{language.t("home.empty.description")}</div>
+              <div class="text-13-medium text-fg-strong">{language.t("home.empty.title")}</div>
+              <div class="text-13-regular text-fg-weak">{language.t("home.empty.description")}</div>
             </div>
             <Button class="px-3 mt-1" onClick={chooseProject}>
               {language.t("command.project.open")}

@@ -52,7 +52,7 @@ export const Default = {
         "border-radius": "8px",
         "font-family": "var(--font-family-mono)",
         "font-size": "12px",
-        color: "var(--text-weak)",
+        color: "var(--fg-weak)",
       }}
     >
       <div>12 | const total = sum(values)</div>
@@ -75,7 +75,7 @@ export const Editor = {
           "border-radius": "8px",
           "font-family": "var(--font-family-mono)",
           "font-size": "12px",
-          color: "var(--text-weak)",
+          color: "var(--fg-weak)",
         }}
       >
         <div>40 | if (values.length === 0) return 0</div>
@@ -103,7 +103,7 @@ export const AnchorOnly = {
         "border-radius": "8px",
         "font-family": "var(--font-family-mono)",
         "font-size": "12px",
-        color: "var(--text-weak)",
+        color: "var(--fg-weak)",
       }}
     >
       <div>20 | const ready = true</div>

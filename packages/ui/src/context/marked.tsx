@@ -10,8 +10,8 @@ registerCustomTheme("OpenCode", () => {
   return Promise.resolve({
     name: "OpenCode",
     colors: {
-      "editor.background": "var(--color-background-stronger)",
-      "editor.foreground": "var(--text-base)",
+      "editor.background": "var(--color-bg-base)",
+      "editor.foreground": "var(--fg-base)",
       "gitDecoration.addedResourceForeground": "var(--syntax-diff-add)",
       "gitDecoration.deletedResourceForeground": "var(--syntax-diff-delete)",
       // "gitDecoration.conflictingResourceForeground": "#ffca00",
@@ -266,7 +266,7 @@ registerCustomTheme("OpenCode", () => {
         scope: "markup.bold",
         settings: {
           fontStyle: "bold",
-          foreground: "var(--text-strong)",
+          foreground: "var(--fg-strong)",
         },
       },
       {
@@ -281,7 +281,7 @@ registerCustomTheme("OpenCode", () => {
           "markup.untracked",
         ],
         settings: {
-          foreground: "var(--text-base)",
+          foreground: "var(--fg-base)",
         },
       },
       {

@@ -6,8 +6,8 @@
   --text-shimmer-angle: 90deg;
   --text-shimmer-spread: 5.2ch;
   --text-shimmer-size: 360%;
-  --text-shimmer-base-color: var(--text-weak);
-  --text-shimmer-peak-color: var(--text-strong);
+  --text-shimmer-base-color: var(--fg-weak);
+  --text-shimmer-peak-color: var(--fg-strong);
   --text-shimmer-sweep: linear-gradient(
     var(--text-shimmer-angle),
     transparent calc(50% - var(--text-shimmer-spread)),
@@ -47,7 +47,7 @@
 }
 
 [data-component="text-shimmer"] [data-slot="text-shimmer-char-shimmer"] {
-  color: var(--text-weaker);
+  color: var(--fg-weaker);
   opacity: 0;
 }
 

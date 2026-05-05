@@ -1,8 +1,8 @@
 [data-dock-surface="shell"] {
-  background-color: var(--surface-raised-stronger-non-alpha);
+  background-color: var(--surface-raised);
   /* Light: 1px ring + drop shadow (ring needed against #FFFFFF main bg). */
   box-shadow:
-    0 0 0 1px var(--border-weak-base),
+    0 0 0 1px var(--border-weak),
     var(--shadow-raised);
   position: relative;
   z-index: 10;
@@ -29,8 +29,8 @@
 }
 
 [data-dock-surface="tray"] {
-  background-color: var(--background-base);
-  border: 1px solid var(--border-weak-base);
+  background-color: var(--bg-base);
+  border: 1px solid var(--border-weak);
   position: relative;
   z-index: 0;
   border-radius: 26px;

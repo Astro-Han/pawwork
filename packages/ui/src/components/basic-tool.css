@@ -54,7 +54,7 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    color: var(--text-weak);
+    color: var(--fg-weak);
 
     [data-component="spinner"] {
       width: 16px;
@@ -100,14 +100,14 @@
     font-weight: var(--font-weight-medium);
     line-height: var(--line-height-large);
     letter-spacing: var(--letter-spacing-normal);
-    color: var(--text-strong);
+    color: var(--fg-strong);
 
     &.capitalize {
       text-transform: capitalize;
     }
 
     &.agent-title {
-      color: var(--text-strong);
+      color: var(--fg-strong);
       font-weight: var(--font-weight-medium);
     }
   }
@@ -125,7 +125,7 @@
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     letter-spacing: var(--letter-spacing-normal);
-    color: var(--text-base);
+    color: var(--fg-base);
 
     &.clickable {
       cursor: pointer;
@@ -133,27 +133,27 @@
       transition: color 0.15s ease;
 
       &:hover {
-        color: var(--text-base);
+        color: var(--fg-base);
       }
     }
 
     &.subagent-link {
-      color: var(--text-interactive-base);
+      color: var(--brand-primary);
       text-decoration: none;
       text-underline-offset: 2px;
       font-weight: var(--font-weight-regular);
 
       &:hover {
-        color: var(--text-interactive-base);
+        color: var(--brand-primary);
         text-decoration: underline;
       }
 
       &:active {
-        color: var(--text-interactive-base);
+        color: var(--brand-primary);
       }
 
       &:visited {
-        color: var(--text-interactive-base);
+        color: var(--brand-primary);
       }
     }
   }
@@ -171,7 +171,7 @@
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     letter-spacing: var(--letter-spacing-normal);
-    color: var(--text-base);
+    color: var(--fg-base);
   }
 
   [data-slot="basic-tool-tool-action"] {
@@ -240,7 +240,7 @@
   }
 
   [data-slot="basic-tool-tool-subtitle"] {
-    color: var(--text-strong);
+    color: var(--fg-strong);
   }
 
   &:hover,

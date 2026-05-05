@@ -9,7 +9,7 @@
 }
 
 [data-slot="tooltip-keybind-key"] {
-  color: var(--text-invert-base);
+  color: var(--fg-on-brand);
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-large);
@@ -19,13 +19,13 @@
   z-index: 1000;
   max-width: 320px;
   border-radius: var(--radius-sm);
-  background-color: var(--surface-float-base);
-  color: var(--text-invert-strong);
-  background: var(--surface-float-base);
+  background-color: var(--fg-strong);
+  color: var(--bg-cream);
+  background: var(--fg-strong);
   padding: 2px 8px;
-  border: 1px solid var(--border-weak-base, rgba(0, 0, 0, 0.07));
+  border: 1px solid var(--border-weak, rgba(0, 0, 0, 0.07));
 
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-floating);
   pointer-events: none !important;
   /* transition: all 150ms ease-out; */
   /* transform: translate3d(0, 0, 0); */

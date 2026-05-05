@@ -303,7 +303,7 @@ function ConnectionGate(props: ParentProps<{ disableHealthCheck?: boolean }>) {
     <Show
       when={checkMode() === "blocking" ? !startupHealthCheck.loading : startupHealthCheck.state !== "pending"}
       fallback={
-        <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base">
+        <div class="h-dvh w-screen flex flex-col items-center justify-center bg-bg-base">
           <Splash class="w-16 h-20 opacity-50 animate-pulse" />
         </div>
       }
@@ -341,19 +341,19 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
   onCleanup(() => clearInterval(timer))
 
   return (
-    <div class="h-dvh w-screen flex flex-col items-center justify-center bg-background-base gap-6 p-6">
+    <div class="h-dvh w-screen flex flex-col items-center justify-center bg-bg-base gap-6 p-6">
       <div class="flex flex-col items-center max-w-md text-center">
         <Splash class="w-12 h-15 mb-4" />
-        <p class="text-13-regular text-text-base">
+        <p class="text-13-regular text-fg-base">
           {unreachable()[0]}
-          <span class="text-text-strong font-medium">{name()}</span>
+          <span class="text-fg-strong font-medium">{name()}</span>
           {unreachable()[1]}
         </p>
-        <p class="mt-1 text-13-regular text-text-weak">{language.t("app.server.retrying")}</p>
+        <p class="mt-1 text-13-regular text-fg-weak">{language.t("app.server.retrying")}</p>
       </div>
       <Show when={others().length > 0}>
         <div class="flex flex-col gap-2 w-full max-w-sm">
-          <span class="text-13-regular text-text-base text-center">{language.t("app.server.otherServers")}</span>
+          <span class="text-13-regular text-fg-base text-center">{language.t("app.server.otherServers")}</span>
           <div class="flex flex-col gap-1 bg-surface-base rounded-lg p-2">
             <For each={others()}>
               {(conn) => {
@@ -361,10 +361,10 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
                 return (
                   <button
                     type="button"
-                    class="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-surface-raised-base-hover transition-colors text-left"
+                    class="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-surface-raised transition-colors text-left"
                     onClick={() => props.onServerSelected?.(key)}
                   >
-                    <span class="text-13-regular text-text-strong truncate">{serverName(conn)}</span>
+                    <span class="text-13-regular text-fg-strong truncate">{serverName(conn)}</span>
                   </button>
                 )
               }}

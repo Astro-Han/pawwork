@@ -77,9 +77,9 @@ export function DiffChanges(props: {
     return { added, deleted, neutral }
   })
 
-  const ADD_COLOR = "var(--icon-diff-add-base)"
-  const DELETE_COLOR = "var(--icon-diff-delete-base)"
-  const NEUTRAL_COLOR = "var(--icon-weak-base)"
+  const ADD_COLOR = "var(--success)"
+  const DELETE_COLOR = "var(--error)"
+  const NEUTRAL_COLOR = "var(--icon-weak)"
 
   const visibleBlocks = createMemo(() => {
     const counts = blockCounts()

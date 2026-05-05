@@ -7,21 +7,21 @@ import { selectSessionTodos } from "@/pages/session/session-todos"
 const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
   completed: { dot: "bg-icon-success-base", text: "" },
   in_progress: { dot: "bg-icon-info-base", text: "" },
-  pending: { dot: "bg-border-weak-base", text: "" },
-  cancelled: { dot: "bg-border-weak-base", text: "line-through text-text-weaker" },
+  pending: { dot: "bg-border-weak", text: "" },
+  cancelled: { dot: "bg-border-weak", text: "line-through text-fg-weaker" },
 }
 
 function Section(props: { title: string; children: JSX.Element }) {
   return (
     <div class="flex flex-col gap-2 px-4 py-3">
-      <div class="text-13-medium uppercase tracking-wide text-text-weaker">{props.title}</div>
+      <div class="text-13-medium uppercase tracking-wide text-fg-weaker">{props.title}</div>
       {props.children}
     </div>
   )
 }
 
 function Empty(props: { text: string }) {
-  return <div class="text-13-regular text-text-weaker">{props.text}</div>
+  return <div class="text-13-regular text-fg-weaker">{props.text}</div>
 }
 
 function TodoRow(props: { todo: TodoItem }) {
@@ -29,7 +29,7 @@ function TodoRow(props: { todo: TodoItem }) {
   return (
     <div class="flex items-start gap-2.5 py-1">
       <div class={`size-2 rounded-full shrink-0 mt-1.5 ${style().dot}`} aria-hidden />
-      <div class={`text-13-regular text-text-base min-w-0 ${style().text}`}>{props.todo.content}</div>
+      <div class={`text-13-regular text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
     </div>
   )
 }
@@ -37,7 +37,7 @@ function TodoRow(props: { todo: TodoItem }) {
 function SourceRow(props: { url: string }) {
   return (
     <div class="flex items-center gap-2 py-1" title={props.url}>
-      <span class="text-13-regular text-text-base truncate min-w-0">{props.url}</span>
+      <span class="text-13-regular text-fg-base truncate min-w-0">{props.url}</span>
     </div>
   )
 }
