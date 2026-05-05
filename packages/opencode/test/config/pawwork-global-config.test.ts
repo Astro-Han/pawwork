@@ -207,7 +207,10 @@ describe("default OpenCode config compatibility", () => {
 
     try {
       const active = path.join(global.path, "opencode.jsonc")
-      await Filesystem.write(active, '{\n  // active config\n  "username": "jsonc-user",\n  "instructions": ["jsonc.md"]\n}\n')
+      await Filesystem.write(
+        active,
+        '{\n  // active config\n  "username": "jsonc-user",\n  "instructions": ["jsonc.md"]\n}\n',
+      )
       await Filesystem.write(
         path.join(global.path, "config"),
         [
@@ -457,7 +460,7 @@ describe("PawWork global config isolation", () => {
     }
   })
 
-  test("legacy TOML migration does not create lower-priority JSON when JSONC exists", async () => {
+  test("legacy TOML migration merges missing fields into active PawWork JSONC", async () => {
     await using platformLegacy = await tmpdir()
     await using project = await tmpdir({ git: true })
     const previousConfig = Global.Path.config
@@ -471,7 +474,9 @@ describe("PawWork global config isolation", () => {
       await Filesystem.write(legacyJsonc, original)
       await Filesystem.write(
         path.join(platformLegacy.path, "config"),
-        ['provider = "toml"', 'model = "model"', 'username = "toml-user"'].join("\n"),
+        ['provider = "toml"', 'model = "model"', 'username = "toml-user"', "[watcher]", 'unknown = "drop-me"'].join(
+          "\n",
+        ),
       )
 
       await Instance.provide({
@@ -479,10 +484,13 @@ describe("PawWork global config isolation", () => {
         fn: async () => {
           const config = await load()
           expect(config.username).toBe("jsonc-user")
-          expect(config.model).toBeUndefined()
+          expect(config.model).toBe("toml/model")
           expect(await Bun.file(path.join(platformLegacy.path, "config")).exists()).toBeFalse()
           expect(await Bun.file(path.join(platformLegacy.path, "pawwork.json")).exists()).toBeFalse()
-          expect(await Bun.file(legacyJsonc).text()).toBe(original)
+          const migrated = parseJsonc(await Bun.file(legacyJsonc).text()) as Record<string, unknown>
+          expect(migrated.username).toBe("jsonc-user")
+          expect(migrated.model).toBe("toml/model")
+          expect((migrated.watcher as Record<string, unknown> | undefined)?.unknown).toBeUndefined()
         },
       })
     } finally {
@@ -741,7 +749,9 @@ describe("PawWork global config isolation", () => {
           ])
           expect(saved.provider.demo.options.instructions).toEqual(["./provider-owned.md"])
           expect(saved.provider.demo.options.plugin).toEqual(["./provider-plugin.ts"])
-          expect(saved.provider.demo.options.token).toBe(`{file:${path.join(platformLegacy.path, "secrets", "provider-token")}}`)
+          expect(saved.provider.demo.options.token).toBe(
+            `{file:${path.join(platformLegacy.path, "secrets", "provider-token")}}`,
+          )
           expect(saved.plugin).toEqual([[pluginFile, { token: `{file:${optionSecret}}` }]])
         },
       })

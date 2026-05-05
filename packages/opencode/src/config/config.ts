@@ -144,7 +144,9 @@ export type Layout = ConfigLayout.Layout
 // exact zod directly, preserving component $refs.
 const AgentRef = Schema.Any.annotate({ [ZodOverride]: ConfigAgent.Info })
 const LogLevelRef = Schema.Any.annotate({ [ZodOverride]: Log.Level })
-const ServerRef = Schema.Any.annotate({ [ZodOverride]: ConfigServer.Server.zod }) as unknown as typeof ConfigServer.Server
+const ServerRef = Schema.Any.annotate({
+  [ZodOverride]: ConfigServer.Server.zod,
+}) as unknown as typeof ConfigServer.Server
 
 const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
 const NonNegativeInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
@@ -315,9 +317,9 @@ export const Info = Schema.Struct({
   .annotate({ identifier: "Config" })
   .pipe(
     withStatics((s) => ({
-      zod: (zod(s) as unknown as z.ZodObject<any>)
-        .strict()
-        .meta({ ref: "Config" }) as unknown as z.ZodType<DeepMutable<Schema.Schema.Type<typeof s>>>,
+      zod: (zod(s) as unknown as z.ZodObject<any>).strict().meta({ ref: "Config" }) as unknown as z.ZodType<
+        DeepMutable<Schema.Schema.Type<typeof s>>
+      >,
     })),
   )
 
@@ -526,14 +528,39 @@ function normalizeWritableConfig(data: unknown, source: string) {
   if (!isRecord(normalized)) return writable(ConfigParse.schema(Info.zod, normalized, source))
   const copy = { ...normalized }
   for (const issue of parsed.error.issues) {
-    const hit = issue as { code?: string; keys?: unknown }
+    const hit = issue as { code?: string; keys?: unknown; path?: unknown[] }
     if (hit.code !== "unrecognized_keys" || !Array.isArray(hit.keys)) continue
     for (const key of hit.keys) {
-      if (typeof key === "string") delete copy[key]
+      if (typeof key === "string") deleteConfigKeyAtPath(copy, hit.path ?? [], key)
     }
   }
 
   return writable(ConfigParse.schema(Info.zod, copy, source))
+}
+
+function deleteConfigKeyAtPath(root: Record<string, unknown>, parts: unknown[], key: string) {
+  let target: unknown = root
+  for (const part of parts) {
+    if (typeof part !== "string" && typeof part !== "number") return
+    if (Array.isArray(target)) {
+      if (typeof part !== "number") return
+      target = target[part]
+    } else if (isRecord(target)) target = target[part]
+    else return
+  }
+  if (Array.isArray(target)) {
+    const index = Number(key)
+    if (Number.isInteger(index)) target.splice(index, 1)
+    return
+  }
+  if (isRecord(target)) delete target[key]
+}
+
+function shouldMergeLegacyTomlIntoRuntime(globalFiles: string[]) {
+  if (!Runtime.isPawWork()) return true
+  if (globalFiles.length === 0) return true
+  const legacyDir = path.resolve(Global.Path.config)
+  return globalFiles.some((file) => path.resolve(path.dirname(file)) === legacyDir)
 }
 
 function isAbsoluteOrExternalPath(value: string) {
@@ -602,7 +629,9 @@ function rewriteSeedConfig(value: Record<string, unknown>, sourceFile: string): 
   const next = rewriteFilePlaceholdersDeep(value, sourceFile) as Record<string, unknown>
   if (Array.isArray(value.instructions)) {
     next.instructions = value.instructions.map((item) =>
-      typeof item === "string" ? resolveSeedInstructionPath(item, sourceFile) : rewriteFilePlaceholdersDeep(item, sourceFile),
+      typeof item === "string"
+        ? resolveSeedInstructionPath(item, sourceFile)
+        : rewriteFilePlaceholdersDeep(item, sourceFile),
     )
   }
   if (Array.isArray(value.plugin)) {
@@ -731,32 +760,38 @@ const rawLayer = Layer.effect(
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {
-        yield* Effect.promise(() =>
-          import(pathToFileURL(legacy).href, { with: { type: "toml" } })
-            .then(async (mod) => {
-              const { provider, model, ...rest } = mod.default
-              const migrated: Info = { "$schema": "https://opencode.ai/config.json" }
-              if (provider && model) migrated.model = `${provider}/${model}`
-              const legacyConfig = normalizeWritableConfig(mergeDeep(migrated, rest), legacy)
-              if (!Runtime.isPawWork() || globalFiles.length === 0) {
-                result = mergeDeep(legacyConfig, result)
-              }
-              const target = legacyTomlMigrationTarget()
-              const action = isRegularFileSync(target) ? (Runtime.isPawWork() ? "skip-existing" : "merge") : "create"
-              await writeLegacyTomlMigration(target, legacyConfig, {
-                mergeExisting: !Runtime.isPawWork(),
-              })
-              await fsNode.unlink(legacy).catch((error) => {
-                log.warn("legacy TOML config unlink failed", { path: legacy, target, action: "unlink", error: String(error) })
-                throw error
-              })
+        yield* Effect.promise(async () => {
+          let target = ""
+          let action = "load"
+          let unlinked = false
+          try {
+            const mod = await import(pathToFileURL(legacy).href, { with: { type: "toml" } })
+            action = "normalize"
+            const { provider, model, ...rest } = mod.default
+            const migrated: Info = { $schema: "https://opencode.ai/config.json" }
+            if (provider && model) migrated.model = `${provider}/${model}`
+            const legacyConfig = normalizeWritableConfig(mergeDeep(migrated, rest), legacy)
+            if (shouldMergeLegacyTomlIntoRuntime(globalFiles)) {
+              result = mergeDeep(legacyConfig, result)
+            }
+            target = legacyTomlMigrationTarget()
+            action = isRegularFileSync(target) ? "merge" : "create"
+            await writeLegacyTomlMigration(target, legacyConfig, {
+              mergeExisting: true,
             })
-            .catch((error) => {
-              const target = legacyTomlMigrationTarget()
-              const action = isRegularFileSync(target) ? (Runtime.isPawWork() ? "skip-existing" : "merge") : "create"
-              log.warn("legacy TOML config migration failed", { path: legacy, target, action, error: String(error) })
-            }),
-        )
+            action = "unlink"
+            await fsNode.unlink(legacy)
+            unlinked = true
+          } catch (error) {
+            log.warn("legacy TOML config migration failed", {
+              path: legacy,
+              target: target || "unavailable",
+              action,
+              unlinked,
+              error: String(error),
+            })
+          }
+        })
       }
 
       return result
@@ -858,7 +893,11 @@ const rawLayer = Layer.effect(
         }
 
         const global = yield* getGlobal()
-        yield* merge(globalConfigSource() ?? (Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config), global, "global")
+        yield* merge(
+          globalConfigSource() ?? (Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config),
+          global,
+          "global",
+        )
 
         if (Flag.OPENCODE_CONFIG) {
           yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG))
@@ -889,7 +928,8 @@ const rawLayer = Layer.effect(
         const deps: Fiber.Fiber<void, never>[] = []
 
         for (const dir of directories) {
-          const configFiles = Runtime.isPawWork() && PawWorkHome.isCandidate(dir) ? [] : projectConfigFilesForDirectory(dir)
+          const configFiles =
+            Runtime.isPawWork() && PawWorkHome.isCandidate(dir) ? [] : projectConfigFilesForDirectory(dir)
 
           if (configFiles.length > 0) {
             for (const file of configFiles) {
@@ -1255,7 +1295,10 @@ export async function installDependencies(dir: string) {
     await Filesystem.writeJson(pkg, json)
   }
   if (!ignore) {
-    await Filesystem.write(gitignore, ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"))
+    await Filesystem.write(
+      gitignore,
+      ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+    )
   }
   if (hasDep && ignore && installed.every(Boolean)) return true
   try {

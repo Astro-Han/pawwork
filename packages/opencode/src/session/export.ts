@@ -51,10 +51,7 @@ function redactDataUrl(url: string): { mime: string; size_bytes: number; sha256:
   }
 }
 
-export function redactPart(
-  part: MessageV2.Part,
-  ctx: { count: { omitted: number } },
-): MessageV2.Part {
+export function redactPart(part: MessageV2.Part, ctx: { count: { omitted: number } }): MessageV2.Part {
   part = sanitizeSensitiveToolPart(part)
   if (part.type === "file") {
     const r = redactDataUrl(part.url)
@@ -114,6 +111,7 @@ export namespace Export {
     url?: string
     hash?: string
     hash_unavailable?: true
+    reason?: string
   }
 
   export type Snapshot = {
@@ -302,6 +300,8 @@ export namespace Export {
     return { session_count, message_count, part_count, omitted_attachment_count }
   }
 
+  const globalConfigFallbackRelativeReason = "fallback relative path resolved from global config directory"
+
   const collectInstructionSources = Effect.fn("Export.instructionSources")(function* (directory?: string) {
     const sources: InstructionSource[] = []
     const instruction = yield* Instruction.Service
@@ -342,7 +342,12 @@ export namespace Export {
     const instructionSources = resolvedSources.filter(
       (source) =>
         source.status === "loaded" ||
-        (source.status === "considered" && source.kind === "remote" && source.reason === "configured but not fetched") ||
+        (source.status === "considered" &&
+          source.kind === "remote" &&
+          source.reason === "configured but not fetched") ||
+        (source.status === "considered" &&
+          source.kind === "config" &&
+          source.reason === globalConfigFallbackRelativeReason) ||
         (source.status === "considered" && source.kind === "project" && source.reason === sessionDirectoryUnavailable),
     )
 
@@ -353,7 +358,9 @@ export namespace Export {
       }
 
       const hash = yield* Effect.promise(() => hashFile(source.path))
-      if (hash) sources.push({ kind: source.kind, path: source.path, hash })
+      if (source.status === "considered") {
+        sources.push({ kind: source.kind, path: source.path, hash_unavailable: true, reason: source.reason })
+      } else if (hash) sources.push({ kind: source.kind, path: source.path, hash })
       else sources.push({ kind: source.kind, path: source.path, hash_unavailable: true })
     }
 
@@ -388,6 +395,7 @@ export namespace Export {
         sources.push({ status: "considered", path: item, kind: "remote", reason: "configured but not fetched" })
         continue
       }
+      const isFallbackRelativePath = !item.startsWith("~/") && !path.isAbsolute(item)
       const instruction = item.startsWith("~/")
         ? path.join(Global.Path.home, item.slice(2))
         : path.isAbsolute(item)
@@ -396,7 +404,17 @@ export namespace Export {
       const matches = await globalInstructionMatches(instruction, path.dirname(file))
       for (const match of matches) {
         const text = await fs.readFile(match, "utf8").catch(() => "")
-        if (text) sources.push({ status: "loaded", path: path.resolve(match), kind: "config" })
+        if (!text) continue
+        sources.push(
+          isFallbackRelativePath
+            ? {
+                status: "considered",
+                path: path.resolve(match),
+                kind: "config",
+                reason: globalConfigFallbackRelativeReason,
+              }
+            : { status: "loaded", path: path.resolve(match), kind: "config" },
+        )
       }
     }
     return sources

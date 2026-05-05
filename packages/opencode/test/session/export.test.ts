@@ -164,7 +164,9 @@ describe("Export.session", () => {
         directory: currentProject.path,
         fn: async () => {
           const result = await AppRuntime.runPromise(Export.session(sessionID!))
-          const projectSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "project")
+          const projectSources = result.runtime_context.instruction_sources.filter(
+            (source) => source.kind === "project",
+          )
           expect(projectSources.map((source) => source.path)).toContain(path.join(sessionProject.path, "CLAUDE.md"))
           expect(projectSources.map((source) => source.path)).not.toContain(path.join(currentProject.path, "AGENTS.md"))
         },
@@ -193,11 +195,14 @@ describe("Export.session", () => {
         directory: currentProject.path,
         fn: async () => {
           const result = await AppRuntime.runPromise(Export.session(sessionID!))
-          const projectSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "project")
+          const projectSources = result.runtime_context.instruction_sources.filter(
+            (source) => source.kind === "project",
+          )
           expect(projectSources).toContainEqual({
             kind: "project",
             path: sessionProject.path,
             hash_unavailable: true,
+            reason: "session directory unavailable",
           })
           expect(result.runtime_context.instruction_sources.some((source) => source.kind === "bundled")).toBe(true)
         },
@@ -214,15 +219,15 @@ describe("Export.session", () => {
     const previousConfig = Global.Path.config
     const previousEnv = process.env.GLOBAL_EXPORT_RULE
     ;(Global.Path as { config: string }).config = global.path
-    process.env.GLOBAL_EXPORT_RULE = "env-rules.md"
     const globalRules = path.join(global.path, "rules", "global-rules.md")
     const envRules = path.join(global.path, "env-rules.md")
     const fileRules = path.join(global.path, "file-rules.md")
+    process.env.GLOBAL_EXPORT_RULE = envRules
     await fs.mkdir(path.join(global.path, "rules"), { recursive: true })
     await fs.writeFile(globalRules, "global config instructions")
     await fs.writeFile(envRules, "env config instructions")
     await fs.writeFile(fileRules, "file config instructions")
-    await fs.writeFile(path.join(global.path, "rule-path.txt"), "file-rules.md")
+    await fs.writeFile(path.join(global.path, "rule-path.txt"), fileRules)
     await fs.writeFile(
       path.join(global.path, "opencode.json"),
       JSON.stringify({
@@ -259,9 +264,11 @@ describe("Export.session", () => {
         fn: async () => {
           const result = await AppRuntime.runPromise(Export.session(sessionID!))
           const sources = result.runtime_context.instruction_sources
-          expect(sources.map((source) => source.path)).toContain(globalRules)
-          expect(sources.map((source) => source.path)).toContain(envRules)
-          expect(sources.map((source) => source.path)).toContain(fileRules)
+          const byPath = new Map(sources.filter((source) => source.path).map((source) => [source.path, source]))
+          expect(byPath.get(globalRules)?.reason).toContain("fallback relative path")
+          expect(byPath.get(globalRules)?.hash_unavailable).toBe(true)
+          expect(byPath.get(envRules)?.hash).toStartWith("sha256:")
+          expect(byPath.get(fileRules)?.hash).toStartWith("sha256:")
           expect(sources.map((source) => source.path)).not.toContain(path.join(global.path, "missing", "*.md"))
           expect(sources.map((source) => source.url)).toContain("https://example.invalid/global-rules.md")
           expect(sources.map((source) => source.url)).not.toContain("https://example.invalid/current-project.md")
@@ -299,7 +306,9 @@ describe("Export.session", () => {
           const root = await SessionNs.create({ title: "instruction provenance" })
           try {
             const result = await AppRuntime.runPromise(Export.session(root.id))
-            const globalSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "global")
+            const globalSources = result.runtime_context.instruction_sources.filter(
+              (source) => source.kind === "global",
+            )
             expect(globalSources).toHaveLength(1)
             expect(globalSources[0].path).toBe(path.join(primary.path, "AGENTS.md"))
           } finally {
@@ -341,7 +350,9 @@ describe("Export.session", () => {
           const root = await SessionNs.create({ title: "empty instruction provenance" })
           try {
             const result = await AppRuntime.runPromise(Export.session(root.id))
-            const globalSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "global")
+            const globalSources = result.runtime_context.instruction_sources.filter(
+              (source) => source.kind === "global",
+            )
             expect(globalSources).toHaveLength(0)
           } finally {
             await SessionNs.remove(root.id)
@@ -381,7 +392,9 @@ describe("Export.session", () => {
           const root = await SessionNs.create({ title: "claude provenance" })
           try {
             const result = await AppRuntime.runPromise(Export.session(root.id))
-            const projectSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "project")
+            const projectSources = result.runtime_context.instruction_sources.filter(
+              (source) => source.kind === "project",
+            )
             expect(projectSources.some((source) => source.path === path.join(project.path, "CLAUDE.md"))).toBe(true)
           } finally {
             await SessionNs.remove(root.id)
@@ -430,10 +443,14 @@ describe("Export.session", () => {
           const root = await SessionNs.create({ title: "config instruction provenance" })
           try {
             const result = await AppRuntime.runPromise(Export.session(root.id))
-            expect(result.runtime_context.instruction_sources.some((source) => source.kind === "config" && source.path === localFile)).toBe(
-              true,
+            expect(
+              result.runtime_context.instruction_sources.some(
+                (source) => source.kind === "config" && source.path === localFile,
+              ),
+            ).toBe(true)
+            const remote = result.runtime_context.instruction_sources.find(
+              (source) => source.kind === "remote" && source.url === url,
             )
-            const remote = result.runtime_context.instruction_sources.find((source) => source.kind === "remote" && source.url === url)
             expect(remote?.hash_unavailable).toBe(true)
           } finally {
             await SessionNs.remove(root.id)
@@ -480,7 +497,9 @@ describe("Export.session", () => {
           const root = await SessionNs.create({ title: "remote instruction provenance" })
           try {
             const result = await AppRuntime.runPromise(Export.session(root.id))
-            const source = result.runtime_context.instruction_sources.find((item) => item.kind === "remote" && item.url === url)
+            const source = result.runtime_context.instruction_sources.find(
+              (item) => item.kind === "remote" && item.url === url,
+            )
             expect(source?.hash_unavailable).toBe(true)
             expect(requests).toBe(0)
           } finally {
@@ -977,17 +996,13 @@ describe("redactPart", () => {
       session: {
         info: { id: SessionID.make("ses_x"), title: "t", directory: "/dir" } as never,
         had_cloud_share: false,
-        diffs: [
-          { file: "/Users/secret/code.ts", patch: "@@ -1 +1 @@\n-secret\n+leak", additions: 1, deletions: 1 },
-        ],
+        diffs: [{ file: "/Users/secret/code.ts", patch: "@@ -1 +1 @@\n-secret\n+leak", additions: 1, deletions: 1 }],
         messages: [],
         children: [
           {
             info: { id: SessionID.make("ses_y"), title: "child", directory: "/dir" } as never,
             had_cloud_share: false,
-            diffs: [
-              { file: "/Users/secret/child.ts", patch: "child secret", additions: 0, deletions: 0 },
-            ],
+            diffs: [{ file: "/Users/secret/child.ts", patch: "child secret", additions: 0, deletions: 0 }],
             messages: [],
             children: [],
           },
