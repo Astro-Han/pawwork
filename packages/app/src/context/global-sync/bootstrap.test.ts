@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Config, Path, Project, ProviderListResponse, VcsInfo } from "@opencode-ai/sdk/v2/client"
 import { QueryClient } from "@tanstack/solid-query"
 import { createStore } from "solid-js/store"
-import { activeSessionStatuses, bootstrapDirectory } from "./bootstrap"
+import { activeSessionStatuses, bootstrapDirectory, mergeSessionStatusSnapshot } from "./bootstrap"
 import { loadSessionsQuery } from "../global-sync"
 import type { State, VcsCache } from "./types"
 
@@ -75,6 +75,35 @@ describe("bootstrapDirectory", () => {
     ).toEqual({
       busy: { type: "busy" },
       retry: { type: "retry", attempt: 1, message: "retrying", next: 1 },
+    })
+  })
+
+  test("status snapshot clears stale active statuses from before the request", () => {
+    expect(
+      mergeSessionStatusSnapshot({
+        baseline: { ses_1: { type: "busy" } },
+        current: { ses_1: { type: "busy" } },
+        snapshot: { ses_1: { type: "idle" } },
+      }),
+    ).toEqual({ ses_1: { type: "idle" } })
+  })
+
+  test("status snapshot keeps active status events that arrive during the request", () => {
+    expect(
+      mergeSessionStatusSnapshot({
+        baseline: { stale: { type: "busy" } },
+        current: {
+          stale: { type: "busy" },
+          fresh: { type: "busy" },
+        },
+        snapshot: {
+          stale: { type: "idle" },
+          fresh: { type: "idle" },
+        },
+      }),
+    ).toEqual({
+      stale: { type: "idle" },
+      fresh: { type: "busy" },
     })
   })
 

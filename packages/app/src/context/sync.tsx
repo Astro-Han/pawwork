@@ -1,4 +1,4 @@
-import { batch, createMemo } from "solid-js"
+import { batch, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Binary } from "@opencode-ai/util/binary"
 import { retry } from "@opencode-ai/util/retry"
@@ -191,9 +191,16 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     type Child = ReturnType<(typeof globalSync)["child"]>
     type Setter = Child[1]
 
+    createEffect(() => {
+      const directory = sdk.directory
+      if (!directory) return
+      const retained = globalSync.retainDirectory(directory)
+      onCleanup(() => retained.release())
+    })
+
     const current = createCurrentSyncChild({
       directory: () => sdk.directory,
-      child: globalSync.child,
+      child: (directory) => globalSync.child(directory, { pin: false }),
     })
     const target = (directory?: string) => {
       if (!directory || directory === sdk.directory) return current()

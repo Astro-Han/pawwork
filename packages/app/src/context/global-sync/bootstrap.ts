@@ -166,13 +166,22 @@ export function activeSessionStatuses(input: State["session_status"]) {
   )
 }
 
+function sameSessionStatus(a: State["session_status"][string] | undefined, b: State["session_status"][string] | undefined) {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 export function mergeSessionStatusSnapshot(input: {
   current: State["session_status"]
   snapshot: State["session_status"]
+  baseline?: State["session_status"]
 }) {
+  const active = activeSessionStatuses(input.current)
+  const changedActive = Object.fromEntries(
+    Object.entries(active).filter(([sessionID, status]) => !sameSessionStatus(input.baseline?.[sessionID], status)),
+  )
   return {
     ...input.snapshot,
-    ...activeSessionStatuses(input.current),
+    ...changedActive,
   }
 }
 
@@ -234,13 +243,14 @@ export async function bootstrapDirectory(input: {
   if (loading || input.store.provider.all.length === 0) {
     input.setStore("provider_ready", false)
   }
+  const statusBaseline = activeSessionStatuses(input.store.session_status)
   input.setStore("mcp_ready", false)
   input.setStore("mcp", {})
   input.setStore("lsp_ready", false)
   input.setStore("lsp", [])
   input.setStore("session_status_state", "loading")
   input.setStore("session_status_ready", false)
-  input.setStore("session_status", reconcile(activeSessionStatuses(input.store.session_status)))
+  input.setStore("session_status", reconcile(statusBaseline))
   if (loading) input.setStore("status", "partial")
 
   const fast = [() => Promise.resolve(input.loadSessions(input.directory))]
@@ -276,6 +286,7 @@ export async function bootstrapDirectory(input: {
                 mergeSessionStatusSnapshot({
                   current: input.store.session_status,
                   snapshot: x.data!,
+                  baseline: statusBaseline,
                 }),
               ),
             )
