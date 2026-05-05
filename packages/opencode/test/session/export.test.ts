@@ -219,6 +219,8 @@ describe("Export.session", () => {
     await using global = await tmpdir()
     const previousConfig = Global.Path.config
     const previousEnv = process.env.GLOBAL_EXPORT_RULE
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
     ;(Global.Path as { config: string }).config = global.path
     const globalRules = path.join(global.path, "rules", "global-rules.md")
     const envRules = path.join(global.path, "env-rules.md")
@@ -279,6 +281,8 @@ describe("Export.session", () => {
       ;(Global.Path as { config: string }).config = previousConfig
       if (previousEnv === undefined) delete process.env.GLOBAL_EXPORT_RULE
       else process.env.GLOBAL_EXPORT_RULE = previousEnv
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
       await Config.invalidate(true)
       if (sessionID) await SessionNs.remove(sessionID)
     }

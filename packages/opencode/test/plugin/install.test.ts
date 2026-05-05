@@ -10,6 +10,8 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { ConfigPaths } from "../../src/config/paths"
 import { Global } from "../../src/global"
 
+const shouldAssertPosixFileMode = process.platform !== "win32"
+
 function deps(global: string, target: string | Error): PlugDeps {
   return {
     spinner: () => ({
@@ -164,7 +166,7 @@ describe("plugin.install.task", () => {
       })(ctx(tmp.path))
 
       expect(ok).toBe(true)
-      expect((await fs.stat(configFile)).mode & 0o777).toBe(0o600)
+      if (shouldAssertPosixFileMode) expect((await fs.stat(configFile)).mode & 0o777).toBe(0o600)
       const config = await read(configFile)
       expect(config.plugin).toEqual([target])
     } finally {
