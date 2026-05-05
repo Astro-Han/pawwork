@@ -13,7 +13,7 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
-import { migrateDefaultAgent } from "./migrate-default-agent"
+import { migrateDefaultAgent, stripDefaultAgent } from "./migrate-default-agent"
 import { Instance, type InstanceContext } from "../project/instance"
 import { constants, existsSync } from "fs"
 import { GlobalBus } from "@/bus/global"
@@ -391,16 +391,20 @@ export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) 
   return await fn()
 }
 
-export async function writeConfigTextAtomic(file: string, text: string) {
+export async function writeConfigTextAtomic(file: string, text: string, options?: { mode?: number }) {
   await fsNode.mkdir(path.dirname(file), { recursive: true })
   const existingMode = await fsNode
     .stat(file)
     .then((stat) => stat.mode & 0o777)
     .catch(() => undefined)
-  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`)
+  const mode = existingMode ?? options?.mode
+  const tmp = path.join(
+    path.dirname(file),
+    `.${path.basename(file)}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`,
+  )
   try {
-    await fsNode.writeFile(tmp, text, existingMode === undefined ? undefined : { mode: existingMode })
-    if (existingMode !== undefined) await fsNode.chmod(tmp, existingMode)
+    await fsNode.writeFile(tmp, text, mode === undefined ? undefined : { mode })
+    if (mode !== undefined) await fsNode.chmod(tmp, mode)
     const tmpHandle = await fsNode.open(tmp, "r")
     try {
       await tmpHandle.sync()
@@ -481,6 +485,78 @@ function writable(info: Info) {
   return next
 }
 
+function isAbsoluteOrExternalPath(value: string) {
+  return (
+    path.isAbsolute(value) ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.startsWith("~/") ||
+    value.startsWith("~\\") ||
+    /^[A-Za-z][A-Za-z\d+.-]*:/.test(value)
+  )
+}
+
+function resolveSeedPath(value: string, sourceFile: string) {
+  if (!value || isAbsoluteOrExternalPath(value)) return value
+  return path.resolve(path.dirname(sourceFile), value)
+}
+
+function rewriteFilePlaceholders(value: string, sourceFile: string) {
+  return value.replace(/\{file:([^}]+)\}/g, (match, filePath: string) => {
+    const trimmed = filePath.trim()
+    if (!trimmed || isAbsoluteOrExternalPath(trimmed)) return match
+    return `{file:${path.resolve(path.dirname(sourceFile), trimmed)}}`
+  })
+}
+
+function rewriteSeedPluginSpec(value: unknown, sourceFile: string): unknown {
+  if (typeof value === "string") {
+    const rewritten = rewriteFilePlaceholders(value, sourceFile)
+    return rewritten.startsWith(".") ? resolveSeedPath(rewritten, sourceFile) : rewritten
+  }
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    const rewritten = rewriteFilePlaceholders(value[0], sourceFile)
+    return [rewritten.startsWith(".") ? resolveSeedPath(rewritten, sourceFile) : rewritten, ...value.slice(1)]
+  }
+  return rewriteSeedValue(value, sourceFile)
+}
+
+function rewriteSeedValue(value: unknown, sourceFile: string, key?: string): unknown {
+  if (typeof value === "string") return rewriteFilePlaceholders(value, sourceFile)
+  if (Array.isArray(value)) {
+    if (key === "instructions") {
+      return value.map((item) => (typeof item === "string" ? resolveSeedPath(item, sourceFile) : item))
+    }
+    if (key === "plugin") return value.map((item) => rewriteSeedPluginSpec(item, sourceFile))
+    return value.map((item) => rewriteSeedValue(item, sourceFile))
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, childValue]) => [
+        childKey,
+        rewriteSeedValue(childValue, sourceFile, childKey),
+      ]),
+    )
+  }
+  return value
+}
+
+function seedConfigValueFromSource(text: string, sourceFile: string) {
+  const stripped = stripDefaultAgent(text).text
+  const parsed = ConfigParse.jsonc(stripped, sourceFile)
+  if (!isRecord(parsed)) return stripped
+  return rewriteSeedValue(parsed, sourceFile)
+}
+
+function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
+  const merged = sources.reduce<unknown>((result, source) => {
+    const next = seedConfigValueFromSource(source.text, source.path)
+    if (!isRecord(result) || !isRecord(next)) return next
+    return mergeDeep(result, next)
+  }, {})
+  if (!isRecord(merged)) return "{}"
+  return JSON.stringify(merged, null, 2)
+}
+
 export const ConfigDirectoryTypoError = NamedError.create(
   "ConfigDirectoryTypoError",
   z.object({
@@ -551,14 +627,11 @@ const rawLayer = Layer.effect(
         // When sanitizedText is present we use it directly to avoid a redundant
         // disk read AND to ensure runtime never sees a stale value even if the
         // on-disk rewrite failed.
-        const migrated = allowWrite
-          ? yield* Effect.promise(() => migrateDefaultAgent(filepath))
-          : { rewritten: false, sanitizedText: undefined }
-        if (migrated.sanitizedText !== undefined) {
-          result = pipe(result, mergeDeep(yield* loadConfig(migrated.sanitizedText, { path: filepath, allowWrite })))
-        } else {
-          result = pipe(result, mergeDeep(yield* loadFile(filepath, { allowWrite })))
-        }
+        const migrated = allowWrite ? yield* Effect.promise(() => migrateDefaultAgent(filepath)) : undefined
+        const text = migrated?.sanitizedText ?? (yield* readConfigFile(filepath))
+        if (!text) continue
+        const sanitizedText = allowWrite ? text : stripDefaultAgent(text).text
+        result = pipe(result, mergeDeep(yield* loadConfig(sanitizedText, { path: filepath, allowWrite })))
       }
 
       const legacy = path.join(Global.Path.config, "config")
@@ -941,17 +1014,43 @@ const rawLayer = Layer.effect(
       try {
         if (!Runtime.isPawWork()) yield* Effect.promise(() => fsNode.mkdir(path.dirname(file), { recursive: true }))
         const existingText = yield* readConfigFile(file)
-        const before = existingText ?? JSON.stringify(writable(yield* loadGlobal()), null, 2)
+        const seedFiles = existingText === undefined ? globalConfigFilesToLoad() : []
+        const seedSource = seedFiles.at(-1)
+        const seed =
+          existingText === undefined && seedFiles.length > 0
+            ? {
+                text: seedConfigTextFromSources(
+                  yield* Effect.all(
+                    seedFiles.map((source) =>
+                      readConfigFile(source).pipe(Effect.map((text) => ({ path: source, text: text ?? "{}" }))),
+                    ),
+                  ),
+                ),
+                mode: yield* Effect.promise(() =>
+                  seedSource
+                    ? fsNode
+                        .stat(seedSource)
+                        .then((stat) => stat.mode & 0o777)
+                        .catch(() => undefined)
+                    : Promise.resolve(undefined),
+                ),
+              }
+            : undefined
+        const before = existingText ?? seed?.text ?? "{}"
+        const writeOptions =
+          existingText === undefined && Runtime.isPawWork() ? { mode: seed?.mode ?? 0o600 } : undefined
 
         if (!file.endsWith(".jsonc")) {
           const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
           const merged = mergeDeep(writable(existing), writable(config))
-          yield* Effect.promise(() => writeConfigTextAtomic(file, JSON.stringify(merged, null, 2))).pipe(Effect.orDie)
+          yield* Effect.promise(() => writeConfigTextAtomic(file, JSON.stringify(merged, null, 2), writeOptions)).pipe(
+            Effect.orDie,
+          )
           next = merged
         } else {
           const updated = patchJsonc(before, writable(config))
           next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
-          yield* Effect.promise(() => writeConfigTextAtomic(file, updated)).pipe(Effect.orDie)
+          yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
         }
       } finally {
         yield* Effect.promise(() => lock.release())

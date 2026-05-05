@@ -363,6 +363,7 @@ describe("PawWork global config isolation", () => {
         fn: async () => {
           const config = await load()
           expect(config.model).toBe("legacy/model")
+          expect(config.default_agent).toBeUndefined()
           expect(await Bun.file(legacy).text()).toBe(original)
         },
       })
@@ -387,6 +388,7 @@ describe("PawWork global config isolation", () => {
       fn: async () => {
         const config = await load()
         expect(config.model).toBe("fallback/model")
+        expect(config.default_agent).toBeUndefined()
         expect(await Bun.file(configFile).text()).toBe(original)
       },
     })
@@ -453,6 +455,56 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("first global update seeds Home from legacy source without materializing secrets or rebasing relative resources", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const secretFile = path.join(platformLegacy.path, "secret.txt")
+      const instructionFile = path.join(platformLegacy.path, "rules", "AGENTS.md")
+      const pluginFile = path.join(platformLegacy.path, "plugins", "plugin.ts")
+      await Filesystem.write(secretFile, "legacy-secret")
+      await Filesystem.write(instructionFile, "legacy instructions")
+      await Filesystem.write(pluginFile, "export const Plugin = {}")
+      await Filesystem.write(
+        path.join(platformLegacy.path, "pawwork.json"),
+        JSON.stringify(
+          {
+            username: "{file:secret.txt}",
+            instructions: ["./rules/AGENTS.md"],
+            plugin: ["./plugins/plugin.ts"],
+          },
+          null,
+          2,
+        ),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await saveGlobal({ model: "updated/model" })
+          const primaryFile = path.join(home.path, ".pawwork", "pawwork.json")
+          const savedText = await Bun.file(primaryFile).text()
+          const saved = JSON.parse(savedText)
+
+          expect(savedText).not.toContain("legacy-secret")
+          expect(saved.username).toBe(`{file:${secretFile}}`)
+          expect(saved.instructions).toEqual([instructionFile])
+          expect(saved.plugin).toEqual([pluginFile])
+          expect(saved.model).toBe("updated/model")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("global config write resolver ignores OpenCode filenames in PawWork Home", async () => {
     await using home = await tmpdir()
     process.env.PAWWORK_HOME = home.path
@@ -487,7 +539,10 @@ describe("PawWork global config isolation", () => {
 
     try {
       await Filesystem.write(path.join(platformLegacy.path, "pawwork.json"), JSON.stringify({ model: "legacy/model" }))
-      await Filesystem.write(path.join(platformLegacy.path, "pawwork.jsonc"), JSON.stringify({ username: "jsonc-user" }))
+      await Filesystem.write(
+        path.join(platformLegacy.path, "pawwork.jsonc"),
+        JSON.stringify({ username: "jsonc-user" }),
+      )
 
       await Instance.provide({
         directory: project.path,
@@ -878,6 +933,37 @@ home command`,
         expect(JSON.parse(await Bun.file(configPath).text()).username).toBe("secure-user")
       },
     })
+  })
+
+  test("first global update inherits legacy config file permissions", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacy = path.join(platformLegacy.path, "pawwork.json")
+      await Filesystem.write(legacy, JSON.stringify({ model: "legacy/model" }))
+      await fs.chmod(legacy, 0o600)
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await saveGlobal({ username: "secure-user" })
+
+          const configPath = path.join(home.path, ".pawwork", "pawwork.json")
+          const mode = (await fs.stat(configPath)).mode & 0o777
+          expect(mode).toBe(0o600)
+          expect(JSON.parse(await Bun.file(configPath).text()).username).toBe("secure-user")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
   })
 
   test("global config update reports file PawWork Home before taking the write lock", async () => {
