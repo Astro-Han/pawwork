@@ -14,7 +14,7 @@
     }
 
     &::placeholder {
-      color: var(--fg-weak);
+      color: var(--fg-weaker);
     }
   }
 
@@ -100,17 +100,6 @@
       resize: none;
     }
 
-    /* Error icon: 16×16 indicator on the right of the wrapper */
-    [data-slot="input-error-icon"] {
-      flex-shrink: 0;
-      width: 16px;
-      height: 16px;
-      /* Triangle warning shape via clip-path — no icon dependency */
-      background-color: var(--error);
-      clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-      opacity: 0.85;
-    }
-
     [data-slot="input-copy-button"] {
       flex-shrink: 0;
       color: var(--icon-base);
@@ -121,15 +110,35 @@
     }
 
     [data-slot="input-error"] {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       color: var(--error-text);
 
-      /* text-13-medium */
       font-family: var(--font-family-sans);
       font-size: var(--font-size-small);
       font-style: normal;
-      font-weight: var(--font-weight-medium);
-      line-height: 18px; /* 150% */
+      font-weight: var(--font-weight-regular);
+      line-height: 18px;
       letter-spacing: var(--letter-spacing-normal);
+    }
+
+    /* Disabled state */
+    &[data-disabled] [data-slot="input-wrapper"] {
+      background: var(--bg-cream);
+      cursor: not-allowed;
+    }
+    &[data-disabled] [data-slot="input-input"] {
+      color: var(--fg-weaker);
+      cursor: not-allowed;
+    }
+
+    /* Readonly state */
+    &[data-readonly] [data-slot="input-wrapper"] {
+      background: var(--bg-cream);
+    }
+    &[data-readonly] [data-slot="input-input"] {
+      color: var(--fg-base);
     }
   }
 

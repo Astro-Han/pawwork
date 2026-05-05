@@ -2,6 +2,7 @@ import { TextField as Kobalte } from "@kobalte/core/text-field"
 import { createSignal, Show, splitProps } from "solid-js"
 import type { ComponentProps } from "solid-js"
 import { useI18n } from "../context/i18n"
+import { Icon } from "./icon"
 import { IconButton } from "./icon-button"
 import { Tooltip } from "./tooltip"
 
@@ -109,10 +110,6 @@ export function TextField(props: TextFieldProps) {
         >
           <Kobalte.TextArea {...others} autoResize data-slot="input-input" class={local.class} />
         </Show>
-        {/* Error icon shown on the right when in invalid state */}
-        <Show when={local.error}>
-          <div data-slot="input-error-icon" aria-hidden="true" />
-        </Show>
         <Show when={local.copyable}>
           <Tooltip value={label()} placement="top" gutter={4} forceOpen={copied()} skipDelayDuration={0}>
             <IconButton
@@ -130,7 +127,10 @@ export function TextField(props: TextFieldProps) {
       <Show when={local.description}>
         <Kobalte.Description data-slot="input-description">{local.description}</Kobalte.Description>
       </Show>
-      <Kobalte.ErrorMessage data-slot="input-error">{local.error}</Kobalte.ErrorMessage>
+      <Kobalte.ErrorMessage data-slot="input-error">
+        <Icon name="alert-triangle" size="small" aria-hidden="true" />
+        {local.error}
+      </Kobalte.ErrorMessage>
     </Kobalte>
   )
 }

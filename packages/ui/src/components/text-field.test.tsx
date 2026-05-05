@@ -29,8 +29,8 @@ test("error prop is declared as string in the interface", () => {
 })
 
 test("error icon slot renders when error has value", () => {
-  // The JSX should include a data-slot="input-error-icon" element shown conditionally
-  expect(src).toContain('data-slot="input-error-icon"')
+  // ErrorMessage row contains an alert-triangle Icon
+  expect(src).toContain('name="alert-triangle"')
 })
 
 test("validationState=invalid is set when error has value", () => {
