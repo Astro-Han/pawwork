@@ -169,7 +169,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         }
 
         for (const file of globalInstructionFiles()) {
-          if (yield* fs.existsSafe(file)) {
+          if (yield* fs.isFile(file)) {
             paths.add(path.resolve(file))
             break
           }
@@ -280,6 +280,10 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
               kind: "global",
               reason: "skipped because a higher-priority global instruction file was loaded",
             })
+            continue
+          }
+          if (!(yield* fs.isFile(file))) {
+            result.push({ status: "considered", path: resolved, kind: "global", reason: "not a file" })
             continue
           }
           const ok = yield* recordFileEntry(resolved, "global")

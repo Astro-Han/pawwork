@@ -4,9 +4,11 @@ import path from "path"
 import { parse as parseJsonc } from "jsonc-parser"
 import { Filesystem } from "../../src/util/filesystem"
 import { createPlugTask, defaultPluginGlobalConfigDir, type PlugCtx, type PlugDeps } from "../../src/cli/cmd/plug"
+import { patchPluginConfig } from "../../src/plugin/install"
 import { tmpdir } from "../fixture/fixture"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { ConfigPaths } from "../../src/config/paths"
+import { Global } from "../../src/global"
 
 function deps(global: string, target: string | Error): PlugDeps {
   return {
@@ -171,6 +173,45 @@ describe("plugin.install.task", () => {
     } finally {
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
+  test("seeds PawWork global plugin config before direct global patching", async () => {
+    await using home = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    await using legacy = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousHome = process.env.OPENCODE_TEST_HOME
+    const previousGlobalConfig = Global.Path.config
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = legacy.path
+
+    try {
+      await Filesystem.write(path.join(legacy.path, "pawwork.json"), JSON.stringify({ username: "legacy-user" }))
+      const out = await patchPluginConfig({
+        spec: "acme@1.2.3",
+        targets: [{ kind: "server" }],
+        global: true,
+        worktree: project.path,
+        directory: project.path,
+      })
+
+      expect(out.ok).toBe(true)
+      const config = await Filesystem.readJson<{
+        username?: string
+        plugin?: unknown[]
+      }>(path.join(home.path, ".pawwork", "pawwork.json"))
+      expect(config.username).toBe("legacy-user")
+      expect(config.plugin).toEqual(["acme@1.2.3"])
+    } finally {
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousHome === undefined) delete process.env.OPENCODE_TEST_HOME
+      else process.env.OPENCODE_TEST_HOME = previousHome
     }
   })
 

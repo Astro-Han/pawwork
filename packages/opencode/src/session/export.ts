@@ -309,6 +309,7 @@ export namespace Export {
 
       const hash = yield* Effect.promise(() => hashFile(source.path))
       if (hash) sources.push({ kind: source.kind, path: source.path, hash })
+      else sources.push({ kind: source.kind, path: source.path, hash_unavailable: true })
     }
 
     const bundled = path.join(__dirname, "prompt", "pawwork.txt")

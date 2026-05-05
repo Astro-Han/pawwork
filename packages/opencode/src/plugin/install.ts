@@ -415,6 +415,7 @@ async function patchOne(dir: string, target: Target, spec: string, force: boolea
 }
 
 export async function patchPluginConfig(input: PatchInput, dep: PatchDeps = defaultPatchDeps): Promise<PatchResult> {
+  if (input.global && Runtime.isPawWork() && !input.config) await Config.seedGlobalConfig()
   const dir = patchDir(input)
   const items: PatchItem[] = []
   for (const target of input.targets) {

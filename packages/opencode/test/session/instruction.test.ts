@@ -672,6 +672,52 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     }
   })
 
+  test("sources() skips non-file global instruction candidates", async () => {
+    await using fakeHome = await tmpdir()
+    await using pawworkConfig = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "AGENTS.md"))
+      },
+    })
+    await using globalTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Global Instructions")
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const sources = yield* svc.sources()
+                const pawworkAgents = path.resolve(path.join(pawworkConfig.path, "AGENTS.md"))
+                const globalAgents = path.resolve(path.join(globalTmp.path, "AGENTS.md"))
+                const considered = sources.find((s) => s.status === "considered" && s.path === pawworkAgents)
+                const loaded = sources.find((s) => s.status === "loaded" && s.path === globalAgents)
+                expect(considered).toBeDefined()
+                if (considered?.status === "considered") expect(considered.reason).toBe("not a file")
+                expect(loaded).toBeDefined()
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
   test("sources() stops project instruction discovery at the first existing basename", async () => {
     // When both AGENTS.md and CLAUDE.md exist in the project root, systemPaths() stops at
     // AGENTS.md. sources() follows that same boundary instead of scanning lower-priority
