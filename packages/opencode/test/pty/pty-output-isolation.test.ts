@@ -10,7 +10,8 @@ const wait = async (fn: () => boolean, ms = 5000) => {
     if (fn()) return
     await sleep(25)
   }
-  throw new Error("timeout waiting for pty output")
+  if (fn()) return
+  throw new Error(`timeout waiting ${ms}ms for pty output`)
 }
 
 describe("pty", () => {
