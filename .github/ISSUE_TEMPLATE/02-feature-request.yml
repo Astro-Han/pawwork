@@ -26,7 +26,7 @@ body:
       options:
         - Not sure
         - App flow or product behavior
-        - Desktop shell, packaging, updater, signing, paths, or permissions
+        - Platform shell, packaging, updater, signing, paths, or permissions
         - UI or design system
         - Model harness, prompts, tools, or session mechanics
         - CI, release, or developer tooling

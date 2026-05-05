@@ -40,12 +40,12 @@ Required for visible UI changes.
 
 - [ ] Human review status is stated above as pending, approved, or not required
 - [ ] I linked the related issue, or stated why there is no issue
-- [ ] This PR has type, scope, and priority labels, or I requested maintainer labeling
+- [ ] This PR has type, primary area, and priority labels, or I requested maintainer labeling
 - [ ] I described the review focus and any meaningful risks
 - [ ] I listed the relevant verification steps and the key result for each
 - [ ] I did not introduce unrelated refactors, dependencies, generated files, or file changes beyond the stated scope
 - [ ] I manually checked visible UI or copy changes when needed, with screenshots or recordings
-- [ ] I considered macOS and Windows impact for desktop, packaging, updater, signing, paths, shell, or permissions changes
+- [ ] I considered macOS and Windows impact for platform, packaging, updater, signing, paths, shell, or permissions changes
 - [ ] I called out docs, release notes, dependencies, permissions, credentials, deletion behavior, generated content, or local file changes when relevant
 - [ ] I reviewed the final diff for unrelated changes and suspicious dependency changes
 - [ ] I am targeting `dev`, and my PR title and commit messages use Conventional Commits in English
