@@ -118,7 +118,7 @@ export namespace PawWorkHome {
   }
 
   export function existingResourceDirectories() {
-    const strict = new Set([primary(), ...explicitHomeCandidates()].map(normalize))
+    const strict = new Set(explicitHomeCandidates().map(normalize))
     return candidates()
       .filter((candidate) => {
         try {

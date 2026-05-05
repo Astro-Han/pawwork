@@ -20,7 +20,9 @@ import { Instance } from "../project/instance"
 import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
 import { Instruction } from "./instruction"
 import { Config } from "../config"
+import { ConfigVariable } from "../config/variable"
 import { isRecord } from "@/util/record"
+import { Glob } from "@/util/glob"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -370,7 +372,14 @@ export namespace Export {
     if (!file) return []
     const text = await fs.readFile(file, "utf8").catch(() => undefined)
     if (!text) return []
-    const data = parseJsonc(text)
+    const substituted = await ConfigVariable.substitute({
+      text,
+      type: "path",
+      path: file,
+      missing: "empty",
+    }).catch(() => undefined)
+    if (!substituted) return []
+    const data = parseJsonc(substituted)
     if (!isRecord(data) || !Array.isArray(data.instructions)) return []
     const sources: Instruction.InstructionSource[] = []
     for (const item of data.instructions) {
@@ -379,14 +388,39 @@ export namespace Export {
         sources.push({ status: "considered", path: item, kind: "remote", reason: "configured but not fetched" })
         continue
       }
-      const resolved = item.startsWith("~/")
+      const instruction = item.startsWith("~/")
         ? path.join(Global.Path.home, item.slice(2))
         : path.isAbsolute(item)
           ? item
-          : path.resolve(path.dirname(file), item)
-      sources.push({ status: "loaded", path: resolved, kind: "config" })
+          : item
+      const matches = await globalInstructionMatches(instruction, path.dirname(file))
+      for (const match of matches) {
+        const text = await fs.readFile(match, "utf8").catch(() => "")
+        if (text) sources.push({ status: "loaded", path: path.resolve(match), kind: "config" })
+      }
     }
     return sources
+  }
+
+  async function globalInstructionMatches(instruction: string, configDir: string) {
+    try {
+      if (path.isAbsolute(instruction)) {
+        return await Glob.scan(path.basename(instruction), {
+          cwd: path.dirname(instruction),
+          absolute: true,
+          include: "file",
+          dot: true,
+        })
+      }
+      return await Glob.scan(instruction, {
+        cwd: configDir,
+        absolute: true,
+        include: "file",
+        dot: true,
+      })
+    } catch {
+      return []
+    }
   }
 
   // Exported so it can be unit-tested with synthesized Tree fixtures.

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import { parse as parseJsonc } from "jsonc-parser"
 import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Account } from "../../src/account"
@@ -206,10 +207,17 @@ describe("default OpenCode config compatibility", () => {
 
     try {
       const active = path.join(global.path, "opencode.jsonc")
-      await Filesystem.write(active, '{\n  // active config\n  "username": "jsonc-user"\n}\n')
+      await Filesystem.write(active, '{\n  // active config\n  "username": "jsonc-user",\n  "instructions": ["jsonc.md"]\n}\n')
       await Filesystem.write(
         path.join(global.path, "config"),
-        ['provider = "toml"', 'model = "model"', 'username = "toml-user"'].join("\n"),
+        [
+          'provider = "toml"',
+          'model = "model"',
+          'username = "toml-user"',
+          'instructions = ["toml.md"]',
+          'theme = "legacy-theme"',
+          'unknown_field = "drop-me"',
+        ].join("\n"),
       )
 
       await Instance.provide({
@@ -218,6 +226,7 @@ describe("default OpenCode config compatibility", () => {
           const first = await load()
           expect(first.username).toBe("jsonc-user")
           expect(first.model).toBe("toml/model")
+          expect(first.instructions).toEqual(["jsonc.md"])
           expect(await Bun.file(path.join(global.path, "config")).exists()).toBeFalse()
           expect(await Bun.file(path.join(global.path, "opencode.json")).exists()).toBeFalse()
 
@@ -225,6 +234,10 @@ describe("default OpenCode config compatibility", () => {
           const second = await load()
           expect(second.username).toBe("jsonc-user")
           expect(second.model).toBe("toml/model")
+          expect(second.instructions).toEqual(["jsonc.md"])
+          const migrated = parseJsonc(await Bun.file(active).text()) as Record<string, unknown>
+          expect(migrated.theme).toBeUndefined()
+          expect(migrated.unknown_field).toBeUndefined()
         },
       })
     } finally {

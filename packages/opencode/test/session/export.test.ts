@@ -212,13 +212,27 @@ describe("Export.session", () => {
     await using currentProject = await tmpdir({ git: true })
     await using global = await tmpdir()
     const previousConfig = Global.Path.config
+    const previousEnv = process.env.GLOBAL_EXPORT_RULE
     ;(Global.Path as { config: string }).config = global.path
-    const globalRules = path.join(global.path, "global-rules.md")
+    process.env.GLOBAL_EXPORT_RULE = "env-rules.md"
+    const globalRules = path.join(global.path, "rules", "global-rules.md")
+    const envRules = path.join(global.path, "env-rules.md")
+    const fileRules = path.join(global.path, "file-rules.md")
+    await fs.mkdir(path.join(global.path, "rules"), { recursive: true })
     await fs.writeFile(globalRules, "global config instructions")
+    await fs.writeFile(envRules, "env config instructions")
+    await fs.writeFile(fileRules, "file config instructions")
+    await fs.writeFile(path.join(global.path, "rule-path.txt"), "file-rules.md")
     await fs.writeFile(
       path.join(global.path, "opencode.json"),
       JSON.stringify({
-        instructions: ["global-rules.md", "https://example.invalid/global-rules.md"],
+        instructions: [
+          "rules/*.md",
+          "{env:GLOBAL_EXPORT_RULE}",
+          "{file:rule-path.txt}",
+          "missing/*.md",
+          "https://example.invalid/global-rules.md",
+        ],
       }),
     )
     await fs.writeFile(
@@ -246,12 +260,17 @@ describe("Export.session", () => {
           const result = await AppRuntime.runPromise(Export.session(sessionID!))
           const sources = result.runtime_context.instruction_sources
           expect(sources.map((source) => source.path)).toContain(globalRules)
+          expect(sources.map((source) => source.path)).toContain(envRules)
+          expect(sources.map((source) => source.path)).toContain(fileRules)
+          expect(sources.map((source) => source.path)).not.toContain(path.join(global.path, "missing", "*.md"))
           expect(sources.map((source) => source.url)).toContain("https://example.invalid/global-rules.md")
           expect(sources.map((source) => source.url)).not.toContain("https://example.invalid/current-project.md")
         },
       })
     } finally {
       ;(Global.Path as { config: string }).config = previousConfig
+      if (previousEnv === undefined) delete process.env.GLOBAL_EXPORT_RULE
+      else process.env.GLOBAL_EXPORT_RULE = previousEnv
       await Config.invalidate(true)
       if (sessionID) await SessionNs.remove(sessionID)
     }

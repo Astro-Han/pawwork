@@ -518,6 +518,24 @@ function writable(info: Info) {
   return next
 }
 
+function normalizeWritableConfig(data: unknown, source: string) {
+  const normalized = normalizeLoadedConfig(data, source)
+  const parsed = Info.zod.safeParse(normalized)
+  if (parsed.success) return writable(parsed.data)
+
+  if (!isRecord(normalized)) return writable(ConfigParse.schema(Info.zod, normalized, source))
+  const copy = { ...normalized }
+  for (const issue of parsed.error.issues) {
+    const hit = issue as { code?: string; keys?: unknown }
+    if (hit.code !== "unrecognized_keys" || !Array.isArray(hit.keys)) continue
+    for (const key of hit.keys) {
+      if (typeof key === "string") delete copy[key]
+    }
+  }
+
+  return writable(ConfigParse.schema(Info.zod, copy, source))
+}
+
 function isAbsoluteOrExternalPath(value: string) {
   return (
     path.isAbsolute(value) ||
@@ -597,8 +615,7 @@ function seedConfigValueFromSource(text: string, sourceFile: string) {
   const stripped = stripDefaultAgent(text).text
   const parsed = ConfigParse.jsonc(stripped, sourceFile)
   if (!isRecord(parsed)) return stripped
-  const normalized = ConfigParse.schema(Info.zod, normalizeLoadedConfig(parsed, sourceFile), sourceFile)
-  return rewriteSeedConfig(writable(normalized), sourceFile)
+  return rewriteSeedConfig(normalizeWritableConfig(parsed, sourceFile), sourceFile)
 }
 
 function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
@@ -720,17 +737,24 @@ const rawLayer = Layer.effect(
               const { provider, model, ...rest } = mod.default
               const migrated: Info = { "$schema": "https://opencode.ai/config.json" }
               if (provider && model) migrated.model = `${provider}/${model}`
-              const legacyConfig = mergeDeep(migrated, rest)
+              const legacyConfig = normalizeWritableConfig(mergeDeep(migrated, rest), legacy)
               if (!Runtime.isPawWork() || globalFiles.length === 0) {
                 result = mergeDeep(legacyConfig, result)
               }
-              await writeLegacyTomlMigration(legacyTomlMigrationTarget(), legacyConfig, {
+              const target = legacyTomlMigrationTarget()
+              const action = isRegularFileSync(target) ? (Runtime.isPawWork() ? "skip-existing" : "merge") : "create"
+              await writeLegacyTomlMigration(target, legacyConfig, {
                 mergeExisting: !Runtime.isPawWork(),
               })
-              await fsNode.unlink(legacy)
+              await fsNode.unlink(legacy).catch((error) => {
+                log.warn("legacy TOML config unlink failed", { path: legacy, target, action: "unlink", error: String(error) })
+                throw error
+              })
             })
             .catch((error) => {
-              log.warn("legacy TOML config migration failed", { path: legacy, error: String(error) })
+              const target = legacyTomlMigrationTarget()
+              const action = isRegularFileSync(target) ? (Runtime.isPawWork() ? "skip-existing" : "merge") : "create"
+              log.warn("legacy TOML config migration failed", { path: legacy, target, action, error: String(error) })
             }),
         )
       }
