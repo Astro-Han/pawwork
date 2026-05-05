@@ -667,6 +667,7 @@ it.live("session.processor effect tests do not retry unknown json errors", () =>
         expect(value).toBe("stop")
         expect(yield* llm.calls).toBe(1)
         expect(handle.message.error?.name).toBe("APIError")
+        expect(handle.message.diagnostics?.llm_trace?.flags.stream_error).toBe(true)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -1023,6 +1024,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
         expect(stored.info.role).toBe("assistant")
         if (stored.info.role === "assistant") {
           expect(stored.info.error?.name).toBe("MessageAbortedError")
+          expect(stored.info.diagnostics?.llm_trace?.flags.aborted).toBe(true)
         }
         expect(state).toMatchObject({ type: "idle" })
         expect(errs).toContain("MessageAbortedError")
