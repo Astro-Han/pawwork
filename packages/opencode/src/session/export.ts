@@ -305,10 +305,11 @@ export namespace Export {
     } catch {
       worktree = undefined
     }
+    const globalInstruction = Runtime.isPawWork()
+      ? yield* Effect.promise(() => PawWorkHome.firstNonEmptyInstructionFile())
+      : path.join(Global.Path.config, "AGENTS.md")
     const candidates: Array<{ kind: string; file: string }> = [
-      ...(Runtime.isPawWork()
-        ? PawWorkHome.fileCandidates("AGENTS.md").map((file) => ({ kind: "global", file }))
-        : [{ kind: "global", file: path.join(Global.Path.config, "AGENTS.md") }]),
+      ...(globalInstruction ? [{ kind: "global", file: globalInstruction }] : []),
       ...(worktree ? [{ kind: "project", file: path.join(worktree, "AGENTS.md") }] : []),
       // Bundled pawwork prompt — present in the repo at packages/opencode/src/session/prompt/pawwork.txt.
       // hashFile silently returns undefined and the entry is skipped if the file is missing.

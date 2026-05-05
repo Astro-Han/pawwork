@@ -40,7 +40,7 @@ function configDir() {
 }
 
 function globalInstructionFiles() {
-  if (Runtime.isPawWork()) return PawWorkHome.fileCandidates("AGENTS.md")
+  if (Runtime.isPawWork()) return PawWorkHome.instructionFiles()
   const files = []
   const dir = configDir()
   if (dir) {

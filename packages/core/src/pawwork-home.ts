@@ -60,8 +60,46 @@ export namespace PawWorkHome {
     return candidates().map((dir) => path.join(dir, name))
   }
 
+  export function instructionFiles() {
+    return fileCandidates("AGENTS.md")
+  }
+
+  export function configFilesIn(dir: string) {
+    return [path.join(dir, "pawwork.json"), path.join(dir, "pawwork.jsonc")]
+  }
+
   export function configFileCandidates() {
-    return candidates().flatMap((dir) => [path.join(dir, "pawwork.json"), path.join(dir, "pawwork.jsonc")])
+    return candidates().flatMap(configFilesIn)
+  }
+
+  export function configFilesToLoad() {
+    for (const dir of candidates()) {
+      const files = configFilesIn(dir).filter((file) => fsNode.existsSync(file))
+      if (files.length) return files
+    }
+    return []
+  }
+
+  export function configFileForWrite() {
+    const primaryDir = primary()
+    const [json, jsonc] = configFilesIn(primaryDir)
+    if (fsNode.existsSync(jsonc)) return jsonc
+    if (fsNode.existsSync(json)) return json
+    return json
+  }
+
+  export function existingResourceDirectories() {
+    return candidates()
+      .filter((dir) => fsNode.existsSync(dir))
+      .toReversed()
+  }
+
+  export async function firstNonEmptyInstructionFile() {
+    for (const file of instructionFiles()) {
+      const content = await fs.readFile(file, "utf8").catch(() => "")
+      if (content) return file
+    }
+    return undefined
   }
 
   export async function ensurePrimary() {

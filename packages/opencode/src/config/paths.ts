@@ -2,7 +2,6 @@ export * as ConfigPaths from "./paths"
 
 import path from "path"
 import os from "os"
-import { existsSync } from "fs"
 import { type ParseError as JsoncParseError, parse as parseJsonc, printParseErrorCode } from "jsonc-parser"
 import { Filesystem } from "@/util"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -35,9 +34,7 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
   const afs = yield* AppFileSystem.Service
   if (Runtime.isPawWork()) {
     return unique([
-      ...PawWorkHome.candidates()
-        .filter((dir) => existsSync(dir))
-        .toReversed(),
+      ...PawWorkHome.existingResourceDirectories(),
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
         ? yield* afs.up({
             targets: [".opencode", ".pawwork"],

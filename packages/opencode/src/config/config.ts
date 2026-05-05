@@ -367,12 +367,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Co
 
 function globalConfigFile() {
   if (Runtime.isPawWork()) {
-    const primary = PawWorkHome.primary()
-    const jsonc = path.join(primary, "pawwork.jsonc")
-    if (existsSync(jsonc)) return jsonc
-    const json = path.join(primary, "pawwork.json")
-    if (existsSync(json)) return json
-    return json
+    return PawWorkHome.configFileForWrite()
   }
   const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
   for (const file of [...candidates].reverse()) {
@@ -391,13 +386,7 @@ function globalConfigFilesToLoad() {
     return candidates.filter((file) => existsSync(file))
   }
 
-  for (const dir of PawWorkHome.candidates()) {
-    const json = path.join(dir, "pawwork.json")
-    const jsonc = path.join(dir, "pawwork.jsonc")
-    const files = [json, jsonc].filter((file) => existsSync(file))
-    if (files.length) return files
-  }
-  return []
+  return PawWorkHome.configFilesToLoad()
 }
 
 function globalConfigSource() {

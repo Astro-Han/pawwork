@@ -35,6 +35,7 @@ export const dict = {
 
   "command.settings.open": "打开设置",
   "command.settings.openGlobalConfigFolder": "打开全局配置文件夹",
+  "toast.settings.openGlobalConfigFolderFailed.title": "无法打开全局配置文件夹",
 
   "command.session.previous": "上一个会话",
   "command.session.next": "下一个会话",

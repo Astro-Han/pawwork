@@ -1218,8 +1218,25 @@ export default function Layout(props: ParentProps) {
         category: language.t("command.category.settings"),
         disabled: !platform.openPath,
         onSelect: async () => {
-          const target = await globalSDK.client.path.get({ ensureConfig: true }).then((x) => x.data?.config)
-          if (target) await platform.openPath?.(target)
+          const target = await globalSDK.client.path
+            .get({ ensureConfig: true })
+            .then((x) => x.data?.config)
+            .catch((err) => {
+              showToast({
+                title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+                description: errorMessage(err, language.t("common.requestFailed")),
+                variant: "error",
+              })
+              return undefined
+            })
+          if (!target) return
+          await platform.openPath?.(target).catch((err) => {
+            showToast({
+              title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+              description: errorMessage(err, language.t("common.requestFailed")),
+              variant: "error",
+            })
+          })
         },
       },
       {

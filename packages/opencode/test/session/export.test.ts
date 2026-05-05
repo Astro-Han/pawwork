@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
@@ -7,6 +8,8 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { Log } from "@opencode-ai/core/util/log"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Export, getRuntimeNamespace, redactPart } from "../../src/session/export"
+import { Global } from "../../src/global"
+import { tmpdir } from "../fixture/fixture"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -138,6 +141,48 @@ describe("Export.session", () => {
         }
       },
     })
+  })
+
+  test("exports only the loaded PawWork global AGENTS.md source", async () => {
+    await using primary = await tmpdir()
+    await using legacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousHome = process.env.PAWWORK_HOME
+    const previousConfigDir = process.env.PAWWORK_CONFIG_DIR
+    const previousGlobalConfig = Global.Path.config
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.PAWWORK_HOME = primary.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = legacy.path
+
+    try {
+      await fs.writeFile(path.join(primary.path, "AGENTS.md"), "primary instructions")
+      await fs.writeFile(path.join(legacy.path, "AGENTS.md"), "legacy instructions")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const globalSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "global")
+            expect(globalSources).toHaveLength(1)
+            expect(globalSources[0].path).toBe(path.join(primary.path, "AGENTS.md"))
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousHome === undefined) delete process.env.PAWWORK_HOME
+      else process.env.PAWWORK_HOME = previousHome
+      if (previousConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
+      else process.env.PAWWORK_CONFIG_DIR = previousConfigDir
+    }
   })
 
   test("collectModelRefs marks unknown providers as unresolved with a reason", async () => {
