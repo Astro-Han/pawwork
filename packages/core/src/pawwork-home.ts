@@ -128,4 +128,8 @@ export namespace PawWorkHome {
     const resolved = normalize(dir)
     return candidates().some((candidate) => normalize(candidate) === resolved)
   }
+
+  export function isPrimary(dir: string) {
+    return normalize(dir) === normalize(primary())
+  }
 }

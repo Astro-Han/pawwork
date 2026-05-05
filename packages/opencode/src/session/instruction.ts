@@ -36,7 +36,10 @@ function FILES() {
 }
 
 function configDir() {
-  if (Runtime.isPawWork()) return PawWorkHome.primary()
+  if (Runtime.isPawWork()) {
+    const source = Config.globalConfigFileForRead()
+    return source ? path.dirname(source) : PawWorkHome.primary()
+  }
   return Flag.OPENCODE_CONFIG_DIR
 }
 

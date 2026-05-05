@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import fs from "fs/promises"
 import path from "path"
 import { Effect } from "effect"
 import { ModelID, ProviderID } from "../../src/provider/schema"
@@ -1275,6 +1276,37 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
               const rules = yield* svc.system()
               expect(rules).toContain(`Instructions from: ${path.join(pawworkHome.path, "rules", "home-wins.md")}\n# Home Wins`)
               expect(rules.join("\n")).not.toContain("Legacy Env")
+            }),
+          ),
+        ),
+    })
+  })
+
+  test("resolves relative instruction paths from fallback PawWork config when primary has no config", async () => {
+    await using pawworkHome = await tmpdir()
+    await using pawworkConfig = await tmpdir()
+    await using projectTmp = await tmpdir()
+    await fs.mkdir(path.join(pawworkConfig.path, "rules"), { recursive: true })
+    await Bun.write(path.join(pawworkConfig.path, "rules", "fallback.md"), "# Fallback Config")
+    await Bun.write(path.join(pawworkConfig.path, "pawwork.json"), JSON.stringify({ instructions: ["rules/fallback.md"] }))
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+    process.env.PAWWORK_HOME = pawworkHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_CONTENT
+    await Config.invalidate(true)
+
+    await Instance.provide({
+      directory: projectTmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const rules = yield* svc.system()
+              expect(rules).toContain(
+                `Instructions from: ${path.join(pawworkConfig.path, "rules", "fallback.md")}\n# Fallback Config`,
+              )
             }),
           ),
         ),

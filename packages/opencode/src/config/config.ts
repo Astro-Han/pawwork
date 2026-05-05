@@ -79,6 +79,7 @@ function projectConfigFilesForDirectory(dir: string) {
 
 function shouldGenerateInDirectory(dir: string) {
   const base = path.basename(dir)
+  if (Runtime.isPawWork() && PawWorkHome.isCandidate(dir)) return PawWorkHome.isPrimary(dir)
   if (Runtime.isPawWork() && base === ".opencode") return false
   if (!Runtime.isPawWork() && base === ".pawwork") return false
   return true
@@ -393,14 +394,20 @@ function globalConfigSource() {
   return globalConfigFilesToLoad().at(-1)
 }
 
+export function globalConfigFileForRead() {
+  return globalConfigSource()
+}
+
 function projectConfigFile(dir: string) {
   // OpenCode still writes existing legacy `config.*` files, but new project config uses `opencode.json`.
-  // PawWork writes only PawWork project filenames; shared project loading above preserves read compatibility.
-  const candidates = (
-    Runtime.isPawWork()
-      ? ["pawwork.json", "pawwork.jsonc"]
-      : ["config.json", "config.jsonc", "opencode.json", "opencode.jsonc"]
-  ).map((file) => path.join(dir, file))
+  // PawWork reuses the highest-priority existing project config source before creating a root `pawwork.json`.
+  const candidates = Runtime.isPawWork()
+    ? [
+        ...PAWWORK_PROJECT_CONFIG_FILES.map((file) => path.join(dir, file)),
+        ...projectConfigFilesForDirectory(path.join(dir, ".opencode")).map((file) => path.join(dir, ".opencode", file)),
+        ...projectConfigFilesForDirectory(path.join(dir, ".pawwork")).map((file) => path.join(dir, ".pawwork", file)),
+      ]
+    : ["config.json", "config.jsonc", "opencode.json", "opencode.jsonc"].map((file) => path.join(dir, file))
   for (const file of [...candidates].reverse()) {
     if (existsSync(file)) return file
   }
@@ -495,7 +502,8 @@ const rawLayer = Layer.effect(
 
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
-      for (const filepath of globalConfigFilesToLoad()) {
+      const globalFiles = globalConfigFilesToLoad()
+      for (const filepath of globalFiles) {
         // Strip deprecated default_agent before parsing (issue #239).
         // When sanitizedText is present we use it directly to avoid a redundant
         // disk read AND to ensure runtime never sees a stale value even if the
@@ -509,7 +517,7 @@ const rawLayer = Layer.effect(
       }
 
       const legacy = path.join(Global.Path.config, "config")
-      if (existsSync(legacy)) {
+      if (existsSync(legacy) && (!Runtime.isPawWork() || globalFiles.length === 0)) {
         yield* Effect.promise(() =>
           import(pathToFileURL(legacy).href, { with: { type: "toml" } })
             .then(async (mod) => {
@@ -1017,6 +1025,7 @@ const ConfigGetConsoleState = getConsoleState
 const ConfigUpdate = update
 const ConfigUpdateGlobal = updateGlobal
 const ConfigSeedGlobalConfig = seedGlobalConfig
+const ConfigGlobalConfigFileForRead = globalConfigFileForRead
 const ConfigGlobalConfigFileForWrite = globalConfigFileForWrite
 const ConfigProjectConfigFileForWrite = projectConfigFileForWrite
 const ConfigInvalidate = invalidate
@@ -1062,6 +1071,7 @@ export namespace Config {
   export const update = ConfigUpdate
   export const updateGlobal = ConfigUpdateGlobal
   export const seedGlobalConfig = ConfigSeedGlobalConfig
+  export const globalConfigFileForRead = ConfigGlobalConfigFileForRead
   export const globalConfigFileForWrite = ConfigGlobalConfigFileForWrite
   export const projectConfigFileForWrite = ConfigProjectConfigFileForWrite
   export const invalidate = ConfigInvalidate
