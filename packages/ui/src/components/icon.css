@@ -3,29 +3,18 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  /* resize: both; */
   aspect-ratio: 1/1;
   color: var(--icon-base);
 
-  &[data-size="small"] {
-    width: 16px;
-    height: 16px;
-  }
+  &[data-color="strong"] { color: var(--icon-strong); }
+  &[data-color="weak"]   { color: var(--icon-weak); }
+  &[data-color="disabled"] { color: var(--icon-disabled); }
 
-  &[data-size="normal"] {
-    width: 20px;
-    height: 20px;
-  }
-
-  &[data-size="medium"] {
-    width: 24px;
-    height: 24px;
-  }
-
-  &[data-size="large"] {
-    width: 24px;
-    height: 24px;
-  }
+  /* size="small" is the standard chrome size (16px); normal/medium/large for special contexts */
+  &[data-size="small"]  { width: 16px; height: 16px; }
+  &[data-size="normal"] { width: 20px; height: 20px; }
+  &[data-size="medium"] { width: 24px; height: 24px; }
+  &[data-size="large"]  { width: 24px; height: 24px; }
 
   [data-slot="icon-svg"] {
     width: 100%;

@@ -9,9 +9,8 @@
   background: var(--surface-base);
   box-shadow: var(--shadow-xxs-border);
 
-  /* text-13-regular */
   font-family: var(--font-family-sans);
-  font-size: 12px;
+  font-size: var(--font-size-x-small);
   font-weight: var(--font-weight-regular);
   line-height: 1;
   color: var(--fg-weak);

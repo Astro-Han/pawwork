@@ -84,6 +84,7 @@
   --surface-raised: #ffffff;
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
   --sidebar:        #faf9f7;
+  --surface-base-active: rgba(0, 0, 0, 0.051);
 
   /* ────────── Light ink · STANDARDS L11 (4 tiers) ────────── */
   --fg-strong:   #1a1613;
@@ -219,9 +220,6 @@
     0 6.38px 14.177px 0 rgba(0, 0, 0, 0.05),
     0 3.127px 6.95px 0 rgba(0, 0, 0, 0.06),
     0 1.237px 2.748px 0 rgba(0, 0, 0, 0.09);
-  /* Active-press overlay on base surface */
-  --surface-base-active: rgba(0, 0, 0, 0.051);
-
   /* Text mix blend mode utility — controls antialiasing on light surfaces */
   --text-mix-blend-mode: multiply;
 
@@ -285,6 +283,7 @@
   /* Brand-tinted interactive · dark (warm orange muted) */
   --surface-interactive-base:  #2b1f19;
   --surface-interactive-hover: #362619;
+  --surface-base-active: rgba(255, 255, 255, 0.059);
 
   /* Shadow · L18: dark elevation via L10 surfaces; drop shadows forbidden */
   --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
@@ -372,7 +371,6 @@
   --syntax-diff-delete: #faa494;
   --syntax-diff-unknown: #ff0000;
 
-  --surface-base-active: rgba(255, 255, 255, 0.059);
   --shadow-xxs-border: 0 0 0 0.5px var(--border-base);
   --shadow-xs-border-base:
     0 0 0 1px var(--border-base),
@@ -414,6 +412,7 @@
 
     --surface-interactive-base:  #2b1f19;
     --surface-interactive-hover: #362619;
+    --surface-base-active: rgba(255, 255, 255, 0.059);
 
     --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
     --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
@@ -500,7 +499,6 @@
     --syntax-diff-delete: #faa494;
     --syntax-diff-unknown: #ff0000;
 
-    --surface-base-active: rgba(255, 255, 255, 0.059);
     --shadow-xxs-border: 0 0 0 0.5px var(--border-base);
     --shadow-xs-border-base:
       0 0 0 1px var(--border-base),
