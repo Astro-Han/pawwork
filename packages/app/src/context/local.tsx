@@ -24,7 +24,7 @@ type Saved = {
 }
 
 const WORKSPACE_KEY = "__workspace__"
-const MAX_SAVED_STORES = 8
+export const LOCAL_SAVED_STORE_LIMIT = 8
 const handoff = new Map<string, State>()
 
 const handoffKey = (dir: string, id: string) => `${dir}\n${id}`
@@ -60,6 +60,37 @@ type SavedEntry = {
   lastAccessAt: number
 }
 
+export function pruneLocalSavedStores<T extends { dispose: () => void; lastAccessAt: number }>(
+  savedStores: Map<string, T>,
+  keep: string,
+  max = LOCAL_SAVED_STORE_LIMIT,
+) {
+  if (savedStores.size <= max) return
+
+  const stale = [...savedStores.entries()]
+    .filter(([key]) => key !== keep)
+    .sort((left, right) => left[1].lastAccessAt - right[1].lastAccessAt)
+
+  for (const [key, entry] of stale) {
+    if (savedStores.size <= max) return
+    entry.dispose()
+    savedStores.delete(key)
+  }
+}
+
+export function shouldRestoreLocalSessionModel(input: {
+  currentSessionID: string | undefined
+  messageSessionID: string
+  saved: unknown
+  hasHandoff: boolean
+}) {
+  if (!input.currentSessionID) return false
+  if (input.messageSessionID !== input.currentSessionID) return false
+  if (input.saved !== undefined) return false
+  if (input.hasHandoff) return false
+  return true
+}
+
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
   name: "Local",
   init: () => {
@@ -89,20 +120,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         return { store, setStore, dispose, lastAccessAt: Date.now() } satisfies SavedEntry
       })
 
-    const pruneSavedStores = (keep: string) => {
-      if (savedStores.size <= MAX_SAVED_STORES) return
-
-      const stale = [...savedStores.entries()]
-        .filter(([key]) => key !== keep)
-        .sort((left, right) => left[1].lastAccessAt - right[1].lastAccessAt)
-
-      for (const [key, entry] of stale) {
-        if (savedStores.size <= MAX_SAVED_STORES) return
-        entry.dispose()
-        savedStores.delete(key)
-      }
-    }
-
     const savedFor = (directory: string) => {
       const key = directory || "__unknown__"
       const cached = savedStores.get(key)
@@ -115,7 +132,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         ? (runWithOwner(owner, () => createSavedEntry(key)) ?? createSavedEntry(key))
         : createSavedEntry(key)
       savedStores.set(key, entry)
-      pruneSavedStores(key)
+      pruneLocalSavedStores(savedStores, key)
       return entry
     }
 
@@ -430,9 +447,16 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         restore(msg: { sessionID: string; agent: string; model: ModelKey }) {
           const session = id()
           if (!session) return
-          if (msg.sessionID !== session) return
-          if (saved().session[session] !== undefined) return
-          if (handoff.has(handoffKey(sdk.directory, session))) return
+          if (
+            !shouldRestoreLocalSessionModel({
+              currentSessionID: session,
+              messageSessionID: msg.sessionID,
+              saved: saved().session[session],
+              hasHandoff: handoff.has(handoffKey(sdk.directory, session)),
+            })
+          ) {
+            return
+          }
 
           setSavedSession(session, {
             agent: msg.agent,

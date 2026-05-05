@@ -50,6 +50,10 @@ export function timelineDataIdentity(input: { sessionID: string | undefined; cre
   return `${input.sessionID}:${input.created}`
 }
 
+export function timelineModelSyncKey(input: { directory: string; messageID: string | undefined }) {
+  return `${input.directory}\n${input.messageID ?? ""}`
+}
+
 export function readTimelineMessagesFromCache(input: {
   sessionID: string | undefined
   sessionCreated: number | undefined
@@ -164,7 +168,7 @@ export function createSessionTimelineData(input: {
 
   createEffect(
     on(
-      () => ({ directory: input.directory(), messageID: lastUserMessage()?.id }),
+      () => timelineModelSyncKey({ directory: input.directory(), messageID: lastUserMessage()?.id }),
       () => {
         const msg = lastUserMessage()
         if (!msg) return

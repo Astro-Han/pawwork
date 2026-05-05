@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { readTimelineMessages, readTimelineMessagesFromCache } from "./use-session-timeline-data"
+import { readTimelineMessages, readTimelineMessagesFromCache, timelineModelSyncKey } from "./use-session-timeline-data"
 
 const userMessage = (id: string, sessionID = "ses_target"): Message =>
   ({
@@ -160,5 +160,13 @@ describe("readTimelineMessagesFromCache", () => {
 
     expect(missing.messages).toBe(loaded)
     expect(missing.lastGood).toBe(ready.lastGood)
+  })
+})
+
+describe("timelineModelSyncKey", () => {
+  test("changes when the directory changes even if the last user message is the same", () => {
+    expect(timelineModelSyncKey({ directory: "/worktree", messageID: "msg" })).not.toBe(
+      timelineModelSyncKey({ directory: "/root", messageID: "msg" }),
+    )
   })
 })
