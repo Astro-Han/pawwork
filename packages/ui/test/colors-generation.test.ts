@@ -18,19 +18,19 @@ const ROOT = join(import.meta.dirname, "..")
 const COLORS_TXT = readFileSync(join(ROOT, "script/colors.txt"), "utf-8")
 const COLORS_CSS = readFileSync(join(ROOT, "src/styles/tailwind/colors.css"), "utf-8")
 
-/** Extract token names from colors.txt (e.g. "--brand-primary" → "brand-primary") */
+/** Extract token names from colors.txt (e.g. "--brand-primary: ..." → "brand-primary") */
 function parseTxtTokens(txt: string): string[] {
   return txt
     .split("\n")
     .filter((l) => l.trim().startsWith("--"))
-    .map((l) => l.trim().replace(/^--([a-z][a-z0-9-]*).*/, "$1"))
+    .map((l) => l.trim().split(":")[0].trim().substring(2))
     .filter(Boolean)
 }
 
-/** Extract token names from colors.css @theme block (e.g. "--color-brand-primary: var(...)" → "brand-primary") */
+/** Extract token names from colors.css @theme block (e.g. "--color-brand-primary: var(--brand-primary)" → "brand-primary") */
 function parseCssTokens(css: string): string[] {
   const entries: string[] = []
-  const re = /--color-([a-z][a-z0-9-]*)\s*:\s*var\(--\1\)/g
+  const re = /--color-([^\s:]+)\s*:\s*var\(--\1\)/g
   let m: RegExpExecArray | null
   while ((m = re.exec(css)) !== null) {
     entries.push(m[1])
