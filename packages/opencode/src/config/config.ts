@@ -411,6 +411,21 @@ export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) 
   return await fn()
 }
 
+function isWindowsSyncUnsupportedError(error: unknown) {
+  if (process.platform !== "win32") return false
+  const code = error && typeof error === "object" && "code" in error ? (error as NodeJS.ErrnoException)?.code : undefined
+  return code === "EPERM" || code === "EINVAL" || code === "ENOTSUP"
+}
+
+async function syncHandleBestEffort(handle: { sync: () => Promise<void> }) {
+  try {
+    await handle.sync()
+  } catch (error) {
+    if (!isWindowsSyncUnsupportedError(error)) throw error
+    log.debug("skipping unsupported Windows fsync", { code: (error as NodeJS.ErrnoException).code })
+  }
+}
+
 export async function writeConfigTextAtomic(file: string, text: string, options?: { mode?: number }) {
   await fsNode.mkdir(path.dirname(file), { recursive: true })
   const existingMode = await fsNode
@@ -427,7 +442,7 @@ export async function writeConfigTextAtomic(file: string, text: string, options?
     if (mode !== undefined) await fsNode.chmod(tmp, mode)
     const tmpHandle = await fsNode.open(tmp, "r")
     try {
-      await tmpHandle.sync()
+      await syncHandleBestEffort(tmpHandle)
     } finally {
       await tmpHandle.close()
     }
@@ -435,7 +450,7 @@ export async function writeConfigTextAtomic(file: string, text: string, options?
     const dirHandle = await fsNode.open(path.dirname(file), "r").catch(() => undefined)
     if (dirHandle) {
       try {
-        await dirHandle.sync()
+        await syncHandleBestEffort(dirHandle)
       } finally {
         await dirHandle.close()
       }

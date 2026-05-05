@@ -143,6 +143,33 @@ test("loads config with defaults when no files exist", async () => {
   })
 })
 
+test("writeConfigTextAtomic tolerates Windows fsync EPERM", async () => {
+  await using tmp = await tmpdir()
+  const file = path.join(tmp.path, "pawwork.json")
+  const originalPlatform = process.platform
+  const originalOpen = fs.open
+  const open = spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+    const handle = await originalOpen(...args)
+    spyOn(handle, "sync").mockImplementation(async () => {
+      const error = new Error("operation not permitted") as NodeJS.ErrnoException
+      error.code = "EPERM"
+      error.syscall = "fsync"
+      throw error
+    })
+    return handle
+  })
+
+  try {
+    Object.defineProperty(process, "platform", { value: "win32" })
+    await Config.writeConfigTextAtomic(file, JSON.stringify({ model: "win/model" }))
+    expect(JSON.parse(await fs.readFile(file, "utf8")).model).toBe("win/model")
+    expect(open).toHaveBeenCalled()
+  } finally {
+    open.mockRestore()
+    Object.defineProperty(process, "platform", { value: originalPlatform })
+  }
+})
+
 test("console state keeps switchableOrgCount as a nonnegative integer", () => {
   expect(
     ConsoleState.zod.safeParse({
