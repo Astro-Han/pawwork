@@ -68,7 +68,9 @@ export function Tooltip(props: TooltipProps) {
   }
 
   const sync = () => {
-    const expand = !!ref?.querySelector('[aria-expanded="true"], [data-expanded]')
+    // Only [data-expanded] (Kobalte popup marker) suppresses the tooltip.
+    // Native aria-expanded (e.g. sidebar panel toggle) must not block it.
+    const expand = !!ref?.querySelector('[data-expanded]')
     setState("expand", expand)
     if (expand) {
       setState("block", true)
@@ -109,9 +111,9 @@ export function Tooltip(props: TooltipProps) {
       <Match when={true}>
         <KobalteTooltip
           gutter={4}
-          {...others}
           openDelay={0}
           closeDelay={0}
+          {...others}
           ignoreSafeArea={local.ignoreSafeArea ?? true}
           open={local.forceOpen || state.open}
           onOpenChange={(open) => {
@@ -153,7 +155,7 @@ export function Tooltip(props: TooltipProps) {
                 e.preventDefault()
               }}
             >
-              <KobalteTooltip.Arrow data-slot="tooltip-arrow" size={5} />
+              <KobalteTooltip.Arrow data-slot="tooltip-arrow" size={8} />
               {local.value}
             </KobalteTooltip.Content>
           </KobalteTooltip.Portal>
