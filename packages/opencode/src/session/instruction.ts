@@ -5,6 +5,7 @@ import { Config } from "@/config"
 import { InstanceState } from "@/effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { withTransientReadRetry } from "@/util/effect-http-client"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
@@ -35,10 +36,15 @@ function FILES() {
 }
 
 function configDir() {
-  return Runtime.isPawWork() ? Flag.PAWWORK_CONFIG_DIR : Flag.OPENCODE_CONFIG_DIR
+  if (Runtime.isPawWork()) {
+    const source = Config.globalConfigFileForRead()
+    return source ? path.dirname(source) : PawWorkHome.primary()
+  }
+  return Flag.OPENCODE_CONFIG_DIR
 }
 
 function globalInstructionFiles() {
+  if (Runtime.isPawWork()) return PawWorkHome.instructionFiles()
   const files = []
   const dir = configDir()
   if (dir) {
@@ -73,15 +79,15 @@ function extract(messages: MessageV2.WithParts[]) {
 }
 
 export type InstructionSource =
-  | { status: "loaded"; path: string }
-  | { status: "considered"; path: string; reason: string }
-  | { status: "ignored"; path: string; reason: string }
+  | { status: "loaded"; path: string; kind: "project" | "global" | "config" | "remote" }
+  | { status: "considered"; path: string; kind: "project" | "global" | "config" | "remote"; reason: string }
+  | { status: "ignored"; path: string; kind: "ignored"; reason: string }
 
 export interface Interface {
   readonly clear: (messageID: MessageID) => Effect.Effect<void>
   readonly systemPaths: () => Effect.Effect<Set<string>, AppFileSystem.Error>
   readonly system: () => Effect.Effect<string[], AppFileSystem.Error>
-  readonly sources: () => Effect.Effect<InstructionSource[], AppFileSystem.Error>
+  readonly sources: (options?: { fetchRemote?: boolean }) => Effect.Effect<InstructionSource[], AppFileSystem.Error>
   readonly find: (dir: string) => Effect.Effect<string | undefined, AppFileSystem.Error>
   readonly resolve: (
     messages: MessageV2.WithParts[],
@@ -155,15 +161,19 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           for (const file of FILES()) {
             const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
-            if (matches.length > 0) {
-              matches.forEach((item) => paths.add(path.resolve(item)))
+            const stats = yield* Effect.forEach(matches, (item) =>
+              fs.isFile(item).pipe(Effect.map((isFile) => ({ item, isFile }))),
+            )
+            const files = stats.filter((item) => item.isFile).map((item) => item.item)
+            if (files.length > 0) {
+              files.forEach((item) => paths.add(path.resolve(item)))
               break
             }
           }
         }
 
         for (const file of globalInstructionFiles()) {
-          if (yield* fs.existsSafe(file)) {
+          if (yield* fs.isFile(file)) {
             paths.add(path.resolve(file))
             break
           }
@@ -208,71 +218,93 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         ]
       })
 
-      const sources = Effect.fn("Instruction.sources")(function* () {
+      const sources = Effect.fn("Instruction.sources")(function* (options?: { fetchRemote?: boolean }) {
         const result: InstructionSource[] = []
         const loadedPaths = new Set<string>()
 
         // Mark a file as loaded only after read() returns non-empty content; system()
         // already drops empty/unreadable files so a "loaded" entry that the prompt
         // doesn't see would mislead diagnostics.
-        const recordFileEntry = Effect.fnUntraced(function* (resolved: string) {
+        const recordFileEntry = Effect.fnUntraced(function* (
+          resolved: string,
+          kind: "project" | "global" | "config",
+        ) {
           const content = yield* read(resolved)
           if (content) {
-            result.push({ status: "loaded", path: resolved })
+            result.push({ status: "loaded", path: resolved, kind })
             loadedPaths.add(resolved)
             return true as const
           }
-          result.push({ status: "considered", path: resolved, reason: "file is empty or unreadable" })
+          result.push({ status: "considered", path: resolved, kind, reason: "file is empty or unreadable" })
           return false as const
         })
 
-        // Project-level walk: emit the full priority chain, not just the winner. First
-        // file whose content reads back non-empty is loaded; later existing matches are
-        // considered with a priority-skipped reason. Absent files are not reported here
-        // because FILES holds basenames, not paths — the directory walk is the search.
+        // Project-level walk: the first basename with existing matches wins, matching
+        // systemPaths(). Empty/unreadable matches are considered but still block lower
+        // priority basenames such as CLAUDE.md and CONTEXT.md.
         if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
           let projectLoaded = false
           for (const file of FILES()) {
             const matches = yield* fs.findUp(file, Instance.directory, Instance.worktree)
-            if (matches.length === 0) continue
-            for (const match of matches) {
+            const stats = yield* Effect.forEach(matches, (item) =>
+              fs.isFile(item).pipe(Effect.map((isFile) => ({ item, isFile }))),
+            )
+            for (const item of stats.filter((item) => !item.isFile)) {
+              result.push({
+                status: "considered",
+                path: path.resolve(item.item),
+                kind: "project",
+                reason: "not a file",
+              })
+            }
+            const files = stats.filter((item) => item.isFile).map((item) => item.item)
+            if (files.length === 0) continue
+            for (const match of files) {
               const resolved = path.resolve(match)
               if (loadedPaths.has(resolved)) continue
               if (!projectLoaded) {
-                const ok = yield* recordFileEntry(resolved)
+                const ok = yield* recordFileEntry(resolved, "project")
                 if (ok) projectLoaded = true
               } else {
                 result.push({
                   status: "considered",
                   path: resolved,
+                  kind: "project",
                   reason: "skipped because a higher-priority project instruction file was loaded",
                 })
               }
             }
+            break
           }
         }
 
-        // Global instruction file chain: report the full priority chain so debug output
-        // can show why a candidate was skipped (priority) or absent.
+        // Global instruction file chain: absent candidates are reported until the first
+        // existing candidate, which blocks lower-priority fallback locations.
         let globalLoaded = false
         for (const file of globalInstructionFiles()) {
           const resolved = path.resolve(file)
           if (loadedPaths.has(resolved)) continue
           const exists = yield* fs.existsSafe(file)
           if (!exists) {
-            result.push({ status: "considered", path: resolved, reason: "absent" })
+            result.push({ status: "considered", path: resolved, kind: "global", reason: "absent" })
             continue
           }
           if (globalLoaded) {
             result.push({
               status: "considered",
               path: resolved,
+              kind: "global",
               reason: "skipped because a higher-priority global instruction file was loaded",
             })
             continue
           }
-          const ok = yield* recordFileEntry(resolved)
+          if (!(yield* fs.isFile(file))) {
+            result.push({ status: "considered", path: resolved, kind: "global", reason: "not a file" })
+            continue
+          }
+          const ok = yield* recordFileEntry(resolved, "global")
           if (ok) globalLoaded = true
+          break
         }
 
         // Local file entries from config.instructions: glob-resolve them the same way
@@ -298,6 +330,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
             result.push({
               status: "considered",
               path: raw,
+              kind: "config",
               reason: "config.instructions entry resolved to no files",
             })
             continue
@@ -305,7 +338,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
           for (const match of matches) {
             const resolved = path.resolve(match)
             if (loadedPaths.has(resolved)) continue
-            yield* recordFileEntry(resolved)
+            yield* recordFileEntry(resolved, "config")
           }
         }
 
@@ -315,13 +348,16 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         const urls = (config.instructions ?? []).filter(
           (item) => item.startsWith("https://") || item.startsWith("http://"),
         )
-        const bodies = yield* Effect.forEach(urls, fetch, { concurrency: 4 })
+        const fetchRemote = options?.fetchRemote ?? true
+        const bodies = fetchRemote ? yield* Effect.forEach(urls, fetch, { concurrency: 4 }) : []
         for (const [index, url] of urls.entries()) {
           const body = bodies[index]
-          if (body) {
-            result.push({ status: "loaded", path: url })
+          if (!fetchRemote) {
+            result.push({ status: "considered", path: url, kind: "remote", reason: "configured but not fetched" })
+          } else if (body) {
+            result.push({ status: "loaded", path: url, kind: "remote" })
           } else {
-            result.push({ status: "considered", path: url, reason: "fetch failed or returned empty body" })
+            result.push({ status: "considered", path: url, kind: "remote", reason: "fetch failed or returned empty body" })
           }
         }
 
@@ -336,7 +372,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
             : null
         if (ignoreReason && !loadedPaths.has(claudeFallback)) {
           if (yield* fs.existsSafe(claudeFallback)) {
-            result.push({ status: "ignored", path: claudeFallback, reason: ignoreReason })
+            result.push({ status: "ignored", path: claudeFallback, kind: "ignored", reason: ignoreReason })
           }
         }
 
@@ -346,7 +382,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
       const find = Effect.fn("Instruction.find")(function* (dir: string) {
         for (const file of FILES()) {
           const filepath = path.resolve(path.join(dir, file))
-          if (yield* fs.existsSafe(filepath)) return filepath
+          if (yield* fs.isFile(filepath)) return filepath
         }
       })
 

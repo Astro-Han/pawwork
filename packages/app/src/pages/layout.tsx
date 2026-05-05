@@ -1204,6 +1204,33 @@ export default function Layout(props: ParentProps) {
         onSelect: () => openSettings(),
       },
       {
+        id: "settings.openGlobalConfigFolder",
+        title: language.t("command.settings.openGlobalConfigFolder"),
+        category: language.t("command.category.settings"),
+        disabled: !platform.openPath,
+        onSelect: async () => {
+          const target = await globalSDK.client.path
+            .get({ ensureConfig: true })
+            .then((x) => x.data?.config)
+            .catch((err) => {
+              showToast({
+                title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+                description: errorMessage(err, language.t("common.requestFailed")),
+                variant: "error",
+              })
+              return undefined
+            })
+          if (!target) return
+          await platform.openPath?.(target).catch((err) => {
+            showToast({
+              title: language.t("toast.settings.openGlobalConfigFolderFailed.title"),
+              description: errorMessage(err, language.t("common.requestFailed")),
+              variant: "error",
+            })
+          })
+        },
+      },
+      {
         id: "session.previous",
         title: language.t("command.session.previous"),
         category: language.t("command.category.session"),

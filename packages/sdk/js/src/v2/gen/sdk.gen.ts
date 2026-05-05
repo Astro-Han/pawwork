@@ -3556,6 +3556,7 @@ export class Path extends HeyApiClient {
   public get<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
+      ensureConfig?: boolean
       workspace?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -3566,6 +3567,7 @@ export class Path extends HeyApiClient {
         {
           args: [
             { in: "query", key: "directory" },
+            { in: "query", key: "ensureConfig" },
             { in: "query", key: "workspace" },
           ],
         },

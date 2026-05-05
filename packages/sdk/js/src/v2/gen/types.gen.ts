@@ -5030,6 +5030,7 @@ export type PathGetData = {
   path?: never
   query?: {
     directory?: string
+    ensureConfig?: boolean
     workspace?: string
   }
   url: "/path"

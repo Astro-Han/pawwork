@@ -3,10 +3,12 @@ import path from "node:path"
 import fs from "node:fs/promises"
 import crypto from "node:crypto"
 import { fileURLToPath } from "node:url"
+import { parse as parseJsonc } from "jsonc-parser"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { Effect } from "effect"
 import { Runtime } from "@opencode-ai/core/runtime"
+import { Global } from "@opencode-ai/core/global"
 import { Session } from "."
 import type { SessionID } from "./schema"
 import { MessageV2 } from "./message-v2"
@@ -15,8 +17,12 @@ import { Installation } from "../installation"
 import { Provider } from "../provider/provider"
 import { ProviderID, ModelID } from "../provider/schema"
 import { Instance } from "../project/instance"
-import { Global } from "../global"
 import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
+import { Instruction } from "./instruction"
+import { Config } from "../config"
+import { ConfigVariable } from "../config/variable"
+import { isRecord } from "@/util/record"
+import { Glob } from "@/util/glob"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -45,10 +51,7 @@ function redactDataUrl(url: string): { mime: string; size_bytes: number; sha256:
   }
 }
 
-export function redactPart(
-  part: MessageV2.Part,
-  ctx: { count: { omitted: number } },
-): MessageV2.Part {
+export function redactPart(part: MessageV2.Part, ctx: { count: { omitted: number } }): MessageV2.Part {
   part = sanitizeSensitiveToolPart(part)
   if (part.type === "file") {
     const r = redactDataUrl(part.url)
@@ -108,6 +111,7 @@ export namespace Export {
     url?: string
     hash?: string
     hash_unavailable?: true
+    reason?: string
   }
 
   export type Snapshot = {
@@ -296,30 +300,146 @@ export namespace Export {
     return { session_count, message_count, part_count, omitted_attachment_count }
   }
 
-  const collectInstructionSources = Effect.fn("Export.instructionSources")(function* () {
+  const globalConfigFallbackRelativeReason = "fallback relative path resolved from global config directory"
+
+  const collectInstructionSources = Effect.fn("Export.instructionSources")(function* (directory?: string) {
     const sources: InstructionSource[] = []
-    let worktree: string | undefined
-    try {
-      worktree = Instance.worktree
-    } catch {
-      worktree = undefined
+    const instruction = yield* Instruction.Service
+    const sessionDirectoryUnavailable = "session directory unavailable"
+    let resolvedSources
+    if (directory && path.resolve(directory) !== path.resolve(Instance.directory)) {
+      const fromSessionDirectory = yield* Effect.promise(async () => {
+        try {
+          const stat = await fs.stat(directory)
+          if (!stat.isDirectory()) return undefined
+          return await Instance.provide({
+            directory,
+            fn: () => Effect.runPromise(instruction.sources({ fetchRemote: false })),
+          })
+        } catch {
+          return undefined
+        }
+      })
+      if (fromSessionDirectory) {
+        resolvedSources = fromSessionDirectory
+      } else {
+        const fallback = yield* instruction.sources({ fetchRemote: false }).pipe(Effect.catch(() => Effect.succeed([])))
+        const globalConfigSources = yield* Effect.promise(() => globalConfiguredInstructionSources())
+        resolvedSources = [
+          ...fallback.filter((source) => source.status === "loaded" && source.kind === "global"),
+          ...globalConfigSources,
+          {
+            status: "considered" as const,
+            path: directory,
+            kind: "project" as const,
+            reason: sessionDirectoryUnavailable,
+          },
+        ]
+      }
+    } else {
+      resolvedSources = yield* instruction.sources({ fetchRemote: false })
     }
-    const candidates: Array<{ kind: string; file: string }> = [
-      { kind: "global", file: path.join(Global.Path.config, "AGENTS.md") },
-      ...(worktree ? [{ kind: "project", file: path.join(worktree, "AGENTS.md") }] : []),
-      // Bundled pawwork prompt — present in the repo at packages/opencode/src/session/prompt/pawwork.txt.
-      // hashFile silently returns undefined and the entry is skipped if the file is missing.
-      { kind: "bundled", file: path.join(__dirname, "prompt", "pawwork.txt") },
-    ]
-    for (const c of candidates) {
-      const hash = yield* Effect.promise(() => hashFile(c.file))
-      if (hash) sources.push({ kind: c.kind, path: c.file, hash })
+    const instructionSources = resolvedSources.filter(
+      (source) =>
+        source.status === "loaded" ||
+        (source.status === "considered" &&
+          source.kind === "remote" &&
+          source.reason === "configured but not fetched") ||
+        (source.status === "considered" &&
+          source.kind === "config" &&
+          source.reason === globalConfigFallbackRelativeReason) ||
+        (source.status === "considered" && source.kind === "project" && source.reason === sessionDirectoryUnavailable),
+    )
+
+    for (const source of instructionSources) {
+      if (source.kind === "remote") {
+        sources.push({ kind: source.kind, url: source.path, hash_unavailable: true })
+        continue
+      }
+
+      const hash = yield* Effect.promise(() => hashFile(source.path))
+      if (source.status === "considered") {
+        sources.push({ kind: source.kind, path: source.path, hash_unavailable: true, reason: source.reason })
+      } else if (hash) sources.push({ kind: source.kind, path: source.path, hash })
+      else sources.push({ kind: source.kind, path: source.path, hash_unavailable: true })
     }
+
+    const bundled = path.join(__dirname, "prompt", "pawwork.txt")
+    const bundledHash = yield* Effect.promise(() => hashFile(bundled))
+    if (bundledHash) sources.push({ kind: "bundled", path: bundled, hash: bundledHash })
+
     return sources.sort((a, b) => {
       if (a.kind !== b.kind) return a.kind.localeCompare(b.kind)
       return (a.path ?? a.url ?? "").localeCompare(b.path ?? b.url ?? "")
     })
   })
+
+  async function globalConfiguredInstructionSources(): Promise<Instruction.InstructionSource[]> {
+    const file = Config.globalConfigFileForRead()
+    if (!file) return []
+    const text = await fs.readFile(file, "utf8").catch(() => undefined)
+    if (!text) return []
+    const substituted = await ConfigVariable.substitute({
+      text,
+      type: "path",
+      path: file,
+      missing: "empty",
+    }).catch(() => undefined)
+    if (!substituted) return []
+    const data = parseJsonc(substituted)
+    if (!isRecord(data) || !Array.isArray(data.instructions)) return []
+    const sources: Instruction.InstructionSource[] = []
+    for (const item of data.instructions) {
+      if (typeof item !== "string") continue
+      if (item.startsWith("https://") || item.startsWith("http://")) {
+        sources.push({ status: "considered", path: item, kind: "remote", reason: "configured but not fetched" })
+        continue
+      }
+      const isFallbackRelativePath = !item.startsWith("~/") && !path.isAbsolute(item)
+      const instruction = item.startsWith("~/")
+        ? path.join(Global.Path.home, item.slice(2))
+        : path.isAbsolute(item)
+          ? item
+          : item
+      const matches = await globalInstructionMatches(instruction, path.dirname(file))
+      for (const match of matches) {
+        const text = await fs.readFile(match, "utf8").catch(() => "")
+        if (!text) continue
+        sources.push(
+          isFallbackRelativePath
+            ? {
+                status: "considered",
+                path: path.resolve(match),
+                kind: "config",
+                reason: globalConfigFallbackRelativeReason,
+              }
+            : { status: "loaded", path: path.resolve(match), kind: "config" },
+        )
+      }
+    }
+    return sources
+  }
+
+  async function globalInstructionMatches(instruction: string, configDir: string) {
+    try {
+      if (path.isAbsolute(instruction)) {
+        return await Glob.scan(path.basename(instruction), {
+          cwd: path.dirname(instruction),
+          absolute: true,
+          include: "file",
+          dot: true,
+        })
+      }
+      return await Glob.scan(instruction, {
+        cwd: configDir,
+        absolute: true,
+        include: "file",
+        dot: true,
+      })
+    } catch {
+      return []
+    }
+  }
 
   // Exported so it can be unit-tested with synthesized Tree fixtures.
   export const collectModelRefs = Effect.fn("Export.modelRefs")(function* (tree: Tree) {
@@ -368,7 +488,7 @@ export namespace Export {
     const root = yield* climbToRoot(svc, anyID)
     const ctx = { count: { omitted: 0 } }
     const tree = yield* exportTree(svc, root, ctx)
-    const instruction_sources = yield* collectInstructionSources()
+    const instruction_sources = yield* collectInstructionSources(root.directory)
     const model_refs = yield* collectModelRefs(tree)
     return {
       schema_version: 1 as const,

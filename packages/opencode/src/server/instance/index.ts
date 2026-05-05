@@ -1,6 +1,7 @@
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { Hono } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
+import fs from "fs/promises"
 import z from "zod"
 import { Format } from "../../format"
 import { Instance } from "../../project/instance"
@@ -8,6 +9,8 @@ import { Vcs } from "../../project/vcs"
 import { Agent } from "../../agent/agent"
 import { Skill } from "../../skill"
 import { Global } from "../../global"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { Runtime } from "@opencode-ai/core/runtime"
 import { LSP } from "../../lsp"
 import { Command } from "../../command"
 import { QuestionRoutes } from "./question"
@@ -66,6 +69,17 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         summary: "Get paths",
         description: "Retrieve the current working directory and related path information for the OpenCode instance.",
         operationId: "path.get",
+        parameters: [
+          {
+            name: "ensureConfig",
+            in: "query",
+            required: false,
+            schema: {
+              type: "boolean",
+            },
+            description: "Create the global config directory before returning it.",
+          },
+        ],
         responses: {
           200: {
             description: "Path",
@@ -90,10 +104,17 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
         },
       }),
       async (c) => {
+        const ensureConfig = c.req.query("ensureConfig") === "true"
+        const config = Runtime.isPawWork()
+          ? ensureConfig
+            ? await PawWorkHome.ensurePrimary()
+            : PawWorkHome.primary()
+          : Global.Path.config
+        if (ensureConfig && !Runtime.isPawWork()) await fs.mkdir(config, { recursive: true })
         return c.json({
           home: Global.Path.home,
           state: Global.Path.state,
-          config: Global.Path.config,
+          config,
           worktree: Instance.worktree,
           directory: Instance.directory,
         })

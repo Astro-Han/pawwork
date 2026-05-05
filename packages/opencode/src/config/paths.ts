@@ -1,11 +1,11 @@
 export * as ConfigPaths from "./paths"
 
 import path from "path"
-import os from "os"
 import { type ParseError as JsoncParseError, parse as parseJsonc, printParseErrorCode } from "jsonc-parser"
 import { Filesystem } from "@/util"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Global } from "@opencode-ai/core/global"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { unique } from "remeda"
 import { JsonError } from "./error"
 import * as Effect from "effect/Effect"
@@ -33,7 +33,7 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
   const afs = yield* AppFileSystem.Service
   if (Runtime.isPawWork()) {
     return unique([
-      Global.Path.config,
+      ...PawWorkHome.existingResourceDirectories(),
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
         ? yield* afs.up({
             targets: [".opencode", ".pawwork"],
@@ -41,7 +41,6 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
             stop: worktree,
           })
         : []),
-      ...(Flag.PAWWORK_CONFIG_DIR ? [Flag.PAWWORK_CONFIG_DIR] : []),
     ])
   }
 
@@ -63,8 +62,8 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
   ])
 })
 
-/** Return the JSON and JSONC config file candidates for a named config inside a directory. */
-export function fileInDirectory(dir: string, name: string) {
+/** Return config file candidates for creating a new named config. Reverse this list when selecting the active existing file. */
+export function fileInDirectory(dir: string, name: "opencode" | "pawwork" | string) {
   return [path.join(dir, `${name}.json`), path.join(dir, `${name}.jsonc`)]
 }
 
@@ -118,7 +117,7 @@ async function substitute(text: string, input: ParseSource, missing: "error" | "
     }
 
     let filePath = token.replace(/^\{file:/, "").replace(/\}$/, "")
-    if (filePath.startsWith("~/")) filePath = path.join(os.homedir(), filePath.slice(2))
+    if (filePath.startsWith("~/")) filePath = path.join(Global.Path.home, filePath.slice(2))
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)
     const fileContent = (

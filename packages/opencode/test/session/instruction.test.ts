@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import fs from "fs/promises"
 import path from "path"
 import { Effect } from "effect"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { Instruction, projectFiles } from "../../src/session/instruction"
+import { Config } from "../../src/config"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { Instance } from "../../src/project/instance"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
@@ -11,6 +13,14 @@ import { tmpdir } from "../fixture/fixture"
 
 const run = <A>(effect: Effect.Effect<A, any, Instruction.Service>) =>
   Effect.runPromise(effect.pipe(Effect.provide(Instruction.defaultLayer)))
+
+beforeEach(async () => {
+  await Config.invalidate(true)
+})
+
+afterEach(async () => {
+  await Config.invalidate(true)
+})
 
 function loaded(filepath: string): MessageV2.WithParts[] {
   const sessionID = SessionID.make("session-loaded-1")
@@ -103,6 +113,33 @@ describe("Instruction.resolve", () => {
               )
               expect(results.length).toBe(1)
               expect(results[0].filepath).toBe(path.join(tmp.path, "subdir", "AGENTS.md"))
+            }),
+          ),
+        ),
+    })
+  })
+
+  test("nearby instruction lookup skips directories named AGENTS.md", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "subdir", "AGENTS.md"), { recursive: true })
+        await Bun.write(path.join(dir, "subdir", "CLAUDE.md"), "# Subdir Claude Instructions")
+        await Bun.write(path.join(dir, "subdir", "nested", "file.ts"), "const x = 1")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const results = yield* svc.resolve(
+                [],
+                path.join(tmp.path, "subdir", "nested", "file.ts"),
+                MessageID.make("message-test-dir-agents"),
+              )
+              expect(results.length).toBe(1)
+              expect(results[0].filepath).toBe(path.join(tmp.path, "subdir", "CLAUDE.md"))
             }),
           ),
         ),
@@ -424,6 +461,7 @@ describe("Instruction.systemPaths OPENCODE_CONFIG_DIR", () => {
 describe("Instruction.systemPaths PawWork runtime config dir", () => {
   const original = {
     opencodeConfigDir: process.env.OPENCODE_CONFIG_DIR,
+    pawworkHome: process.env.PAWWORK_HOME,
     pawworkConfigDir: process.env.PAWWORK_CONFIG_DIR,
     runtimeNamespace: process.env.PAWWORK_RUNTIME_NAMESPACE,
     disableProjectConfig: process.env.OPENCODE_DISABLE_PROJECT_CONFIG,
@@ -434,6 +472,8 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
   afterEach(() => {
     if (original.opencodeConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = original.opencodeConfigDir
+    if (original.pawworkHome === undefined) delete process.env.PAWWORK_HOME
+    else process.env.PAWWORK_HOME = original.pawworkHome
     if (original.pawworkConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
     else process.env.PAWWORK_CONFIG_DIR = original.pawworkConfigDir
     if (original.runtimeNamespace === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -522,6 +562,51 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     }
   })
 
+  test("prefers PAWWORK_HOME AGENTS.md over PAWWORK_CONFIG_DIR and legacy global", async () => {
+    await using homeTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# PawWork Home Instructions")
+      },
+    })
+    await using envTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# PawWork Env Instructions")
+      },
+    })
+    await using globalTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Global Instructions")
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    delete process.env.OPENCODE_CONFIG_DIR
+    process.env.PAWWORK_HOME = homeTmp.path
+    process.env.PAWWORK_CONFIG_DIR = envTmp.path
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const paths = yield* svc.systemPaths()
+                expect(paths.has(path.join(homeTmp.path, "AGENTS.md"))).toBe(true)
+                expect(paths.has(path.join(envTmp.path, "AGENTS.md"))).toBe(false)
+                expect(paths.has(path.join(globalTmp.path, "AGENTS.md"))).toBe(false)
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
   test("sources() reports ~/.claude/CLAUDE.md as ignored with reason when present in PawWork mode", async () => {
     // Acceptance criterion #7: diagnostics explain why the global Claude Code fallback
     // was ignored. Uses OPENCODE_TEST_HOME so Global.Path.home resolves to a tmpdir,
@@ -566,10 +651,10 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     }
   })
 
-  test("sources() reports priority-skipped global instruction file as considered", async () => {
-    // Acceptance criterion #7 covers "considered" sources. When both PAWWORK_CONFIG_DIR
-    // and Global.Path.config have AGENTS.md, only the higher-priority one is loaded; the
-    // other should appear as considered with a priority-skipped reason.
+  test("sources() stops global instruction discovery at the first existing candidate", async () => {
+    // systemPaths() stops at the first existing global candidate even if later candidates
+    // also exist. sources() must model that same boundary so diagnostics cannot imply a
+    // lower-priority file was part of prompt construction.
     await using fakeHome = await tmpdir()
     await using pawworkConfig = await tmpdir({
       init: async (dir) => {
@@ -604,10 +689,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
                 const loaded = sources.find((s) => s.status === "loaded" && s.path === pawworkAgents)
                 const skipped = sources.find((s) => s.status === "considered" && s.path === globalAgents)
                 expect(loaded).toBeDefined()
-                expect(skipped).toBeDefined()
-                if (skipped?.status === "considered") {
-                  expect(skipped.reason).toContain("higher-priority")
-                }
+                expect(skipped).toBeUndefined()
               }),
             ),
           ),
@@ -617,10 +699,56 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     }
   })
 
-  test("sources() reports project priority chain as loaded plus considered siblings", async () => {
-    // When both AGENTS.md and CLAUDE.md exist in the project root, system() loads only
-    // AGENTS.md. sources() must surface CLAUDE.md as considered with the priority reason
-    // so debug output can explain the project fallback order from issue #230.
+  test("sources() skips non-file global instruction candidates", async () => {
+    await using fakeHome = await tmpdir()
+    await using pawworkConfig = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "AGENTS.md"))
+      },
+    })
+    await using globalTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "# Global Instructions")
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const sources = yield* svc.sources()
+                const pawworkAgents = path.resolve(path.join(pawworkConfig.path, "AGENTS.md"))
+                const globalAgents = path.resolve(path.join(globalTmp.path, "AGENTS.md"))
+                const considered = sources.find((s) => s.status === "considered" && s.path === pawworkAgents)
+                const loaded = sources.find((s) => s.status === "loaded" && s.path === globalAgents)
+                expect(considered).toBeDefined()
+                if (considered?.status === "considered") expect(considered.reason).toBe("not a file")
+                expect(loaded).toBeDefined()
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
+  test("sources() stops project instruction discovery at the first existing basename", async () => {
+    // When both AGENTS.md and CLAUDE.md exist in the project root, systemPaths() stops at
+    // AGENTS.md. sources() follows that same boundary instead of scanning lower-priority
+    // project basenames.
     await using fakeHome = await tmpdir()
     await using pawworkConfig = await tmpdir()
     await using globalTmp = await tmpdir()
@@ -652,10 +780,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
                 const loaded = sources.find((s) => s.status === "loaded" && s.path === agents)
                 const skipped = sources.find((s) => s.status === "considered" && s.path === claude)
                 expect(loaded).toBeDefined()
-                expect(skipped).toBeDefined()
-                if (skipped?.status === "considered") {
-                  expect(skipped.reason).toContain("higher-priority project")
-                }
+                expect(skipped).toBeUndefined()
               }),
             ),
           ),
@@ -708,6 +833,70 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     } finally {
       ;(Global.Path as { config: string }).config = originalGlobalConfig
     }
+  })
+
+  test("sources() does not load lower-priority project file when higher-priority file exists empty", async () => {
+    await using fakeHome = await tmpdir()
+    await using pawworkConfig = await tmpdir()
+    await using globalTmp = await tmpdir()
+    await using projectTmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "AGENTS.md"), "")
+        await Bun.write(path.join(dir, "CLAUDE.md"), "# Project CLAUDE")
+      },
+    })
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_TEST_HOME = fakeHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_DIR
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const originalGlobalConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = globalTmp.path
+
+    try {
+      await Instance.provide({
+        directory: projectTmp.path,
+        fn: () =>
+          run(
+            Instruction.Service.use((svc) =>
+              Effect.gen(function* () {
+                const rules = yield* svc.system()
+                const sources = yield* svc.sources()
+                const agents = path.resolve(path.join(projectTmp.path, "AGENTS.md"))
+                const claude = path.resolve(path.join(projectTmp.path, "CLAUDE.md"))
+
+                expect(rules.some((rule) => rule.includes("# Project CLAUDE"))).toBe(false)
+                expect(sources.find((s) => s.status === "loaded" && s.path === claude)).toBeUndefined()
+                const considered = sources.find((s) => s.status === "considered" && s.path === agents)
+                expect(considered).toBeDefined()
+              }),
+            ),
+          ),
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+
+  test("systemPaths() skips project instruction candidates that are not files", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.mkdir(path.join(tmp.path, "AGENTS.md"))
+    await fs.writeFile(path.join(tmp.path, "CLAUDE.md"), "claude instructions")
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const paths = yield* svc.systemPaths()
+              expect(paths.has(path.join(tmp.path, "AGENTS.md"))).toBe(false)
+              expect(paths.has(path.join(tmp.path, "CLAUDE.md"))).toBe(true)
+            }),
+          ),
+        ),
+    })
   })
 
   test("sources() lists loaded project AGENTS.md", async () => {
@@ -1075,6 +1264,7 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     await using pawworkConfig = await tmpdir({
       init: async (dir) => {
         await Bun.write(path.join(dir, "rules", "extra.md"), "# PawWork Relative Instructions")
+        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/extra.md"] }))
       },
     })
     await using opencodeConfig = await tmpdir({
@@ -1082,17 +1272,16 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
         await Bun.write(path.join(dir, "rules", "extra.md"), "# OpenCode Relative Instructions")
       },
     })
-    await using globalTmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/extra.md"] }))
-      },
-    })
+    await using globalTmp = await tmpdir()
     await using projectTmp = await tmpdir()
 
     process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
     process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1"
     process.env.OPENCODE_CONFIG_DIR = opencodeConfig.path
+    delete process.env.PAWWORK_HOME
     process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_CONTENT
+    await Config.invalidate(true)
     const originalGlobalConfig = Global.Path.config
     ;(Global.Path as { config: string }).config = globalTmp.path
 
@@ -1115,5 +1304,105 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
     } finally {
       ;(Global.Path as { config: string }).config = originalGlobalConfig
     }
+  })
+
+  test("resolves relative instruction paths from PAWWORK_HOME when project config is disabled", async () => {
+    await using pawworkHome = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "rules", "home-extra.md"), "# PawWork Home Relative Instructions")
+        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/home-extra.md"] }))
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+    process.env.PAWWORK_HOME = pawworkHome.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    delete process.env.OPENCODE_CONFIG_CONTENT
+    await Config.invalidate(true)
+
+    await Instance.provide({
+      directory: projectTmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const rules = yield* svc.system()
+              expect(rules).toContain(
+                `Instructions from: ${path.join(pawworkHome.path, "rules", "home-extra.md")}\n# PawWork Home Relative Instructions`,
+              )
+            }),
+          ),
+        ),
+    })
+  })
+
+  test("resolves relative instruction paths from PAWWORK_HOME over PAWWORK_CONFIG_DIR when project config is disabled", async () => {
+    await using pawworkHome = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "rules", "home-wins.md"), "# Home Wins")
+        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/home-wins.md"] }))
+      },
+    })
+    await using pawworkConfig = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "rules", "legacy-env.md"), "# Legacy Env")
+        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/legacy-env.md"] }))
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+    process.env.PAWWORK_HOME = pawworkHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_CONTENT
+    await Config.invalidate(true)
+
+    await Instance.provide({
+      directory: projectTmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const rules = yield* svc.system()
+              expect(rules).toContain(`Instructions from: ${path.join(pawworkHome.path, "rules", "home-wins.md")}\n# Home Wins`)
+              expect(rules.join("\n")).not.toContain("Legacy Env")
+            }),
+          ),
+        ),
+    })
+  })
+
+  test("resolves relative instruction paths from fallback PawWork config when primary has no config", async () => {
+    await using pawworkHome = await tmpdir()
+    await using pawworkConfig = await tmpdir()
+    await using projectTmp = await tmpdir()
+    await fs.mkdir(path.join(pawworkConfig.path, "rules"), { recursive: true })
+    await Bun.write(path.join(pawworkConfig.path, "rules", "fallback.md"), "# Fallback Config")
+    await Bun.write(path.join(pawworkConfig.path, "pawwork.json"), JSON.stringify({ instructions: ["rules/fallback.md"] }))
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+    process.env.PAWWORK_HOME = pawworkHome.path
+    process.env.PAWWORK_CONFIG_DIR = pawworkConfig.path
+    delete process.env.OPENCODE_CONFIG_CONTENT
+    await Config.invalidate(true)
+
+    await Instance.provide({
+      directory: projectTmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const rules = yield* svc.system()
+              expect(rules).toContain(
+                `Instructions from: ${path.join(pawworkConfig.path, "rules", "fallback.md")}\n# Fallback Config`,
+              )
+            }),
+          ),
+        ),
+    })
   })
 })

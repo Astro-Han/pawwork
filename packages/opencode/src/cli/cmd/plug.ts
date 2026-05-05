@@ -2,6 +2,7 @@ import { intro, log, outro, spinner } from "@clack/prompts"
 import type { Argv } from "yargs"
 
 import { ConfigPaths } from "../../config/paths"
+import { Config } from "../../config/config"
 import { Global } from "../../global"
 import { installPlugin, patchPluginConfig, readPluginManifest } from "../../plugin/install"
 import { resolvePluginTarget } from "../../plugin/shared"
@@ -11,6 +12,8 @@ import { Filesystem } from "../../util/filesystem"
 import { Process } from "../../util/process"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 type Spin = {
   start: (msg: string) => void
@@ -28,8 +31,9 @@ export type PlugDeps = {
   readText: (file: string) => Promise<string>
   write: (file: string, text: string) => Promise<void>
   exists: (file: string) => Promise<boolean>
-  files: (dir: string, name: "opencode") => string[]
-  global: string
+  files: (dir: string, name: "opencode" | "pawwork") => string[]
+  global: string | (() => string)
+  seedGlobalConfig?: () => Promise<void>
 }
 
 export type PlugInput = {
@@ -44,6 +48,14 @@ export type PlugCtx = {
   directory: string
 }
 
+export function defaultPluginGlobalConfigDir() {
+  return Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config
+}
+
+function globalConfigDir(dep: PlugDeps) {
+  return typeof dep.global === "function" ? dep.global() : dep.global
+}
+
 const defaultPlugDeps: PlugDeps = {
   spinner: () => spinner(),
   log: {
@@ -54,11 +66,12 @@ const defaultPlugDeps: PlugDeps = {
   resolve: (spec) => resolvePluginTarget(spec),
   readText: (file) => Filesystem.readText(file),
   write: async (file, text) => {
-    await Filesystem.write(file, text)
+    await Config.writeConfigTextAtomic(file, text)
   },
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
-  global: Global.Path.config,
+  global: defaultPluginGlobalConfigDir,
+  seedGlobalConfig: () => Config.seedGlobalConfig(),
 }
 
 function cause(err: unknown) {
@@ -129,6 +142,15 @@ export function createPlugTask(input: PlugInput, dep: PlugDeps = defaultPlugDeps
 
     const patch = dep.spinner()
     patch.start("Updating plugin config...")
+    if (global && Runtime.isPawWork()) {
+      try {
+        await dep.seedGlobalConfig?.()
+      } catch (err) {
+        patch.stop("Failed updating plugin config", 1)
+        dep.log.error(errorMessage(err))
+        return false
+      }
+    }
     const out = await patchPluginConfig(
       {
         spec: mod,
@@ -138,7 +160,7 @@ export function createPlugTask(input: PlugInput, dep: PlugDeps = defaultPlugDeps
         vcs: ctx.vcs,
         worktree: ctx.worktree,
         directory: ctx.directory,
-        config: dep.global,
+        config: globalConfigDir(dep),
       },
       dep,
     )

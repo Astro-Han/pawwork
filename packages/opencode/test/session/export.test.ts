@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import fs from "fs/promises"
 import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session as SessionNs } from "../../src/session"
@@ -7,6 +8,9 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { Log } from "@opencode-ai/core/util/log"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Export, getRuntimeNamespace, redactPart } from "../../src/session/export"
+import { Global } from "../../src/global"
+import { tmpdir } from "../fixture/fixture"
+import { Config } from "../../src/config"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -138,6 +142,380 @@ describe("Export.session", () => {
         }
       },
     })
+  })
+
+  test("resolves project instruction sources from the exported session directory", async () => {
+    await using sessionProject = await tmpdir({ git: true })
+    await using currentProject = await tmpdir({ git: true })
+    await fs.writeFile(path.join(sessionProject.path, "CLAUDE.md"), "session project instructions")
+    await fs.writeFile(path.join(currentProject.path, "AGENTS.md"), "current project instructions")
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: sessionProject.path,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "export source directory" })
+        sessionID = root.id
+      },
+    })
+
+    try {
+      await Instance.provide({
+        directory: currentProject.path,
+        fn: async () => {
+          const result = await AppRuntime.runPromise(Export.session(sessionID!))
+          const projectSources = result.runtime_context.instruction_sources.filter(
+            (source) => source.kind === "project",
+          )
+          expect(projectSources.map((source) => source.path)).toContain(path.join(sessionProject.path, "CLAUDE.md"))
+          expect(projectSources.map((source) => source.path)).not.toContain(path.join(currentProject.path, "AGENTS.md"))
+        },
+      })
+    } finally {
+      if (sessionID) await SessionNs.remove(sessionID)
+    }
+  })
+
+  test("does not fail export when the session instruction directory is gone", async () => {
+    await using sessionProject = await tmpdir({ git: true })
+    await using currentProject = await tmpdir({ git: true })
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: sessionProject.path,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "missing export source directory" })
+        sessionID = root.id
+      },
+    })
+
+    try {
+      await fs.rm(sessionProject.path, { recursive: true, force: true })
+      await Instance.provide({
+        directory: currentProject.path,
+        fn: async () => {
+          const result = await AppRuntime.runPromise(Export.session(sessionID!))
+          const projectSources = result.runtime_context.instruction_sources.filter(
+            (source) => source.kind === "project",
+          )
+          expect(projectSources).toContainEqual({
+            kind: "project",
+            path: sessionProject.path,
+            hash_unavailable: true,
+            reason: "session directory unavailable",
+          })
+          expect(result.runtime_context.instruction_sources.some((source) => source.kind === "bundled")).toBe(true)
+        },
+      })
+    } finally {
+      if (sessionID) await SessionNs.remove(sessionID)
+    }
+  })
+
+  test("keeps global config instruction provenance when session directory is gone", async () => {
+    await using sessionProject = await tmpdir({ git: true })
+    await using currentProject = await tmpdir({ git: true })
+    await using global = await tmpdir()
+    const previousConfig = Global.Path.config
+    const previousEnv = process.env.GLOBAL_EXPORT_RULE
+    ;(Global.Path as { config: string }).config = global.path
+    const globalRules = path.join(global.path, "rules", "global-rules.md")
+    const envRules = path.join(global.path, "env-rules.md")
+    const fileRules = path.join(global.path, "file-rules.md")
+    process.env.GLOBAL_EXPORT_RULE = envRules
+    await fs.mkdir(path.join(global.path, "rules"), { recursive: true })
+    await fs.writeFile(globalRules, "global config instructions")
+    await fs.writeFile(envRules, "env config instructions")
+    await fs.writeFile(fileRules, "file config instructions")
+    await fs.writeFile(path.join(global.path, "rule-path.txt"), fileRules)
+    await fs.writeFile(
+      path.join(global.path, "opencode.json"),
+      JSON.stringify({
+        instructions: [
+          "rules/*.md",
+          "{env:GLOBAL_EXPORT_RULE}",
+          "{file:rule-path.txt}",
+          "missing/*.md",
+          "https://example.invalid/global-rules.md",
+        ],
+      }),
+    )
+    await fs.writeFile(
+      path.join(currentProject.path, "opencode.json"),
+      JSON.stringify({
+        instructions: ["https://example.invalid/current-project.md"],
+      }),
+    )
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: sessionProject.path,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "missing global config provenance" })
+        sessionID = root.id
+      },
+    })
+
+    try {
+      await Config.invalidate(true)
+      await fs.rm(sessionProject.path, { recursive: true, force: true })
+      await Instance.provide({
+        directory: currentProject.path,
+        fn: async () => {
+          const result = await AppRuntime.runPromise(Export.session(sessionID!))
+          const sources = result.runtime_context.instruction_sources
+          const byPath = new Map(sources.filter((source) => source.path).map((source) => [source.path, source]))
+          expect(byPath.get(globalRules)?.reason).toContain("fallback relative path")
+          expect(byPath.get(globalRules)?.hash_unavailable).toBe(true)
+          expect(byPath.get(envRules)?.hash).toStartWith("sha256:")
+          expect(byPath.get(fileRules)?.hash).toStartWith("sha256:")
+          expect(sources.map((source) => source.path)).not.toContain(path.join(global.path, "missing", "*.md"))
+          expect(sources.map((source) => source.url)).toContain("https://example.invalid/global-rules.md")
+          expect(sources.map((source) => source.url)).not.toContain("https://example.invalid/current-project.md")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+      if (previousEnv === undefined) delete process.env.GLOBAL_EXPORT_RULE
+      else process.env.GLOBAL_EXPORT_RULE = previousEnv
+      await Config.invalidate(true)
+      if (sessionID) await SessionNs.remove(sessionID)
+    }
+  })
+
+  test("exports only the loaded PawWork global AGENTS.md source", async () => {
+    await using primary = await tmpdir()
+    await using legacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousHome = process.env.PAWWORK_HOME
+    const previousConfigDir = process.env.PAWWORK_CONFIG_DIR
+    const previousGlobalConfig = Global.Path.config
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.PAWWORK_HOME = primary.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = legacy.path
+
+    try {
+      await fs.writeFile(path.join(primary.path, "AGENTS.md"), "primary instructions")
+      await fs.writeFile(path.join(legacy.path, "AGENTS.md"), "legacy instructions")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const globalSources = result.runtime_context.instruction_sources.filter(
+              (source) => source.kind === "global",
+            )
+            expect(globalSources).toHaveLength(1)
+            expect(globalSources[0].path).toBe(path.join(primary.path, "AGENTS.md"))
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousHome === undefined) delete process.env.PAWWORK_HOME
+      else process.env.PAWWORK_HOME = previousHome
+      if (previousConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
+      else process.env.PAWWORK_CONFIG_DIR = previousConfigDir
+    }
+  })
+
+  test("does not export lower-priority PawWork global AGENTS.md when the first existing candidate is empty", async () => {
+    await using primary = await tmpdir()
+    await using legacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousHome = process.env.PAWWORK_HOME
+    const previousConfigDir = process.env.PAWWORK_CONFIG_DIR
+    const previousGlobalConfig = Global.Path.config
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.PAWWORK_HOME = primary.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = legacy.path
+
+    try {
+      await fs.writeFile(path.join(primary.path, "AGENTS.md"), "")
+      await fs.writeFile(path.join(legacy.path, "AGENTS.md"), "legacy instructions")
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "empty instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const globalSources = result.runtime_context.instruction_sources.filter(
+              (source) => source.kind === "global",
+            )
+            expect(globalSources).toHaveLength(0)
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousHome === undefined) delete process.env.PAWWORK_HOME
+      else process.env.PAWWORK_HOME = previousHome
+      if (previousConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
+      else process.env.PAWWORK_CONFIG_DIR = previousConfigDir
+    }
+  })
+
+  test("exports loaded project CLAUDE.md instruction source", async () => {
+    await using project = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        await fs.writeFile(path.join(dir, "CLAUDE.md"), "project claude instructions")
+      },
+    })
+    await using globalConfig = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousDisableClaude = process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    const previousGlobalConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+    ;(Global.Path as { config: string }).config = globalConfig.path
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "claude provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const projectSources = result.runtime_context.instruction_sources.filter(
+              (source) => source.kind === "project",
+            )
+            expect(projectSources.some((source) => source.path === path.join(project.path, "CLAUDE.md"))).toBe(true)
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousDisableClaude === undefined) delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT
+      else process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT = previousDisableClaude
+    }
+  })
+
+  test("exports loaded local and configured remote config.instructions sources", async () => {
+    await using project = await tmpdir({ git: true })
+    await using globalConfig = await tmpdir()
+    await using instructions = await tmpdir({
+      init: async (dir) => {
+        await fs.writeFile(path.join(dir, "extra.md"), "local config instructions")
+      },
+    })
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response("remote config instructions")
+      },
+    })
+    const previousConfig = process.env.OPENCODE_CONFIG_CONTENT
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousGlobalConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = globalConfig.path
+    const localFile = path.join(instructions.path, "extra.md")
+    const url = `${server.url}instructions.md`
+    process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+      instructions: [localFile, url],
+    })
+    await Config.invalidate(true)
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "config instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            expect(
+              result.runtime_context.instruction_sources.some(
+                (source) => source.kind === "config" && source.path === localFile,
+              ),
+            ).toBe(true)
+            const remote = result.runtime_context.instruction_sources.find(
+              (source) => source.kind === "remote" && source.url === url,
+            )
+            expect(remote?.hash_unavailable).toBe(true)
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      server.stop(true)
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
+      else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
+      await Config.invalidate(true)
+    }
+  })
+
+  test("exports configured remote config.instructions without fetching the URL", async () => {
+    await using project = await tmpdir({ git: true })
+    await using globalConfig = await tmpdir()
+    let requests = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        requests++
+        return new Response("remote config instructions")
+      },
+    })
+    const previousConfig = process.env.OPENCODE_CONFIG_CONTENT
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousGlobalConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = globalConfig.path
+    const url = `${server.url}instructions.md`
+    process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+      instructions: [url],
+    })
+    await Config.invalidate(true)
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "remote instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const source = result.runtime_context.instruction_sources.find(
+              (item) => item.kind === "remote" && item.url === url,
+            )
+            expect(source?.hash_unavailable).toBe(true)
+            expect(requests).toBe(0)
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      server.stop(true)
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
+      else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
+      await Config.invalidate(true)
+    }
   })
 
   test("collectModelRefs marks unknown providers as unresolved with a reason", async () => {
@@ -618,17 +996,13 @@ describe("redactPart", () => {
       session: {
         info: { id: SessionID.make("ses_x"), title: "t", directory: "/dir" } as never,
         had_cloud_share: false,
-        diffs: [
-          { file: "/Users/secret/code.ts", patch: "@@ -1 +1 @@\n-secret\n+leak", additions: 1, deletions: 1 },
-        ],
+        diffs: [{ file: "/Users/secret/code.ts", patch: "@@ -1 +1 @@\n-secret\n+leak", additions: 1, deletions: 1 }],
         messages: [],
         children: [
           {
             info: { id: SessionID.make("ses_y"), title: "child", directory: "/dir" } as never,
             had_cloud_share: false,
-            diffs: [
-              { file: "/Users/secret/child.ts", patch: "child secret", additions: 0, deletions: 0 },
-            ],
+            diffs: [{ file: "/Users/secret/child.ts", patch: "child secret", additions: 0, deletions: 0 }],
             messages: [],
             children: [],
           },

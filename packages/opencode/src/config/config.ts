@@ -2,18 +2,20 @@ import { Log } from "../util"
 import path from "path"
 import { pathToFileURL } from "url"
 import os from "os"
+import crypto from "crypto"
 import z from "zod"
 import { mergeDeep, pipe } from "remeda"
 import { Global } from "@opencode-ai/core/global"
 import fsNode from "fs/promises"
 import { NamedError } from "@opencode-ai/util/error"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
-import { migrateDefaultAgent } from "./migrate-default-agent"
+import { migrateDefaultAgent, stripDefaultAgent } from "./migrate-default-agent"
 import { Instance, type InstanceContext } from "../project/instance"
-import { constants, existsSync } from "fs"
+import { constants, existsSync, statSync } from "fs"
 import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
 import { Account } from "@/account"
@@ -67,6 +69,7 @@ function projectConfigNames() {
 }
 
 function projectConfigFilesForDirectory(dir: string) {
+  if (Runtime.isPawWork() && PawWorkHome.isCandidate(dir)) return []
   const base = path.basename(dir)
   if (base === ".pawwork") return Runtime.isPawWork() ? PAWWORK_PROJECT_CONFIG_FILES : []
   if (base === ".opencode" || dir === Flag.OPENCODE_CONFIG_DIR) {
@@ -77,6 +80,7 @@ function projectConfigFilesForDirectory(dir: string) {
 
 function shouldGenerateInDirectory(dir: string) {
   const base = path.basename(dir)
+  if (Runtime.isPawWork() && PawWorkHome.isCandidate(dir)) return PawWorkHome.isPrimary(dir)
   if (Runtime.isPawWork() && base === ".opencode") return false
   if (!Runtime.isPawWork() && base === ".pawwork") return false
   return true
@@ -140,7 +144,9 @@ export type Layout = ConfigLayout.Layout
 // exact zod directly, preserving component $refs.
 const AgentRef = Schema.Any.annotate({ [ZodOverride]: ConfigAgent.Info })
 const LogLevelRef = Schema.Any.annotate({ [ZodOverride]: Log.Level })
-const ServerRef = Schema.Any.annotate({ [ZodOverride]: ConfigServer.Server.zod }) as unknown as typeof ConfigServer.Server
+const ServerRef = Schema.Any.annotate({
+  [ZodOverride]: ConfigServer.Server.zod,
+}) as unknown as typeof ConfigServer.Server
 
 const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
 const NonNegativeInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
@@ -311,9 +317,9 @@ export const Info = Schema.Struct({
   .annotate({ identifier: "Config" })
   .pipe(
     withStatics((s) => ({
-      zod: (zod(s) as unknown as z.ZodObject<any>)
-        .strict()
-        .meta({ ref: "Config" }) as unknown as z.ZodType<DeepMutable<Schema.Schema.Type<typeof s>>>,
+      zod: (zod(s) as unknown as z.ZodObject<any>).strict().meta({ ref: "Config" }) as unknown as z.ZodType<
+        DeepMutable<Schema.Schema.Type<typeof s>>
+      >,
     })),
   )
 
@@ -364,25 +370,117 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/Config") {}
 
 function globalConfigFile() {
+  if (Runtime.isPawWork()) {
+    return PawWorkHome.configFileForWrite()
+  }
   const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
   for (const file of [...candidates].reverse()) {
-    if (existsSync(file)) return file
+    if (isRegularFileSync(file)) return file
   }
   return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
 }
 
+function isRegularFileSync(file: string) {
+  try {
+    return statSync(file).isFile()
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") return false
+    throw error
+  }
+}
+
+function legacyTomlMigrationTarget() {
+  const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
+  for (const file of [...candidates].reverse()) {
+    if (isRegularFileSync(file)) return file
+  }
+  return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
+}
+
+export function globalConfigFileForWrite() {
+  return globalConfigFile()
+}
+
+export function configFileLockKey(file: string) {
+  return `config-file:${Filesystem.resolve(file)}`
+}
+
+export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) {
+  await using _ = await Flock.acquire(configFileLockKey(file))
+  return await fn()
+}
+
+export async function writeConfigTextAtomic(file: string, text: string, options?: { mode?: number }) {
+  await fsNode.mkdir(path.dirname(file), { recursive: true })
+  const existingMode = await fsNode
+    .stat(file)
+    .then((stat) => stat.mode & 0o777)
+    .catch(() => undefined)
+  const mode = existingMode ?? options?.mode
+  const tmp = path.join(
+    path.dirname(file),
+    `.${path.basename(file)}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`,
+  )
+  try {
+    await fsNode.writeFile(tmp, text, mode === undefined ? undefined : { mode })
+    if (mode !== undefined) await fsNode.chmod(tmp, mode)
+    const tmpHandle = await fsNode.open(tmp, "r")
+    try {
+      await tmpHandle.sync()
+    } finally {
+      await tmpHandle.close()
+    }
+    await fsNode.rename(tmp, file)
+    const dirHandle = await fsNode.open(path.dirname(file), "r").catch(() => undefined)
+    if (dirHandle) {
+      try {
+        await dirHandle.sync()
+      } finally {
+        await dirHandle.close()
+      }
+    }
+  } catch (error) {
+    await fsNode.rm(tmp, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+function globalConfigFilesToLoad() {
+  if (!Runtime.isPawWork()) {
+    const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
+    return candidates.filter(isRegularFileSync)
+  }
+
+  return PawWorkHome.configFilesToLoad()
+}
+
+function globalConfigSource() {
+  return globalConfigFilesToLoad().at(-1)
+}
+
+export function globalConfigFileForRead() {
+  return globalConfigSource()
+}
+
 function projectConfigFile(dir: string) {
   // OpenCode still writes existing legacy `config.*` files, but new project config uses `opencode.json`.
-  // PawWork writes only PawWork project filenames; shared project loading above preserves read compatibility.
-  const candidates = (
-    Runtime.isPawWork()
-      ? ["pawwork.json", "pawwork.jsonc"]
-      : ["config.json", "config.jsonc", "opencode.json", "opencode.jsonc"]
-  ).map((file) => path.join(dir, file))
+  // PawWork reuses the highest-priority existing project config source before creating a root `pawwork.json`.
+  const candidates = Runtime.isPawWork()
+    ? [
+        ...PAWWORK_PROJECT_CONFIG_FILES.map((file) => path.join(dir, file)),
+        ...projectConfigFilesForDirectory(path.join(dir, ".opencode")).map((file) => path.join(dir, ".opencode", file)),
+        ...projectConfigFilesForDirectory(path.join(dir, ".pawwork")).map((file) => path.join(dir, ".pawwork", file)),
+      ]
+    : ["config.json", "config.jsonc", "opencode.json", "opencode.jsonc"].map((file) => path.join(dir, file))
   for (const file of [...candidates].reverse()) {
     if (existsSync(file)) return file
   }
   return path.join(dir, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
+}
+
+export function projectConfigFileForWrite(dir: string) {
+  return projectConfigFile(dir)
 }
 
 function patchJsonc(input: string, patch: unknown, path: string[] = []): string {
@@ -402,9 +500,183 @@ function patchJsonc(input: string, patch: unknown, path: string[] = []): string 
   }, input)
 }
 
+function missingConfigPatch(lowPriority: unknown, highPriority: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(lowPriority)) return
+  const out: Record<string, unknown> = {}
+  const high = isRecord(highPriority) ? highPriority : {}
+  for (const [key, lowValue] of Object.entries(lowPriority)) {
+    if (!(key in high)) {
+      out[key] = lowValue
+      continue
+    }
+    const nested = missingConfigPatch(lowValue, high[key])
+    if (nested && Object.keys(nested).length > 0) out[key] = nested
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function writable(info: Info) {
-  const { plugin_origins: _plugin_origins, ...next } = info
+  const { default_agent: _defaultAgent, plugin_origins: _plugin_origins, ...next } = info
   return next
+}
+
+function normalizeWritableConfig(data: unknown, source: string) {
+  const normalized = normalizeLoadedConfig(data, source)
+  const parsed = Info.zod.safeParse(normalized)
+  if (parsed.success) return writable(parsed.data)
+
+  if (!isRecord(normalized)) return writable(ConfigParse.schema(Info.zod, normalized, source))
+  const copy = { ...normalized }
+  for (const issue of parsed.error.issues) {
+    const hit = issue as { code?: string; keys?: unknown; path?: unknown[] }
+    if (hit.code !== "unrecognized_keys" || !Array.isArray(hit.keys)) continue
+    for (const key of hit.keys) {
+      if (typeof key === "string") deleteConfigKeyAtPath(copy, hit.path ?? [], key)
+    }
+  }
+
+  return writable(ConfigParse.schema(Info.zod, copy, source))
+}
+
+function deleteConfigKeyAtPath(root: Record<string, unknown>, parts: unknown[], key: string) {
+  let target: unknown = root
+  for (const part of parts) {
+    if (typeof part !== "string" && typeof part !== "number") return
+    if (Array.isArray(target)) {
+      if (typeof part !== "number") return
+      target = target[part]
+    } else if (isRecord(target)) target = target[part]
+    else return
+  }
+  if (Array.isArray(target)) {
+    const index = Number(key)
+    if (Number.isInteger(index)) target.splice(index, 1)
+    return
+  }
+  if (isRecord(target)) delete target[key]
+}
+
+function shouldMergeLegacyTomlIntoRuntime(globalFiles: string[]) {
+  if (!Runtime.isPawWork()) return true
+  if (globalFiles.length === 0) return true
+  const legacyDir = path.resolve(Global.Path.config)
+  return globalFiles.some((file) => path.resolve(path.dirname(file)) === legacyDir)
+}
+
+function isAbsoluteOrExternalPath(value: string) {
+  return (
+    path.isAbsolute(value) ||
+    /^[A-Za-z]:[\\/]/.test(value) ||
+    value.startsWith("~/") ||
+    value.startsWith("~\\") ||
+    /^[A-Za-z][A-Za-z\d+.-]*:/.test(value)
+  )
+}
+
+function resolveSeedPath(value: string, sourceFile: string) {
+  if (!value || isAbsoluteOrExternalPath(value)) return value
+  return path.resolve(path.dirname(sourceFile), value)
+}
+
+function hasConfigPlaceholder(value: string) {
+  return /\{[A-Za-z][A-Za-z\d_-]*:/.test(value)
+}
+
+function resolveSeedInstructionPath(value: string, sourceFile: string) {
+  const rewritten = rewriteFilePlaceholders(value, sourceFile)
+  if (hasConfigPlaceholder(rewritten) && rewritten.trimStart().startsWith("{")) return rewritten
+  return resolveSeedPath(rewritten, sourceFile)
+}
+
+function rewriteFilePlaceholders(value: string, sourceFile: string) {
+  return value.replace(/\{file:([^}]+)\}/g, (match, filePath: string) => {
+    const trimmed = filePath.trim()
+    if (!trimmed || isAbsoluteOrExternalPath(trimmed)) return match
+    return `{file:${path.resolve(path.dirname(sourceFile), trimmed)}}`
+  })
+}
+
+function rewriteFilePlaceholdersDeep(value: unknown, sourceFile: string): unknown {
+  if (typeof value === "string") return rewriteFilePlaceholders(value, sourceFile)
+  if (Array.isArray(value)) return value.map((item) => rewriteFilePlaceholdersDeep(item, sourceFile))
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([childKey, childValue]) => [
+        childKey,
+        rewriteFilePlaceholdersDeep(childValue, sourceFile),
+      ]),
+    )
+  }
+  return value
+}
+
+function rewriteSeedPluginSpec(value: unknown, sourceFile: string): unknown {
+  if (typeof value === "string") {
+    const rewritten = rewriteFilePlaceholders(value, sourceFile)
+    return rewritten.startsWith(".") ? resolveSeedPath(rewritten, sourceFile) : rewritten
+  }
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    const rewritten = rewriteFilePlaceholders(value[0], sourceFile)
+    return [
+      rewritten.startsWith(".") ? resolveSeedPath(rewritten, sourceFile) : rewritten,
+      ...value.slice(1).map((item) => rewriteFilePlaceholdersDeep(item, sourceFile)),
+    ]
+  }
+  return rewriteFilePlaceholdersDeep(value, sourceFile)
+}
+
+function rewriteSeedConfig(value: Record<string, unknown>, sourceFile: string): Record<string, unknown> {
+  const next = rewriteFilePlaceholdersDeep(value, sourceFile) as Record<string, unknown>
+  if (Array.isArray(value.instructions)) {
+    next.instructions = value.instructions.map((item) =>
+      typeof item === "string"
+        ? resolveSeedInstructionPath(item, sourceFile)
+        : rewriteFilePlaceholdersDeep(item, sourceFile),
+    )
+  }
+  if (Array.isArray(value.plugin)) {
+    next.plugin = value.plugin.map((item) => rewriteSeedPluginSpec(item, sourceFile))
+  }
+  return next
+}
+
+function seedConfigValueFromSource(text: string, sourceFile: string) {
+  const stripped = stripDefaultAgent(text).text
+  const parsed = ConfigParse.jsonc(stripped, sourceFile)
+  if (!isRecord(parsed)) return stripped
+  return rewriteSeedConfig(normalizeWritableConfig(parsed, sourceFile), sourceFile)
+}
+
+function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
+  const merged = sources.reduce<unknown>((result, source) => {
+    const next = seedConfigValueFromSource(source.text, source.path)
+    if (!isRecord(result) || !isRecord(next)) return next
+    return mergeDeep(result, next)
+  }, {})
+  if (!isRecord(merged)) return "{}"
+  return JSON.stringify(merged, null, 2)
+}
+
+async function writeLegacyTomlMigration(target: string, legacyConfig: Info, options?: { mergeExisting?: boolean }) {
+  await withConfigFileLock(target, async () => {
+    const existingText = await fsNode.readFile(target, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (existingText !== undefined) {
+      if (!options?.mergeExisting) return
+      const existing = ConfigParse.jsonc(existingText, target)
+      if (!isRecord(existing)) return
+      const patch = missingConfigPatch(legacyConfig, existing)
+      if (!patch) return
+      const updated = target.endsWith(".jsonc")
+        ? patchJsonc(existingText, patch)
+        : JSON.stringify(mergeDeep(legacyConfig, existing), null, 2)
+      await writeConfigTextAtomic(target, updated)
+      return
+    }
+    await writeConfigTextAtomic(target, JSON.stringify(legacyConfig, null, 2))
+  })
 }
 
 export const ConfigDirectoryTypoError = NamedError.create(
@@ -436,7 +708,7 @@ const rawLayer = Layer.effect(
 
     const loadConfig = Effect.fnUntraced(function* (
       text: string,
-      options: { path: string } | { dir: string; source: string },
+      options: ({ path: string } | { dir: string; source: string }) & { allowWrite?: boolean },
     ) {
       const source = "path" in options ? options.path : options.source
       const expanded = yield* Effect.promise(() =>
@@ -450,56 +722,76 @@ const rawLayer = Layer.effect(
       if (pluginContextPath) {
         yield* Effect.promise(() => resolveLoadedPlugins(data, pluginContextPath))
       }
-      if (!("path" in options)) return data
+      if (!("path" in options) || options.allowWrite === false) return data
 
       if (!data.$schema) {
         data.$schema = "https://opencode.ai/config.json"
         const updated = text.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
-        yield* fs.writeFileString(options.path, updated).pipe(Effect.catch(() => Effect.void))
+        yield* Effect.promise(() =>
+          withConfigFileLock(options.path, () => writeConfigTextAtomic(options.path, updated)),
+        ).pipe(Effect.catch(() => Effect.void))
       }
       return data
     })
 
-    const loadFile = Effect.fnUntraced(function* (filepath: string) {
+    const loadFile = Effect.fnUntraced(function* (filepath: string, options?: { allowWrite?: boolean }) {
       log.info("loading", { path: filepath })
       const text = yield* readConfigFile(filepath)
       if (!text) return {} as Info
-      return yield* loadConfig(text, { path: filepath })
+      return yield* loadConfig(text, { path: filepath, allowWrite: options?.allowWrite })
     })
 
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
-      for (const file of globalConfigFiles()) {
-        const filepath = path.join(Global.Path.config, file)
+      const globalFiles = globalConfigFilesToLoad()
+      for (const filepath of globalFiles) {
+        const dir = path.dirname(filepath)
+        const allowWrite = !Runtime.isPawWork() || PawWorkHome.isPrimary(dir)
         // Strip deprecated default_agent before parsing (issue #239).
         // When sanitizedText is present we use it directly to avoid a redundant
         // disk read AND to ensure runtime never sees a stale value even if the
         // on-disk rewrite failed.
-        const migrated = yield* Effect.promise(() => migrateDefaultAgent(filepath))
-        if (migrated.sanitizedText !== undefined) {
-          result = pipe(result, mergeDeep(yield* loadConfig(migrated.sanitizedText, { path: filepath })))
-        } else {
-          result = pipe(result, mergeDeep(yield* loadFile(filepath)))
-        }
+        const migrated = allowWrite ? yield* Effect.promise(() => migrateDefaultAgent(filepath)) : undefined
+        const text = migrated?.sanitizedText ?? (yield* readConfigFile(filepath))
+        if (!text) continue
+        const sanitizedText = allowWrite ? text : stripDefaultAgent(text).text
+        result = pipe(result, mergeDeep(yield* loadConfig(sanitizedText, { path: filepath, allowWrite })))
       }
 
       const legacy = path.join(Global.Path.config, "config")
       if (existsSync(legacy)) {
-        yield* Effect.promise(() =>
-          import(pathToFileURL(legacy).href, { with: { type: "toml" } })
-            .then(async (mod) => {
-              const { provider, model, ...rest } = mod.default
-              if (provider && model) result.model = `${provider}/${model}`
-              result["$schema"] = "https://opencode.ai/config.json"
-              result = mergeDeep(result, rest)
-              await fsNode.writeFile(
-                path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json"),
-                JSON.stringify(result, null, 2),
-              )
-              await fsNode.unlink(legacy)
+        yield* Effect.promise(async () => {
+          let target = ""
+          let action = "load"
+          let unlinked = false
+          try {
+            const mod = await import(pathToFileURL(legacy).href, { with: { type: "toml" } })
+            action = "normalize"
+            const { provider, model, ...rest } = mod.default
+            const migrated: Info = { $schema: "https://opencode.ai/config.json" }
+            if (provider && model) migrated.model = `${provider}/${model}`
+            const legacyConfig = normalizeWritableConfig(mergeDeep(migrated, rest), legacy)
+            if (shouldMergeLegacyTomlIntoRuntime(globalFiles)) {
+              result = mergeDeep(legacyConfig, result)
+            }
+            target = legacyTomlMigrationTarget()
+            action = isRegularFileSync(target) ? "merge" : "create"
+            await writeLegacyTomlMigration(target, legacyConfig, {
+              mergeExisting: true,
             })
-            .catch(() => {}),
-        )
+            action = "unlink"
+            await fsNode.unlink(legacy)
+            unlinked = true
+          } catch (error) {
+            log.warn("legacy TOML config migration failed", {
+              path: legacy,
+              target: target || "unavailable",
+              action,
+              unlinked,
+              error: String(error),
+            })
+          }
+        })
       }
 
       return result
@@ -601,7 +893,11 @@ const rawLayer = Layer.effect(
         }
 
         const global = yield* getGlobal()
-        yield* merge(Global.Path.config, global, "global")
+        yield* merge(
+          globalConfigSource() ?? (Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config),
+          global,
+          "global",
+        )
 
         if (Flag.OPENCODE_CONFIG) {
           yield* merge(Flag.OPENCODE_CONFIG, yield* loadFile(Flag.OPENCODE_CONFIG))
@@ -633,9 +929,7 @@ const rawLayer = Layer.effect(
 
         for (const dir of directories) {
           const configFiles =
-            Runtime.isPawWork() && pawworkConfigDir && dir === pawworkConfigDir
-              ? globalConfigFiles()
-              : projectConfigFilesForDirectory(dir)
+            Runtime.isPawWork() && PawWorkHome.isCandidate(dir) ? [] : projectConfigFilesForDirectory(dir)
 
           if (configFiles.length > 0) {
             for (const file of configFiles) {
@@ -856,19 +1150,53 @@ const rawLayer = Layer.effect(
     })
 
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
+      if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
       const file = globalConfigFile()
-      const before = (yield* readConfigFile(file)) ?? "{}"
-
+      const lock = yield* Effect.promise(() => Flock.acquire(configFileLockKey(file)))
       let next: Info
-      if (!file.endsWith(".jsonc")) {
-        const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
-        const merged = mergeDeep(writable(existing), writable(config))
-        yield* fs.writeFileString(file, JSON.stringify(merged, null, 2)).pipe(Effect.orDie)
-        next = merged
-      } else {
-        const updated = patchJsonc(before, writable(config))
-        next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
-        yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+      try {
+        if (!Runtime.isPawWork()) yield* Effect.promise(() => fsNode.mkdir(path.dirname(file), { recursive: true }))
+        const existingText = yield* readConfigFile(file)
+        const seedFiles = existingText === undefined ? globalConfigFilesToLoad() : []
+        const seedSource = seedFiles.at(-1)
+        const seed =
+          existingText === undefined && seedFiles.length > 0
+            ? {
+                text: seedConfigTextFromSources(
+                  yield* Effect.all(
+                    seedFiles.map((source) =>
+                      readConfigFile(source).pipe(Effect.map((text) => ({ path: source, text: text ?? "{}" }))),
+                    ),
+                  ),
+                ),
+                mode: yield* Effect.promise(() =>
+                  seedSource
+                    ? fsNode
+                        .stat(seedSource)
+                        .then((stat) => stat.mode & 0o777)
+                        .catch(() => undefined)
+                    : Promise.resolve(undefined),
+                ),
+              }
+            : undefined
+        const before = existingText ?? seed?.text ?? "{}"
+        const writeOptions =
+          existingText === undefined && Runtime.isPawWork() ? { mode: seed?.mode ?? 0o600 } : undefined
+
+        if (!file.endsWith(".jsonc")) {
+          const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
+          const merged = mergeDeep(writable(existing), writable(config))
+          yield* Effect.promise(() => writeConfigTextAtomic(file, JSON.stringify(merged, null, 2), writeOptions)).pipe(
+            Effect.orDie,
+          )
+          next = merged
+        } else {
+          const updated = patchJsonc(before, writable(config))
+          next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
+          yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
+        }
+      } finally {
+        yield* Effect.promise(() => lock.release())
       }
 
       yield* invalidate()
@@ -919,6 +1247,10 @@ export async function updateGlobal(config: Info) {
   return runPromise((svc) => svc.updateGlobal(config))
 }
 
+export async function seedGlobalConfig() {
+  await updateGlobal({})
+}
+
 export async function invalidate(wait = false) {
   return runPromise((svc) => svc.invalidate(wait))
 }
@@ -963,7 +1295,10 @@ export async function installDependencies(dir: string) {
     await Filesystem.writeJson(pkg, json)
   }
   if (!ignore) {
-    await Filesystem.write(gitignore, ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"))
+    await Filesystem.write(
+      gitignore,
+      ["node_modules", "package.json", "package-lock.json", "bun.lock", ".gitignore"].join("\n"),
+    )
   }
   if (hasDep && ignore && installed.every(Boolean)) return true
   try {
@@ -986,6 +1321,13 @@ const ConfigGetGlobal = getGlobal
 const ConfigGetConsoleState = getConsoleState
 const ConfigUpdate = update
 const ConfigUpdateGlobal = updateGlobal
+const ConfigSeedGlobalConfig = seedGlobalConfig
+const ConfigGlobalConfigFileForRead = globalConfigFileForRead
+const ConfigGlobalConfigFileForWrite = globalConfigFileForWrite
+const ConfigConfigFileLockKey = configFileLockKey
+const ConfigWithConfigFileLock = withConfigFileLock
+const ConfigWriteConfigTextAtomic = writeConfigTextAtomic
+const ConfigProjectConfigFileForWrite = projectConfigFileForWrite
 const ConfigInvalidate = invalidate
 const ConfigDirectories = directories
 const ConfigWaitForDependencies = waitForDependencies
@@ -1028,6 +1370,13 @@ export namespace Config {
   export const getConsoleState = ConfigGetConsoleState
   export const update = ConfigUpdate
   export const updateGlobal = ConfigUpdateGlobal
+  export const seedGlobalConfig = ConfigSeedGlobalConfig
+  export const globalConfigFileForRead = ConfigGlobalConfigFileForRead
+  export const globalConfigFileForWrite = ConfigGlobalConfigFileForWrite
+  export const configFileLockKey = ConfigConfigFileLockKey
+  export const withConfigFileLock = ConfigWithConfigFileLock
+  export const writeConfigTextAtomic = ConfigWriteConfigTextAtomic
+  export const projectConfigFileForWrite = ConfigProjectConfigFileForWrite
   export const invalidate = ConfigInvalidate
   export const directories = ConfigDirectories
   export const waitForDependencies = ConfigWaitForDependencies
