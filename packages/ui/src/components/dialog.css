@@ -4,7 +4,7 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  background-color: light-dark(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.7));
+  background-color: var(--scrim-overlay);
 }
 
 [data-component="dialog"] {
@@ -47,7 +47,7 @@
 
       /* padding: 8px; */
       /* padding: 8px 8px 0 8px; */
-      border-radius: 14px;
+      border-radius: var(--radius-lg);
       background: var(--surface-raised);
       background-clip: padding-box;
       box-shadow: var(--shadow-modal);
@@ -103,13 +103,22 @@
         flex-direction: column;
         flex: 1;
         overflow: hidden;
-
-        &:focus-visible {
-          outline: none;
-        }
       }
+
+      [data-slot="dialog-footer"] {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 20px;
+        flex-shrink: 0;
+        align-self: stretch;
+        border-top: 1px solid var(--border-base);
+      }
+
       &:focus-visible {
         outline: none;
+        box-shadow: var(--shadow-xs-border-focus);
       }
     }
   }

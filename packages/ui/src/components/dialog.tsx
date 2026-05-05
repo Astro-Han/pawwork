@@ -7,6 +7,7 @@ export interface DialogProps extends ParentProps {
   title?: JSXElement
   description?: JSXElement
   action?: JSXElement
+  footer?: JSXElement
   size?: "normal" | "large" | "x-large"
   class?: ComponentProps<"div">["class"]
   classList?: ComponentProps<"div">["classList"]
@@ -65,6 +66,9 @@ export function Dialog(props: DialogProps) {
             </Kobalte.Description>
           </Show>
           <div data-slot="dialog-body">{props.children}</div>
+          <Show when={props.footer}>
+            <div data-slot="dialog-footer">{props.footer}</div>
+          </Show>
         </Kobalte.Content>
       </div>
     </div>
