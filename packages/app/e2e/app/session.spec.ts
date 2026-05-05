@@ -78,7 +78,7 @@ test("session timeline visible content is not narrower than composer shell", asy
   await expect(messageContent).toBeVisible()
   await expect(composerShell).toBeVisible()
 
-  const assertWidthContract = async (input?: { maxComposerColumn?: number }) => {
+  const assertWidthContract = async (input?: { maxComposerColumn?: number; minTimelineComposerDelta?: number }) => {
     const timelineBox = await timeline.boundingBox()
     const composerColumnBox = await composerColumn.boundingBox()
     const messageBox = await messageContent.boundingBox()
@@ -94,10 +94,13 @@ test("session timeline visible content is not narrower than composer shell", asy
     if (input?.maxComposerColumn !== undefined) {
       expect(composerColumnBox!.width).toBeLessThanOrEqual(input.maxComposerColumn)
     }
+    if (input?.minTimelineComposerDelta !== undefined) {
+      expect(timelineBox!.width - composerColumnBox!.width).toBeGreaterThanOrEqual(input.minTimelineComposerDelta)
+    }
   }
 
   await assertWidthContract()
 
   await page.setViewportSize({ width: 1600, height: 1000 })
-  await assertWidthContract({ maxComposerColumn: 920 })
+  await assertWidthContract({ maxComposerColumn: 920, minTimelineComposerDelta: 80 })
 })
