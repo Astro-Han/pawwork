@@ -181,14 +181,14 @@ export const WithFooter = {
           title="Confirm action"
           description="This action cannot be undone."
           footer={
-            <div style={{ display: "flex", gap: "8px" }}>
+            <>
               <Button variant="ghost" onClick={() => dialog.close()}>
                 Cancel
               </Button>
               <Button variant="primary" onClick={() => dialog.close()}>
                 Confirm
               </Button>
-            </div>
+            </>
           }
         >
           Are you sure you want to proceed?
@@ -230,14 +230,14 @@ export const DialogStateMatrix = {
                 title="With Footer"
                 description="Cancel + Confirm buttons in footer"
                 footer={
-                  <div style={{ display: "flex", gap: "8px" }}>
+                  <>
                     <Button variant="ghost" onClick={() => dialog.close()}>
                       Cancel
                     </Button>
                     <Button variant="primary" onClick={() => dialog.close()}>
                       Confirm
                     </Button>
-                  </div>
+                  </>
                 }
               >
                 Dialog body with footer buttons below.
