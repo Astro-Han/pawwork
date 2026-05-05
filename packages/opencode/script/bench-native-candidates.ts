@@ -112,7 +112,7 @@ const gitConfig = [
   "core.quotepath=false",
 ] as const
 
-const rgFilesArgs = ["--no-config", "--files", "--hidden", "-0", "--glob=!.git/*", "."] as const
+const rgFilesArgs = ["--no-config", "--files", "--hidden", "--glob=!.git/*", "."] as const
 
 const scenarioQueries = ["session", "worktree", "git", "index", "config"] as const
 
@@ -121,7 +121,7 @@ const usage = `Usage:
 
 Options:
   --cwd <path>           Required repo or workspace path to benchmark
-  --label <name>         Output repo label, defaults to basename(cwd)
+  --label <name>         Output repo label, defaults to redacted
   --iterations <n>       Measured repeat runs, defaults to 7
   --warmups <n>          Warmup runs before repeat measurements, defaults to 2
   --show-path            Print the full cwd path instead of redacting it
@@ -139,27 +139,29 @@ function parseArgs(argv: string[]): BenchConfig {
 
   while (args.length > 0) {
     const arg = args.shift()!
-    switch (arg) {
+    const [flag, inlineValue] = arg.includes("=") ? arg.split(/=(.*)/s, 2) : [arg, undefined]
+    switch (flag) {
       case "--help":
         console.log(usage)
         process.exit(0)
       case "--cwd":
-        config.cwd = requiredValue(arg, args)
+        config.cwd = inlineValue ?? requiredValue(flag, args)
         break
       case "--label":
-        config.label = requiredValue(arg, args)
+        config.label = inlineValue ?? requiredValue(flag, args)
         break
       case "--iterations":
-        config.iterations = parsePositiveInteger(arg, requiredValue(arg, args))
+        config.iterations = parsePositiveInteger(flag, inlineValue ?? requiredValue(flag, args))
         break
       case "--warmups":
-        config.warmups = parseNonNegativeInteger(arg, requiredValue(arg, args))
+        config.warmups = parseNonNegativeInteger(flag, inlineValue ?? requiredValue(flag, args))
         break
       case "--show-path":
+        if (inlineValue !== undefined) throw new Error(`${flag} does not accept a value`)
         config.showPath = true
         break
       case "--scenario":
-        config.scenario = requiredValue(arg, args)
+        config.scenario = inlineValue ?? requiredValue(flag, args)
         break
       default:
         throw new Error(`Unknown argument: ${arg}`)
@@ -170,7 +172,7 @@ function parseArgs(argv: string[]): BenchConfig {
   const cwd = path.resolve(config.cwd)
   return {
     cwd,
-    label: config.label ?? path.basename(cwd),
+    label: config.label ?? "redacted",
     iterations: config.iterations ?? 7,
     warmups: config.warmups ?? 2,
     showPath: config.showPath ?? false,
@@ -180,7 +182,7 @@ function parseArgs(argv: string[]): BenchConfig {
 
 function requiredValue(flag: string, args: string[]) {
   const value = args.shift()
-  if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`)
+  if (!value) throw new Error(`${flag} requires a value`)
   return value
 }
 
@@ -266,7 +268,7 @@ async function runRgFiles(cwd: string) {
   }
   return {
     ...result,
-    files: splitNul(result.stdout.toString()),
+    files: splitLines(result.stdout.toString()).map(cleanRipgrepPath),
   }
 }
 
@@ -276,6 +278,10 @@ function splitLines(text: string) {
 
 function splitNul(text: string) {
   return text.split("\0").filter(Boolean)
+}
+
+function cleanRipgrepPath(file: string) {
+  return path.normalize(file.replace(/^\.[\\/]/, ""))
 }
 
 function dirListFromFiles(files: string[]) {
@@ -565,7 +571,7 @@ function buildScenarios(config: BenchConfig, fileSummary: FileSummary): Scenario
           resultCount: result.files.length,
           outputBytes: result.stdout.length,
           notes:
-            "CLI floor; system PATH rg; production Ripgrep.Service may add managed binary/env/stream cleanup overhead; benchmark helper timeout/kill is not a Windows process-semantics check",
+            "CLI floor; system PATH rg with production-style files args/path cleanup; production Ripgrep.Service may add managed binary/env/stream cleanup overhead; benchmark helper timeout/kill is not a Windows process-semantics check",
         }
       },
     },
@@ -591,7 +597,7 @@ function buildScenarios(config: BenchConfig, fileSummary: FileSummary): Scenario
           spawnCount: 0,
           resultCount: next.dirs.length,
           outputBytes: 0,
-          notes: "approximation; uses rg file list captured before scenario timing",
+          notes: "approximation; uses production-style cleaned rg file list captured before scenario timing",
         }
       },
     },
@@ -610,7 +616,7 @@ function buildScenarios(config: BenchConfig, fileSummary: FileSummary): Scenario
           spawnCount: 0,
           resultCount,
           outputBytes: 0,
-          notes: "approximation; fixed queries over captured file and dir list",
+          notes: "approximation; fixed queries over captured production-style cleaned file and dir list",
         }
       },
     },
@@ -766,11 +772,11 @@ function formatMarkdown(env: Environment, results: BenchResult[]) {
     `- Dirs: ${escapeMarkdownInline(env.dirs)}`,
     `- Git status: ${escapeMarkdownInline(env.gitStatus)}`,
     `- Command timeout: ${commandTimeoutMs}ms`,
-    "- Setup note: file/repo summary collection runs before scenario timing, so first measured values are not cold-start measurements.",
+    "- Setup note: file/repo summary collection runs before scenario timing, so this is a warm-only baseline, not a cold-start measurement.",
     `- Percentile note: p50/p95 use nearest-rank over repeat runs; with low iteration counts p95 may equal the slowest run.`,
     "- Label note: choose a non-sensitive --label value because it is printed in pasteable output.",
     "",
-    "| Scenario | Layer | First measured | Repeat p50 | Repeat p95 | Spawn count | Result count | Output bytes | Notes |",
+    "| Scenario | Layer | First after setup | Repeat p50 | Repeat p95 | Spawn count | Result count | Output bytes | Notes |",
     "|---|---|---:|---:|---:|---:|---:|---:|---|",
   ]
 
