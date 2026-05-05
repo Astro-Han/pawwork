@@ -522,15 +522,17 @@ body {
 }
 
 /* ────────── Reduced-motion global kill-switch · STANDARDS L22 ────────── */
-/* Matches prefers-reduced-motion: reduce. Per spec: animations → 0.001ms,
- * transitions → 80ms cap, scroll-behavior → auto. */
+/* Matches prefers-reduced-motion: reduce. Both animation and transition are
+ * set to 0.001ms (effectively instant) so that components with explicit
+ * transition-duration: 0ms rules are not raised to a higher value by this
+ * blanket override. scroll-behavior is forced to auto. */
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
   ::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 80ms !important;
+    transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
 }

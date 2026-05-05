@@ -57,10 +57,12 @@
   to   { transform: rotate(360deg); }
 }
 
-/* Running-state bottom separator rail: a highlight element sweeps left → right */
+/* Running-state bottom separator rail: highlight starts off-screen left and exits off-screen
+ * right. translateX is relative to the element's own width; 500% ensures clean exit for
+ * elements up to ~container-width (consuming component sets actual width). */
 @keyframes pw-rail {
   from { transform: translateX(-100%); }
-  to   { transform: translateX(400%); }
+  to   { transform: translateX(500%); }
 }
 
 /* Tool-name shimmer when trow is running: gradient sweep across text via background-position */
