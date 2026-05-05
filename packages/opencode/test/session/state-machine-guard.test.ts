@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { testEffect } from "../lib/effect"
 import type { Session } from "../../src/session"
 import { MessageID, type SessionID } from "../../src/session/schema"
@@ -12,14 +12,16 @@ const historicalMessageID = MessageID.ascending()
 const it = testEffect(Layer.empty)
 
 function sessionsWithMessages(messages: Array<{ id: string; parts: unknown[] }>): Session.Service["Service"] {
+  const items = messages.map((message) => ({
+    info: { id: message.id },
+    parts: message.parts,
+  }))
   return {
-    messages: () =>
-      Effect.succeed(
-        messages.map((message) => ({
-          info: { id: message.id },
-          parts: message.parts,
-        })),
-      ),
+    messages: () => Effect.succeed(items),
+    findMessage: (_sessionID: SessionID, predicate: (msg: (typeof items)[number]) => boolean) => {
+      const match = items.find(predicate)
+      return Effect.succeed(match ? Option.some(match) : Option.none())
+    },
   } as unknown as Session.Service["Service"]
 }
 

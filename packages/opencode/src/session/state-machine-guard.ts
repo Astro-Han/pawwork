@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import * as Session from "./session"
 import * as SubagentRun from "./subagent-run"
 import type { MessageID, SessionID } from "./schema"
@@ -16,15 +16,13 @@ export const hasInFlightToolCallsExcept = (
   exceptCallID: string,
 ) =>
   Effect.gen(function* () {
-    const messages = yield* sessions.messages({ sessionID })
-    for (const m of messages) {
-      if (m.info.id !== messageID) continue
-      for (const part of m.parts) {
-        if (part.type !== "tool") continue
-        if (part.messageID !== messageID) continue
-        if (part.callID === exceptCallID) continue
-        if (part.state.status === "running" || part.state.status === "pending") return true
-      }
+    const message = yield* sessions.findMessage(sessionID, (m) => m.info.id === messageID)
+    if (Option.isNone(message)) return false
+    for (const part of message.value.parts) {
+      if (part.type !== "tool") continue
+      if (part.messageID !== messageID) continue
+      if (part.callID === exceptCallID) continue
+      if (part.state.status === "running" || part.state.status === "pending") return true
     }
     return false
   })
