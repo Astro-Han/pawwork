@@ -62,6 +62,7 @@ describe("bootstrapDirectory", () => {
     queryClient.setQueryData(loadSessionsQuery(directory).queryKey, null)
 
     const [store, setStore] = createStore(createState())
+    setStore("session_status", "ses_stale", { type: "idle" })
     const providers = [
       {
         all: [{ id: "dir-provider-a", name: "Dir Provider A", source: "custom", env: [], options: {}, models: {} }],
@@ -117,6 +118,7 @@ describe("bootstrapDirectory", () => {
       queryClient,
     })
 
+    expect(store.session_status).toEqual({})
     await waitFor(() => providerCalls === 1)
 
     expect(store.provider_ready).toBe(true)

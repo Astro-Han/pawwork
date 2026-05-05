@@ -119,9 +119,12 @@ export default function Page() {
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
       ? sdk.client.session.abort({ sessionID })
       : Promise.resolve()
-  const haltWithClient = (client: typeof sdk.client, sessionID: string) =>
-    isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
-      ? client.session.abort({ sessionID })
+  const haltWithSnapshot = (
+    snapshot: ReturnType<typeof sync.retainDirectory> & { client: typeof sdk.client },
+    sessionID: string,
+  ) =>
+    isSessionRunning(snapshot.store.session_status[sessionID], snapshot.store.message[sessionID])
+      ? snapshot.client.session.abort({ sessionID })
       : Promise.resolve()
   // sessionRevert chains halt with .then(), so its existing outer .catch
   // already handles abort failures. The auto-heal clock wants to see the
@@ -490,15 +493,17 @@ export default function Page() {
     sync,
     snapshot: () => {
       const directory = sdk.directory
+      const handle = sync.retainDirectory(directory)
       return {
         client: sdk.createClient({ directory, throwOnError: true }),
-        store: sync.storeFor(directory),
-        setStore: sync.setFor(directory),
+        store: handle.store,
+        setStore: handle.setStore,
+        release: handle.release,
         directory,
       }
     },
     actionReady,
-    halt: haltWithClient,
+    halt: haltWithSnapshot,
     draft: draftFrom,
     fail,
     merge,

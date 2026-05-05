@@ -5,6 +5,7 @@ import {
   currentSessionCacheReady,
   readTimelineMessages,
   readTimelineMessagesFromCache,
+  sessionStatusKnown,
   timelineModelSyncKey,
 } from "./use-session-timeline-data"
 
@@ -225,6 +226,27 @@ describe("currentSessionActionReady", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: true,
+      }),
+    ).toBe(true)
+  })
+})
+
+describe("sessionStatusKnown", () => {
+  test("does not trust stale idle status while the status list is refreshing", () => {
+    expect(sessionStatusKnown({ statusReady: false, status: { type: "idle" } })).toBe(false)
+  })
+
+  test("trusts active statuses before the status list finishes refreshing", () => {
+    expect(sessionStatusKnown({ statusReady: false, status: { type: "busy" } })).toBe(true)
+    expect(
+      sessionStatusKnown({
+        statusReady: false,
+        status: {
+          type: "retry",
+          attempt: 1,
+          message: "retrying",
+          next: Date.now(),
+        },
       }),
     ).toBe(true)
   })

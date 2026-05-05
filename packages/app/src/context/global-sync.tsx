@@ -415,6 +415,27 @@ function createGlobalSync() {
     },
   }
 
+  const retainDirectory = (directory: string) => {
+    children.pin(directory)
+    let released = false
+    try {
+      const [store, setStore] = children.peek(directory, { bootstrap: false })
+      return {
+        directory,
+        store,
+        setStore,
+        release() {
+          if (released) return
+          released = true
+          children.unpin(directory)
+        },
+      }
+    } catch (err) {
+      children.unpin(directory)
+      throw err
+    }
+  }
+
   const updateConfig = async (config: Config) => {
     setGlobalStore("reload", "pending")
     return globalSDK.client.global.config
@@ -442,6 +463,7 @@ function createGlobalSync() {
     },
     child: children.child,
     peek: children.peek,
+    retainDirectory,
     bootstrap,
     updateConfig,
     project: projectApi,

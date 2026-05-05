@@ -223,6 +223,7 @@ export async function bootstrapDirectory(input: {
   input.setStore("lsp_ready", false)
   input.setStore("lsp", [])
   input.setStore("session_status_ready", false)
+  input.setStore("session_status", reconcile({}))
   if (loading) input.setStore("status", "partial")
 
   const fast = [() => Promise.resolve(input.loadSessions(input.directory))]

@@ -199,6 +199,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       if (!directory || directory === sdk.directory) return current()
       return globalSync.child(directory)
     }
+    const retainTarget = (directory?: string) => {
+      const targetDirectory = directory || sdk.directory
+      return globalSync.retainDirectory(targetDirectory)
+    }
     const absolute = (path: string) => (current()[0].path.directory + "/" + path).replace("//", "/")
     const initialMessagePageSize = 80
     const historyMessagePageSize = 200
@@ -399,6 +403,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       },
       storeFor(directory?: string): Child[0] {
         return target(directory)[0]
+      },
+      retainDirectory(directory?: string) {
+        return retainTarget(directory)
       },
       get status() {
         return current()[0].status
