@@ -16,11 +16,11 @@
   }
 
   &[data-closed] {
-    animation: popover-close 0.12s ease-out;
+    animation: popover-close var(--duration-base) ease-out;
   }
 
   &[data-expanded] {
-    animation: popover-open 0.12s ease-out;
+    animation: popover-open var(--duration-base) ease-out;
   }
 
   [data-slot="popover-header"] {
@@ -79,7 +79,7 @@
     &:focus-visible {
       outline: none;
       border-radius: 2px;
-      box-shadow: 0 0 0 1px #ff5910, 0 0 0 3px rgba(255, 89, 16, 0.2);
+      box-shadow: var(--shadow-xs-border-focus);
     }
   }
 }
