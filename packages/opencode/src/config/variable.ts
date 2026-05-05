@@ -55,7 +55,7 @@ export async function substitute(input: SubstituteInput) {
     const optional = rawName.endsWith("?")
     const varName = optional ? rawName.slice(0, -1) : rawName
     const value = process.env[varName]
-    if (value !== undefined) return value
+    if (value !== undefined) return JSON.stringify(value).slice(1, -1)
     if (optional || missing === "empty") return ""
     throw new InvalidError({
       path: source(input),
