@@ -381,6 +381,27 @@ export function globalConfigFileForWrite() {
   return globalConfigFile()
 }
 
+export function configFileLockKey(file: string) {
+  return `config-file:${Filesystem.resolve(file)}`
+}
+
+export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) {
+  await using _ = await Flock.acquire(configFileLockKey(file))
+  return await fn()
+}
+
+export async function writeConfigTextAtomic(file: string, text: string) {
+  await fsNode.mkdir(path.dirname(file), { recursive: true })
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`)
+  try {
+    await fsNode.writeFile(tmp, text)
+    await fsNode.rename(tmp, file)
+  } catch (error) {
+    await fsNode.rm(tmp, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
 function globalConfigFilesToLoad() {
   if (!Runtime.isPawWork()) {
     const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
@@ -894,22 +915,27 @@ const rawLayer = Layer.effect(
 
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
-      yield* Effect.promise(() =>
-        Runtime.isPawWork() ? PawWorkHome.ensurePrimary() : fsNode.mkdir(path.dirname(file), { recursive: true }),
-      )
-      const existingText = yield* readConfigFile(file)
-      const before = existingText ?? JSON.stringify(writable(yield* loadGlobal()), null, 2)
-
+      const lock = yield* Effect.promise(() => Flock.acquire(configFileLockKey(file)))
       let next: Info
-      if (!file.endsWith(".jsonc")) {
-        const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
-        const merged = mergeDeep(writable(existing), writable(config))
-        yield* fs.writeFileString(file, JSON.stringify(merged, null, 2)).pipe(Effect.orDie)
-        next = merged
-      } else {
-        const updated = patchJsonc(before, writable(config))
-        next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
-        yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
+      try {
+        yield* Effect.promise(() =>
+          Runtime.isPawWork() ? PawWorkHome.ensurePrimary() : fsNode.mkdir(path.dirname(file), { recursive: true }),
+        )
+        const existingText = yield* readConfigFile(file)
+        const before = existingText ?? JSON.stringify(writable(yield* loadGlobal()), null, 2)
+
+        if (!file.endsWith(".jsonc")) {
+          const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
+          const merged = mergeDeep(writable(existing), writable(config))
+          yield* Effect.promise(() => writeConfigTextAtomic(file, JSON.stringify(merged, null, 2))).pipe(Effect.orDie)
+          next = merged
+        } else {
+          const updated = patchJsonc(before, writable(config))
+          next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
+          yield* Effect.promise(() => writeConfigTextAtomic(file, updated)).pipe(Effect.orDie)
+        }
+      } finally {
+        yield* Effect.promise(() => lock.release())
       }
 
       yield* invalidate()
@@ -1034,6 +1060,9 @@ const ConfigUpdateGlobal = updateGlobal
 const ConfigSeedGlobalConfig = seedGlobalConfig
 const ConfigGlobalConfigFileForRead = globalConfigFileForRead
 const ConfigGlobalConfigFileForWrite = globalConfigFileForWrite
+const ConfigConfigFileLockKey = configFileLockKey
+const ConfigWithConfigFileLock = withConfigFileLock
+const ConfigWriteConfigTextAtomic = writeConfigTextAtomic
 const ConfigProjectConfigFileForWrite = projectConfigFileForWrite
 const ConfigInvalidate = invalidate
 const ConfigDirectories = directories
@@ -1080,6 +1109,9 @@ export namespace Config {
   export const seedGlobalConfig = ConfigSeedGlobalConfig
   export const globalConfigFileForRead = ConfigGlobalConfigFileForRead
   export const globalConfigFileForWrite = ConfigGlobalConfigFileForWrite
+  export const configFileLockKey = ConfigConfigFileLockKey
+  export const withConfigFileLock = ConfigWithConfigFileLock
+  export const writeConfigTextAtomic = ConfigWriteConfigTextAtomic
   export const projectConfigFileForWrite = ConfigProjectConfigFileForWrite
   export const invalidate = ConfigInvalidate
   export const directories = ConfigDirectories

@@ -1,9 +1,9 @@
 export * as ConfigVariable from "./variable"
 
 import path from "path"
-import os from "os"
 import { createScanner } from "jsonc-parser"
 import { Filesystem } from "@/util"
+import { Global } from "@/global"
 import { InvalidError } from "./error"
 
 type ParseSource =
@@ -84,7 +84,7 @@ export async function substitute(input: SubstituteInput) {
 
     let filePath = token.replace(/^\{file:/, "").replace(/\}$/, "")
     if (filePath.startsWith("~/")) {
-      filePath = path.join(os.homedir(), filePath.slice(2))
+      filePath = path.join(Global.Path.home, filePath.slice(2))
     }
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)

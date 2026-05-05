@@ -1,7 +1,6 @@
 export * as ConfigPaths from "./paths"
 
 import path from "path"
-import os from "os"
 import { type ParseError as JsoncParseError, parse as parseJsonc, printParseErrorCode } from "jsonc-parser"
 import { Filesystem } from "@/util"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -118,7 +117,7 @@ async function substitute(text: string, input: ParseSource, missing: "error" | "
     }
 
     let filePath = token.replace(/^\{file:/, "").replace(/\}$/, "")
-    if (filePath.startsWith("~/")) filePath = path.join(os.homedir(), filePath.slice(2))
+    if (filePath.startsWith("~/")) filePath = path.join(Global.Path.home, filePath.slice(2))
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)
     const fileContent = (

@@ -263,6 +263,34 @@ describe("plugin.install.task", () => {
     }
   })
 
+  test("serializes concurrent PawWork global plugin config updates", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      const global = path.join(tmp.path, "global")
+      const target = await plugin(tmp.path, ["server"])
+      const run = (mod: string) =>
+        createPlugTask(
+          {
+            mod,
+            global: true,
+          },
+          deps(global, target),
+        )(ctx(tmp.path))
+
+      const ok = await Promise.all([run("acme-a@1.0.0"), run("acme-b@1.0.0")])
+      expect(ok).toEqual([true, true])
+      expect(new Set((await read(path.join(global, "pawwork.json"))).plugin)).toEqual(
+        new Set(["acme-a@1.0.0", "acme-b@1.0.0"]),
+      )
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
   test("writes PawWork local plugin config to active pawwork.jsonc when json and jsonc both exist", async () => {
     await using tmp = await tmpdir()
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE

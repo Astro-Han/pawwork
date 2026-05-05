@@ -413,24 +413,26 @@ export function resolveConfigPath(baseDir: string, global = false) {
 }
 
 async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: string) {
-  let text = "{}"
-  if (await Filesystem.exists(configPath)) {
-    text = await Filesystem.readText(configPath)
-  }
+  return Config.withConfigFileLock(configPath, async () => {
+    let text = "{}"
+    if (await Filesystem.exists(configPath)) {
+      text = await Filesystem.readText(configPath)
+    }
 
-  // Use jsonc-parser to modify while preserving comments
-  const edits = modify(text, ["mcp", name], mcpConfig, {
-    formattingOptions: { tabSize: 2, insertSpaces: true },
+    // Use jsonc-parser to modify while preserving comments
+    const edits = modify(text, ["mcp", name], mcpConfig, {
+      formattingOptions: { tabSize: 2, insertSpaces: true },
+    })
+    const result = applyEdits(text, edits)
+
+    await Config.writeConfigTextAtomic(configPath, result)
+
+    return configPath
   })
-  const result = applyEdits(text, edits)
-
-  await Filesystem.write(configPath, result)
-
-  return configPath
 }
 
 async function seedGlobalConfigIfNeeded(configPath: string, globalConfigPath: string) {
-  if (!Runtime.isPawWork() || configPath !== globalConfigPath) return true
+  if (!Runtime.isPawWork() || Config.configFileLockKey(configPath) !== Config.configFileLockKey(globalConfigPath)) return true
   try {
     await Config.seedGlobalConfig()
     return true

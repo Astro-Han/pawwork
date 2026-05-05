@@ -730,6 +730,37 @@ test("handles file inclusion substitution", async () => {
   })
 })
 
+test("resolves {file:~/...} against Global.Path.home", async () => {
+  await using home = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(path.join(dir, "included.txt"), "test-home-user")
+    },
+  })
+  await using project = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(dir, {
+        $schema: "https://opencode.ai/config.json",
+        username: "{file:~/included.txt}",
+      })
+    },
+  })
+  const previousHome = process.env.OPENCODE_TEST_HOME
+  process.env.OPENCODE_TEST_HOME = home.path
+
+  try {
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.username).toBe("test-home-user")
+      },
+    })
+  } finally {
+    if (previousHome === undefined) delete process.env.OPENCODE_TEST_HOME
+    else process.env.OPENCODE_TEST_HOME = previousHome
+  }
+})
+
 test("handles file inclusion with replacement tokens", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

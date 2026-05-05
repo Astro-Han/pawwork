@@ -85,7 +85,7 @@ const defaultInstallDeps: InstallDeps = {
 const defaultPatchDeps: PatchDeps = {
   readText: (file) => Filesystem.readText(file),
   write: async (file, text) => {
-    await Filesystem.write(file, text)
+    await Config.writeConfigTextAtomic(file, text)
   },
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
@@ -345,42 +345,64 @@ async function patchOne(dir: string, target: Target, spec: string, force: boolea
   await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
 
   const files = dep.files(dir, name)
-  const cfg = await selectConfigFile(files, dep)
+  let cfg = await selectConfigFile(files, dep)
 
-  const src = await dep.readText(cfg).catch((err: NodeJS.ErrnoException) => {
-    if (err.code === "ENOENT") return "{}"
-    return err
-  })
-  if (src instanceof Error) {
-    return {
-      ok: false,
-      code: "patch_failed",
-      kind: target.kind,
-      error: src,
+  return await Config.withConfigFileLock(cfg, async () => {
+    cfg = await selectConfigFile(files, dep)
+    const src = await dep.readText(cfg).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT") return "{}"
+      return err
+    })
+    if (src instanceof Error) {
+      return {
+        ok: false,
+        code: "patch_failed",
+        kind: target.kind,
+        error: src,
+      }
     }
-  }
-  const text = src.trim() ? src : "{}"
+    const text = src.trim() ? src : "{}"
 
-  const errs: JsoncParseError[] = []
-  const data = parseJsonc(text, errs, { allowTrailingComma: true })
-  if (errs.length) {
-    const err = errs[0]
-    const lines = text.substring(0, err.offset).split("\n")
-    return {
-      ok: false,
-      code: "invalid_json",
-      kind: target.kind,
-      file: cfg,
-      line: lines.length,
-      col: lines[lines.length - 1].length + 1,
-      parse: printParseErrorCode(err.error),
+    const errs: JsoncParseError[] = []
+    const data = parseJsonc(text, errs, { allowTrailingComma: true })
+    if (errs.length) {
+      const err = errs[0]
+      const lines = text.substring(0, err.offset).split("\n")
+      return {
+        ok: false,
+        code: "invalid_json",
+        kind: target.kind,
+        file: cfg,
+        line: lines.length,
+        col: lines[lines.length - 1].length + 1,
+        parse: printParseErrorCode(err.error),
+      }
     }
-  }
 
-  const list = pluginList(data)
-  const item = target.opts ? ([spec, target.opts] as const) : spec
-  const out = patchPluginList(text, list, spec, item, force)
-  if (out.mode === "noop") {
+    const list = pluginList(data)
+    const item = target.opts ? ([spec, target.opts] as const) : spec
+    const out = patchPluginList(text, list, spec, item, force)
+    if (out.mode === "noop") {
+      return {
+        ok: true,
+        item: {
+          kind: target.kind,
+          mode: out.mode,
+          file: cfg,
+        },
+      }
+    }
+
+    const write = await dep.write(cfg, out.text).catch((error: unknown) => error)
+    if (write instanceof Error) {
+      return {
+        ok: false,
+        code: "patch_failed",
+        kind: target.kind,
+        error: write,
+      }
+    }
+
     return {
       ok: true,
       item: {
@@ -389,26 +411,7 @@ async function patchOne(dir: string, target: Target, spec: string, force: boolea
         file: cfg,
       },
     }
-  }
-
-  const write = await dep.write(cfg, out.text).catch((error: unknown) => error)
-  if (write instanceof Error) {
-    return {
-      ok: false,
-      code: "patch_failed",
-      kind: target.kind,
-      error: write,
-    }
-  }
-
-  return {
-    ok: true,
-    item: {
-      kind: target.kind,
-      mode: out.mode,
-      file: cfg,
-    },
-  }
+  })
 }
 
 export async function patchPluginConfig(input: PatchInput, dep: PatchDeps = defaultPatchDeps): Promise<PatchResult> {
