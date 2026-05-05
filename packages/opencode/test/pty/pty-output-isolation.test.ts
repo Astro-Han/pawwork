@@ -4,6 +4,16 @@ import { Pty } from "../../src/pty"
 import { tmpdir } from "../fixture/fixture"
 import { setTimeout as sleep } from "node:timers/promises"
 
+const wait = async (fn: () => boolean, ms = 5000) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (fn()) return
+    await sleep(25)
+  }
+  if (fn()) return
+  throw new Error(`timeout waiting ${ms}ms for pty output`)
+}
+
 describe("pty", () => {
   test("does not leak output when websocket objects are reused", async () => {
     await using dir = await tmpdir({ git: true })
@@ -29,21 +39,21 @@ describe("pty", () => {
           }
 
           // Connect "a" first with ws.
-          Pty.connect(a.id, ws as any)
+          await Pty.connect(a.id, ws as any)
 
           // Now "reuse" the same ws object for another connection.
           ws.data = { events: { connection: "b" } }
           ws.send = (data: unknown) => {
             outB.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8"))
           }
-          Pty.connect(b.id, ws as any)
+          await Pty.connect(b.id, ws as any)
 
           // Clear connect metadata writes.
           outA.length = 0
           outB.length = 0
 
           // Output from a must never show up in b.
-          Pty.write(a.id, "AAA\n")
+          await Pty.write(a.id, "AAA\n")
           await sleep(100)
 
           expect(outB.join("")).not.toContain("AAA")
@@ -78,7 +88,7 @@ describe("pty", () => {
           }
 
           // Connect "a" first.
-          Pty.connect(a.id, ws as any)
+          await Pty.connect(a.id, ws as any)
           outA.length = 0
 
           // Simulate Bun reusing the same websocket object for another
@@ -88,7 +98,7 @@ describe("pty", () => {
             outB.push(typeof data === "string" ? data : Buffer.from(data as Uint8Array).toString("utf8"))
           }
 
-          Pty.write(a.id, "AAA\n")
+          await Pty.write(a.id, "AAA\n")
           await sleep(100)
 
           expect(outB.join("")).not.toContain("AAA")
@@ -121,15 +131,15 @@ describe("pty", () => {
             },
           }
 
-          Pty.connect(a.id, ws as any)
+          await Pty.connect(a.id, ws as any)
           out.length = 0
 
           // Mutating fields on ws.data should not look like a new
           // connection lifecycle when the object identity stays stable.
           ctx.connId = 2
 
-          Pty.write(a.id, "AAA\n")
-          await sleep(100)
+          await Pty.write(a.id, "AAA\n")
+          await wait(() => out.join("").includes("AAA"))
 
           expect(out.join("")).toContain("AAA")
         } finally {
