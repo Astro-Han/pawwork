@@ -72,9 +72,12 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
 
     const url = new URL(c.req.url)
     if (url.pathname === "/path" && url.searchParams.get("ensureConfig") === "true" && !Runtime.isPawWork()) {
-      mkdirSync(Global.Path.config, { recursive: true })
+      try {
+        mkdirSync(Global.Path.config, { recursive: true })
+      } catch {
+        // Ignore: handler will propagate the config path creation error.
+      }
     }
-
     const sessionWorkspaceID = await getSessionWorkspace(url)
     const workspaceID = sessionWorkspaceID || url.searchParams.get("workspace")
 

@@ -11,8 +11,6 @@ import { Config } from "../../config/config"
 import { Instance } from "../../project/instance"
 import { Installation } from "../../installation"
 import path from "path"
-import { Global } from "@opencode-ai/core/global"
-import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { modify, applyEdits } from "jsonc-parser"
 import { Filesystem } from "../../util/filesystem"
@@ -410,9 +408,8 @@ export const McpLogoutCommand = cmd({
   },
 })
 
-export async function resolveConfigPath(baseDir: string, global = false) {
-  if (global) return Config.globalConfigFileForWrite()
-  return Config.projectConfigFileForWrite(baseDir)
+export function resolveConfigPath(baseDir: string, global = false) {
+  return global ? Config.globalConfigFileForWrite() : Config.projectConfigFileForWrite(baseDir)
 }
 
 async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: string) {
@@ -457,11 +454,8 @@ export const McpAddCommand = cmd({
         const project = Instance.project
 
         // Resolve config paths eagerly for hints
-        const globalDir = Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config
-        const [projectConfigPath, globalConfigPath] = await Promise.all([
-          resolveConfigPath(Instance.worktree),
-          resolveConfigPath(globalDir, true),
-        ])
+        const projectConfigPath = resolveConfigPath(Instance.worktree)
+        const globalConfigPath = resolveConfigPath(Instance.worktree, true)
 
         // Determine scope
         let configPath = globalConfigPath

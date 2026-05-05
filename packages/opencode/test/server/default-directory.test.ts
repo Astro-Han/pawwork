@@ -38,6 +38,7 @@ describe("default directory routing", () => {
 
   test("PawWork path route reports the primary global config Home without creating it", async () => {
     await using tmp = await tmpdir()
+    const home = spyOn(os, "homedir").mockReturnValue(tmp.path)
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
     const previousHome = process.env.OPENCODE_TEST_HOME
     const previousPawWorkHome = process.env.PAWWORK_HOME
@@ -64,11 +65,13 @@ describe("default directory routing", () => {
       if (previousPawWorkHome === undefined) delete process.env.PAWWORK_HOME
       else process.env.PAWWORK_HOME = previousPawWorkHome
       ;(Global.Path as { config: string }).config = previousConfig
+      home.mockRestore()
     }
   })
 
   test("PawWork path route creates the primary global config Home when explicitly requested", async () => {
     await using tmp = await tmpdir()
+    const home = spyOn(os, "homedir").mockReturnValue(tmp.path)
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
     const previousHome = process.env.OPENCODE_TEST_HOME
     const previousPawWorkHome = process.env.PAWWORK_HOME
@@ -95,6 +98,7 @@ describe("default directory routing", () => {
       if (previousPawWorkHome === undefined) delete process.env.PAWWORK_HOME
       else process.env.PAWWORK_HOME = previousPawWorkHome
       ;(Global.Path as { config: string }).config = previousConfig
+      home.mockRestore()
     }
   })
 
