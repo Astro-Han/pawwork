@@ -1,6 +1,7 @@
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { Hono } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
+import fs from "fs/promises"
 import z from "zod"
 import { Format } from "../../format"
 import { Instance } from "../../project/instance"
@@ -109,6 +110,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
             ? await PawWorkHome.ensurePrimary()
             : PawWorkHome.primary()
           : Global.Path.config
+        if (ensureConfig && !Runtime.isPawWork()) await fs.mkdir(config, { recursive: true })
         return c.json({
           home: Global.Path.home,
           state: Global.Path.state,

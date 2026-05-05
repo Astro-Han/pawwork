@@ -12,6 +12,8 @@ import { InstanceBootstrap } from "@/project/bootstrap"
 import { Session } from "@/session"
 import { SessionID } from "@/session/schema"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
+import { Global } from "@/global"
+import { Runtime } from "@opencode-ai/core/runtime"
 
 type Rule = { method?: string; path: string; exact?: boolean; action: "local" | "forward" }
 
@@ -69,6 +71,9 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     const directory = Filesystem.resolve(decoded)
 
     const url = new URL(c.req.url)
+    if (url.pathname === "/path" && url.searchParams.get("ensureConfig") === "true" && !Runtime.isPawWork()) {
+      mkdirSync(Global.Path.config, { recursive: true })
+    }
 
     const sessionWorkspaceID = await getSessionWorkspace(url)
     const workspaceID = sessionWorkspaceID || url.searchParams.get("workspace")

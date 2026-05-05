@@ -3,7 +3,7 @@ import fs from "fs/promises"
 import path from "path"
 import { parse as parseJsonc } from "jsonc-parser"
 import { Filesystem } from "../../src/util/filesystem"
-import { createPlugTask, type PlugCtx, type PlugDeps } from "../../src/cli/cmd/plug"
+import { createPlugTask, defaultPluginGlobalConfigDir, type PlugCtx, type PlugDeps } from "../../src/cli/cmd/plug"
 import { tmpdir } from "../fixture/fixture"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 
@@ -261,6 +261,31 @@ describe("plugin.install.task", () => {
 
       const config = await read(path.join(pawworkConfig.path, "pawwork.json"))
       expect(config.plugin).toEqual(["acme@1.2.3"])
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousHome === undefined) delete process.env.PAWWORK_HOME
+      else process.env.PAWWORK_HOME = previousHome
+      if (previousConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
+      else process.env.PAWWORK_CONFIG_DIR = previousConfigDir
+    }
+  })
+
+  test("default plugin global config dir follows runtime env changes", async () => {
+    await using homeA = await tmpdir()
+    await using homeB = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousHome = process.env.PAWWORK_HOME
+    const previousConfigDir = process.env.PAWWORK_CONFIG_DIR
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    try {
+      process.env.PAWWORK_HOME = homeA.path
+      expect(defaultPluginGlobalConfigDir()).toBe(homeA.path)
+
+      process.env.PAWWORK_HOME = homeB.path
+      expect(defaultPluginGlobalConfigDir()).toBe(homeB.path)
     } finally {
       if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
       else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime

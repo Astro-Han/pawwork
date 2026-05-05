@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("default directory routing", () => {
   test("uses ~/PawWork and creates it when no directory is provided", async () => {
-    await using tmp = await tmpdir()
+    await using tmp = await tmpdir({ git: true })
     const home = spyOn(os, "homedir").mockReturnValue(tmp.path)
 
     try {
@@ -94,6 +94,28 @@ describe("default directory routing", () => {
       else process.env.OPENCODE_TEST_HOME = previousHome
       if (previousPawWorkHome === undefined) delete process.env.PAWWORK_HOME
       else process.env.PAWWORK_HOME = previousPawWorkHome
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("OpenCode path route creates the global config directory when explicitly requested", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = path.join(tmp.path, "opencode-config")
+
+    try {
+      const app = Server.Default().app
+      const response = await app.request(`/path?ensureConfig=true&directory=${encodeURIComponent(tmp.path)}`)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(body.config).toBe(path.join(tmp.path, "opencode-config"))
+      expect(fs.existsSync(path.join(tmp.path, "opencode-config"))).toBe(true)
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
       ;(Global.Path as { config: string }).config = previousConfig
     }
   })

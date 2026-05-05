@@ -32,7 +32,7 @@ export type PlugDeps = {
   write: (file: string, text: string) => Promise<void>
   exists: (file: string) => Promise<boolean>
   files: (dir: string, name: "opencode" | "pawwork") => string[]
-  global: string
+  global: string | (() => string)
   seedGlobalConfig?: () => Promise<void>
 }
 
@@ -46,6 +46,14 @@ export type PlugCtx = {
   vcs?: string
   worktree: string
   directory: string
+}
+
+export function defaultPluginGlobalConfigDir() {
+  return Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config
+}
+
+function globalConfigDir(dep: PlugDeps) {
+  return typeof dep.global === "function" ? dep.global() : dep.global
 }
 
 const defaultPlugDeps: PlugDeps = {
@@ -62,7 +70,7 @@ const defaultPlugDeps: PlugDeps = {
   },
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
-  global: Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config,
+  global: defaultPluginGlobalConfigDir,
   seedGlobalConfig: () => Config.seedGlobalConfig(),
 }
 
@@ -152,7 +160,7 @@ export function createPlugTask(input: PlugInput, dep: PlugDeps = defaultPlugDeps
         vcs: ctx.vcs,
         worktree: ctx.worktree,
         directory: ctx.directory,
-        config: dep.global,
+        config: globalConfigDir(dep),
       },
       dep,
     )
