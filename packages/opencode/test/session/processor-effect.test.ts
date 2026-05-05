@@ -218,7 +218,7 @@ it.live("session.processor effect tests capture llm input cleanly", () =>
       Effect.gen(function* () {
         const { processors, session, provider } = yield* boot()
 
-        yield* llm.text("hello")
+        yield* llm.text("hello", { usage: { input: 3, output: 5 } })
 
         const chat = yield* session.create({})
         const parent = yield* user(chat.id, "hi")
@@ -254,6 +254,24 @@ it.live("session.processor effect tests capture llm input cleanly", () =>
         expect(value).toBe("continue")
         expect(calls).toBe(1)
         expect(parts.some((part) => part.type === "text" && part.text === "hello")).toBe(true)
+        const trace = handle.message.diagnostics?.llm_trace
+        expect(trace?.message_id).toBe(msg.id)
+        expect(trace?.session_id).toBe(chat.id)
+        expect(trace?.parent_message_id).toBe(parent.id)
+        expect(trace?.provider).toBe("test")
+        expect(trace?.model).toBe("test-model")
+        expect(trace?.request).toMatchObject({
+          streaming: true,
+          tool_count: 0,
+          small: false,
+          reasoning_capability: false,
+        })
+        expect(trace?.stream_events.text_delta).toBeGreaterThan(0)
+        expect(trace?.stream_events.reasoning_delta).toBe(0)
+        expect(trace?.stored_parts.text).toBeGreaterThan(0)
+        expect(trace?.stored_parts.reasoning).toBe(0)
+        expect(trace?.tokens?.output).toBeGreaterThan(0)
+        expect(trace?.flags.empty_completion).toBe(false)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -470,6 +488,50 @@ it.live("session.processor effect tests stop after token overflow requests compa
   ),
 )
 
+it.live("session.processor effect tests flag empty completions", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+
+        yield* llm.push(reply().stop())
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "empty")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "empty" }],
+          tools: {},
+        })
+
+        expect(value).toBe("continue")
+        expect(MessageV2.parts(msg.id).some((part) => part.type === "text" || part.type === "reasoning")).toBe(false)
+        expect(handle.message.diagnostics?.llm_trace?.flags.empty_completion).toBe(true)
+        expect(handle.message.diagnostics?.llm_trace?.stream_events.finish_step).toBe(1)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests capture reasoning from http mock", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
@@ -513,6 +575,8 @@ it.live("session.processor effect tests capture reasoning from http mock", () =>
         expect(yield* llm.calls).toBe(1)
         expect(reasoning?.text).toBe("think")
         expect(text?.text).toBe("done")
+        expect(handle.message.diagnostics?.llm_trace?.stream_events.reasoning_delta).toBeGreaterThan(0)
+        expect(handle.message.diagnostics?.llm_trace?.stored_parts.reasoning).toBe(1)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -603,6 +667,7 @@ it.live("session.processor effect tests do not retry unknown json errors", () =>
         expect(value).toBe("stop")
         expect(yield* llm.calls).toBe(1)
         expect(handle.message.error?.name).toBe("APIError")
+        expect(handle.message.diagnostics?.llm_trace?.flags.stream_error).toBe(true)
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),
@@ -959,6 +1024,7 @@ it.live("session.processor effect tests record aborted errors and idle state", (
         expect(stored.info.role).toBe("assistant")
         if (stored.info.role === "assistant") {
           expect(stored.info.error?.name).toBe("MessageAbortedError")
+          expect(stored.info.diagnostics?.llm_trace?.flags.aborted).toBe(true)
         }
         expect(state).toMatchObject({ type: "idle" })
         expect(errs).toContain("MessageAbortedError")

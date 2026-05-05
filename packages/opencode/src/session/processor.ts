@@ -22,6 +22,7 @@ import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 import { TurnChange } from "./turn-change"
+import { LLMTrace } from "./llm-trace"
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
@@ -125,6 +126,8 @@ interface ProcessorContext extends Input {
   needsCompaction: boolean
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
+  trace: LLMTrace.Recorder
+  streamError: boolean
 }
 
 type StreamEvent = Event
@@ -176,6 +179,18 @@ export const layer: Layer.Layer<
         needsCompaction: false,
         currentText: undefined,
         reasoningMap: {},
+        trace: LLMTrace.createRecorder({
+          traceID: input.assistantMessage.id,
+          sessionID: input.sessionID,
+          messageID: input.assistantMessage.id,
+          parentMessageID: input.assistantMessage.parentID,
+          providerID: input.model.providerID,
+          modelID: input.model.id,
+          agent: input.assistantMessage.agent,
+          variant: input.assistantMessage.variant,
+          createdAt: input.assistantMessage.time.created,
+        }),
+        streamError: false,
       }
       let aborted = false
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -574,6 +589,7 @@ export const layer: Layer.Layer<
       })
 
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent) {
+        ctx.trace.observeEvent(value)
         switch (value.type) {
           case "start":
             yield* status.set(ctx.sessionID, { type: "busy" })
@@ -720,6 +736,7 @@ export const layer: Layer.Layer<
               usage: value.usage,
               metadata: value.providerMetadata,
             })
+            ctx.trace.finish(value.finishReason, usage.tokens)
             ctx.assistantMessage.finish = value.finishReason
             ctx.assistantMessage.cost += usage.cost
             ctx.assistantMessage.tokens = usage.tokens
@@ -887,12 +904,24 @@ export const layer: Layer.Layer<
         }
         ctx.toolcalls = {}
         ctx.assistantMessage.time.completed = Date.now()
+        ctx.assistantMessage.diagnostics = {
+          ...(ctx.assistantMessage.diagnostics ?? {}),
+          llm_trace: ctx.trace.finalize({
+            completedAt: ctx.assistantMessage.time.completed,
+            finishReason: ctx.assistantMessage.finish,
+            storedParts: MessageV2.parts(ctx.assistantMessage.id),
+            tokens: ctx.assistantMessage.tokens,
+            streamError: ctx.streamError,
+            aborted,
+          }),
+        }
         yield* session.updateMessage(ctx.assistantMessage)
         yield* turnChange.finalize({ sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id })
       })
 
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
+        ctx.streamError = true
         const error = parse(e)
         if (MessageV2.ContextOverflowError.isInstance(error)) {
           ctx.needsCompaction = true
@@ -916,7 +945,7 @@ export const layer: Layer.Layer<
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
             ctx.reasoningMap = {}
-            const stream = llm.stream(streamInput)
+            const stream = llm.stream({ ...streamInput, trace: ctx.trace })
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),

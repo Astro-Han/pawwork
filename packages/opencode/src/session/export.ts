@@ -24,6 +24,7 @@ import { ConfigVariable } from "../config/variable"
 import { isRecord } from "@/util/record"
 import { Glob } from "@/util/glob"
 import { safeToolFailureMetadata } from "./tool-failure"
+import { LLMTrace } from "./llm-trace"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -151,6 +152,8 @@ export namespace Export {
           attemptedInput?: unknown
         }
       }
+      llm_trace_schema_version?: typeof LLMTrace.SCHEMA_VERSION
+      llm_traces?: LLMTrace.Summary[]
     }
     session: Tree
   }
@@ -174,6 +177,8 @@ export namespace Export {
         attemptedInput?: unknown
       }
     }
+    llm_trace_schema_version?: typeof LLMTrace.SCHEMA_VERSION
+    llm_traces?: LLMTrace.Summary[]
   } {
     let lastAt = -Infinity
     let last:
@@ -232,7 +237,30 @@ export namespace Export {
       for (const child of t.children ?? []) walk(child)
     }
     walk(node)
-    return last ? { loop: { last } } : {}
+    const llm_traces = collectLLMTraces(node)
+    return {
+      ...(last ? { loop: { last } } : {}),
+      ...(llm_traces.length
+        ? { llm_trace_schema_version: LLMTrace.SCHEMA_VERSION, llm_traces }
+        : {}),
+    }
+  }
+
+  function collectLLMTraces(node: Tree) {
+    const traces: LLMTrace.Summary[] = []
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        if (message.info.role !== "assistant") continue
+        const trace = message.info.diagnostics?.llm_trace
+        if (trace) traces.push(trace)
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return traces.sort((a, b) => {
+      if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
+      return a.message_id.localeCompare(b.message_id)
+    })
   }
 
   const climbToRoot = Effect.fn("Export.climbToRoot")(function* (svc: Session.Interface, id: SessionID) {

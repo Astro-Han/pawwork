@@ -22,6 +22,7 @@ import { Auth } from "@/auth"
 import { Installation } from "@/installation"
 import { EffectBridge } from "@/effect"
 import * as Option from "effect/Option"
+import { LLMTrace } from "./llm-trace"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -42,6 +43,7 @@ export type StreamInput = {
   retries?: number
   streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
+  trace?: Pick<LLMTrace.Recorder, "request">
 }
 
 export type StreamRequest = StreamInput & {
@@ -194,6 +196,7 @@ const live: Layer.Layer<
       )
 
       const tools = resolveTools(input)
+      const traceToolCount = Object.keys(tools).filter((x) => x !== "invalid").length
 
       // LiteLLM and some Anthropic proxies require the tools parameter to be present
       // when message history contains tool calls, even if no tools are being used.
@@ -315,6 +318,27 @@ const live: Layer.Layer<
       }
 
       const tracer = undefined
+      const activeToolNames = Object.keys(tools).filter((x) => x !== "invalid")
+
+      input.trace?.request(
+        LLMTrace.requestSummary({
+          streaming: true,
+          toolCount: traceToolCount,
+          toolChoice: input.toolChoice,
+          small: input.small ?? false,
+          reasoningCapability: input.model.capabilities.reasoning,
+          interleavedField:
+            input.model.capabilities.interleaved && typeof input.model.capabilities.interleaved === "object"
+              ? input.model.capabilities.interleaved.field
+              : undefined,
+          options: {
+            temperature: params.temperature,
+            topP: params.topP,
+            topK: params.topK,
+            maxOutputTokens: params.maxOutputTokens,
+          },
+        }),
+      )
 
       return streamText({
         onError(error) {
@@ -347,7 +371,7 @@ const live: Layer.Layer<
         topP: params.topP,
         topK: params.topK,
         providerOptions: ProviderTransform.providerOptions(input.model, params.options),
-        activeTools: Object.keys(tools).filter((x) => x !== "invalid"),
+        activeTools: activeToolNames,
         tools,
         toolChoice: input.toolChoice,
         maxOutputTokens: params.maxOutputTokens,
