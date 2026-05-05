@@ -171,3 +171,131 @@ export const Fit = {
     )
   },
 }
+
+export const WithFooter = {
+  render: () => {
+    const dialog = useDialog()
+    const open = () =>
+      dialog.show(() => (
+        <mod.Dialog
+          title="Confirm action"
+          description="This action cannot be undone."
+          footer={
+            <div style={{ display: "flex", gap: "8px" }}>
+              <Button variant="ghost" onClick={() => dialog.close()}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={() => dialog.close()}>
+                Confirm
+              </Button>
+            </div>
+          }
+        >
+          Are you sure you want to proceed?
+        </mod.Dialog>
+      ))
+
+    onMount(open)
+
+    return (
+      <Button variant="secondary" onClick={open}>
+        Open dialog with footer
+      </Button>
+    )
+  },
+}
+
+export const DialogStateMatrix = {
+  render: () => {
+    const dialog = useDialog()
+    return (
+      <div style={{ display: "flex", "flex-wrap": "wrap", gap: "12px" }}>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            dialog.show(() => (
+              <mod.Dialog title="Default" description="Default open state">
+                Default dialog body content.
+              </mod.Dialog>
+            ))
+          }
+        >
+          Default (open)
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            dialog.show(() => (
+              <mod.Dialog
+                title="With Footer"
+                description="Cancel + Confirm buttons in footer"
+                footer={
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <Button variant="ghost" onClick={() => dialog.close()}>
+                      Cancel
+                    </Button>
+                    <Button variant="primary" onClick={() => dialog.close()}>
+                      Confirm
+                    </Button>
+                  </div>
+                }
+              >
+                Dialog body with footer buttons below.
+              </mod.Dialog>
+            ))
+          }
+        >
+          With Footer
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            dialog.show(() => (
+              <mod.Dialog title="No Footer" description="Footer prop omitted">
+                Dialog body without footer.
+              </mod.Dialog>
+            ))
+          }
+        >
+          Without Footer
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            dialog.show(() => (
+              <mod.Dialog size="large" title="Large" description="Large size">
+                Large dialog body content.
+              </mod.Dialog>
+            ))
+          }
+        >
+          Large
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            dialog.show(() => (
+              <mod.Dialog size="x-large" title="X-Large" description="X-large size">
+                X-large dialog body content.
+              </mod.Dialog>
+            ))
+          }
+        >
+          X-Large
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            dialog.show(() => (
+              <mod.Dialog title="Fit" fit>
+                Fit mode dialog content.
+              </mod.Dialog>
+            ))
+          }
+        >
+          Fit
+        </Button>
+      </div>
+    )
+  },
+}
