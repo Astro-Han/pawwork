@@ -154,7 +154,9 @@ export function createSessionReviewState(input: {
     async ({ directory, sessionID }) => ({
       directory,
       sessionID,
-      artifacts: await input.sdk.client.session
+      artifacts: await input.sdk
+        .createClient({ directory, throwOnError: true })
+        .session
         .artifacts({ sessionID })
         .then((res) => res.data ?? [])
         .catch(() => []),

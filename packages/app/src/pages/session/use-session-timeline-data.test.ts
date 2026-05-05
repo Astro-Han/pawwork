@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { readTimelineMessages } from "./use-session-timeline-data"
+import { readTimelineMessages, readTimelineMessagesFromCache } from "./use-session-timeline-data"
 
 const userMessage = (id: string, sessionID = "ses_target"): Message =>
   ({
@@ -121,5 +121,27 @@ describe("readTimelineMessages", () => {
 
     expect(missing.messages).toEqual([])
     expect(missing.lastGood).toBeUndefined()
+  })
+})
+
+describe("readTimelineMessagesFromCache", () => {
+  test("keeps messages when directory switch makes session info and message cache briefly unavailable", () => {
+    const loaded = [userMessage("msg_1"), userMessage("msg_2")]
+    const ready = readTimelineMessagesFromCache({
+      sessionID: "ses_target",
+      sessionCreated: 123,
+      raw: loaded,
+      lastGood: undefined,
+    })
+
+    const missing = readTimelineMessagesFromCache({
+      sessionID: "ses_target",
+      sessionCreated: undefined,
+      raw: undefined,
+      lastGood: ready.lastGood,
+    })
+
+    expect(missing.messages).toBe(loaded)
+    expect(missing.lastGood).toBe(ready.lastGood)
   })
 })

@@ -45,6 +45,25 @@ export function readTimelineMessages(input: {
   return { messages: emptyMessages, lastGood: input.lastGood }
 }
 
+export function timelineDataIdentity(input: { sessionID: string | undefined; created: number | undefined }) {
+  if (!input.sessionID || input.created === undefined) return
+  return `${input.sessionID}:${input.created}`
+}
+
+export function readTimelineMessagesFromCache(input: {
+  sessionID: string | undefined
+  sessionCreated: number | undefined
+  raw: unknown
+  lastGood: LastGoodMessages
+}) {
+  return readTimelineMessages({
+    sessionID: input.sessionID,
+    dataIdentity: timelineDataIdentity({ sessionID: input.sessionID, created: input.sessionCreated }),
+    raw: input.raw,
+    lastGood: input.lastGood,
+  })
+}
+
 export function createSessionTimelineData(input: {
   directory: () => string
   routeSessionID: () => string | undefined
@@ -83,18 +102,12 @@ export function createSessionTimelineData(input: {
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)
   // Only reuse last-good messages for a same-session transient cache miss.
   let lastGoodMessages: LastGoodMessages
-  const sessionDataIdentity = createMemo(() => {
-    const id = sessionID()
-    const created = sessionInfo()?.time.created
-    if (!id || created === undefined) return
-    return `${id}:${created}`
-  })
   const messages = createMemo(
     () => {
       const id = sessionID()
-      const next = readTimelineMessages({
+      const next = readTimelineMessagesFromCache({
         sessionID: id,
-        dataIdentity: sessionDataIdentity(),
+        sessionCreated: sessionInfo()?.time.created,
         raw: id ? input.sync.data.message[id] : undefined,
         lastGood: lastGoodMessages,
       })
