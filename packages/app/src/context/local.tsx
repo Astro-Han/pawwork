@@ -238,12 +238,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const key = handoffKey(sdk.directory, session)
       const next = handoff.get(key)
       if (!next) return
-      if (saved().session[session] !== undefined) {
+      const savedEntry = savedFor(sdk.directory)
+      if (!savedEntry?.readyForAction()) return
+      if (savedEntry.store.session[session] !== undefined) {
         handoff.delete(key)
         return
       }
 
-      setSavedSession(session, clone(next))
+      savedEntry.setStore("session", session, clone(next))
       handoff.delete(key)
     })
 
@@ -491,7 +493,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
               currentSessionID: session,
               messageSessionID: msg.sessionID,
               saved: savedEntry?.store.session[session],
-              savedReady: savedEntry?.ready() ?? false,
+              savedReady: savedEntry?.readyForAction() ?? false,
               hasHandoff: handoff.has(handoffKey(sdk.directory, session)),
             })
           ) {

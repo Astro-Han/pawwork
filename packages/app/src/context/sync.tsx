@@ -214,6 +214,18 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     }
     const retainTarget = (directory?: string) => {
       const targetDirectory = directory || sdk.directory
+      if (!targetDirectory) {
+        return {
+          directory: "",
+          get store() {
+            return current()[0]
+          },
+          get setStore() {
+            return current()[1]
+          },
+          release() {},
+        }
+      }
       return globalSync.retainDirectory(targetDirectory)
     }
     const absolute = (path: string) => (current()[0].path.directory + "/" + path).replace("//", "/")
