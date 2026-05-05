@@ -169,7 +169,19 @@ export const PawworkSidebar = (props: {
                 : undefined
             }
             titleContent={({ title }) => (
-              <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">
+              <span
+                class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate"
+                onDblClick={(e: MouseEvent) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  dialog.show(() => (
+                    <DialogRenameSession
+                      name={session.title ?? ""}
+                      onConfirm={(next) => void props.onRenameSession(session, next)}
+                    />
+                  ))
+                }}
+              >
                 {title()}
               </span>
             )}

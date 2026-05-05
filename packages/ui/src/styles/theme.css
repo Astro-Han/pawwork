@@ -275,10 +275,10 @@
   --fg-weak:   #8a8278;
   --fg-weaker: #6b645c;
 
-  /* Dark border · STANDARDS L12 (3 tiers) */
+  /* Dark border · STANDARDS L12 (3 tiers); recalibrated for surface-raised context */
   --border-base:   rgba(255, 255, 255, 0.12);
-  --border-weak:   #2c2823;
-  --border-weaker: #25211d;
+  --border-weak:   #36322e;
+  --border-weaker: #2f2b28;
 
   /* Icon mirrors dark ink */
   --icon-base:   #8a8278;
@@ -409,8 +409,8 @@
     --fg-weaker: #6b645c;
 
     --border-base:   rgba(255, 255, 255, 0.12);
-    --border-weak:   #2c2823;
-    --border-weaker: #25211d;
+    --border-weak:   #36322e;
+    --border-weaker: #2f2b28;
 
     --icon-base:   #8a8278;
     --icon-strong: #f3ede4;

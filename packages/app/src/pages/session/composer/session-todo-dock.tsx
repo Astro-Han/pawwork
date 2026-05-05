@@ -7,7 +7,7 @@ import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { TextStrikethrough } from "@opencode-ai/ui/text-strikethrough"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
-import { Index, createEffect, createMemo, onCleanup } from "solid-js"
+import { Index, Show, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { composerEnabled, composerProbe } from "@/testing/session-composer"
 import { useLanguage } from "@/context/language"
@@ -230,18 +230,30 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
                 opacity: todo().status === "pending" ? "0.94" : "1",
               }}
             >
-              <Icon
-                name={todo().status === "completed" ? "circle-check" : "circle"}
-                size="small"
-                style={{
-                  color: todo().status === "in_progress" ? "var(--brand-primary)" : "var(--icon-base)",
-                  "flex-shrink": "0",
-                  "margin-top": "1px",
-                  animation: todo().status === "in_progress" ? "var(--animate-pw-spin)" : undefined,
-                  "transform-origin": todo().status === "in_progress" ? "center" : undefined,
-                  "transform-box": todo().status === "in_progress" ? "fill-box" : undefined,
-                }}
-              />
+              <Show
+                when={todo().status === "in_progress"}
+                fallback={
+                  <Icon
+                    name={todo().status === "completed" ? "circle-check" : "circle"}
+                    size="small"
+                    style={{ color: "var(--icon-base)", "flex-shrink": "0", "margin-top": "1px" }}
+                  />
+                }
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "13px",
+                    height: "13px",
+                    "border-radius": "9999px",
+                    border: "1.5px solid var(--border-weak)",
+                    "border-top-color": "var(--brand-primary)",
+                    animation: "var(--animate-pw-spin)",
+                    "flex-shrink": "0",
+                    "margin-top": "1px",
+                  }}
+                />
+              </Show>
               <TextStrikethrough
                 active={todo().status === "completed" || todo().status === "cancelled"}
                 text={todo().content}

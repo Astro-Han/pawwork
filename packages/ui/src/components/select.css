@@ -95,7 +95,7 @@
   max-width: 23rem;
   overflow: hidden;
   border-radius: var(--radius-md);
-  background-color: var(--surface-raised);
+  background-color: var(--surface-base);
   padding: 4px;
   box-shadow: var(--shadow-xs-border-base);
   z-index: 60;
@@ -131,12 +131,12 @@
     border-radius: var(--radius-sm);
     cursor: default;
 
-    /* text-13-medium */
+    /* text-13-regular (--type-body) */
     font-family: var(--font-family-sans);
     font-size: var(--font-size-small);
     font-style: normal;
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large); /* 166.667% */
+    font-weight: var(--font-weight-regular);
+    line-height: 1.5; /* 150% */
     letter-spacing: var(--letter-spacing-normal);
 
     color: var(--fg-strong);
@@ -186,6 +186,26 @@
     font-weight: var(--font-weight-regular);
     line-height: var(--line-height-large);
     letter-spacing: var(--letter-spacing-normal);
+  }
+}
+
+/* review-filter variant: h24, no border, 13/400, radius-sm (DESIGN.md L218) */
+[data-component="select"][data-trigger-style="review-filter"] {
+  [data-slot="select-select-trigger"] {
+    height: 24px;
+    padding: 0 4px 0 8px;
+    background-color: transparent;
+    box-shadow: none;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-small);
+    font-weight: var(--font-weight-regular);
+    line-height: 1.5;
+
+    &:hover:not(:disabled),
+    &[data-expanded] {
+      background-color: var(--bg-cream);
+      box-shadow: none;
+    }
   }
 }
 

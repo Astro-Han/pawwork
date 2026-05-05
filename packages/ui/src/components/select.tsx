@@ -118,6 +118,7 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
                 ? local.label(itemProps.item.rawValue)
                 : (itemProps.item.rawValue as string)}
           </Kobalte.ItemLabel>
+          <Kobalte.ItemIndicator data-slot="select-select-item-indicator" />
         </Kobalte.Item>
       )}
       onChange={(v) => {

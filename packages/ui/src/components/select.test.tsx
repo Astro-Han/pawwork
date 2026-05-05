@@ -90,13 +90,12 @@ describe("Select: CSS token corrections", () => {
     expect(highlightedRule).not.toContain("--surface-raised")
   })
 
-  test("item selected state uses --surface-interactive-base and --font-weight-medium", () => {
+  test("item selected state uses --surface-interactive-base (STANDARDS L30: body weight, not medium)", () => {
     expect(css).toContain("--surface-interactive-base")
     expect(css).toContain("[data-selected]")
     const selectedIdx = css.indexOf("[data-selected]")
     const selectedBlock = css.slice(selectedIdx, selectedIdx + 200)
     expect(selectedBlock).toContain("--surface-interactive-base")
-    expect(selectedBlock).toContain("--font-weight-medium")
   })
 
   test("item border-radius uses --radius-sm", () => {

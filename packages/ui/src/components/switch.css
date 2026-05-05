@@ -20,7 +20,7 @@
   [data-slot="switch-control"] {
     display: inline-flex;
     align-items: center;
-    /* 28×16 track with 1px padding each side */
+    /* 28×16 track, padding: 1px each side, border via box-shadow so thumb gets full 26px travel */
     width: 28px;
     height: 16px;
     padding: 1px;
@@ -28,11 +28,11 @@
     flex-shrink: 0;
     /* Pill shape */
     border-radius: 9999px;
-    border: 1px solid var(--border-weak);
     background: var(--surface-base);
+    box-shadow: 0 0 0 1px var(--border-weak) inset;
     transition:
       background-color var(--duration-base),
-      border-color var(--duration-base);
+      box-shadow var(--duration-base);
   }
 
   [data-slot="switch-thumb"] {
@@ -93,27 +93,25 @@
   }
 
   &:not([data-readonly]) [data-slot="switch-input"]:focus-visible ~ [data-slot="switch-control"] {
-    border-color: var(--brand-primary);
     box-shadow: var(--shadow-xs-border-focus);
   }
 
   /* Checked: brand-primary track */
   &[data-checked] [data-slot="switch-control"] {
-    border-color: var(--brand-primary);
     background-color: var(--brand-primary);
+    box-shadow: 0 0 0 1px var(--brand-primary) inset;
   }
 
   &[data-checked] [data-slot="switch-thumb"] {
-    border: none;
-    /* 28px track (border-box) - 12px thumb - 1px padding-left - 1px padding-right - 2px border = 12px */
-    transform: translateX(12px);
+    /* 28px track - 12px thumb - 1px padding each side = 14px travel */
+    transform: translateX(14px);
     background-color: var(--fg-on-brand);
   }
 
   /* Checked hover: brand-primary-hover */
   &[data-checked]:hover:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
-    border-color: var(--brand-primary-hover);
     background-color: var(--brand-primary-hover);
+    box-shadow: 0 0 0 1px var(--brand-primary-hover) inset;
   }
 
   /* Press active: surface-base-active */
@@ -126,8 +124,8 @@
   }
 
   &[data-disabled] [data-slot="switch-control"] {
-    border-color: var(--border-weaker);
     background-color: var(--surface-sunken);
+    box-shadow: 0 0 0 1px var(--border-weaker) inset;
   }
 
   &[data-disabled] [data-slot="switch-thumb"] {
@@ -135,7 +133,7 @@
   }
 
   &[data-invalid] [data-slot="switch-control"] {
-    border-color: var(--error);
+    box-shadow: var(--shadow-xs-border-critical-base);
   }
 
   &[data-readonly] {

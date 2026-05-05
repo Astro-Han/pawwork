@@ -2323,17 +2323,29 @@ ToolRegistry.register({
             <For each={todos()}>
               {(todo: Todo) => (
                 <div data-slot="message-part-todo-item" data-state={todo.status}>
-                  <Icon
-                    name={todo.status === "completed" ? "circle-check" : "circle"}
-                    size="small"
-                    style={{
-                      color: todo.status === "in_progress" ? "var(--brand-primary)" : "var(--icon-base)",
-                      "flex-shrink": "0",
-                      animation: todo.status === "in_progress" ? "var(--animate-pw-spin)" : undefined,
-                      "transform-origin": todo.status === "in_progress" ? "center" : undefined,
-                      "transform-box": todo.status === "in_progress" ? "fill-box" : undefined,
-                    }}
-                  />
+                  <Show
+                    when={todo.status === "in_progress"}
+                    fallback={
+                      <Icon
+                        name={todo.status === "completed" ? "circle-check" : "circle"}
+                        size="small"
+                        style={{ color: "var(--icon-base)", "flex-shrink": "0" }}
+                      />
+                    }
+                  >
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: "13px",
+                        height: "13px",
+                        "border-radius": "9999px",
+                        border: "1.5px solid var(--border-weak)",
+                        "border-top-color": "var(--brand-primary)",
+                        animation: "var(--animate-pw-spin)",
+                        "flex-shrink": "0",
+                      }}
+                    />
+                  </Show>
                   <span
                     data-slot="message-part-todo-content"
                     data-completed={todo.status === "completed" ? "completed" : undefined}
