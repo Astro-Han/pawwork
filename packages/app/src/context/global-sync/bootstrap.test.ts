@@ -362,4 +362,73 @@ describe("bootstrapDirectory", () => {
 
     permission.resolve({ data: [] })
   })
+
+  test("latest provider refresh writes store when an older refresh resolves later", async () => {
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    const first = deferred<{ data: ProviderListResponse }>()
+    let calls = 0
+    const oldProviders = {
+      all: [{ id: "old-provider", name: "Old Provider", source: "custom", env: [], options: {}, models: {} }],
+      connected: ["old-provider"],
+      default: {},
+    } satisfies ProviderListResponse
+    const newProviders = {
+      all: [{ id: "new-provider", name: "New Provider", source: "custom", env: [], options: {}, models: {} }],
+      connected: ["new-provider"],
+      default: {},
+    } satisfies ProviderListResponse
+
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: {
+        list: async () => {
+          calls += 1
+          if (calls === 1) return first.promise
+          return { data: newProviders }
+        },
+      },
+    } as any
+
+    const input = {
+      directory,
+      sdk,
+      store,
+      setStore,
+      vcsCache: createVcsCache(),
+      loadSessions: () => undefined,
+      translate: (key: string) => key,
+      global: {
+        config: {} as Config,
+        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        project: [] as Project[],
+        provider: { all: [], connected: [], default: {} },
+      },
+      queryClient,
+    }
+
+    await bootstrapDirectory(input)
+    await waitFor(() => calls === 1)
+    await bootstrapDirectory(input)
+    await waitFor(() => store.provider.all[0]?.id === "new-provider")
+
+    first.resolve({ data: oldProviders })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(store.provider).toEqual(newProviders)
+    expect(store.provider_ready).toBe(true)
+  })
 })

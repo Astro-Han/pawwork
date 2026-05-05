@@ -77,6 +77,7 @@ interface PromptInputProps {
   sessionID?: string
   sessionIDControlled?: boolean
   actionReady?: () => boolean
+  abortReady?: () => boolean
   selectedSkill?: () => PawworkSkillName | undefined
 }
 
@@ -258,6 +259,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
   )
   const actionReady = createMemo(() => props.actionReady?.() ?? true)
+  const abortReady = createMemo(() => props.abortReady?.() ?? actionReady())
 
   const [store, setStore] = createStore<{
     popover: "at" | "slash" | null
@@ -1105,6 +1107,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     mode: () => store.mode,
     working,
     actionReady,
+    abortReady,
     editor: () => editorRef,
     queueScroll,
     promptLength,
@@ -1632,10 +1635,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
             <div class="flex items-center gap-2 pointer-events-auto">
               <SessionContextUsage placement="top" />
-              <Tooltip placement="top" inactive={actionReady() && !working() && blank()} value={tip()}>
+              <Tooltip placement="top" inactive={(working() ? abortReady() : actionReady()) && !working() && blank()} value={tip()}>
                 <SendButton
                   stopping={stopping()}
-                  disabled={!actionReady() || (!working() && blank() && !props.selectedSkill?.())}
+                  disabled={working() ? !abortReady() : !actionReady() || (blank() && !props.selectedSkill?.())}
                   aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
                 />
               </Tooltip>

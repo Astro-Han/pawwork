@@ -75,11 +75,20 @@ export function currentSessionActionReady(input: {
   sessionInfo: unknown
   rawMessages: unknown
   statusReady: boolean
+}) {
+  if (!input.sessionID) return true
+  return currentSessionCacheReady(input) && input.statusReady
+}
+
+export function currentSessionSubmitReady(input: {
+  sessionID: string | undefined
+  sessionInfo: unknown
+  rawMessages: unknown
+  statusReady: boolean
   localReady: boolean
   providerUsable: boolean
 }) {
-  if (!input.sessionID) return true
-  return currentSessionCacheReady(input) && input.statusReady && input.localReady && input.providerUsable
+  return currentSessionActionReady(input) && input.localReady && input.providerUsable
 }
 
 export function currentDirectoryProviderUsable(input: { providerReady: boolean; providerCount: number }) {
@@ -166,9 +175,18 @@ export function createSessionTimelineData(input: {
       rawMessages: id ? input.sync.data.message[id] : undefined,
     })
   })
-  const actionReady = createMemo(() => {
+  const sessionActionReady = createMemo(() => {
     const id = sessionID()
     return currentSessionActionReady({
+      sessionID: id,
+      sessionInfo: sessionInfo(),
+      rawMessages: id ? input.sync.data.message[id] : undefined,
+      statusReady: statusKnown(),
+    })
+  })
+  const actionReady = createMemo(() => {
+    const id = sessionID()
+    return currentSessionSubmitReady({
       sessionID: id,
       sessionInfo: sessionInfo(),
       rawMessages: id ? input.sync.data.message[id] : undefined,
@@ -285,6 +303,7 @@ export function createSessionTimelineData(input: {
     messageCachePresent,
     statusKnown,
     currentSessionCacheReady: currentSessionCacheReadyMemo,
+    sessionActionReady,
     actionReady,
     isChildSession,
     messages,

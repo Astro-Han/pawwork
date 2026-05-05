@@ -113,7 +113,8 @@ export default function Page() {
   const activeFileTab = tabState.activeFileTab
   const timelineSessionID = timeline.sessionID
   const timelineSessionKey = timeline.sessionKey
-  const actionReady = timeline.actionReady
+  const sessionActionReady = timeline.sessionActionReady
+  const submitReady = timeline.actionReady
   const timelineIsChildSession = timeline.isChildSession
   const haltAbort = (sessionID: string) =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
@@ -171,7 +172,7 @@ export default function Page() {
           visibleSessionID,
           routeReady: timeline.routeMessagesReady(),
           visibleReady: timelineMessagesReady(),
-          actionReady: actionReady(),
+          actionReady: submitReady(),
           messageCachePresent: timeline.messageCachePresent(),
           sessionInfoPresent: timeline.sessionInfoPresent(),
           statusKnown: timeline.statusKnown(),
@@ -466,13 +467,13 @@ export default function Page() {
       return id ? sync.data.message[id] : undefined
     },
   )
-  const busy = () => !actionReady() || timelineRunning()
+  const busy = () => !sessionActionReady() || timelineRunning()
 
   const followups = createSessionFollowups({
     directory: () => sdk.directory,
     client: () => sdk.client,
     sessionID: timelineSessionID,
-    actionReady,
+    actionReady: submitReady,
     isChildSession: timelineIsChildSession,
     busy,
     blocked: composer.blocked,
@@ -507,7 +508,7 @@ export default function Page() {
         directory,
       }
     },
-    actionReady,
+    actionReady: sessionActionReady,
     halt: haltWithSnapshot,
     draft: draftFrom,
     fail,
@@ -536,8 +537,9 @@ export default function Page() {
     <SessionPageComposerRegion
       variant={variant}
       state={composer}
-      ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : actionReady())}
-      actionReady={variant === "home" ? true : actionReady()}
+      ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : sessionActionReady())}
+      actionReady={variant === "home" ? true : submitReady()}
+      abortReady={variant === "home" ? true : sessionActionReady()}
       displaySessionID={variant === "session" ? timelineSessionID() : undefined}
       displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}
@@ -554,7 +556,7 @@ export default function Page() {
       onModeChange={ctx?.onModeChange}
       selectedSkill={ctx?.selectedSkill}
       followup={
-        variant === "session" && timelineSessionID() && actionReady() && !timelineIsChildSession()
+        variant === "session" && timelineSessionID() && submitReady() && !timelineIsChildSession()
           ? {
               queue: followups.queueEnabled,
               items: followups.followupDock(),
@@ -581,7 +583,7 @@ export default function Page() {
           ? {
               items: sessionRevert.rolled(),
               restoring: sessionRevert.restoring(),
-              disabled: sessionRevert.reverting() || !actionReady(),
+              disabled: sessionRevert.reverting() || !sessionActionReady(),
               onRestore: sessionRevert.restore,
             }
           : undefined

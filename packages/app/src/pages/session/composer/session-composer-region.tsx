@@ -23,6 +23,7 @@ export function SessionComposerRegion(props: {
   state: SessionComposerState
   ready: boolean
   actionReady?: boolean
+  abortReady?: boolean
   centered: boolean
   inputRef: (el: HTMLDivElement) => void
   newSessionWorktree: string
@@ -292,6 +293,7 @@ export function SessionComposerRegion(props: {
                       onSubmit={props.onSubmit}
                       onModeChange={props.onModeChange}
                       actionReady={() => props.actionReady ?? true}
+                      abortReady={() => props.abortReady ?? props.actionReady ?? true}
                       selectedSkill={props.selectedSkill}
                     />
                   </Show>

@@ -4,6 +4,7 @@ import {
   currentDirectoryProviderUsable,
   currentSessionActionReady,
   currentSessionCacheReady,
+  currentSessionSubmitReady,
   readTimelineMessages,
   readTimelineMessagesFromCache,
   sessionStatusKnown,
@@ -213,8 +214,6 @@ describe("currentSessionActionReady", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: false,
-        localReady: true,
-        providerUsable: true,
       }),
     ).toBe(false)
 
@@ -224,23 +223,19 @@ describe("currentSessionActionReady", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: true,
-        localReady: true,
-        providerUsable: true,
       }),
     ).toBe(true)
   })
 
-  test("waits for directory-local model selection and provider hydration", () => {
-    const ready = {
-      sessionID: "ses",
-      sessionInfo: { id: "ses" },
-      rawMessages: [],
-      statusReady: true,
-    }
-
-    expect(currentSessionActionReady({ ...ready, localReady: false, providerUsable: true })).toBe(false)
-    expect(currentSessionActionReady({ ...ready, localReady: true, providerUsable: false })).toBe(false)
-    expect(currentSessionActionReady({ ...ready, localReady: true, providerUsable: true })).toBe(true)
+  test("does not wait for model selection or provider hydration", () => {
+    expect(
+      currentSessionActionReady({
+        sessionID: "ses",
+        sessionInfo: { id: "ses" },
+        rawMessages: [],
+        statusReady: true,
+      }),
+    ).toBe(true)
   })
 
   test("treats a loaded empty status list as idle for an otherwise hydrated session", () => {
@@ -250,10 +245,23 @@ describe("currentSessionActionReady", () => {
         sessionInfo: { id: "ses" },
         rawMessages: [],
         statusReady: true,
-        localReady: true,
-        providerUsable: true,
       }),
     ).toBe(true)
+  })
+})
+
+describe("currentSessionSubmitReady", () => {
+  test("waits for directory-local model selection and provider hydration", () => {
+    const ready = {
+      sessionID: "ses",
+      sessionInfo: { id: "ses" },
+      rawMessages: [],
+      statusReady: true,
+    }
+
+    expect(currentSessionSubmitReady({ ...ready, localReady: false, providerUsable: true })).toBe(false)
+    expect(currentSessionSubmitReady({ ...ready, localReady: true, providerUsable: false })).toBe(false)
+    expect(currentSessionSubmitReady({ ...ready, localReady: true, providerUsable: true })).toBe(true)
   })
 })
 
@@ -288,7 +296,7 @@ describe("sessionStatusKnown", () => {
   test("allows degraded actions after status list hydration fails", () => {
     expect(sessionStatusKnown({ statusState: "error", status: undefined })).toBe(true)
     expect(
-      currentSessionActionReady({
+      currentSessionSubmitReady({
         sessionID: "ses",
         sessionInfo: { id: "ses" },
         rawMessages: [],

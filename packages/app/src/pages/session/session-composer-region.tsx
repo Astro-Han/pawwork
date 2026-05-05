@@ -9,6 +9,7 @@ export function SessionPageComposerRegion(props: {
   state: ReturnType<typeof createSessionComposerState>
   ready: boolean
   actionReady?: boolean
+  abortReady?: boolean
   displaySessionID?: string
   displaySessionKey?: string
   centered: boolean
