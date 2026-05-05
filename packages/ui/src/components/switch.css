@@ -20,23 +20,27 @@
   [data-slot="switch-control"] {
     display: inline-flex;
     align-items: center;
+    /* 28×16 track with 1px padding each side */
     width: 28px;
     height: 16px;
+    padding: 1px;
     flex-shrink: 0;
-    border-radius: 3px;
+    /* Pill shape */
+    border-radius: 9999px;
     border: 1px solid var(--border-weak);
     background: var(--surface-base);
     transition:
-      background-color 150ms,
-      border-color 150ms;
+      background-color var(--duration-base),
+      border-color var(--duration-base);
   }
 
   [data-slot="switch-thumb"] {
-    width: 14px;
-    height: 14px;
-    box-sizing: content-box;
+    /* 12×12 pill thumb */
+    width: 12px;
+    height: 12px;
+    box-sizing: border-box;
 
-    border-radius: 2px;
+    border-radius: 9999px;
     border: 1px solid var(--border-base);
     background: var(--fg-on-brand);
 
@@ -46,10 +50,11 @@
       0 1px 2px 0 rgba(19, 16, 16, 0.06),
       0 1px 3px 0 rgba(19, 16, 16, 0.08);
 
-    transform: translateX(-1px);
+    transform: translateX(0px);
+    /* Thumb translate uses fast token for snappiness */
     transition:
-      transform 150ms,
-      background-color 150ms;
+      transform var(--duration-fast),
+      background-color var(--duration-base);
   }
 
   [data-slot="switch-label"] {
@@ -81,9 +86,9 @@
     letter-spacing: var(--letter-spacing-normal);
   }
 
-  &:hover:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
-    border-color: var(--border-base);
-    background-color: var(--surface-raised);
+  /* Unchecked hover: subtle alpha overlay instead of surface swap */
+  &:hover:not([data-disabled], [data-readonly], [data-checked]) [data-slot="switch-control"] {
+    background-color: var(--hover-overlay);
   }
 
   &:not([data-readonly]) [data-slot="switch-input"]:focus-visible ~ [data-slot="switch-control"] {
@@ -91,21 +96,29 @@
     box-shadow: var(--shadow-xs-border-focus);
   }
 
+  /* Checked: brand-primary track */
   &[data-checked] [data-slot="switch-control"] {
     box-sizing: border-box;
-    border-color: var(--icon-strong);
-    background-color: var(--icon-strong);
+    border-color: var(--brand-primary);
+    background-color: var(--brand-primary);
   }
 
   &[data-checked] [data-slot="switch-thumb"] {
     border: none;
-    transform: translateX(12px);
+    /* 28px track - 12px thumb - 1px padding-left - 1px padding-right = 14px */
+    transform: translateX(14px);
     background-color: var(--fg-on-brand);
   }
 
+  /* Checked hover: brand-primary-hover */
   &[data-checked]:hover:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
-    border-color: var(--border-base);
-    background-color: var(--surface-raised);
+    border-color: var(--brand-primary-hover);
+    background-color: var(--brand-primary-hover);
+  }
+
+  /* Press active: surface-base-active */
+  &:active:not([data-disabled], [data-readonly]) [data-slot="switch-control"] {
+    background-color: var(--surface-base-active);
   }
 
   &[data-disabled] {

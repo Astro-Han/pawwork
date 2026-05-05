@@ -5,12 +5,8 @@
     width: 100%;
     color: var(--fg-strong);
 
-    /* text-14-regular */
-    font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large); /* 142.857% */
+    /* text-13-medium */
+    font: var(--font-weight-medium) var(--font-size-small)/1 var(--font-family-sans);
     letter-spacing: var(--letter-spacing-normal);
 
     &:focus {
@@ -42,27 +38,33 @@
 
     [data-slot="input-wrapper"] {
       display: flex;
-      align-items: start;
+      align-items: center;
       justify-content: space-between;
       width: 100%;
-      padding-right: 4px;
+      position: relative;
 
+      height: 28px;
+      padding: 0 12px;
       border-radius: var(--radius-md);
       border: 1px solid var(--border-weak);
       background: var(--surface-sunken);
+
+      transition: box-shadow var(--duration-base);
 
       &:focus-within:not(:has([data-readonly])) {
         border-color: transparent;
         box-shadow: var(--shadow-xs-border-focus);
       }
 
+      /* Error state: ring only, no background tint */
       &:has([data-invalid]) {
-        background: var(--error-bg);
-        border: 1px solid var(--error);
+        border-color: transparent;
+        box-shadow: var(--shadow-xs-border-critical-base);
       }
 
-      &:not(:has([data-slot="input-copy-button"])) {
-        padding-right: 0;
+      /* Error + focus: elevated critical ring */
+      &:has([data-invalid]):focus-within:not(:has([data-readonly])) {
+        box-shadow: var(--shadow-xs-border-critical-focus);
       }
     }
 
@@ -70,8 +72,7 @@
       color: var(--fg-strong);
 
       display: flex;
-      height: 32px;
-      padding: 2px 12px;
+      height: 100%;
       align-items: center;
       flex: 1;
       min-width: 0;
@@ -79,12 +80,8 @@
       background: transparent;
       border: none;
 
-      /* text-14-regular */
-      font-family: var(--font-family-sans);
-      font-size: var(--font-size-base);
-      font-style: normal;
-      font-weight: var(--font-weight-regular);
-      line-height: var(--line-height-large); /* 142.857% */
+      /* text-13-medium */
+      font: var(--font-weight-medium) var(--font-size-small)/1 var(--font-family-sans);
       letter-spacing: var(--letter-spacing-normal);
 
       &:focus {
@@ -98,14 +95,24 @@
 
     textarea[data-slot="input-input"] {
       height: auto;
-      min-height: 32px;
-      padding: 6px 12px;
+      min-height: 28px;
+      padding: 6px 0;
       resize: none;
+    }
+
+    /* Error icon: 16×16 indicator on the right of the wrapper */
+    [data-slot="input-error-icon"] {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      /* Triangle warning shape via clip-path — no icon dependency */
+      background-color: var(--error);
+      clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+      opacity: 0.85;
     }
 
     [data-slot="input-copy-button"] {
       flex-shrink: 0;
-      margin-top: 4px;
       color: var(--icon-base);
 
       &:hover {
@@ -123,6 +130,48 @@
       font-weight: var(--font-weight-medium);
       line-height: 18px; /* 150% */
       letter-spacing: var(--letter-spacing-normal);
+    }
+  }
+
+  /* Ghost variant: borderless, only bottom border, used in search bars / inline editors */
+  &[data-variant="ghost"] {
+    [data-slot="input-wrapper"] {
+      display: flex;
+      align-items: center;
+      width: 100%;
+
+      padding: 10px 12px;
+      border-radius: 0;
+      border: none;
+      border-bottom: 1px solid var(--border-weaker);
+      background: transparent;
+
+      &:focus-within {
+        outline: none;
+        border-bottom-color: var(--border-base);
+      }
+    }
+
+    [data-slot="input-input"] {
+      color: var(--fg-strong);
+
+      display: flex;
+      flex: 1;
+      min-width: 0;
+
+      background: transparent;
+      border: none;
+
+      font: var(--font-weight-medium) var(--font-size-small)/1 var(--font-family-sans);
+      letter-spacing: var(--letter-spacing-normal);
+
+      &:focus {
+        outline: none;
+      }
+
+      &::placeholder {
+        color: var(--fg-weak);
+      }
     }
   }
 }

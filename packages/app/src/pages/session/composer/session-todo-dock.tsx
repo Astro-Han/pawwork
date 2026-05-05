@@ -1,6 +1,6 @@
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { AnimatedNumber } from "@opencode-ai/ui/animated-number"
-import { Checkbox } from "@opencode-ai/ui/checkbox"
+import { Icon } from "@opencode-ai/ui/icon"
 import { DockTray } from "@opencode-ai/ui/dock-surface"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
@@ -16,30 +16,6 @@ import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 const currentToken = "\u0000current\u0000"
 const totalToken = "\u0000total\u0000"
 
-function dot(status: Todo["status"]) {
-  if (status !== "in_progress") return undefined
-  return (
-    <svg
-      viewBox="0 0 12 12"
-      width="12"
-      height="12"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      class="block"
-    >
-      <circle
-        cx="6"
-        cy="6"
-        r="3"
-        style={{
-          animation: "var(--animate-pulse-scale)",
-          "transform-origin": "center",
-          "transform-box": "fill-box",
-        }}
-      />
-    </svg>
-  )
-}
 
 export function SessionTodoDock(props: {
   sessionID?: string
@@ -247,20 +223,24 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
       >
         <Index each={props.todos}>
           {(todo) => (
-            <Checkbox
-              readOnly
-              checked={todo().status === "completed"}
-              indeterminate={todo().status === "in_progress"}
-              data-in-progress={todo().status === "in_progress" ? "" : undefined}
+            <div
+              data-slot="session-todo-item"
               data-state={todo().status}
-              icon={dot(todo().status)}
+              class="flex gap-2 items-start"
               style={{
-                "--checkbox-align": "flex-start",
-                "--checkbox-offset": "1px",
                 transition: "opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
                 opacity: todo().status === "pending" ? "0.94" : "1",
               }}
             >
+              <Icon
+                name={todo().status === "completed" ? "circle-check" : "circle"}
+                size="small"
+                style={{
+                  color: "var(--icon-base)",
+                  "flex-shrink": "0",
+                  "margin-top": "1px",
+                }}
+              />
               <TextStrikethrough
                 active={todo().status === "completed" || todo().status === "cancelled"}
                 text={todo().content}
@@ -276,7 +256,7 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
                   opacity: todo().status === "pending" ? "0.92" : "1",
                 }}
               />
-            </Checkbox>
+            </div>
           )}
         </Index>
       </div>

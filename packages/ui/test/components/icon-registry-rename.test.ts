@@ -14,3 +14,21 @@ describe("icon registry agent rename (#128)", () => {
     expect((icons as Record<string, string>).agent).toMatch(/<g[\s>]/)
   })
 })
+
+describe("icon registry slice-05 additions (#440)", () => {
+  test("circle icon exists for pending todo", () => {
+    expect(Object.keys(icons)).toContain("circle")
+  })
+
+  test("diff-unified icon exists for unified diff toggle", () => {
+    expect(Object.keys(icons)).toContain("diff-unified")
+  })
+
+  test("diff-split icon exists for split diff toggle", () => {
+    expect(Object.keys(icons)).toContain("diff-split")
+  })
+
+  test("circle-check still exists for completed todo", () => {
+    expect(Object.keys(icons)).toContain("circle-check")
+  })
+})

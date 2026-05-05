@@ -18,7 +18,7 @@ export type SelectProps<T> = Omit<ComponentProps<typeof Kobalte<T>>, "value" | "
   classList?: ComponentProps<"div">["classList"]
   children?: (item: T | undefined) => JSX.Element
   triggerStyle?: JSX.CSSProperties
-  triggerVariant?: "settings"
+  triggerVariant?: "settings" | "review-filter"
   triggerProps?: Record<string, string | number | boolean | undefined>
 }
 

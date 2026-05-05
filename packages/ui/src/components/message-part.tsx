@@ -40,7 +40,6 @@ import { Collapsible } from "./collapsible"
 import { FileIcon } from "./file-icon"
 import { Icon } from "./icon"
 import { ToolErrorCard } from "./tool-error-card"
-import { Checkbox } from "./checkbox"
 import { DiffChanges } from "./diff-changes"
 import { Markdown } from "./markdown"
 import { ImagePreview } from "./image-preview"
@@ -2323,14 +2322,19 @@ ToolRegistry.register({
           <div data-component="todos">
             <For each={todos()}>
               {(todo: Todo) => (
-                <Checkbox readOnly checked={todo.status === "completed"}>
+                <div data-slot="message-part-todo-item" data-state={todo.status}>
+                  <Icon
+                    name={todo.status === "completed" ? "circle-check" : "circle"}
+                    size="small"
+                    style={{ color: "var(--icon-base)", "flex-shrink": "0" }}
+                  />
                   <span
                     data-slot="message-part-todo-content"
                     data-completed={todo.status === "completed" ? "completed" : undefined}
                   >
                     {todo.content}
                   </span>
-                </Checkbox>
+                </div>
               )}
             </For>
           </div>

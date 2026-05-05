@@ -24,6 +24,7 @@ export interface TextFieldProps
   label?: string
   hideLabel?: boolean
   description?: string
+  /** Error message text. When set, the field enters invalid state and shows an error icon. */
   error?: string
   variant?: "normal" | "ghost"
   copyable?: boolean
@@ -78,6 +79,9 @@ export function TextField(props: TextFieldProps) {
     if (local.copyable) void handleCopy()
   }
 
+  // Derive validationState: explicit prop wins, otherwise error string implies invalid
+  const validationState = () => local.validationState ?? (local.error ? "invalid" : undefined)
+
   return (
     <Kobalte
       data-component="input"
@@ -91,7 +95,7 @@ export function TextField(props: TextFieldProps) {
       required={local.required}
       disabled={local.disabled}
       readOnly={local.readOnly}
-      validationState={local.validationState}
+      validationState={validationState()}
     >
       <Show when={local.label}>
         <Kobalte.Label data-slot="input-label" classList={{ "sr-only": local.hideLabel }}>
@@ -104,6 +108,10 @@ export function TextField(props: TextFieldProps) {
           fallback={<Kobalte.Input {...others} data-slot="input-input" class={local.class} />}
         >
           <Kobalte.TextArea {...others} autoResize data-slot="input-input" class={local.class} />
+        </Show>
+        {/* Error icon shown on the right when in invalid state */}
+        <Show when={local.error}>
+          <div data-slot="input-error-icon" aria-hidden="true" />
         </Show>
         <Show when={local.copyable}>
           <Tooltip value={label()} placement="top" gutter={4} forceOpen={copied()} skipDelayDuration={0}>

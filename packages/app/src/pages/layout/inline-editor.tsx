@@ -1,6 +1,6 @@
 import { createStore } from "solid-js/store"
 import { onCleanup, Show, type Accessor } from "solid-js"
-import { InlineInput } from "@opencode-ai/ui/inline-input"
+import { TextField } from "@opencode-ai/ui/text-field"
 
 export function createInlineEditorController() {
   // This controller intentionally supports one active inline editor at a time.
@@ -84,8 +84,11 @@ export function createInlineEditorController() {
           </span>
         }
       >
-        <InlineInput
-          ref={(el) => {
+        <TextField
+          variant="ghost"
+          hideLabel
+          label=""
+          ref={(el: HTMLInputElement) => {
             if (frame !== undefined) cancelAnimationFrame(frame)
             frame = requestAnimationFrame(() => {
               frame = undefined
@@ -95,8 +98,8 @@ export function createInlineEditorController() {
           }}
           value={editorValue()}
           class={props.class}
-          onInput={(event) => setEditor("value", event.currentTarget.value)}
-          onKeyDown={(event) => {
+          onInput={(event: InputEvent & { currentTarget: HTMLInputElement }) => setEditor("value", event.currentTarget.value)}
+          onKeyDown={(event: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
             event.stopPropagation()
             editorKeyDown(event, props.onSave)
           }}

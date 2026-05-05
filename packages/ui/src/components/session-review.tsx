@@ -1,7 +1,6 @@
 import { Accordion } from "./accordion"
 import { Button } from "./button"
 import { DropdownMenu } from "./dropdown-menu"
-import { RadioGroup } from "./radio-group"
 import { DiffChanges } from "./diff-changes"
 import { FileIcon } from "./file-icon"
 import { Icon } from "./icon"
@@ -349,16 +348,26 @@ export const SessionReview = (props: SessionReviewProps) => {
         </div>
         <div data-slot="session-review-actions">
           <Show when={hasDiffs() && props.onDiffStyleChange}>
-            <RadioGroup
-              options={["unified", "split"] as const}
-              current={diffStyle()}
-              size="small"
-              value={(style) => style}
-              label={(style) =>
-                i18n.t(style === "unified" ? "ui.sessionReview.diffStyle.unified" : "ui.sessionReview.diffStyle.split")
-              }
-              onSelect={(style) => style && props.onDiffStyleChange?.(style)}
-            />
+            <div data-slot="session-review-diff-toggle" style={{ display: "flex", gap: "2px" }}>
+              <IconButton
+                size="small"
+                variant="ghost"
+                icon="diff-unified"
+                aria-pressed={diffStyle() === "unified"}
+                aria-label={i18n.t("ui.sessionReview.diffStyle.unified")}
+                data-active={diffStyle() === "unified" ? "true" : "false"}
+                onClick={() => props.onDiffStyleChange?.("unified")}
+              />
+              <IconButton
+                size="small"
+                variant="ghost"
+                icon="diff-split"
+                aria-pressed={diffStyle() === "split"}
+                aria-label={i18n.t("ui.sessionReview.diffStyle.split")}
+                data-active={diffStyle() === "split" ? "true" : "false"}
+                onClick={() => props.onDiffStyleChange?.("split")}
+              />
+            </div>
           </Show>
           <Show when={hasDiffs()}>
             <Button
