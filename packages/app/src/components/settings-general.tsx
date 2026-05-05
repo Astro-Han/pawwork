@@ -618,7 +618,7 @@ export const SettingsGeneral: Component = () => {
           title={language.t("settings.updates.row.check.title")}
           description={language.t("settings.updates.row.check.description")}
         >
-          <Button size="small" variant="secondary" disabled={store.checking || !canCheckUpdate(platform)} onClick={check}>
+          <Button variant="secondary" disabled={store.checking || !canCheckUpdate(platform)} onClick={check}>
             {store.checking
               ? language.t("settings.updates.action.checking")
               : language.t("settings.updates.action.checkNow")}

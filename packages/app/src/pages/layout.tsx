@@ -1785,10 +1785,10 @@ export default function Layout(props: ParentProps) {
             <span class="text-13-regular text-fg-weak">{description()}</span>
           </div>
           <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+            <Button variant="ghost" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
             </Button>
-            <Button variant="primary" size="large" disabled={data.status === "loading"} onClick={handleDelete}>
+            <Button variant="primary" disabled={data.status === "loading"} onClick={handleDelete}>
               {language.t("workspace.delete.button")}
             </Button>
           </div>
@@ -1861,10 +1861,10 @@ export default function Layout(props: ParentProps) {
             </span>
           </div>
           <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
+            <Button variant="ghost" onClick={() => dialog.close()}>
               {language.t("common.cancel")}
             </Button>
-            <Button variant="primary" size="large" disabled={state.status === "loading"} onClick={handleReset}>
+            <Button variant="primary" disabled={state.status === "loading"} onClick={handleReset}>
               {language.t("workspace.reset.button")}
             </Button>
           </div>

@@ -424,10 +424,10 @@ export const LineCommentEditor = (props: LineCommentEditorProps) => {
               </>
             }
           >
-            <Button size="small" variant="ghost" onClick={split.onCancel}>
+            <Button variant="ghost" onClick={split.onCancel}>
               {split.cancelLabel ?? i18n.t("ui.common.cancel")}
             </Button>
-            <Button size="small" variant="primary" disabled={split.value.trim().length === 0} onClick={submit}>
+            <Button variant="primary" disabled={split.value.trim().length === 0} onClick={submit}>
               {split.submitLabel ?? i18n.t("ui.lineComment.submit")}
             </Button>
           </Show>

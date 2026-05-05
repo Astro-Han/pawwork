@@ -100,16 +100,16 @@ export function DialogReleaseNotes(props: { highlights: Highlight[] }) {
           <div class="flex flex-col gap-12 shrink-0">
             <div class="flex flex-col items-start gap-3">
               {isLast() ? (
-                <Button variant="primary" size="large" onClick={handleClose}>
+                <Button variant="primary" onClick={handleClose}>
                   {language.t("dialog.releaseNotes.action.getStarted")}
                 </Button>
               ) : (
-                <Button variant="secondary" size="large" onClick={handleNext}>
+                <Button variant="secondary" onClick={handleNext}>
                   {language.t("dialog.releaseNotes.action.next")}
                 </Button>
               )}
 
-              <Button variant="ghost" size="small" onClick={handleDisable}>
+              <Button variant="ghost" onClick={handleDisable}>
                 {language.t("dialog.releaseNotes.action.hideFuture")}
               </Button>
             </div>

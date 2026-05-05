@@ -270,7 +270,7 @@ export function DialogConnectProvider(props: { provider: string }) {
                 setFormStore("value", prompt.key, value)
               }}
             />
-            <Button class="w-auto" type="submit" size="large" variant="primary" disabled={!valid()}>
+            <Button class="w-auto" type="submit" variant="primary" disabled={!valid()}>
               {language.t("common.continue")}
             </Button>
           </Match>
@@ -453,7 +453,7 @@ export function DialogConnectProvider(props: { provider: string }) {
             validationState={formStore.error ? "invalid" : undefined}
             error={formStore.error}
           />
-          <Button class="w-auto" type="submit" size="large" variant="primary">
+          <Button class="w-auto" type="submit" variant="primary">
             {language.t("common.continue")}
           </Button>
         </form>
@@ -514,7 +514,7 @@ export function DialogConnectProvider(props: { provider: string }) {
             validationState={formStore.error ? "invalid" : undefined}
             error={formStore.error}
           />
-          <Button class="w-auto" type="submit" size="large" variant="primary">
+          <Button class="w-auto" type="submit" variant="primary">
             {language.t("common.continue")}
           </Button>
         </form>

@@ -167,7 +167,7 @@ export const SettingsProviders: Component = () => {
                         </span>
                       }
                     >
-                      <Button size="large" variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
+                      <Button variant="ghost" onClick={() => void disconnect(item.id, item.name)}>
                         {language.t("common.disconnect")}
                       </Button>
                     </Show>

@@ -43,7 +43,7 @@ export function SettingsWorktreeRow(props: {
               </span>
             </div>
             <div class="flex shrink-0 items-center gap-2">
-              <Button variant="ghost" size="small" disabled={props.deleting} onClick={props.onCancelDelete}>
+              <Button variant="ghost" disabled={props.deleting} onClick={props.onCancelDelete}>
                 {language.t("settings.worktrees.confirmDelete.cancelLabel")}
               </Button>
               <Button

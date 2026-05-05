@@ -119,11 +119,10 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
         spellcheck={false}
       />
       <div class="flex gap-2">
-        <Button size="large" variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
+        <Button variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
           {language.t("dialog.websearch.action.removeShort")}
         </Button>
         <Button
-          size="large"
           variant="primary"
           disabled={saving() || removing() || apiKeyInput().trim() === ""}
           onClick={handleSave}
@@ -159,7 +158,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
             <Match when={statusError()}>
               <div class="flex flex-col gap-4">
                 <div class="text-13-regular text-fg-base">{language.t("dialog.websearch.status.error")}</div>
-                <Button size="large" variant="primary" onClick={() => void webSearchStatusActions.refetch()}>
+                <Button variant="primary" onClick={() => void webSearchStatusActions.refetch()}>
                   {language.t("dialog.websearch.action.retry")}
                 </Button>
               </div>
@@ -179,11 +178,10 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
               <div class="flex flex-col gap-4">
                 <div class="text-13-regular text-fg-base">{language.t("dialog.websearch.status.active")}</div>
                 <div class="flex gap-2">
-                  <Button size="large" variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
+                  <Button variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
                     {language.t("dialog.websearch.action.remove")}
                   </Button>
                   <Button
-                    size="large"
                     variant="primary"
                     disabled={saving() || removing() || apiKeyInput().trim() === ""}
                     onClick={handleSave}

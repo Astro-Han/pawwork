@@ -5,18 +5,16 @@ import { Icon, IconProps } from "./icon"
 export interface ButtonProps
   extends ComponentProps<typeof Kobalte>,
     Pick<ComponentProps<"button">, "class" | "classList" | "children"> {
-  size?: "small" | "normal" | "large"
-  variant?: "primary" | "secondary" | "ghost"
+  variant?: "primary" | "secondary" | "ghost" | "danger"
   icon?: IconProps["name"]
 }
 
 export function Button(props: ButtonProps) {
-  const [split, rest] = splitProps(props, ["variant", "size", "icon", "class", "classList"])
+  const [split, rest] = splitProps(props, ["variant", "icon", "class", "classList"])
   return (
     <Kobalte
       {...rest}
       data-component="button"
-      data-size={split.size || "normal"}
       data-variant={split.variant || "secondary"}
       data-icon={split.icon}
       classList={{

@@ -72,7 +72,7 @@ export default function Home() {
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
       <Logo class="md:w-xl opacity-12" />
       <Button
-        size="large"
+
         variant="ghost"
         class="mt-4 mx-auto text-13-regular text-fg-weak"
         onClick={() => dialog.show(() => <DialogSelectServer />)}
@@ -90,7 +90,7 @@ export default function Home() {
           <div class="mt-20 w-full flex flex-col gap-4">
             <div class="flex gap-2 items-center justify-between pl-3">
               <div class="text-13-medium text-fg-strong">{language.t("home.recentProjects")}</div>
-              <Button icon="folder-add-left" size="normal" class="pl-2 pr-3" onClick={chooseProject}>
+              <Button icon="folder-add-left" class="pl-2 pr-3" onClick={chooseProject}>
                 {language.t("command.project.open")}
               </Button>
             </div>
@@ -98,7 +98,7 @@ export default function Home() {
               <For each={recent()}>
                 {(project) => (
                   <Button
-                    size="large"
+
                     variant="ghost"
                     class="text-14-mono text-left justify-between px-3"
                     onClick={() => openProject(project.worktree)}
