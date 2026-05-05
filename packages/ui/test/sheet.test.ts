@@ -27,6 +27,14 @@ describe("Sheet component (issue #440)", () => {
     expect(SHEET_SRC).toContain('"right" | "left" | "top" | "bottom"')
   })
 
+  test("SheetProps has open prop", () => {
+    expect(SHEET_SRC).toContain("open: boolean")
+  })
+
+  test("SheetProps has onOpenChange prop", () => {
+    expect(SHEET_SRC).toContain("onOpenChange: (open: boolean) => void")
+  })
+
   test("SheetProps has side prop", () => {
     expect(SHEET_SRC).toContain("side?: SheetSide")
   })
@@ -70,5 +78,25 @@ describe("Sheet component (issue #440)", () => {
 
   test("close button is included in header", () => {
     expect(SHEET_SRC).toContain('data-slot="sheet-close-button"')
+  })
+
+  test("Kobalte Root wraps with modal open onOpenChange", () => {
+    // Root must exist with controlled props for open/close state, focus-trap, Escape key
+    expect(SHEET_SRC).toContain("open={props.open}")
+    expect(SHEET_SRC).toContain("onOpenChange={props.onOpenChange}")
+  })
+
+  test("Kobalte.Portal is used for proper stacking", () => {
+    expect(SHEET_SRC).toContain("Kobalte.Portal")
+  })
+
+  test("dialog-overlay is used for scrim (var(--scrim-overlay))", () => {
+    // Reuses shared dialog-overlay which has the scrim token
+    expect(SHEET_SRC).toContain('data-component="dialog-overlay"')
+  })
+
+  test("CloseButton uses IconButton with aria-label", () => {
+    expect(SHEET_SRC).toContain("as={IconButton}")
+    expect(SHEET_SRC).toContain('aria-label={i18n.t("ui.common.close")}')
   })
 })

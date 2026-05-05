@@ -1,14 +1,15 @@
 // @ts-nocheck
-import { onMount } from "solid-js"
+import { createSignal, onMount } from "solid-js"
 import * as mod from "./sheet"
 import { Button } from "./button"
-import { useDialog } from "../context/dialog"
 
 const docs = `### Overview
 Sheet is a slide-in panel that enters from one of four edges (right, left, top, bottom).
 It reuses the Dialog overlay scrim and Kobalte Dialog primitives.
 
 ### API
+- \`open\`: boolean — controlled open state (required)
+- \`onOpenChange\`: (open: boolean) => void — called when open state should change (required)
 - \`side\`: "right" (default) | "left" | "top" | "bottom"
 - Optional: \`title\`, \`footer\`, \`class\`, \`classList\`.
 
@@ -17,12 +18,12 @@ It reuses the Dialog overlay scrim and Kobalte Dialog primitives.
 - Optional header (title + close button) and footer slots.
 
 ### Behavior
-- Use with Kobalte.Root (Dialog.Root) for open/close state management.
-- useSheet context is planned as future work.
+- Controlled component: caller manages open/close state via \`open\` and \`onOpenChange\`.
 
 ### Accessibility
 - Close button in header when title is provided.
 - Kobalte manages focus trap and aria attributes.
+- Overlay scrim uses var(--scrim-overlay) token.
 
 ### Theming/tokens
 - Uses \`data-component="sheet"\` and \`data-side\` for CSS targeting.
@@ -47,20 +48,17 @@ export default {
 export const RightDefault = {
   name: "Right (default)",
   render: () => {
-    const dialog = useDialog()
-    const open = () =>
-      dialog.show(() => (
-        <mod.Sheet title="Right Sheet">
+    const [open, setOpen] = createSignal(false)
+    onMount(() => setOpen(true))
+    return (
+      <>
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          Open right sheet
+        </Button>
+        <mod.Sheet open={open()} onOpenChange={setOpen} title="Right Sheet" side="right">
           Sheet body content slides in from the right.
         </mod.Sheet>
-      ))
-
-    onMount(open)
-
-    return (
-      <Button variant="secondary" onClick={open}>
-        Open right sheet
-      </Button>
+      </>
     )
   },
 }
@@ -68,20 +66,16 @@ export const RightDefault = {
 export const LeftSheet = {
   name: "Left",
   render: () => {
-    const dialog = useDialog()
+    const [open, setOpen] = createSignal(false)
     return (
-      <Button
-        variant="secondary"
-        onClick={() =>
-          dialog.show(() => (
-            <mod.Sheet title="Left Sheet" side="left">
-              Sheet body content slides in from the left.
-            </mod.Sheet>
-          ))
-        }
-      >
-        Open left sheet
-      </Button>
+      <>
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          Open left sheet
+        </Button>
+        <mod.Sheet open={open()} onOpenChange={setOpen} title="Left Sheet" side="left">
+          Sheet body content slides in from the left.
+        </mod.Sheet>
+      </>
     )
   },
 }
@@ -89,18 +83,24 @@ export const LeftSheet = {
 export const WithFooter = {
   name: "With Footer",
   render: () => {
-    const dialog = useDialog()
-    const open = () =>
-      dialog.show(() => (
+    const [open, setOpen] = createSignal(false)
+    onMount(() => setOpen(true))
+    return (
+      <>
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          Open sheet with footer
+        </Button>
         <mod.Sheet
+          open={open()}
+          onOpenChange={setOpen}
           title="Sheet with Footer"
           side="right"
           footer={
             <>
-              <Button variant="ghost" onClick={() => dialog.close()}>
+              <Button variant="ghost" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={() => dialog.close()}>
+              <Button variant="primary" onClick={() => setOpen(false)}>
                 Confirm
               </Button>
             </>
@@ -108,14 +108,7 @@ export const WithFooter = {
         >
           Sheet body content. The footer contains action buttons.
         </mod.Sheet>
-      ))
-
-    onMount(open)
-
-    return (
-      <Button variant="secondary" onClick={open}>
-        Open sheet with footer
-      </Button>
+      </>
     )
   },
 }
