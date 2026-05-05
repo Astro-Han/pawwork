@@ -981,6 +981,8 @@ export const dict = {
   "settings.permissions.tool.doom_loop.title": "死循环",
   "settings.permissions.tool.doom_loop.description": "检测具有相同输入的重复工具调用",
 
+  "session.rename.title": "重命名对话",
+  "session.rename.hint": "简短易识别",
   "session.delete.failed.title": "删除会话失败",
   "session.delete.title": "删除会话",
   "session.delete.confirm": '删除会话 "{{name}}"？',

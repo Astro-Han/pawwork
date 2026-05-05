@@ -148,8 +148,7 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
         container: props.classes?.container ?? "pl-3",
       }}
       diffs={props.diffs()}
-      diffStyle={layout.review.diffStyle()}
-      onDiffStyleChange={layout.review.setDiffStyle}
+      diffStyle="unified"
       onViewFile={props.onViewFile}
       focusedFile={props.focusedFile}
       readFile={readFile}

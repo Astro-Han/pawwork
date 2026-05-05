@@ -5,10 +5,11 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
-import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
-import { createInlineEditorController } from "./inline-editor"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem } from "./sidebar-items"
@@ -58,8 +59,7 @@ export const PawworkSidebar = (props: {
   settingsKeybind: Accessor<string | undefined>
 }): JSX.Element => {
   const language = useLanguage()
-  const editor = createInlineEditorController()
-  const [pendingRenameID, setPendingRenameID] = createSignal<string>()
+  const dialog = useDialog()
   const navList = createMemo(() => props.sessions().map((item) => item.session))
   let scrollEl: HTMLDivElement | undefined
   const byID = createMemo(() => new Map(props.sessions().map((item) => [item.session.id, item] as const)))
@@ -168,16 +168,10 @@ export const PawworkSidebar = (props: {
                 ? getRelativeTime(new Date(entry.item.created).toISOString(), language.t)
                 : undefined
             }
-            titleContent={({ session: rowSession, title }) => (
-              <editor.InlineEditor
-                id={`pawwork-session:${rowSession.id}`}
-                value={title}
-                onSave={(next) => {
-                  void props.onRenameSession(rowSession, next)
-                }}
-                class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate"
-                displayClass="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate"
-              />
+            titleContent={({ title }) => (
+              <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">
+                {title()}
+              </span>
             )}
             actionSlot={(rowSession) => (
               <DropdownMenu>
@@ -195,19 +189,15 @@ export const PawworkSidebar = (props: {
                   }}
                 />
                 <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    onCloseAutoFocus={(event) => {
-                      if (pendingRenameID() !== rowSession.id) return
-                      event.preventDefault()
-                      setPendingRenameID(undefined)
-                      requestAnimationFrame(() => {
-                        editor.openEditor(`pawwork-session:${rowSession.id}`, rowSession.title ?? "")
-                      })
-                    }}
-                  >
+                  <DropdownMenu.Content>
                     {renderDropdownActions(
                       menuActions(rowSession, () => {
-                        setPendingRenameID(rowSession.id)
+                        dialog.show(() => (
+                          <DialogRenameSession
+                            name={rowSession.title ?? ""}
+                            onConfirm={(next) => void props.onRenameSession(rowSession, next)}
+                          />
+                        ))
                       }),
                     )}
                   </DropdownMenu.Content>
@@ -220,7 +210,12 @@ export const PawworkSidebar = (props: {
           <ContextMenu.Content>
             {renderContextActions(
               menuActions(session, () => {
-                editor.openEditor(`pawwork-session:${session.id}`, session.title ?? "")
+                dialog.show(() => (
+                  <DialogRenameSession
+                    name={session.title ?? ""}
+                    onConfirm={(next) => void props.onRenameSession(session, next)}
+                  />
+                ))
               }),
             )}
           </ContextMenu.Content>

@@ -2324,24 +2324,9 @@ ToolRegistry.register({
               {(todo: Todo) => (
                 <div data-slot="message-part-todo-item" data-state={todo.status}>
                   <Icon
-                    name={
-                      todo.status === "completed"
-                        ? "checklist"
-                        : todo.status === "in_progress"
-                          ? "circle"
-                          : "bullet-list"
-                    }
+                    name={todo.status === "completed" ? "circle-check" : "circle"}
                     size="small"
-                    style={{
-                      color:
-                        todo.status === "in_progress"
-                          ? "var(--brand-primary)"
-                          : "var(--icon-base)",
-                      "flex-shrink": "0",
-                      ...(todo.status === "in_progress"
-                        ? { animation: "var(--animate-pw-spin)" }
-                        : {}),
-                    }}
+                    style={{ color: "var(--icon-base)", "flex-shrink": "0" }}
                   />
                   <span
                     data-slot="message-part-todo-content"

@@ -24,6 +24,7 @@
     width: 28px;
     height: 16px;
     padding: 1px;
+    box-sizing: border-box;
     flex-shrink: 0;
     /* Pill shape */
     border-radius: 9999px;
@@ -98,15 +99,14 @@
 
   /* Checked: brand-primary track */
   &[data-checked] [data-slot="switch-control"] {
-    box-sizing: border-box;
     border-color: var(--brand-primary);
     background-color: var(--brand-primary);
   }
 
   &[data-checked] [data-slot="switch-thumb"] {
     border: none;
-    /* 28px track - 12px thumb - 1px padding-left - 1px padding-right = 14px */
-    transform: translateX(14px);
+    /* 28px track (border-box) - 12px thumb - 1px padding-left - 1px padding-right - 2px border = 12px */
+    transform: translateX(12px);
     background-color: var(--fg-on-brand);
   }
 
