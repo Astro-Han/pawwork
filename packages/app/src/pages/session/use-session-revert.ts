@@ -6,6 +6,8 @@ import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
 
+type SyncSetter = ReturnType<typeof useSync>["set"]
+
 export function rolledRevertItems(input: {
   revertMessageID: string | undefined
   messages: UserMessage[]
@@ -32,33 +34,36 @@ export function createSessionRevert(input: {
   lineText: (id: string) => string
   prompt: ReturnType<typeof usePrompt>
   sync: ReturnType<typeof useSync>
-  client: () => ReturnType<typeof useSDK>["client"]
+  snapshot: () => {
+    client: ReturnType<typeof useSDK>["client"]
+    setStore: SyncSetter
+  }
   actionReady: () => boolean
-  halt: (sessionID: string) => Promise<unknown>
+  halt: (client: ReturnType<typeof useSDK>["client"], sessionID: string) => Promise<unknown>
   draft: (id: string) => Prompt
   fail: (err: unknown) => void
-  merge: (next: Session) => void
-  roll: (sessionID: string, next: Session["revert"]) => void
+  merge: (setStore: SyncSetter, next: Session) => void
+  roll: (setStore: SyncSetter, sessionID: string, next: Session["revert"]) => void
 }) {
   const revertMutation = useMutation(() => ({
     mutationFn: async (request: { sessionID: string; messageID: string }) => {
-      const client = input.client()
+      const snapshot = input.snapshot()
       const prev = input.prompt.current().slice()
       const last = input.sync.session.get(request.sessionID)?.revert
       const value = input.draft(request.messageID)
       batch(() => {
-        input.roll(request.sessionID, { messageID: request.messageID })
+        input.roll(snapshot.setStore, request.sessionID, { messageID: request.messageID })
         input.prompt.set(value)
       })
       await input
-        .halt(request.sessionID)
-        .then(() => client.session.revert(request, { throwOnError: true }))
+        .halt(snapshot.client, request.sessionID)
+        .then(() => snapshot.client.session.revert(request, { throwOnError: true }))
         .then((result) => {
-          if (result.data) input.merge(result.data)
+          if (result.data) input.merge(snapshot.setStore, result.data)
         })
         .catch((err) => {
           batch(() => {
-            input.roll(request.sessionID, last)
+            input.roll(snapshot.setStore, request.sessionID, last)
             input.prompt.set(prev)
           })
           input.fail(err)
@@ -68,14 +73,14 @@ export function createSessionRevert(input: {
 
   const restoreMutation = useMutation(() => ({
     mutationFn: async (request: { sessionID: string; id: string }) => {
-      const client = input.client()
+      const snapshot = input.snapshot()
       const messages = readUserMessages(readSessionMessages(input.sync.data.message[request.sessionID]))
       const next = nextRestoreTarget(messages, request.id)
       const prev = input.prompt.current().slice()
       const last = input.sync.session.get(request.sessionID)?.revert
 
       batch(() => {
-        input.roll(request.sessionID, next ? { messageID: next.id } : undefined)
+        input.roll(snapshot.setStore, request.sessionID, next ? { messageID: next.id } : undefined)
         if (next) {
           input.prompt.set(input.draft(next.id))
         } else {
@@ -85,10 +90,10 @@ export function createSessionRevert(input: {
 
       const task = !next
         ? input
-            .halt(request.sessionID)
-            .then(() => client.session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
-        : input.halt(request.sessionID).then(() =>
-            client.session.revert(
+            .halt(snapshot.client, request.sessionID)
+            .then(() => snapshot.client.session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
+        : input.halt(snapshot.client, request.sessionID).then(() =>
+            snapshot.client.session.revert(
               {
                 sessionID: request.sessionID,
                 messageID: next.id,
@@ -99,11 +104,11 @@ export function createSessionRevert(input: {
 
       await task
         .then((result) => {
-          if (result.data) input.merge(result.data)
+          if (result.data) input.merge(snapshot.setStore, result.data)
         })
         .catch((err) => {
           batch(() => {
-            input.roll(request.sessionID, last)
+            input.roll(snapshot.setStore, request.sessionID, last)
             input.prompt.set(prev)
           })
           input.fail(err)

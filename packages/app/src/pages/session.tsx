@@ -119,6 +119,10 @@ export default function Page() {
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
       ? sdk.client.session.abort({ sessionID })
       : Promise.resolve()
+  const haltWithClient = (client: typeof sdk.client, sessionID: string) =>
+    isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
+      ? client.session.abort({ sessionID })
+      : Promise.resolve()
   // sessionRevert chains halt with .then(), so its existing outer .catch
   // already handles abort failures. The auto-heal clock wants to see the
   // error so it can structured-warn — pass haltAbort directly there.
@@ -164,6 +168,10 @@ export default function Page() {
           visibleSessionID,
           routeReady: timeline.routeMessagesReady(),
           visibleReady: timelineMessagesReady(),
+          actionReady: actionReady(),
+          messageCachePresent: timeline.messageCachePresent(),
+          sessionInfoPresent: timeline.sessionInfoPresent(),
+          statusKnown: timeline.statusKnown(),
           transitioning: !!routeSessionID && !!visibleSessionID && routeSessionID !== visibleSessionID,
           messageCount: metrics.messageCount,
           partCount: metrics.partCount,
@@ -183,6 +191,10 @@ export default function Page() {
             timeline_session_id: state.visibleSessionID,
             route_ready: state.routeReady,
             visible_ready: state.visibleReady,
+            action_ready: state.actionReady,
+            message_cache_present: state.messageCachePresent,
+            session_info_present: state.sessionInfoPresent,
+            status_known: state.statusKnown,
             transitioning: state.transitioning,
             message_count: state.messageCount,
             part_count: state.partCount,
@@ -417,8 +429,9 @@ export default function Page() {
     })
   }
 
-  const merge = (next: NonNullable<ReturnType<typeof timeline.routeInfo>>) =>
-    sync.set("session", (list) => {
+  type SyncSetter = typeof sync.set
+  const merge = (setStore: SyncSetter, next: NonNullable<ReturnType<typeof timeline.routeInfo>>) =>
+    setStore("session", (list) => {
       const idx = list.findIndex((item) => item.id === next.id)
       if (idx < 0) return list
       const out = list.slice()
@@ -426,8 +439,12 @@ export default function Page() {
       return out
     })
 
-  const roll = (sessionID: string, next: NonNullable<ReturnType<typeof timeline.routeInfo>>["revert"]) =>
-    sync.set("session", (list) => {
+  const roll = (
+    setStore: SyncSetter,
+    sessionID: string,
+    next: NonNullable<ReturnType<typeof timeline.routeInfo>>["revert"],
+  ) =>
+    setStore("session", (list) => {
       const idx = list.findIndex((item) => item.id === sessionID)
       if (idx < 0) return list
       const out = list.slice()
@@ -470,9 +487,15 @@ export default function Page() {
     lineText: line,
     prompt,
     sync,
-    client: () => sdk.client,
+    snapshot: () => {
+      const directory = sdk.directory
+      return {
+        client: sdk.createClient({ directory, throwOnError: true }),
+        setStore: sync.setFor(directory),
+      }
+    },
     actionReady,
-    halt,
+    halt: haltWithClient,
     draft,
     fail,
     merge,
@@ -501,6 +524,7 @@ export default function Page() {
       variant={variant}
       state={composer}
       ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : actionReady())}
+      actionReady={variant === "home" ? true : actionReady()}
       displaySessionID={variant === "session" ? timelineSessionID() : undefined}
       displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}

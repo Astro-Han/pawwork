@@ -76,6 +76,7 @@ interface PromptInputProps {
   onModeChange?: (mode: "normal" | "shell") => void
   sessionID?: string
   sessionIDControlled?: boolean
+  actionReady?: () => boolean
   selectedSkill?: () => PawworkSkillName | undefined
 }
 
@@ -256,6 +257,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const imageAttachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
   )
+  const actionReady = createMemo(() => props.actionReady?.() ?? true)
 
   const [store, setStore] = createStore<{
     popover: "at" | "slash" | null
@@ -297,6 +299,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   })
   const stopping = createMemo(() => working() && blank())
   const tip = () => {
+    if (!actionReady()) return language.t("prompt.loading")
+
     if (stopping()) {
       return (
         <div class="flex items-center gap-2">
@@ -356,14 +360,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   )
 
   const placeholder = createMemo(() =>
-    promptPlaceholder({
-      mode: store.mode,
-      commentCount: commentCount(),
-      example: suggest() ? language.t(EXAMPLES[store.placeholder]) : "",
-      suggest: suggest(),
-      selectedSkill: props.selectedSkill?.(),
-      t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
-    }),
+    actionReady()
+      ? promptPlaceholder({
+          mode: store.mode,
+          commentCount: commentCount(),
+          example: suggest() ? language.t(EXAMPLES[store.placeholder]) : "",
+          suggest: suggest(),
+          selectedSkill: props.selectedSkill?.(),
+          t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
+        })
+      : language.t("prompt.loading"),
   )
 
   const historyComments = () => {
@@ -455,6 +461,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const escBlur = () => platform.platform === "desktop" && platform.os === "macos"
 
   const pick = () => {
+    if (!actionReady()) return
     const openFilePickerDialog = platform.openFilePickerDialog
     void pickAttachments({
       openFilePickerDialog: canUseNativeFilePicker(platform) ? openFilePickerDialog : undefined,
@@ -464,6 +471,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   const setMode = (mode: "normal" | "shell") => {
+    if (!actionReady()) return
     setStore("mode", mode)
     setStore("popover", null)
     requestAnimationFrame(() => editorRef?.focus())
@@ -478,7 +486,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: language.t("prompt.action.attachFile"),
       category: language.t("command.category.file"),
       keybind: "mod+u",
-      disabled: store.mode !== "normal",
+      disabled: store.mode !== "normal" || !actionReady(),
       onSelect: pick,
     },
     {
@@ -486,7 +494,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: language.t("command.prompt.mode.shell"),
       category: language.t("command.category.session"),
       keybind: shellModeKey,
-      disabled: store.mode === "shell",
+      disabled: store.mode === "shell" || !actionReady(),
       onSelect: () => setMode("shell"),
     },
     {
@@ -494,7 +502,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       title: language.t("command.prompt.mode.normal"),
       category: language.t("command.category.session"),
       keybind: normalModeKey,
-      disabled: store.mode === "normal",
+      disabled: store.mode === "normal" || !actionReady(),
       onSelect: () => setMode("normal"),
     },
   ])
@@ -1094,6 +1102,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     autoAccept: () => accepting(),
     mode: () => store.mode,
     working,
+    actionReady,
     editor: () => editorRef,
     queueScroll,
     promptLength,
@@ -1131,6 +1140,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               class="h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover"
               style={triggerStyle()}
               onClick={() => {
+                if (!actionReady()) return
                 void import("@/components/dialog-select-model-unpaid").then((x) => {
                   dialog.show(() => <x.DialogSelectModelUnpaid model={local.model} />)
                 })
@@ -1170,6 +1180,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               class:
                 "h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-text-base group rounded-xl! transition-colors hover:bg-surface-base-hover",
               "data-action": "prompt-model",
+              disabled: !actionReady(),
             }}
             onClose={restoreFocus}
           >
@@ -1213,6 +1224,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               type: "button",
               "data-action": "prompt-model-variant",
               "aria-haspopup": "menu",
+              disabled: !actionReady(),
               style: triggerStyle(),
               class:
                 "h-[28px] px-2 max-w-[160px] @max-[20rem]/composer:max-w-[80px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-text-base transition-[max-width,colors] duration-200 ease-out hover:bg-surface-base-hover",
@@ -1220,9 +1232,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           }
           trigger={
             <>
-              <span class="truncate">
-                {translateVariant(language.t, local.model.variant.current() ?? "default")}
-              </span>
+              <span class="truncate">{translateVariant(language.t, local.model.variant.current() ?? "default")}</span>
               <Icon name="chevron-down" size="small" class="text-text-weak" />
             </>
           }
@@ -1262,6 +1272,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   )
 
   const handleKeyDown = (event: KeyboardEvent) => {
+    if (!actionReady()) {
+      if (event.key === "Enter" || event.key === "Escape") {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      return
+    }
+
     if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "u") {
       event.preventDefault()
       if (store.mode !== "normal") return
@@ -1445,6 +1463,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         classList={{
           "group/prompt-input @container/composer": true,
           "border-icon-info-active border-dashed": store.draggingType !== null,
+          "opacity-75": !actionReady(),
           [props.class ?? ""]: !!props.class,
         }}
       >
@@ -1500,7 +1519,8 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               role="textbox"
               aria-multiline="true"
               aria-label={placeholder()}
-              contenteditable="true"
+              aria-disabled={!actionReady()}
+              contenteditable={actionReady() ? "true" : "false"}
               autocapitalize={store.mode === "normal" ? "sentences" : "off"}
               autocorrect={store.mode === "normal" ? "on" : "off"}
               spellcheck={store.mode === "normal"}
@@ -1508,7 +1528,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               // @ts-expect-error
               autocomplete="off"
               onInput={handleInput}
-              onPaste={handlePaste}
+              onPaste={(event) => {
+                if (!actionReady()) {
+                  event.preventDefault()
+                  return
+                }
+                handlePaste(event)
+              }}
               onCompositionStart={handleCompositionStart}
               onCompositionEnd={handleCompositionEnd}
               onBlur={handleBlur}
@@ -1519,6 +1545,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
+                "cursor-wait text-text-weak": !actionReady(),
               }}
               style={{ "padding-bottom": space }}
             />
@@ -1577,7 +1604,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   class="size-7 shrink-0 p-0 rounded-xl!"
                   style={buttons()}
                   onClick={pick}
-                  disabled={store.mode !== "normal"}
+                  disabled={store.mode !== "normal" || !actionReady()}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   aria-label={language.t("prompt.action.attachFile")}
                 >
@@ -1595,10 +1622,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
             <div class="flex items-center gap-2 pointer-events-auto">
               <SessionContextUsage placement="top" />
-              <Tooltip placement="top" inactive={!working() && blank()} value={tip()}>
+              <Tooltip placement="top" inactive={actionReady() && !working() && blank()} value={tip()}>
                 <SendButton
                   stopping={stopping()}
-                  disabled={!working() && blank() && !props.selectedSkill?.()}
+                  disabled={!actionReady() || (!working() && blank() && !props.selectedSkill?.())}
                   aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
                 />
               </Tooltip>

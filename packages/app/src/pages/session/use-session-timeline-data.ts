@@ -31,7 +31,8 @@ export function readTimelineMessages(input: {
   }
 
   const dataIdentity =
-    input.dataIdentity ?? (input.lastGood?.sessionID === input.sessionID ? input.lastGood.dataIdentity : input.sessionID)
+    input.dataIdentity ??
+    (input.lastGood?.sessionID === input.sessionID ? input.lastGood.dataIdentity : input.sessionID)
 
   if (input.raw !== undefined) {
     const messages = readSessionMessages(input.raw)
@@ -54,13 +55,23 @@ export function timelineModelSyncKey(input: { directory: string; messageID: stri
   return `${input.directory}\n${input.messageID ?? ""}`
 }
 
-export function currentSessionDataReady(input: {
+export function currentSessionCacheReady(input: {
   sessionID: string | undefined
   sessionInfo: unknown
   rawMessages: unknown
 }) {
   if (!input.sessionID) return true
   return input.sessionInfo !== undefined && input.rawMessages !== undefined
+}
+
+export function currentSessionActionReady(input: {
+  sessionID: string | undefined
+  sessionInfo: unknown
+  rawMessages: unknown
+  status: unknown
+}) {
+  if (!input.sessionID) return true
+  return currentSessionCacheReady(input) && input.status !== undefined
 }
 
 export function readTimelineMessagesFromCache(input: {
@@ -112,12 +123,36 @@ export function createSessionTimelineData(input: {
     if (!id) return
     return input.sync.session.get(id)
   })
-  const actionReady = createMemo(() => {
+  const sessionInfoPresent = createMemo(() => {
     const id = sessionID()
-    return currentSessionDataReady({
+    if (!id) return true
+    return sessionInfo() !== undefined
+  })
+  const messageCachePresent = createMemo(() => {
+    const id = sessionID()
+    if (!id) return true
+    return input.sync.data.message[id] !== undefined
+  })
+  const statusKnown = createMemo(() => {
+    const id = sessionID()
+    if (!id) return true
+    return input.sync.data.session_status[id] !== undefined
+  })
+  const currentSessionCacheReadyMemo = createMemo(() => {
+    const id = sessionID()
+    return currentSessionCacheReady({
       sessionID: id,
       sessionInfo: sessionInfo(),
       rawMessages: id ? input.sync.data.message[id] : undefined,
+    })
+  })
+  const actionReady = createMemo(() => {
+    const id = sessionID()
+    return currentSessionActionReady({
+      sessionID: id,
+      sessionInfo: sessionInfo(),
+      rawMessages: id ? input.sync.data.message[id] : undefined,
+      status: id ? input.sync.data.session_status[id] : undefined,
     })
   })
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)
@@ -216,6 +251,10 @@ export function createSessionTimelineData(input: {
     sessionKey,
     transitioning,
     sessionInfo,
+    sessionInfoPresent,
+    messageCachePresent,
+    statusKnown,
+    currentSessionCacheReady: currentSessionCacheReadyMemo,
     actionReady,
     isChildSession,
     messages,

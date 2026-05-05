@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
 import {
-  currentSessionDataReady,
+  currentSessionActionReady,
+  currentSessionCacheReady,
   readTimelineMessages,
   readTimelineMessagesFromCache,
   timelineModelSyncKey,
@@ -176,10 +177,10 @@ describe("timelineModelSyncKey", () => {
   })
 })
 
-describe("currentSessionDataReady", () => {
+describe("currentSessionCacheReady", () => {
   test("waits for current session info and message cache before actions are ready", () => {
     expect(
-      currentSessionDataReady({
+      currentSessionCacheReady({
         sessionID: "ses",
         sessionInfo: undefined,
         rawMessages: undefined,
@@ -187,10 +188,32 @@ describe("currentSessionDataReady", () => {
     ).toBe(false)
 
     expect(
-      currentSessionDataReady({
+      currentSessionCacheReady({
         sessionID: "ses",
         sessionInfo: { id: "ses" },
         rawMessages: [],
+      }),
+    ).toBe(true)
+  })
+})
+
+describe("currentSessionActionReady", () => {
+  test("waits for current session status as well as cache hydration", () => {
+    expect(
+      currentSessionActionReady({
+        sessionID: "ses",
+        sessionInfo: { id: "ses" },
+        rawMessages: [],
+        status: undefined,
+      }),
+    ).toBe(false)
+
+    expect(
+      currentSessionActionReady({
+        sessionID: "ses",
+        sessionInfo: { id: "ses" },
+        rawMessages: [],
+        status: { type: "idle" },
       }),
     ).toBe(true)
   })

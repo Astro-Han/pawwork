@@ -8,6 +8,7 @@ export function SessionPageComposerRegion(props: {
   variant: "session" | "home"
   state: ReturnType<typeof createSessionComposerState>
   ready: boolean
+  actionReady?: boolean
   displaySessionID?: string
   displaySessionKey?: string
   centered: boolean

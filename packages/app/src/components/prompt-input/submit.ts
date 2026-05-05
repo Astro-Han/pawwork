@@ -187,6 +187,7 @@ type PromptSubmitInput = {
   autoAccept: Accessor<boolean>
   mode: Accessor<"normal" | "shell">
   working: Accessor<boolean>
+  actionReady?: Accessor<boolean>
   editor: () => HTMLDivElement | undefined
   queueScroll: () => void
   promptLength: (prompt: Prompt) => number
@@ -225,6 +226,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const params = useParams()
   const sessionID = input.sessionID ?? (() => params.id)
   const isNewSession = input.isNewSession ?? (() => !sessionID())
+  const actionReady = input.actionReady ?? (() => true)
 
   const errorMessage = (err: unknown) => {
     if (err && typeof err === "object" && "data" in err) {
@@ -236,6 +238,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   }
 
   const abort = async () => {
+    if (!actionReady()) return Promise.resolve()
+
     const activeSessionID = sessionID()
     if (!activeSessionID) return Promise.resolve()
 
@@ -297,6 +301,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault()
+    if (!actionReady()) return
 
     const currentPrompt = prompt.current()
     const text = currentPrompt.map((part) => ("content" in part ? part.content : "")).join("")
