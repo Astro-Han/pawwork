@@ -7,6 +7,7 @@ import {
   printParseErrorCode,
 } from "jsonc-parser"
 
+import { Config } from "@/config"
 import { ConfigPaths } from "@/config/paths"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
@@ -325,6 +326,7 @@ function patchDir(input: PatchInput) {
   if (input.global) return input.config ?? (Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config)
   const git = input.vcs === "git" && input.worktree !== "/"
   const root = git ? input.worktree : input.directory
+  if (Runtime.isPawWork()) return path.dirname(Config.projectConfigFileForWrite(root))
   return path.join(root, ".opencode")
 }
 

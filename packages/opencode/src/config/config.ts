@@ -469,7 +469,7 @@ const rawLayer = Layer.effect(
 
     const loadConfig = Effect.fnUntraced(function* (
       text: string,
-      options: { path: string } | { dir: string; source: string },
+      options: ({ path: string } | { dir: string; source: string }) & { allowWrite?: boolean },
     ) {
       const source = "path" in options ? options.path : options.source
       const expanded = yield* Effect.promise(() =>
@@ -483,7 +483,7 @@ const rawLayer = Layer.effect(
       if (pluginContextPath) {
         yield* Effect.promise(() => resolveLoadedPlugins(data, pluginContextPath))
       }
-      if (!("path" in options)) return data
+      if (!("path" in options) || options.allowWrite === false) return data
 
       if (!data.$schema) {
         data.$schema = "https://opencode.ai/config.json"
@@ -493,41 +493,48 @@ const rawLayer = Layer.effect(
       return data
     })
 
-    const loadFile = Effect.fnUntraced(function* (filepath: string) {
+    const loadFile = Effect.fnUntraced(function* (filepath: string, options?: { allowWrite?: boolean }) {
       log.info("loading", { path: filepath })
       const text = yield* readConfigFile(filepath)
       if (!text) return {} as Info
-      return yield* loadConfig(text, { path: filepath })
+      return yield* loadConfig(text, { path: filepath, allowWrite: options?.allowWrite })
     })
 
     const loadGlobal = Effect.fnUntraced(function* () {
       let result: Info = {}
       const globalFiles = globalConfigFilesToLoad()
       for (const filepath of globalFiles) {
+        const dir = path.dirname(filepath)
+        const allowWrite = !Runtime.isPawWork() || PawWorkHome.isPrimary(dir) || path.resolve(dir) !== path.resolve(Global.Path.config)
         // Strip deprecated default_agent before parsing (issue #239).
         // When sanitizedText is present we use it directly to avoid a redundant
         // disk read AND to ensure runtime never sees a stale value even if the
         // on-disk rewrite failed.
-        const migrated = yield* Effect.promise(() => migrateDefaultAgent(filepath))
+        const migrated = allowWrite
+          ? yield* Effect.promise(() => migrateDefaultAgent(filepath))
+          : { rewritten: false, sanitizedText: undefined }
         if (migrated.sanitizedText !== undefined) {
-          result = pipe(result, mergeDeep(yield* loadConfig(migrated.sanitizedText, { path: filepath })))
+          result = pipe(result, mergeDeep(yield* loadConfig(migrated.sanitizedText, { path: filepath, allowWrite })))
         } else {
-          result = pipe(result, mergeDeep(yield* loadFile(filepath)))
+          result = pipe(result, mergeDeep(yield* loadFile(filepath, { allowWrite })))
         }
       }
 
       const legacy = path.join(Global.Path.config, "config")
-      if (existsSync(legacy) && (!Runtime.isPawWork() || globalFiles.length === 0)) {
+      if (existsSync(legacy)) {
         yield* Effect.promise(() =>
           import(pathToFileURL(legacy).href, { with: { type: "toml" } })
             .then(async (mod) => {
               const { provider, model, ...rest } = mod.default
-              if (provider && model) result.model = `${provider}/${model}`
-              result["$schema"] = "https://opencode.ai/config.json"
-              result = mergeDeep(result, rest)
+              const migrated: Info = { "$schema": "https://opencode.ai/config.json" }
+              if (provider && model) migrated.model = `${provider}/${model}`
+              const legacyConfig = mergeDeep(migrated, rest)
+              if (!Runtime.isPawWork() || globalFiles.length === 0) {
+                result = mergeDeep(result, legacyConfig)
+              }
               await fsNode.writeFile(
                 path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json"),
-                JSON.stringify(result, null, 2),
+                JSON.stringify(legacyConfig, null, 2),
               )
               await fsNode.unlink(legacy)
             })

@@ -87,7 +87,7 @@ export interface Interface {
   readonly clear: (messageID: MessageID) => Effect.Effect<void>
   readonly systemPaths: () => Effect.Effect<Set<string>, AppFileSystem.Error>
   readonly system: () => Effect.Effect<string[], AppFileSystem.Error>
-  readonly sources: () => Effect.Effect<InstructionSource[], AppFileSystem.Error>
+  readonly sources: (options?: { fetchRemote?: boolean }) => Effect.Effect<InstructionSource[], AppFileSystem.Error>
   readonly find: (dir: string) => Effect.Effect<string | undefined, AppFileSystem.Error>
   readonly resolve: (
     messages: MessageV2.WithParts[],
@@ -214,7 +214,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         ]
       })
 
-      const sources = Effect.fn("Instruction.sources")(function* () {
+      const sources = Effect.fn("Instruction.sources")(function* (options?: { fetchRemote?: boolean }) {
         const result: InstructionSource[] = []
         const loadedPaths = new Set<string>()
 
@@ -328,10 +328,11 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         const urls = (config.instructions ?? []).filter(
           (item) => item.startsWith("https://") || item.startsWith("http://"),
         )
-        const bodies = yield* Effect.forEach(urls, fetch, { concurrency: 4 })
+        const fetchRemote = options?.fetchRemote ?? true
+        const bodies = fetchRemote ? yield* Effect.forEach(urls, fetch, { concurrency: 4 }) : []
         for (const [index, url] of urls.entries()) {
           const body = bodies[index]
-          if (body) {
+          if (!fetchRemote || body) {
             result.push({ status: "loaded", path: url, kind: "remote" })
           } else {
             result.push({ status: "considered", path: url, kind: "remote", reason: "fetch failed or returned empty body" })

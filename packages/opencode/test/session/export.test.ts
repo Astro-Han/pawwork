@@ -320,6 +320,54 @@ describe("Export.session", () => {
     }
   })
 
+  test("exports remote config.instructions without fetching the URL", async () => {
+    await using project = await tmpdir({ git: true })
+    await using globalConfig = await tmpdir()
+    let requests = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        requests++
+        return new Response("remote config instructions")
+      },
+    })
+    const previousConfig = process.env.OPENCODE_CONFIG_CONTENT
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousGlobalConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = globalConfig.path
+    const url = `${server.url}instructions.md`
+    process.env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+      instructions: [url],
+    })
+    await Config.invalidate(true)
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "remote instruction provenance" })
+          try {
+            const result = await AppRuntime.runPromise(Export.session(root.id))
+            const source = result.runtime_context.instruction_sources.find((item) => item.kind === "remote" && item.url === url)
+            expect(source?.hash_unavailable).toBe(true)
+            expect(requests).toBe(0)
+          } finally {
+            await SessionNs.remove(root.id)
+          }
+        },
+      })
+    } finally {
+      server.stop(true)
+      ;(Global.Path as { config: string }).config = previousGlobalConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_CONTENT
+      else process.env.OPENCODE_CONFIG_CONTENT = previousConfig
+      await Config.invalidate(true)
+    }
+  })
+
   test("collectModelRefs marks unknown providers as unresolved with a reason", async () => {
     await Instance.provide({
       directory: projectRoot,

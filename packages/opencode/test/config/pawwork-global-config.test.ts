@@ -333,6 +333,37 @@ describe("PawWork global config isolation", () => {
           const config = await load()
           expect(config.model).toBe("home/model")
           expect(config.username).toBe("home-user")
+          expect(await Bun.file(path.join(platformLegacy.path, "config")).exists()).toBeFalse()
+          const migrated = JSON.parse(await Bun.file(path.join(platformLegacy.path, "pawwork.json")).text())
+          expect(migrated.model).toBe("legacy/model")
+          expect(migrated.username).toBe("legacy-user")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("legacy fallback JSON config is read without schema or default_agent writeback", async () => {
+    await using home = await tmpdir()
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = home.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacy = path.join(platformLegacy.path, "pawwork.json")
+      const original = JSON.stringify({ model: "legacy/model", default_agent: "build" }, null, 2)
+      await Filesystem.write(legacy, original)
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.model).toBe("legacy/model")
+          expect(await Bun.file(legacy).text()).toBe(original)
         },
       })
     } finally {
@@ -407,6 +438,16 @@ describe("PawWork global config isolation", () => {
 
     await Filesystem.write(path.join(home.path, "pawwork.jsonc"), JSON.stringify({ model: "pawwork/model" }))
     expect(Config.globalConfigFileForWrite()).toBe(path.join(home.path, "pawwork.jsonc"))
+  })
+
+  test("global config load ignores directories named pawwork config files", async () => {
+    await using home = await tmpdir()
+    process.env.PAWWORK_HOME = home.path
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    await fs.mkdir(path.join(home.path, "pawwork.jsonc"), { recursive: true })
+    expect(PawWorkHome.configFilesToLoad()).toEqual([])
+    expect(() => Config.globalConfigFileForWrite()).toThrow("PawWork config path exists but is not a file")
   })
 
   test("first global update preserves merged legacy json and jsonc config", async () => {

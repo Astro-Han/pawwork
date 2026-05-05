@@ -294,6 +294,32 @@ describe("plugin.install.task", () => {
     }
   })
 
+  test("writes PawWork local plugin config to existing root pawwork.json", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      await Filesystem.write(path.join(tmp.path, "pawwork.json"), JSON.stringify({ plugin: ["root-active@1.0.0"] }))
+      const target = await plugin(tmp.path, ["server"])
+      const run = createPlugTask(
+        {
+          mod: "acme@1.2.3",
+        },
+        deps(path.join(tmp.path, "global"), target),
+      )
+
+      const ok = await run(ctx(tmp.path))
+      expect(ok).toBe(true)
+
+      expect((await read(path.join(tmp.path, "pawwork.json"))).plugin).toEqual(["root-active@1.0.0", "acme@1.2.3"])
+      expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "pawwork.json"))).toBe(false)
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
   test("writes PawWork global plugin config to PAWWORK_CONFIG_DIR when PAWWORK_HOME is unset", async () => {
     await using tmp = await tmpdir()
     await using pawworkConfig = await tmpdir()

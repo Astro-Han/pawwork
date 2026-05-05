@@ -40,6 +40,14 @@ function normalize(input: string) {
   }
 }
 
+function isFile(input: string) {
+  try {
+    return fsNode.statSync(input).isFile()
+  } catch {
+    return false
+  }
+}
+
 export namespace PawWorkHome {
   export function primary() {
     return resolveHome(envPath(Flag.PAWWORK_HOME) ?? envPath(Flag.PAWWORK_CONFIG_DIR) ?? path.join(Global.Path.home, ".pawwork"))
@@ -74,7 +82,7 @@ export namespace PawWorkHome {
 
   export function configFilesToLoad() {
     for (const dir of candidates()) {
-      const files = configFilesIn(dir).filter((file) => fsNode.existsSync(file))
+      const files = configFilesIn(dir).filter(isFile)
       if (files.length) return files
     }
     return []
@@ -83,8 +91,11 @@ export namespace PawWorkHome {
   export function configFileForWrite() {
     const primaryDir = primary()
     const [json, jsonc] = configFilesIn(primaryDir)
-    if (fsNode.existsSync(jsonc)) return jsonc
-    if (fsNode.existsSync(json)) return json
+    for (const file of [jsonc, json]) {
+      if (!fsNode.existsSync(file)) continue
+      if (!isFile(file)) throw new Error(`PawWork config path exists but is not a file: ${file}`)
+      return file
+    }
     return json
   }
 

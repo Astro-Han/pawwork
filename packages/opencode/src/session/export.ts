@@ -299,11 +299,11 @@ export namespace Export {
   const collectInstructionSources = Effect.fn("Export.instructionSources")(function* () {
     const sources: InstructionSource[] = []
     const instruction = yield* Instruction.Service
-    const loaded = (yield* instruction.sources()).filter((source) => source.status === "loaded")
+    const loaded = (yield* instruction.sources({ fetchRemote: false })).filter((source) => source.status === "loaded")
 
     for (const source of loaded) {
       if (source.kind === "remote") {
-        sources.push({ kind: source.kind, url: source.path })
+        sources.push({ kind: source.kind, url: source.path, hash_unavailable: true })
         continue
       }
 
