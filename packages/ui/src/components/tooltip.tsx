@@ -110,6 +110,7 @@ export function Tooltip(props: TooltipProps) {
         <KobalteTooltip
           gutter={4}
           {...others}
+          openDelay={0}
           closeDelay={0}
           ignoreSafeArea={local.ignoreSafeArea ?? true}
           open={local.forceOpen || state.open}
@@ -152,8 +153,8 @@ export function Tooltip(props: TooltipProps) {
                 e.preventDefault()
               }}
             >
+              <KobalteTooltip.Arrow data-slot="tooltip-arrow" size={5} />
               {local.value}
-              {/* <KobalteTooltip.Arrow data-slot="tooltip-arrow" /> */}
             </KobalteTooltip.Content>
           </KobalteTooltip.Portal>
         </KobalteTooltip>
