@@ -1173,4 +1173,36 @@ describe("Instruction.systemPaths PawWork runtime config dir", () => {
       ;(Global.Path as { config: string }).config = originalGlobalConfig
     }
   })
+
+  test("resolves relative instruction paths from PAWWORK_HOME when project config is disabled", async () => {
+    await using pawworkHome = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(path.join(dir, "rules", "home-extra.md"), "# PawWork Home Relative Instructions")
+        await Bun.write(path.join(dir, "pawwork.json"), JSON.stringify({ instructions: ["rules/home-extra.md"] }))
+      },
+    })
+    await using projectTmp = await tmpdir()
+
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.OPENCODE_DISABLE_PROJECT_CONFIG = "1"
+    process.env.PAWWORK_HOME = pawworkHome.path
+    delete process.env.PAWWORK_CONFIG_DIR
+    delete process.env.OPENCODE_CONFIG_CONTENT
+    await Config.invalidate(true)
+
+    await Instance.provide({
+      directory: projectTmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const rules = yield* svc.system()
+              expect(rules).toContain(
+                `Instructions from: ${path.join(pawworkHome.path, "rules", "home-extra.md")}\n# PawWork Home Relative Instructions`,
+              )
+            }),
+          ),
+        ),
+    })
+  })
 })

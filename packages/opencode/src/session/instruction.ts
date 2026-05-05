@@ -36,7 +36,8 @@ function FILES() {
 }
 
 function configDir() {
-  return Runtime.isPawWork() ? Flag.PAWWORK_CONFIG_DIR : Flag.OPENCODE_CONFIG_DIR
+  if (Runtime.isPawWork()) return Flag.PAWWORK_CONFIG_DIR ?? PawWorkHome.primary()
+  return Flag.OPENCODE_CONFIG_DIR
 }
 
 function globalInstructionFiles() {
