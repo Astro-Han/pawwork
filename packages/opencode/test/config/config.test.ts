@@ -159,8 +159,8 @@ test("writeConfigTextAtomic tolerates Windows fsync EPERM", async () => {
     return handle
   })
 
-  Object.defineProperty(process, "platform", { value: "win32" })
   try {
+    Object.defineProperty(process, "platform", { value: "win32" })
     await Config.writeConfigTextAtomic(file, JSON.stringify({ model: "win/model" }))
     expect(JSON.parse(await fs.readFile(file, "utf8")).model).toBe("win/model")
     expect(open).toHaveBeenCalled()

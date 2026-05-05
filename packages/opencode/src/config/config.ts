@@ -413,7 +413,7 @@ export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) 
 
 function isWindowsSyncUnsupportedError(error: unknown) {
   if (process.platform !== "win32") return false
-  const code = (error as NodeJS.ErrnoException).code
+  const code = error && typeof error === "object" && "code" in error ? (error as NodeJS.ErrnoException)?.code : undefined
   return code === "EPERM" || code === "EINVAL" || code === "ENOTSUP"
 }
 
@@ -422,6 +422,7 @@ async function syncHandleBestEffort(handle: { sync: () => Promise<void> }) {
     await handle.sync()
   } catch (error) {
     if (!isWindowsSyncUnsupportedError(error)) throw error
+    log.debug("skipping unsupported Windows fsync", { code: (error as NodeJS.ErrnoException).code })
   }
 }
 
