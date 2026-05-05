@@ -2,6 +2,7 @@ import { Log } from "../util"
 import path from "path"
 import { pathToFileURL } from "url"
 import os from "os"
+import crypto from "crypto"
 import z from "zod"
 import { mergeDeep, pipe } from "remeda"
 import { Global } from "@opencode-ai/core/global"
@@ -392,9 +393,14 @@ export async function withConfigFileLock<T>(file: string, fn: () => Promise<T>) 
 
 export async function writeConfigTextAtomic(file: string, text: string) {
   await fsNode.mkdir(path.dirname(file), { recursive: true })
-  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`)
+  const existingMode = await fsNode
+    .stat(file)
+    .then((stat) => stat.mode & 0o777)
+    .catch(() => undefined)
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`)
   try {
-    await fsNode.writeFile(tmp, text)
+    await fsNode.writeFile(tmp, text, existingMode === undefined ? undefined : { mode: existingMode })
+    if (existingMode !== undefined) await fsNode.chmod(tmp, existingMode)
     await fsNode.rename(tmp, file)
   } catch (error) {
     await fsNode.rm(tmp, { force: true }).catch(() => undefined)
@@ -526,7 +532,7 @@ const rawLayer = Layer.effect(
       const globalFiles = globalConfigFilesToLoad()
       for (const filepath of globalFiles) {
         const dir = path.dirname(filepath)
-        const allowWrite = !Runtime.isPawWork() || PawWorkHome.isPrimary(dir) || path.resolve(dir) !== path.resolve(Global.Path.config)
+        const allowWrite = !Runtime.isPawWork() || PawWorkHome.isPrimary(dir)
         // Strip deprecated default_agent before parsing (issue #239).
         // When sanitizedText is present we use it directly to avoid a redundant
         // disk read AND to ensure runtime never sees a stale value even if the
@@ -914,13 +920,12 @@ const rawLayer = Layer.effect(
     })
 
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
+      if (Runtime.isPawWork()) yield* Effect.promise(() => PawWorkHome.ensurePrimary())
       const file = globalConfigFile()
       const lock = yield* Effect.promise(() => Flock.acquire(configFileLockKey(file)))
       let next: Info
       try {
-        yield* Effect.promise(() =>
-          Runtime.isPawWork() ? PawWorkHome.ensurePrimary() : fsNode.mkdir(path.dirname(file), { recursive: true }),
-        )
+        if (!Runtime.isPawWork()) yield* Effect.promise(() => fsNode.mkdir(path.dirname(file), { recursive: true }))
         const existingText = yield* readConfigFile(file)
         const before = existingText ?? JSON.stringify(writable(yield* loadGlobal()), null, 2)
 

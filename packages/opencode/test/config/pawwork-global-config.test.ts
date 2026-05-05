@@ -371,6 +371,27 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("PAWWORK_CONFIG_DIR fallback config is read without schema or default_agent writeback", async () => {
+    await using primary = await tmpdir()
+    await using fallback = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    process.env.PAWWORK_HOME = primary.path
+    process.env.PAWWORK_CONFIG_DIR = fallback.path
+
+    const configFile = path.join(fallback.path, "pawwork.json")
+    const original = JSON.stringify({ model: "fallback/model", default_agent: "build" }, null, 2)
+    await Filesystem.write(configFile, original)
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const config = await load()
+        expect(config.model).toBe("fallback/model")
+        expect(await Bun.file(configFile).text()).toBe(original)
+      },
+    })
+  })
+
   test("first global update writes primary Home without dropping legacy effective config", async () => {
     await using home = await tmpdir()
     await using platformLegacy = await tmpdir()
@@ -832,6 +853,42 @@ home command`,
     } finally {
       ;(Global.Path as { config: string }).config = previousConfig
     }
+  })
+
+  test("global config update preserves existing file permissions", async () => {
+    await using project = await tmpdir({ git: true })
+    await using global = await tmpdir()
+    process.env.PAWWORK_HOME = global.path
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        const configPath = path.join(global.path, "pawwork.json")
+        await Filesystem.write(configPath, JSON.stringify({ model: "test/model" }))
+        await fs.chmod(configPath, 0o600)
+
+        await saveGlobal({ username: "secure-user" })
+
+        const mode = (await fs.stat(configPath)).mode & 0o777
+        expect(mode).toBe(0o600)
+        expect(JSON.parse(await Bun.file(configPath).text()).username).toBe("secure-user")
+      },
+    })
+  })
+
+  test("global config update reports file PawWork Home before taking the write lock", async () => {
+    await using project = await tmpdir({ git: true })
+    await using home = await tmpdir()
+    const fileHome = path.join(home.path, "not-a-directory")
+    process.env.PAWWORK_HOME = fileHome
+    await Filesystem.write(fileHome, "not a directory")
+
+    await Instance.provide({
+      directory: project.path,
+      fn: async () => {
+        await expect(saveGlobal({ username: "blocked" })).rejects.toThrow(/not a directory|directory/i)
+      },
+    })
   })
 
   test("global config update writes to the active PawWork config file", async () => {

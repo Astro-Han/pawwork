@@ -336,7 +336,9 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
         const bodies = fetchRemote ? yield* Effect.forEach(urls, fetch, { concurrency: 4 }) : []
         for (const [index, url] of urls.entries()) {
           const body = bodies[index]
-          if (!fetchRemote || body) {
+          if (!fetchRemote) {
+            result.push({ status: "considered", path: url, kind: "remote", reason: "configured but not fetched" })
+          } else if (body) {
             result.push({ status: "loaded", path: url, kind: "remote" })
           } else {
             result.push({ status: "considered", path: url, kind: "remote", reason: "fetch failed or returned empty body" })

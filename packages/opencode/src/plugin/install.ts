@@ -330,6 +330,16 @@ function patchDir(input: PatchInput) {
   return path.join(root, ".opencode")
 }
 
+function patchFiles(input: PatchInput, dir: string, dep: PatchDeps) {
+  const name = Runtime.isPawWork() ? "pawwork" : "opencode"
+  if (!input.global && Runtime.isPawWork()) {
+    const git = input.vcs === "git" && input.worktree !== "/"
+    const root = git ? input.worktree : input.directory
+    return [Config.projectConfigFileForWrite(root)]
+  }
+  return dep.files(dir, name)
+}
+
 async function selectConfigFile(files: string[], dep: PatchDeps) {
   const fallback = files[0]
   if (!fallback) throw new Error("No config file candidates provided")
@@ -340,11 +350,10 @@ async function selectConfigFile(files: string[], dep: PatchDeps) {
   return fallback
 }
 
-async function patchOne(dir: string, target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
+async function patchOne(dir: string, files: string[], target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
   const name = Runtime.isPawWork() ? "pawwork" : "opencode"
   await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
 
-  const files = dep.files(dir, name)
   let cfg = await selectConfigFile(files, dep)
 
   return await Config.withConfigFileLock(cfg, async () => {
@@ -417,9 +426,10 @@ async function patchOne(dir: string, target: Target, spec: string, force: boolea
 export async function patchPluginConfig(input: PatchInput, dep: PatchDeps = defaultPatchDeps): Promise<PatchResult> {
   if (input.global && Runtime.isPawWork() && !input.config) await Config.seedGlobalConfig()
   const dir = patchDir(input)
+  const files = patchFiles(input, dir, dep)
   const items: PatchItem[] = []
   for (const target of input.targets) {
-    const hit = await patchOne(dir, target, input.spec, Boolean(input.force), dep)
+    const hit = await patchOne(dir, files, target, input.spec, Boolean(input.force), dep)
     if (!hit.ok) {
       return {
         ...hit,

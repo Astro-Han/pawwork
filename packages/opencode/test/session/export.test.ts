@@ -265,7 +265,7 @@ describe("Export.session", () => {
     }
   })
 
-  test("exports loaded config.instructions local file and URL sources", async () => {
+  test("exports loaded config.instructions local file source", async () => {
     await using project = await tmpdir({ git: true })
     await using globalConfig = await tmpdir()
     await using instructions = await tmpdir({
@@ -301,9 +301,7 @@ describe("Export.session", () => {
             expect(result.runtime_context.instruction_sources.some((source) => source.kind === "config" && source.path === localFile)).toBe(
               true,
             )
-            expect(result.runtime_context.instruction_sources.some((source) => source.kind === "remote" && source.url === url)).toBe(
-              true,
-            )
+            expect(result.runtime_context.instruction_sources.some((source) => source.kind === "remote" && source.url === url)).toBe(false)
           } finally {
             await SessionNs.remove(root.id)
           }
@@ -320,7 +318,7 @@ describe("Export.session", () => {
     }
   })
 
-  test("exports remote config.instructions without fetching the URL", async () => {
+  test("does not export remote config.instructions when export skips fetching the URL", async () => {
     await using project = await tmpdir({ git: true })
     await using globalConfig = await tmpdir()
     let requests = 0
@@ -350,7 +348,7 @@ describe("Export.session", () => {
           try {
             const result = await AppRuntime.runPromise(Export.session(root.id))
             const source = result.runtime_context.instruction_sources.find((item) => item.kind === "remote" && item.url === url)
-            expect(source?.hash_unavailable).toBe(true)
+            expect(source).toBeUndefined()
             expect(requests).toBe(0)
           } finally {
             await SessionNs.remove(root.id)
