@@ -3,6 +3,8 @@ const desktopTerminalSelector = '#right-panel[aria-hidden="false"] #terminal-pan
 const mobileTerminalSelector = '#terminal-panel[aria-hidden="false"] [data-component="terminal"]'
 export const terminalSelector = `${desktopTerminalSelector}, ${mobileTerminalSelector}`
 export const sessionComposerDockSelector = '[data-component="session-prompt-dock"]'
+export const sessionComposerColumnSelector = '[data-component="session-composer-column"]'
+export const sessionTimelineColumnSelector = '[data-component="session-timeline-column"]'
 export const sessionTurnListSelector = '[data-slot="session-turn-list"]'
 export const sessionMessageItemSelector = "[data-message-id]"
 export const scrollViewportSelector = '[data-component="scroll-viewport"]'

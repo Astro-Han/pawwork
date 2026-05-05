@@ -1,5 +1,10 @@
 import { test, expect } from "../fixtures"
-import { promptSelector, sessionComposerDockSelector } from "../selectors"
+import {
+  promptSelector,
+  sessionComposerColumnSelector,
+  sessionComposerDockSelector,
+  sessionTimelineColumnSelector,
+} from "../selectors"
 import { withSession } from "../actions"
 
 test("can open an existing session and type into the prompt", async ({ page, sdk, gotoSession }) => {
@@ -47,22 +52,55 @@ test("@smoke session composer matches home structure without docktray or agent c
   })
 })
 
-test("session composer insets from message column at 2xl viewport", async ({ page, sdk, gotoSession }) => {
-  // At >=1536px the message timeline is capped at max-w-[1000px] and the composer is
-  // capped at md:max-w-[720px] 2xl:max-w-[920px]. This test guards the 2xl breakpoint
-  // so a regression to the old 'composer matches message column exactly' behavior
-  // (i.e. composer also grows to 1000px and sits flush with messages) fails.
-  await page.setViewportSize({ width: 1600, height: 1000 })
+function centerX(box: { x: number; width: number }) {
+  return box.x + box.width / 2
+}
 
-  const title = `e2e 2xl composer ${Date.now()}`
-  await withSession(sdk, title, async (session) => {
-    await gotoSession(session.id)
+test("session timeline visible content is not narrower than composer shell", async ({ page, project, assistant }) => {
+  await page.setViewportSize({ width: 744, height: 900 })
+  await project.open()
+  await assistant.reply(
+    [
+      "This is a deterministic assistant response for measuring the session reading column.",
+      "It needs enough text to render a full-width assistant content block instead of a tiny line.",
+      "The visible conversation flow should not be narrower than the visible composer input shell.",
+    ].join("\n\n"),
+  )
+  await project.prompt("Measure the session layout width relationship.")
 
-    const composer = page.locator(sessionComposerDockSelector)
-    await expect(composer).toBeVisible()
+  const timeline = page.locator(sessionTimelineColumnSelector)
+  const composerColumn = page.locator(sessionComposerColumnSelector)
+  const messageContent = page.locator('[data-slot="session-turn-assistant-content"]').last()
+  const composerShell = page.locator(`${sessionComposerDockSelector} [data-dock-surface="shell"]`).first()
 
-    const composerBox = await composer.boundingBox()
+  await expect(timeline).toBeVisible()
+  await expect(composerColumn).toBeVisible()
+  await expect(messageContent).toBeVisible()
+  await expect(composerShell).toBeVisible()
+
+  const assertWidthContract = async (input?: { maxComposerColumn?: number; minTimelineComposerDelta?: number }) => {
+    const timelineBox = await timeline.boundingBox()
+    const composerColumnBox = await composerColumn.boundingBox()
+    const messageBox = await messageContent.boundingBox()
+    const composerBox = await composerShell.boundingBox()
+    expect(timelineBox).not.toBeNull()
+    expect(composerColumnBox).not.toBeNull()
+    expect(messageBox).not.toBeNull()
     expect(composerBox).not.toBeNull()
-    expect(composerBox!.width).toBeLessThanOrEqual(920)
-  })
+
+    expect(Math.abs(centerX(timelineBox!) - centerX(composerColumnBox!))).toBeLessThanOrEqual(2)
+    expect(timelineBox!.width + 1).toBeGreaterThanOrEqual(composerColumnBox!.width)
+    expect(messageBox!.width + 1).toBeGreaterThanOrEqual(composerBox!.width)
+    if (input?.maxComposerColumn !== undefined) {
+      expect(composerColumnBox!.width).toBeLessThanOrEqual(input.maxComposerColumn)
+    }
+    if (input?.minTimelineComposerDelta !== undefined) {
+      expect(timelineBox!.width - composerColumnBox!.width).toBeGreaterThanOrEqual(input.minTimelineComposerDelta)
+    }
+  }
+
+  await assertWidthContract()
+
+  await page.setViewportSize({ width: 1600, height: 1000 })
+  await assertWidthContract({ maxComposerColumn: 920, minTimelineComposerDelta: 80 })
 })
