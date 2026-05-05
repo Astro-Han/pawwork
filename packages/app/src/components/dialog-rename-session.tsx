@@ -27,41 +27,42 @@ export function DialogRenameSession(props: {
   }
 
   return (
-    <Dialog title={language.t("session.rename.title")} fit>
-      <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-        <div class="flex flex-col gap-2">
-          <p class="text-13-regular text-fg-base">{language.t("session.rename.hint")}</p>
-          <TextField
-            label=""
-            hideLabel
-            value={value()}
-            onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) =>
-              setValue(e.currentTarget.value)
+    <Dialog title={language.t("session.rename.title")} fit class="w-full max-w-[420px] mx-auto">
+      <div class="px-6 pt-2 pb-4">
+        <TextField
+          label=""
+          hideLabel
+          autofocus
+          value={value()}
+          onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) =>
+            setValue(e.currentTarget.value)
+          }
+          onKeyDown={(e: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              void handleSave()
             }
-            onKeyDown={(e: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
-              if (e.key === "Enter") {
-                e.preventDefault()
-                void handleSave()
-              }
-              if (e.key === "Escape") {
-                e.preventDefault()
-                dialog.close()
-              }
-            }}
-          />
-        </div>
-        <div class="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => dialog.close()} disabled={saving()}>
-            {language.t("common.cancel")}
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSave}
-            disabled={saving() || !value().trim()}
-          >
-            {language.t("common.save")}
-          </Button>
-        </div>
+            if (e.key === "Escape") {
+              e.preventDefault()
+              dialog.close()
+            }
+          }}
+          onFocus={(e: FocusEvent & { currentTarget: HTMLInputElement }) =>
+            e.currentTarget.select()
+          }
+        />
+      </div>
+      <div class="flex justify-end gap-2 border-t border-border-weaker bg-bg-cream px-6 py-3">
+        <Button variant="secondary" onClick={() => dialog.close()} disabled={saving()}>
+          {language.t("common.cancel")}
+        </Button>
+        <Button
+          variant="primary"
+          onClick={handleSave}
+          disabled={saving() || !value().trim()}
+        >
+          {language.t("common.save")}
+        </Button>
       </div>
     </Dialog>
   )

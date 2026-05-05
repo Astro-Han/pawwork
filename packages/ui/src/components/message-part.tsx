@@ -2326,7 +2326,13 @@ ToolRegistry.register({
                   <Icon
                     name={todo.status === "completed" ? "circle-check" : "circle"}
                     size="small"
-                    style={{ color: "var(--icon-base)", "flex-shrink": "0" }}
+                    style={{
+                      color: todo.status === "in_progress" ? "var(--brand-primary)" : "var(--icon-base)",
+                      "flex-shrink": "0",
+                      animation: todo.status === "in_progress" ? "var(--animate-pw-spin)" : undefined,
+                      "transform-origin": todo.status === "in_progress" ? "center" : undefined,
+                      "transform-box": todo.status === "in_progress" ? "fill-box" : undefined,
+                    }}
                   />
                   <span
                     data-slot="message-part-todo-content"

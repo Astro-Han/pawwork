@@ -125,9 +125,10 @@
     position: relative;
     display: flex;
     align-items: center;
-    padding: 2px 8px;
+    height: 32px;
+    padding: 0 8px;
     gap: 12px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: default;
 
     /* text-13-medium */
@@ -141,31 +142,29 @@
     color: var(--fg-strong);
 
     transition:
-      background-color 0.2s ease-in-out,
-      color 0.2s ease-in-out;
+      background-color var(--duration-base),
+      color var(--duration-base);
     outline: none;
     user-select: none;
 
     &[data-highlighted] {
-      background: var(--surface-sunken);
+      background: var(--bg-cream);
+    }
+    &[data-selected] {
+      background: var(--surface-interactive-base);
     }
     &[data-disabled] {
       background-color: var(--surface-raised);
       pointer-events: none;
     }
     [data-slot="select-select-item-indicator"] {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-left: auto;
-      width: 16px;
-      height: 16px;
+      display: none;
     }
     &:focus {
       outline: none;
     }
     &:hover {
-      background: var(--surface-sunken);
+      background: var(--bg-cream);
     }
   }
 }

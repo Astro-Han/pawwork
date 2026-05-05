@@ -234,9 +234,12 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
                 name={todo().status === "completed" ? "circle-check" : "circle"}
                 size="small"
                 style={{
-                  color: "var(--icon-base)",
+                  color: todo().status === "in_progress" ? "var(--brand-primary)" : "var(--icon-base)",
                   "flex-shrink": "0",
                   "margin-top": "1px",
+                  animation: todo().status === "in_progress" ? "var(--animate-pw-spin)" : undefined,
+                  "transform-origin": todo().status === "in_progress" ? "center" : undefined,
+                  "transform-box": todo().status === "in_progress" ? "fill-box" : undefined,
                 }}
               />
               <TextStrikethrough
