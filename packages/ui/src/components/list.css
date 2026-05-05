@@ -288,7 +288,7 @@
 
           &[data-active="true"] {
             border-radius: var(--radius-md);
-            background: var(--surface-raised);
+            background: var(--surface-sunken);
             [data-slot="list-item-active-icon"] {
               display: inline-flex;
             }
@@ -298,7 +298,7 @@
             }
           }
           &:active {
-            background: var(--surface-base);
+            background: var(--surface-base-active);
           }
           &:focus-visible {
             outline: none;

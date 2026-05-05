@@ -1263,7 +1263,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     type="button"
                     role="menuitemradio"
                     aria-checked={active()}
-                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-strong outline-none hover:bg-surface-raised focus-visible:bg-surface-raised"
+                    class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-strong outline-none hover:bg-surface-sunken focus-visible:bg-surface-sunken"
                     onClick={() => {
                       if (!actionReady()) return
                       local.model.variant.set(variant === "default" ? undefined : variant)

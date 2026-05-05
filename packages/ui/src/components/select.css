@@ -147,7 +147,7 @@
     user-select: none;
 
     &[data-highlighted] {
-      background: var(--surface-raised);
+      background: var(--surface-sunken);
     }
     &[data-disabled] {
       background-color: var(--surface-raised);
@@ -165,7 +165,7 @@
       outline: none;
     }
     &:hover {
-      background: var(--surface-raised);
+      background: var(--surface-sunken);
     }
   }
 }

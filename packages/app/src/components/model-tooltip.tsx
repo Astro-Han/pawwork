@@ -79,13 +79,11 @@ export const ModelTooltip: Component<{ model: ModelInfo; latest?: boolean; free?
       <div class="text-13-medium">{title()}</div>
       <Show when={inputs()}>
         {(value) => (
-          <div class="text-13-regular text-fg-on-brand">
-            {language.t("model.tooltip.allows", { inputs: value() })}
-          </div>
+          <div class="text-13-regular">{language.t("model.tooltip.allows", { inputs: value() })}</div>
         )}
       </Show>
-      <div class="text-13-regular text-fg-on-brand">{reasoning()}</div>
-      <div class="text-13-regular text-fg-on-brand">{context()}</div>
+      <div class="text-13-regular">{reasoning()}</div>
+      <div class="text-13-regular">{context()}</div>
     </div>
   )
 }

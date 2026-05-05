@@ -79,7 +79,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                   type="button"
                   role="menuitemradio"
                   aria-checked={active()}
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none hover:bg-surface-raised focus-visible:bg-surface-raised"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none hover:bg-surface-sunken focus-visible:bg-surface-sunken"
                   onClick={() => {
                     navigate(`/${base64Encode(workspace.path)}/session`)
                     setOpen(false)
@@ -102,7 +102,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
             type="button"
             role="menuitem"
             data-action="workspace-chip-add"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-surface-raised focus-visible:bg-surface-raised"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-surface-sunken focus-visible:bg-surface-sunken"
             onClick={() => {
               setOpen(false)
               layoutPage.openProject()

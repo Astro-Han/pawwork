@@ -337,6 +337,7 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
                       {(item, i) => {
                         const node = (
                           <button
+                            data-component="list-item"
                             data-slot="list-item"
                             data-key={props.key(item)}
                             data-active={props.key(item) === active()}
