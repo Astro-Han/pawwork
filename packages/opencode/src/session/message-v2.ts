@@ -18,6 +18,7 @@ import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect } from "effect"
 import { EffectLogger } from "@/effect"
 import { isMedia } from "@/util/media"
+import { LLMTrace } from "./llm-trace"
 export { isMedia } from "@/util/media"
 
 function truncateToolOutput(text: string, maxChars?: number) {
@@ -506,6 +507,11 @@ export const Assistant = Base.extend({
   structured: z.any().optional(),
   variant: z.string().optional(),
   finish: z.string().optional(),
+  diagnostics: z
+    .object({
+      llm_trace: LLMTrace.Summary.optional(),
+    })
+    .optional(),
 }).meta({
   ref: "AssistantMessage",
 })

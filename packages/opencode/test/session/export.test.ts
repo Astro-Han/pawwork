@@ -12,6 +12,7 @@ import { Global } from "../../src/global"
 import { tmpdir } from "../fixture/fixture"
 import { Config } from "../../src/config"
 import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
+import { LLMTrace } from "../../src/session/llm-trace"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -555,6 +556,122 @@ describe("Export.session", () => {
           if (!entry.resolved) {
             expect(entry.unresolved_reason).toBeTruthy()
           }
+        } finally {
+          await SessionNs.remove(root.id)
+        }
+      },
+    })
+  })
+
+  test("exports assistant llm traces from covered session messages", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "llm trace export" })
+        try {
+          const userID = MessageID.ascending()
+          const assistantID = MessageID.ascending()
+          const trace: LLMTrace.Summary = {
+            schema_version: 1,
+            trace_id: assistantID,
+            session_id: root.id,
+            message_id: assistantID,
+            parent_message_id: userID,
+            provider: "test",
+            model: "test-model",
+            agent: "build",
+            request: {
+              streaming: true,
+              tool_count: 0,
+              small: false,
+              reasoning_capability: true,
+            },
+            stream_events: {
+              start: 1,
+              start_step: 1,
+              finish_step: 1,
+              finish: 1,
+              text_start: 1,
+              text_delta: 2,
+              text_end: 1,
+              reasoning_start: 0,
+              reasoning_delta: 0,
+              reasoning_end: 0,
+              tool_input_start: 0,
+              tool_input_delta: 0,
+              tool_input_end: 0,
+              tool_call: 0,
+              tool_result: 0,
+              tool_error: 0,
+              error: 0,
+              finish_reason: "stop",
+            },
+            stored_parts: {
+              text: 1,
+              reasoning: 0,
+              tool: 0,
+              step_start: 1,
+              step_finish: 1,
+              patch: 0,
+              file: 0,
+              other: 0,
+            },
+            tokens: {
+              input: 3,
+              output: 5,
+              reasoning: 0,
+              cache_read: 0,
+              cache_write: 0,
+            },
+            flags: { empty_completion: false },
+            created_at: 1,
+            completed_at: 2,
+          }
+
+          await SessionNs.updateMessage({
+            id: userID,
+            sessionID: root.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+          } as MessageV2.User)
+          await SessionNs.updateMessage({
+            id: assistantID,
+            role: "assistant",
+            sessionID: root.id,
+            mode: "build",
+            agent: "build",
+            path: { cwd: projectRoot, root: projectRoot },
+            cost: 0,
+            tokens: { input: 3, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "test-model",
+            providerID: "test",
+            parentID: userID,
+            time: { created: Date.now(), completed: Date.now() },
+            finish: "stop",
+            diagnostics: { llm_trace: trace },
+          } as MessageV2.Assistant)
+
+          const result = await AppRuntime.runPromise(Export.session(root.id))
+          expect(result.diagnostics.llm_trace_schema_version).toBe(1)
+          expect(result.diagnostics.llm_traces).toEqual([trace])
+        } finally {
+          await SessionNs.remove(root.id)
+        }
+      },
+    })
+  })
+
+  test("omits llm_traces when no exported assistant message has trace diagnostics", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "no llm trace" })
+        try {
+          const result = await AppRuntime.runPromise(Export.session(root.id))
+          expect(result.diagnostics.llm_traces).toBeUndefined()
+          expect(result.diagnostics.llm_trace_schema_version).toBeUndefined()
         } finally {
           await SessionNs.remove(root.id)
         }

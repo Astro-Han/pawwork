@@ -92,17 +92,6 @@ export type EventLspServerInstallFailed = {
   }
 }
 
-export type EventMessagePartDelta = {
-  type: "message.part.delta"
-  properties: {
-    sessionID: string
-    messageID: string
-    partID: string
-    field: string
-    delta: string
-  }
-}
-
 export type PermissionRequest = {
   id: string
   sessionID: string
@@ -129,6 +118,94 @@ export type EventPermissionReplied = {
     sessionID: string
     requestID: string
     reply: "once" | "always" | "reject"
+  }
+}
+
+export type QuestionOption = {
+  /**
+   * Display text (1–5 words, max 50 chars)
+   */
+  label: string
+  /**
+   * One-line explanation of choice (max 50 chars)
+   */
+  description: string
+}
+
+export type QuestionInfo = {
+  /**
+   * Short question (max 200 chars). Stream longer framing as normal output first.
+   */
+  question: string
+  /**
+   * Very short label (max 30 chars)
+   */
+  header: string
+  /**
+   * Available choices (2–4)
+   */
+  options: Array<QuestionOption>
+  /**
+   * Allow selecting multiple choices
+   */
+  multiple?: boolean
+  /**
+   * Allow typing a custom answer (default: true)
+   */
+  custom?: boolean
+}
+
+export type QuestionTool = {
+  messageID: string
+  callID: string
+}
+
+export type QuestionRequest = {
+  id: string
+  sessionID: string
+  /**
+   * Questions to ask
+   */
+  questions: Array<QuestionInfo>
+  tool?: QuestionTool
+}
+
+export type EventQuestionAsked = {
+  type: "question.asked"
+  properties: QuestionRequest
+}
+
+export type QuestionAnswer = Array<string>
+
+export type QuestionReplied = {
+  sessionID: string
+  requestID: string
+  answers: Array<QuestionAnswer>
+}
+
+export type EventQuestionReplied = {
+  type: "question.replied"
+  properties: QuestionReplied
+}
+
+export type QuestionRejected = {
+  sessionID: string
+  requestID: string
+}
+
+export type EventQuestionRejected = {
+  type: "question.rejected"
+  properties: QuestionRejected
+}
+
+export type EventMessagePartDelta = {
+  type: "message.part.delta"
+  properties: {
+    sessionID: string
+    messageID: string
+    partID: string
+    field: string
+    delta: string
   }
 }
 
@@ -269,83 +346,6 @@ export type EventCommandExecuted = {
     arguments: string
     messageID: string
   }
-}
-
-export type QuestionOption = {
-  /**
-   * Display text (1–5 words, max 50 chars)
-   */
-  label: string
-  /**
-   * One-line explanation of choice (max 50 chars)
-   */
-  description: string
-}
-
-export type QuestionInfo = {
-  /**
-   * Short question (max 200 chars). Stream longer framing as normal output first.
-   */
-  question: string
-  /**
-   * Very short label (max 30 chars)
-   */
-  header: string
-  /**
-   * Available choices (2–4)
-   */
-  options: Array<QuestionOption>
-  /**
-   * Allow selecting multiple choices
-   */
-  multiple?: boolean
-  /**
-   * Allow typing a custom answer (default: true)
-   */
-  custom?: boolean
-}
-
-export type QuestionTool = {
-  messageID: string
-  callID: string
-}
-
-export type QuestionRequest = {
-  id: string
-  sessionID: string
-  /**
-   * Questions to ask
-   */
-  questions: Array<QuestionInfo>
-  tool?: QuestionTool
-}
-
-export type EventQuestionAsked = {
-  type: "question.asked"
-  properties: QuestionRequest
-}
-
-export type QuestionAnswer = Array<string>
-
-export type QuestionReplied = {
-  sessionID: string
-  requestID: string
-  answers: Array<QuestionAnswer>
-}
-
-export type EventQuestionReplied = {
-  type: "question.replied"
-  properties: QuestionReplied
-}
-
-export type QuestionRejected = {
-  sessionID: string
-  requestID: string
-}
-
-export type EventQuestionRejected = {
-  type: "question.rejected"
-  properties: QuestionRejected
 }
 
 export type Todo = {
@@ -569,6 +569,77 @@ export type AssistantMessage = {
   structured?: unknown
   variant?: string
   finish?: string
+  diagnostics?: {
+    llm_trace?: {
+      schema_version: 1
+      trace_id: string
+      session_id: string
+      message_id: string
+      parent_message_id?: string
+      provider: string
+      model: string
+      agent: string
+      variant?: string
+      request?: {
+        streaming: true
+        tool_count: number
+        tool_choice?: "auto" | "required" | "none"
+        small: boolean
+        reasoning_capability: boolean
+        interleaved_field?: string
+        options?: {
+          temperature?: number
+          top_p?: number
+          top_k?: number
+          max_output_tokens?: number
+        }
+      }
+      stream_events: {
+        start: number
+        start_step: number
+        finish_step: number
+        finish: number
+        text_start: number
+        text_delta: number
+        text_end: number
+        reasoning_start: number
+        reasoning_delta: number
+        reasoning_end: number
+        tool_input_start: number
+        tool_input_delta: number
+        tool_input_end: number
+        tool_call: number
+        tool_result: number
+        tool_error: number
+        error: number
+        finish_reason?: string
+      }
+      stored_parts: {
+        text: number
+        reasoning: number
+        tool: number
+        step_start: number
+        step_finish: number
+        patch: number
+        file: number
+        other: number
+      }
+      tokens?: {
+        input: number
+        output: number
+        reasoning: number
+        cache_read: number
+        cache_write: number
+      }
+      flags: {
+        empty_completion: boolean
+        stream_error?: boolean
+        aborted?: boolean
+      }
+      created_at: number
+      completed_at?: number
+    }
+  }
 }
 
 export type Message = UserMessage | AssistantMessage
@@ -1025,9 +1096,12 @@ export type Event =
   | EventLspClientDiagnostics
   | EventLspUpdated
   | EventLspServerInstallFailed
-  | EventMessagePartDelta
   | EventPermissionAsked
   | EventPermissionReplied
+  | EventQuestionAsked
+  | EventQuestionReplied
+  | EventQuestionRejected
+  | EventMessagePartDelta
   | EventSessionDiff
   | EventSessionError
   | EventFileEdited
@@ -1036,9 +1110,6 @@ export type Event =
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
-  | EventQuestionAsked
-  | EventQuestionReplied
-  | EventQuestionRejected
   | EventTodoUpdated
   | EventSessionStatus
   | EventSessionIdle
@@ -3766,6 +3837,496 @@ export type SessionDiffResponses = {
 
 export type SessionDiffResponse = SessionDiffResponses[keyof SessionDiffResponses]
 
+export type SessionTurnChangeData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/turn-change/{messageID}"
+}
+
+export type SessionTurnChangeErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTurnChangeError = SessionTurnChangeErrors[keyof SessionTurnChangeErrors]
+
+export type SessionTurnChangeResponses = {
+  /**
+   * Turn changes
+   */
+  200: {
+    sessionID: string
+    turnID: string
+    messageID: string
+    undoAvailable: boolean
+    redoAvailable: boolean
+    truncated?: boolean
+    omittedCount?: number
+    files: Array<{
+      path: string
+      openPath?: string
+      status: "added" | "modified" | "deleted"
+      additions?: number
+      deletions?: number
+      patch?: string
+      sensitive?: boolean
+      binary?: boolean
+      large?: boolean
+      restoreAvailable?: boolean
+      expandable: boolean
+    }>
+  } | null
+}
+
+export type SessionTurnChangeResponse = SessionTurnChangeResponses[keyof SessionTurnChangeResponses]
+
+export type SessionTurnChangeUndoData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/turn-change/{messageID}/undo"
+}
+
+export type SessionTurnChangeUndoErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTurnChangeUndoError = SessionTurnChangeUndoErrors[keyof SessionTurnChangeUndoErrors]
+
+export type SessionTurnChangeUndoResponses = {
+  /**
+   * Undo result
+   */
+  200:
+    | {
+        status: "applied"
+        display: {
+          sessionID: string
+          turnID: string
+          messageID: string
+          undoAvailable: boolean
+          redoAvailable: boolean
+          truncated?: boolean
+          omittedCount?: number
+          files: Array<{
+            path: string
+            openPath?: string
+            status: "added" | "modified" | "deleted"
+            additions?: number
+            deletions?: number
+            patch?: string
+            sensitive?: boolean
+            binary?: boolean
+            large?: boolean
+            restoreAvailable?: boolean
+            expandable: boolean
+          }>
+        }
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+        mutatedPaths?: Array<string>
+      }
+    | {
+        status: "blocked"
+        reason:
+          | "conflict"
+          | "restore_missing"
+          | "permission_denied"
+          | "unsupported_size"
+          | "write_failed"
+          | "rollback_failed"
+        files: Array<{
+          path: string
+          reason: string
+          omittedCount?: number
+        }>
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+      }
+}
+
+export type SessionTurnChangeUndoResponse = SessionTurnChangeUndoResponses[keyof SessionTurnChangeUndoResponses]
+
+export type SessionTurnChangeRedoData = {
+  body?: never
+  path: {
+    sessionID: string
+    messageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/turn-change/{messageID}/redo"
+}
+
+export type SessionTurnChangeRedoErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTurnChangeRedoError = SessionTurnChangeRedoErrors[keyof SessionTurnChangeRedoErrors]
+
+export type SessionTurnChangeRedoResponses = {
+  /**
+   * Redo result
+   */
+  200:
+    | {
+        status: "applied"
+        display: {
+          sessionID: string
+          turnID: string
+          messageID: string
+          undoAvailable: boolean
+          redoAvailable: boolean
+          truncated?: boolean
+          omittedCount?: number
+          files: Array<{
+            path: string
+            openPath?: string
+            status: "added" | "modified" | "deleted"
+            additions?: number
+            deletions?: number
+            patch?: string
+            sensitive?: boolean
+            binary?: boolean
+            large?: boolean
+            restoreAvailable?: boolean
+            expandable: boolean
+          }>
+        }
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+        mutatedPaths?: Array<string>
+      }
+    | {
+        status: "blocked"
+        reason:
+          | "conflict"
+          | "restore_missing"
+          | "permission_denied"
+          | "unsupported_size"
+          | "write_failed"
+          | "rollback_failed"
+        files: Array<{
+          path: string
+          reason: string
+          omittedCount?: number
+        }>
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+      }
+}
+
+export type SessionTurnChangeRedoResponse = SessionTurnChangeRedoResponses[keyof SessionTurnChangeRedoResponses]
+
+export type SessionTurnChangesAggregateData = {
+  body?: never
+  path: {
+    sessionID: string
+    userMessageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/turn/{userMessageID}/changes"
+}
+
+export type SessionTurnChangesAggregateErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTurnChangesAggregateError =
+  SessionTurnChangesAggregateErrors[keyof SessionTurnChangesAggregateErrors]
+
+export type SessionTurnChangesAggregateResponses = {
+  /**
+   * Aggregated turn changes
+   */
+  200: {
+    sessionID: string
+    turnID: string
+    messageID: string
+    undoAvailable: boolean
+    redoAvailable: boolean
+    truncated?: boolean
+    omittedCount?: number
+    files: Array<{
+      path: string
+      openPath?: string
+      status: "added" | "modified" | "deleted"
+      additions?: number
+      deletions?: number
+      patch?: string
+      sensitive?: boolean
+      binary?: boolean
+      large?: boolean
+      restoreAvailable?: boolean
+      expandable: boolean
+    }>
+  } | null
+}
+
+export type SessionTurnChangesAggregateResponse =
+  SessionTurnChangesAggregateResponses[keyof SessionTurnChangesAggregateResponses]
+
+export type SessionTurnChangesAggregateUndoData = {
+  body?: {
+    force?: boolean
+  }
+  path: {
+    sessionID: string
+    userMessageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/turn/{userMessageID}/changes/undo"
+}
+
+export type SessionTurnChangesAggregateUndoErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTurnChangesAggregateUndoError =
+  SessionTurnChangesAggregateUndoErrors[keyof SessionTurnChangesAggregateUndoErrors]
+
+export type SessionTurnChangesAggregateUndoResponses = {
+  /**
+   * Undo result
+   */
+  200:
+    | {
+        status: "applied"
+        display: {
+          sessionID: string
+          turnID: string
+          messageID: string
+          undoAvailable: boolean
+          redoAvailable: boolean
+          truncated?: boolean
+          omittedCount?: number
+          files: Array<{
+            path: string
+            openPath?: string
+            status: "added" | "modified" | "deleted"
+            additions?: number
+            deletions?: number
+            patch?: string
+            sensitive?: boolean
+            binary?: boolean
+            large?: boolean
+            restoreAvailable?: boolean
+            expandable: boolean
+          }>
+        }
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+        mutatedPaths?: Array<string>
+      }
+    | {
+        status: "blocked"
+        reason:
+          | "conflict"
+          | "restore_missing"
+          | "permission_denied"
+          | "unsupported_size"
+          | "write_failed"
+          | "rollback_failed"
+        files: Array<{
+          path: string
+          reason: string
+          omittedCount?: number
+        }>
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+      }
+}
+
+export type SessionTurnChangesAggregateUndoResponse =
+  SessionTurnChangesAggregateUndoResponses[keyof SessionTurnChangesAggregateUndoResponses]
+
+export type SessionTurnChangesAggregateRedoData = {
+  body?: {
+    force?: boolean
+  }
+  path: {
+    sessionID: string
+    userMessageID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/turn/{userMessageID}/changes/redo"
+}
+
+export type SessionTurnChangesAggregateRedoErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionTurnChangesAggregateRedoError =
+  SessionTurnChangesAggregateRedoErrors[keyof SessionTurnChangesAggregateRedoErrors]
+
+export type SessionTurnChangesAggregateRedoResponses = {
+  /**
+   * Redo result
+   */
+  200:
+    | {
+        status: "applied"
+        display: {
+          sessionID: string
+          turnID: string
+          messageID: string
+          undoAvailable: boolean
+          redoAvailable: boolean
+          truncated?: boolean
+          omittedCount?: number
+          files: Array<{
+            path: string
+            openPath?: string
+            status: "added" | "modified" | "deleted"
+            additions?: number
+            deletions?: number
+            patch?: string
+            sensitive?: boolean
+            binary?: boolean
+            large?: boolean
+            restoreAvailable?: boolean
+            expandable: boolean
+          }>
+        }
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+        mutatedPaths?: Array<string>
+      }
+    | {
+        status: "blocked"
+        reason:
+          | "conflict"
+          | "restore_missing"
+          | "permission_denied"
+          | "unsupported_size"
+          | "write_failed"
+          | "rollback_failed"
+        files: Array<{
+          path: string
+          reason: string
+          omittedCount?: number
+        }>
+        skipped?: Array<{
+          messageID: string
+          reason: "conflict" | "permission_denied"
+          files: Array<{
+            path: string
+            reason: string
+          }>
+        }>
+      }
+}
+
+export type SessionTurnChangesAggregateRedoResponse =
+  SessionTurnChangesAggregateRedoResponses[keyof SessionTurnChangesAggregateRedoResponses]
+
 export type SessionArtifactsData = {
   body?: never
   path: {
@@ -4385,6 +4946,39 @@ export type PermissionListResponses = {
 }
 
 export type PermissionListResponse = PermissionListResponses[keyof PermissionListResponses]
+
+export type PostQuestionE2eAskData = {
+  body?: {
+    sessionID: string
+    questions: Array<QuestionInfo>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/question/__e2e/ask"
+}
+
+export type PostQuestionE2eAskResponses = {
+  200: unknown
+}
+
+export type PostQuestionE2ePublishAskedData = {
+  body?: {
+    request: QuestionRequest
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/question/__e2e/publish-asked"
+}
+
+export type PostQuestionE2ePublishAskedResponses = {
+  200: unknown
+}
 
 export type QuestionListData = {
   body?: never
@@ -5030,8 +5624,11 @@ export type PathGetData = {
   path?: never
   query?: {
     directory?: string
-    ensureConfig?: boolean
     workspace?: string
+    /**
+     * Create the global config directory before returning it.
+     */
+    ensureConfig?: boolean
   }
   url: "/path"
 }

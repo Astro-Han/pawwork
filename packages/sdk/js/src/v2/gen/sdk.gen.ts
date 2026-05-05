@@ -79,6 +79,8 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  PostQuestionE2eAskResponses,
+  PostQuestionE2ePublishAskedResponses,
   ProjectCurrentResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
@@ -101,12 +103,14 @@ import type {
   PtyRemoveResponses,
   PtyUpdateErrors,
   PtyUpdateResponses,
+  QuestionInfo,
   QuestionListResponses,
   QuestionRejectErrors,
   QuestionRejectResponses,
   QuestionReply,
   QuestionReplyErrors,
   QuestionReplyResponses,
+  QuestionRequest,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionArtifactsResponses,
@@ -149,6 +153,18 @@ import type {
   SessionSummarizeResponses,
   SessionTodoErrors,
   SessionTodoResponses,
+  SessionTurnChangeErrors,
+  SessionTurnChangeRedoErrors,
+  SessionTurnChangeRedoResponses,
+  SessionTurnChangeResponses,
+  SessionTurnChangesAggregateErrors,
+  SessionTurnChangesAggregateRedoErrors,
+  SessionTurnChangesAggregateRedoResponses,
+  SessionTurnChangesAggregateResponses,
+  SessionTurnChangesAggregateUndoErrors,
+  SessionTurnChangesAggregateUndoResponses,
+  SessionTurnChangeUndoErrors,
+  SessionTurnChangeUndoResponses,
   SessionUnrevertErrors,
   SessionUnrevertResponses,
   SessionUnshareErrors,
@@ -2060,6 +2076,236 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Get assistant turn changes
+   *
+   * Get files explicitly changed by PawWork file-writing tools during one assistant turn.
+   */
+  public turnChange<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionTurnChangeResponses, SessionTurnChangeErrors, ThrowOnError>({
+      url: "/session/{sessionID}/turn-change/{messageID}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Undo assistant turn file changes
+   */
+  public turnChangeUndo<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionTurnChangeUndoResponses,
+      SessionTurnChangeUndoErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/turn-change/{messageID}/undo",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Redo assistant turn file changes
+   */
+  public turnChangeRedo<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      messageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "messageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionTurnChangeRedoResponses,
+      SessionTurnChangeRedoErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/turn-change/{messageID}/redo",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get aggregated turn changes
+   *
+   * Aggregate file changes across all assistants in one user turn.
+   */
+  public turnChangesAggregate<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      userMessageID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "userMessageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<
+      SessionTurnChangesAggregateResponses,
+      SessionTurnChangesAggregateErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/turn/{userMessageID}/changes",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Undo all assistant changes in a turn
+   */
+  public turnChangesAggregateUndo<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      userMessageID: string
+      directory?: string
+      workspace?: string
+      force?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "userMessageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "force" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionTurnChangesAggregateUndoResponses,
+      SessionTurnChangesAggregateUndoErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/turn/{userMessageID}/changes/undo",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Redo all assistant changes in a turn
+   */
+  public turnChangesAggregateRedo<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      userMessageID: string
+      directory?: string
+      workspace?: string
+      force?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "userMessageID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "force" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<
+      SessionTurnChangesAggregateRedoResponses,
+      SessionTurnChangesAggregateRedoErrors,
+      ThrowOnError
+    >({
+      url: "/session/{sessionID}/turn/{userMessageID}/changes/redo",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Get session artifacts
    *
    * Get the cumulative files created or updated across a session.
@@ -3556,8 +3802,8 @@ export class Path extends HeyApiClient {
   public get<ThrowOnError extends boolean = false>(
     parameters?: {
       directory?: string
-      ensureConfig?: boolean
       workspace?: string
+      ensureConfig?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3567,8 +3813,8 @@ export class Path extends HeyApiClient {
         {
           args: [
             { in: "query", key: "directory" },
-            { in: "query", key: "ensureConfig" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "ensureConfig" },
           ],
         },
       ],
@@ -3747,6 +3993,72 @@ export class OpencodeClient extends HeyApiClient {
   constructor(args?: { client?: Client; key?: string }) {
     super(args)
     OpencodeClient.__registry.set(this, args?.key)
+  }
+
+  public postQuestionE2eAsk<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      questions?: Array<QuestionInfo>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "questions" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PostQuestionE2eAskResponses, unknown, ThrowOnError>({
+      url: "/question/__e2e/ask",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public postQuestionE2ePublishAsked<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      request?: QuestionRequest
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "request" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PostQuestionE2ePublishAskedResponses, unknown, ThrowOnError>({
+      url: "/question/__e2e/publish-asked",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
   }
 
   private _global?: Global
