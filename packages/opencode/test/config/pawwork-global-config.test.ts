@@ -377,6 +377,39 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("legacy TOML migration does not create lower-priority JSON when JSONC exists", async () => {
+    await using platformLegacy = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = path.join(platformLegacy.path, "empty-home")
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      const legacyJsonc = path.join(platformLegacy.path, "pawwork.jsonc")
+      const original = '{\n  // active legacy config\n  "username": "jsonc-user"\n}\n'
+      await Filesystem.write(legacyJsonc, original)
+      await Filesystem.write(
+        path.join(platformLegacy.path, "config"),
+        ['provider = "toml"', 'model = "model"', 'username = "toml-user"'].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.username).toBe("jsonc-user")
+          expect(config.model).toBeUndefined()
+          expect(await Bun.file(path.join(platformLegacy.path, "config")).exists()).toBeFalse()
+          expect(await Bun.file(path.join(platformLegacy.path, "pawwork.json")).exists()).toBeFalse()
+          expect(await Bun.file(legacyJsonc).text()).toBe(original)
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("legacy fallback JSON config is read without schema or default_agent writeback", async () => {
     await using home = await tmpdir()
     await using platformLegacy = await tmpdir()
@@ -481,6 +514,47 @@ describe("PawWork global config isolation", () => {
           expect(saved.username).toBe("legacy-user")
           expect(saved.default_agent).toBeUndefined()
           expect(await Bun.file(legacy).text()).toBe(original)
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("seedGlobalConfig normalizes deprecated legacy keys before first write", async () => {
+    await using home = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    await using platformLegacy = await tmpdir()
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(
+        path.join(platformLegacy.path, "pawwork.json"),
+        JSON.stringify(
+          {
+            model: "legacy/model",
+            theme: "legacy-theme",
+            keybinds: {},
+            tui: {},
+          },
+          null,
+          2,
+        ),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await Config.seedGlobalConfig()
+          const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
+          expect(saved.model).toBe("legacy/model")
+          expect(saved.theme).toBeUndefined()
+          expect(saved.keybinds).toBeUndefined()
+          expect(saved.tui).toBeUndefined()
         },
       })
     } finally {

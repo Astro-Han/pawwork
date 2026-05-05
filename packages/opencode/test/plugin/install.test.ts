@@ -142,6 +142,41 @@ describe("plugin.install.task", () => {
     }
   })
 
+  test("default PawWork global plugin write is atomic and preserves config mode", async () => {
+    await using tmp = await tmpdir()
+    await using global = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousHome = process.env.PAWWORK_HOME
+    const previousConfigDir = process.env.PAWWORK_CONFIG_DIR
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+    process.env.PAWWORK_HOME = global.path
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    try {
+      const target = await plugin(tmp.path, ["server"])
+      const configFile = path.join(global.path, "pawwork.json")
+      await Filesystem.write(configFile, JSON.stringify({ plugin: [] }))
+      await fs.chmod(configFile, 0o600)
+
+      const ok = await createPlugTask({
+        mod: target,
+        global: true,
+      })(ctx(tmp.path))
+
+      expect(ok).toBe(true)
+      expect((await fs.stat(configFile)).mode & 0o777).toBe(0o600)
+      const config = await read(configFile)
+      expect(config.plugin).toEqual([target])
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      if (previousHome === undefined) delete process.env.PAWWORK_HOME
+      else process.env.PAWWORK_HOME = previousHome
+      if (previousConfigDir === undefined) delete process.env.PAWWORK_CONFIG_DIR
+      else process.env.PAWWORK_CONFIG_DIR = previousConfigDir
+    }
+  })
+
   test("seeds PawWork global plugin config before patching it", async () => {
     await using tmp = await tmpdir()
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE

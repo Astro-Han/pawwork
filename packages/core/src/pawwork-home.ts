@@ -35,10 +35,8 @@ function realpathOrResolved(input: string) {
   const resolved = path.resolve(input)
   try {
     return fsNode.realpathSync.native(resolved)
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code
-    if (code === "ENOENT" || code === "ENOTDIR") return process.platform === "win32" ? resolved.toLowerCase() : resolved
-    throw error
+  } catch {
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved
   }
 }
 
@@ -115,7 +113,13 @@ export namespace PawWorkHome {
 
   export function existingResourceDirectories() {
     return candidates()
-      .filter(isDirectory)
+      .filter((candidate) => {
+        try {
+          return isDirectory(candidate)
+        } catch {
+          return false
+        }
+      })
       .toReversed()
   }
 

@@ -174,6 +174,39 @@ describe("Export.session", () => {
     }
   })
 
+  test("does not fail export when the session instruction directory is gone", async () => {
+    await using sessionProject = await tmpdir({ git: true })
+    await using currentProject = await tmpdir({ git: true })
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: sessionProject.path,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "missing export source directory" })
+        sessionID = root.id
+      },
+    })
+
+    try {
+      await fs.rm(sessionProject.path, { recursive: true, force: true })
+      await Instance.provide({
+        directory: currentProject.path,
+        fn: async () => {
+          const result = await AppRuntime.runPromise(Export.session(sessionID!))
+          const projectSources = result.runtime_context.instruction_sources.filter((source) => source.kind === "project")
+          expect(projectSources).toContainEqual({
+            kind: "project",
+            path: sessionProject.path,
+            hash_unavailable: true,
+          })
+          expect(result.runtime_context.instruction_sources.some((source) => source.kind === "bundled")).toBe(true)
+        },
+      })
+    } finally {
+      if (sessionID) await SessionNs.remove(sessionID)
+    }
+  })
+
   test("exports only the loaded PawWork global AGENTS.md source", async () => {
     await using primary = await tmpdir()
     await using legacy = await tmpdir()

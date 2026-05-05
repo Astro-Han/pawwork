@@ -66,7 +66,7 @@ const defaultPlugDeps: PlugDeps = {
   resolve: (spec) => resolvePluginTarget(spec),
   readText: (file) => Filesystem.readText(file),
   write: async (file, text) => {
-    await Filesystem.write(file, text)
+    await Config.writeConfigTextAtomic(file, text)
   },
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),

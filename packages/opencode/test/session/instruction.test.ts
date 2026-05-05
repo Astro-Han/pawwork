@@ -119,6 +119,33 @@ describe("Instruction.resolve", () => {
     })
   })
 
+  test("nearby instruction lookup skips directories named AGENTS.md", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.mkdir(path.join(dir, "subdir", "AGENTS.md"), { recursive: true })
+        await Bun.write(path.join(dir, "subdir", "CLAUDE.md"), "# Subdir Claude Instructions")
+        await Bun.write(path.join(dir, "subdir", "nested", "file.ts"), "const x = 1")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: () =>
+        run(
+          Instruction.Service.use((svc) =>
+            Effect.gen(function* () {
+              const results = yield* svc.resolve(
+                [],
+                path.join(tmp.path, "subdir", "nested", "file.ts"),
+                MessageID.make("message-test-dir-agents"),
+              )
+              expect(results.length).toBe(1)
+              expect(results[0].filepath).toBe(path.join(tmp.path, "subdir", "CLAUDE.md"))
+            }),
+          ),
+        ),
+    })
+  })
+
   test("doesn't reload AGENTS.md when reading it directly", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {

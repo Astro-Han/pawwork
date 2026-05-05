@@ -299,20 +299,43 @@ export namespace Export {
   const collectInstructionSources = Effect.fn("Export.instructionSources")(function* (directory?: string) {
     const sources: InstructionSource[] = []
     const instruction = yield* Instruction.Service
-    const resolvedSources =
-      directory && path.resolve(directory) !== path.resolve(Instance.directory)
-        ? yield* Effect.promise(async () => {
-            const fromSessionDirectory = await Instance.provide({
-              directory,
-              fn: () => Effect.runPromise(instruction.sources({ fetchRemote: false })),
-            })
-            return await fromSessionDirectory
+    const sessionDirectoryUnavailable = "session directory unavailable"
+    let resolvedSources
+    if (directory && path.resolve(directory) !== path.resolve(Instance.directory)) {
+      const fromSessionDirectory = yield* Effect.promise(async () => {
+        try {
+          const stat = await fs.stat(directory)
+          if (!stat.isDirectory()) return undefined
+          return await Instance.provide({
+            directory,
+            fn: () => Effect.runPromise(instruction.sources({ fetchRemote: false })),
           })
-        : yield* instruction.sources({ fetchRemote: false })
+        } catch {
+          return undefined
+        }
+      })
+      if (fromSessionDirectory) {
+        resolvedSources = fromSessionDirectory
+      } else {
+        const fallback = yield* instruction.sources({ fetchRemote: false }).pipe(Effect.catch(() => Effect.succeed([])))
+        resolvedSources = [
+          ...fallback.filter((source) => source.status === "loaded" && source.kind === "global"),
+          {
+            status: "considered" as const,
+            path: directory,
+            kind: "project" as const,
+            reason: sessionDirectoryUnavailable,
+          },
+        ]
+      }
+    } else {
+      resolvedSources = yield* instruction.sources({ fetchRemote: false })
+    }
     const instructionSources = resolvedSources.filter(
       (source) =>
         source.status === "loaded" ||
-        (source.status === "considered" && source.kind === "remote" && source.reason === "configured but not fetched"),
+        (source.status === "considered" && source.kind === "remote" && source.reason === "configured but not fetched") ||
+        (source.status === "considered" && source.kind === "project" && source.reason === sessionDirectoryUnavailable),
     )
 
     for (const source of instructionSources) {

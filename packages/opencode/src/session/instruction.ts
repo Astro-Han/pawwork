@@ -249,6 +249,14 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
             const stats = yield* Effect.forEach(matches, (item) =>
               fs.isFile(item).pipe(Effect.map((isFile) => ({ item, isFile }))),
             )
+            for (const item of stats.filter((item) => !item.isFile)) {
+              result.push({
+                status: "considered",
+                path: path.resolve(item.item),
+                kind: "project",
+                reason: "not a file",
+              })
+            }
             const files = stats.filter((item) => item.isFile).map((item) => item.item)
             if (files.length === 0) continue
             for (const match of files) {
@@ -374,7 +382,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Config.S
       const find = Effect.fn("Instruction.find")(function* (dir: string) {
         for (const file of FILES()) {
           const filepath = path.resolve(path.join(dir, file))
-          if (yield* fs.existsSafe(filepath)) return filepath
+          if (yield* fs.isFile(filepath)) return filepath
         }
       })
 

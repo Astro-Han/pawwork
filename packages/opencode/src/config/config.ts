@@ -378,6 +378,14 @@ function globalConfigFile() {
   return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
 }
 
+function legacyTomlMigrationTarget() {
+  const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
+  for (const file of [...candidates].reverse()) {
+    if (existsSync(file)) return file
+  }
+  return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
+}
+
 export function globalConfigFileForWrite() {
   return globalConfigFile()
 }
@@ -564,7 +572,8 @@ function seedConfigValueFromSource(text: string, sourceFile: string) {
   const stripped = stripDefaultAgent(text).text
   const parsed = ConfigParse.jsonc(stripped, sourceFile)
   if (!isRecord(parsed)) return stripped
-  return rewriteSeedConfig(parsed, sourceFile)
+  const normalized = ConfigParse.schema(Info.zod, normalizeLoadedConfig(parsed, sourceFile), sourceFile)
+  return rewriteSeedConfig(writable(normalized), sourceFile)
 }
 
 function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
@@ -578,16 +587,14 @@ function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
 }
 
 async function writeLegacyTomlMigration(target: string, legacyConfig: Info) {
-  let next = legacyConfig
-  const existingText = await fsNode.readFile(target, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return undefined
-    throw error
+  await withConfigFileLock(target, async () => {
+    const existingText = await fsNode.readFile(target, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (existingText !== undefined) return
+    await writeConfigTextAtomic(target, JSON.stringify(legacyConfig, null, 2))
   })
-  if (existingText !== undefined) {
-    const existing = ConfigParse.jsonc(existingText, target)
-    if (isRecord(existing)) next = mergeDeep(legacyConfig, existing) as Info
-  }
-  await withConfigFileLock(target, () => writeConfigTextAtomic(target, JSON.stringify(next, null, 2)))
 }
 
 export const ConfigDirectoryTypoError = NamedError.create(
@@ -681,10 +688,7 @@ const rawLayer = Layer.effect(
               if (!Runtime.isPawWork() || globalFiles.length === 0) {
                 result = mergeDeep(result, legacyConfig)
               }
-              await writeLegacyTomlMigration(
-                path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json"),
-                legacyConfig,
-              )
+              await writeLegacyTomlMigration(legacyTomlMigrationTarget(), legacyConfig)
               await fsNode.unlink(legacy)
             })
             .catch(() => {}),
