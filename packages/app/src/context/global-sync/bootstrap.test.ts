@@ -171,6 +171,7 @@ describe("bootstrapDirectory", () => {
 
     expect(store.session_status).toEqual({})
     await waitFor(() => providerCalls === 1)
+    await waitFor(() => store.session_status_state === "ready")
 
     expect(store.provider_ready).toBe(true)
     expect(store.provider).toEqual(providers[0])
@@ -309,5 +310,56 @@ describe("bootstrapDirectory", () => {
 
     expect(store.session_status.ses_1).toEqual({ type: "busy" })
     expect(store.session_status_ready).toBe(true)
+  })
+
+  test("refreshes providers before unrelated slow bootstrap work finishes", async () => {
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    const permission = deferred<{ data: [] }>()
+    const providers = {
+      all: [{ id: "dir-provider", name: "Dir Provider", source: "custom", env: [], options: {}, models: {} }],
+      connected: ["dir-provider"],
+      default: {},
+    } satisfies ProviderListResponse
+
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: { list: async () => permission.promise },
+      question: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: { list: async () => ({ data: providers }) },
+    } as any
+
+    await bootstrapDirectory({
+      directory,
+      sdk,
+      store,
+      setStore,
+      vcsCache: createVcsCache(),
+      loadSessions: () => undefined,
+      translate: (key) => key,
+      global: {
+        config: {} as Config,
+        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        project: [] as Project[],
+        provider: { all: [], connected: [], default: {} },
+      },
+      queryClient,
+    })
+
+    await waitFor(() => store.provider_ready)
+    expect(store.provider).toEqual(providers)
+
+    permission.resolve({ data: [] })
   })
 })

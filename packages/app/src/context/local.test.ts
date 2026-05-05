@@ -1,11 +1,13 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
 import type {
   localSavedStoreKey as LocalSavedStoreKey,
+  localPersistReadyForAction as LocalPersistReadyForAction,
   pruneLocalSavedStores as PruneLocalSavedStores,
   shouldRestoreLocalSessionModel as ShouldRestoreLocalSessionModel,
 } from "./local"
 
 let localSavedStoreKey: typeof LocalSavedStoreKey
+let localPersistReadyForAction: typeof LocalPersistReadyForAction
 let pruneLocalSavedStores: typeof PruneLocalSavedStores
 let shouldRestoreLocalSessionModel: typeof ShouldRestoreLocalSessionModel
 
@@ -17,6 +19,7 @@ beforeAll(async () => {
 
   const mod = await import("./local")
   localSavedStoreKey = mod.localSavedStoreKey
+  localPersistReadyForAction = mod.localPersistReadyForAction
   pruneLocalSavedStores = mod.pruneLocalSavedStores
   shouldRestoreLocalSessionModel = mod.shouldRestoreLocalSessionModel
 })
@@ -61,6 +64,15 @@ describe("shouldRestoreLocalSessionModel", () => {
         hasHandoff: false,
       }),
     ).toBe(false)
+  })
+})
+
+describe("localPersistReadyForAction", () => {
+  test("allows manual actions after persisted init fails or times out", () => {
+    expect(localPersistReadyForAction({ ready: false, failed: false, timedOut: false })).toBe(false)
+    expect(localPersistReadyForAction({ ready: true, failed: false, timedOut: false })).toBe(true)
+    expect(localPersistReadyForAction({ ready: false, failed: true, timedOut: false })).toBe(true)
+    expect(localPersistReadyForAction({ ready: false, failed: false, timedOut: true })).toBe(true)
   })
 })
 

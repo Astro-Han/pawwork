@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
 import {
+  currentDirectoryProviderUsable,
   currentSessionActionReady,
   currentSessionCacheReady,
   readTimelineMessages,
@@ -213,7 +214,7 @@ describe("currentSessionActionReady", () => {
         rawMessages: [],
         statusReady: false,
         localReady: true,
-        providerReady: true,
+        providerUsable: true,
       }),
     ).toBe(false)
 
@@ -224,7 +225,7 @@ describe("currentSessionActionReady", () => {
         rawMessages: [],
         statusReady: true,
         localReady: true,
-        providerReady: true,
+        providerUsable: true,
       }),
     ).toBe(true)
   })
@@ -237,9 +238,9 @@ describe("currentSessionActionReady", () => {
       statusReady: true,
     }
 
-    expect(currentSessionActionReady({ ...ready, localReady: false, providerReady: true })).toBe(false)
-    expect(currentSessionActionReady({ ...ready, localReady: true, providerReady: false })).toBe(false)
-    expect(currentSessionActionReady({ ...ready, localReady: true, providerReady: true })).toBe(true)
+    expect(currentSessionActionReady({ ...ready, localReady: false, providerUsable: true })).toBe(false)
+    expect(currentSessionActionReady({ ...ready, localReady: true, providerUsable: false })).toBe(false)
+    expect(currentSessionActionReady({ ...ready, localReady: true, providerUsable: true })).toBe(true)
   })
 
   test("treats a loaded empty status list as idle for an otherwise hydrated session", () => {
@@ -250,9 +251,17 @@ describe("currentSessionActionReady", () => {
         rawMessages: [],
         statusReady: true,
         localReady: true,
-        providerReady: true,
+        providerUsable: true,
       }),
     ).toBe(true)
+  })
+})
+
+describe("currentDirectoryProviderUsable", () => {
+  test("allows seeded provider data before the directory refresh finishes", () => {
+    expect(currentDirectoryProviderUsable({ providerReady: false, providerCount: 0 })).toBe(false)
+    expect(currentDirectoryProviderUsable({ providerReady: false, providerCount: 1 })).toBe(true)
+    expect(currentDirectoryProviderUsable({ providerReady: true, providerCount: 0 })).toBe(true)
   })
 })
 
@@ -285,7 +294,7 @@ describe("sessionStatusKnown", () => {
         rawMessages: [],
         statusReady: sessionStatusKnown({ statusState: "error", status: undefined }),
         localReady: true,
-        providerReady: true,
+        providerUsable: true,
       }),
     ).toBe(true)
   })

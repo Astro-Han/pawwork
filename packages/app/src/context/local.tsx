@@ -1,7 +1,7 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useParams } from "@solidjs/router"
-import { batch, createEffect, createMemo, createRoot, getOwner, onCleanup, runWithOwner } from "solid-js"
+import { batch, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, runWithOwner } from "solid-js"
 import { createStore, type SetStoreFunction, type Store } from "solid-js/store"
 import { useModels } from "@/context/models"
 import { useProviders } from "@/hooks/use-providers"
@@ -25,6 +25,7 @@ type Saved = {
 
 const WORKSPACE_KEY = "__workspace__"
 export const LOCAL_SAVED_STORE_LIMIT = 8
+export const LOCAL_SAVED_READY_FALLBACK_MS = 5000
 const handoff = new Map<string, State>()
 
 const handoffKey = (dir: string, id: string) => `${dir}\n${id}`
@@ -57,8 +58,13 @@ type SavedEntry = {
   store: Store<Saved>
   setStore: SetStoreFunction<Saved>
   ready: () => boolean
+  readyForAction: () => boolean
   dispose: () => void
   lastAccessAt: number
+}
+
+export function localPersistReadyForAction(input: { ready: boolean; failed: boolean; timedOut: boolean }) {
+  return input.ready || input.failed || input.timedOut
 }
 
 export function pruneLocalSavedStores<T extends { dispose: () => void; lastAccessAt: number }>(
@@ -124,7 +130,27 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             session: {},
           }),
         )
-        return { store, setStore, ready, dispose, lastAccessAt: Date.now() } satisfies SavedEntry
+        const [failed, setFailed] = createSignal(false)
+        const [timedOut, setTimedOut] = createSignal(false)
+        const timer = ready.promise ? setTimeout(() => setTimedOut(true), LOCAL_SAVED_READY_FALLBACK_MS) : undefined
+        if (ready.promise) {
+          void ready.promise
+            .catch(() => setFailed(true))
+            .finally(() => {
+              if (timer !== undefined) clearTimeout(timer)
+            })
+        }
+        return {
+          store,
+          setStore,
+          ready,
+          readyForAction: () => localPersistReadyForAction({ ready: ready(), failed: failed(), timedOut: timedOut() }),
+          dispose() {
+            if (timer !== undefined) clearTimeout(timer)
+            dispose()
+          },
+          lastAccessAt: Date.now(),
+        } satisfies SavedEntry
       })
 
     const savedFor = (directory: string) => {
@@ -438,7 +464,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       agent,
       session: {
         ready() {
-          return savedFor(sdk.directory)?.ready() ?? false
+          return savedFor(sdk.directory)?.readyForAction() ?? false
         },
         reset() {
           setStore("draft", undefined)

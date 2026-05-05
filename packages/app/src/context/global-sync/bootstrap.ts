@@ -267,6 +267,33 @@ export async function bootstrapDirectory(input: {
   }
 
   ;(async () => {
+    const refreshProviders = () => {
+      const rev = (providerRev.get(input.directory) ?? 0) + 1
+      providerRev.set(input.directory, rev)
+      return input.queryClient.fetchQuery({
+        ...loadProvidersQuery(input.directory),
+        queryFn: () =>
+          retry(() => input.sdk.provider.list())
+            .then((x) => {
+              if (providerRev.get(input.directory) !== rev) return
+              input.setStore("provider", normalizeProviderList(x.data!))
+              input.setStore("provider_ready", true)
+            })
+            .catch((err) => {
+              if (providerRev.get(input.directory) === rev) console.error("Failed to refresh provider list", err)
+              const project = getFilename(input.directory)
+              showToast({
+                variant: "error",
+                title: input.translate("toast.project.reloadFailed.title", { project }),
+                description: formatServerError(err, input.translate),
+              })
+            })
+            .then(() => null),
+      })
+    }
+
+    void refreshProviders()
+
     const slow = [
       () =>
         input.queryClient.ensureQueryData({
@@ -397,27 +424,5 @@ export async function bootstrapDirectory(input: {
 
     if (loading && errs.length === 0 && slowErrs.length === 0) input.setStore("status", "complete")
 
-    const rev = (providerRev.get(input.directory) ?? 0) + 1
-    providerRev.set(input.directory, rev)
-    void input.queryClient.fetchQuery({
-      ...loadProvidersQuery(input.directory),
-      queryFn: () =>
-        retry(() => input.sdk.provider.list())
-          .then((x) => {
-            if (providerRev.get(input.directory) !== rev) return
-            input.setStore("provider", normalizeProviderList(x.data!))
-            input.setStore("provider_ready", true)
-          })
-          .catch((err) => {
-            if (providerRev.get(input.directory) !== rev) console.error("Failed to refresh provider list", err)
-            const project = getFilename(input.directory)
-            showToast({
-              variant: "error",
-              title: input.translate("toast.project.reloadFailed.title", { project }),
-              description: formatServerError(err, input.translate),
-            })
-          })
-          .then(() => null),
-    })
   })()
 }
