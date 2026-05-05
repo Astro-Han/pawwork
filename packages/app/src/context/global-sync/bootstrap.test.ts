@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Config, Path, Project, ProviderListResponse, VcsInfo } from "@opencode-ai/sdk/v2/client"
 import { QueryClient } from "@tanstack/solid-query"
 import { createStore } from "solid-js/store"
-import { bootstrapDirectory } from "./bootstrap"
+import { activeSessionStatuses, bootstrapDirectory } from "./bootstrap"
 import { loadSessionsQuery } from "../global-sync"
 import type { State, VcsCache } from "./types"
 
@@ -57,6 +57,19 @@ async function waitFor(check: () => boolean, timeoutMs = 300) {
 }
 
 describe("bootstrapDirectory", () => {
+  test("keeps only active statuses while resetting status hydration", () => {
+    expect(
+      activeSessionStatuses({
+        idle: { type: "idle" },
+        busy: { type: "busy" },
+        retry: { type: "retry", attempt: 1, message: "retrying", next: 1 },
+      }),
+    ).toEqual({
+      busy: { type: "busy" },
+      retry: { type: "retry", attempt: 1, message: "retrying", next: 1 },
+    })
+  })
+
   test("refreshes directory providers even when sessions query cache is already populated", async () => {
     const directory = "/tmp/project"
     const queryClient = new QueryClient()
@@ -157,6 +170,8 @@ describe("bootstrapDirectory", () => {
     const directory = "/tmp/project"
     const queryClient = new QueryClient()
     const [store, setStore] = createStore(createState())
+    setStore("session_status", "ses_busy", { type: "busy" })
+    setStore("session_status", "ses_idle", { type: "idle" })
 
     const sdk = {
       app: { agents: async () => ({ data: [] }) },
@@ -199,7 +214,7 @@ describe("bootstrapDirectory", () => {
 
       expect(store.session_status_state).toBe("error")
       expect(store.session_status_ready).toBe(false)
-      expect(store.session_status).toEqual({})
+      expect(store.session_status).toEqual({ ses_busy: { type: "busy" } })
     } finally {
       console.error = originalError
     }

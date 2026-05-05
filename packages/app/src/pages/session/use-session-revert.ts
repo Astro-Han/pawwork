@@ -18,6 +18,13 @@ type RevertSnapshot = {
 
 const findSession = (store: SyncStore, sessionID: string) => store.session.find((item) => item.id === sessionID)
 
+export function revertRequestPayload(input: { sessionID: string; messageID: string }) {
+  return {
+    sessionID: input.sessionID,
+    messageID: input.messageID,
+  }
+}
+
 export function rolledRevertItems(input: {
   revertMessageID: string | undefined
   messages: UserMessage[]
@@ -65,7 +72,7 @@ export function createSessionRevert(input: {
         })
         await input
           .halt(snapshot, request.sessionID)
-          .then(() => snapshot.client.session.revert(request, { throwOnError: true }))
+          .then(() => snapshot.client.session.revert(revertRequestPayload(request), { throwOnError: true }))
           .then((result) => {
             if (result.data) input.merge(snapshot.setStore, result.data)
           })
