@@ -53,8 +53,12 @@ export function timelineDataIdentity(input: { sessionID: string | undefined; cre
   return `${input.sessionID}:${input.created}`
 }
 
-export function timelineModelSyncKey(input: { directory: string; messageID: string | undefined }) {
-  return `${input.directory}\n${input.messageID ?? ""}`
+export function timelineModelSyncKey(input: {
+  directory: string
+  messageID: string | undefined
+  localReady: boolean
+}) {
+  return `${input.directory}\n${input.messageID ?? ""}\n${input.localReady ? "ready" : "loading"}`
 }
 
 export function currentSessionCacheReady(input: {
@@ -230,7 +234,12 @@ export function createSessionTimelineData(input: {
 
   createEffect(
     on(
-      () => timelineModelSyncKey({ directory: input.directory(), messageID: lastUserMessage()?.id }),
+      () =>
+        timelineModelSyncKey({
+          directory: input.directory(),
+          messageID: lastUserMessage()?.id,
+          localReady: input.local.session.ready(),
+        }),
       () => {
         const msg = lastUserMessage()
         if (!msg) return

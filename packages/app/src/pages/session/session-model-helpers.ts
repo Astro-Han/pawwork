@@ -2,6 +2,7 @@ import type { UserMessage } from "@opencode-ai/sdk/v2"
 
 type Local = {
   session: {
+    ready(): boolean
     reset(): void
     restore(msg: UserMessage): void
   }

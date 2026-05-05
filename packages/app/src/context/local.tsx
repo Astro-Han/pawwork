@@ -437,6 +437,9 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       model,
       agent,
       session: {
+        ready() {
+          return savedFor(sdk.directory)?.ready() ?? false
+        },
         reset() {
           setStore("draft", undefined)
         },

@@ -498,6 +498,11 @@ export default function Page() {
         client: sdk.createClient({ directory, throwOnError: true }),
         store: handle.store,
         setStore: handle.setStore,
+        prompt: prompt.current().slice(),
+        promptScope: {
+          dir: params.dir ?? directory,
+          id: timelineSessionID(),
+        },
         release: handle.release,
         directory,
       }

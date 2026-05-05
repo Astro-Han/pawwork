@@ -172,8 +172,14 @@ describe("readTimelineMessagesFromCache", () => {
 
 describe("timelineModelSyncKey", () => {
   test("changes when the directory changes even if the last user message is the same", () => {
-    expect(timelineModelSyncKey({ directory: "/worktree", messageID: "msg" })).not.toBe(
-      timelineModelSyncKey({ directory: "/root", messageID: "msg" }),
+    expect(timelineModelSyncKey({ directory: "/worktree", messageID: "msg", localReady: true })).not.toBe(
+      timelineModelSyncKey({ directory: "/root", messageID: "msg", localReady: true }),
+    )
+  })
+
+  test("changes when the directory-local model selection store becomes ready", () => {
+    expect(timelineModelSyncKey({ directory: "/repo", messageID: "msg", localReady: false })).not.toBe(
+      timelineModelSyncKey({ directory: "/repo", messageID: "msg", localReady: true }),
     )
   })
 })

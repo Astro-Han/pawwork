@@ -13,6 +13,11 @@ type RevertSnapshot = {
   client: ReturnType<typeof useSDK>["client"]
   store: SyncStore
   setStore: SyncSetter
+  prompt: Prompt
+  promptScope: {
+    dir: string
+    id?: string
+  }
   release: VoidFunction
 }
 
@@ -63,12 +68,12 @@ export function createSessionRevert(input: {
     mutationFn: async (request: { sessionID: string; messageID: string; snapshot: RevertSnapshot }) => {
       const snapshot = request.snapshot
       try {
-        const prev = input.prompt.current().slice()
+        const prev = snapshot.prompt
         const last = findSession(snapshot.store, request.sessionID)?.revert
         const value = input.draft(snapshot, request.messageID)
         batch(() => {
           input.roll(snapshot.setStore, request.sessionID, { messageID: request.messageID })
-          input.prompt.set(value)
+          input.prompt.set(value, undefined, snapshot.promptScope)
         })
         await input
           .halt(snapshot, request.sessionID)
@@ -79,7 +84,7 @@ export function createSessionRevert(input: {
           .catch((err) => {
             batch(() => {
               input.roll(snapshot.setStore, request.sessionID, last)
-              input.prompt.set(prev)
+              input.prompt.set(prev, undefined, snapshot.promptScope)
             })
             input.fail(err)
           })
@@ -95,15 +100,15 @@ export function createSessionRevert(input: {
       try {
         const messages = readUserMessages(readSessionMessages(snapshot.store.message[request.sessionID]))
         const next = nextRestoreTarget(messages, request.id)
-        const prev = input.prompt.current().slice()
+        const prev = snapshot.prompt
         const last = findSession(snapshot.store, request.sessionID)?.revert
 
         batch(() => {
           input.roll(snapshot.setStore, request.sessionID, next ? { messageID: next.id } : undefined)
           if (next) {
-            input.prompt.set(input.draft(snapshot, next.id))
+            input.prompt.set(input.draft(snapshot, next.id), undefined, snapshot.promptScope)
           } else {
-            input.prompt.reset()
+            input.prompt.reset(snapshot.promptScope)
           }
         })
 
@@ -128,7 +133,7 @@ export function createSessionRevert(input: {
           .catch((err) => {
             batch(() => {
               input.roll(snapshot.setStore, request.sessionID, last)
-              input.prompt.set(prev)
+              input.prompt.set(prev, undefined, snapshot.promptScope)
             })
             input.fail(err)
           })
