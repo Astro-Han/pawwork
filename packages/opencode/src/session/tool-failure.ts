@@ -30,8 +30,8 @@ export type ToolFailureMetadata = {
 
 const KIND_SET = new Set<ToolFailureKind>(TOOL_FAILURE_KINDS)
 
-function object(value: unknown): Record<string, any> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, any>) : undefined
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
 }
 
 function stringField(value: unknown, key: string) {
@@ -71,6 +71,10 @@ function canonical(errorKind: ToolFailureKind): ToolFailureMetadata {
     errorKind,
     recoveryHint: TOOL_FAILURE_HINTS[errorKind],
   }
+}
+
+function isToolFailureKind(value: unknown): value is ToolFailureKind {
+  return typeof value === "string" && KIND_SET.has(value as ToolFailureKind)
 }
 
 export function classifyToolFailure(input: { tool: string; error: unknown }): ToolFailureMetadata {
@@ -162,8 +166,8 @@ export function classifyToolFailure(input: { tool: string; error: unknown }): To
 
 export function safeToolFailureMetadata(value: unknown): ToolFailureMetadata | undefined {
   const failure = object(value)
-  const errorKind = failure?.errorKind
-  if (!KIND_SET.has(errorKind)) return undefined
+  const errorKind = typeof failure?.errorKind === "string" ? failure.errorKind : undefined
+  if (!isToolFailureKind(errorKind)) return undefined
   return canonical(errorKind)
 }
 
