@@ -40,7 +40,7 @@ type ScenarioRun =
 
 type Scenario = {
   name: string
-  layer: "production path" | "CLI floor" | "approximation"
+  layer: "production path" | "production path: parse-only" | "CLI floor" | "approximation"
   group: "file" | "git" | "patch" | "process"
   run: () => Promise<Omit<RunMetrics, "durationMs">>
 }
@@ -63,6 +63,14 @@ type RepoSummary = {
   fileCount?: number
   dirCount?: number
   gitStatus: "clean" | "dirty" | "unknown"
+}
+
+type FileSummary = {
+  available: boolean
+  files: string[]
+  dirs: string[]
+  fileCount?: number
+  dirCount?: number
 }
 
 type Environment = {
@@ -253,7 +261,7 @@ async function runGitMaybe(args: string[], cwd: string) {
 
 async function runRgFiles(cwd: string) {
   const result = await runCommand(["rg", ...rgFilesArgs], cwd)
-  if (result.code !== 0) {
+  if (result.code !== 0 && (result.stdout.length > 0 || result.stderr.length > 0)) {
     throw new SkipScenario("rg --files is unavailable or failed")
   }
   return {
@@ -290,13 +298,21 @@ function slug(value: string) {
 }
 
 function scenarioMatches(filter: string | undefined, scenario: Scenario) {
-  if (!filter || filter === "all") return true
+  if (!filter || slug(filter) === "all") return true
   const wanted = slug(filter)
   return slug(scenario.name) === wanted || slug(`${scenario.group} ${scenario.name}`) === wanted
 }
 
 function scenarioSlugList(scenarios: Scenario[]) {
-  return scenarios.map((scenario) => `  - ${slug(scenario.name)}`).join("\n")
+  return scenarios
+    .map((scenario) => {
+      const nameSlug = slug(scenario.name)
+      const groupSlug = slug(`${scenario.group} ${scenario.name}`)
+      return nameSlug === groupSlug || nameSlug.startsWith(`${scenario.group}-`)
+        ? `  - ${nameSlug}`
+        : `  - ${nameSlug} (also: ${groupSlug})`
+    })
+    .join("\n")
 }
 
 async function timed(run: () => Promise<Omit<RunMetrics, "durationMs">>): Promise<ScenarioRun> {
@@ -478,11 +494,12 @@ function parseWorktreeCount(stdout: Buffer) {
   return splitLines(stdout.toString("utf8")).filter((line) => line.startsWith("worktree ")).length
 }
 
-async function collectFileSummary(cwd: string) {
+async function collectFileSummary(cwd: string): Promise<FileSummary> {
   try {
     const rg = await runRgFiles(cwd)
     const dirs = dirListFromFiles(rg.files)
     return {
+      available: true,
       files: rg.files,
       dirs,
       fileCount: rg.files.length,
@@ -490,6 +507,7 @@ async function collectFileSummary(cwd: string) {
     }
   } catch {
     return {
+      available: false,
       files: [] as string[],
       dirs: [] as string[],
       fileCount: undefined,
@@ -530,7 +548,8 @@ async function collectEnvironment(config: BenchConfig, summary: RepoSummary): Pr
   }
 }
 
-function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): Scenario[] {
+function buildScenarios(config: BenchConfig, fileSummary: FileSummary): Scenario[] {
+  const { files, dirs } = fileSummary
   const smallPatch = makeSyntheticPatch(5)
   const largePatch = makeSyntheticPatch(500)
 
@@ -545,7 +564,8 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: result.files.length,
           outputBytes: result.stdout.length,
-          notes: "CLI floor; system PATH rg; production Ripgrep.Service may add managed binary/env/stream cleanup overhead",
+          notes:
+            "CLI floor; system PATH rg; production Ripgrep.Service may add managed binary/env/stream cleanup overhead; benchmark helper timeout/kill is not a Windows process-semantics check",
         }
       },
     },
@@ -554,7 +574,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
       layer: "approximation",
       group: "file",
       run: async () => {
-        if (files.length === 0) throw new SkipScenario("rg --files unavailable during setup")
+        if (!fileSummary.available) throw new SkipScenario("rg --files unavailable during setup")
         const next = { files: [] as string[], dirs: [] as string[] }
         const seen = new Set<string>()
         for (const file of files) {
@@ -580,7 +600,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
       layer: "approximation",
       group: "file",
       run: async () => {
-        if (files.length === 0) throw new SkipScenario("rg --files unavailable during setup")
+        if (!fileSummary.available) throw new SkipScenario("rg --files unavailable during setup")
         const items = [...files, ...dirs]
         let resultCount = 0
         for (const query of scenarioQueries) {
@@ -608,7 +628,8 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: parseStatusCount(result.stdout),
           outputBytes: result.stdout.length,
-          notes: "CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper",
+          notes:
+            "CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper; benchmark helper timeout/kill is not a Windows process-semantics check",
         }
       },
     },
@@ -623,7 +644,8 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: parseNameStatusCount(result.stdout),
           outputBytes: result.stdout.length,
-          notes: "CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper",
+          notes:
+            "CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper; benchmark helper timeout/kill is not a Windows process-semantics check",
         }
       },
     },
@@ -639,7 +661,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: stats.files,
           outputBytes: result.stdout.length,
-          notes: `CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper; additions=${stats.additions}; deletions=${stats.deletions}`,
+          notes: `CLI floor; mirrors Git args but bypasses Git.Service spawner wrapper; benchmark helper timeout/kill is not a Windows process-semantics check; additions=${stats.additions}; deletions=${stats.deletions}`,
         }
       },
     },
@@ -654,13 +676,14 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
           spawnCount: result.spawnCount,
           resultCount: parseWorktreeCount(result.stdout),
           outputBytes: result.stdout.length,
-          notes: "CLI floor; parses porcelain output without Worktree service orchestration",
+          notes:
+            "CLI floor; parses porcelain output without Worktree service orchestration, registry, cleanup, reset, or Windows retry behavior",
         }
       },
     },
     {
       name: "apply_patch parse small",
-      layer: "production path",
+      layer: "production path: parse-only",
       group: "patch",
       run: async () => {
         const parsed = Patch.parsePatch(smallPatch)
@@ -674,7 +697,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
     },
     {
       name: "apply_patch parse large",
-      layer: "production path",
+      layer: "production path: parse-only",
       group: "patch",
       run: async () => {
         const parsed = Patch.parsePatch(largePatch)
@@ -700,7 +723,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
       },
     },
     {
-      name: "process timeout abort",
+      name: "process abort single-child",
       layer: "production path",
       group: "process",
       run: async () => {
@@ -728,7 +751,7 @@ function buildScenarios(config: BenchConfig, files: string[], dirs: string[]): S
 
 function formatMarkdown(env: Environment, results: BenchResult[]) {
   const lines = [
-    `## Native-core baseline - ${new Date().toISOString().slice(0, 10)}`,
+    `## Native-core baseline - ${formatLocalDate(new Date())}`,
     "",
     "Environment:",
     `- OS: ${escapeMarkdownInline(env.os)}`,
@@ -742,7 +765,10 @@ function formatMarkdown(env: Environment, results: BenchResult[]) {
     `- Files: ${escapeMarkdownInline(env.files)}`,
     `- Dirs: ${escapeMarkdownInline(env.dirs)}`,
     `- Git status: ${escapeMarkdownInline(env.gitStatus)}`,
+    `- Command timeout: ${commandTimeoutMs}ms`,
     "- Setup note: file/repo summary collection runs before scenario timing, so first measured values are not cold-start measurements.",
+    `- Percentile note: p50/p95 use nearest-rank over repeat runs; with low iteration counts p95 may equal the slowest run.`,
+    "- Label note: choose a non-sensitive --label value because it is printed in pasteable output.",
     "",
     "| Scenario | Layer | First measured | Repeat p50 | Repeat p95 | Spawn count | Result count | Output bytes | Notes |",
     "|---|---|---:|---:|---:|---:|---:|---:|---|",
@@ -768,6 +794,16 @@ function formatMarkdown(env: Environment, results: BenchResult[]) {
     )
   }
 
+  lines.push(
+    "",
+    "Decision guard:",
+    "- `production path` rows can support implementation decisions for the measured path.",
+    "- `production path: parse-only` rows cover only parsing and do not cover verification, preview diff, file reads, BOM handling, or write behavior.",
+    "- `CLI floor` rows are lower-bound command measurements and bypass service wrappers, managed tool selection, registry/orchestration, and some cross-platform cleanup behavior.",
+    "- `approximation` rows mimic current logic over captured inputs and should not be used alone for native/no-native decisions.",
+    "- Missing from this first PR: service-path File/Git/Worktree benchmarks, apply_patch verify/preview, process-tree termination, Windows results, large synthetic fixtures, CPU/RSS/heap/event-loop metrics.",
+  )
+
   return lines.join("\n")
 }
 
@@ -787,7 +823,17 @@ function formatMetricCount(value?: number) {
 }
 
 function escapeMarkdownInline(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim()
+  return stripControl(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/`/g, "\\`")
+    .replace(/\*/g, "\\*")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/\r?\n/g, " ")
+    .trim()
 }
 
 function escapeMarkdownTableCell(value: string) {
@@ -796,11 +842,24 @@ function escapeMarkdownTableCell(value: string) {
 
 function sanitizeError(error: unknown, cwd?: string) {
   const raw = error instanceof Error ? error.message : String(error)
-  let text = raw.replace(/\s+/g, " ").trim()
+  let text = stripControl(raw).replace(/\s+/g, " ").trim()
   if (cwd) text = text.split(cwd).join("[cwd]")
   text = text.split(os.homedir()).join("[home]")
   if (text.length > 180) text = `${text.slice(0, 177)}...`
   return text || "unknown error"
+}
+
+function stripControl(value: string) {
+  return value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+}
+
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
 async function main() {
@@ -824,7 +883,7 @@ async function main() {
   const fileSummary = await collectFileSummary(config.cwd)
   const repoSummary = await collectRepoSummary(config.cwd, fileSummary.fileCount, fileSummary.dirCount)
   const env = await collectEnvironment(config, repoSummary)
-  const allScenarios = buildScenarios(config, fileSummary.files, fileSummary.dirs)
+  const allScenarios = buildScenarios(config, fileSummary)
   const scenarios = allScenarios.filter((scenario) => scenarioMatches(config.scenario, scenario))
 
   if (scenarios.length === 0) {
