@@ -52,6 +52,7 @@ const originalRuntimeNamespace = process.env.PAWWORK_RUNTIME_NAMESPACE
 const originalPawWorkHome = process.env.PAWWORK_HOME
 const originalPawWorkConfigDir = process.env.PAWWORK_CONFIG_DIR
 const originalTestHome = process.env.OPENCODE_TEST_HOME
+const shouldAssertPosixFileMode = process.platform !== "win32"
 
 beforeEach(async () => {
   process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
@@ -1183,8 +1184,10 @@ home command`,
 
         await saveGlobal({ username: "secure-user" })
 
-        const mode = (await fs.stat(configPath)).mode & 0o777
-        expect(mode).toBe(0o600)
+        if (shouldAssertPosixFileMode) {
+          const mode = (await fs.stat(configPath)).mode & 0o777
+          expect(mode).toBe(0o600)
+        }
         expect(JSON.parse(await Bun.file(configPath).text()).username).toBe("secure-user")
       },
     })
@@ -1211,8 +1214,10 @@ home command`,
           await saveGlobal({ username: "secure-user" })
 
           const configPath = path.join(home.path, ".pawwork", "pawwork.json")
-          const mode = (await fs.stat(configPath)).mode & 0o777
-          expect(mode).toBe(0o600)
+          if (shouldAssertPosixFileMode) {
+            const mode = (await fs.stat(configPath)).mode & 0o777
+            expect(mode).toBe(0o600)
+          }
           expect(JSON.parse(await Bun.file(configPath).text()).username).toBe("secure-user")
         },
       })

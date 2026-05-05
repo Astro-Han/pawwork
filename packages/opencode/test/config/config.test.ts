@@ -562,6 +562,28 @@ test("handles environment variable substitution", async () => {
   }
 })
 
+test("escapes environment variable substitution for JSON strings", async () => {
+  const originalEnv = process.env["TEST_WINDOWS_PATH_VAR"]
+  process.env["TEST_WINDOWS_PATH_VAR"] = String.raw`C:\Users\runneradmin\AppData\Local\Temp\rules.md`
+
+  try {
+    await using tmp = await tmpdir()
+    const text = await ConfigVariable.substitute({
+      type: "virtual",
+      source: "test:env-windows-path",
+      dir: tmp.path,
+      text: `{"instructions":["{env:TEST_WINDOWS_PATH_VAR}"]}`,
+    })
+    expect(JSON.parse(text).instructions).toEqual([process.env["TEST_WINDOWS_PATH_VAR"]])
+  } finally {
+    if (originalEnv !== undefined) {
+      process.env["TEST_WINDOWS_PATH_VAR"] = originalEnv
+    } else {
+      delete process.env["TEST_WINDOWS_PATH_VAR"]
+    }
+  }
+})
+
 test("rejects missing environment variable substitution by default", async () => {
   const originalEnv = process.env["TEST_MISSING_VAR"]
   delete process.env["TEST_MISSING_VAR"]
