@@ -36,7 +36,7 @@ function normalize(input: string) {
   try {
     return fsNode.realpathSync.native(resolved)
   } catch {
-    return resolved
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved
   }
 }
 
@@ -76,10 +76,6 @@ export namespace PawWorkHome {
     return [path.join(dir, "pawwork.json"), path.join(dir, "pawwork.jsonc")]
   }
 
-  export function configFileCandidates() {
-    return candidates().flatMap(configFilesIn)
-  }
-
   export function configFilesToLoad() {
     for (const dir of candidates()) {
       const files = configFilesIn(dir).filter(isFile)
@@ -109,19 +105,6 @@ export namespace PawWorkHome {
         }
       })
       .toReversed()
-  }
-
-  export async function firstLoadedInstructionFile() {
-    for (const file of instructionFiles()) {
-      const stat = await fs.stat(file).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return undefined
-        return "exists"
-      })
-      if (!stat) continue
-      const content = await fs.readFile(file, "utf8").catch(() => "")
-      return content ? file : undefined
-    }
-    return undefined
   }
 
   export async function ensurePrimary() {

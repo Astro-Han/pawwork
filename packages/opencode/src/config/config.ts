@@ -401,7 +401,21 @@ export async function writeConfigTextAtomic(file: string, text: string) {
   try {
     await fsNode.writeFile(tmp, text, existingMode === undefined ? undefined : { mode: existingMode })
     if (existingMode !== undefined) await fsNode.chmod(tmp, existingMode)
+    const tmpHandle = await fsNode.open(tmp, "r")
+    try {
+      await tmpHandle.sync()
+    } finally {
+      await tmpHandle.close()
+    }
     await fsNode.rename(tmp, file)
+    const dirHandle = await fsNode.open(path.dirname(file), "r").catch(() => undefined)
+    if (dirHandle) {
+      try {
+        await dirHandle.sync()
+      } finally {
+        await dirHandle.close()
+      }
+    }
   } catch (error) {
     await fsNode.rm(tmp, { force: true }).catch(() => undefined)
     throw error
@@ -463,7 +477,7 @@ function patchJsonc(input: string, patch: unknown, path: string[] = []): string 
 }
 
 function writable(info: Info) {
-  const { plugin_origins: _plugin_origins, ...next } = info
+  const { default_agent: _defaultAgent, plugin_origins: _plugin_origins, ...next } = info
   return next
 }
 

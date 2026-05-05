@@ -435,13 +435,17 @@ describe("PawWork global config isolation", () => {
     ;(Global.Path as { config: string }).config = platformLegacy.path
 
     try {
-      await Filesystem.write(path.join(platformLegacy.path, "pawwork.json"), JSON.stringify({ username: "legacy-user" }))
+      const legacy = path.join(platformLegacy.path, "pawwork.json")
+      const original = JSON.stringify({ default_agent: "build", username: "legacy-user" })
+      await Filesystem.write(legacy, original)
       await Instance.provide({
         directory: project.path,
         fn: async () => {
           await Config.seedGlobalConfig()
           const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
           expect(saved.username).toBe("legacy-user")
+          expect(saved.default_agent).toBeUndefined()
+          expect(await Bun.file(legacy).text()).toBe(original)
         },
       })
     } finally {
