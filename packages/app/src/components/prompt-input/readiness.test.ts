@@ -35,6 +35,18 @@ describe("promptKeyActionReady", () => {
       }),
     ).toBe(false)
   })
+
+  test("blocks non-stop keys while submit is blocked", () => {
+    expect(
+      promptKeyActionReady({
+        key: "ArrowUp",
+        working: false,
+        stopping: false,
+        actionReady: false,
+        abortReady: true,
+      }),
+    ).toBe(false)
+  })
 })
 
 describe("promptSendDisabled", () => {

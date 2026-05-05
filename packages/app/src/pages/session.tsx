@@ -538,7 +538,7 @@ export default function Page() {
     <SessionPageComposerRegion
       variant={variant}
       state={composer}
-      ready={!deferRender() && (variant === "home" ? workspaceSubmitReady() : sessionActionReady())}
+      ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : sessionActionReady())}
       actionReady={variant === "home" ? workspaceSubmitReady() : submitReady()}
       abortReady={variant === "home" ? true : sessionActionReady()}
       displaySessionID={variant === "session" ? timelineSessionID() : undefined}
