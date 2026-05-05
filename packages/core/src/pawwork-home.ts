@@ -90,7 +90,13 @@ export namespace PawWorkHome {
 
   export function existingResourceDirectories() {
     return candidates()
-      .filter((dir) => fsNode.existsSync(dir))
+      .filter((dir) => {
+        try {
+          return fsNode.statSync(dir).isDirectory()
+        } catch {
+          return false
+        }
+      })
       .toReversed()
   }
 

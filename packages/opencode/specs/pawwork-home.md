@@ -39,6 +39,12 @@ higher-priority Home entries override same-name legacy entries.
 New global writes go only to the primary Home. PawWork does not write new global
 configuration to the legacy platform config directory.
 
+One compatibility exception remains: the deprecated legacy TOML file named
+`config` under the legacy platform config directory is migrated in place on
+read. That migration writes `pawwork.json` in the same legacy platform directory
+and removes the old TOML file. Normal PawWork global updates and new writes
+still target the primary Home.
+
 ## Migration
 
 PawWork does not automatically move legacy files. On first write, it creates the

@@ -450,6 +450,19 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("global resource directories ignore PawWork Home candidates that are files", async () => {
+    await using home = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const fileHome = path.join(home.path, "not-a-directory")
+    process.env.PAWWORK_HOME = fileHome
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    await Filesystem.write(fileHome, "not a directory")
+
+    const dirs = await listConfigDirs(project.path, project.path)
+    expect(dirs).not.toContain(fileHome)
+  })
+
   test("PawWork Home command overrides same-name legacy global command", async () => {
     await using home = await tmpdir()
     await using platformLegacy = await tmpdir()
