@@ -6,6 +6,7 @@ import { Filesystem } from "../../src/util/filesystem"
 import { createPlugTask, defaultPluginGlobalConfigDir, type PlugCtx, type PlugDeps } from "../../src/cli/cmd/plug"
 import { tmpdir } from "../fixture/fixture"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
+import { ConfigPaths } from "../../src/config/paths"
 
 function deps(global: string, target: string | Error): PlugDeps {
   return {
@@ -27,10 +28,7 @@ function deps(global: string, target: string | Error): PlugDeps {
       await Filesystem.write(file, text)
     },
     exists: (file) => Filesystem.exists(file),
-    files: (dir, name) =>
-      name === "pawwork"
-        ? [path.join(dir, `${name}.json`), path.join(dir, `${name}.jsonc`)]
-        : [path.join(dir, `${name}.jsonc`), path.join(dir, `${name}.json`)],
+    files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
     global,
   }
 }
@@ -236,6 +234,66 @@ describe("plugin.install.task", () => {
     }
   })
 
+  test("writes PawWork global plugin config to active pawwork.jsonc when json and jsonc both exist", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      const global = path.join(tmp.path, "global")
+      await Filesystem.write(path.join(global, "pawwork.json"), JSON.stringify({ plugin: ["json-only@1.0.0"] }))
+      await Filesystem.write(path.join(global, "pawwork.jsonc"), JSON.stringify({ plugin: ["jsonc-active@1.0.0"] }))
+      const target = await plugin(tmp.path, ["server"])
+      const run = createPlugTask(
+        {
+          mod: "acme@1.2.3",
+          global: true,
+        },
+        deps(global, target),
+      )
+
+      const ok = await run(ctx(tmp.path))
+      expect(ok).toBe(true)
+
+      expect((await read(path.join(global, "pawwork.json"))).plugin).toEqual(["json-only@1.0.0"])
+      expect((await read(path.join(global, "pawwork.jsonc"))).plugin).toEqual(["jsonc-active@1.0.0", "acme@1.2.3"])
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
+  test("writes PawWork local plugin config to active pawwork.jsonc when json and jsonc both exist", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    process.env.PAWWORK_RUNTIME_NAMESPACE = "pawwork"
+
+    try {
+      const configDir = path.join(tmp.path, ".opencode")
+      await Filesystem.write(path.join(configDir, "pawwork.json"), JSON.stringify({ plugin: ["json-only@1.0.0"] }))
+      await Filesystem.write(path.join(configDir, "pawwork.jsonc"), JSON.stringify({ plugin: ["jsonc-active@1.0.0"] }))
+      const target = await plugin(tmp.path, ["server"])
+      const run = createPlugTask(
+        {
+          mod: "acme@1.2.3",
+        },
+        deps(path.join(tmp.path, "global"), target),
+      )
+
+      const ok = await run(ctx(tmp.path))
+      expect(ok).toBe(true)
+
+      expect((await read(path.join(configDir, "pawwork.json"))).plugin).toEqual(["json-only@1.0.0"])
+      expect((await read(path.join(configDir, "pawwork.jsonc"))).plugin).toEqual([
+        "jsonc-active@1.0.0",
+        "acme@1.2.3",
+      ])
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
   test("writes PawWork global plugin config to PAWWORK_CONFIG_DIR when PAWWORK_HOME is unset", async () => {
     await using tmp = await tmpdir()
     await using pawworkConfig = await tmpdir()
@@ -309,7 +367,7 @@ describe("plugin.install.task", () => {
     const ok = await run(ctx(tmp.path))
     expect(ok).toBe(true)
 
-    const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
+    const server = await read(path.join(tmp.path, ".opencode", "opencode.json"))
     expect(server.plugin).toEqual(["acme@1.2.3"])
     expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
   })
@@ -330,7 +388,7 @@ describe("plugin.install.task", () => {
     const ok = await run(ctx(tmp.path))
     expect(ok).toBe(true)
 
-    const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
+    const server = await read(path.join(tmp.path, ".opencode", "opencode.json"))
     expect(server.plugin).toEqual([["acme@1.2.3", { custom: true, other: false }]])
     expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
   })
@@ -442,7 +500,7 @@ describe("plugin.install.task", () => {
 
     const ok = await run(ctx(tmp.path))
     expect(ok).toBe(true)
-    const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
+    const server = await read(path.join(tmp.path, ".opencode", "opencode.json"))
     expect(server.plugin).toEqual(["acme@1.2.3"])
   })
 
@@ -551,7 +609,7 @@ describe("plugin.install.task", () => {
     const ok = await run(ctx(tmp.path))
     expect(ok).toBe(true)
 
-    expect(await Filesystem.exists(path.join(global, "opencode.jsonc"))).toBe(true)
+    expect(await Filesystem.exists(path.join(global, "opencode.json"))).toBe(true)
     expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "opencode.jsonc"))).toBe(false)
   })
 
@@ -571,7 +629,7 @@ describe("plugin.install.task", () => {
 
     const ok = await run(ctxDir(directory, worktree))
     expect(ok).toBe(true)
-    expect(await Filesystem.exists(path.join(directory, ".opencode", "opencode.jsonc"))).toBe(true)
+    expect(await Filesystem.exists(path.join(directory, ".opencode", "opencode.json"))).toBe(true)
     expect(await Filesystem.exists(path.join(worktree, ".opencode", "opencode.jsonc"))).toBe(false)
   })
 
@@ -589,7 +647,7 @@ describe("plugin.install.task", () => {
 
     const ok = await run(ctxRoot(directory))
     expect(ok).toBe(true)
-    expect(await Filesystem.exists(path.join(directory, ".opencode", "opencode.jsonc"))).toBe(true)
+    expect(await Filesystem.exists(path.join(directory, ".opencode", "opencode.json"))).toBe(true)
   })
 
   test("returns false for tui-only plugins under directory when worktree is root slash", async () => {
@@ -656,7 +714,7 @@ describe("plugin.install.task", () => {
 
     const ok = await run(ctx(tmp.path))
     expect(ok).toBe(true)
-    const server = await read(path.join(tmp.path, ".opencode", "opencode.jsonc"))
+    const server = await read(path.join(tmp.path, ".opencode", "opencode.json"))
     expect(server.plugin).toEqual(["acme@1.2.3"])
     expect(await Filesystem.exists(path.join(tmp.path, ".opencode", "tui.jsonc"))).toBe(false)
   })

@@ -123,4 +123,27 @@ describe("default directory routing", () => {
       ;(Global.Path as { config: string }).config = previousConfig
     }
   })
+
+  test("OpenCode path route does not precreate global config for workspace-routed requests", async () => {
+    await using tmp = await tmpdir()
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousConfig = Global.Path.config
+    const config = path.join(tmp.path, "opencode-config")
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = config
+
+    try {
+      const app = Server.Default().app
+      const response = await app.request(
+        `/path?ensureConfig=true&workspace=wrk_missing&directory=${encodeURIComponent(tmp.path)}`,
+      )
+
+      expect(response.status).toBe(500)
+      expect(fs.existsSync(config)).toBe(false)
+    } finally {
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
 })

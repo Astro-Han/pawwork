@@ -328,17 +328,22 @@ function patchDir(input: PatchInput) {
   return path.join(root, ".opencode")
 }
 
+async function selectConfigFile(files: string[], dep: PatchDeps) {
+  const fallback = files[0]
+  if (!fallback) throw new Error("No config file candidates provided")
+  for (const file of [...files].reverse()) {
+    if (!(await dep.exists(file))) continue
+    return file
+  }
+  return fallback
+}
+
 async function patchOne(dir: string, target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
   const name = Runtime.isPawWork() ? "pawwork" : "opencode"
   await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
 
   const files = dep.files(dir, name)
-  let cfg = files[0]
-  for (const file of files) {
-    if (!(await dep.exists(file))) continue
-    cfg = file
-    break
-  }
+  const cfg = await selectConfigFile(files, dep)
 
   const src = await dep.readText(cfg).catch((err: NodeJS.ErrnoException) => {
     if (err.code === "ENOENT") return "{}"

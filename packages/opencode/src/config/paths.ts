@@ -63,7 +63,7 @@ export const directories = Effect.fn("ConfigPaths.directories")(function* (direc
   ])
 })
 
-/** Return the JSON and JSONC config file candidates for a named config inside a directory. */
+/** Return config file candidates for creating a new named config. Reverse this list when selecting the active existing file. */
 export function fileInDirectory(dir: string, name: "opencode" | "pawwork" | string) {
   return [path.join(dir, `${name}.json`), path.join(dir, `${name}.jsonc`)]
 }
