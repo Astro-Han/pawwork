@@ -220,46 +220,46 @@ describe("Export.session", () => {
     const previousConfig = Global.Path.config
     const previousEnv = process.env.GLOBAL_EXPORT_RULE
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
-    delete process.env.PAWWORK_RUNTIME_NAMESPACE
-    ;(Global.Path as { config: string }).config = global.path
     const globalRules = path.join(global.path, "rules", "global-rules.md")
     const envRules = path.join(global.path, "env-rules.md")
     const fileRules = path.join(global.path, "file-rules.md")
-    process.env.GLOBAL_EXPORT_RULE = envRules
-    await fs.mkdir(path.join(global.path, "rules"), { recursive: true })
-    await fs.writeFile(globalRules, "global config instructions")
-    await fs.writeFile(envRules, "env config instructions")
-    await fs.writeFile(fileRules, "file config instructions")
-    await fs.writeFile(path.join(global.path, "rule-path.txt"), fileRules)
-    await fs.writeFile(
-      path.join(global.path, "opencode.json"),
-      JSON.stringify({
-        instructions: [
-          "rules/*.md",
-          "{env:GLOBAL_EXPORT_RULE}",
-          "{file:rule-path.txt}",
-          "missing/*.md",
-          "https://example.invalid/global-rules.md",
-        ],
-      }),
-    )
-    await fs.writeFile(
-      path.join(currentProject.path, "opencode.json"),
-      JSON.stringify({
-        instructions: ["https://example.invalid/current-project.md"],
-      }),
-    )
 
     let sessionID: SessionID | undefined
-    await Instance.provide({
-      directory: sessionProject.path,
-      fn: async () => {
-        const root = await SessionNs.create({ title: "missing global config provenance" })
-        sessionID = root.id
-      },
-    })
-
     try {
+      delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      ;(Global.Path as { config: string }).config = global.path
+      process.env.GLOBAL_EXPORT_RULE = envRules
+      await fs.mkdir(path.join(global.path, "rules"), { recursive: true })
+      await fs.writeFile(globalRules, "global config instructions")
+      await fs.writeFile(envRules, "env config instructions")
+      await fs.writeFile(fileRules, "file config instructions")
+      await fs.writeFile(path.join(global.path, "rule-path.txt"), fileRules)
+      await fs.writeFile(
+        path.join(global.path, "opencode.json"),
+        JSON.stringify({
+          instructions: [
+            "rules/*.md",
+            "{env:GLOBAL_EXPORT_RULE}",
+            "{file:rule-path.txt}",
+            "missing/*.md",
+            "https://example.invalid/global-rules.md",
+          ],
+        }),
+      )
+      await fs.writeFile(
+        path.join(currentProject.path, "opencode.json"),
+        JSON.stringify({
+          instructions: ["https://example.invalid/current-project.md"],
+        }),
+      )
+      await Instance.provide({
+        directory: sessionProject.path,
+        fn: async () => {
+          const root = await SessionNs.create({ title: "missing global config provenance" })
+          sessionID = root.id
+        },
+      })
+
       await Config.invalidate(true)
       await fs.rm(sessionProject.path, { recursive: true, force: true })
       await Instance.provide({
