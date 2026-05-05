@@ -3,6 +3,7 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { SessionDiagnostics } from "../../src/session/diagnostics"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
 
 const sessionID = SessionID.make("ses_diagnostics")
 const parentID = MessageID.make("msg_user")
@@ -367,6 +368,30 @@ describe("SessionDiagnostics metadata helpers", () => {
       truncated: false,
       outputPath: "/tmp/out",
       diagnostics: { loop: { inputHash: "abc", inputRepeatCount: 1 } },
+    })
+  })
+
+  test("merges failure diagnostics without losing loop diagnostics", () => {
+    const merged = SessionDiagnostics.mergeMetadata(
+      { diagnostics: { loop: { inputHash: "abc", inputRepeatCount: 1 } } },
+      {
+        diagnostics: {
+          failure: {
+            errorKind: "environment",
+            recoveryHint: TOOL_FAILURE_HINTS.environment,
+          },
+        },
+      },
+    )
+
+    expect(merged).toEqual({
+      diagnostics: {
+        loop: { inputHash: "abc", inputRepeatCount: 1 },
+        failure: {
+          errorKind: "environment",
+          recoveryHint: TOOL_FAILURE_HINTS.environment,
+        },
+      },
     })
   })
 

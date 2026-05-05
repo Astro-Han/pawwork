@@ -1,4 +1,5 @@
 import path from "path"
+import { safeToolFailureMetadata } from "@/session/tool-failure"
 
 export type SensitiveStatus = "added" | "modified" | "deleted"
 
@@ -149,11 +150,13 @@ export function sanitizeSensitiveToolMetadata(metadata: unknown, input?: unknown
   if (!sensitive) return metadata
 
   const file = typeof meta.filepath === "string" ? meta.filepath : typeof meta.file === "string" ? meta.file : undefined
+  const failure = safeToolFailureMetadata(object(meta.diagnostics)?.failure)
   const next: Record<string, unknown> = {}
   if (file) next[typeof meta.filepath === "string" ? "filepath" : "file"] = file
   if (Array.isArray(meta.files)) next.files = meta.files.map(sanitizeSensitiveFileEntry)
   if (meta.filediff) next.filediff = sanitizeSensitiveFileEntry(meta.filediff)
-  if (meta.diagnostics !== undefined) next.diagnostics = {}
+  if (failure) next.diagnostics = { failure }
+  else if (meta.diagnostics !== undefined) next.diagnostics = {}
   if (meta.bomDiscarded === true) next.bomDiscarded = true
   next.status = statusFromType(meta.type, meta.status)
   next.sensitive = true

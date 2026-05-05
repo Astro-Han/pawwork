@@ -23,6 +23,7 @@ import { Config } from "../config"
 import { ConfigVariable } from "../config/variable"
 import { isRecord } from "@/util/record"
 import { Glob } from "@/util/glob"
+import { safeToolFailureMetadata } from "./tool-failure"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -523,6 +524,19 @@ export namespace Export {
     return Object.keys(value).length ? { redacted: `${kind}:${id}` } : value
   }
 
+  function toolStateMetadata(kind: string, id: string, value: Record<string, unknown> | undefined) {
+    if (!value) return value
+    const redacted = dataField(kind, id, value)
+    const failure = safeToolFailureMetadata((value.diagnostics as Record<string, unknown> | undefined)?.failure)
+    if (!failure) return redacted
+    return {
+      ...(redacted ?? {}),
+      diagnostics: {
+        failure,
+      },
+    }
+  }
+
   function dataValue(kind: string, id: string, value: unknown) {
     if (value === undefined || value === null) return value
     if (typeof value === "string") return redact(kind, id, value)
@@ -651,7 +665,7 @@ export namespace Export {
                 ...part.state,
                 input: dataField("tool-input", part.id, part.state.input) ?? part.state.input,
                 title: part.state.title === undefined ? undefined : redact("tool-title", part.id, part.state.title),
-                metadata: dataField("tool-state-metadata", part.id, part.state.metadata),
+                metadata: toolStateMetadata("tool-state-metadata", part.id, part.state.metadata),
               },
             }
           case "completed":
@@ -663,7 +677,7 @@ export namespace Export {
                 input: dataField("tool-input", part.id, part.state.input) ?? part.state.input,
                 output: redact("tool-output", part.id, part.state.output),
                 title: redact("tool-title", part.id, part.state.title),
-                metadata: dataField("tool-state-metadata", part.id, part.state.metadata) ?? part.state.metadata,
+                metadata: toolStateMetadata("tool-state-metadata", part.id, part.state.metadata) ?? part.state.metadata,
                 attachments: part.state.attachments?.map(filepart),
               },
             }
@@ -675,7 +689,7 @@ export namespace Export {
                 ...part.state,
                 input: dataField("tool-input", part.id, part.state.input) ?? part.state.input,
                 error: redact("tool-error", part.id, part.state.error),
-                metadata: dataField("tool-state-metadata", part.id, part.state.metadata) ?? part.state.metadata,
+                metadata: toolStateMetadata("tool-state-metadata", part.id, part.state.metadata) ?? part.state.metadata,
               },
             }
         }

@@ -15,6 +15,7 @@ import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
 import { SessionSummary } from "./summary"
 import { SessionDiagnostics } from "./diagnostics"
+import { classifyToolFailure } from "./tool-failure"
 import type { Provider } from "@/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
@@ -556,7 +557,10 @@ export const layer: Layer.Layer<
             input: match.part.state.input,
             error: errorMessage(error),
             metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(match.part), {
-              diagnostics,
+              diagnostics: {
+                ...(diagnostics ?? {}),
+                failure: classifyToolFailure({ tool: match.part.tool, error }),
+              },
               ...(questionInterrupted ? { interrupted: true } : {}),
             }),
             time: { start: match.part.state.time.start, end: Date.now() },

@@ -11,6 +11,7 @@ import { Export, getRuntimeNamespace, redactPart } from "../../src/session/expor
 import { Global } from "../../src/global"
 import { tmpdir } from "../fixture/fixture"
 import { Config } from "../../src/config"
+import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -584,6 +585,12 @@ describe("Export.redactPart sensitive tool metadata", () => {
             additions: 1,
             deletions: 1,
           },
+          diagnostics: {
+            failure: {
+              errorKind: "environment",
+              recoveryHint: "check /Users/alice/.env",
+            },
+          },
         },
         time: { start: 1, end: 2 },
       },
@@ -599,6 +606,12 @@ describe("Export.redactPart sensitive tool metadata", () => {
       input: { filePath: "/tmp/project/.env", sensitive: true },
       output: "Sensitive file updated.",
       metadata: {
+        diagnostics: {
+          failure: {
+            errorKind: "environment",
+            recoveryHint: TOOL_FAILURE_HINTS.environment,
+          },
+        },
         filediff: {
           file: "/tmp/project/.env",
           status: "modified",
@@ -1118,6 +1131,15 @@ describe("redactPart", () => {
                   status: "error",
                   input: { command: "cat /Users/secret/.env" },
                   error: "failed to read /Users/secret/.env",
+                  metadata: {
+                    commandId: "cmd-secret",
+                    diagnostics: {
+                      failure: {
+                        errorKind: "environment",
+                        recoveryHint: "check /Users/secret/.env",
+                      },
+                    },
+                  },
                   time: { start: 1, end: 2 },
                 },
               },
@@ -1134,6 +1156,15 @@ describe("redactPart", () => {
     if (tool.type !== "tool" || tool.state.status !== "error") throw new Error("expected error tool part")
     expect(tool.state.input).toEqual({ redacted: "tool-input:prt_error" })
     expect(tool.state.error).toBe("[redacted:tool-error:prt_error]")
+    expect(tool.state.metadata).toEqual({
+      redacted: "tool-state-metadata:prt_error",
+      diagnostics: {
+        failure: {
+          errorKind: "environment",
+          recoveryHint: TOOL_FAILURE_HINTS.environment,
+        },
+      },
+    })
   })
 
   test("redacts data: url inside completed tool attachments", () => {

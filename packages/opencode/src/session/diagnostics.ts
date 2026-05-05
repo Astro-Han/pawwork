@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import type { MessageV2 } from "./message-v2"
 import type { MessageID, SessionID } from "./schema"
+import type { ToolFailureMetadata } from "./tool-failure"
 
 export namespace SessionDiagnostics {
   const NON_SEMANTIC_KEYS = new Set(["requestid", "request_id", "traceid", "trace_id", "nonce"])
@@ -103,6 +104,7 @@ export namespace SessionDiagnostics {
   export type Metadata = {
     diagnostics?: {
       loop?: LoopMetadata
+      failure?: ToolFailureMetadata
     }
   }
 
