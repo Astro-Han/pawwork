@@ -117,7 +117,7 @@ Options:
   --iterations <n>       Measured repeat runs, defaults to 7
   --warmups <n>          Warmup runs before repeat measurements, defaults to 2
   --show-path            Print the full cwd path instead of redacting it
-  --scenario <name>      Run one scenario by exact or slug name
+  --scenario <name|all>  Run one scenario by exact or slug name, or all scenarios
   --help                 Print this help
 `
 
