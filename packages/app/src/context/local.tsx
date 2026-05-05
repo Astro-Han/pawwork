@@ -56,6 +56,7 @@ const clone = (value: State | undefined) => {
 type SavedEntry = {
   store: Store<Saved>
   setStore: SetStoreFunction<Saved>
+  ready: () => boolean
   dispose: () => void
   lastAccessAt: number
 }
@@ -82,13 +83,19 @@ export function shouldRestoreLocalSessionModel(input: {
   currentSessionID: string | undefined
   messageSessionID: string
   saved: unknown
+  savedReady: boolean
   hasHandoff: boolean
 }) {
   if (!input.currentSessionID) return false
   if (input.messageSessionID !== input.currentSessionID) return false
+  if (!input.savedReady) return false
   if (input.saved !== undefined) return false
   if (input.hasHandoff) return false
   return true
+}
+
+export function localSavedStoreKey(directory: string | undefined) {
+  return directory || undefined
 }
 
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
@@ -108,7 +115,7 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
 
     const createSavedEntry = (directory: string) =>
       createRoot((dispose) => {
-        const [store, setStore] = persisted(
+        const [store, setStore, , ready] = persisted(
           {
             ...Persist.workspace(directory, "model-selection", ["model-selection.v1"]),
             migrate,
@@ -117,11 +124,12 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             session: {},
           }),
         )
-        return { store, setStore, dispose, lastAccessAt: Date.now() } satisfies SavedEntry
+        return { store, setStore, ready, dispose, lastAccessAt: Date.now() } satisfies SavedEntry
       })
 
     const savedFor = (directory: string) => {
-      const key = directory || "__unknown__"
+      const key = localSavedStoreKey(directory)
+      if (!key) return
       const cached = savedStores.get(key)
       if (cached) {
         cached.lastAccessAt = Date.now()
@@ -141,9 +149,10 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       savedStores.clear()
     })
 
-    const saved = createMemo<Store<Saved>>(() => savedFor(sdk.directory).store)
+    const emptySaved = { session: {} } satisfies Saved
+    const saved = createMemo<Store<Saved>>(() => savedFor(sdk.directory)?.store ?? emptySaved)
     const setSavedSession = (session: string, value: State | undefined) => {
-      savedFor(sdk.directory).setStore("session", session, value)
+      savedFor(sdk.directory)?.setStore("session", session, value)
     }
 
     const [store, setStore] = createStore<{
@@ -446,12 +455,14 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
         },
         restore(msg: { sessionID: string; agent: string; model: ModelKey }) {
           const session = id()
+          const savedEntry = savedFor(sdk.directory)
           if (!session) return
           if (
             !shouldRestoreLocalSessionModel({
               currentSessionID: session,
               messageSessionID: msg.sessionID,
-              saved: saved().session[session],
+              saved: savedEntry?.store.session[session],
+              savedReady: savedEntry?.ready() ?? false,
               hasHandoff: handoff.has(handoffKey(sdk.directory, session)),
             })
           ) {

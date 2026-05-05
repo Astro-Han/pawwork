@@ -130,11 +130,25 @@ describe("session followups", () => {
   })
 
   test("rebases a queued followup to the current execution directory before send", () => {
+    const prompt = [
+      { type: "text", content: "check @src/app.ts", start: 0, end: 17 },
+      { type: "file", content: "@src/app.ts", start: 18, end: 29, path: "src/app.ts" },
+    ] as FollowupDraft["prompt"]
+    const context = [
+      {
+        key: "comment:1",
+        type: "file",
+        path: "src/app.ts",
+        comment: "review this",
+        commentID: "cmt_1",
+        commentOrigin: "review",
+      },
+    ] as FollowupDraft["context"]
     const item = {
       id: "msg_1",
       ...draft({
-        prompt: [{ type: "text", content: "continue", start: 0, end: 8 }],
-        context: [],
+        prompt,
+        context,
       }),
     }
 
@@ -146,5 +160,12 @@ describe("session followups", () => {
     expect(rebased.sessionDirectory).toBe("/repo-root")
     expect(rebased.sessionID).toBe(item.sessionID)
     expect(rebased.prompt).toBe(item.prompt)
+    expect(rebased.context).toBe(item.context)
+    expect(rebased.prompt[1]).toMatchObject({ type: "file", path: "src/app.ts" })
+    expect(rebased.context[0]).toMatchObject({
+      path: "src/app.ts",
+      commentID: "cmt_1",
+      commentOrigin: "review",
+    })
   })
 })
