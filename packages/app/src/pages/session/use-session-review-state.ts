@@ -43,6 +43,15 @@ export function deriveReviewArtifactFiles(input: {
   )
 }
 
+export function shouldApplyVcsDiffResult(input: {
+  requestedDirectory: string
+  currentDirectory: string
+  requestedRun: number
+  currentRun: number | undefined
+}) {
+  return input.requestedDirectory === input.currentDirectory && input.requestedRun === input.currentRun
+}
+
 export function createSessionReviewState(input: {
   directory: () => string
   sessionKey: () => string
@@ -91,6 +100,7 @@ export function createSessionReviewState(input: {
   const loadVcs = (mode: VcsReviewMode, force = false) => {
     if (input.sync.project?.vcs !== "git") return Promise.resolve()
     if (!force && vcs.ready[mode]) return Promise.resolve()
+    const directory = input.directory()
 
     if (force) {
       if (vcsTask.has(mode)) bumpVcs(mode)
@@ -101,16 +111,35 @@ export function createSessionReviewState(input: {
     const current = vcsTask.get(mode)
     if (current) return current
     const run = bumpVcs(mode)
+    const client = input.sdk.createClient({ directory, throwOnError: true })
 
-    const task = input.sdk.client.vcs
+    const task = client.vcs
       .diff({ mode })
       .then((result) => {
-        if (vcsRun.get(mode) !== run) return
+        if (
+          !shouldApplyVcsDiffResult({
+            requestedDirectory: directory,
+            currentDirectory: input.directory(),
+            requestedRun: run,
+            currentRun: vcsRun.get(mode),
+          })
+        ) {
+          return
+        }
         setVcs("diff", mode, list(result.data))
         setVcs("ready", mode, true)
       })
       .catch((error: unknown) => {
-        if (vcsRun.get(mode) !== run) return
+        if (
+          !shouldApplyVcsDiffResult({
+            requestedDirectory: directory,
+            currentDirectory: input.directory(),
+            requestedRun: run,
+            currentRun: vcsRun.get(mode),
+          })
+        ) {
+          return
+        }
         console.debug("[session-review] failed to load vcs diff", { mode, error })
         setVcs("diff", mode, [])
         setVcs("ready", mode, true)

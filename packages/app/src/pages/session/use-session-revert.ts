@@ -33,6 +33,7 @@ export function createSessionRevert(input: {
   prompt: ReturnType<typeof usePrompt>
   sync: ReturnType<typeof useSync>
   client: () => ReturnType<typeof useSDK>["client"]
+  actionReady: () => boolean
   halt: (sessionID: string) => Promise<unknown>
   draft: (id: string) => Prompt
   fail: (err: unknown) => void
@@ -41,6 +42,7 @@ export function createSessionRevert(input: {
 }) {
   const revertMutation = useMutation(() => ({
     mutationFn: async (request: { sessionID: string; messageID: string }) => {
+      const client = input.client()
       const prev = input.prompt.current().slice()
       const last = input.sync.session.get(request.sessionID)?.revert
       const value = input.draft(request.messageID)
@@ -50,7 +52,7 @@ export function createSessionRevert(input: {
       })
       await input
         .halt(request.sessionID)
-        .then(() => input.client().session.revert(request, { throwOnError: true }))
+        .then(() => client.session.revert(request, { throwOnError: true }))
         .then((result) => {
           if (result.data) input.merge(result.data)
         })
@@ -66,6 +68,7 @@ export function createSessionRevert(input: {
 
   const restoreMutation = useMutation(() => ({
     mutationFn: async (request: { sessionID: string; id: string }) => {
+      const client = input.client()
       const messages = readUserMessages(readSessionMessages(input.sync.data.message[request.sessionID]))
       const next = nextRestoreTarget(messages, request.id)
       const prev = input.prompt.current().slice()
@@ -83,9 +86,9 @@ export function createSessionRevert(input: {
       const task = !next
         ? input
             .halt(request.sessionID)
-            .then(() => input.client().session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
+            .then(() => client.session.unrevert({ sessionID: request.sessionID }, { throwOnError: true }))
         : input.halt(request.sessionID).then(() =>
-            input.client().session.revert(
+            client.session.revert(
               {
                 sessionID: request.sessionID,
                 messageID: next.id,
@@ -129,11 +132,13 @@ export function createSessionRevert(input: {
     rolled,
     revert(request: { sessionID: string; messageID: string }) {
       if (reverting()) return
+      if (!input.actionReady()) return
       return revertMutation.mutateAsync(request)
     },
     restore(id: string) {
       const sessionID = input.sessionID()
       if (!sessionID || reverting()) return
+      if (!input.actionReady()) return
       return restoreMutation.mutateAsync({ sessionID, id })
     },
   }

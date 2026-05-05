@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { deriveReviewArtifactFiles } from "./use-session-review-state"
+import { deriveReviewArtifactFiles, shouldApplyVcsDiffResult } from "./use-session-review-state"
 
 describe("session review state", () => {
   test("uses session artifact history when it matches the visible session", () => {
@@ -67,5 +67,25 @@ describe("session review state", () => {
         turnDiffs: undefined,
       }),
     ).not.toThrow()
+  })
+
+  test("rejects stale VCS diff results from a previous execution directory", () => {
+    expect(
+      shouldApplyVcsDiffResult({
+        requestedDirectory: "/repo-worktree",
+        currentDirectory: "/repo-root",
+        requestedRun: 1,
+        currentRun: 1,
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldApplyVcsDiffResult({
+        requestedDirectory: "/repo-root",
+        currentDirectory: "/repo-root",
+        requestedRun: 1,
+        currentRun: 1,
+      }),
+    ).toBe(true)
   })
 })

@@ -67,6 +67,7 @@ describe("session followups", () => {
     const base = {
       hasSession: true,
       hasItem: true,
+      actionReady: true,
       busy: false,
       failed: false,
       paused: false,
@@ -78,6 +79,7 @@ describe("session followups", () => {
     expect(shouldAutoSendFollowup(base)).toBe(true)
     expect(shouldAutoSendFollowup({ ...base, hasSession: false })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, hasItem: false })).toBe(false)
+    expect(shouldAutoSendFollowup({ ...base, actionReady: false })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, busy: true })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, failed: true })).toBe(false)
     expect(shouldAutoSendFollowup({ ...base, paused: true })).toBe(false)
@@ -96,6 +98,7 @@ describe("session followups", () => {
     const recovering = {
       hasSession: true,
       hasItem: true,
+      actionReady: true,
       busy: true,
       failed: false,
       paused: false,
@@ -107,6 +110,23 @@ describe("session followups", () => {
 
     const afterHalt = { ...recovering, busy: false }
     expect(shouldAutoSendFollowup(afterHalt)).toBe(true)
+  })
+
+  test("queued followup waits for current directory data after a directory switch", () => {
+    const switchingDirectory = {
+      hasSession: true,
+      hasItem: true,
+      actionReady: false,
+      busy: false,
+      failed: false,
+      paused: false,
+      childSession: false,
+      blocked: false,
+      followupBusy: false,
+    }
+
+    expect(shouldAutoSendFollowup(switchingDirectory)).toBe(false)
+    expect(shouldAutoSendFollowup({ ...switchingDirectory, actionReady: true })).toBe(true)
   })
 
   test("rebases a queued followup to the current execution directory before send", () => {

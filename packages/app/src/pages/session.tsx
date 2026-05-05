@@ -113,6 +113,7 @@ export default function Page() {
   const activeFileTab = tabState.activeFileTab
   const timelineSessionID = timeline.sessionID
   const timelineSessionKey = timeline.sessionKey
+  const actionReady = timeline.actionReady
   const timelineIsChildSession = timeline.isChildSession
   const haltAbort = (sessionID: string) =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
@@ -444,12 +445,13 @@ export default function Page() {
       return id ? sync.data.message[id] : undefined
     },
   )
-  const busy = () => timelineRunning()
+  const busy = () => !actionReady() || timelineRunning()
 
   const followups = createSessionFollowups({
     directory: () => sdk.directory,
     client: () => sdk.client,
     sessionID: timelineSessionID,
+    actionReady,
     isChildSession: timelineIsChildSession,
     busy,
     blocked: composer.blocked,
@@ -469,6 +471,7 @@ export default function Page() {
     prompt,
     sync,
     client: () => sdk.client,
+    actionReady,
     halt,
     draft,
     fail,
@@ -497,7 +500,7 @@ export default function Page() {
     <SessionPageComposerRegion
       variant={variant}
       state={composer}
-      ready={!deferRender() && timelineMessagesReady()}
+      ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : actionReady())}
       displaySessionID={variant === "session" ? timelineSessionID() : undefined}
       displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}
@@ -514,7 +517,7 @@ export default function Page() {
       onModeChange={ctx?.onModeChange}
       selectedSkill={ctx?.selectedSkill}
       followup={
-        variant === "session" && timelineSessionID() && !timelineIsChildSession()
+        variant === "session" && timelineSessionID() && actionReady() && !timelineIsChildSession()
           ? {
               queue: followups.queueEnabled,
               items: followups.followupDock(),
@@ -541,7 +544,7 @@ export default function Page() {
           ? {
               items: sessionRevert.rolled(),
               restoring: sessionRevert.restoring(),
-              disabled: sessionRevert.reverting(),
+              disabled: sessionRevert.reverting() || !actionReady(),
               onRestore: sessionRevert.restore,
             }
           : undefined

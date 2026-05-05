@@ -54,6 +54,15 @@ export function timelineModelSyncKey(input: { directory: string; messageID: stri
   return `${input.directory}\n${input.messageID ?? ""}`
 }
 
+export function currentSessionDataReady(input: {
+  sessionID: string | undefined
+  sessionInfo: unknown
+  rawMessages: unknown
+}) {
+  if (!input.sessionID) return true
+  return input.sessionInfo !== undefined && input.rawMessages !== undefined
+}
+
 export function readTimelineMessagesFromCache(input: {
   sessionID: string | undefined
   sessionCreated: number | undefined
@@ -102,6 +111,14 @@ export function createSessionTimelineData(input: {
     const id = sessionID()
     if (!id) return
     return input.sync.session.get(id)
+  })
+  const actionReady = createMemo(() => {
+    const id = sessionID()
+    return currentSessionDataReady({
+      sessionID: id,
+      sessionInfo: sessionInfo(),
+      rawMessages: id ? input.sync.data.message[id] : undefined,
+    })
   })
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)
   // Only reuse last-good messages for a same-session transient cache miss.
@@ -199,6 +216,7 @@ export function createSessionTimelineData(input: {
     sessionKey,
     transitioning,
     sessionInfo,
+    actionReady,
     isChildSession,
     messages,
     messagesReady,

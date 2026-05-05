@@ -36,6 +36,7 @@ export function followupPreviewText(input: {
 export function shouldAutoSendFollowup(input: {
   hasSession: boolean
   hasItem: boolean
+  actionReady: boolean
   busy: boolean
   failed: boolean
   paused: boolean
@@ -46,6 +47,7 @@ export function shouldAutoSendFollowup(input: {
   return (
     input.hasSession &&
     input.hasItem &&
+    input.actionReady &&
     !input.busy &&
     !input.failed &&
     !input.paused &&
@@ -64,6 +66,7 @@ export function createSessionFollowups(input: {
   directory: () => string
   client: () => ReturnType<typeof useSDK>["client"]
   sessionID: () => string | undefined
+  actionReady: () => boolean
   isChildSession: () => boolean
   busy: () => boolean
   blocked: () => boolean
@@ -146,7 +149,13 @@ export function createSessionFollowups(input: {
   const queueEnabled = createMemo(() => {
     const id = input.sessionID()
     if (!id) return false
-    return input.settings.general.followup() === "queue" && input.busy() && !input.blocked() && !input.isChildSession()
+    return (
+      input.actionReady() &&
+      input.settings.general.followup() === "queue" &&
+      input.busy() &&
+      !input.blocked() &&
+      !input.isChildSession()
+    )
   })
 
   const queueFollowup = (draft: FollowupDraft) => {
@@ -166,6 +175,7 @@ export function createSessionFollowups(input: {
   )
 
   const sendFollowup = (sessionID: string, id: string, opts?: { manual?: boolean }) => {
+    if (!input.actionReady()) return Promise.resolve()
     if (input.sync.session.get(sessionID)?.parentID) return Promise.resolve()
     const item = (followup.items[sessionID] ?? []).find((entry) => entry.id === id)
     if (!item) return Promise.resolve()
@@ -205,6 +215,7 @@ export function createSessionFollowups(input: {
       !shouldAutoSendFollowup({
         hasSession: !!sessionID,
         hasItem: !!item,
+        actionReady: input.actionReady(),
         busy: input.busy(),
         failed: !!(sessionID && item && followup.failed[sessionID] === item.id),
         paused: !!(sessionID && followup.paused[sessionID]),

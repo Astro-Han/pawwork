@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { readTimelineMessages, readTimelineMessagesFromCache, timelineModelSyncKey } from "./use-session-timeline-data"
+import {
+  currentSessionDataReady,
+  readTimelineMessages,
+  readTimelineMessagesFromCache,
+  timelineModelSyncKey,
+} from "./use-session-timeline-data"
 
 const userMessage = (id: string, sessionID = "ses_target"): Message =>
   ({
@@ -168,5 +173,25 @@ describe("timelineModelSyncKey", () => {
     expect(timelineModelSyncKey({ directory: "/worktree", messageID: "msg" })).not.toBe(
       timelineModelSyncKey({ directory: "/root", messageID: "msg" }),
     )
+  })
+})
+
+describe("currentSessionDataReady", () => {
+  test("waits for current session info and message cache before actions are ready", () => {
+    expect(
+      currentSessionDataReady({
+        sessionID: "ses",
+        sessionInfo: undefined,
+        rawMessages: undefined,
+      }),
+    ).toBe(false)
+
+    expect(
+      currentSessionDataReady({
+        sessionID: "ses",
+        sessionInfo: { id: "ses" },
+        rawMessages: [],
+      }),
+    ).toBe(true)
   })
 })
