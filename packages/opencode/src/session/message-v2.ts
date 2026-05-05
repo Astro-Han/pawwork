@@ -11,6 +11,7 @@ import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProviderError } from "@/provider"
 import { iife } from "@/util/iife"
 import { errorMessage } from "@/util/error"
+import { formatToolFailureForModel } from "./tool-failure"
 import type { SystemError } from "bun"
 import type { Provider } from "@/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
@@ -844,7 +845,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
                 state: "output-error",
                 toolCallId: part.callID,
                 input: part.state.input,
-                errorText: part.state.error,
+                errorText: formatToolFailureForModel(
+                  part.state.error,
+                  part.state.metadata?.diagnostics?.failure,
+                ),
                 ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
                 ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
               })

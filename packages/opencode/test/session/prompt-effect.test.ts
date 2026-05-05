@@ -551,6 +551,7 @@ it.live("loop gate records same-step repeated tool errors without block or stop"
         const stopParts = errorParts.filter((p) => p.state.metadata?.diagnostics?.loop?.loopAction === "stop")
         expect(blockParts).toHaveLength(0)
         expect(stopParts).toHaveLength(0)
+        expect(errorParts[0].state.metadata?.diagnostics?.failure?.errorKind).toBe("environment")
 
         const requests = yield* llm.inputs
         // Extract user/system message text fields rather than stringifying the whole request

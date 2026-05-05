@@ -7,6 +7,7 @@ import { SessionID, MessageID, PartID } from "../../src/session/schema"
 import { Question } from "../../src/question"
 import { Permission } from "../../src/permission"
 import { fromDeniedRule } from "../../src/permission/diagnostic"
+import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
 import { errorMessage } from "../../src/util/error"
 
 const sessionID = SessionID.make("session")
@@ -594,7 +595,14 @@ describe("session.message-v2.toModelMessage", () => {
               input: { cmd: "ls" },
               error: "nope",
               time: { start: 0, end: 1 },
-              metadata: {},
+              metadata: {
+                diagnostics: {
+                  failure: {
+                    errorKind: "invalid_arguments",
+                    recoveryHint: TOOL_FAILURE_HINTS.invalid_arguments,
+                  },
+                },
+              },
             },
             metadata: { openai: { tool: "meta" } },
           },
@@ -627,7 +635,10 @@ describe("session.message-v2.toModelMessage", () => {
             type: "tool-result",
             toolCallId: "call-1",
             toolName: "bash",
-            output: { type: "error-text", value: "nope" },
+            output: {
+              type: "error-text",
+              value: `nope\n\nTool failure reason: invalid_arguments. Recovery hint: ${TOOL_FAILURE_HINTS.invalid_arguments}`,
+            },
             providerOptions: { openai: { tool: "meta" } },
           },
         ],
