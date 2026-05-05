@@ -35,7 +35,7 @@ const REGULATED_PREFIXES =
   /^(brand|bg|surface|fg|border|icon|success|warning|error|diff|shadow|ring|sidebar)/
 
 // Tokens whose light value is intentionally identical in dark mode.
-const SAME_IN_DARK = new Set(["brand-primary", "brand-primary-on", "fg-on-brand"])
+const SAME_IN_DARK = new Set(["brand-primary", "brand-primary-on", "fg-on-brand", "brand-danger", "brand-danger-hover"])
 
 // ─── CSS parsing helpers ────────────────────────────────────────────────────
 
