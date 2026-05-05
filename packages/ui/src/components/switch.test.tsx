@@ -86,6 +86,6 @@ test("CSS uses duration tokens not raw 150ms literals in transitions", () => {
 
 // ── CSS: translate distance for 28px track, 12px thumb, 1px padding ───────────
 
-test("checked thumb translate is 14px (28 - 12 - 1 - 1)", () => {
-  expect(css).toContain("translateX(14px)")
+test("checked thumb translate is 12px (border 1px + padding 1px = 2px each side, content 24px, travel 12px)", () => {
+  expect(css).toContain("translateX(12px)")
 })

@@ -242,17 +242,27 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
               >
                 <span
                   style={{
-                    display: "inline-block",
-                    width: "13px",
-                    height: "13px",
-                    "border-radius": "9999px",
-                    border: "1.5px solid var(--border-weak)",
-                    "border-top-color": "var(--brand-primary)",
-                    animation: "var(--animate-pw-spin)",
+                    display: "inline-flex",
+                    "align-items": "center",
+                    "justify-content": "center",
+                    width: "16px",
+                    height: "16px",
                     "flex-shrink": "0",
                     "margin-top": "1px",
                   }}
-                />
+                >
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: "13px",
+                      height: "13px",
+                      "border-radius": "9999px",
+                      border: "1.5px solid var(--border-weak)",
+                      "border-top-color": "var(--brand-primary)",
+                      animation: "var(--animate-pw-spin)",
+                    }}
+                  />
+                </span>
               </Show>
               <TextStrikethrough
                 active={todo().status === "completed" || todo().status === "cancelled"}
