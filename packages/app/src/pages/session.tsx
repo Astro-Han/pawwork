@@ -405,14 +405,15 @@ export default function Page() {
     review: reviewTab,
   })
 
-  const draft = (id: string) =>
-    extractPromptFromParts(sync.data.part[id] ?? [], {
-      directory: sdk.directory,
+  type SyncStore = typeof sync.data
+  const draftFrom = (source: { directory: string; store: SyncStore }, id: string) =>
+    extractPromptFromParts(source.store.part[id] ?? [], {
+      directory: source.directory,
       attachmentName: language.t("common.attachment"),
     })
 
   const line = (id: string) => {
-    const text = draft(id)
+    const text = draftFrom({ directory: sdk.directory, store: sync.data }, id)
       .map((part) => (part.type === "image" ? `[image:${part.filename}]` : part.content))
       .join("")
       .replace(/\s+/g, " ")
@@ -491,12 +492,14 @@ export default function Page() {
       const directory = sdk.directory
       return {
         client: sdk.createClient({ directory, throwOnError: true }),
+        store: sync.storeFor(directory),
         setStore: sync.setFor(directory),
+        directory,
       }
     },
     actionReady,
     halt: haltWithClient,
-    draft,
+    draft: draftFrom,
     fail,
     merge,
     roll,

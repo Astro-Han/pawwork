@@ -198,13 +198,13 @@ describe("currentSessionCacheReady", () => {
 })
 
 describe("currentSessionActionReady", () => {
-  test("waits for current session status as well as cache hydration", () => {
+  test("waits for the directory status list as well as cache hydration", () => {
     expect(
       currentSessionActionReady({
         sessionID: "ses",
         sessionInfo: { id: "ses" },
         rawMessages: [],
-        status: undefined,
+        statusReady: false,
       }),
     ).toBe(false)
 
@@ -213,7 +213,18 @@ describe("currentSessionActionReady", () => {
         sessionID: "ses",
         sessionInfo: { id: "ses" },
         rawMessages: [],
-        status: { type: "idle" },
+        statusReady: true,
+      }),
+    ).toBe(true)
+  })
+
+  test("treats a loaded empty status list as idle for an otherwise hydrated session", () => {
+    expect(
+      currentSessionActionReady({
+        sessionID: "ses",
+        sessionInfo: { id: "ses" },
+        rawMessages: [],
+        statusReady: true,
       }),
     ).toBe(true)
   })

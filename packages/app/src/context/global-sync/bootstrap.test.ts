@@ -21,6 +21,7 @@ function createState(): State {
     session: [],
     sessionTotal: 0,
     session_status: {},
+    session_status_ready: false,
     session_diff: {},
     todo: {},
     permission: {},
@@ -120,6 +121,7 @@ describe("bootstrapDirectory", () => {
 
     expect(store.provider_ready).toBe(true)
     expect(store.provider).toEqual(providers[0])
+    expect(store.session_status_ready).toBe(true)
 
     await bootstrapDirectory({
       directory,

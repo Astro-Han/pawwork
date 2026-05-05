@@ -68,10 +68,10 @@ export function currentSessionActionReady(input: {
   sessionID: string | undefined
   sessionInfo: unknown
   rawMessages: unknown
-  status: unknown
+  statusReady: boolean
 }) {
   if (!input.sessionID) return true
-  return currentSessionCacheReady(input) && input.status !== undefined
+  return currentSessionCacheReady(input) && input.statusReady
 }
 
 export function readTimelineMessagesFromCache(input: {
@@ -136,7 +136,7 @@ export function createSessionTimelineData(input: {
   const statusKnown = createMemo(() => {
     const id = sessionID()
     if (!id) return true
-    return input.sync.data.session_status[id] !== undefined
+    return input.sync.data.session_status_ready || input.sync.data.session_status[id] !== undefined
   })
   const currentSessionCacheReadyMemo = createMemo(() => {
     const id = sessionID()
@@ -152,7 +152,7 @@ export function createSessionTimelineData(input: {
       sessionID: id,
       sessionInfo: sessionInfo(),
       rawMessages: id ? input.sync.data.message[id] : undefined,
-      status: id ? input.sync.data.session_status[id] : undefined,
+      statusReady: statusKnown(),
     })
   })
   const isChildSession = createMemo(() => !!sessionInfo()?.parentID)

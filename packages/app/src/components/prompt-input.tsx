@@ -588,6 +588,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   }
 
   const handleAtSelect = (option: AtOption | undefined) => {
+    if (!actionReady()) return
     if (!option) return
     addPart({ type: "file", path: option.path, content: "@" + option.path, start: 0, end: 0 })
   }
@@ -644,6 +645,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   })
 
   const handleSlashSelect = (cmd: SlashCommand | undefined) => {
+    if (!actionReady()) return
     if (!cmd) return
     promptProbe.select(cmd.id)
     closePopover()
@@ -1206,6 +1208,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const [variantOpen, setVariantOpen] = createSignal(false)
 
+  createEffect(() => {
+    if (actionReady()) return
+    closePopover()
+    setVariantOpen(false)
+    setStore("draggingType", null)
+  })
+
   const renderVariantControl = (triggerStyle: () => Record<string, string | number | undefined>) => (
     <div data-component="prompt-variant-control">
       <TooltipKeybind
@@ -1252,6 +1261,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     aria-checked={active()}
                     class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-text-strong outline-none hover:bg-surface-raised-base-hover focus-visible:bg-surface-raised-base-hover"
                     onClick={() => {
+                      if (!actionReady()) return
                       local.model.variant.set(variant === "default" ? undefined : variant)
                       setVariantOpen(false)
                       restoreFocus()

@@ -397,6 +397,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       setFor(directory?: string): Setter {
         return target(directory)[1]
       },
+      storeFor(directory?: string): Child[0] {
+        return target(directory)[0]
+      },
       get status() {
         return current()[0].status
       },
