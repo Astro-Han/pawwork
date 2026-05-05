@@ -41,6 +41,16 @@ function parseCssTokens(css: string): string[] {
 const txtTokens = parseTxtTokens(COLORS_TXT)
 const cssTokens = parseCssTokens(COLORS_CSS)
 
+test("colors.txt has no duplicate token names", () => {
+  const dupes = txtTokens.filter((t, i) => txtTokens.indexOf(t) !== i)
+  expect(dupes, `duplicate tokens in colors.txt: ${dupes.join(", ")}`).toEqual([])
+})
+
+test("colors.css has no duplicate token entries", () => {
+  const dupes = cssTokens.filter((t, i) => cssTokens.indexOf(t) !== i)
+  expect(dupes, `duplicate entries in colors.css: ${dupes.join(", ")}`).toEqual([])
+})
+
 test("every colors.txt token has a --color-X: var(--X) entry in colors.css", () => {
   const cssSet = new Set(cssTokens)
   const missing = txtTokens.filter((t) => !cssSet.has(t))
