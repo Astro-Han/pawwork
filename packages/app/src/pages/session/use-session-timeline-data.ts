@@ -164,7 +164,7 @@ export function createSessionTimelineData(input: {
 
   createEffect(
     on(
-      () => lastUserMessage()?.id,
+      () => ({ directory: input.directory(), messageID: lastUserMessage()?.id }),
       () => {
         const msg = lastUserMessage()
         if (!msg) return

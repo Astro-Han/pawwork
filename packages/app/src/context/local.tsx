@@ -24,6 +24,7 @@ type Saved = {
 }
 
 const WORKSPACE_KEY = "__workspace__"
+const MAX_SAVED_STORES = 8
 const handoff = new Map<string, State>()
 
 const handoffKey = (dir: string, id: string) => `${dir}\n${id}`
@@ -56,6 +57,7 @@ type SavedEntry = {
   store: Store<Saved>
   setStore: SetStoreFunction<Saved>
   dispose: () => void
+  lastAccessAt: number
 }
 
 export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
@@ -84,18 +86,36 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
             session: {},
           }),
         )
-        return { store, setStore, dispose } satisfies SavedEntry
+        return { store, setStore, dispose, lastAccessAt: Date.now() } satisfies SavedEntry
       })
+
+    const pruneSavedStores = (keep: string) => {
+      if (savedStores.size <= MAX_SAVED_STORES) return
+
+      const stale = [...savedStores.entries()]
+        .filter(([key]) => key !== keep)
+        .sort((left, right) => left[1].lastAccessAt - right[1].lastAccessAt)
+
+      for (const [key, entry] of stale) {
+        if (savedStores.size <= MAX_SAVED_STORES) return
+        entry.dispose()
+        savedStores.delete(key)
+      }
+    }
 
     const savedFor = (directory: string) => {
       const key = directory || "__unknown__"
       const cached = savedStores.get(key)
-      if (cached) return cached
+      if (cached) {
+        cached.lastAccessAt = Date.now()
+        return cached
+      }
 
       const entry = owner
         ? (runWithOwner(owner, () => createSavedEntry(key)) ?? createSavedEntry(key))
         : createSavedEntry(key)
       savedStores.set(key, entry)
+      pruneSavedStores(key)
       return entry
     }
 
