@@ -1,0 +1,44 @@
+[data-component="command-palette"] {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+  pointer-events: none;
+
+  [data-slot="palette-container"] {
+    position: relative;
+    z-index: 50;
+    width: min(640px, calc(100vw - 32px));
+
+    [data-slot="palette-content"] {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-height: 480px;
+      overflow: hidden;
+      pointer-events: auto;
+
+      border-radius: var(--radius-lg);
+      background: var(--surface-raised);
+      background-clip: padding-box;
+      box-shadow: var(--shadow-floating);
+      border: 1px solid var(--border-base);
+
+      &:focus-visible {
+        outline: none;
+        box-shadow: var(--shadow-xs-border-focus);
+      }
+    }
+  }
+}
+
+[data-component="command-palette"][data-transition] [data-slot="palette-content"] {
+  animation: contentHide 100ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+
+  &[data-expanded] {
+    animation: contentShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}

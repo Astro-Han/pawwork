@@ -6,8 +6,8 @@
   height: 20px;
   padding: 0 8px;
   border-radius: 2px;
-  background: var(--surface-base);
-  box-shadow: var(--shadow-xxs-border);
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
 
   font-family: var(--font-family-sans);
   font-size: var(--font-size-x-small);
