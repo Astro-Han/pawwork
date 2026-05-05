@@ -122,6 +122,23 @@ describe("readTimelineMessages", () => {
     expect(missing.messages).toEqual([])
     expect(missing.lastGood).toBeUndefined()
   })
+
+  test("treats an empty raw message array as authoritative loaded data", () => {
+    const ready = readTimelineMessages({
+      sessionID: "ses_target",
+      raw: [userMessage("msg_1"), userMessage("msg_2")],
+      lastGood: undefined,
+    })
+
+    const empty = readTimelineMessages({
+      sessionID: "ses_target",
+      raw: [],
+      lastGood: ready.lastGood,
+    })
+
+    expect(empty.messages).toEqual([])
+    expect(empty.lastGood?.messages).toEqual([])
+  })
 })
 
 describe("readTimelineMessagesFromCache", () => {
