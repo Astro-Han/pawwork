@@ -63,9 +63,7 @@ const defaultPlugDeps: PlugDeps = {
   exists: (file) => Filesystem.exists(file),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
   global: Runtime.isPawWork() ? PawWorkHome.primary() : Global.Path.config,
-  seedGlobalConfig: async () => {
-    await Config.updateGlobal({})
-  },
+  seedGlobalConfig: () => Config.seedGlobalConfig(),
 }
 
 function cause(err: unknown) {

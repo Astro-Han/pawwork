@@ -381,6 +381,10 @@ function globalConfigFile() {
   return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
 }
 
+export function globalConfigFileForWrite() {
+  return globalConfigFile()
+}
+
 function globalConfigFilesToLoad() {
   if (!Runtime.isPawWork()) {
     const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
@@ -948,6 +952,10 @@ export async function updateGlobal(config: Info) {
   return runPromise((svc) => svc.updateGlobal(config))
 }
 
+export async function seedGlobalConfig() {
+  await updateGlobal({})
+}
+
 export async function invalidate(wait = false) {
   return runPromise((svc) => svc.invalidate(wait))
 }
@@ -1015,6 +1023,8 @@ const ConfigGetGlobal = getGlobal
 const ConfigGetConsoleState = getConsoleState
 const ConfigUpdate = update
 const ConfigUpdateGlobal = updateGlobal
+const ConfigSeedGlobalConfig = seedGlobalConfig
+const ConfigGlobalConfigFileForWrite = globalConfigFileForWrite
 const ConfigInvalidate = invalidate
 const ConfigDirectories = directories
 const ConfigWaitForDependencies = waitForDependencies
@@ -1057,6 +1067,8 @@ export namespace Config {
   export const getConsoleState = ConfigGetConsoleState
   export const update = ConfigUpdate
   export const updateGlobal = ConfigUpdateGlobal
+  export const seedGlobalConfig = ConfigSeedGlobalConfig
+  export const globalConfigFileForWrite = ConfigGlobalConfigFileForWrite
   export const invalidate = ConfigInvalidate
   export const directories = ConfigDirectories
   export const waitForDependencies = ConfigWaitForDependencies

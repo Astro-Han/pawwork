@@ -323,6 +323,43 @@ describe("PawWork global config isolation", () => {
     }
   })
 
+  test("seedGlobalConfig writes primary Home without dropping legacy effective config", async () => {
+    await using home = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    await using platformLegacy = await tmpdir()
+    const previousConfig = Global.Path.config
+    process.env.OPENCODE_TEST_HOME = home.path
+    delete process.env.PAWWORK_HOME
+    delete process.env.PAWWORK_CONFIG_DIR
+    ;(Global.Path as { config: string }).config = platformLegacy.path
+
+    try {
+      await Filesystem.write(path.join(platformLegacy.path, "pawwork.json"), JSON.stringify({ username: "legacy-user" }))
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          await Config.seedGlobalConfig()
+          const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
+          expect(saved.username).toBe("legacy-user")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
+  test("global config write resolver ignores OpenCode filenames in PawWork Home", async () => {
+    await using home = await tmpdir()
+    process.env.PAWWORK_HOME = home.path
+    delete process.env.PAWWORK_CONFIG_DIR
+
+    await Filesystem.write(path.join(home.path, "opencode.jsonc"), JSON.stringify({ model: "leaked/model" }))
+    expect(Config.globalConfigFileForWrite()).toBe(path.join(home.path, "pawwork.json"))
+
+    await Filesystem.write(path.join(home.path, "pawwork.jsonc"), JSON.stringify({ model: "pawwork/model" }))
+    expect(Config.globalConfigFileForWrite()).toBe(path.join(home.path, "pawwork.jsonc"))
+  })
+
   test("first global update preserves merged legacy json and jsonc config", async () => {
     await using home = await tmpdir()
     await using platformLegacy = await tmpdir()

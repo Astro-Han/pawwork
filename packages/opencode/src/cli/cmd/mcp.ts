@@ -410,6 +410,8 @@ export const McpLogoutCommand = cmd({
 })
 
 async function resolveConfigPath(baseDir: string, global = false) {
+  if (global) return Config.globalConfigFileForWrite()
+
   // Check for existing config files. Prefer PawWork JSONC/JSON, then fall back to legacy OpenCode names.
   const candidates = [
     path.join(baseDir, "pawwork.jsonc"),
@@ -418,14 +420,12 @@ async function resolveConfigPath(baseDir: string, global = false) {
     path.join(baseDir, "opencode.json"),
   ]
 
-  if (!global) {
-    candidates.push(
-      path.join(baseDir, ".opencode", "pawwork.jsonc"),
-      path.join(baseDir, ".opencode", "pawwork.json"),
-      path.join(baseDir, ".opencode", "opencode.jsonc"),
-      path.join(baseDir, ".opencode", "opencode.json"),
-    )
-  }
+  candidates.push(
+    path.join(baseDir, ".opencode", "pawwork.jsonc"),
+    path.join(baseDir, ".opencode", "pawwork.json"),
+    path.join(baseDir, ".opencode", "opencode.jsonc"),
+    path.join(baseDir, ".opencode", "opencode.json"),
+  )
 
   for (const candidate of candidates) {
     if (await Filesystem.exists(candidate)) {
@@ -530,7 +530,7 @@ export const McpAddCommand = cmd({
             command: command.split(" "),
           }
 
-          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.updateGlobal({})
+          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.seedGlobalConfig()
           await addMcpToConfig(name, mcpConfig, configPath)
           prompts.log.success(`MCP server "${name}" added to ${configPath}`)
           prompts.outro("MCP server added successfully")
@@ -609,7 +609,7 @@ export const McpAddCommand = cmd({
             }
           }
 
-          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.updateGlobal({})
+          if (Runtime.isPawWork() && configPath === globalConfigPath) await Config.seedGlobalConfig()
           await addMcpToConfig(name, mcpConfig, configPath)
           prompts.log.success(`MCP server "${name}" added to ${configPath}`)
         }
