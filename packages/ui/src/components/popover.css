@@ -54,6 +54,36 @@
   }
 }
 
+/* ── Embedded search slot (model picker / branch picker pattern) ── */
+
+[data-slot="popover-search"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-weaker);
+
+  input,
+  [data-slot="popover-search-input"] {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--fg-strong);
+    font: var(--type-body);
+
+    &::placeholder {
+      color: var(--fg-weak);
+    }
+
+    &:focus-visible {
+      outline: none;
+      border-radius: 2px;
+      box-shadow: 0 0 0 1px #ff5910, 0 0 0 3px rgba(255, 89, 16, 0.2);
+    }
+  }
+}
+
 /* ── Menu item primitives (used by popover-body consumers) ── */
 
 [data-slot="popover-item"] {

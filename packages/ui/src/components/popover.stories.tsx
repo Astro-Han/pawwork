@@ -127,6 +127,35 @@ export const MenuMatrix = {
   ),
 }
 
+/**
+ * Embedded search slot — no border, no radius, 1px --border-weaker bottom divider.
+ * autofocus triggers static :focus-visible ring screenshot.
+ */
+export const WithSearch = {
+  render: () => (
+    <div
+      style={{
+        background: "var(--surface-base)",
+        "border-radius": "var(--radius-md)",
+        "box-shadow": "var(--ring-base), var(--shadow-floating)",
+        "min-width": "184px",
+      }}
+    >
+      <div data-slot="popover-search">
+        <input
+          data-slot="popover-search-input"
+          placeholder="Search…"
+          autofocus
+        />
+      </div>
+      <div style={{ padding: "4px" }}>
+        <div data-slot="popover-item">Result one</div>
+        <div data-slot="popover-item">Result two</div>
+      </div>
+    </div>
+  ),
+}
+
 export const WithDanger = {
   render: () => (
     <mod.Popover trigger="Open" defaultOpen portal={false}>
