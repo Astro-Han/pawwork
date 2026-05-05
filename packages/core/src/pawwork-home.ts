@@ -31,6 +31,12 @@ function envPath(input: string | undefined) {
   return value ? value : undefined
 }
 
+function explicitHomeCandidates() {
+  return [envPath(Flag.PAWWORK_HOME), envPath(Flag.PAWWORK_CONFIG_DIR)]
+    .filter((item): item is string => Boolean(item))
+    .map(resolveHome)
+}
+
 function realpathOrResolved(input: string) {
   const resolved = path.resolve(input)
   try {
@@ -112,11 +118,13 @@ export namespace PawWorkHome {
   }
 
   export function existingResourceDirectories() {
+    const strict = new Set([primary(), ...explicitHomeCandidates()].map(normalize))
     return candidates()
       .filter((candidate) => {
         try {
           return isDirectory(candidate)
-        } catch {
+        } catch (error) {
+          if (strict.has(normalize(candidate))) throw error
           return false
         }
       })

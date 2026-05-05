@@ -3,10 +3,12 @@ import path from "node:path"
 import fs from "node:fs/promises"
 import crypto from "node:crypto"
 import { fileURLToPath } from "node:url"
+import { parse as parseJsonc } from "jsonc-parser"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import { Effect } from "effect"
 import { Runtime } from "@opencode-ai/core/runtime"
+import { Global } from "@opencode-ai/core/global"
 import { Session } from "."
 import type { SessionID } from "./schema"
 import { MessageV2 } from "./message-v2"
@@ -17,6 +19,8 @@ import { ProviderID, ModelID } from "../provider/schema"
 import { Instance } from "../project/instance"
 import { sanitizeSensitiveDiffs, sanitizeSensitiveToolPart } from "@/tool/sensitive"
 import { Instruction } from "./instruction"
+import { Config } from "../config"
+import { isRecord } from "@/util/record"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -318,8 +322,10 @@ export namespace Export {
         resolvedSources = fromSessionDirectory
       } else {
         const fallback = yield* instruction.sources({ fetchRemote: false }).pipe(Effect.catch(() => Effect.succeed([])))
+        const globalConfigSources = yield* Effect.promise(() => globalConfiguredInstructionSources())
         resolvedSources = [
           ...fallback.filter((source) => source.status === "loaded" && source.kind === "global"),
+          ...globalConfigSources,
           {
             status: "considered" as const,
             path: directory,
@@ -358,6 +364,30 @@ export namespace Export {
       return (a.path ?? a.url ?? "").localeCompare(b.path ?? b.url ?? "")
     })
   })
+
+  async function globalConfiguredInstructionSources(): Promise<Instruction.InstructionSource[]> {
+    const file = Config.globalConfigFileForRead()
+    if (!file) return []
+    const text = await fs.readFile(file, "utf8").catch(() => undefined)
+    if (!text) return []
+    const data = parseJsonc(text)
+    if (!isRecord(data) || !Array.isArray(data.instructions)) return []
+    const sources: Instruction.InstructionSource[] = []
+    for (const item of data.instructions) {
+      if (typeof item !== "string") continue
+      if (item.startsWith("https://") || item.startsWith("http://")) {
+        sources.push({ status: "considered", path: item, kind: "remote", reason: "configured but not fetched" })
+        continue
+      }
+      const resolved = item.startsWith("~/")
+        ? path.join(Global.Path.home, item.slice(2))
+        : path.isAbsolute(item)
+          ? item
+          : path.resolve(path.dirname(file), item)
+      sources.push({ status: "loaded", path: resolved, kind: "config" })
+    }
+    return sources
+  }
 
   // Exported so it can be unit-tested with synthesized Tree fixtures.
   export const collectModelRefs = Effect.fn("Export.modelRefs")(function* (tree: Tree) {

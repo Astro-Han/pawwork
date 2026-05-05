@@ -196,6 +196,73 @@ describe("default OpenCode config compatibility", () => {
     }
   })
 
+  test("OpenCode legacy TOML migration persists non-overlapping fields into active JSONC", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      const active = path.join(global.path, "opencode.jsonc")
+      await Filesystem.write(active, '{\n  // active config\n  "username": "jsonc-user"\n}\n')
+      await Filesystem.write(
+        path.join(global.path, "config"),
+        ['provider = "toml"', 'model = "model"', 'username = "toml-user"'].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const first = await load()
+          expect(first.username).toBe("jsonc-user")
+          expect(first.model).toBe("toml/model")
+          expect(await Bun.file(path.join(global.path, "config")).exists()).toBeFalse()
+          expect(await Bun.file(path.join(global.path, "opencode.json")).exists()).toBeFalse()
+
+          await clear(true)
+          const second = await load()
+          expect(second.username).toBe("jsonc-user")
+          expect(second.model).toBe("toml/model")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
+  test("OpenCode legacy TOML migration skips non-file active candidates", async () => {
+    await using global = await tmpdir()
+    await using project = await tmpdir({ git: true })
+    const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
+    const previousConfig = Global.Path.config
+    delete process.env.PAWWORK_RUNTIME_NAMESPACE
+    ;(Global.Path as { config: string }).config = global.path
+
+    try {
+      await fs.mkdir(path.join(global.path, "opencode.jsonc"), { recursive: true })
+      await Filesystem.write(path.join(global.path, "config"), ['provider = "toml"', 'model = "model"'].join("\n"))
+
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          const config = await load()
+          expect(config.model).toBe("toml/model")
+          expect(await Bun.file(path.join(global.path, "config")).exists()).toBeFalse()
+          const migrated = JSON.parse(await Bun.file(path.join(global.path, "opencode.json")).text())
+          expect(migrated.model).toBe("toml/model")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+      if (previousRuntime === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
+      else process.env.PAWWORK_RUNTIME_NAMESPACE = previousRuntime
+    }
+  })
+
   test("OpenCode MCP local resolver ignores PawWork project config aliases", async () => {
     await using project = await tmpdir({ git: true })
     const previousRuntime = process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -631,7 +698,7 @@ describe("PawWork global config isolation", () => {
         path.join(platformLegacy.path, "pawwork.json"),
         JSON.stringify(
           {
-            instructions: ["{env:RULES}/a.md", "./rules/AGENTS.md"],
+            instructions: ["{env:RULES}/a.md", "./rules/AGENTS.md", "rules/{env:NAME}.md"],
             provider: {
               demo: {
                 options: {
@@ -654,7 +721,11 @@ describe("PawWork global config isolation", () => {
           await saveGlobal({ model: "updated/model" })
           const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
 
-          expect(saved.instructions).toEqual(["{env:RULES}/a.md", path.join(platformLegacy.path, "rules", "AGENTS.md")])
+          expect(saved.instructions).toEqual([
+            "{env:RULES}/a.md",
+            path.join(platformLegacy.path, "rules", "AGENTS.md"),
+            path.join(platformLegacy.path, "rules", "{env:NAME}.md"),
+          ])
           expect(saved.provider.demo.options.instructions).toEqual(["./provider-owned.md"])
           expect(saved.provider.demo.options.plugin).toEqual(["./provider-plugin.ts"])
           expect(saved.provider.demo.options.token).toBe(`{file:${path.join(platformLegacy.path, "secrets", "provider-token")}}`)

@@ -207,6 +207,56 @@ describe("Export.session", () => {
     }
   })
 
+  test("keeps global config instruction provenance when session directory is gone", async () => {
+    await using sessionProject = await tmpdir({ git: true })
+    await using currentProject = await tmpdir({ git: true })
+    await using global = await tmpdir()
+    const previousConfig = Global.Path.config
+    ;(Global.Path as { config: string }).config = global.path
+    const globalRules = path.join(global.path, "global-rules.md")
+    await fs.writeFile(globalRules, "global config instructions")
+    await fs.writeFile(
+      path.join(global.path, "opencode.json"),
+      JSON.stringify({
+        instructions: ["global-rules.md", "https://example.invalid/global-rules.md"],
+      }),
+    )
+    await fs.writeFile(
+      path.join(currentProject.path, "opencode.json"),
+      JSON.stringify({
+        instructions: ["https://example.invalid/current-project.md"],
+      }),
+    )
+
+    let sessionID: SessionID | undefined
+    await Instance.provide({
+      directory: sessionProject.path,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "missing global config provenance" })
+        sessionID = root.id
+      },
+    })
+
+    try {
+      await Config.invalidate(true)
+      await fs.rm(sessionProject.path, { recursive: true, force: true })
+      await Instance.provide({
+        directory: currentProject.path,
+        fn: async () => {
+          const result = await AppRuntime.runPromise(Export.session(sessionID!))
+          const sources = result.runtime_context.instruction_sources
+          expect(sources.map((source) => source.path)).toContain(globalRules)
+          expect(sources.map((source) => source.url)).toContain("https://example.invalid/global-rules.md")
+          expect(sources.map((source) => source.url)).not.toContain("https://example.invalid/current-project.md")
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+      await Config.invalidate(true)
+      if (sessionID) await SessionNs.remove(sessionID)
+    }
+  })
+
   test("exports only the loaded PawWork global AGENTS.md source", async () => {
     await using primary = await tmpdir()
     await using legacy = await tmpdir()

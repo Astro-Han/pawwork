@@ -15,7 +15,7 @@ import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
 import { migrateDefaultAgent, stripDefaultAgent } from "./migrate-default-agent"
 import { Instance, type InstanceContext } from "../project/instance"
-import { constants, existsSync } from "fs"
+import { constants, existsSync, statSync } from "fs"
 import { GlobalBus } from "@/bus/global"
 import { Event } from "../server/event"
 import { Account } from "@/account"
@@ -373,15 +373,25 @@ function globalConfigFile() {
   }
   const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
   for (const file of [...candidates].reverse()) {
-    if (existsSync(file)) return file
+    if (isRegularFileSync(file)) return file
   }
   return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
+}
+
+function isRegularFileSync(file: string) {
+  try {
+    return statSync(file).isFile()
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") return false
+    throw error
+  }
 }
 
 function legacyTomlMigrationTarget() {
   const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
   for (const file of [...candidates].reverse()) {
-    if (existsSync(file)) return file
+    if (isRegularFileSync(file)) return file
   }
   return path.join(Global.Path.config, Runtime.isPawWork() ? "pawwork.json" : "opencode.json")
 }
@@ -437,7 +447,7 @@ export async function writeConfigTextAtomic(file: string, text: string, options?
 function globalConfigFilesToLoad() {
   if (!Runtime.isPawWork()) {
     const candidates = globalConfigFiles().map((file) => path.join(Global.Path.config, file))
-    return candidates.filter((file) => existsSync(file))
+    return candidates.filter(isRegularFileSync)
   }
 
   return PawWorkHome.configFilesToLoad()
@@ -488,6 +498,21 @@ function patchJsonc(input: string, patch: unknown, path: string[] = []): string 
   }, input)
 }
 
+function missingConfigPatch(lowPriority: unknown, highPriority: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(lowPriority)) return
+  const out: Record<string, unknown> = {}
+  const high = isRecord(highPriority) ? highPriority : {}
+  for (const [key, lowValue] of Object.entries(lowPriority)) {
+    if (!(key in high)) {
+      out[key] = lowValue
+      continue
+    }
+    const nested = missingConfigPatch(lowValue, high[key])
+    if (nested && Object.keys(nested).length > 0) out[key] = nested
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function writable(info: Info) {
   const { default_agent: _defaultAgent, plugin_origins: _plugin_origins, ...next } = info
   return next
@@ -514,7 +539,7 @@ function hasConfigPlaceholder(value: string) {
 
 function resolveSeedInstructionPath(value: string, sourceFile: string) {
   const rewritten = rewriteFilePlaceholders(value, sourceFile)
-  if (hasConfigPlaceholder(rewritten)) return rewritten
+  if (hasConfigPlaceholder(rewritten) && rewritten.trimStart().startsWith("{")) return rewritten
   return resolveSeedPath(rewritten, sourceFile)
 }
 
@@ -586,13 +611,24 @@ function seedConfigTextFromSources(sources: { path: string; text: string }[]) {
   return JSON.stringify(merged, null, 2)
 }
 
-async function writeLegacyTomlMigration(target: string, legacyConfig: Info) {
+async function writeLegacyTomlMigration(target: string, legacyConfig: Info, options?: { mergeExisting?: boolean }) {
   await withConfigFileLock(target, async () => {
     const existingText = await fsNode.readFile(target, "utf8").catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
     })
-    if (existingText !== undefined) return
+    if (existingText !== undefined) {
+      if (!options?.mergeExisting) return
+      const existing = ConfigParse.jsonc(existingText, target)
+      if (!isRecord(existing)) return
+      const patch = missingConfigPatch(legacyConfig, existing)
+      if (!patch) return
+      const updated = target.endsWith(".jsonc")
+        ? patchJsonc(existingText, patch)
+        : JSON.stringify(mergeDeep(legacyConfig, existing), null, 2)
+      await writeConfigTextAtomic(target, updated)
+      return
+    }
     await writeConfigTextAtomic(target, JSON.stringify(legacyConfig, null, 2))
   })
 }
@@ -686,12 +722,16 @@ const rawLayer = Layer.effect(
               if (provider && model) migrated.model = `${provider}/${model}`
               const legacyConfig = mergeDeep(migrated, rest)
               if (!Runtime.isPawWork() || globalFiles.length === 0) {
-                result = mergeDeep(result, legacyConfig)
+                result = mergeDeep(legacyConfig, result)
               }
-              await writeLegacyTomlMigration(legacyTomlMigrationTarget(), legacyConfig)
+              await writeLegacyTomlMigration(legacyTomlMigrationTarget(), legacyConfig, {
+                mergeExisting: !Runtime.isPawWork(),
+              })
               await fsNode.unlink(legacy)
             })
-            .catch(() => {}),
+            .catch((error) => {
+              log.warn("legacy TOML config migration failed", { path: legacy, error: String(error) })
+            }),
         )
       }
 
