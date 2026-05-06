@@ -139,8 +139,10 @@
   /* ────────── Hover overlays · STANDARDS L22 ────────── */
   /* White/raised surface: 4% black overlay */
   --hover-overlay:      rgba(0, 0, 0, 0.04);
-  /* Warm cream surface (sidebar, bg-cream): 6% for perceptual parity */
-  --hover-overlay-warm: rgba(0, 0, 0, 0.06);
+  /* Warm cream surface (sidebar, bg-cream): 8% for perceptual parity — used as
+   * cross-product hover token on lists, dropdowns, sidebar rows, composer
+   * pickers. Alpha overlay so it works on both white and cream surfaces. */
+  --hover-overlay-warm: rgba(0, 0, 0, 0.08);
 
   color-scheme: light;
 
@@ -293,6 +295,11 @@
   --surface-interactive-hover: #362619;
   --surface-base-active: rgba(255, 255, 255, 0.059);
 
+  /* Hover overlays · dark mirrors of L141-143 (white alpha so they show on
+   * warm-coffee dark surfaces; raising alpha by 1pp for perceptual parity). */
+  --hover-overlay:      rgba(255, 255, 255, 0.05);
+  --hover-overlay-warm: rgba(255, 255, 255, 0.09);
+
   /* Shadow · L18: dark elevation via L10 surfaces; drop shadows forbidden */
   --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
   --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
@@ -421,6 +428,9 @@
     --surface-interactive-base:  #2b1f19;
     --surface-interactive-hover: #362619;
     --surface-base-active: rgba(255, 255, 255, 0.059);
+
+    --hover-overlay:      rgba(255, 255, 255, 0.05);
+    --hover-overlay-warm: rgba(255, 255, 255, 0.09);
 
     --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
     --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
