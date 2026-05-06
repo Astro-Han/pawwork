@@ -2877,6 +2877,7 @@ test("plugin provider model hook runs for provider added by plugin config hook",
 })
 
 test("Codex OAuth provider hook filters OpenAI models added by config", async () => {
+  await Auth.remove(ProviderID.openai)
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -2902,31 +2903,35 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
     },
   })
 
-  await Instance.provide({
-    directory: tmp.path,
-    init: async () => {
-      await Auth.set(
-        ProviderID.openai,
-        {
-          type: "oauth",
-          access: "access",
-          refresh: "refresh",
-          expires: Date.now() + 60_000,
-        } as never,
-      )
-    },
-    fn: async () => {
-      const providers = await list()
-      const models = providers[ProviderID.openai].models
-      expect(models[ModelID.make("gpt-4o-local-alias")]).toBeUndefined()
-      expect(models[ModelID.make("gpt-5.3-codex-spark-alias")]).toBeDefined()
-      expect(models[ModelID.make("gpt-5.3-codex-spark-alias")].cost).toEqual({
-        input: 0,
-        output: 0,
-        cache: { read: 0, write: 0 },
-      })
-    },
-  })
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        await Auth.set(
+          ProviderID.openai,
+          {
+            type: "oauth",
+            access: "access",
+            refresh: "refresh",
+            expires: Date.now() + 60_000,
+          } as never,
+        )
+      },
+      fn: async () => {
+        const providers = await list()
+        const models = providers[ProviderID.openai].models
+        expect(models[ModelID.make("gpt-4o-local-alias")]).toBeUndefined()
+        expect(models[ModelID.make("gpt-5.3-codex-spark-alias")]).toBeDefined()
+        expect(models[ModelID.make("gpt-5.3-codex-spark-alias")].cost).toEqual({
+          input: 0,
+          output: 0,
+          cache: { read: 0, write: 0 },
+        })
+      },
+    })
+  } finally {
+    await Auth.remove(ProviderID.openai)
+  }
 })
 
 test("plugin config enabled and disabled providers are honored", async () => {
