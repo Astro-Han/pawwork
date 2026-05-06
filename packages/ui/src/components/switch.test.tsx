@@ -57,17 +57,21 @@ test("switch-control uses border-radius 9999px (pill track)", () => {
   expect(css).toContain("border-radius: 9999px")
 })
 
-// ── CSS: thumb size 12x12 ────────────────────────────────────────────────────
+// ── CSS: thumb size 14x14 (per ui_kits desktop mock) ─────────────────────────
 
-test("switch-thumb is 12px wide", () => {
-  // CSS should declare 12px width for the thumb
+test("switch-thumb is 14px wide", () => {
   const thumbSection = css.slice(css.indexOf('switch-thumb"'))
-  expect(thumbSection).toMatch(/width:\s*12px/)
+  expect(thumbSection).toMatch(/width:\s*14px/)
 })
 
-test("switch-thumb is 12px tall", () => {
+test("switch-thumb is 14px tall", () => {
   const thumbSection = css.slice(css.indexOf('switch-thumb"'))
-  expect(thumbSection).toMatch(/height:\s*12px/)
+  expect(thumbSection).toMatch(/height:\s*14px/)
+})
+
+test("switch-thumb has a drop shadow (raised pill)", () => {
+  const thumbSection = css.slice(css.indexOf('switch-thumb"'))
+  expect(thumbSection).toMatch(/box-shadow:[^;]+rgba\(0,\s*0,\s*0,\s*0\.18\)/)
 })
 
 // ── CSS: checked state uses brand-primary ────────────────────────────────────
@@ -84,8 +88,8 @@ test("CSS uses duration tokens not raw 150ms literals in transitions", () => {
   expect(literalMatches.length).toBe(0)
 })
 
-// ── CSS: translate distance for 28px track, 12px thumb, 1px padding ───────────
+// ── CSS: translate distance for 32px track, 14px thumb, 2px padding ──────────
 
-test("checked thumb translate is 12px (border 1px + padding 1px = 2px each side, content 24px, travel 12px)", () => {
-  expect(css).toContain("translateX(12px)")
+test("checked thumb translate is 14px (32px track - 2*2px padding - 14px thumb = 14px travel)", () => {
+  expect(css).toContain("translateX(14px)")
 })
