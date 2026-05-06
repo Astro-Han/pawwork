@@ -54,7 +54,7 @@ export namespace CopilotModels {
 
     const isMsgApi = remote.supported_endpoints?.includes("/v1/messages")
 
-    return {
+    const model: Model = {
       id: key,
       providerID: "github-copilot",
       api: {
@@ -103,8 +103,50 @@ export namespace CopilotModels {
       release_date:
         prev?.release_date ??
         (remote.version.startsWith(`${remote.id}-`) ? remote.version.slice(remote.id.length + 1) : remote.version),
-      variants: prev?.variants ?? {},
     }
+
+    const efforts = remote.capabilities.supports.reasoning_effort
+    const variants: NonNullable<Model["variants"]> = {}
+    if (!isMsgApi && efforts?.length) {
+      efforts.forEach((effort) => {
+        variants[effort] = {
+          reasoningEffort: effort,
+          reasoningSummary: "auto",
+          include: ["reasoning.encrypted_content"],
+        }
+      })
+    } else {
+      if (efforts?.length && remote.capabilities.supports.adaptive_thinking) {
+        efforts.forEach((effort) => {
+          variants[effort] = {
+            thinking: {
+              type: "adaptive",
+              ...(model.api.id.includes("opus-4.7") ? { display: "summarized" } : {}),
+            },
+            effort,
+          }
+        })
+      } else if (remote.capabilities.supports.max_thinking_budget) {
+        const max = remote.capabilities.supports.max_thinking_budget
+        variants.max = {
+          thinking: {
+            type: "enabled",
+            budgetTokens: max - 1,
+          },
+        }
+        variants.high = {
+          thinking: {
+            type: "enabled",
+            budgetTokens: Math.floor(max / 2),
+          },
+        }
+      }
+    }
+    if (Object.keys(variants).length > 0) {
+      model.variants = variants
+    }
+
+    return model
   }
 
   export async function get(

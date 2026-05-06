@@ -128,6 +128,7 @@ describe("plugin.codex", () => {
   describe("shouldKeepCodexOAuthModel", () => {
     test("keeps explicit OAuth models and codex model ids", () => {
       expect(shouldKeepCodexOAuthModel("gpt-5.4", "gpt-5.4")).toBe(true)
+      expect(shouldKeepCodexOAuthModel("gpt-5.3-codex-spark", "gpt-5.3-codex-spark")).toBe(true)
       expect(shouldKeepCodexOAuthModel("some-codex-model", "custom-model")).toBe(true)
     })
 
@@ -160,7 +161,7 @@ describe("plugin.codex", () => {
   })
 
   describe("CodexAuthPlugin", () => {
-    test("overrides GPT-5.5 limits for OAuth Codex plans", async () => {
+    test("filters and normalizes OAuth Codex models through provider model hook", async () => {
       const provider = {
         models: {
           "gpt-5.5": {
@@ -174,6 +175,32 @@ describe("plugin.codex", () => {
             limit: {
               context: 1_050_000,
               input: 922_000,
+              output: 128_000,
+            },
+          },
+          "gpt-5.3-codex-spark": {
+            id: "gpt-5.3-codex-spark",
+            api: { id: "gpt-5.3-codex-spark" },
+            cost: {
+              input: 2,
+              output: 8,
+              cache: { read: 1, write: 2 },
+            },
+            limit: {
+              context: 1_000_000,
+              output: 128_000,
+            },
+          },
+          "gpt-5.3": {
+            id: "gpt-5.3",
+            api: { id: "gpt-5.3" },
+            cost: {
+              input: 2,
+              output: 8,
+              cache: { read: 1, write: 2 },
+            },
+            limit: {
+              context: 1_000_000,
               output: 128_000,
             },
           },
@@ -196,23 +223,23 @@ describe("plugin.codex", () => {
         },
       } as never)
 
-      await hooks.auth!.loader!(
-        async () =>
-          ({
-            type: "oauth",
-            access: "access",
-            refresh: "refresh",
-            expires: Date.now() + 60_000,
-          }) as never,
-        provider as never,
-      )
+      const models = await hooks.provider!.models!(provider as never, {
+        auth: {
+          type: "oauth",
+          access: "access",
+          refresh: "refresh",
+          expires: Date.now() + 60_000,
+        } as never,
+      })
 
-      expect(provider.models["gpt-5.5"].limit).toEqual({
+      expect(models["gpt-5.3"]).toBeUndefined()
+      expect(models["gpt-5.3-codex-spark"]).toBeDefined()
+      expect(models["gpt-5.5"].limit).toEqual({
         context: 400_000,
         input: 272_000,
         output: 128_000,
       })
-      expect(provider.models["gpt-5.5"].cost).toEqual({
+      expect(models["gpt-5.5"].cost).toEqual({
         input: 0,
         output: 0,
         cache: { read: 0, write: 0 },

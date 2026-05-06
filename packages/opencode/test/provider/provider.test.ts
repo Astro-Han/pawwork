@@ -334,6 +334,70 @@ test("custom provider with npm package", async () => {
   })
 })
 
+test("custom DeepSeek openai-compatible model defaults interleaved reasoning field", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "custom-provider": {
+              name: "Custom Provider",
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://api.custom.com/v1",
+              models: {
+                "DeepSeek-R1": {
+                  name: "DeepSeek R1",
+                },
+                "deepseek-details": {
+                  name: "DeepSeek Details",
+                  interleaved: { field: "reasoning_details" },
+                },
+                "custom-model": {
+                  name: "Custom Model",
+                },
+              },
+              options: {
+                apiKey: "custom-key",
+              },
+            },
+            "custom-anthropic-provider": {
+              name: "Custom Anthropic Provider",
+              npm: "@ai-sdk/anthropic",
+              api: "https://api.custom.com/v1",
+              models: {
+                "deepseek-r1": {
+                  name: "DeepSeek R1",
+                },
+              },
+              options: {
+                apiKey: "custom-key",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      expect(providers[ProviderID.make("custom-provider")].models["DeepSeek-R1"].capabilities.interleaved).toEqual({
+        field: "reasoning_content",
+      })
+      expect(providers[ProviderID.make("custom-provider")].models["deepseek-details"].capabilities.interleaved).toEqual(
+        { field: "reasoning_details" },
+      )
+      expect(providers[ProviderID.make("custom-provider")].models["custom-model"].capabilities.interleaved).toBe(false)
+      expect(
+        providers[ProviderID.make("custom-anthropic-provider")].models["deepseek-r1"].capabilities.interleaved,
+      ).toBe(false)
+    },
+  })
+})
+
 test("env variable takes precedence, config merges options", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -2688,6 +2752,69 @@ test("plugin config providers persist after instance dispose", async () => {
   })
   expect(second[ProviderID.make("demo")]).toBeDefined()
   expect(second[ProviderID.make("demo")].models[ModelID.make("chat")]).toBeDefined()
+})
+
+test("user config model overrides plugin provider model hook output", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "anthropic-model-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.anthropic-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      async models(provider) {",
+          "        return {",
+          "          ...provider.models,",
+          "          'my-alias': {",
+          "            ...provider.models['claude-sonnet-4-5'],",
+          "            id: 'my-alias',",
+          "            name: 'Plugin Alias',",
+          "            api: { ...provider.models['claude-sonnet-4-5'].api, id: 'plugin-model' },",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            anthropic: {
+              models: {
+                "my-alias": {
+                  id: "claude-sonnet-4-5",
+                  name: "Config Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-anthropic-key")
+    },
+    fn: async () => {
+      const providers = await list()
+      const alias = providers[ProviderID.anthropic].models[ModelID.make("my-alias")]
+      expect(alias.name).toBe("Config Alias")
+      expect(alias.api.id).toBe("claude-sonnet-4-5")
+    },
+  })
 })
 
 test("plugin config enabled and disabled providers are honored", async () => {
