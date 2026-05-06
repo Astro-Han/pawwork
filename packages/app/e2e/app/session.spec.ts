@@ -101,6 +101,10 @@ test("session timeline visible content is not narrower than composer shell", asy
 
   await assertWidthContract()
 
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(page.locator("#right-panel")).toHaveAttribute("aria-hidden", "true")
+  await assertWidthContract({ maxComposerColumn: 720 })
+
   await page.setViewportSize({ width: 893, height: 776 })
   await assertWidthContract({ maxComposerColumn: 720 })
 
