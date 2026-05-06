@@ -147,7 +147,7 @@ function groupBlockersBySession(input: SessionBlockerEntry[]) {
     if (!item?.requestID || !item.sessionID) return acc
     const list = acc[item.sessionID]
     if (list) list.push(item)
-    if (!list) acc[item.sessionID] = [item]
+    else acc[item.sessionID] = [item]
     return acc
   }, {})
 }
@@ -411,7 +411,7 @@ export async function bootstrapDirectory(input: {
         retry(() =>
           input.sdk.blocker.list().then((x) => {
             const ids = (x.data ?? []).map((blocker) => blocker?.sessionID).filter((id): id is string => !!id)
-            const grouped = groupBlockersBySession((x.data ?? []).filter((b) => !!b?.requestID && !!b.sessionID))
+            const grouped = groupBlockersBySession(x.data ?? [])
             return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then(() =>
               batch(() => {
                 for (const sessionID of Object.keys(input.store.blocker)) {
@@ -422,10 +422,7 @@ export async function bootstrapDirectory(input: {
                   input.setStore(
                     "blocker",
                     sessionID,
-                    reconcile(
-                      blockers.filter((b) => !!b?.requestID).sort((a, b) => cmp(a.requestID, b.requestID)),
-                      { key: "requestID" },
-                    ),
+                    reconcile(blockers.sort((a, b) => cmp(a.requestID, b.requestID)), { key: "requestID" }),
                   )
                 }
               }),

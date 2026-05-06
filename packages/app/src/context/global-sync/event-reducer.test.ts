@@ -588,6 +588,56 @@ describe("applyDirectoryEvent", () => {
     expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_1", "q_3"])
   })
 
+  test("question terminal events clear matching stale question blockers", () => {
+    const sessionID = "ses_1"
+    const [store, setStore] = createStore(
+      baseState({
+        blocker: {
+          [sessionID]: [
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID,
+              requestID: "q_1",
+              request: questionRequest("q_1", sessionID),
+              armedAt: 1,
+              updatedAt: 1,
+            },
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID,
+              requestID: "q_2",
+              request: questionRequest("q_2", sessionID),
+              armedAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: { type: "question.replied", properties: { sessionID, requestID: "q_1" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_2"])
+
+    applyDirectoryEvent({
+      event: { type: "question.rejected", properties: { sessionID, requestID: "q_2", reason: "dismissed" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.blocker[sessionID]).toEqual([])
+  })
+
   test("permission.replied before permission.asked prevents stale ask from reopening", () => {
     const blockerTerminals = createBlockerTerminalCache({ now: () => 1000 })
     const [store, setStore] = createStore(baseState())

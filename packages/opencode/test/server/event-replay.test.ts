@@ -38,6 +38,8 @@ describe("isReplayableGlobalEvent", () => {
     expect(isReplayableGlobalEvent(event("question.asked"))).toBe(true)
     expect(isReplayableGlobalEvent(event("question.replied"))).toBe(true)
     expect(isReplayableGlobalEvent(event("question.rejected"))).toBe(true)
+    expect(isReplayableGlobalEvent(event("session.blocker.upserted"))).toBe(true)
+    expect(isReplayableGlobalEvent(event("session.blocker.removed"))).toBe(true)
     expect(isReplayableGlobalEvent(event("permission.asked"))).toBe(true)
     expect(isReplayableGlobalEvent(event("permission.replied"))).toBe(true)
     expect(isReplayableGlobalEvent(event("session.created"))).toBe(true)
@@ -122,6 +124,22 @@ describe("EventReplayStore", () => {
     expect(opened.invalidCursor).toBe(false)
     expect(opened.gap).toBe(false)
     expect(opened.replay.map((record) => record.id)).toEqual(["boot:2", "boot:3"])
+  })
+
+  test("replays blocker upsert and remove events after cursor", () => {
+    const store = new EventReplayStore({ bootID: "boot", now: () => 1000 })
+    store.append(event("session.created"))
+    store.append(event("session.blocker.upserted"))
+    store.append(event("session.blocker.removed"))
+
+    const opened = store.snapshot("boot:1")
+
+    expect(opened.invalidCursor).toBe(false)
+    expect(opened.gap).toBe(false)
+    expect(opened.replay.map((record) => record.envelope.payload.type)).toEqual([
+      "session.blocker.upserted",
+      "session.blocker.removed",
+    ])
   })
 
   test("returns no replay for invalid boot id", () => {

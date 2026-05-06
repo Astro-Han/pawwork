@@ -342,6 +342,19 @@ export function applyDirectoryEvent(input: {
     case "question.rejected": {
       const props = event.properties as { sessionID: string; requestID: string }
       input.blockerTerminals?.mark("question", input.directory, props.sessionID, props.requestID)
+      const blockers = input.store.blocker[props.sessionID]
+      if (blockers) {
+        const blocker = Binary.search(blockers, props.requestID, (b) => b.requestID)
+        if (blocker.found) {
+          input.setStore(
+            "blocker",
+            props.sessionID,
+            produce((draft) => {
+              draft.splice(blocker.index, 1)
+            }),
+          )
+        }
+      }
       const questions = input.store.question[props.sessionID]
       if (!questions) break
       const result = Binary.search(questions, props.requestID, (q) => q.id)
