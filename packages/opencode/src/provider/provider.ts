@@ -1145,32 +1145,39 @@ const layer: Layer.Layer<
           return true
         }
 
-        for (const hook of plugins) {
-          const p = hook.provider
-          const models = p?.models
-          if (!p || !models) continue
+        const appliedProviderModelHooks = new Set<ProviderID>()
+        const applyProviderModelHooks = Effect.fn("Provider.applyProviderModelHooks")(function* () {
+          for (const hook of plugins) {
+            const p = hook.provider
+            const models = p?.models
+            if (!p || !models) continue
 
-          const providerID = ProviderID.make(p.id)
-          if (!isProviderAllowed(providerID)) continue
+            const providerID = ProviderID.make(p.id)
+            if (appliedProviderModelHooks.has(providerID)) continue
+            if (!isProviderAllowed(providerID)) continue
 
-          const provider = database[providerID]
-          if (!provider) continue
-          const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
+            const provider = database[providerID]
+            if (!provider) continue
+            const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
 
-          provider.models = yield* Effect.promise(async () => {
-            const next = await models(provider, { auth: pluginAuth })
-            return Object.fromEntries(
-              Object.entries(next).map(([id, model]) => [
-                id,
-                {
-                  ...model,
-                  id: ModelID.make(id),
-                  providerID,
-                },
-              ]),
-            )
-          })
-        }
+            provider.models = yield* Effect.promise(async () => {
+              const next = await models(provider, { auth: pluginAuth })
+              return Object.fromEntries(
+                Object.entries(next).map(([id, model]) => [
+                  id,
+                  {
+                    ...model,
+                    id: ModelID.make(id),
+                    providerID,
+                  },
+                ]),
+              )
+            })
+            appliedProviderModelHooks.add(providerID)
+          }
+        })
+
+        yield* applyProviderModelHooks()
 
         // extend database from config
         for (const [providerID, provider] of configProviders) {
@@ -1272,6 +1279,8 @@ const layer: Layer.Layer<
           }
           database[providerID] = parsed
         }
+
+        yield* applyProviderModelHooks()
 
         // load env
         const envs = yield* env.all()

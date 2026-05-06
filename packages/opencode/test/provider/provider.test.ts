@@ -2817,6 +2817,64 @@ test("user config model overrides plugin provider model hook output", async () =
   })
 })
 
+test("plugin provider model hook runs for provider added by plugin config hook", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "config-added-provider-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.config-added-provider-hook",',
+          "  server: async () => ({",
+          "    async config(cfg) {",
+          "      cfg.provider ??= {}",
+          "      cfg.provider.demo = {",
+          '        name: "Demo Provider",',
+          '        npm: "@ai-sdk/openai-compatible",',
+          '        api: "https://example.com/v1",',
+          "        options: { apiKey: 'demo-key' },",
+          "        models: {",
+          "          chat: {",
+          '            name: "Raw Chat",',
+          "            tool_call: true,",
+          "            limit: { context: 128000, output: 4096 },",
+          "          },",
+          "        },",
+          "      }",
+          "    },",
+          "    provider: {",
+          '      id: "demo",',
+          "      async models(provider) {",
+          "        return {",
+          "          chat: {",
+          "            ...provider.models.chat,",
+          '            name: "Hooked Chat",',
+          "            cost: { input: 1, output: 2, cache: { read: 3, write: 4 } },",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      const model = providers[ProviderID.make("demo")].models[ModelID.make("chat")]
+      expect(model.name).toBe("Hooked Chat")
+      expect(model.cost).toEqual({ input: 1, output: 2, cache: { read: 3, write: 4 } })
+    },
+  })
+})
+
 test("plugin config enabled and disabled providers are honored", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
