@@ -28,10 +28,8 @@ export function Dialog(props: DialogProps) {
         <Kobalte.Content
           data-slot="dialog-content"
           data-no-header={!props.title && !props.action ? "" : undefined}
-          classList={{
-            ...props.classList,
-            [props.class ?? ""]: !!props.class,
-          }}
+          class={props.class}
+          classList={props.classList}
           onOpenAutoFocus={(e) => {
             const target = e.currentTarget as HTMLElement | null
             const autofocusEl = target?.querySelector("[autofocus]") as HTMLElement | null
