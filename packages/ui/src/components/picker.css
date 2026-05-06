@@ -89,6 +89,14 @@
   background: transparent;
 }
 
-[data-picker-item]:where(:focus, :focus-visible) {
+[data-picker-item]:where(:focus) {
   outline: none;
+}
+
+/* Restore a visible focus ring for keyboard navigation when the row isn't
+ * already painted by hover / highlighted / active. Pointer focus (:focus only)
+ * keeps the suppression above. */
+[data-picker-item]:where(:focus-visible:not([data-highlighted], [data-active="true"])) {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -2px;
 }
