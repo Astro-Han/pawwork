@@ -8,13 +8,13 @@ import { cleanupSession, openSidebar } from "../actions"
 import { test, expect } from "../fixtures"
 import { pawworkSidebarSelector } from "../selectors"
 
-test("sidebar rename uses Dialog and saves on Enter @smoke", async ({ page, sdk }) => {
+test("sidebar rename uses Dialog and saves on Enter @smoke", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
   const session = await sdk.session.create({ title: `Rename dialog test ${stamp}` }).then((r) => r.data)
   if (!session?.id) throw new Error("Session create did not return an id")
 
   try {
-    await page.goto(`/`)
+    await gotoSession(session.id)
     await openSidebar(page)
 
     const sidebar = page.locator(pawworkSidebarSelector).first()
