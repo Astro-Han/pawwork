@@ -14,6 +14,7 @@
   --color-sidebar: var(--sidebar);
   --color-surface-interactive-base: var(--surface-interactive-base);
   --color-surface-interactive-hover: var(--surface-interactive-hover);
+  --color-surface-list-hover: var(--surface-list-hover);
   --color-surface-base-active: var(--surface-base-active);
   --color-fg-strong: var(--fg-strong);
   --color-fg-base: var(--fg-base);

@@ -9,6 +9,7 @@
 --sidebar: #faf9f7;
 --surface-interactive-base: #fdf6f0;
 --surface-interactive-hover: #fbece0;
+--surface-list-hover: #f4f0ec;
 --surface-base-active: rgba(0, 0, 0, 0.051);
 --fg-strong: #1a1613;
 --fg-base: #4a4138;

@@ -137,12 +137,20 @@
   --duration-slow: 240ms;
 
   /* ────────── Hover overlays · STANDARDS L22 ────────── */
-  /* White/raised surface: 4% black overlay */
+  /* White/raised surface: 4% black overlay (button / iconbtn) */
   --hover-overlay:      rgba(0, 0, 0, 0.04);
-  /* Warm cream surface (sidebar, bg-cream): 8% for perceptual parity — used as
-   * cross-product hover token on lists, dropdowns, sidebar rows, composer
-   * pickers. Alpha overlay so it works on both white and cream surfaces. */
-  --hover-overlay-warm: rgba(0, 0, 0, 0.08);
+  /* Warm cream surface (cream-bottom iconbtn): 6% for perceptual parity */
+  --hover-overlay-warm: rgba(0, 0, 0, 0.06);
+
+  /* List/menu/row hover · cross-product token for selectable surfaces.
+   * Direction is "row stands out from container":
+   *   light → surface depressed one tier toward neutral cream (#f4f0ec)
+   *   dark  → surface raised one tier toward warm coffee (#2a2622)
+   * Pairs with selected `--surface-interactive-base` (warm orange-cream) for
+   * a two-tone hierarchy: hover is neutral cream, selected is warm cream;
+   * the hue difference makes the two states visually independent without
+   * extra weight or icon decoration. */
+  --surface-list-hover: #f4f0ec;
 
   color-scheme: light;
 
@@ -296,9 +304,13 @@
   --surface-base-active: rgba(255, 255, 255, 0.059);
 
   /* Hover overlays · dark mirrors of L141-143 (white alpha so they show on
-   * warm-coffee dark surfaces; raising alpha by 1pp for perceptual parity). */
+   * warm-coffee dark surfaces). */
   --hover-overlay:      rgba(255, 255, 255, 0.05);
-  --hover-overlay-warm: rgba(255, 255, 255, 0.09);
+  --hover-overlay-warm: rgba(255, 255, 255, 0.07);
+
+  /* Dark list-hover: lift one warm-coffee tier above bg-cream (#211d19)
+   * so hovered rows visibly brighten instead of darken. */
+  --surface-list-hover: #2a2622;
 
   /* Shadow · L18: dark elevation via L10 surfaces; drop shadows forbidden */
   --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
@@ -430,7 +442,9 @@
     --surface-base-active: rgba(255, 255, 255, 0.059);
 
     --hover-overlay:      rgba(255, 255, 255, 0.05);
-    --hover-overlay-warm: rgba(255, 255, 255, 0.09);
+    --hover-overlay-warm: rgba(255, 255, 255, 0.07);
+
+    --surface-list-hover: #2a2622;
 
     --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
     --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
