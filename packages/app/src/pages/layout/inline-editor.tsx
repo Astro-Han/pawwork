@@ -87,8 +87,6 @@ export function createInlineEditorController() {
         <TextField
           variant="inline"
           selectOnFocus
-          hideLabel
-          label=""
           ref={(el: HTMLInputElement) => {
             if (frame !== undefined) cancelAnimationFrame(frame)
             frame = requestAnimationFrame(() => {

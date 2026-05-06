@@ -32,8 +32,7 @@ export function DialogRenameSession(props: {
     <Dialog title={language.t("session.rename.title")} fit class="w-full max-w-[420px] mx-auto">
       <div class="px-6 pt-2 pb-6">
         <TextField
-          label=""
-          hideLabel
+          aria-label={language.t("session.rename.title")}
           autofocus
           value={value()}
           onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) =>
