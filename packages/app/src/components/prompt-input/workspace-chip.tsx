@@ -47,7 +47,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "h-[28px] px-1.5 inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-colors hover:bg-surface-sunken",
+            "h-[28px] px-1.5 inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-colors hover:bg-bg-cream",
           style: props.style,
         } as any
       }
@@ -79,7 +79,12 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                   type="button"
                   role="menuitemradio"
                   aria-checked={active()}
-                  class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none hover:bg-surface-sunken focus-visible:bg-surface-sunken"
+                  classList={{
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none transition-colors hover:bg-bg-cream focus-visible:bg-bg-cream":
+                      true,
+                    "bg-surface-interactive-base font-medium hover:bg-surface-interactive-base focus-visible:bg-surface-interactive-base":
+                      active(),
+                  }}
                   onClick={() => {
                     navigate(`/${base64Encode(workspace.path)}/session`)
                     setOpen(false)
@@ -102,7 +107,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
             type="button"
             role="menuitem"
             data-action="workspace-chip-add"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-surface-sunken focus-visible:bg-surface-sunken"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-bg-cream focus-visible:bg-bg-cream"
             onClick={() => {
               setOpen(false)
               layoutPage.openProject()
