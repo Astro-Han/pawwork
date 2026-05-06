@@ -251,6 +251,18 @@ async function expectQuestionOptionVisible(page: Page, optionIndex: number) {
     .toMatchObject({ focused: true, topVisible: true, bottomVisible: true })
 }
 
+async function expectQuestionOptionsOverflow(page: Page) {
+  await expect
+    .poll(async () => {
+      return page.evaluate(() => {
+        const list = document.querySelector('[data-slot="question-options"]')
+        if (!(list instanceof HTMLElement)) return false
+        return list.scrollHeight > list.clientHeight
+      })
+    })
+    .toBe(true)
+}
+
 async function todoDock(page: any, sessionID: string) {
   await page.addInitScript(() => {
     const win = window as ComposerWindow
@@ -1570,6 +1582,7 @@ test("overflow question dock keeps keyboard focus visible without moving timelin
         await e2eAskQuestion(project, { sessionID: session.id, questions: overflowQuestions })
         await waitForQuestionSeed(project, session.id)
         await expectQuestionBlocked(page)
+        await expectQuestionOptionsOverflow(page)
 
         await page.keyboard.press("End")
         await expectQuestionOptionVisible(page, overflowQuestions[0].options.length - 1)
