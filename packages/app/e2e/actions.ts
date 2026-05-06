@@ -180,7 +180,12 @@ export async function openPalette(page: Page, key = "K") {
 
   const dialog = page.getByRole("dialog")
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole("textbox").first()).toBeVisible()
+  const textbox = dialog.getByRole("textbox").first()
+  await expect(textbox).toBeVisible()
+  // Slice 07 migrated palette from Dialog to CommandPalette; pin the
+  // open-and-type contract so a future regression of onOpenAutoFocus
+  // surfaces here, not at user report time.
+  await expect(textbox).toBeFocused()
   return dialog
 }
 

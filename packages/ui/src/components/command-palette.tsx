@@ -14,7 +14,18 @@ export function CommandPalette(props: CommandPaletteProps) {
       data-transition={props.transition ? true : undefined}
     >
       <div data-slot="palette-container">
-        <Kobalte.Content data-slot="palette-content" aria-label={props.label}>
+        <Kobalte.Content
+          data-slot="palette-content"
+          aria-label={props.label}
+          onOpenAutoFocus={(e) => {
+            const target = e.currentTarget as HTMLElement | null
+            const autofocusEl = target?.querySelector("[autofocus]") as HTMLElement | null
+            if (autofocusEl) {
+              e.preventDefault()
+              autofocusEl.focus()
+            }
+          }}
+        >
           {props.children}
         </Kobalte.Content>
       </div>
