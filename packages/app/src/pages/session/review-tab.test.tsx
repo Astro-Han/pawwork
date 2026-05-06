@@ -51,7 +51,7 @@ afterAll(() => {
 })
 
 describe("SessionReviewTab", () => {
-  test("keeps PawWork review diffs in unified mode without exposing style switching", () => {
+  test("defaults to unified diff style and exposes a setter so the toggle renders", () => {
     const dispose = createRoot((dispose) => {
       SessionReviewTab({
         diffs: () => [
@@ -79,7 +79,7 @@ describe("SessionReviewTab", () => {
     try {
       expect(capturedProps).toHaveLength(1)
       expect(capturedProps[0].diffStyle).toBe("unified")
-      expect(capturedProps[0].onDiffStyleChange).toBeUndefined()
+      expect(typeof capturedProps[0].onDiffStyleChange).toBe("function")
     } finally {
       dispose()
     }

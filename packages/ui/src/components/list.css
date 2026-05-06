@@ -59,12 +59,12 @@
   [data-slot="list-search"] {
     display: flex;
     flex: 1;
-    padding: 8px;
+    padding: 10px 12px;
     align-items: center;
     gap: 12px;
 
-    border-radius: var(--radius-md);
-    background: var(--surface-base);
+    border-radius: 0;
+    background: transparent;
 
     [data-slot="list-search-container"] {
       display: flex;
@@ -76,7 +76,12 @@
       [data-slot="list-search-input"] {
         width: 100%;
 
-        &[data-slot="input-input"] {
+        [data-slot="input-wrapper"] {
+          padding: 0;
+          border-bottom: none;
+        }
+
+        [data-slot="input-input"] {
           line-height: 20px;
           max-height: 20px;
         }
@@ -191,7 +196,7 @@
         justify-content: space-between;
         align-items: center;
         align-self: stretch;
-        background: var(--surface-raised);
+        background: var(--surface-base);
         position: sticky;
         top: 0;
 
@@ -212,7 +217,7 @@
           left: 0;
           right: 0;
           height: 16px;
-          background: linear-gradient(to bottom, var(--surface-raised), transparent);
+          background: linear-gradient(to bottom, var(--surface-base), transparent);
           pointer-events: none;
           opacity: 0;
           transition: opacity 0.15s ease;
@@ -228,23 +233,11 @@
         flex-direction: column;
         align-items: flex-start;
         align-self: stretch;
+        gap: 2px;
 
         [data-slot="list-item"] {
-          display: flex;
-          position: relative;
           width: 100%;
-          padding: 6px 8px 6px 8px;
-          align-items: center;
-          color: var(--fg-strong);
           scroll-margin-top: 28px;
-
-          /* text-14-medium */
-          font-family: var(--font-family-sans);
-          font-size: var(--font-size-hierarchy);
-          font-style: normal;
-          font-weight: var(--font-weight-medium);
-          line-height: var(--line-height-large); /* 142.857% */
-          letter-spacing: var(--letter-spacing-normal);
 
           [data-slot="list-item-selected-icon"] {
             display: inline-flex;
@@ -287,8 +280,6 @@
           }
 
           &[data-active="true"] {
-            border-radius: var(--radius-md);
-            background: var(--surface-sunken);
             [data-slot="list-item-active-icon"] {
               display: inline-flex;
             }
@@ -299,9 +290,6 @@
           }
           &:active {
             background: var(--surface-base-active);
-          }
-          &:focus-visible {
-            outline: none;
           }
         }
 

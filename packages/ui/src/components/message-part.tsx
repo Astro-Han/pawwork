@@ -40,7 +40,6 @@ import { Collapsible } from "./collapsible"
 import { FileIcon } from "./file-icon"
 import { Icon } from "./icon"
 import { ToolErrorCard } from "./tool-error-card"
-import { Checkbox } from "./checkbox"
 import { DiffChanges } from "./diff-changes"
 import { Markdown } from "./markdown"
 import { ImagePreview } from "./image-preview"
@@ -2323,14 +2322,47 @@ ToolRegistry.register({
           <div data-component="todos">
             <For each={todos()}>
               {(todo: Todo) => (
-                <Checkbox readOnly checked={todo.status === "completed"}>
+                <div data-slot="message-part-todo-item" data-state={todo.status}>
+                  <Show
+                    when={todo.status === "in_progress"}
+                    fallback={
+                      <Icon
+                        name={todo.status === "completed" ? "circle-check" : "circle"}
+                        size="small"
+                        style={{ color: "var(--icon-base)", "flex-shrink": "0" }}
+                      />
+                    }
+                  >
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        "align-items": "center",
+                        "justify-content": "center",
+                        width: "16px",
+                        height: "16px",
+                        "flex-shrink": "0",
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: "13px",
+                          height: "13px",
+                          "border-radius": "9999px",
+                          border: "1.5px solid var(--border-weak)",
+                          "border-top-color": "var(--brand-primary)",
+                          animation: "var(--animate-pw-spin)",
+                        }}
+                      />
+                    </span>
+                  </Show>
                   <span
                     data-slot="message-part-todo-content"
                     data-completed={todo.status === "completed" ? "completed" : undefined}
                   >
                     {todo.content}
                   </span>
-                </Checkbox>
+                </div>
               )}
             </For>
           </div>

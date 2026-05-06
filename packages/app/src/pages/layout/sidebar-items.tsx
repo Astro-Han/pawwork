@@ -186,7 +186,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <>
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-surface-raised [&:has(:focus-visible)]:bg-surface-raised has-[[data-expanded]]:bg-surface-raised has-[.active]:bg-surface-base-active"
+        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
       >
         <div class="flex min-w-0 items-center gap-1">
@@ -268,7 +268,7 @@ export const NewSessionItem = (props: {
   )
 
   return (
-    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-2 hover:bg-surface-raised [&:has(:focus-visible)]:bg-surface-raised has-[.active]:bg-surface-base-active">
+    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-2 hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay">
       {item}
     </div>
   )

@@ -8,7 +8,6 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -1098,7 +1097,7 @@ export function MessageTimeline(props: {
               class="flex flex-col items-start justify-start pb-4 transition-[margin]"
               classList={{
                 "w-full": true,
-                "md:max-w-[800px] md:mx-auto 2xl:max-w-[1000px]": props.centered,
+                "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
                 "mt-0.5": props.centered,
                 "mt-0": !props.centered,
               }}
@@ -1139,7 +1138,7 @@ export function MessageTimeline(props: {
                       data-message-id={messageID}
                       classList={{
                         "min-w-0 w-full max-w-full": true,
-                        "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
+                        "md:max-w-200 2xl:max-w-[1000px]": props.centered,
                       }}
                       style={{
                         "content-visibility": active() ? undefined : "auto",

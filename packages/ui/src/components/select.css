@@ -1,6 +1,16 @@
+/*
+ * select.css — Select primitive overrides on top of picker.css contract.
+ *
+ * Trigger / content / item base styles (height, hover, selected, surface)
+ * live in picker.css and apply to any element with data-picker-trigger /
+ * data-picker-content / data-picker-item. This file only adds Select-specific
+ * chrome (chevron transition, value overflow, settings trigger variant) and
+ * resets that aren't part of the contract.
+ */
+
 [data-component="select"] {
   [data-slot="select-select-trigger"] {
-    padding: 0 4px 0 8px;
+    padding: 0 4px 0 12px;
     box-shadow: none;
 
     [data-slot="select-select-trigger-value"] {
@@ -19,71 +29,28 @@
       transition: transform 0.1s ease-in-out;
     }
 
-    &[data-expanded] {
-      &[data-variant="secondary"] {
-        background-color: var(--surface-sunken);
-      }
-      &[data-variant="ghost"] {
-        background-color: var(--surface-base);
-      }
-      &[data-variant="primary"] {
-        background-color: var(--icon-strong);
-      }
-    }
-
     &:not([data-expanded]):focus-visible {
-      &[data-variant="secondary"] {
-        background-color: var(--surface-raised);
-      }
-      &[data-variant="ghost"] {
-        background-color: var(--surface-raised);
-      }
-      &[data-variant="primary"] {
-        background-color: var(--icon-strong);
-      }
+      box-shadow: var(--shadow-xs-border-focus);
     }
   }
 
   &[data-trigger-style="settings"] {
     [data-slot="select-select-trigger"] {
-      padding: 6px 6px 6px 12px;
-      box-shadow: none;
-      border-radius: 6px;
-      min-width: 160px;
-      height: 32px;
+      padding: 0 6px 0 12px;
       justify-content: flex-end;
       gap: 12px;
       background-color: transparent;
+      background-image: none;
 
       [data-slot="select-select-trigger-value"] {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
         font-size: var(--font-size-base);
         font-weight: var(--font-weight-regular);
-      }
-      [data-slot="select-select-trigger-icon"] {
-        width: 16px;
-        height: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: var(--fg-weak);
-        background-color: var(--surface-raised);
-        border-radius: 4px;
-        transition: transform 0.1s ease-in-out;
-      }
-
-      &[data-slot="select-select-trigger"]:hover:not(:disabled),
-      &[data-slot="select-select-trigger"][data-expanded],
-      &[data-slot="select-select-trigger"][data-expanded]:hover:not(:disabled) {
-        background-color: var(--surface-sunken);
-        box-shadow: var(--shadow-xs-border-base);
+        line-height: var(--line-height-large);
       }
 
       &:not([data-expanded]):not(:focus-visible):focus {
         background-color: transparent;
+        background-image: none;
         box-shadow: none;
       }
     }
@@ -91,13 +58,9 @@
 }
 
 [data-component="select-content"] {
-  min-width: 104px;
+  min-width: 184px;
   max-width: 23rem;
   overflow: hidden;
-  border-radius: var(--radius-md);
-  background-color: var(--surface-raised);
-  padding: 4px;
-  box-shadow: var(--shadow-xs-border-base);
   z-index: 60;
 
   &[data-expanded] {
@@ -111,83 +74,22 @@
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    gap: 2px;
 
     &:focus {
       outline: none;
-    }
-
-    > *:not([role="presentation"]) + *:not([role="presentation"]) {
-      margin-top: 2px;
     }
   }
 
   [data-slot="select-select-item"] {
-    position: relative;
-    display: flex;
-    align-items: center;
-    padding: 2px 8px;
-    gap: 12px;
-    border-radius: 4px;
-    cursor: default;
-
-    /* text-13-medium */
-    font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    font-style: normal;
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large); /* 166.667% */
-    letter-spacing: var(--letter-spacing-normal);
-
-    color: var(--fg-strong);
-
-    transition:
-      background-color 0.2s ease-in-out,
-      color 0.2s ease-in-out;
-    outline: none;
-    user-select: none;
-
-    &[data-highlighted] {
-      background: var(--surface-sunken);
-    }
-    &[data-disabled] {
-      background-color: var(--surface-raised);
-      pointer-events: none;
-    }
     [data-slot="select-select-item-indicator"] {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-left: auto;
-      width: 16px;
-      height: 16px;
-    }
-    &:focus {
-      outline: none;
-    }
-    &:hover {
-      background: var(--surface-sunken);
+      display: none;
     }
   }
 }
 
 [data-component="select-content"][data-trigger-style="settings"] {
   min-width: 160px;
-  border-radius: 8px;
-  padding: 0;
-
-  [data-slot="select-select-content-list"] {
-    padding: 4px;
-  }
-
-  [data-slot="select-select-item"] {
-    /* text-14-regular */
-    font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
-  }
 }
 
 @keyframes select-open {

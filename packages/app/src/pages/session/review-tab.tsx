@@ -6,6 +6,7 @@ import type {
   SessionReviewCommentActions,
   SessionReviewCommentDelete,
   SessionReviewCommentUpdate,
+  SessionReviewDiffStyle,
 } from "@opencode-ai/ui/session-review"
 import type { SelectedLineRange } from "@/context/file"
 import { useSDK } from "@/context/sdk"
@@ -48,6 +49,7 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
 
   const sdk = useSDK()
   const layout = useLayout()
+  const [diffStyle, setDiffStyle] = createSignal<SessionReviewDiffStyle>("unified")
 
   const readFile = async (path: string) => {
     return sdk.client.file
@@ -148,7 +150,8 @@ export function SessionReviewTab(props: SessionReviewTabProps) {
         container: props.classes?.container ?? "pl-3",
       }}
       diffs={props.diffs()}
-      diffStyle="unified"
+      diffStyle={diffStyle()}
+      onDiffStyleChange={setDiffStyle}
       onViewFile={props.onViewFile}
       focusedFile={props.focusedFile}
       readFile={readFile}

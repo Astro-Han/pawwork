@@ -1,0 +1,102 @@
+/*
+ * picker.css — shared CSS contract for trigger / content / item across the
+ * Select, List, and hand-written Popover picker primitives.
+ *
+ * Three primitives keep their own component implementations because
+ * capabilities differ — Select for single-select dropdown, List for searchable
+ * grouped list, hand-written Popover for free-form footer popovers. The visual
+ * surface (trigger height + hover, content surface, item height + hover/selected)
+ * is one regulated contract: components opt in by spreading the data-picker-*
+ * slot attributes on the matching DOM nodes.
+ *
+ * All selectors use :where() to keep specificity at (0,1,0), so any primitive
+ * can override with a single attribute selector — the contract is the floor,
+ * not the ceiling.
+ *
+ * Anything specific to a primitive (chevron transitions, search bar,
+ * settings-variant gap, review-filter h24) lives in that primitive's own .css.
+ */
+
+[data-picker-trigger] {
+  height: 28px;
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-base);
+}
+
+[data-picker-trigger]:where(:hover:not(:disabled), [data-expanded]) {
+  background-color: var(--row-hover-overlay);
+  background-image: none;
+}
+
+[data-picker-content] {
+  background-color: var(--surface-base);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  box-shadow: var(--ring-base), var(--shadow-floating);
+}
+
+[data-picker-item] {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 8px;
+  gap: 12px;
+  border-radius: var(--radius-sm);
+  cursor: default;
+
+  /* text-13-regular */
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-small);
+  font-style: normal;
+  font-weight: var(--font-weight-regular);
+  line-height: 1.5;
+  letter-spacing: var(--letter-spacing-normal);
+
+  color: var(--fg-base);
+
+  transition:
+    background-color var(--duration-base),
+    color var(--duration-base);
+  outline: none;
+  user-select: none;
+}
+
+[data-picker-item]:where(:hover, [data-highlighted], [data-active="true"]) {
+  background: var(--row-hover-overlay);
+  color: var(--fg-strong);
+}
+
+[data-picker-item]:where([data-selected]) {
+  background: var(--row-active-overlay);
+  color: var(--fg-strong);
+  font-weight: var(--font-weight-medium);
+}
+
+[data-picker-item]:where(
+  [data-selected]:hover,
+  [data-selected][data-highlighted],
+  [data-selected][data-active="true"]
+) {
+  background: var(--row-active-overlay);
+}
+
+[data-picker-item]:where([data-disabled]) {
+  pointer-events: none;
+  opacity: 0.5;
+  background: transparent;
+}
+
+[data-picker-item]:where(:focus) {
+  outline: none;
+}
+
+/* Restore a visible focus ring for keyboard navigation when the row isn't
+ * already painted by hover / highlighted / active. Pointer focus (:focus only)
+ * keeps the suppression above. */
+[data-picker-item]:where(:focus-visible:not([data-highlighted], [data-active="true"])) {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -2px;
+}

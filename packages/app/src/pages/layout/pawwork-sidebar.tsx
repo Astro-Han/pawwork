@@ -5,10 +5,11 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
-import { createEffect, createMemo, createSignal, For, Show, type Accessor, type JSX } from "solid-js"
+import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
-import { createInlineEditorController } from "./inline-editor"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem } from "./sidebar-items"
@@ -58,8 +59,7 @@ export const PawworkSidebar = (props: {
   settingsKeybind: Accessor<string | undefined>
 }): JSX.Element => {
   const language = useLanguage()
-  const editor = createInlineEditorController()
-  const [pendingRenameID, setPendingRenameID] = createSignal<string>()
+  const dialog = useDialog()
   const navList = createMemo(() => props.sessions().map((item) => item.session))
   let scrollEl: HTMLDivElement | undefined
   const byID = createMemo(() => new Map(props.sessions().map((item) => [item.session.id, item] as const)))
@@ -95,6 +95,15 @@ export const PawworkSidebar = (props: {
         .filter((item): item is PawworkSidebarSession => !!item),
     })),
   )
+
+  const openRenameDialog = (target: Session) => {
+    dialog.show(() => (
+      <DialogRenameSession
+        name={target.title ?? ""}
+        onConfirm={(next) => props.onRenameSession(target, next)}
+      />
+    ))
+  }
 
   const renderSessionItem = (entry: { item: PawworkSidebarSession }) => {
     const session = entry.item.session
@@ -168,16 +177,17 @@ export const PawworkSidebar = (props: {
                 ? getRelativeTime(new Date(entry.item.created).toISOString(), language.t)
                 : undefined
             }
-            titleContent={({ session: rowSession, title }) => (
-              <editor.InlineEditor
-                id={`pawwork-session:${rowSession.id}`}
-                value={title}
-                onSave={(next) => {
-                  void props.onRenameSession(rowSession, next)
-                }}
+            titleContent={({ title }) => (
+              <span
                 class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate"
-                displayClass="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate"
-              />
+                onDblClick={(e: MouseEvent) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  openRenameDialog(session)
+                }}
+              >
+                {title()}
+              </span>
             )}
             actionSlot={(rowSession) => (
               <DropdownMenu>
@@ -195,20 +205,9 @@ export const PawworkSidebar = (props: {
                   }}
                 />
                 <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    onCloseAutoFocus={(event) => {
-                      if (pendingRenameID() !== rowSession.id) return
-                      event.preventDefault()
-                      setPendingRenameID(undefined)
-                      requestAnimationFrame(() => {
-                        editor.openEditor(`pawwork-session:${rowSession.id}`, rowSession.title ?? "")
-                      })
-                    }}
-                  >
+                  <DropdownMenu.Content>
                     {renderDropdownActions(
-                      menuActions(rowSession, () => {
-                        setPendingRenameID(rowSession.id)
-                      }),
+                      menuActions(rowSession, () => openRenameDialog(rowSession)),
                     )}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
@@ -219,9 +218,7 @@ export const PawworkSidebar = (props: {
         <ContextMenu.Portal>
           <ContextMenu.Content>
             {renderContextActions(
-              menuActions(session, () => {
-                editor.openEditor(`pawwork-session:${session.id}`, session.title ?? "")
-              }),
+              menuActions(session, () => openRenameDialog(session)),
             )}
           </ContextMenu.Content>
         </ContextMenu.Portal>
@@ -259,7 +256,7 @@ export const PawworkSidebar = (props: {
     <section
       data-component="pawwork-sidebar"
       data-sidebar-scope={props.scope ?? "main"}
-      class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg-cream"
+      class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar"
     >
       <div class="shrink-0 px-3 pt-3">
         <div class="flex flex-col gap-1">
@@ -267,7 +264,7 @@ export const PawworkSidebar = (props: {
             type="button"
             data-action="pawwork-session-new"
             onClick={props.onNew}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-raised focus-visible:bg-surface-raised transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="new-session" size="small" class="text-icon-base" />
@@ -278,7 +275,7 @@ export const PawworkSidebar = (props: {
             type="button"
             data-action="pawwork-session-search"
             onClick={props.onSearch}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-raised focus-visible:bg-surface-raised transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="magnifying-glass" size="small" class="text-icon-base" />
@@ -362,7 +359,7 @@ export const PawworkSidebar = (props: {
                   data-action="pawwork-session-show-more"
                   disabled={props.sessionWindow().loading}
                   onClick={props.onShowMore}
-                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-surface-raised hover:text-fg-base focus:outline-none focus-visible:bg-surface-raised disabled:opacity-50"
+                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay disabled:opacity-50"
                 >
                   {props.sessionWindow().loading ? language.t("common.loading") : language.t("common.showMore")}
                 </button>
@@ -372,7 +369,7 @@ export const PawworkSidebar = (props: {
                   type="button"
                   data-action="pawwork-session-search-history"
                   onClick={props.onSearchOlderSessions}
-                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-surface-raised hover:text-fg-base focus:outline-none focus-visible:bg-surface-raised"
+                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay"
                 >
                   {language.t("sidebar.pawwork.searchHistory")}
                 </button>
@@ -396,7 +393,7 @@ export const PawworkSidebar = (props: {
             data-action="pawwork-open-settings"
             onClick={props.onOpenSettings}
             aria-label={props.settingsLabel()}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-raised focus-visible:bg-surface-raised transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" size="small" class="text-icon-base" />

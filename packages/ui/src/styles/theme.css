@@ -85,7 +85,7 @@
   --surface-base:   #ffffff;
   --surface-raised: #ffffff;
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
-  --sidebar:        #faf9f7;
+  --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
   /* ────────── Light ink · STANDARDS L11 (4 tiers) ────────── */
@@ -137,10 +137,29 @@
   --duration-slow: 240ms;
 
   /* ────────── Hover overlays · STANDARDS L22 ────────── */
-  /* White/raised surface: 4% black overlay */
+  /* White/raised surface: 4% black overlay (button / iconbtn) */
   --hover-overlay:      rgba(0, 0, 0, 0.04);
-  /* Warm cream surface (sidebar, bg-cream): 6% for perceptual parity */
+  /* Warm cream surface (cream-bottom iconbtn): 6% for perceptual parity */
   --hover-overlay-warm: rgba(0, 0, 0, 0.06);
+
+  /* List/menu/row hover · cross-product token for selectable surfaces.
+   * Direction is "row stands out from container":
+   *   light → surface depressed one tier toward neutral cream (#f4f0ec)
+   *   dark  → surface raised one tier toward warm coffee (#2a2622)
+   * Pairs with selected `--surface-interactive-base` (warm orange-cream) for
+   * a two-tone hierarchy: hover is neutral cream, selected is warm cream;
+   * the hue difference makes the two states visually independent without
+   * extra weight or icon decoration. */
+  --surface-list-hover: #f4f0ec;
+
+  /* Row hover/active overlays · alpha-on-container, hue-following.
+   * Per ui_kits/desktop mock sidebar recipe (`pw-flat-session.active`):
+   *   hover  = neutral 4% black (light) / 4% white (dark)
+   *   active = neutral 6% black (light) / 6% white (dark)
+   * Selected row stays neutral so chrome and list region read calmly;
+   * brand hue is reserved for picker/menu items via `--surface-interactive-base`. */
+  --row-hover-overlay:  rgba(0, 0, 0, 0.04);
+  --row-active-overlay: rgba(0, 0, 0, 0.06);
 
   color-scheme: light;
 
@@ -275,10 +294,10 @@
   --fg-weak:   #8a8278;
   --fg-weaker: #6b645c;
 
-  /* Dark border · STANDARDS L12 (3 tiers) */
+  /* Dark border · STANDARDS L12 (3 tiers); recalibrated for surface-raised context */
   --border-base:   rgba(255, 255, 255, 0.12);
-  --border-weak:   #2c2823;
-  --border-weaker: #25211d;
+  --border-weak:   #36322e;
+  --border-weaker: #2f2b28;
 
   /* Icon mirrors dark ink */
   --icon-base:   #8a8278;
@@ -292,6 +311,19 @@
   --surface-interactive-base:  #2b1f19;
   --surface-interactive-hover: #362619;
   --surface-base-active: rgba(255, 255, 255, 0.059);
+
+  /* Hover overlays · dark mirrors of L141-143 (white alpha so they show on
+   * warm-coffee dark surfaces). */
+  --hover-overlay:      rgba(255, 255, 255, 0.05);
+  --hover-overlay-warm: rgba(255, 255, 255, 0.07);
+
+  /* Dark list-hover: lift one warm-coffee tier above bg-cream (#211d19)
+   * so hovered rows visibly brighten instead of darken. */
+  --surface-list-hover: #2a2622;
+
+  /* Row overlays · dark mirror (white alpha to lift warm-coffee surfaces). */
+  --row-hover-overlay:  rgba(255, 255, 255, 0.04);
+  --row-active-overlay: rgba(255, 255, 255, 0.06);
 
   /* Shadow · L18: dark elevation via L10 surfaces; drop shadows forbidden */
   --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
@@ -409,8 +441,8 @@
     --fg-weaker: #6b645c;
 
     --border-base:   rgba(255, 255, 255, 0.12);
-    --border-weak:   #2c2823;
-    --border-weaker: #25211d;
+    --border-weak:   #36322e;
+    --border-weaker: #2f2b28;
 
     --icon-base:   #8a8278;
     --icon-strong: #f3ede4;
@@ -421,6 +453,14 @@
     --surface-interactive-base:  #2b1f19;
     --surface-interactive-hover: #362619;
     --surface-base-active: rgba(255, 255, 255, 0.059);
+
+    --hover-overlay:      rgba(255, 255, 255, 0.05);
+    --hover-overlay-warm: rgba(255, 255, 255, 0.07);
+
+    --surface-list-hover: #2a2622;
+
+    --row-hover-overlay:  rgba(255, 255, 255, 0.04);
+    --row-active-overlay: rgba(255, 255, 255, 0.06);
 
     --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
     --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.05) inset;

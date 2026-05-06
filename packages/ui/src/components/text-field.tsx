@@ -2,6 +2,7 @@ import { TextField as Kobalte } from "@kobalte/core/text-field"
 import { createSignal, Show, splitProps } from "solid-js"
 import type { ComponentProps } from "solid-js"
 import { useI18n } from "../context/i18n"
+import { Icon } from "./icon"
 import { IconButton } from "./icon-button"
 import { Tooltip } from "./tooltip"
 
@@ -24,11 +25,14 @@ export interface TextFieldProps
   label?: string
   hideLabel?: boolean
   description?: string
+  /** Error message text. When set, the field enters invalid state and shows an error icon. */
   error?: string
-  variant?: "normal" | "ghost"
+  variant?: "normal" | "ghost" | "inline"
   copyable?: boolean
   copyKind?: "clipboard" | "link"
   multiline?: boolean
+  /** Auto-select all text when the input gains focus. Useful for inline rename. */
+  selectOnFocus?: boolean
 }
 
 export function TextField(props: TextFieldProps) {
@@ -52,6 +56,7 @@ export function TextField(props: TextFieldProps) {
     "copyable",
     "copyKind",
     "multiline",
+    "selectOnFocus",
   ])
   const [copied, setCopied] = createSignal(false)
 
@@ -78,6 +83,9 @@ export function TextField(props: TextFieldProps) {
     if (local.copyable) void handleCopy()
   }
 
+  // Derive validationState: explicit prop wins, otherwise error string implies invalid
+  const validationState = () => local.validationState ?? (local.error ? "invalid" : undefined)
+
   return (
     <Kobalte
       data-component="input"
@@ -91,7 +99,7 @@ export function TextField(props: TextFieldProps) {
       required={local.required}
       disabled={local.disabled}
       readOnly={local.readOnly}
-      validationState={local.validationState}
+      validationState={validationState()}
     >
       <Show when={local.label}>
         <Kobalte.Label data-slot="input-label" classList={{ "sr-only": local.hideLabel }}>
@@ -101,9 +109,28 @@ export function TextField(props: TextFieldProps) {
       <div data-slot="input-wrapper">
         <Show
           when={local.multiline}
-          fallback={<Kobalte.Input {...others} data-slot="input-input" class={local.class} />}
+          fallback={
+            <Kobalte.Input
+              {...others}
+              data-slot="input-input"
+              class={local.class}
+              onFocus={(event: FocusEvent & { currentTarget: HTMLInputElement }) => {
+                if (local.selectOnFocus) event.currentTarget.select()
+                ;(others as { onFocus?: (e: FocusEvent) => void }).onFocus?.(event)
+              }}
+            />
+          }
         >
-          <Kobalte.TextArea {...others} autoResize data-slot="input-input" class={local.class} />
+          <Kobalte.TextArea
+            {...others}
+            autoResize
+            data-slot="input-input"
+            class={local.class}
+            onFocus={(event: FocusEvent & { currentTarget: HTMLTextAreaElement }) => {
+              if (local.selectOnFocus) event.currentTarget.select()
+              ;(others as { onFocus?: (e: FocusEvent) => void }).onFocus?.(event)
+            }}
+          />
         </Show>
         <Show when={local.copyable}>
           <Tooltip value={label()} placement="top" gutter={4} forceOpen={copied()} skipDelayDuration={0}>
@@ -122,7 +149,10 @@ export function TextField(props: TextFieldProps) {
       <Show when={local.description}>
         <Kobalte.Description data-slot="input-description">{local.description}</Kobalte.Description>
       </Show>
-      <Kobalte.ErrorMessage data-slot="input-error">{local.error}</Kobalte.ErrorMessage>
+      <Kobalte.ErrorMessage data-slot="input-error">
+        <Icon name="alert-triangle" size="small" aria-hidden="true" />
+        {local.error}
+      </Kobalte.ErrorMessage>
     </Kobalte>
   )
 }
