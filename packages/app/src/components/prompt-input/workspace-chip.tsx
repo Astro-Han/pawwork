@@ -47,7 +47,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "h-[28px] px-1.5 inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-colors hover:bg-[var(--hover-overlay-warm)]",
+            "h-[28px] px-1.5 inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-colors hover:bg-surface-list-hover",
           style: props.style,
         } as any
       }
@@ -80,7 +80,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                   role="menuitemradio"
                   aria-checked={active()}
                   classList={{
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none transition-colors hover:bg-[var(--hover-overlay-warm)] focus-visible:bg-[var(--hover-overlay-warm)]":
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none transition-colors hover:bg-surface-list-hover focus-visible:bg-surface-list-hover":
                       true,
                     "bg-surface-interactive-base font-medium hover:bg-surface-interactive-base focus-visible:bg-surface-interactive-base":
                       active(),
@@ -94,9 +94,6 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                   <span class="min-w-0 flex-1 truncate text-fg-strong">
                     {getFilename(workspace.path)}
                   </span>
-                  <Show when={active()}>
-                    <Icon name="check" size="small" class="shrink-0 text-fg-strong" data-icon="check" />
-                  </Show>
                 </button>
               )
             }}
@@ -107,7 +104,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
             type="button"
             role="menuitem"
             data-action="workspace-chip-add"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-[var(--hover-overlay-warm)] focus-visible:bg-[var(--hover-overlay-warm)]"
+            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-surface-list-hover focus-visible:bg-surface-list-hover"
             onClick={() => {
               setOpen(false)
               layoutPage.openProject()

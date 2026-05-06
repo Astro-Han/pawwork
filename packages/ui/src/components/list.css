@@ -291,9 +291,14 @@
             display: none;
           }
 
+          &:hover:not([data-active="true"]) {
+            border-radius: var(--radius-md);
+            background: var(--surface-list-hover);
+          }
           &[data-active="true"] {
             border-radius: var(--radius-md);
-            background: var(--surface-sunken);
+            background: var(--surface-interactive-base);
+            font-weight: var(--font-weight-medium);
             [data-slot="list-item-active-icon"] {
               display: inline-flex;
             }

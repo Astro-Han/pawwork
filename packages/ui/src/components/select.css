@@ -135,7 +135,7 @@
 
     &[data-highlighted],
     &:hover {
-      background: var(--hover-overlay-warm);
+      background: var(--surface-list-hover);
       color: var(--fg-strong);
     }
     &[data-selected] {

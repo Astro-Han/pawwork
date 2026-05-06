@@ -274,7 +274,7 @@ export const PawworkSidebar = (props: {
             type="button"
             data-action="pawwork-session-new"
             onClick={props.onNew}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-[var(--hover-overlay-warm)] focus-visible:bg-[var(--hover-overlay-warm)] transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-list-hover focus-visible:bg-surface-list-hover transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="new-session" size="small" class="text-icon-base" />
@@ -285,7 +285,7 @@ export const PawworkSidebar = (props: {
             type="button"
             data-action="pawwork-session-search"
             onClick={props.onSearch}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-[var(--hover-overlay-warm)] focus-visible:bg-[var(--hover-overlay-warm)] transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-list-hover focus-visible:bg-surface-list-hover transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="magnifying-glass" size="small" class="text-icon-base" />
@@ -369,7 +369,7 @@ export const PawworkSidebar = (props: {
                   data-action="pawwork-session-show-more"
                   disabled={props.sessionWindow().loading}
                   onClick={props.onShowMore}
-                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-[var(--hover-overlay-warm)] hover:text-fg-base focus:outline-none focus-visible:bg-[var(--hover-overlay-warm)] disabled:opacity-50"
+                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-surface-list-hover hover:text-fg-base focus:outline-none focus-visible:bg-surface-list-hover disabled:opacity-50"
                 >
                   {props.sessionWindow().loading ? language.t("common.loading") : language.t("common.showMore")}
                 </button>
@@ -379,7 +379,7 @@ export const PawworkSidebar = (props: {
                   type="button"
                   data-action="pawwork-session-search-history"
                   onClick={props.onSearchOlderSessions}
-                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-[var(--hover-overlay-warm)] hover:text-fg-base focus:outline-none focus-visible:bg-[var(--hover-overlay-warm)]"
+                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-surface-list-hover hover:text-fg-base focus:outline-none focus-visible:bg-surface-list-hover"
                 >
                   {language.t("sidebar.pawwork.searchHistory")}
                 </button>
@@ -403,7 +403,7 @@ export const PawworkSidebar = (props: {
             data-action="pawwork-open-settings"
             onClick={props.onOpenSettings}
             aria-label={props.settingsLabel()}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-[var(--hover-overlay-warm)] focus-visible:bg-[var(--hover-overlay-warm)] transition-colors text-left focus:outline-none"
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-surface-list-hover focus-visible:bg-surface-list-hover transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" size="small" class="text-icon-base" />
