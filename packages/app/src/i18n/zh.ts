@@ -478,6 +478,8 @@ export const dict = {
   "toast.session.unshare.success.description": "会话已成功取消分享",
   "toast.session.unshare.failed.title": "取消分享失败",
   "toast.session.unshare.failed.description": "取消分享会话时发生错误",
+  "toast.session.rename.failed.title": "重命名失败",
+  "toast.session.rename.failed.description": "请重试，或关闭对话框保持当前名称。",
   "toast.session.listFailed.title": "无法加载 {{project}} 的会话",
   "toast.update.title": "有可用更新",
   "toast.update.description": "爪印有新版本 ({{version}}) 可安装。",

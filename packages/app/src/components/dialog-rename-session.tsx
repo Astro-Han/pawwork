@@ -3,6 +3,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { Button } from "@opencode-ai/ui/button"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 
 export function DialogRenameSession(props: {
@@ -21,8 +22,12 @@ export function DialogRenameSession(props: {
     try {
       await props.onConfirm(next)
       dialog.close()
-    } catch (err) {
-      console.error("Failed to rename session", err)
+    } catch {
+      showToast({
+        title: language.t("toast.session.rename.failed.title"),
+        description: language.t("toast.session.rename.failed.description"),
+        variant: "error",
+      })
     } finally {
       setSaving(false)
     }
