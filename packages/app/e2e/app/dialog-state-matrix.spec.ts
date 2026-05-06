@@ -40,12 +40,7 @@ test("dialog focus-trap: Tab does not leave dialog", async ({ page, gotoSession 
   // Tab through all focusable elements; focus must stay inside dialog
   for (let i = 0; i < 5; i++) {
     await page.keyboard.press("Tab")
-    const focused = await page.evaluate(() => document.activeElement)
-    // The dialog element must contain the focused element
-    const focusedInDialog = await dialog.evaluate(
-      (el, _focused) => el.contains(document.activeElement),
-      focused,
-    )
+    const focusedInDialog = await dialog.evaluate((el) => el.contains(document.activeElement))
     expect(focusedInDialog).toBe(true)
   }
 
