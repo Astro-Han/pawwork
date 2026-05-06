@@ -672,7 +672,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/azure
       if (id === "o1-mini") return {}
       const azureEfforts = ["low", "medium", "high"]
-      if (id.includes("gpt-5-") || id === "gpt-5") {
+      if (GPT5_FAMILY_RE.test(id)) {
         azureEfforts.unshift("minimal")
       }
       return Object.fromEntries(

@@ -100,7 +100,7 @@ export function extractAccountId(tokens: TokenResponse): string | undefined {
 }
 
 export function shouldKeepCodexOAuthModel(modelId: string, apiId: string): boolean {
-  if (modelId.includes("codex")) return true
+  if (apiId.includes("codex")) return true
   if (CODEX_OAUTH_ALLOWED_MODELS.has(apiId)) return true
   const match = apiId.match(/^gpt-(\d+)\.(\d+)/)
   if (!match) return false

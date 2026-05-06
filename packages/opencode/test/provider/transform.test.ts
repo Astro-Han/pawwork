@@ -3588,6 +3588,20 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["minimal", "low", "medium", "high"])
     })
+
+    test("dotted gpt-5 family ids add minimal effort", () => {
+      const model = createMockModel({
+        id: "gpt-5.4",
+        providerID: "azure",
+        api: {
+          id: "gpt-5.4",
+          url: "https://azure.com",
+          npm: "@ai-sdk/azure",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["minimal", "low", "medium", "high"])
+    })
   })
 
   describe("@ai-sdk/openai", () => {

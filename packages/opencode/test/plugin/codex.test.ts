@@ -126,10 +126,11 @@ describe("plugin.codex", () => {
   })
 
   describe("shouldKeepCodexOAuthModel", () => {
-    test("keeps explicit OAuth models and codex model ids", () => {
+    test("keeps explicit OAuth models and codex API ids", () => {
       expect(shouldKeepCodexOAuthModel("gpt-5.4", "gpt-5.4")).toBe(true)
       expect(shouldKeepCodexOAuthModel("gpt-5.3-codex-spark", "gpt-5.3-codex-spark")).toBe(true)
-      expect(shouldKeepCodexOAuthModel("some-codex-model", "custom-model")).toBe(true)
+      expect(shouldKeepCodexOAuthModel("some-codex-model", "custom-model")).toBe(false)
+      expect(shouldKeepCodexOAuthModel("custom-alias", "some-codex-model")).toBe(true)
     })
 
     test("keeps future GPT minor versions using semantic comparison", () => {

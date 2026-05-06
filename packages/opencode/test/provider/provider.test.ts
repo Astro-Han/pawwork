@@ -3020,6 +3020,10 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
                   id: "gpt-4o",
                   name: "GPT-4o Local Alias",
                 },
+                "my-codex-alias": {
+                  id: "gpt-4o",
+                  name: "My Codex Alias",
+                },
                 "gpt-5.3-codex-spark-alias": {
                   id: "gpt-5.3-codex-spark",
                   name: "GPT-5.3 Codex Spark Alias",
@@ -3050,6 +3054,7 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
         const providers = await list()
         const models = providers[ProviderID.openai].models
         expect(models[ModelID.make("gpt-4o-local-alias")]).toBeUndefined()
+        expect(models[ModelID.make("my-codex-alias")]).toBeUndefined()
         expect(models[ModelID.make("gpt-5.3-codex-spark-alias")]).toBeDefined()
         expect(models[ModelID.make("gpt-5.3-codex-spark-alias")].cost).toEqual({
           input: 0,
