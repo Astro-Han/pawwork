@@ -6,16 +6,22 @@ import {
   type PawworkWindowSession,
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
+  pawworkSessionWindowActiveRoot,
   sortPawworkSessionWindowSessions,
 } from "./pawwork-session-window"
 
-const session = (id: string, created: number, directory = "/repo", activityAt?: number) =>
+const session = (
+  id: string,
+  created: number,
+  options: { directory?: string; parentID?: string; activityAt?: number } = {},
+) =>
   ({
     id,
-    directory,
+    directory: options.directory ?? "/repo",
+    parentID: options.parentID,
     title: id,
     time: { created, updated: created },
-    activityAt,
+    activityAt: options.activityAt,
   }) as PawworkWindowSession
 
 describe("nextPawworkSessionWindowLimit", () => {
@@ -32,7 +38,11 @@ describe("nextPawworkSessionWindowLimit", () => {
 describe("buildPawworkSessionWindow", () => {
   test("sorts the normal window by activity time before applying the limit", () => {
     const result = buildPawworkSessionWindow({
-      normal: [session("old-active", 1, "/repo", 5), session("new-inactive", 3, "/repo", 3), session("middle", 2, "/repo", 4)],
+      normal: [
+        session("old-active", 1, { activityAt: 5 }),
+        session("new-inactive", 3, { activityAt: 3 }),
+        session("middle", 2, { activityAt: 4 }),
+      ],
       pinned: [],
       active: undefined,
       limit: 30,
@@ -85,6 +95,69 @@ describe("buildPawworkSessionWindow", () => {
     ].sort())
   })
 
+  test("does not include an active child session as a top-level sidebar row", () => {
+    const root = session("root", 100)
+    const child = session("child", 200, { parentID: root.id })
+
+    const result = buildPawworkSessionWindow({
+      normal: [root],
+      pinned: [],
+      active: child,
+      limit: 30,
+      hasMore: false,
+    })
+
+    expect(result.sessions.map((item) => item.id)).toEqual(["root"])
+  })
+
+  test("does not include a pinned child session as a top-level sidebar row", () => {
+    const root = session("root", 100)
+    const pinnedChild = session("pinned_child", 200, { parentID: root.id })
+
+    const result = buildPawworkSessionWindow({
+      normal: [root],
+      pinned: [pinnedChild],
+      active: undefined,
+      limit: 30,
+      hasMore: false,
+    })
+
+    expect(result.sessions.map((item) => item.id)).toEqual(["root"])
+  })
+
+  test("does not include a normal child session as a top-level sidebar row", () => {
+    const root = session("root", 100)
+    const child = session("normal_child", 200, { parentID: root.id })
+
+    const result = buildPawworkSessionWindow({
+      normal: [root, child],
+      pinned: [],
+      active: undefined,
+      limit: 30,
+      hasMore: false,
+    })
+
+    expect(result.normalIDs).toEqual(["root"])
+    expect(result.sessions.map((item) => item.id)).toEqual(["root"])
+  })
+
+  test("keeps the active child parent root visible when it is outside the normal window", () => {
+    const root = session("old_root", 1)
+    const child = session("child", 200, { parentID: root.id })
+    const activeRoot = pawworkSessionWindowActiveRoot(child, root)
+
+    const result = buildPawworkSessionWindow({
+      normal: [],
+      pinned: [],
+      active: activeRoot,
+      limit: 30,
+      hasMore: true,
+    })
+
+    expect(result.normalIDs).toEqual([])
+    expect(result.sessions.map((item) => item.id)).toEqual(["old_root"])
+  })
+
   test("shows search prompt instead of show more at the cap", () => {
     const normal = Array.from({ length: 90 }, (_, index) => session(`ses_${index}`, 10_000 - index))
 
@@ -101,12 +174,28 @@ describe("buildPawworkSessionWindow", () => {
   })
 })
 
+describe("pawworkSessionWindowActiveRoot", () => {
+  test("uses the child parent as the sidebar root fallback", () => {
+    const root = session("root", 100)
+    const child = session("child", 200, { parentID: root.id })
+
+    expect(pawworkSessionWindowActiveRoot(child, root)?.id).toBe("root")
+  })
+
+  test("does not use a mismatched parent as the sidebar root fallback", () => {
+    const other = session("other", 100)
+    const child = session("child", 200, { parentID: "root" })
+
+    expect(pawworkSessionWindowActiveRoot(child, other)).toBeUndefined()
+  })
+})
+
 describe("sortPawworkSessionWindowSessions", () => {
   test("uses activity time before creation time", () => {
     expect(
       sortPawworkSessionWindowSessions([
-        session("newer-created", 3, "/repo", 3),
-        session("older-with-user-activity", 1, "/repo", 5),
+        session("newer-created", 3, { activityAt: 3 }),
+        session("older-with-user-activity", 1, { activityAt: 5 }),
       ]).map((item) => item.id),
     ).toEqual(["older-with-user-activity", "newer-created"])
   })

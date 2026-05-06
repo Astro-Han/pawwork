@@ -89,6 +89,7 @@ import {
   nextPawworkSessionWindowLimit,
   type PawworkWindowSession,
   PAWWORK_SESSION_WINDOW_INITIAL,
+  pawworkSessionWindowActiveRoot,
   sortPawworkSessionWindowSessions,
 } from "./layout/pawwork-session-window"
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
@@ -639,12 +640,20 @@ export default function Layout(props: ParentProps) {
             return session ? mergePawworkWindowSessionMetadata(session, existing.get(activeID)) : undefined
           })()
         : undefined
+      const activeParentID = active?.parentID
+      const activeParent = activeParentID
+        ? await (async () => {
+            const session = loaded.get(activeParentID) ?? (await loadSessionByID(activeParentID))
+            return session ? mergePawworkWindowSessionMetadata(session, existing.get(activeParentID)) : undefined
+          })()
+        : undefined
+      const activeRoot = pawworkSessionWindowActiveRoot(active, activeParent)
 
       if (rev !== pawworkSessionWindowRev) return
       batch(() => {
         setPawworkSessionWindowState("normal", reconcile(sortPawworkSessionWindowSessions(normal), { key: "id" }))
         setPawworkSessionWindowState("pinned", reconcile(pinned, { key: "id" }))
-        setPawworkSessionWindowState("active", active)
+        setPawworkSessionWindowState("active", activeRoot)
         setPawworkSessionWindowState("hasMore", !!response.response.headers.get("x-next-cursor"))
         setPawworkSessionWindowState("loading", false)
       })
