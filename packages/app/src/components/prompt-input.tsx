@@ -21,6 +21,7 @@ import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
 import { DockShellForm } from "@opencode-ai/ui/dock-surface"
 import { Popover } from "@opencode-ai/ui/popover"
+import { Select } from "@opencode-ai/ui/select"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
@@ -1140,10 +1141,11 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           >
             <Button
               data-action="prompt-model"
+              data-picker-trigger=""
               as="div"
               variant="ghost"
               size="normal"
-              class="h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-surface-list-hover"
+              class="min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group"
               style={triggerStyle()}
               onClick={() => {
                 if (!actionReady()) return
@@ -1184,8 +1186,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-surface-list-hover",
+                "min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group",
               "data-action": "prompt-model",
+              "data-picker-trigger": "",
               disabled: !actionReady(),
             }}
             onClose={restoreFocus}
@@ -1227,62 +1230,31 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         title={language.t("command.model.variant.cycle")}
         keybind={command.keybind("model.variant.cycle")}
       >
-        <Popover
+        <Select<string>
           open={variantOpen()}
-          onOpenChange={setVariantOpen}
-          placement="bottom-start"
-          triggerAs={"button"}
-          triggerProps={
-            {
-              type: "button",
-              "data-action": "prompt-model-variant",
-              "aria-haspopup": "menu",
-              disabled: !actionReady(),
-              style: triggerStyle(),
-              class:
-                "h-[28px] px-2 max-w-[160px] @max-[20rem]/composer:max-w-[80px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-[max-width,colors] duration-200 ease-out hover:bg-surface-list-hover",
-            } as any
-          }
-          trigger={
-            <>
-              <span class="truncate">{translateVariant(language.t, local.model.variant.current() ?? "default")}</span>
-              <Icon name="chevron-down" size="small" class="text-fg-weak" />
-            </>
-          }
-          class="min-w-32 bg-surface-raised"
-        >
-          <div role="menu">
-            <div class="px-2 pt-0.5 pb-2 text-13-regular text-fg-weak">
-              {language.t("prompt.variant.popover.title")}
-            </div>
-            <For each={variants()}>
-              {(variant) => {
-                const active = createMemo(() => (local.model.variant.current() ?? "default") === variant)
-                return (
-                  <button
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={active()}
-                    classList={{
-                      "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-strong outline-none transition-colors hover:bg-surface-list-hover focus-visible:bg-surface-list-hover":
-                        true,
-                      "bg-surface-interactive-base font-medium hover:bg-surface-interactive-base focus-visible:bg-surface-interactive-base":
-                        active(),
-                    }}
-                    onClick={() => {
-                      if (!actionReady()) return
-                      local.model.variant.set(variant === "default" ? undefined : variant)
-                      setVariantOpen(false)
-                      restoreFocus()
-                    }}
-                  >
-                    <span class="truncate">{translateVariant(language.t, variant)}</span>
-                  </button>
-                )
-              }}
-            </For>
-          </div>
-        </Popover>
+          options={variants()}
+          current={local.model.variant.current() ?? "default"}
+          value={(v) => v}
+          label={(v) => translateVariant(language.t, v)}
+          onSelect={(v) => {
+            if (!actionReady() || !v) return
+            local.model.variant.set(v === "default" ? undefined : v)
+          }}
+          onOpenChange={(open) => {
+            setVariantOpen(open)
+            if (!open) restoreFocus()
+          }}
+          variant="ghost"
+          size="normal"
+          disabled={!actionReady()}
+          triggerStyle={triggerStyle()}
+          triggerProps={{
+            "data-action": "prompt-model-variant",
+            "aria-haspopup": "menu",
+            class:
+              "max-w-[160px] @max-[20rem]/composer:max-w-[80px] text-13-regular! text-fg-base",
+          }}
+        />
       </TooltipKeybind>
     </div>
   )

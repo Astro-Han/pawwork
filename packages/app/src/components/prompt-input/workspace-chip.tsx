@@ -44,10 +44,11 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
         {
           type: "button",
           "data-action": "prompt-workspace",
+          "data-picker-trigger": "",
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "h-[28px] px-1.5 inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-colors hover:bg-surface-list-hover",
+            "px-1.5 inline-flex items-center gap-1.5 text-13-regular text-fg-base",
           style: props.style,
         } as any
       }
@@ -58,7 +59,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           <Icon name="chevron-down" size="small" class="shrink-0 text-fg-weak" />
         </>
       }
-      class="min-w-56 max-w-xs bg-surface-raised"
+      class="min-w-56 max-w-xs"
     >
       <div role="menu" aria-label={language.t("workspace.chip.popover.title")}>
         <div class="px-2 pt-0.5 pb-2 text-13-regular text-fg-weak">
@@ -68,6 +69,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           when={workspaces().length > 0}
           fallback={<div class="px-2 py-2 text-13-regular text-fg-weak">{language.t("workspace.chip.empty")}</div>}
         >
+          <div class="flex flex-col gap-0.5">
           <For each={workspaces()}>
             {(workspace) => {
               const active = createMemo(() => {
@@ -79,32 +81,31 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                   type="button"
                   role="menuitemradio"
                   aria-checked={active()}
-                  classList={{
-                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular outline-none transition-colors hover:bg-surface-list-hover focus-visible:bg-surface-list-hover":
-                      true,
-                    "bg-surface-interactive-base font-medium hover:bg-surface-interactive-base focus-visible:bg-surface-interactive-base":
-                      active(),
-                  }}
+                  data-picker-item=""
+                  data-selected={active() ? "true" : undefined}
+                  class="flex w-full items-center text-left outline-none"
                   onClick={() => {
                     navigate(`/${base64Encode(workspace.path)}/session`)
                     setOpen(false)
                   }}
                 >
                   <Icon name="folder" size="small" class="shrink-0 text-fg-weak" />
-                  <span class="min-w-0 flex-1 truncate text-fg-strong">
+                  <span class="min-w-0 flex-1 truncate">
                     {getFilename(workspace.path)}
                   </span>
                 </button>
               )
             }}
           </For>
+          </div>
         </Show>
         <div class="mt-1 border-t border-border-weaker pt-1">
           <button
             type="button"
             role="menuitem"
             data-action="workspace-chip-add"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-base outline-none hover:bg-surface-list-hover focus-visible:bg-surface-list-hover"
+            data-picker-item=""
+            class="flex w-full items-center text-left outline-none"
             onClick={() => {
               setOpen(false)
               layoutPage.openProject()
