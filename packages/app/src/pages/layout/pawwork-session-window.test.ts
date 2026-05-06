@@ -141,6 +141,23 @@ describe("buildPawworkSessionWindow", () => {
     expect(result.sessions.map((item) => item.id)).toEqual(["root"])
   })
 
+  test("keeps the active child parent root visible when it is outside the normal window", () => {
+    const root = session("old_root", 1)
+    const child = session("child", 200, { parentID: root.id })
+    const activeRoot = pawworkSessionWindowActiveRoot(child, root)
+
+    const result = buildPawworkSessionWindow({
+      normal: [],
+      pinned: [],
+      active: activeRoot,
+      limit: 30,
+      hasMore: true,
+    })
+
+    expect(result.normalIDs).toEqual([])
+    expect(result.sessions.map((item) => item.id)).toEqual(["old_root"])
+  })
+
   test("shows search prompt instead of show more at the cap", () => {
     const normal = Array.from({ length: 90 }, (_, index) => session(`ses_${index}`, 10_000 - index))
 
