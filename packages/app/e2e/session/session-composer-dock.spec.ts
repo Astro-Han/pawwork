@@ -213,6 +213,17 @@ async function submitVisiblePrompt(page: Page, text: string) {
   await page.keyboard.press("Enter")
 }
 
+async function readPromptSend(page: Page) {
+  return page.evaluate(() => {
+    const win = window as ComposerWindow
+    const sent = win.__opencode_e2e?.prompt?.sent
+    return {
+      count: sent?.count ?? 0,
+      sessionID: sent?.sessionID,
+    }
+  })
+}
+
 async function scrollTimelineToBottom(page: Page) {
   await page.evaluate(() => {
     const viewport = document.querySelector('[data-component="scroll-viewport"]')
@@ -1068,6 +1079,32 @@ test("todo dock appears from real todowrite tool parts", async ({ page, llm, pro
     },
     { trackSession: project.trackSession },
   )
+})
+
+test("todo dock appears for the first todowrite in a fresh session", async ({ page, llm, project }) => {
+  await project.open()
+
+  await llm.tool("todowrite", {
+    todos: [
+      { content: "fresh first todo", status: "in_progress", priority: "high" },
+      { content: "fresh follow-up todo", status: "pending", priority: "medium" },
+    ],
+  })
+  await llm.text("fresh todo started")
+
+  const before = await readPromptSend(page)
+  await submitVisiblePrompt(page, "Create todos in a fresh session.")
+  const sent = await expect
+    .poll(async () => readPromptSend(page), { timeout: 30_000 })
+    .toMatchObject({ count: before.count + 1 })
+    .then(() => readPromptSend(page))
+  if (!sent.sessionID) throw new Error("Prompt submission did not expose a session id")
+
+  const dock = page.locator('[data-component="session-todo-dock"]')
+
+  await expect(dock).toHaveCount(1, { timeout: 30_000 })
+  await expect(dock).toContainText("fresh first todo", { timeout: 30_000 })
+  project.trackSession(sent.sessionID)
 })
 
 test("todo dock recovers after missed todowrite via SSE replay", async ({ page, llm, project }) => {
