@@ -101,6 +101,9 @@ test("session timeline visible content is not narrower than composer shell", asy
 
   await assertWidthContract()
 
+  await page.setViewportSize({ width: 893, height: 776 })
+  await assertWidthContract({ maxComposerColumn: 720 })
+
   await page.setViewportSize({ width: 1600, height: 1000 })
   await assertWidthContract({ maxComposerColumn: 920, minTimelineComposerDelta: 80 })
 })
