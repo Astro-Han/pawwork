@@ -48,6 +48,7 @@ const REPLAYABLE_EVENT_TYPES = new Set([
   "session.updated",
   "session.deleted",
   "session.status",
+  "todo.updated",
   "server.instance.disposed",
 ])
 

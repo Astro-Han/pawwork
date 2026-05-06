@@ -46,6 +46,7 @@ describe("isReplayableGlobalEvent", () => {
     expect(isReplayableGlobalEvent(event("session.updated"))).toBe(true)
     expect(isReplayableGlobalEvent(event("session.deleted"))).toBe(true)
     expect(isReplayableGlobalEvent(event("session.status"))).toBe(true)
+    expect(isReplayableGlobalEvent(event("todo.updated"))).toBe(true)
     expect(isReplayableGlobalEvent(event("server.instance.disposed"))).toBe(true)
   })
 
@@ -53,7 +54,6 @@ describe("isReplayableGlobalEvent", () => {
     expect(isReplayableGlobalEvent(event("message.part.delta"))).toBe(false)
     expect(isReplayableGlobalEvent(event("message.part.updated"))).toBe(false)
     expect(isReplayableGlobalEvent(event("message.updated"))).toBe(false)
-    expect(isReplayableGlobalEvent(event("todo.updated"))).toBe(false)
     expect(isReplayableGlobalEvent(event("lsp.updated"))).toBe(false)
     expect(isReplayableGlobalEvent(event("vcs.branch.updated"))).toBe(false)
   })

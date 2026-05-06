@@ -1070,6 +1070,34 @@ test("todo dock appears from real todowrite tool parts", async ({ page, llm, pro
   )
 })
 
+test("todo dock recovers after missed todowrite via SSE replay", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock todowrite replay",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+
+      const stream = globalEventStream(page)
+      await expect.poll(stream.cursor, { timeout: 10_000 }).toMatch(/:/)
+      await stream.stop()
+
+      await llm.tool("todowrite", {
+        todos: [{ content: "missed live todo", status: "in_progress", priority: "high" }],
+      })
+      await llm.text("todo started while stream was stopped")
+      await project.prompt("Create a todo while the event stream is paused.")
+
+      await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0, { timeout: 750 })
+      await stream.start()
+
+      await dock.expectCollapsed(["in_progress"])
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("todo dock stays hidden when landing on an already completed session", async ({ page, project }) => {
   await project.open()
   await withDockSession(
