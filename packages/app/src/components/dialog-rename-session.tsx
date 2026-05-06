@@ -21,6 +21,8 @@ export function DialogRenameSession(props: {
     try {
       await props.onConfirm(next)
       dialog.close()
+    } catch (err) {
+      console.error("Failed to rename session", err)
     } finally {
       setSaving(false)
     }
