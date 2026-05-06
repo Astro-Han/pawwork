@@ -146,6 +146,7 @@ describe("state-matrix: Switch", () => {
     expect(switchSrc).toContain("{...others}")
     // checked is not in splitProps local list (so it flows through).
     const splitMatch = switchSrc.match(/splitProps\(props,\s*\[([^\]]+)\]/)
+    expect(splitMatch).not.toBeNull()
     const splitList = splitMatch![1]
     expect(splitList).not.toContain('"checked"')
   })
