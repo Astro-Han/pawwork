@@ -8,10 +8,26 @@ import { type ProviderMetadata, type LanguageModelUsage } from "ai"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Installation } from "../installation"
 
-import { Database, NotFoundError, eq, and, or, gte, isNull, desc, asc, like, inArray, lt, gt, sql } from "../storage/db"
+import {
+  Database,
+  NotFoundError,
+  eq,
+  and,
+  or,
+  gte,
+  isNull,
+  desc,
+  asc,
+  like,
+  inArray,
+  lt,
+  gt,
+  sql,
+  getTableColumns,
+} from "../storage/db"
 import { SyncEvent } from "../sync"
 import type { SQL } from "../storage/db"
-import { PartTable, SessionTable } from "./session.sql"
+import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
 import { Storage } from "@/storage/storage"
 import { Log } from "@opencode-ai/core/util/log"
@@ -51,6 +67,10 @@ export function isDefaultTitle(title: string) {
 }
 
 type SessionRow = typeof SessionTable.$inferSelect
+type GlobalListRow = SessionRow & {
+  activityAt?: number
+  lastUserMessageAt?: number | null
+}
 type ProjectFallback = { worktree?: string | null; vcs?: string | null }
 
 function legacyExecutionContext(row: SessionRow, project: ProjectFallback | undefined) {
@@ -278,6 +298,8 @@ export type ProjectInfo = z.output<typeof ProjectInfo>
 
 export const GlobalInfo = Info.extend({
   project: ProjectInfo.nullable(),
+  activityAt: z.number().optional(),
+  lastUserMessageAt: z.number().optional(),
 }).meta({
   ref: "GlobalSession",
 })
@@ -1012,18 +1034,63 @@ export const findActiveWorktreeBinding = fn(FindActiveWorktreeBindingInput, (dir
   runPromise((svc) => svc.findActiveWorktreeBinding(directory)),
 )
 
-type ListSort = "updated" | "created"
+type SessionListSort = "updated" | "created"
+type GlobalListSort = SessionListSort | "activity"
 type GlobalListCursor =
   | number
   | {
       created: number
       id: SessionID
     }
+  | {
+      activityAt: number
+      id: SessionID
+    }
 
-function sessionOrder(sort: ListSort) {
-  return sort === "created"
-    ? [desc(SessionTable.time_created), asc(SessionTable.id)]
-    : [desc(SessionTable.time_updated), desc(SessionTable.id)]
+function sessionOrder(sort: SessionListSort) {
+  if (sort === "created") return [desc(SessionTable.time_created), asc(SessionTable.id)]
+  return [desc(SessionTable.time_updated), desc(SessionTable.id)]
+}
+
+const lastUserMessageAtExpr = sql<number | null>`(
+  select max(${MessageTable.time_created})
+  from ${MessageTable}
+  where ${MessageTable.session_id} = ${SessionTable.id}
+    and json_extract(${MessageTable.data}, '$.role') = 'user'
+    and not exists (
+      select 1
+      from ${PartTable}
+      where ${PartTable.message_id} = ${MessageTable.id}
+        and ${PartTable.session_id} = ${SessionTable.id}
+        and json_extract(${PartTable.data}, '$.type') = 'compaction'
+    )
+    and not (
+      exists (
+        select 1
+        from ${PartTable}
+        where ${PartTable.message_id} = ${MessageTable.id}
+          and ${PartTable.session_id} = ${SessionTable.id}
+          and json_extract(${PartTable.data}, '$.synthetic') = 1
+      )
+      and not exists (
+        select 1
+        from ${PartTable}
+        where ${PartTable.message_id} = ${MessageTable.id}
+          and ${PartTable.session_id} = ${SessionTable.id}
+          and (
+            json_extract(${PartTable.data}, '$.synthetic') is null
+            or json_extract(${PartTable.data}, '$.synthetic') != 1
+          )
+      )
+    )
+)`
+
+const activityAtExpr = sql<number>`coalesce(${lastUserMessageAtExpr}, ${SessionTable.time_created})`
+
+const activitySelect = {
+  ...getTableColumns(SessionTable),
+  activityAt: activityAtExpr,
+  lastUserMessageAt: lastUserMessageAtExpr,
 }
 
 export function* list(input?: {
@@ -1033,7 +1100,7 @@ export function* list(input?: {
   start?: number
   search?: string
   limit?: number
-  sort?: ListSort
+  sort?: SessionListSort
 }) {
   const project = Instance.project
   const conditions = [eq(SessionTable.project_id, project.id)]
@@ -1094,7 +1161,7 @@ export function* listGlobal(input?: {
   search?: string
   limit?: number
   archived?: boolean
-  sort?: ListSort
+  sort?: GlobalListSort
 }) {
   const conditions: SQL[] = []
   const sort = input?.sort ?? "updated"
@@ -1110,7 +1177,7 @@ export function* listGlobal(input?: {
   }
   if (input?.cursor !== undefined) {
     if (sort === "created") {
-      if (typeof input.cursor !== "number") {
+      if (typeof input.cursor !== "number" && "created" in input.cursor) {
         conditions.push(
           or(
             lt(SessionTable.time_created, input.cursor.created),
@@ -1120,9 +1187,19 @@ export function* listGlobal(input?: {
       } else {
         // Numeric cursors are invalid for created-order pagination and are ignored.
       }
+    } else if (sort === "activity") {
+      if (typeof input.cursor !== "number" && "activityAt" in input.cursor) {
+        conditions.push(
+          or(
+            lt(activityAtExpr, input.cursor.activityAt),
+            and(eq(activityAtExpr, input.cursor.activityAt), gt(SessionTable.id, input.cursor.id)),
+          )!,
+        )
+      }
     } else {
-      const cursor = typeof input.cursor === "number" ? input.cursor : input.cursor.created
-      conditions.push(lt(SessionTable.time_updated, cursor))
+      if (typeof input.cursor === "number" && Number.isFinite(input.cursor)) {
+        conditions.push(lt(SessionTable.time_updated, input.cursor))
+      }
     }
   }
   if (input?.search) {
@@ -1138,15 +1215,18 @@ export function* listGlobal(input?: {
     const query =
       conditions.length > 0
         ? db
-            .select()
+            .select(sort === "activity" ? activitySelect : getTableColumns(SessionTable))
             .from(SessionTable)
             .where(and(...conditions))
-        : db.select().from(SessionTable)
-    const order = sessionOrder(sort)
+        : db
+            .select(sort === "activity" ? activitySelect : getTableColumns(SessionTable))
+            .from(SessionTable)
+    const order =
+      sort === "activity" ? [desc(activityAtExpr), asc(SessionTable.id)] : sessionOrder(sort)
     return query
       .orderBy(...order)
       .limit(limit)
-      .all()
+      .all() as GlobalListRow[]
   })
 
   const ids = [...new Set(rows.map((row) => row.project_id))]
@@ -1178,6 +1258,13 @@ export function* listGlobal(input?: {
 
   for (const row of rows) {
     const project = projects.get(row.project_id) ?? null
-    yield { ...fromRow(row, projectFallbacks.get(row.project_id)), project }
+    const activity = sort === "activity" ? { activityAt: row.activityAt } : {}
+    const lastUserMessageAt =
+      sort === "activity"
+        ? (row.lastUserMessageAt ?? (row.activityAt !== row.time_created ? row.activityAt : undefined))
+        : undefined
+    const lastUserMessage =
+      lastUserMessageAt !== null && lastUserMessageAt !== undefined ? { lastUserMessageAt } : {}
+    yield { ...fromRow(row, projectFallbacks.get(row.project_id)), project, ...activity, ...lastUserMessage }
   }
 }

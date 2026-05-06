@@ -138,6 +138,33 @@ describe("session.listGlobal", () => {
     }),
   )
 
+  test("ignores object cursors for default updated ordering", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const originalNow = Date.now
+    try {
+      Date.now = () => 1_000
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await svc.create({ title: "object-cursor-a" })
+          await svc.create({ title: "object-cursor-b" })
+        },
+      })
+
+      const sessions = [
+        ...svc.listGlobal({
+          directory: tmp.path,
+          limit: 10,
+          cursor: { activityAt: 1_000, id: "ses_00000000000000000000000000" } as never,
+        }),
+      ]
+
+      expect(sessions.map((session) => session.title).sort()).toEqual(["object-cursor-a", "object-cursor-b"])
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
   it.live(
     "orders global sessions by creation time when requested",
     Effect.promise(async () => {

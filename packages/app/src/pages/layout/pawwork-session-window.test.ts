@@ -1,21 +1,22 @@
 import { describe, expect, test } from "bun:test"
-import type { Session } from "@opencode-ai/sdk/v2/client"
 import {
   PAWWORK_SESSION_WINDOW_INITIAL,
   PAWWORK_SESSION_WINDOW_MAX,
   PAWWORK_SESSION_WINDOW_STEP,
+  type PawworkWindowSession,
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
   sortPawworkSessionWindowSessions,
 } from "./pawwork-session-window"
 
-const session = (id: string, created: number, directory = "/repo") =>
+const session = (id: string, created: number, directory = "/repo", activityAt?: number) =>
   ({
     id,
     directory,
     title: id,
     time: { created, updated: created },
-  }) as Session
+    activityAt,
+  }) as PawworkWindowSession
 
 describe("nextPawworkSessionWindowLimit", () => {
   test("moves 30 to 60 to 90 and caps there", () => {
@@ -29,16 +30,16 @@ describe("nextPawworkSessionWindowLimit", () => {
 })
 
 describe("buildPawworkSessionWindow", () => {
-  test("sorts the normal window by creation time before applying the limit", () => {
+  test("sorts the normal window by activity time before applying the limit", () => {
     const result = buildPawworkSessionWindow({
-      normal: [session("old", 1), session("new", 3), session("middle", 2)],
+      normal: [session("old-active", 1, "/repo", 5), session("new-inactive", 3, "/repo", 3), session("middle", 2, "/repo", 4)],
       pinned: [],
       active: undefined,
       limit: 30,
       hasMore: false,
     })
 
-    expect(result.normalIDs).toEqual(["new", "middle", "old"])
+    expect(result.normalIDs).toEqual(["old-active", "middle", "new-inactive"])
   })
 
   test("keeps the normal window capped while preserving pinned and active sessions", () => {
@@ -101,6 +102,15 @@ describe("buildPawworkSessionWindow", () => {
 })
 
 describe("sortPawworkSessionWindowSessions", () => {
+  test("uses activity time before creation time", () => {
+    expect(
+      sortPawworkSessionWindowSessions([
+        session("newer-created", 3, "/repo", 3),
+        session("older-with-user-activity", 1, "/repo", 5),
+      ]).map((item) => item.id),
+    ).toEqual(["older-with-user-activity", "newer-created"])
+  })
+
   test("uses id as the creation-time tiebreaker", () => {
     expect(sortPawworkSessionWindowSessions([session("z", 1), session("a", 1)]).map((item) => item.id)).toEqual([
       "a",

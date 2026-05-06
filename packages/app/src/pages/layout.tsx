@@ -87,6 +87,7 @@ import { createShellNavigation } from "./layout/shell-navigation"
 import {
   buildPawworkSessionWindow,
   nextPawworkSessionWindowLimit,
+  type PawworkWindowSession,
   PAWWORK_SESSION_WINDOW_INITIAL,
   sortPawworkSessionWindowSessions,
 } from "./layout/pawwork-session-window"
@@ -524,9 +525,9 @@ export default function Layout(props: ParentProps) {
 
   const [pawworkSessionWindowState, setPawworkSessionWindowState] = createStore({
     limit: PAWWORK_SESSION_WINDOW_INITIAL,
-    normal: [] as Session[],
-    pinned: [] as Session[],
-    active: undefined as Session | undefined,
+    normal: [] as PawworkWindowSession[],
+    pinned: [] as PawworkWindowSession[],
+    active: undefined as PawworkWindowSession | undefined,
     hasMore: false,
     loading: false,
   })
@@ -581,9 +582,25 @@ export default function Layout(props: ParentProps) {
         const [store] = globalSync.child(session.directory, { bootstrap: false, pin: false })
         return store.message[session.id]
       },
+      partsForMessage: (session, messageID) => {
+        const [store] = globalSync.child(session.directory, { bootstrap: false, pin: false })
+        return store.part[messageID]
+      },
     })
     return sortPawworkSidebarSessions(rows.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
   })
+
+  const mergePawworkWindowSessionMetadata = (
+    session: Session | PawworkWindowSession,
+    existing?: PawworkWindowSession,
+  ): PawworkWindowSession => {
+    const next = session as PawworkWindowSession
+    return {
+      ...session,
+      activityAt: next.activityAt ?? existing?.activityAt,
+      lastUserMessageAt: next.lastUserMessageAt ?? existing?.lastUserMessageAt,
+    }
+  }
 
   async function loadPawworkSessionWindow() {
     if (!pageReady()) return
@@ -595,17 +612,33 @@ export default function Layout(props: ParentProps) {
       const response = await globalSDK.client.experimental.session.list({
         roots: true,
         limit: pawworkSessionWindowState.limit,
-        sort: "created",
+        sort: "activity",
       })
       if (rev !== pawworkSessionWindowRev) return
-      const normal = ((response.data ?? []) as Session[]).filter((session) => !session.time?.archived)
+      const normal = ((response.data ?? []) as PawworkWindowSession[]).filter((session) => !session.time?.archived)
       const loaded = new Map(normal.map((session) => [session.id, session]))
+      const existing = new Map(
+        [
+          ...pawworkSessionWindowState.normal,
+          ...pawworkSessionWindowState.pinned,
+          ...(pawworkSessionWindowState.active ? [pawworkSessionWindowState.active] : []),
+        ].map((session) => [session.id, session] as const),
+      )
       const pinned = (
         await Promise.all(
-          store.pawworkPinnedSessions.map(async (id) => loaded.get(id) ?? (await loadSessionByID(id))),
+          store.pawworkPinnedSessions.map(async (id) => {
+            const session = loaded.get(id) ?? (await loadSessionByID(id))
+            return session ? mergePawworkWindowSessionMetadata(session, existing.get(id)) : undefined
+          }),
         )
-      ).filter((session): session is Session => !!session)
-      const active = params.id ? (loaded.get(params.id) ?? (await loadSessionByID(params.id))) : undefined
+      ).filter((session): session is PawworkWindowSession => !!session)
+      const activeID = params.id
+      const active = activeID
+        ? await (async () => {
+            const session = loaded.get(activeID) ?? (await loadSessionByID(activeID))
+            return session ? mergePawworkWindowSessionMetadata(session, existing.get(activeID)) : undefined
+          })()
+        : undefined
 
       if (rev !== pawworkSessionWindowRev) return
       batch(() => {
@@ -644,17 +677,20 @@ export default function Layout(props: ParentProps) {
 
   const upsertPawworkWindowSession = (info: Session) => {
     if (info.parentID || info.time?.archived) return
+    const mergeWindowSession = (current: PawworkWindowSession[]) => {
+      const existing = current.find((session) => session.id === info.id)
+      const next = mergePawworkWindowSessionMetadata(info, existing)
+      return sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), next])
+    }
     batch(() => {
-      setPawworkSessionWindowState("normal", (current) =>
-        sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), info]),
-      )
+      setPawworkSessionWindowState("normal", mergeWindowSession)
       if (store.pawworkPinnedSessions.includes(info.id)) {
-        setPawworkSessionWindowState("pinned", (current) =>
-          sortPawworkSessionWindowSessions([...current.filter((session) => session.id !== info.id), info]),
-        )
+        setPawworkSessionWindowState("pinned", mergeWindowSession)
       }
       if (params.id === info.id) {
-        setPawworkSessionWindowState("active", info)
+        setPawworkSessionWindowState("active", (current) =>
+          current?.id === info.id ? mergePawworkWindowSessionMetadata(info, current) : mergePawworkWindowSessionMetadata(info),
+        )
       }
     })
   }

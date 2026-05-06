@@ -1,13 +1,16 @@
-import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { GlobalSession, Session } from "@opencode-ai/sdk/v2/client"
+
+export type PawworkWindowSession = Session & Pick<GlobalSession, "activityAt" | "lastUserMessageAt">
 
 export const PAWWORK_SESSION_WINDOW_INITIAL = 30
 export const PAWWORK_SESSION_WINDOW_STEP = 30
 export const PAWWORK_SESSION_WINDOW_MAX = 90
 
-const byID = (a: Session, b: Session) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-const byCreatedDesc = (a: Session, b: Session) => {
-  const created = b.time.created - a.time.created
-  if (created !== 0) return created
+const byID = (a: PawworkWindowSession, b: PawworkWindowSession) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+const sessionActivityTime = (session: PawworkWindowSession) => session.activityAt ?? session.time.created
+const byActivityDesc = (a: PawworkWindowSession, b: PawworkWindowSession) => {
+  const activity = sessionActivityTime(b) - sessionActivityTime(a)
+  if (activity !== 0) return activity
   return byID(a, b)
 }
 
@@ -18,8 +21,8 @@ export function nextPawworkSessionWindowLimit(current: number) {
   )
 }
 
-export function mergeSessionsByID(...lists: Array<Session[] | undefined>) {
-  const map = new Map<string, Session>()
+export function mergeSessionsByID(...lists: Array<PawworkWindowSession[] | undefined>) {
+  const map = new Map<string, PawworkWindowSession>()
   for (const list of lists) {
     for (const item of list ?? []) {
       if (!item?.id || item.time?.archived) continue
@@ -29,14 +32,14 @@ export function mergeSessionsByID(...lists: Array<Session[] | undefined>) {
   return [...map.values()].sort(byID)
 }
 
-export function sortPawworkSessionWindowSessions(sessions: Session[]) {
-  return sessions.filter((item) => !!item?.id && !item.time?.archived).slice().sort(byCreatedDesc)
+export function sortPawworkSessionWindowSessions(sessions: PawworkWindowSession[]) {
+  return sessions.filter((item) => !!item?.id && !item.time?.archived).slice().sort(byActivityDesc)
 }
 
 export function buildPawworkSessionWindow(input: {
-  normal: Session[]
-  pinned: Session[]
-  active?: Session
+  normal: PawworkWindowSession[]
+  pinned: PawworkWindowSession[]
+  active?: PawworkWindowSession
   limit: number
   hasMore: boolean
 }) {
