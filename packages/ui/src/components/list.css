@@ -59,12 +59,13 @@
   [data-slot="list-search"] {
     display: flex;
     flex: 1;
-    padding: 8px;
+    padding: 10px 12px;
     align-items: center;
     gap: 12px;
 
-    border-radius: var(--radius-md);
-    background: var(--surface-base);
+    border-radius: 0;
+    background: transparent;
+    border-bottom: 1px solid var(--border-weaker);
 
     [data-slot="list-search-container"] {
       display: flex;
