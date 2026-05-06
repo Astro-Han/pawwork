@@ -7,6 +7,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import { zod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import { QuestionID } from "./schema"
+import { SessionBlocker } from "@/session/blocker"
 
 export namespace Question {
   const log = Log.create({ service: "question" })
@@ -133,6 +134,12 @@ export namespace Question {
   class Rejected extends Schema.Class<Rejected>("QuestionRejected")({
     sessionID: SessionID,
     requestID: QuestionID,
+    reason: Schema.Union([
+      Schema.Literal("cancelled"),
+      Schema.Literal("dismissed"),
+      Schema.Literal("shutdown"),
+      Schema.Literal("rejected"),
+    ]),
   }) {
     static readonly zod = zod(this)
   }
@@ -151,9 +158,17 @@ export namespace Question {
   // without each having to inspect the cancelled flag. See #419.
   export class RejectedError extends Schema.TaggedErrorClass<RejectedError>()("QuestionRejectedError", {
     cancelled: Schema.optional(Schema.Boolean),
+    reason: Schema.optional(
+      Schema.Union([
+        Schema.Literal("cancelled"),
+        Schema.Literal("dismissed"),
+        Schema.Literal("shutdown"),
+        Schema.Literal("rejected"),
+      ]),
+    ),
   }) {
     override get message() {
-      return this.cancelled
+      return this.cancelled || this.reason === "cancelled" || this.reason === "shutdown"
         ? "Question cancelled before the user answered it."
         : "The user dismissed this question"
     }
@@ -191,6 +206,7 @@ export namespace Question {
     Service,
     Effect.gen(function* () {
       const bus = yield* Bus.Service
+      const blockers = yield* SessionBlocker.Service
       const state = yield* InstanceState.make<State>(
         Effect.fn("Question.state")(function* () {
           const state = {
@@ -200,7 +216,13 @@ export namespace Question {
           yield* Effect.addFinalizer(() =>
             Effect.gen(function* () {
               for (const item of state.pending.values()) {
-                yield* Deferred.fail(item.deferred, new RejectedError({ cancelled: true }))
+                yield* blockers.removeQuestion({ requestID: item.info.id, reason: "shutdown" })
+                yield* bus.publish(Event.Rejected, {
+                  sessionID: item.info.sessionID,
+                  requestID: item.info.id,
+                  reason: "shutdown",
+                })
+                yield* Deferred.fail(item.deferred, new RejectedError({ cancelled: true, reason: "shutdown" }))
               }
               state.pending.clear()
             }),
@@ -252,6 +274,7 @@ export namespace Question {
         // checks against the original prompt.
         const info = structuredClone(decoded)
         pending.set(id, { info, deferred })
+        yield* blockers.upsertQuestion(info)
         // Publish a fresh clone so subscribers can't reach back through the
         // event payload to mutate the pending entry either.
         yield* bus.publish(Event.Asked, structuredClone(info))
@@ -277,8 +300,9 @@ export namespace Question {
           Effect.runFork(
             Effect.provide(
               Effect.gen(function* () {
-                yield* bus.publish(Event.Rejected, { sessionID, requestID: id })
-                yield* Deferred.fail(entry.deferred, new RejectedError({ cancelled: true }))
+                yield* blockers.removeQuestion({ requestID: id, reason: "cancelled" })
+                yield* bus.publish(Event.Rejected, { sessionID, requestID: id, reason: "cancelled" })
+                yield* Deferred.fail(entry.deferred, new RejectedError({ cancelled: true, reason: "cancelled" }))
               }).pipe(
                 Effect.catchCause((cause) =>
                   Effect.sync(() =>
@@ -310,7 +334,8 @@ export namespace Question {
               if (!pending.has(id)) return
               pending.delete(id)
               log.info("rejected", { requestID: id, reason: "interrupted" })
-              yield* bus.publish(Event.Rejected, { sessionID, requestID: id })
+              yield* blockers.removeQuestion({ requestID: id, reason: "shutdown" })
+              yield* bus.publish(Event.Rejected, { sessionID, requestID: id, reason: "shutdown" })
             }),
           ),
           Effect.ensuring(
@@ -345,7 +370,13 @@ export namespace Question {
             got: input.answers.length,
           })
           pending.delete(input.requestID)
-          yield* Deferred.fail(existing.deferred, new RejectedError())
+          yield* blockers.removeQuestion({ requestID: input.requestID, reason: "rejected" })
+          yield* bus.publish(Event.Rejected, {
+            sessionID: existing.info.sessionID,
+            requestID: existing.info.id,
+            reason: "rejected",
+          })
+          yield* Deferred.fail(existing.deferred, new RejectedError({ reason: "rejected" }))
           return
         }
         // Trim every answer string so " " / "\t" can't masquerade as a real
@@ -376,7 +407,13 @@ export namespace Question {
               answer,
             })
             pending.delete(input.requestID)
-            yield* Deferred.fail(existing.deferred, new RejectedError())
+            yield* blockers.removeQuestion({ requestID: input.requestID, reason: "rejected" })
+            yield* bus.publish(Event.Rejected, {
+              sessionID: existing.info.sessionID,
+              requestID: existing.info.id,
+              reason: "rejected",
+            })
+            yield* Deferred.fail(existing.deferred, new RejectedError({ reason: "rejected" }))
             return
           }
           const validLabels = new Set(q.options.map((o) => o.label))
@@ -392,7 +429,13 @@ export namespace Question {
                   validLabels: [...validLabels],
                 })
                 pending.delete(input.requestID)
-                yield* Deferred.fail(existing.deferred, new RejectedError())
+                yield* blockers.removeQuestion({ requestID: input.requestID, reason: "rejected" })
+                yield* bus.publish(Event.Rejected, {
+                  sessionID: existing.info.sessionID,
+                  requestID: existing.info.id,
+                  reason: "rejected",
+                })
+                yield* Deferred.fail(existing.deferred, new RejectedError({ reason: "rejected" }))
                 return
               }
             }
@@ -400,6 +443,7 @@ export namespace Question {
         }
 
         pending.delete(input.requestID)
+        yield* blockers.removeQuestion({ requestID: input.requestID, reason: "replied" })
         log.info("replied", { requestID: input.requestID, answers: trimmedAnswers })
         yield* bus.publish(Event.Replied, {
           sessionID: existing.info.sessionID,
@@ -418,11 +462,13 @@ export namespace Question {
         }
         pending.delete(requestID)
         log.info("rejected", { requestID })
+        yield* blockers.removeQuestion({ requestID, reason: "dismissed" })
         yield* bus.publish(Event.Rejected, {
           sessionID: existing.info.sessionID,
           requestID: existing.info.id,
+          reason: "dismissed",
         })
-        yield* Deferred.fail(existing.deferred, new RejectedError())
+        yield* Deferred.fail(existing.deferred, new RejectedError({ reason: "dismissed" }))
       })
 
       const list = Effect.fn("Question.list")(function* () {
@@ -436,5 +482,5 @@ export namespace Question {
     }),
   )
 
-  export const defaultLayer = layer.pipe(Layer.provide(Bus.layer))
+  export const defaultLayer = layer.pipe(Layer.provide(SessionBlocker.defaultLayer), Layer.provide(Bus.layer))
 }

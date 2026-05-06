@@ -78,6 +78,7 @@ const baseState = (input: Partial<State> = {}) =>
     todo: {},
     permission: {},
     question: {},
+    blocker: {},
     mcp: {},
     lsp: [],
     vcs: undefined,
@@ -524,6 +525,117 @@ describe("applyDirectoryEvent", () => {
     })
 
     expect(store.question.ses_1).toBeUndefined()
+  })
+
+  test("tracks question blocker lifecycle", () => {
+    const sessionID = "ses_1"
+    const [store, setStore] = createStore(
+      baseState({
+        blocker: {
+          [sessionID]: [
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID,
+              requestID: "q_1",
+              request: questionRequest("q_1", sessionID),
+              armedAt: 1,
+              updatedAt: 1,
+            },
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID,
+              requestID: "q_3",
+              request: questionRequest("q_3", sessionID),
+              armedAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: {
+        type: "session.blocker.upserted",
+        properties: {
+          kind: "question",
+          status: "awaiting_user",
+          sessionID,
+          requestID: "q_2",
+          request: questionRequest("q_2", sessionID),
+          armedAt: 1,
+          updatedAt: 1,
+        },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_1", "q_2", "q_3"])
+
+    applyDirectoryEvent({
+      event: { type: "session.blocker.removed", properties: { kind: "question", sessionID, requestID: "q_2", reason: "replied" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_1", "q_3"])
+  })
+
+  test("question terminal events clear matching stale question blockers", () => {
+    const sessionID = "ses_1"
+    const [store, setStore] = createStore(
+      baseState({
+        blocker: {
+          [sessionID]: [
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID,
+              requestID: "q_1",
+              request: questionRequest("q_1", sessionID),
+              armedAt: 1,
+              updatedAt: 1,
+            },
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID,
+              requestID: "q_2",
+              request: questionRequest("q_2", sessionID),
+              armedAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: { type: "question.replied", properties: { sessionID, requestID: "q_1" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_2"])
+
+    applyDirectoryEvent({
+      event: { type: "question.rejected", properties: { sessionID, requestID: "q_2", reason: "dismissed" } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    expect(store.blocker[sessionID]).toEqual([])
   })
 
   test("permission.replied before permission.asked prevents stale ask from reopening", () => {

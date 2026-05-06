@@ -46,6 +46,7 @@ import { Settings } from "../../src/settings"
 import { SystemPrompt } from "../../src/session/system"
 import { Todo } from "../../src/session/todo"
 import { SessionCompaction } from "../../src/session/compaction"
+import { SessionBlocker } from "../../src/session/blocker"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionRunState } from "../../src/session/run-state"
@@ -123,6 +124,7 @@ function makeHttp() {
     Plugin.defaultLayer,
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
+    SessionBlocker.defaultLayer,
     lsp,
     mcp,
     AppFileSystem.defaultLayer,

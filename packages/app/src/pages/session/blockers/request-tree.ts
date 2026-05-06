@@ -1,4 +1,5 @@
 import type { PermissionRequest, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
+import type { SessionBlockerEntry } from "@/context/global-sync/types"
 
 function sessionTreeRequest<T>(
   session: Session[],
@@ -49,4 +50,13 @@ export function sessionQuestionRequest(
   include?: (item: QuestionRequest) => boolean,
 ) {
   return sessionTreeRequest(session, request, sessionID, include)
+}
+
+export function sessionQuestionBlockerRequest(
+  session: Session[],
+  request: Record<string, SessionBlockerEntry[] | undefined>,
+  sessionID?: string,
+) {
+  return sessionTreeRequest(session, request, sessionID, (item) => item.kind === "question" && item.status === "awaiting_user")
+    ?.request
 }

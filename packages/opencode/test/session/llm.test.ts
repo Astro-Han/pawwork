@@ -5,6 +5,7 @@ import { Cause, Effect, Exit, Stream } from "effect"
 import z from "zod"
 import { makeRuntime } from "../../src/effect/run-service"
 import { LLM } from "../../src/session/llm"
+import { Question } from "../../src/question"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider"
 import { ProviderTransform } from "../../src/provider"
@@ -152,6 +153,10 @@ function timeout(ms: number) {
   return new Promise<never>((_, reject) => {
     setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms)
   })
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
 function waitStreamingRequest(pathname: string) {
@@ -576,6 +581,119 @@ describe("session.llm.stream", () => {
         await Promise.race([pending.responseCanceled, timeout(500)])
         await Promise.race([pending.requestAborted, timeout(500)]).catch(() => undefined)
         await pending.request
+        expect(Exit.isFailure(exit)).toBe(false)
+      },
+    })
+  })
+
+  test("does not count awaiting question blockers as silent provider timeout", async () => {
+    const server = state.server
+    if (!server) throw new Error("Server not initialized")
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+    const pending = waitSilentStreamingRequest("/chat/completions")
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-question-blocker-timeout")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const user = {
+          id: MessageID.make("user-question-blocker-timeout"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+        } satisfies MessageV2.User
+
+        const question = AppRuntime.runPromise(
+          Question.Service.use((svc) =>
+            svc.ask({
+              sessionID,
+              questions: [
+                {
+                  question: "Pick one",
+                  header: "Pick",
+                  options: [
+                    { label: "A", description: "first" },
+                    { label: "B", description: "second" },
+                  ],
+                },
+              ],
+            }),
+          ),
+        )
+
+        while ((await AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))).length === 0) {
+          await sleep(5)
+        }
+
+        const exitPromise = llm.runPromiseExit((svc) =>
+          svc
+            .stream({
+              user,
+              sessionID,
+              model: resolved,
+              agent,
+              system: ["You are a helpful assistant."],
+              messages: [{ role: "user", content: "Hello" }],
+              tools: {},
+              streamTimeoutMs: 20,
+            })
+            .pipe(Stream.runDrain),
+        )
+
+        await pending.request
+        const earlyExit = await Promise.race([
+          exitPromise.then(() => "completed" as const),
+          sleep(90).then(() => "open" as const),
+        ])
+        expect(earlyExit).toBe("open")
+
+        const earlyAbort = await Promise.race([
+          pending.requestAborted.then(() => "aborted" as const),
+          sleep(90).then(() => "open" as const),
+        ])
+        expect(earlyAbort).toBe("open")
+
+        const pendingQuestions = await AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))
+        await AppRuntime.runPromise(
+          Question.Service.use((svc) => svc.reply({ requestID: pendingQuestions[0]!.id, answers: [["A"]] })),
+        )
+        await expect(question).resolves.toEqual([["A"]])
+
+        await Promise.race([pending.requestAborted, timeout(500)])
+        const exit = await Promise.race([exitPromise, timeout(500)])
         expect(Exit.isFailure(exit)).toBe(false)
       },
     })

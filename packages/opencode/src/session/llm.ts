@@ -23,6 +23,7 @@ import { Installation } from "@/installation"
 import { EffectBridge } from "@/effect"
 import * as Option from "effect/Option"
 import { LLMTrace } from "./llm-trace"
+import { SessionBlocker } from "./blocker"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -61,7 +62,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/LL
 const live: Layer.Layer<
   Service,
   never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
+  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service | SessionBlocker.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -70,6 +71,7 @@ const live: Layer.Layer<
     const provider = yield* Provider.Service
     const plugin = yield* Plugin.Service
     const perm = yield* Permission.Service
+    const blockers = yield* SessionBlocker.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log
@@ -430,18 +432,42 @@ const live: Layer.Layer<
               typeof timeoutMsInput === "number" && Number.isFinite(timeoutMsInput) && timeoutMsInput > 0
                 ? timeoutMsInput
                 : SILENT_STREAM_TIMEOUT_MS
+            const ctx = yield* Effect.context<never>()
             const request = yield* Effect.acquireRelease(
               Effect.sync(() => {
                 const ctrl = new AbortController()
-                let timeout = setTimeout(() => ctrl.abort(), timeoutMs)
+                let disposed = false
+                let sequence = 0
+                let timeout: Timer | undefined
+                const arm = () => {
+                  const current = ++sequence
+                  timeout = setTimeout(() => {
+                    Effect.runPromise(
+                      Effect.provide(blockers.hasAwaitingQuestion(SessionID.make(input.sessionID)), ctx),
+                    )
+                      .then((blocked) => {
+                        if (disposed || current !== sequence) return
+                        if (blocked) {
+                          arm()
+                          return
+                        }
+                        ctrl.abort()
+                      })
+                      .catch(() => {
+                        if (!disposed && current === sequence) ctrl.abort()
+                      })
+                  }, timeoutMs)
+                }
+                arm()
                 return {
                   ctrl,
                   resetTimeout() {
-                    clearTimeout(timeout)
-                    timeout = setTimeout(() => ctrl.abort(), timeoutMs)
+                    if (timeout) clearTimeout(timeout)
+                    arm()
                   },
                   cleanup() {
-                    clearTimeout(timeout)
+                    disposed = true
+                    if (timeout) clearTimeout(timeout)
                     ctrl.abort()
                   },
                 }
@@ -455,7 +481,6 @@ const live: Layer.Layer<
             // the next provider event, not the total model runtime.
             return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e)))).pipe(
               Stream.tap(() => Effect.sync(() => request.resetTimeout())),
-              Stream.timeout(Duration.millis(timeoutMs)),
             )
           }),
         ),
@@ -467,12 +492,13 @@ const live: Layer.Layer<
 
 export const layer = live.pipe(Layer.provide(Permission.defaultLayer))
 
-export const defaultLayer = Layer.suspend(() =>
+export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(() =>
   layer.pipe(
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
+    Layer.provide(SessionBlocker.defaultLayer),
   ),
 )
 

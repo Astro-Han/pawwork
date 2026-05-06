@@ -71,6 +71,7 @@ export function cleanupDroppedSessionCaches(
     ...Object.keys(store.todo),
     ...Object.keys(store.permission),
     ...Object.keys(store.question),
+    ...Object.keys(store.blocker),
     ...Object.keys(store.session_status),
     ...Object.values(store.part)
       .map((parts) => parts?.find((part) => !!part?.sessionID)?.sessionID)
@@ -341,12 +342,61 @@ export function applyDirectoryEvent(input: {
     case "question.rejected": {
       const props = event.properties as { sessionID: string; requestID: string }
       input.blockerTerminals?.mark("question", input.directory, props.sessionID, props.requestID)
+      const blockers = input.store.blocker[props.sessionID]
+      if (blockers) {
+        const blocker = Binary.search(blockers, props.requestID, (b) => b.requestID)
+        if (blocker.found) {
+          input.setStore(
+            "blocker",
+            props.sessionID,
+            produce((draft) => {
+              draft.splice(blocker.index, 1)
+            }),
+          )
+        }
+      }
       const questions = input.store.question[props.sessionID]
       if (!questions) break
       const result = Binary.search(questions, props.requestID, (q) => q.id)
       if (!result.found) break
       input.setStore(
         "question",
+        props.sessionID,
+        produce((draft) => {
+          draft.splice(result.index, 1)
+        }),
+      )
+      break
+    }
+    case "session.blocker.upserted": {
+      const blocker = event.properties as State["blocker"][string][number]
+      const blockers = input.store.blocker[blocker.sessionID]
+      if (!blockers) {
+        input.setStore("blocker", blocker.sessionID, [blocker])
+        break
+      }
+      const result = Binary.search(blockers, blocker.requestID, (b) => b.requestID)
+      if (result.found) {
+        input.setStore("blocker", blocker.sessionID, result.index, reconcile(blocker))
+        break
+      }
+      input.setStore(
+        "blocker",
+        blocker.sessionID,
+        produce((draft) => {
+          draft.splice(result.index, 0, blocker)
+        }),
+      )
+      break
+    }
+    case "session.blocker.removed": {
+      const props = event.properties as { sessionID: string; requestID: string }
+      const blockers = input.store.blocker[props.sessionID]
+      if (!blockers) break
+      const result = Binary.search(blockers, props.requestID, (b) => b.requestID)
+      if (!result.found) break
+      input.setStore(
+        "blocker",
         props.sessionID,
         produce((draft) => {
           draft.splice(result.index, 1)

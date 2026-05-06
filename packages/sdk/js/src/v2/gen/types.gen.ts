@@ -121,6 +121,50 @@ export type EventPermissionReplied = {
   }
 }
 
+export type EventSessionBlockerUpserted = {
+  type: "session.blocker.upserted"
+  properties: {
+    kind: "question"
+    status: "awaiting_user"
+    sessionID: string
+    requestID: string
+    request: {
+      id: string
+      sessionID: string
+      questions: Array<{
+        question: string
+        header: string
+        options: Array<{
+          label: string
+          description: string
+        }>
+        multiple?: boolean
+        custom?: boolean
+      }>
+      tool?: {
+        messageID: string
+        callID: string
+      }
+    }
+    tool?: {
+      messageID: string
+      callID: string
+    }
+    armedAt: number
+    updatedAt: number
+  }
+}
+
+export type EventSessionBlockerRemoved = {
+  type: "session.blocker.removed"
+  properties: {
+    kind: "question"
+    sessionID: string
+    requestID: string
+    reason: "replied" | "cancelled" | "dismissed" | "shutdown" | "rejected"
+  }
+}
+
 export type QuestionOption = {
   /**
    * Display text (1–5 words, max 50 chars)
@@ -191,6 +235,7 @@ export type EventQuestionReplied = {
 export type QuestionRejected = {
   sessionID: string
   requestID: string
+  reason: "cancelled" | "dismissed" | "shutdown" | "rejected"
 }
 
 export type EventQuestionRejected = {
@@ -1098,6 +1143,8 @@ export type Event =
   | EventLspServerInstallFailed
   | EventPermissionAsked
   | EventPermissionReplied
+  | EventSessionBlockerUpserted
+  | EventSessionBlockerRemoved
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
@@ -5066,6 +5113,54 @@ export type QuestionRejectResponses = {
 }
 
 export type QuestionRejectResponse = QuestionRejectResponses[keyof QuestionRejectResponses]
+
+export type BlockerListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/blocker"
+}
+
+export type BlockerListResponses = {
+  /**
+   * List of active session blockers
+   */
+  200: Array<{
+    kind: "question"
+    status: "awaiting_user"
+    sessionID: string
+    requestID: string
+    request: {
+      id: string
+      sessionID: string
+      questions: Array<{
+        question: string
+        header: string
+        options: Array<{
+          label: string
+          description: string
+        }>
+        multiple?: boolean
+        custom?: boolean
+      }>
+      tool?: {
+        messageID: string
+        callID: string
+      }
+    }
+    tool?: {
+      messageID: string
+      callID: string
+    }
+    armedAt: number
+    updatedAt: number
+  }>
+}
+
+export type BlockerListResponse = BlockerListResponses[keyof BlockerListResponses]
 
 export type ProviderListData = {
   body?: never

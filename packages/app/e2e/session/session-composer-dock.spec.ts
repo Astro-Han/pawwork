@@ -137,6 +137,18 @@ async function e2ePublishQuestionAsked(project: ProjectQuestionSeed, request: Qu
   expect(response.status).toBe(204)
 }
 
+async function e2ePublishQuestionBlocker(project: ProjectQuestionSeed, request: QuestionRequest) {
+  const response = await fetch(
+    `${project.url}/blocker/__e2e/publish-upserted?directory=${encodeURIComponent(project.directory)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request }),
+    },
+  )
+  expect(response.status).toBe(204)
+}
+
 async function waitForQuestionSeed(project: ProjectQuestionSeed, sessionID: string) {
   let current: QuestionRequest | undefined
   await expect
@@ -476,6 +488,31 @@ test("question dock recovers after missed question.asked via SSE replay", async 
 
         await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 750 })
         await stream.start()
+
+        await expectQuestionBlocked(page)
+        await expect(page.locator(questionDockSelector)).toHaveCount(1)
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("question dock renders from backend blocker when question sync is missing", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock blocker question",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+
+        const request = {
+          id: "que_e2e_blocker",
+          sessionID: session.id,
+          questions: defaultQuestions,
+        } satisfies QuestionRequest
+
+        await e2ePublishQuestionBlocker(project, request)
 
         await expectQuestionBlocked(page)
         await expect(page.locator(questionDockSelector)).toHaveCount(1)

@@ -40,6 +40,8 @@ const REPLAYABLE_EVENT_TYPES = new Set([
   "question.asked",
   "question.replied",
   "question.rejected",
+  "session.blocker.upserted",
+  "session.blocker.removed",
   "permission.asked",
   "permission.replied",
   "session.created",

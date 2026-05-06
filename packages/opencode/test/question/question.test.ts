@@ -1,10 +1,11 @@
 import { afterEach, test, expect } from "bun:test"
 import { Question } from "../../src/question"
+import { SessionBlocker } from "../../src/session/blocker"
 import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { QuestionID } from "../../src/question/schema"
 import { tmpdir } from "../fixture/fixture"
-import { SessionID } from "../../src/session/schema"
+import { MessageID, SessionID } from "../../src/session/schema"
 import { AppRuntime } from "../../src/effect/app-runtime"
 
 const ask = (
@@ -18,6 +19,8 @@ const reply = (input: { requestID: QuestionID; answers: Question.Answer[] }) =>
   AppRuntime.runPromise(Question.Service.use((svc) => svc.reply(input)))
 
 const reject = (id: QuestionID) => AppRuntime.runPromise(Question.Service.use((svc) => svc.reject(id)))
+
+const listBlockers = () => AppRuntime.runPromise(SessionBlocker.Service.use((svc) => svc.list()))
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -99,6 +102,45 @@ test("ask - adds to pending list", async () => {
   })
 })
 
+test("ask - records an awaiting question blocker", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const promise = ask({
+        sessionID: SessionID.make("ses_blocker"),
+        questions: [
+          {
+            question: "Pick one",
+            header: "Pick",
+            options: [
+              { label: "A", description: "first" },
+              { label: "B", description: "second" },
+            ],
+          },
+        ],
+        tool: { messageID: MessageID.make("msg_blocker"), callID: "call_blocker" },
+      })
+
+      const pending = await list()
+      const blockers = await listBlockers()
+
+      expect(blockers).toHaveLength(1)
+      expect(blockers[0]).toMatchObject({
+        kind: "question",
+        status: "awaiting_user",
+        sessionID: SessionID.make("ses_blocker"),
+        requestID: pending[0]!.id,
+        tool: { messageID: MessageID.make("msg_blocker"), callID: "call_blocker" },
+      })
+      expect(blockers[0]!.request.id).toBe(pending[0]!.id)
+
+      await rejectAll()
+      await promise.catch(() => {})
+    },
+  })
+})
+
 // reply tests
 
 test("reply - resolves the pending ask with answers", async () => {
@@ -166,6 +208,36 @@ test("reply - removes from pending list", async () => {
 
       const after = await list()
       expect(after.length).toBe(0)
+    },
+  })
+})
+
+test("reply - clears the question blocker", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const promise = ask({
+        sessionID: SessionID.make("ses_blocker_reply"),
+        questions: [
+          {
+            question: "Pick one",
+            header: "Pick",
+            options: [
+              { label: "A", description: "first" },
+              { label: "B", description: "second" },
+            ],
+          },
+        ],
+      })
+
+      const pending = await list()
+      expect(await listBlockers()).toHaveLength(1)
+
+      await reply({ requestID: pending[0]!.id, answers: [["A"]] })
+      await promise
+
+      expect(await listBlockers()).toHaveLength(0)
     },
   })
 })
@@ -624,6 +696,49 @@ test("reject - leaves cancelled flag false (user dismiss, not session cancel)", 
       expect(result).toBeInstanceOf(Question.RejectedError)
       expect((result as Question.RejectedError).cancelled).toBeFalsy()
       expect((result as Question.RejectedError).message).toBe("The user dismissed this question")
+    },
+  })
+})
+
+test("reject - publishes question.rejected with dismissed reason and clears blocker", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const events: Array<{ sessionID: SessionID; requestID: QuestionID; reason?: string }> = []
+      const unsub = Bus.subscribe(Question.Event.Rejected, (evt) => {
+        events.push(evt.properties)
+      })
+
+      const promise = ask({
+        sessionID: SessionID.make("ses_reason"),
+        questions: [
+          {
+            question: "Dismiss me?",
+            header: "Dismiss",
+            options: [
+              { label: "Yes", description: "Yes" },
+              { label: "No", description: "No" },
+            ],
+          },
+        ],
+      })
+
+      const pending = await list()
+      expect(await listBlockers()).toHaveLength(1)
+
+      await reject(pending[0]!.id)
+      await promise.catch(() => {})
+
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        sessionID: SessionID.make("ses_reason"),
+        requestID: pending[0]!.id,
+        reason: "dismissed",
+      })
+      expect(await listBlockers()).toHaveLength(0)
+
+      unsub()
     },
   })
 })
