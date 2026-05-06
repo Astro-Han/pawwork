@@ -102,3 +102,16 @@ describe("Sheet component (issue #440)", () => {
     expect(SHEET_SRC).toContain('aria-label={i18n.t("ui.common.close")}')
   })
 })
+
+describe("Sheet — a11y label fallback when title omitted (issue #440)", () => {
+  test("SheetProps exposes optional label prop with intent doc", () => {
+    expect(SHEET_SRC).toMatch(/label\?\s*:\s*string/)
+    expect(SHEET_SRC).toMatch(/aria-label\s+fallback\s+when\s+title\s+is\s+omitted/i)
+  })
+
+  test("Kobalte.Content gets aria-label only when title is absent (avoid double labelling)", () => {
+    // When title is set, Kobalte.Title acts as aria-labelledby — adding
+    // aria-label too would double-label. Conditional on !props.title.
+    expect(SHEET_SRC).toMatch(/aria-label=\{!props\.title\s*\?\s*props\.label\s*:\s*undefined\}/)
+  })
+})

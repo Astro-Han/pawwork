@@ -9,6 +9,8 @@ export interface SheetProps extends ParentProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title?: JSXElement
+  /** aria-label fallback when title is omitted (a11y: WCAG 4.1.2). */
+  label?: string
   footer?: JSXElement
   /** Which edge the sheet slides in from. Defaults to "right". */
   side?: SheetSide
@@ -31,6 +33,7 @@ export function Sheet(props: SheetProps) {
         <div data-component="sheet" data-side={props.side ?? "right"}>
           <Kobalte.Content
             data-slot="sheet-content"
+            aria-label={!props.title ? props.label : undefined}
             class={props.class}
             classList={props.classList}
           >
