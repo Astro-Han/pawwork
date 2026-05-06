@@ -109,6 +109,44 @@ describe("pawworkSidebarSessionTime", () => {
     ).toBe(500)
   })
 
+  test("does not use known synthetic-only or compaction loaded user messages without activity metadata", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [
+          { id: "msg_1", role: "user", time: { created: 600 } },
+          { id: "msg_2", role: "user", time: { created: 500 } },
+        ],
+        (messageID) =>
+          messageID === "msg_1"
+            ? [{ type: "text", synthetic: true }]
+            : messageID === "msg_2"
+              ? [{ type: "compaction" }]
+              : undefined,
+      ),
+    ).toBe(100)
+  })
+
+  test("keeps the loose fallback when message parts are not loaded", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [{ id: "msg_1", role: "user", time: { created: 500 } }],
+        () => undefined,
+      ),
+    ).toBe(500)
+  })
+
   test("ignores user messages without a valid created time", () => {
     expect(
       pawworkSidebarSessionTime(

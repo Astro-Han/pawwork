@@ -91,9 +91,9 @@ const latestLoadedUserMessageTime = (
   for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) {
     const message = messages?.[i]
     if (message?.role !== "user") continue
-    if (requireEligibility) {
-      if (!message.id) continue
-      if (!isActivityEligibleUserMessage(partsForMessage?.(message.id))) continue
+    const parts = message.id ? partsForMessage?.(message.id) : undefined
+    if (requireEligibility || parts) {
+      if (!parts || !isActivityEligibleUserMessage(parts)) continue
     }
     const created = message.time?.created
     if (isFiniteNumber(created)) {
