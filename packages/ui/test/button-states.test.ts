@@ -88,12 +88,12 @@ describe("Button — Danger variant", () => {
     expect(BUTTON_CSS).toContain('data-variant="danger"')
   })
 
-  test("default background uses --brand-danger", () => {
-    expect(BUTTON_CSS).toContain("var(--brand-danger)")
+  test("default background uses --error (per DESIGN.md destructive token)", () => {
+    expect(BUTTON_CSS).toMatch(/data-variant="danger"[\s\S]*?background-color:\s*var\(--error\)/)
   })
 
-  test("hover background uses --brand-danger-hover", () => {
-    expect(BUTTON_CSS).toContain("var(--brand-danger-hover)")
+  test("hover background uses --error-text", () => {
+    expect(BUTTON_CSS).toMatch(/data-variant="danger"[\s\S]*?:hover[\s\S]*?background-color:\s*var\(--error-text\)/)
   })
 })
 
