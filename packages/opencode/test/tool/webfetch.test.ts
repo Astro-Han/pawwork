@@ -100,4 +100,120 @@ describe("tool.webfetch", () => {
       },
     )
   })
+
+  test("extracts text from html responses requested as text", async () => {
+    const html = [
+      "<!doctype html>",
+      "<html>",
+      "<head>",
+      "<title>ignored title</title>",
+      "<style>.hidden { display: none }</style>",
+      "<script>window.secret = 'nope'</script>",
+      "</head>",
+      "<body>",
+      "<main>",
+      "<h1>Korea visa center</h1>",
+      '<p data-note="1 > 0">Bring passport &amp; application form.</p>',
+      "</main>",
+      "</body>",
+      "</html>",
+    ].join("")
+
+    await withFetch(
+      () =>
+        new Response(html, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      async (url) => {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const result = await exec({ url: new URL("/page.html", url).toString(), format: "text" })
+            expect(result.output).toContain("Korea visa center")
+            expect(result.output).toContain("Bring passport & application form.")
+            expect(result.output).not.toContain('0">')
+            expect(result.output).not.toContain("window.secret")
+            expect(result.output).not.toContain(".hidden")
+            expect(result.attachments).toBeUndefined()
+          },
+        })
+      },
+    )
+  })
+
+  test("handles many unclosed skip tags without long synchronous processing", async () => {
+    const html = `<body>${"<script>".repeat(50_000)}visible text</body>`
+
+    await withFetch(
+      () =>
+        new Response(html, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      async (url) => {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const start = performance.now()
+            const result = await exec({ url: new URL("/hostile.html", url).toString(), format: "text" })
+            const elapsed = performance.now() - start
+
+            expect(elapsed).toBeLessThan(500)
+            expect(result.output).not.toContain("<script>")
+          },
+        })
+      },
+    )
+  })
+
+  test("handles unterminated tag openers without long synchronous processing", async () => {
+    const html = `<body>${"<".repeat(50_000)}`
+
+    await withFetch(
+      () =>
+        new Response(html, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      async (url) => {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const start = performance.now()
+            const result = await exec({ url: new URL("/raw-open.html", url).toString(), format: "text" })
+            const elapsed = performance.now() - start
+
+            expect(elapsed).toBeLessThan(500)
+            expect(result.output).toContain("<")
+          },
+        })
+      },
+    )
+  })
+
+  test("handles long whitespace runs without long synchronous normalization", async () => {
+    const html = `<body>${"\r".repeat(50_000)}visible text</body>`
+
+    await withFetch(
+      () =>
+        new Response(html, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      async (url) => {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const start = performance.now()
+            const result = await exec({ url: new URL("/whitespace.html", url).toString(), format: "text" })
+            const elapsed = performance.now() - start
+
+            expect(elapsed).toBeLessThan(500)
+            expect(result.output).toBe("visible text")
+          },
+        })
+      },
+    )
+  })
 })
