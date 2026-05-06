@@ -36,6 +36,15 @@ export function sortPawworkSessionWindowSessions(sessions: PawworkWindowSession[
   return sessions.filter((item) => !!item?.id && !item.time?.archived).slice().sort(byActivityDesc)
 }
 
+const rootSessions = (sessions: PawworkWindowSession[]) => sessions.filter((item) => !!item?.id && !item.parentID)
+
+export function pawworkSessionWindowActiveRoot(active?: PawworkWindowSession, parent?: PawworkWindowSession) {
+  if (!active?.id || active.time?.archived) return
+  if (!active.parentID) return active
+  if (parent?.id !== active.parentID || parent.time?.archived) return
+  return parent
+}
+
 export function buildPawworkSessionWindow(input: {
   normal: PawworkWindowSession[]
   pinned: PawworkWindowSession[]
@@ -48,11 +57,15 @@ export function buildPawworkSessionWindow(input: {
     ...input.pinned.map((item) => item.id),
     ...(input.active?.id ? [input.active.id] : []),
   ])
-  const normal = sortPawworkSessionWindowSessions(input.normal)
+  const normal = sortPawworkSessionWindowSessions(rootSessions(input.normal))
     .filter((item) => !reservedIDs.has(item.id))
     .slice(0, limit)
   const normalIDs = normal.map((item) => item.id)
-  const sessions = mergeSessionsByID(normal, input.pinned, input.active ? [input.active] : [])
+  const sessions = mergeSessionsByID(
+    normal,
+    rootSessions(input.pinned),
+    input.active && !input.active.parentID ? [input.active] : [],
+  )
   const capReached = limit >= PAWWORK_SESSION_WINDOW_MAX && input.hasMore
 
   return {
