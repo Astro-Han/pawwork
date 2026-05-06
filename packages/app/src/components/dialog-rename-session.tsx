@@ -28,7 +28,7 @@ export function DialogRenameSession(props: {
 
   return (
     <Dialog title={language.t("session.rename.title")} fit class="w-full max-w-[420px] mx-auto">
-      <div class="px-6 pt-2 pb-4">
+      <div class="px-6 pt-2 pb-6">
         <TextField
           label=""
           hideLabel
@@ -52,7 +52,7 @@ export function DialogRenameSession(props: {
           }
         />
       </div>
-      <div class="flex justify-end gap-2 border-t border-border-weaker bg-bg-cream px-6 py-3">
+      <div class="flex justify-end gap-2 px-6 pb-6">
         <Button variant="secondary" onClick={() => dialog.close()} disabled={saving()}>
           {language.t("common.cancel")}
         </Button>
