@@ -101,7 +101,7 @@ describe("ProviderTransform.options - setCacheKey", () => {
     expect(result.store).toBe(false)
   })
 
-  test("should set store=true for azure provider by default", () => {
+  test("should set store=false for azure provider by default", () => {
     const azureModel = {
       ...mockModel,
       providerID: "azure",
@@ -116,7 +116,7 @@ describe("ProviderTransform.options - setCacheKey", () => {
       sessionID,
       providerOptions: {},
     })
-    expect(result.store).toBe(true)
+    expect(result.store).toBe(false)
   })
 
   test("should disable tool streaming for google vertex anthropic provider", () => {
@@ -553,6 +553,66 @@ describe("ProviderTransform.providerOptions", () => {
 
     expect(ProviderTransform.providerOptions(model, { cachePoint: { type: "default" } })).toEqual({
       bedrock: { cachePoint: { type: "default" } },
+    })
+  })
+
+  test("splits dotted provider id for OpenAI-compatible provider options", () => {
+    const model = createModel({
+      providerID: "wafer.ai",
+      api: {
+        id: "gpt-5",
+        url: "https://api.wafer.ai",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
+      wafer: { reasoningEffort: "high" },
+    })
+  })
+
+  test("splits dotted provider id for Anthropic SDK provider options", () => {
+    const model = createModel({
+      providerID: "claude.proxy",
+      api: {
+        id: "claude-sonnet-4-6",
+        url: "https://api.example.com",
+        npm: "@ai-sdk/anthropic",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { thinking: { type: "enabled" } })).toEqual({
+      claude: { thinking: { type: "enabled" } },
+    })
+  })
+
+  test("splits dotted provider id for OpenAI provider options", () => {
+    const model = createModel({
+      providerID: "openai.proxy",
+      api: {
+        id: "gpt-5",
+        url: "https://api.example.com",
+        npm: "@ai-sdk/openai",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
+      openai: { reasoningEffort: "high" },
+    })
+  })
+
+  test("routes Cloudflare AI Gateway options through openaiCompatible", () => {
+    const model = createModel({
+      providerID: "cloudflare-ai-gateway",
+      api: {
+        id: "openai/gpt-5.4",
+        url: "https://gateway.ai.cloudflare.com/v1/compat",
+        npm: "ai-gateway-provider",
+      },
+    })
+
+    expect(ProviderTransform.providerOptions(model, { reasoningEffort: "high" })).toEqual({
+      openaiCompatible: { reasoningEffort: "high" },
     })
   })
 
@@ -2902,6 +2962,25 @@ describe("ProviderTransform.variants", () => {
     })
   })
 
+  test("mistral medium 3.5 with reasoning returns variants", () => {
+    for (const id of ["mistral-medium-3.5", "mistral-medium-2604"]) {
+      const model = createMockModel({
+        id: `mistral/${id}`,
+        providerID: "mistral",
+        api: {
+          id,
+          url: "https://api.mistral.com",
+          npm: "@ai-sdk/mistral",
+        },
+        capabilities: { reasoning: true },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(result).toEqual({
+        high: { reasoningEffort: "high" },
+      })
+    }
+  })
+
   test("mistral without reasoning returns empty object", () => {
     const model = createMockModel({
       id: "mistral/mistral-large",
@@ -3551,6 +3630,77 @@ describe("ProviderTransform.variants", () => {
       })
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+    })
+
+    test("dotted gpt-5.x ids include minimal effort", () => {
+      const model = createMockModel({
+        id: "gpt-5.4",
+        providerID: "openai",
+        api: {
+          id: "gpt-5.4",
+          url: "https://api.openai.com",
+          npm: "@ai-sdk/openai",
+        },
+        release_date: "2026-03-05",
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+    })
+
+    test("gpt-50 lookalike does not get gpt-5 family treatment", () => {
+      const model = createMockModel({
+        id: "gpt-50",
+        providerID: "openai",
+        api: {
+          id: "gpt-50",
+          url: "https://api.openai.com",
+          npm: "@ai-sdk/openai",
+        },
+        release_date: "2024-01-01",
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+    })
+  })
+
+  describe("ai-gateway-provider", () => {
+    const cfModel = (apiId: string, releaseDate = "2024-01-01") =>
+      createMockModel({
+        id: `cloudflare-ai-gateway/${apiId}`,
+        providerID: "cloudflare-ai-gateway",
+        api: {
+          id: apiId,
+          url: "https://gateway.ai.cloudflare.com/v1/compat",
+          npm: "ai-gateway-provider",
+        },
+        release_date: releaseDate,
+      })
+
+    test("openai gpt-5.4 includes xhigh effort", () => {
+      const result = ProviderTransform.variants(cfModel("openai/gpt-5.4", "2026-03-05"))
+      expect(result.xhigh).toEqual({ reasoningEffort: "xhigh" })
+      expect(result.high).toEqual({ reasoningEffort: "high" })
+      expect(Object.keys(result)).toContain("minimal")
+    })
+
+    test("openai gpt-5.2-codex includes xhigh", () => {
+      const result = ProviderTransform.variants(cfModel("openai/gpt-5.2-codex", "2025-12-11"))
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
+      expect(result.xhigh).toEqual({ reasoningEffort: "xhigh" })
+    })
+
+    test("openai gpt-4o without reasoning returns empty", () => {
+      const model = cfModel("openai/gpt-4o")
+      model.capabilities.reasoning = false
+      expect(ProviderTransform.variants(model)).toEqual({})
+    })
+
+    test("non-openai upstream falls back to widely supported OAI efforts", () => {
+      expect(ProviderTransform.variants(cfModel("anthropic/claude-sonnet-4-6"))).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
+      })
     })
   })
 
