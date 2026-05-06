@@ -578,7 +578,7 @@ export default function Layout(props: ParentProps) {
       slugForDirectory: base64Encode,
       projectLabelForSession,
       messagesForSession: (session) => {
-        const [store] = globalSync.child(session.directory, { bootstrap: false })
+        const [store] = globalSync.child(session.directory, { bootstrap: false, pin: false })
         return store.message[session.id]
       },
     })

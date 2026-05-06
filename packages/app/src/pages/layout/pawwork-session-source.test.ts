@@ -164,6 +164,24 @@ describe("buildPawworkSidebarSessionRows", () => {
       },
     ])
   })
+
+  test("falls back to session creation time when messages are missing", () => {
+    const result = buildPawworkSidebarSessionRows(
+      [
+        {
+          id: "session-without-cache",
+          directory: "/repo",
+          time: { created: 300, updated: 900 },
+        },
+      ],
+      {
+        slugForDirectory: (directory) => `slug:${directory}`,
+        projectLabelForSession: () => "PawWork",
+      },
+    )
+
+    expect(result[0].created).toBe(300)
+  })
 })
 
 describe("pawworkSidebarSessionTime", () => {
