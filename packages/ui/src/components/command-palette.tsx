@@ -3,6 +3,8 @@ import { ParentProps } from "solid-js"
 
 export interface CommandPaletteProps extends ParentProps {
   transition?: boolean
+  /** aria-label for the underlying Kobalte dialog content (a11y: WCAG 4.1.2). */
+  label?: string
 }
 
 export function CommandPalette(props: CommandPaletteProps) {
@@ -12,7 +14,7 @@ export function CommandPalette(props: CommandPaletteProps) {
       data-transition={props.transition ? true : undefined}
     >
       <div data-slot="palette-container">
-        <Kobalte.Content data-slot="palette-content">
+        <Kobalte.Content data-slot="palette-content" aria-label={props.label}>
           {props.children}
         </Kobalte.Content>
       </div>

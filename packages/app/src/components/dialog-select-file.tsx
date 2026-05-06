@@ -413,7 +413,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   })
 
   return (
-    <CommandPalette transition>
+    <CommandPalette transition label={language.t("palette.aria.label")}>
       <List
         search={{
           placeholder: filesOnly()
