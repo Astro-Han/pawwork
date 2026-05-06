@@ -93,13 +93,10 @@
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    gap: 2px;
 
     &:focus {
       outline: none;
-    }
-
-    > *:not([role="presentation"]) + *:not([role="presentation"]) {
-      margin-top: 2px;
     }
   }
 
@@ -107,7 +104,11 @@
     position: relative;
     display: flex;
     align-items: center;
+    flex-shrink: 0;
     height: 32px;
+    min-height: 32px;
+    max-height: 32px;
+    overflow: hidden;
     padding: 0 8px;
     gap: 12px;
     border-radius: var(--radius-sm);
