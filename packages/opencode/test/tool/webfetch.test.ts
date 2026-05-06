@@ -113,7 +113,7 @@ describe("tool.webfetch", () => {
       "<body>",
       "<main>",
       "<h1>Korea visa center</h1>",
-      "<p>Bring passport &amp; application form.</p>",
+      '<p data-note="1 > 0">Bring passport &amp; application form.</p>',
       "</main>",
       "</body>",
       "</html>",
@@ -132,9 +132,35 @@ describe("tool.webfetch", () => {
             const result = await exec({ url: new URL("/page.html", url).toString(), format: "text" })
             expect(result.output).toContain("Korea visa center")
             expect(result.output).toContain("Bring passport & application form.")
+            expect(result.output).not.toContain('0">')
             expect(result.output).not.toContain("window.secret")
             expect(result.output).not.toContain(".hidden")
             expect(result.attachments).toBeUndefined()
+          },
+        })
+      },
+    )
+  })
+
+  test("handles many unclosed skip tags without long synchronous processing", async () => {
+    const html = `<body>${"<script>".repeat(50_000)}visible text</body>`
+
+    await withFetch(
+      () =>
+        new Response(html, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      async (url) => {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const start = performance.now()
+            const result = await exec({ url: new URL("/hostile.html", url).toString(), format: "text" })
+            const elapsed = performance.now() - start
+
+            expect(elapsed).toBeLessThan(500)
+            expect(result.output).not.toContain("<script>")
           },
         })
       },

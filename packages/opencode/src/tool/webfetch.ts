@@ -158,19 +158,137 @@ export const WebFetchTool = Tool.define(
 )
 
 async function extractTextFromHTML(html: string) {
-  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i)?.[1] ?? html
-  return decodeHTMLEntities(
-    body
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<\s*(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, " ")
-      .replace(/<\s*br\s*\/?>/gi, "\n")
-      .replace(/<\s*\/\s*(p|div|section|article|main|header|footer|nav|aside|li|h[1-6]|tr|table|ul|ol)\s*>/gi, "\n")
-      .replace(/<[^>]*>/g, " ")
-      .replace(/[ \t\f\v]+/g, " ")
-      .replace(/\s*\n\s*/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim(),
-  )
+  return normalizeExtractedText(decodeHTMLEntities(scanHTMLText(html)))
+}
+
+const SKIP_TEXT_TAGS = new Set(["script", "style", "noscript", "iframe", "object", "embed"])
+const BREAK_TAGS = new Set([
+  "article",
+  "aside",
+  "body",
+  "br",
+  "div",
+  "footer",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "section",
+  "table",
+  "tr",
+  "ul",
+])
+
+function scanHTMLText(html: string) {
+  const all: string[] = []
+  const body: string[] = []
+  let sawBody = false
+  let inBody = false
+  let skipTag: string | undefined
+  let index = 0
+
+  const append = (text: string) => {
+    all.push(text)
+    if (inBody) body.push(text)
+  }
+
+  while (index < html.length) {
+    if (html[index] !== "<") {
+      const next = html.indexOf("<", index)
+      const end = next === -1 ? html.length : next
+      if (!skipTag) append(html.slice(index, end))
+      index = end
+      continue
+    }
+
+    if (html.startsWith("<!--", index)) {
+      const end = html.indexOf("-->", index + 4)
+      index = end === -1 ? html.length : end + 3
+      continue
+    }
+
+    const tag = readTag(html, index)
+    if (!tag) {
+      if (!skipTag) append("<")
+      index += 1
+      continue
+    }
+
+    if (skipTag) {
+      if (tag.closing && tag.name === skipTag) skipTag = undefined
+      index = tag.end + 1
+      continue
+    }
+
+    if (tag.name === "body") {
+      sawBody = true
+      inBody = !tag.closing
+      index = tag.end + 1
+      continue
+    }
+
+    if (!tag.closing && SKIP_TEXT_TAGS.has(tag.name)) {
+      skipTag = tag.name
+      index = tag.end + 1
+      continue
+    }
+
+    if (BREAK_TAGS.has(tag.name)) append("\n")
+    index = tag.end + 1
+  }
+
+  return (sawBody ? body : all).join("")
+}
+
+function readTag(html: string, start: number) {
+  const end = findTagEnd(html, start + 1)
+  if (end === -1) return
+
+  let index = start + 1
+  while (/\s/.test(html[index] ?? "")) index++
+  const closing = html[index] === "/"
+  if (closing) {
+    index++
+    while (/\s/.test(html[index] ?? "")) index++
+  }
+
+  const nameStart = index
+  while (/[A-Za-z0-9:-]/.test(html[index] ?? "")) index++
+  if (index === nameStart) return { closing, end, name: "" }
+  return { closing, end, name: html.slice(nameStart, index).toLowerCase() }
+}
+
+function findTagEnd(html: string, start: number) {
+  let quote: string | undefined
+  for (let index = start; index < html.length; index++) {
+    const char = html[index]
+    if (quote) {
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (char === ">") return index
+  }
+  return -1
+}
+
+function normalizeExtractedText(text: string) {
+  return text
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }
 
 function decodeHTMLEntities(text: string) {

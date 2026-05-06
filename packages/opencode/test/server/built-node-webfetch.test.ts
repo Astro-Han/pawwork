@@ -63,7 +63,7 @@ describe("built node webfetch", () => {
 
         await Log.init({ level: "DEBUG", print: false })
 
-        const html = [
+        const happyHTML = [
           "<!doctype html>",
           "<html>",
           "<head>",
@@ -73,15 +73,16 @@ describe("built node webfetch", () => {
           "<body>",
           "<main>",
           "<h1>Korea visa center</h1>",
-          "<p>Bring passport &amp; application form.</p>",
+          '<p data-note="1 > 0">Bring passport &amp; application form.</p>',
           "</main>",
           "</body>",
           "</html>",
         ].join("")
+        const hostileHTML = \`<body>\${"<script>".repeat(50_000)}visible text</body>\`
 
         const server = http.createServer((req, res) => {
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
-          res.end(html)
+          res.end(req.url === "/hostile.html" ? hostileHTML : happyHTML)
         })
 
         await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -99,9 +100,9 @@ describe("built node webfetch", () => {
               })
               const webfetch = tools.find((tool) => tool.id === "webfetch")
               if (!webfetch) throw new Error("missing webfetch tool")
-              const result = await Effect.runPromise(
+              const run = async (pathname) => Effect.runPromise(
                 webfetch.execute(
-                  { url: \`http://127.0.0.1:\${address.port}/page.html\`, format: "text" },
+                  { url: \`http://127.0.0.1:\${address.port}\${pathname}\`, format: "text" },
                   {
                     sessionID: "ses_test",
                     messageID: "msg_test",
@@ -114,11 +115,19 @@ describe("built node webfetch", () => {
                   },
                 ),
               )
-              return result.output
+
+              const happy = await run("/page.html")
+              const hostileStart = performance.now()
+              const hostile = await run("/hostile.html")
+              return {
+                happy: happy.output,
+                hostile: hostile.output,
+                hostileElapsed: performance.now() - hostileStart,
+              }
             },
           })
 
-          console.log(JSON.stringify({ output }))
+          console.log(JSON.stringify(output))
         } finally {
           await new Promise((resolve, reject) => {
             server.close((error) => (error ? reject(error) : resolve()))
@@ -137,11 +146,18 @@ describe("built node webfetch", () => {
         },
       })
 
-      const output = JSON.parse(result.stdout.toString().trim()) as { output: string }
-      expect(output.output).toContain("Korea visa center")
-      expect(output.output).toContain("Bring passport & application form.")
-      expect(output.output).not.toContain("window.secret")
-      expect(output.output).not.toContain(".hidden")
+      const output = JSON.parse(result.stdout.toString().trim()) as {
+        happy: string
+        hostile: string
+        hostileElapsed: number
+      }
+      expect(output.happy).toContain("Korea visa center")
+      expect(output.happy).toContain("Bring passport & application form.")
+      expect(output.happy).not.toContain('0">')
+      expect(output.happy).not.toContain("window.secret")
+      expect(output.happy).not.toContain(".hidden")
+      expect(output.hostileElapsed).toBeLessThan(500)
+      expect(output.hostile).not.toContain("<script>")
     })
   }, 60_000)
 })
