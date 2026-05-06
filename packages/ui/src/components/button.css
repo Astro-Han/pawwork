@@ -115,8 +115,12 @@
   }
 
   /* ── Danger ──────────────────────────────────────── */
+  /* Hover/active overlay --error directly (same pattern as secondary) so
+   * we keep contrast across themes. Earlier draft used --error-text as a
+   * hover bg, which works in light mode (deeper red) but fails in dark
+   * (--error-text mirrors to a *lighter* red and tanks contrast w/ white). */
   &[data-variant="danger"] {
-    background-color: var(--brand-danger);
+    background-color: var(--error);
     color: var(--fg-on-brand);
 
     [data-slot="icon-svg"] {
@@ -124,13 +128,13 @@
     }
 
     &:hover:not(:disabled) {
-      background-color: var(--brand-danger-hover);
+      background-image: linear-gradient(var(--hover-overlay), var(--hover-overlay));
     }
     &:active:not(:disabled) {
-      background-color: var(--surface-interactive-base);
+      background-image: linear-gradient(var(--hover-overlay-warm), var(--hover-overlay-warm));
     }
     &:focus-visible:not(:disabled) {
-      box-shadow: 0 0 0 1px #FF5910, 0 0 0 3px rgba(255,89,16,0.20);
+      box-shadow: 0 0 0 1px var(--error), 0 0 0 3px rgba(210, 74, 58, 0.20);
     }
     &:disabled {
       opacity: 0.45;

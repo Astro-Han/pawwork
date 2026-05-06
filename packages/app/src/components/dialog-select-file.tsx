@@ -1,5 +1,5 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { Dialog } from "@opencode-ai/ui/dialog"
+import { CommandPalette } from "@opencode-ai/ui/command-palette"
 import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Keybind } from "@opencode-ai/ui/keybind"
@@ -413,7 +413,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   })
 
   return (
-    <Dialog class="pt-3 pb-0 !max-h-[480px]" transition>
+    <CommandPalette transition label={language.t("palette.aria.label")}>
       <List
         search={{
           placeholder: filesOnly()
@@ -498,6 +498,6 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
           </Switch>
         )}
       </List>
-    </Dialog>
+    </CommandPalette>
   )
 }

@@ -7,6 +7,7 @@ export interface DialogProps extends ParentProps {
   title?: JSXElement
   description?: JSXElement
   action?: JSXElement
+  footer?: JSXElement
   size?: "normal" | "large" | "x-large"
   class?: ComponentProps<"div">["class"]
   classList?: ComponentProps<"div">["classList"]
@@ -27,10 +28,8 @@ export function Dialog(props: DialogProps) {
         <Kobalte.Content
           data-slot="dialog-content"
           data-no-header={!props.title && !props.action ? "" : undefined}
-          classList={{
-            ...props.classList,
-            [props.class ?? ""]: !!props.class,
-          }}
+          class={props.class}
+          classList={props.classList}
           onOpenAutoFocus={(e) => {
             const target = e.currentTarget as HTMLElement | null
             const autofocusEl = target?.querySelector("[autofocus]") as HTMLElement | null
@@ -65,6 +64,9 @@ export function Dialog(props: DialogProps) {
             </Kobalte.Description>
           </Show>
           <div data-slot="dialog-body">{props.children}</div>
+          <Show when={props.footer}>
+            <div data-slot="dialog-footer">{props.footer}</div>
+          </Show>
         </Kobalte.Content>
       </div>
     </div>

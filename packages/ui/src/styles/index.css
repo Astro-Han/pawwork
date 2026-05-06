@@ -16,6 +16,7 @@
 @import "../components/tool-error-card.css" layer(components);
 @import "../components/file.css" layer(components);
 @import "../components/collapsible.css" layer(components);
+@import "../components/command-palette.css" layer(components);
 @import "../components/diff-changes.css" layer(components);
 @import "../components/context-menu.css" layer(components);
 @import "../components/dropdown-menu.css" layer(components);
@@ -45,6 +46,7 @@
 @import "../components/scroll-view.css" layer(components);
 @import "../components/session-review.css" layer(components);
 @import "../components/session-turn.css" layer(components);
+@import "../components/sheet.css" layer(components);
 @import "../components/shell-submessage.css" layer(components);
 @import "../components/sticky-accordion-header.css" layer(components);
 @import "../components/tabs.css" layer(components);

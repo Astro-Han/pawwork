@@ -1,0 +1,123 @@
+/* Sheet slide-in/out keyframes — local to this file, not exported globally */
+@keyframes sheet-slide-in-right  { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes sheet-slide-out-right { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@keyframes sheet-slide-in-left   { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes sheet-slide-out-left  { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes sheet-slide-in-top    { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+@keyframes sheet-slide-out-top   { from { transform: translateY(0); } to { transform: translateY(-100%); } }
+@keyframes sheet-slide-in-bottom { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes sheet-slide-out-bottom { from { transform: translateY(0); } to { transform: translateY(100%); } }
+
+[data-component="sheet"] {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+
+  [data-slot="sheet-content"] {
+    position: fixed;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-modal);
+    pointer-events: auto;
+    max-height: 100dvh;
+    overflow: hidden;
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: var(--shadow-xs-border-focus);
+    }
+  }
+
+  [data-slot="sheet-header"] {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-base);
+  }
+
+  [data-slot="sheet-body"] {
+    flex: 1;
+    overflow: auto;
+    padding: 16px 20px;
+  }
+
+  /* Footer MODE 1 — DESIGN.md §"Modals & overlays".
+   * Sticky bottom + cream bg + weak top border for sheets with scrolling body. */
+  [data-slot="sheet-footer"] {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-cream);
+    border-top: 1px solid var(--border-weaker);
+  }
+}
+
+/* Side-specific positioning */
+[data-component="sheet"][data-side="right"] [data-slot="sheet-content"] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  border-left: 1px solid var(--border-base);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+[data-component="sheet"][data-side="left"] [data-slot="sheet-content"] {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  border-right: 1px solid var(--border-base);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+}
+
+[data-component="sheet"][data-side="top"] [data-slot="sheet-content"] {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: min(420px, 100dvh);
+  border-bottom: 1px solid var(--border-base);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+[data-component="sheet"][data-side="bottom"] [data-slot="sheet-content"] {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: min(420px, 100dvh);
+  border-top: 1px solid var(--border-base);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* Slide animations per side */
+/* Slide-in keeps slow (240ms) for elegance; slide-out uses base (120ms) so
+ * dismiss feels snappy per DESIGN.md motion guidance. */
+[data-component="sheet"][data-side="right"] [data-slot="sheet-content"] { animation: sheet-slide-out-right var(--duration-base) ease forwards; }
+[data-component="sheet"][data-side="right"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-right var(--duration-slow) ease; }
+
+[data-component="sheet"][data-side="left"] [data-slot="sheet-content"] { animation: sheet-slide-out-left var(--duration-base) ease forwards; }
+[data-component="sheet"][data-side="left"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-left var(--duration-slow) ease; }
+
+[data-component="sheet"][data-side="top"] [data-slot="sheet-content"] { animation: sheet-slide-out-top var(--duration-base) ease forwards; }
+[data-component="sheet"][data-side="top"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-top var(--duration-slow) ease; }
+
+[data-component="sheet"][data-side="bottom"] [data-slot="sheet-content"] { animation: sheet-slide-out-bottom var(--duration-base) ease forwards; }
+[data-component="sheet"][data-side="bottom"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-bottom var(--duration-slow) ease; }
+
+/* Respect user motion preference: keep animations near-instant so
+   animationend still fires (Kobalte/state libs depend on the event). */
+@media (prefers-reduced-motion: reduce) {
+  [data-component="sheet"] [data-slot="sheet-content"] {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -88,20 +88,54 @@ describe("Button — Danger variant", () => {
     expect(BUTTON_CSS).toContain('data-variant="danger"')
   })
 
-  test("default background uses --brand-danger", () => {
-    expect(BUTTON_CSS).toContain("var(--brand-danger)")
+  test("default background uses --error (per DESIGN.md destructive token)", () => {
+    expect(BUTTON_CSS).toMatch(/data-variant="danger"[\s\S]*?background-color:\s*var\(--error\)/)
   })
 
-  test("hover background uses --brand-danger-hover", () => {
-    expect(BUTTON_CSS).toContain("var(--brand-danger-hover)")
+  test("hover overlays --hover-overlay on top of --error (theme-safe contrast)", () => {
+    expect(BUTTON_CSS).toMatch(
+      /data-variant="danger"[\s\S]*?:hover[\s\S]*?background-image:\s*linear-gradient\(var\(--hover-overlay\)/,
+    )
+  })
+
+  test("active overlays --hover-overlay-warm (deeper than hover)", () => {
+    expect(BUTTON_CSS).toMatch(
+      /data-variant="danger"[\s\S]*?:active[\s\S]*?background-image:\s*linear-gradient\(var\(--hover-overlay-warm\)/,
+    )
   })
 })
 
-// ── Shared active state ─────────────────────────────────────────────────────
+// ── Active state per variant ────────────────────────────────────────────────
+// Note: danger active intentionally diverges — it overlays --hover-overlay-warm
+// on top of --error rather than switching to --surface-interactive-base, which
+// would give a warm cream tone (wrong semantics for a destructive press).
 
-describe("Button — active state", () => {
-  test("active state uses --surface-interactive-base across all variants", () => {
-    expect(BUTTON_CSS).toContain("var(--surface-interactive-base)")
+describe("Button — active state per variant", () => {
+  test("primary active uses --surface-interactive-base", () => {
+    expect(BUTTON_CSS).toMatch(
+      /data-variant="primary"[\s\S]*?:active[\s\S]*?background-color:\s*var\(--surface-interactive-base\)/,
+    )
+  })
+
+  test("secondary active uses --surface-interactive-base", () => {
+    expect(BUTTON_CSS).toMatch(
+      /data-variant="secondary"[\s\S]*?:active[\s\S]*?background-color:\s*var\(--surface-interactive-base\)/,
+    )
+  })
+
+  test("ghost active uses --surface-interactive-base", () => {
+    expect(BUTTON_CSS).toMatch(
+      /data-variant="ghost"[\s\S]*?:active[\s\S]*?background-color:\s*var\(--surface-interactive-base\)/,
+    )
+  })
+
+  // danger active is asserted in the Danger variant block (overlay-on-error,
+  // not surface-interactive-base). Pin the divergence so a later refactor
+  // doesn't silently re-converge danger onto the cream tone.
+  test("danger active does NOT use --surface-interactive-base", () => {
+    expect(BUTTON_CSS).not.toMatch(
+      /data-variant="danger"[\s\S]*?:active[\s\S]*?background-color:\s*var\(--surface-interactive-base\)/,
+    )
   })
 })
 

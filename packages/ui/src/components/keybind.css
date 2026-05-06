@@ -1,17 +1,15 @@
+/* DESIGN.md L264 — `.kbd` `--type-kbd` 加 `--bg-base` 加 1px `--border-weak`
+ * 加 1px 硬阴影，padding 1px 6px (physical keycap look). */
 [data-component="keybind"] {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  height: 20px;
-  padding: 0 8px;
+  padding: 1px 6px;
   border-radius: 2px;
-  background: var(--surface-base);
-  box-shadow: var(--shadow-xxs-border);
-
-  font-family: var(--font-family-sans);
-  font-size: var(--font-size-x-small);
-  font-weight: var(--font-weight-regular);
-  line-height: 1;
+  background: var(--bg-base);
+  border: 1px solid var(--border-weak);
+  box-shadow: 0 1px 0 0 var(--border-weak);
+  font: var(--type-kbd);
   color: var(--fg-weak);
 }
