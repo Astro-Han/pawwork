@@ -158,35 +158,46 @@ export const WebFetchTool = Tool.define(
 )
 
 async function extractTextFromHTML(html: string) {
-  let text = ""
-  let skipContent = false
+  const body = html.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i)?.[1] ?? html
+  return decodeHTMLEntities(
+    body
+      .replace(/<!--[\s\S]*?-->/g, " ")
+      .replace(/<\s*(script|style|noscript|iframe|object|embed)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, " ")
+      .replace(/<\s*br\s*\/?>/gi, "\n")
+      .replace(/<\s*\/\s*(p|div|section|article|main|header|footer|nav|aside|li|h[1-6]|tr|table|ul|ol)\s*>/gi, "\n")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/[ \t\f\v]+/g, " ")
+      .replace(/\s*\n\s*/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  )
+}
 
-  const rewriter = new HTMLRewriter()
-    .on("script, style, noscript, iframe, object, embed", {
-      element() {
-        skipContent = true
-      },
-      text() {
-        // Skip text content inside these elements
-      },
-    })
-    .on("*", {
-      element(element) {
-        // Reset skip flag when entering other elements
-        if (!["script", "style", "noscript", "iframe", "object", "embed"].includes(element.tagName)) {
-          skipContent = false
-        }
-      },
-      text(input) {
-        if (!skipContent) {
-          text += input.text
-        }
-      },
-    })
-    .transform(new Response(html))
+function decodeHTMLEntities(text: string) {
+  const named: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  }
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);/gi, (match, entity: string) => {
+    const lower = entity.toLowerCase()
+    if (lower.startsWith("#x")) {
+      const codePoint = Number.parseInt(lower.slice(2), 16)
+      return validCodePoint(codePoint) ? String.fromCodePoint(codePoint) : match
+    }
+    if (lower.startsWith("#")) {
+      const codePoint = Number.parseInt(lower.slice(1), 10)
+      return validCodePoint(codePoint) ? String.fromCodePoint(codePoint) : match
+    }
+    return named[lower] ?? match
+  })
+}
 
-  await rewriter.text()
-  return text.trim()
+function validCodePoint(value: number) {
+  return Number.isInteger(value) && value >= 0 && value <= 0x10ffff
 }
 
 function convertHTMLToMarkdown(html: string): string {
