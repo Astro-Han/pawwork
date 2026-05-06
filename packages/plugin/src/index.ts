@@ -224,6 +224,10 @@ export type ProviderHookContext = {
 
 export type ProviderHook = {
   id: string
+  /**
+   * Re-run this provider model hook after config models are merged.
+   * Currently only applies to OAuth providers whose config declares models.
+   */
   postConfig?: boolean
   models?: (provider: ProviderV2, ctx: ProviderHookContext) => Promise<Record<string, ModelV2>>
 }
