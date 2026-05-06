@@ -451,6 +451,13 @@ describe("session.message-v2.toModelMessage", () => {
           },
           {
             ...basePart(assistantID, "a2"),
+            type: "reasoning",
+            text: "thinking",
+            metadata: { openai: { reasoning: "meta" } },
+            time: { start: 0 },
+          },
+          {
+            ...basePart(assistantID, "a3"),
             type: "tool",
             callID: "call-1",
             tool: "bash",
@@ -477,6 +484,7 @@ describe("session.message-v2.toModelMessage", () => {
         role: "assistant",
         content: [
           { type: "text", text: "done" },
+          { type: "text", text: "thinking" },
           {
             type: "tool-call",
             toolCallId: "call-1",
