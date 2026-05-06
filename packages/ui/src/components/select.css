@@ -4,8 +4,8 @@
  * Trigger / content / item base styles (height, hover, selected, surface)
  * live in picker.css and apply to any element with data-picker-trigger /
  * data-picker-content / data-picker-item. This file only adds Select-specific
- * chrome (chevron transition, value overflow, settings/review-filter
- * trigger variants) and resets that aren't part of the contract.
+ * chrome (chevron transition, value overflow, settings trigger variant) and
+ * resets that aren't part of the contract.
  */
 
 [data-component="select"] {
@@ -90,30 +90,6 @@
 
 [data-component="select-content"][data-trigger-style="settings"] {
   min-width: 160px;
-}
-
-/* review-filter variant: h24, no border, 13/400, radius-sm (DESIGN.md L218) */
-[data-component="select"][data-trigger-style="review-filter"] {
-  [data-slot="select-select-trigger"] {
-    height: 24px;
-    padding: 0 4px 0 8px;
-    background-color: transparent;
-    background-image: none;
-    box-shadow: none;
-    border-radius: var(--radius-sm);
-    color: var(--fg-base);
-    font-size: var(--font-size-small);
-    font-weight: var(--font-weight-regular);
-    line-height: 1;
-
-    &:hover:not(:disabled),
-    &[data-expanded] {
-      background-color: var(--bg-cream);
-      background-image: none;
-      box-shadow: none;
-      color: var(--fg-strong);
-    }
-  }
 }
 
 @keyframes select-open {

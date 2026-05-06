@@ -65,20 +65,13 @@ describe("state-matrix: Select", () => {
   test("default triggerVariant: prop type now includes explicit 'default'", () => {
     // triggerVariant is optional — when set to "default" (or undefined) the
     // trigger uses the picker.css contract (h28, radius-md, row-hover-overlay).
-    expect(selectSrc).toMatch(/triggerVariant\?\s*:\s*"default"\s*\|\s*"settings"\s*\|\s*"review-filter"/)
+    expect(selectSrc).toMatch(/triggerVariant\?\s*:\s*"default"\s*\|\s*"settings"/)
   })
 
   test("settings triggerVariant: adds data-trigger-style='settings' on trigger", () => {
     // data-trigger-style is spread from triggerVariant value directly.
     expect(selectSrc).toContain("data-trigger-style={local.triggerVariant}")
     expect(selectCss).toContain('[data-trigger-style="settings"]')
-  })
-
-  test("review-filter triggerVariant: CSS block defines height 24px", () => {
-    expect(selectCss).toContain('[data-trigger-style="review-filter"]')
-    const rfIdx = selectCss.indexOf('[data-trigger-style="review-filter"]')
-    const rfBlock = selectCss.slice(rfIdx, rfIdx + 300)
-    expect(rfBlock).toContain("height: 24px")
   })
 })
 

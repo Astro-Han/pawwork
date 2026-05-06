@@ -7,8 +7,7 @@
  * defined in picker.css and verified by picker.test.ts. This file focuses on
  * Select-specific concerns: data-component / data-slot wiring, picker contract
  * opt-in (data-picker-* slot attributes), the triggerVariant type & data
- * mapping, and the settings / review-filter chrome that lives outside the
- * contract.
+ * mapping, and the settings chrome that lives outside the contract.
  *
  * Visual states (hover, focus-visible, active) are verified via dev:desktop
  * screenshots in the PR description.
@@ -77,10 +76,6 @@ describe("Select: triggerVariant prop type", () => {
   test('triggerVariant type annotation includes "settings"', () => {
     expect(src).toContain('"settings"')
   })
-
-  test('triggerVariant type annotation includes "review-filter"', () => {
-    expect(src).toContain('"review-filter"')
-  })
 })
 
 describe("Select: triggerVariant maps to data-trigger-style", () => {
@@ -90,37 +85,6 @@ describe("Select: triggerVariant maps to data-trigger-style", () => {
 
   test('settings variant: data-trigger-style="settings" CSS block exists', () => {
     expect(css).toContain('[data-trigger-style="settings"]')
-  })
-
-  test('review-filter variant: data-trigger-style="review-filter" CSS block exists', () => {
-    expect(css).toContain('[data-trigger-style="review-filter"]')
-  })
-})
-
-describe("Select: review-filter variant CSS", () => {
-  test("review-filter trigger has height: 24px", () => {
-    const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
-    expect(rfIdx).toBeGreaterThan(-1)
-    const rfBlock = css.slice(rfIdx, rfIdx + 600)
-    expect(rfBlock).toContain("height: 24px")
-  })
-
-  test("review-filter trigger has border-radius: var(--radius-sm)", () => {
-    const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
-    const rfBlock = css.slice(rfIdx, rfIdx + 600)
-    expect(rfBlock).toContain("--radius-sm")
-  })
-
-  test("review-filter trigger has font-weight: var(--font-weight-regular)", () => {
-    const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
-    const rfBlock = css.slice(rfIdx, rfIdx + 600)
-    expect(rfBlock).toContain("--font-weight-regular")
-  })
-
-  test("review-filter trigger has background: transparent", () => {
-    const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
-    const rfBlock = css.slice(rfIdx, rfIdx + 600)
-    expect(rfBlock).toContain("transparent")
   })
 })
 
