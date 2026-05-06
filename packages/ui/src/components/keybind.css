@@ -6,12 +6,25 @@
   height: 20px;
   padding: 0 8px;
   border-radius: 2px;
-  background: var(--kbd-bg);
-  border: 1px solid var(--kbd-border);
+  /* Spec: scrim/kbd colors inlined per DESIGN.md (no token). */
+  background: #f5f0e9;
+  border: 1px solid rgba(0, 0, 0, 0.08);
 
   font-family: var(--font-family-sans);
   font-size: var(--font-size-x-small);
   font-weight: var(--font-weight-regular);
   line-height: 1;
   color: var(--fg-weak);
+}
+
+:root[data-color-scheme="dark"] [data-component="keybind"] {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"]) [data-component="keybind"] {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.10);
+  }
 }

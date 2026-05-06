@@ -23,11 +23,11 @@ It reuses the Dialog overlay scrim and Kobalte Dialog primitives.
 ### Accessibility
 - Close button in header when title is provided.
 - Kobalte manages focus trap and aria attributes.
-- Overlay scrim uses var(--scrim-overlay) token.
+- Overlay scrim is inlined per DESIGN.md (rgba(26, 22, 19, 0.32)).
 
 ### Theming/tokens
 - Uses \`data-component="sheet"\` and \`data-side\` for CSS targeting.
-- Animations driven by \`--duration-slow\` token.
+- Slide-in driven by \`--duration-slow\` (240ms); slide-out by \`--duration-base\` (120ms).
 
 `
 

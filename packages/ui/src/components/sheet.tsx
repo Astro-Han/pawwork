@@ -25,7 +25,7 @@ export function Sheet(props: SheetProps) {
       onOpenChange={props.onOpenChange}
     >
       <Kobalte.Portal>
-        {/* Reuse dialog-overlay CSS which provides var(--scrim-overlay) */}
+        {/* Reuse dialog-overlay CSS which inlines the spec scrim color */}
         <Kobalte.Overlay data-component="dialog-overlay" />
         {/* data-component="sheet" + data-side are inside the Portal so CSS nesting works */}
         <div data-component="sheet" data-side={props.side ?? "right"}>

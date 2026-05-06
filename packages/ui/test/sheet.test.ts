@@ -16,6 +16,7 @@ import * as sheetMod from "../src/components/sheet"
 
 const ROOT = join(import.meta.dirname, "..")
 const SHEET_SRC = readFileSync(join(ROOT, "src/components/sheet.tsx"), "utf-8")
+const DIALOG_CSS = readFileSync(join(ROOT, "src/components/dialog.css"), "utf-8")
 
 describe("Sheet component (issue #440)", () => {
   test("Sheet component is exported", () => {
@@ -90,9 +91,10 @@ describe("Sheet component (issue #440)", () => {
     expect(SHEET_SRC).toContain("Kobalte.Portal")
   })
 
-  test("dialog-overlay is used for scrim (var(--scrim-overlay))", () => {
-    // Reuses shared dialog-overlay which has the scrim token
+  test("dialog-overlay is used for scrim (inlined per DESIGN.md)", () => {
+    // Reuses shared dialog-overlay which inlines the spec scrim color.
     expect(SHEET_SRC).toContain('data-component="dialog-overlay"')
+    expect(DIALOG_CSS).toContain("rgba(26, 22, 19, 0.32)")
   })
 
   test("CloseButton uses IconButton with aria-label", () => {

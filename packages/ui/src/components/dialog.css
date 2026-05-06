@@ -4,7 +4,8 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  background-color: var(--scrim-overlay);
+  /* Spec: single value, light/dark identical (DESIGN.md §"Modals & overlays"). */
+  background-color: rgba(26, 22, 19, 0.32);
 }
 
 [data-component="dialog"] {
@@ -19,7 +20,7 @@
   [data-slot="dialog-container"] {
     position: relative;
     z-index: 50;
-    width: min(calc(100vw - 16px), 640px);
+    width: min(calc(100vw - 16px), 420px);
     height: min(calc(100vh - 16px), 512px);
     display: flex;
     flex-direction: column;
@@ -105,15 +106,22 @@
         overflow: hidden;
       }
 
+      /* Footer MODE 1 — DESIGN.md §"Modals & overlays".
+       * Sticky bottom + cream bg + weak top border for large/scrolling dialogs.
+       * MODE 2 (small confirm) doesn't use this slot — callers render footer
+       * inline inside dialog body. */
       [data-slot="dialog-footer"] {
         display: flex;
         justify-content: flex-end;
         align-items: center;
         gap: 8px;
-        padding: 12px 20px;
+        padding: 12px 24px;
         flex-shrink: 0;
         align-self: stretch;
-        border-top: 1px solid var(--border-base);
+        position: sticky;
+        bottom: 0;
+        background: var(--bg-cream);
+        border-top: 1px solid var(--border-weaker);
       }
 
       &:focus-visible {

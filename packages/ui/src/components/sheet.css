@@ -45,14 +45,19 @@
     padding: 16px 20px;
   }
 
+  /* Footer MODE 1 — DESIGN.md §"Modals & overlays".
+   * Sticky bottom + cream bg + weak top border for sheets with scrolling body. */
   [data-slot="sheet-footer"] {
     display: flex;
     justify-content: flex-end;
     align-items: center;
     gap: 8px;
-    padding: 12px 20px;
+    padding: 12px 24px;
     flex-shrink: 0;
-    border-top: 1px solid var(--border-base);
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-cream);
+    border-top: 1px solid var(--border-weaker);
   }
 }
 
@@ -61,7 +66,7 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(480px, 100vw);
+  width: min(420px, 100vw);
   border-left: 1px solid var(--border-base);
   border-radius: var(--radius-lg) 0 0 var(--radius-lg);
 }
@@ -70,7 +75,7 @@
   top: 0;
   left: 0;
   bottom: 0;
-  width: min(480px, 100vw);
+  width: min(420px, 100vw);
   border-right: 1px solid var(--border-base);
   border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
 }
@@ -79,7 +84,7 @@
   top: 0;
   left: 0;
   right: 0;
-  height: min(480px, 100dvh);
+  height: min(420px, 100dvh);
   border-bottom: 1px solid var(--border-base);
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
 }
@@ -88,22 +93,24 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: min(480px, 100dvh);
+  height: min(420px, 100dvh);
   border-top: 1px solid var(--border-base);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 /* Slide animations per side */
-[data-component="sheet"][data-side="right"] [data-slot="sheet-content"] { animation: sheet-slide-out-right var(--duration-slow) ease forwards; }
+/* Slide-in keeps slow (240ms) for elegance; slide-out uses base (120ms) so
+ * dismiss feels snappy per DESIGN.md motion guidance. */
+[data-component="sheet"][data-side="right"] [data-slot="sheet-content"] { animation: sheet-slide-out-right var(--duration-base) ease forwards; }
 [data-component="sheet"][data-side="right"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-right var(--duration-slow) ease; }
 
-[data-component="sheet"][data-side="left"] [data-slot="sheet-content"] { animation: sheet-slide-out-left var(--duration-slow) ease forwards; }
+[data-component="sheet"][data-side="left"] [data-slot="sheet-content"] { animation: sheet-slide-out-left var(--duration-base) ease forwards; }
 [data-component="sheet"][data-side="left"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-left var(--duration-slow) ease; }
 
-[data-component="sheet"][data-side="top"] [data-slot="sheet-content"] { animation: sheet-slide-out-top var(--duration-slow) ease forwards; }
+[data-component="sheet"][data-side="top"] [data-slot="sheet-content"] { animation: sheet-slide-out-top var(--duration-base) ease forwards; }
 [data-component="sheet"][data-side="top"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-top var(--duration-slow) ease; }
 
-[data-component="sheet"][data-side="bottom"] [data-slot="sheet-content"] { animation: sheet-slide-out-bottom var(--duration-slow) ease forwards; }
+[data-component="sheet"][data-side="bottom"] [data-slot="sheet-content"] { animation: sheet-slide-out-bottom var(--duration-base) ease forwards; }
 [data-component="sheet"][data-side="bottom"] [data-slot="sheet-content"][data-expanded] { animation: sheet-slide-in-bottom var(--duration-slow) ease; }
 
 /* Respect user motion preference: keep animations near-instant so
