@@ -80,12 +80,15 @@ describe("Select: CSS token corrections", () => {
     expect(bgLine).toBeNull()
   })
 
-  test("item hover and highlighted both use --surface-interactive-base (sidebar-row standard)", () => {
-    // session-row.html locks hover/active 合一 = --surface-interactive-base; dropdown items follow.
+  test("item hover and highlighted use --bg-cream (cross-product hover token)", () => {
+    // Two-tier hover/selected pattern: hover uses --bg-cream, selected uses
+    // --surface-interactive-base. Both can render at once on different rows so
+    // they need to be visually distinct (VSCode list.hoverBackground vs
+    // list.activeSelectionBackground convention).
     const highlightedIdx = css.indexOf("[data-highlighted]")
     expect(highlightedIdx).toBeGreaterThan(-1)
     const highlightedRule = css.slice(highlightedIdx, highlightedIdx + 200)
-    expect(highlightedRule).toContain("--surface-interactive-base")
+    expect(highlightedRule).toContain("--bg-cream")
     expect(highlightedRule).not.toContain("--surface-raised")
   })
 
@@ -93,10 +96,16 @@ describe("Select: CSS token corrections", () => {
     expect(css).toContain("--surface-interactive-base")
     expect(css).toContain("[data-selected]")
     const selectedIdx = css.indexOf("[data-selected]")
-    const selectedBlock = css.slice(selectedIdx, selectedIdx + 200)
+    const selectedBlock = css.slice(selectedIdx, selectedIdx + 300)
     expect(selectedBlock).toContain("--surface-interactive-base")
     // Selected differentiates from hover via medium weight.
     expect(selectedBlock).toContain("--font-weight-medium")
+  })
+
+  test("hover-on-selected stays selected (no double overlay)", () => {
+    // Industry convention: hovering an already-selected item should not change
+    // its appearance — you're already there.
+    expect(css).toMatch(/\[data-selected\]:hover[\s\S]{0,80}--surface-interactive-base/)
   })
 
   test("item border-radius uses --radius-sm", () => {
