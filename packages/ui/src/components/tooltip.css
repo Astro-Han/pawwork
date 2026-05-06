@@ -9,66 +9,50 @@
 }
 
 [data-slot="tooltip-keybind-key"] {
-  color: var(--fg-on-brand);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-large);
+  font: var(--type-kbd);
+  color: var(--bg-cream);
 }
 
 [data-component="tooltip"] {
   z-index: 1000;
   max-width: 320px;
   border-radius: var(--radius-sm);
-  background-color: var(--fg-strong);
-  color: var(--bg-cream);
   background: var(--fg-strong);
-  padding: 2px 8px;
-  border: 1px solid var(--border-weak, rgba(0, 0, 0, 0.07));
-
+  color: var(--bg-cream);
+  padding: 8px 12px;
   box-shadow: var(--shadow-floating);
   pointer-events: none !important;
-  /* transition: all 150ms ease-out; */
-  /* transform: translate3d(0, 0, 0); */
-  /* transform-origin: var(--kb-tooltip-content-transform-origin); */
 
-  /* text-13-medium */
+  /* sans 13/500/1.2 inline per DESIGN.md L190 */
   font-family: var(--font-family-sans);
   font-size: var(--font-size-small);
-  font-style: normal;
   font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-large); /* 166.667% */
+  line-height: 1.2;
   letter-spacing: var(--letter-spacing-normal);
+
+  opacity: 0;
 
   &[data-expanded] {
     opacity: 1;
-    /* transform: translate3d(0, 0, 0); */
+    animation: tooltip-fadein var(--duration-base) ease-out forwards;
   }
 
   &[data-closed]:not([data-force-open="true"]) {
     opacity: 0;
+    animation: none;
   }
+}
 
-  /* &[data-placement="top"] { */
-  /*   &[data-closed] { */
-  /*     transform: translate3d(0, 4px, 0); */
-  /*   } */
-  /* } */
-  /**/
-  /* &[data-placement="bottom"] { */
-  /*   &[data-closed] { */
-  /*     transform: translate3d(0, -4px, 0); */
-  /*   } */
-  /* } */
-  /**/
-  /* &[data-placement="left"] { */
-  /*   &[data-closed] { */
-  /*     transform: translate3d(4px, 0, 0); */
-  /*   } */
-  /* } */
-  /**/
-  /* &[data-placement="right"] { */
-  /*   &[data-closed] { */
-  /*     transform: translate3d(-4px, 0, 0); */
-  /*   } */
-  /* } */
+/* Caret — filled via Kobalte PopperArrow background-color detection */
+[data-slot="tooltip-arrow"] {
+  overflow: visible;
+}
+
+@keyframes tooltip-fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }

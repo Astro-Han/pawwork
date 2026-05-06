@@ -136,7 +136,7 @@ export function Popover<T extends ValidComponent = "div">(props: PopoverProps<T>
   )
 
   return (
-    <Kobalte gutter={4} {...rest} open={opened()} onOpenChange={onOpenChange} modal={local.modal ?? false}>
+    <Kobalte gutter={8} {...rest} open={opened()} onOpenChange={onOpenChange} modal={local.modal ?? false}>
       <Kobalte.Trigger
         ref={(el: HTMLElement) => setState("triggerRef", el)}
         as={local.triggerAs ?? "div"}

@@ -1,30 +1,12 @@
 // @ts-nocheck
+/**
+ * Hover / active / focus-visible states are captured statically via
+ * data-force-state="hover|active|focus-visible|selected|disabled" +
+ * matching CSS rules in popover.css.
+ */
 import { createSignal } from "solid-js"
 import * as mod from "./popover"
 import { create } from "../storybook/scaffold"
-
-const docs = `### Overview
-Composable popover with optional title, description, and close button.
-
-Use for small contextual details; avoid long forms.
-
-### API
-- \`trigger\` and \`children\` define the anchor and content.
-- Optional: \`title\`, \`description\`, \`portal\`, \`open\`, \`defaultOpen\`.
-
-### Variants and states
-- Supports controlled and uncontrolled open state.
-
-### Behavior
-- Closes on outside click or Escape by default.
-
-### Accessibility
-- TODO: confirm focus management from Kobalte.
-
-### Theming/tokens
-- Uses \`data-component="popover-content"\` and related slots.
-
-`
 
 const story = create({
   title: "UI/Popover",
@@ -43,24 +25,9 @@ export default {
   id: "components-popover",
   component: story.meta.component,
   tags: ["autodocs"],
-  parameters: {
-    docs: {
-      description: {
-        component: docs,
-      },
-    },
-  },
 }
 
 export const Basic = story.Basic
-
-export const NoHeader = {
-  args: {
-    title: undefined,
-    description: undefined,
-    children: "Popover body only",
-  },
-}
 
 export const Inline = {
   args: {
@@ -84,4 +51,120 @@ export const Controlled = {
       </mod.Popover>
     )
   },
+}
+
+/**
+ * All item states side-by-side (light + dark).
+ * Hover/focus/selected captured via data-force-state.
+ */
+export const MenuMatrix = {
+  render: () => (
+    <div style={{ display: "flex", gap: "16px", "align-items": "flex-start" }}>
+      {/* Light */}
+      <div
+        style={{
+          background: "var(--surface-base)",
+          "border-radius": "var(--radius-md)",
+          "box-shadow": "var(--ring-base), var(--shadow-floating)",
+          padding: "4px",
+          "min-width": "184px",
+        }}
+      >
+        <div data-slot="popover-item">Default item</div>
+        <div data-slot="popover-item" data-force-state="hover">
+          Hovered item
+        </div>
+        <div data-slot="popover-item" data-force-state="active">
+          Active item
+        </div>
+        <div data-slot="popover-item" data-force-state="focus-visible">
+          Focused item
+        </div>
+        <div data-slot="popover-item" data-force-state="selected">
+          Selected item
+        </div>
+        <div data-slot="popover-item" data-force-state="disabled">
+          Disabled item
+        </div>
+        <div data-slot="popover-item">
+          <span data-slot="popover-item-icon">⌘</span>
+          With icon
+          <span data-slot="popover-item-shortcut">⌘K</span>
+        </div>
+        <div data-slot="popover-separator" />
+        <div data-slot="popover-item" data-variant="danger">
+          Delete
+        </div>
+      </div>
+
+      {/* Dark */}
+      <div
+        data-color-scheme="dark"
+        style={{
+          background: "var(--surface-base)",
+          "border-radius": "var(--radius-md)",
+          "box-shadow": "var(--ring-base), var(--shadow-floating)",
+          padding: "4px",
+          "min-width": "184px",
+        }}
+      >
+        <div data-slot="popover-item">Default item</div>
+        <div data-slot="popover-item" data-force-state="hover">
+          Hovered item
+        </div>
+        <div data-slot="popover-item" data-force-state="selected">
+          Selected item
+        </div>
+        <div data-slot="popover-item" data-force-state="disabled">
+          Disabled item
+        </div>
+        <div data-slot="popover-separator" />
+        <div data-slot="popover-item" data-variant="danger" data-force-state="hover">
+          Delete (hover)
+        </div>
+      </div>
+    </div>
+  ),
+}
+
+/**
+ * Embedded search slot — no border, no radius, 1px --border-weaker bottom divider.
+ * autofocus triggers static :focus-visible ring screenshot.
+ */
+export const WithSearch = {
+  render: () => (
+    <div
+      style={{
+        background: "var(--surface-base)",
+        "border-radius": "var(--radius-md)",
+        "box-shadow": "var(--ring-base), var(--shadow-floating)",
+        "min-width": "184px",
+      }}
+    >
+      <div data-slot="popover-search">
+        <input
+          data-slot="popover-search-input"
+          placeholder="Search…"
+          autofocus
+        />
+      </div>
+      <div style={{ padding: "4px" }}>
+        <div data-slot="popover-item">Result one</div>
+        <div data-slot="popover-item">Result two</div>
+      </div>
+    </div>
+  ),
+}
+
+export const WithDanger = {
+  render: () => (
+    <mod.Popover trigger="Open" defaultOpen portal={false}>
+      <div data-slot="popover-item">Rename</div>
+      <div data-slot="popover-item">Export…</div>
+      <div data-slot="popover-separator" />
+      <div data-slot="popover-item" data-variant="danger">
+        Delete
+      </div>
+    </mod.Popover>
+  ),
 }
