@@ -6,21 +6,21 @@
  * IconButtons toggle aria-pressed correctly.
  */
 import type { Page } from "@playwright/test"
-import { withSession } from "../actions"
+import { openRightPanel, withSession } from "../actions"
 import { test, expect } from "../fixtures"
 import { bodyText } from "../prompt/mock"
-import { titlebarRightSelector } from "../selectors"
 
 async function openReviewPanel(page: Page) {
-  const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-  const rightPanel = page.locator("#right-panel")
-  const tabList = rightPanel.getByRole("tablist").first()
+  const panel = await openRightPanel(page)
+  const tabList = panel.getByRole("tablist").first()
   const reviewTab = tabList.getByRole("tab", { name: "Review", exact: true })
 
-  await expect(rightToggle).toBeVisible({ timeout: 10_000 })
-  if ((await rightPanel.getAttribute("aria-hidden")) === "true") await rightToggle.click()
-  await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
-  await reviewTab.click()
+  if (await reviewTab.isVisible().catch(() => false)) {
+    await reviewTab.click()
+  } else {
+    await tabList.locator("button").last().click()
+    await page.getByRole("menuitem", { name: "Review" }).click()
+  }
   await expect(reviewTab).toHaveAttribute("aria-selected", "true")
 }
 
