@@ -132,6 +132,89 @@ describe("sortPawworkSidebarSessions", () => {
 })
 
 describe("buildPawworkSidebarSessionRows", () => {
+  test("uses API activity time before loaded message cache for sidebar rows", () => {
+    const result = buildPawworkSidebarSessionRows(
+      [
+        {
+          id: "session-old",
+          directory: "/repo",
+          activityAt: 900,
+          time: { created: 100, updated: 950 },
+        },
+      ],
+      {
+        slugForDirectory: (directory) => `slug:${directory}`,
+        projectLabelForSession: () => "PawWork",
+        messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 800 } }],
+      },
+    )
+
+    expect(result[0].created).toBe(900)
+  })
+
+  test("does not let unqualified loaded user message cache override API activity time", () => {
+    const result = buildPawworkSidebarSessionRows(
+      [
+        {
+          id: "session-old",
+          directory: "/repo",
+          activityAt: 700,
+          time: { created: 100, updated: 950 },
+        },
+      ],
+      {
+        slugForDirectory: (directory) => `slug:${directory}`,
+        projectLabelForSession: () => "PawWork",
+        messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 900 } }],
+      },
+    )
+
+    expect(result[0].created).toBe(700)
+  })
+
+  test("uses fresher loaded real user message parts over stale API activity time", () => {
+    const result = buildPawworkSidebarSessionRows(
+      [
+        {
+          id: "session-old",
+          directory: "/repo",
+          activityAt: 700,
+          time: { created: 100, updated: 950 },
+        },
+      ],
+      {
+        slugForDirectory: (directory) => `slug:${directory}`,
+        projectLabelForSession: () => "PawWork",
+        messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 900 } }],
+        partsForMessage: (_session, messageID) =>
+          messageID === "msg_1" ? [{ type: "text", synthetic: false }] : undefined,
+      },
+    )
+
+    expect(result[0].created).toBe(900)
+  })
+
+  test("does not let loaded synthetic-only user message parts override API activity time", () => {
+    const result = buildPawworkSidebarSessionRows(
+      [
+        {
+          id: "session-old",
+          directory: "/repo",
+          activityAt: 700,
+          time: { created: 100, updated: 950 },
+        },
+      ],
+      {
+        slugForDirectory: (directory) => `slug:${directory}`,
+        projectLabelForSession: () => "PawWork",
+        messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 900 } }],
+        partsForMessage: (_session, messageID) => (messageID === "msg_1" ? [{ type: "text", synthetic: true }] : undefined),
+      },
+    )
+
+    expect(result[0].created).toBe(700)
+  })
+
   test("uses loaded user message time for sidebar rows", () => {
     const result = buildPawworkSidebarSessionRows(
       [
@@ -199,6 +282,95 @@ describe("pawworkSidebarSessionTime", () => {
           { id: "msg_2", role: "user", time: { created: 300 } },
           { id: "msg_3", role: "user", time: { created: 500 } },
         ],
+      ),
+    ).toBe(500)
+  })
+
+  test("uses API activity time before loaded user messages when activity is available", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          activityAt: 400,
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [{ id: "msg_1", role: "user", time: { created: 500 } }],
+      ),
+    ).toBe(400)
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          activityAt: 700,
+          time: {
+            created: 100,
+            updated: 800,
+          },
+        },
+        [{ id: "msg_2", role: "user", time: { created: 500 } }],
+      ),
+    ).toBe(700)
+  })
+
+  test("uses newer eligible loaded user time when activity is stale", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          activityAt: 400,
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [{ id: "msg_1", role: "user", time: { created: 500 } }],
+        (messageID) => (messageID === "msg_1" ? [{ type: "text" }] : undefined),
+      ),
+    ).toBe(500)
+  })
+
+  test("does not use synthetic-only or compaction loaded user messages when activity is available", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          activityAt: 400,
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [
+          { id: "msg_1", role: "user", time: { created: 600 } },
+          { id: "msg_2", role: "user", time: { created: 500 } },
+        ],
+        (messageID) =>
+          messageID === "msg_1"
+            ? [{ type: "text", synthetic: true }]
+            : messageID === "msg_2"
+              ? [{ type: "compaction" }]
+              : undefined,
+      ),
+    ).toBe(400)
+  })
+
+  test("uses real user messages that also include synthetic reminder parts", () => {
+    expect(
+      pawworkSidebarSessionTime(
+        {
+          activityAt: 400,
+          time: {
+            created: 100,
+            updated: 600,
+          },
+        },
+        [{ id: "msg_1", role: "user", time: { created: 500 } }],
+        (messageID) =>
+          messageID === "msg_1"
+            ? [
+                { type: "text" },
+                { type: "text", synthetic: true },
+              ]
+            : undefined,
       ),
     ).toBe(500)
   })

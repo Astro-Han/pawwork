@@ -15,6 +15,7 @@ type SessionLike = {
 }
 
 type SessionTimeLike = {
+  activityAt?: number
   time?: {
     created?: number
     updated?: number
@@ -27,6 +28,11 @@ type MessageTimeLike = {
   time?: {
     created?: number
   }
+}
+
+type PartTimeLike = {
+  type?: string
+  synthetic?: boolean
 }
 
 type SidebarRowSessionLike = SessionTimeLike & {
@@ -68,13 +74,49 @@ export function sortPawworkSidebarSessions<T extends SessionLike>(sessions: T[])
   })
 }
 
-export function pawworkSidebarSessionTime(session: SessionTimeLike, messages?: MessageTimeLike[]) {
+const isActivityEligibleUserMessage = (parts: PartTimeLike[] | undefined) => {
+  if (!parts) return false
+  if (parts.some((part) => part.type === "compaction")) return false
+  const hasSynthetic = parts.some((part) => part.synthetic === true)
+  if (!hasSynthetic) return true
+  return parts.some((part) => part.synthetic !== true)
+}
+
+const latestLoadedUserMessageTime = (
+  messages: MessageTimeLike[] | undefined,
+  partsForMessage: ((messageID: string) => PartTimeLike[] | undefined) | undefined,
+  requireEligibility: boolean,
+) => {
+  let latestLoadedUserAt: number | undefined
   for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) {
     const message = messages?.[i]
     if (message?.role !== "user") continue
+    if (requireEligibility) {
+      if (!message.id) continue
+      if (!isActivityEligibleUserMessage(partsForMessage?.(message.id))) continue
+    }
     const created = message.time?.created
-    if (isFiniteNumber(created)) return created
+    if (isFiniteNumber(created)) {
+      latestLoadedUserAt = created
+      break
+    }
   }
+  return latestLoadedUserAt
+}
+
+export function pawworkSidebarSessionTime(
+  session: SessionTimeLike,
+  messages?: MessageTimeLike[],
+  partsForMessage?: (messageID: string) => PartTimeLike[] | undefined,
+) {
+  if (isFiniteNumber(session.activityAt)) {
+    const latestEligibleLoadedUserAt = latestLoadedUserMessageTime(messages, partsForMessage, true)
+    return latestEligibleLoadedUserAt === undefined
+      ? session.activityAt
+      : Math.max(session.activityAt, latestEligibleLoadedUserAt)
+  }
+  const latestLoadedUserAt = latestLoadedUserMessageTime(messages, partsForMessage, false)
+  if (latestLoadedUserAt !== undefined) return latestLoadedUserAt
   const sessionCreated = session.time?.created
   return isFiniteNumber(sessionCreated) ? sessionCreated : 0
 }
@@ -85,13 +127,18 @@ export function buildPawworkSidebarSessionRows<T extends SidebarRowSessionLike>(
     slugForDirectory: (directory: string) => string
     projectLabelForSession: (session: T) => string
     messagesForSession?: (session: T) => MessageTimeLike[] | undefined
+    partsForMessage?: (session: T, messageID: string) => PartTimeLike[] | undefined
   },
 ) {
   return sessions.map((session) => ({
     session,
     slug: input.slugForDirectory(session.directory),
     projectLabel: input.projectLabelForSession(session),
-    created: pawworkSidebarSessionTime(session, input.messagesForSession?.(session)),
+    created: pawworkSidebarSessionTime(
+      session,
+      input.messagesForSession?.(session),
+      input.partsForMessage ? (messageID) => input.partsForMessage?.(session, messageID) : undefined,
+    ),
   }))
 }
 

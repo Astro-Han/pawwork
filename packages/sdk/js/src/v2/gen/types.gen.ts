@@ -2055,6 +2055,8 @@ export type GlobalSession = {
     lastChangedAt: number
   }
   project: ProjectSummary | null
+  activityAt?: number
+  lastUserMessageAt?: number
 }
 
 export type McpResource = {
@@ -3345,9 +3347,9 @@ export type ExperimentalSessionListData = {
      */
     archived?: boolean
     /**
-     * Sort sessions by last update or creation time
+     * Sort sessions by last update, creation time, or latest user-message activity
      */
-    sort?: "updated" | "created"
+    sort?: "updated" | "created" | "activity"
   }
   url: "/experimental/session"
 }

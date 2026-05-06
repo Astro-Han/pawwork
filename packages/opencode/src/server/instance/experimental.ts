@@ -43,6 +43,7 @@ function encodeCreatedSessionCursor(session: Session.GlobalInfo) {
 }
 
 const CreatedSessionCursor = z.object({ created: z.number(), id: SessionID.zod })
+const ActivitySessionCursor = z.object({ activityAt: z.number(), id: SessionID.zod })
 
 function decodeCreatedSessionCursor(value: string | number | undefined) {
   if (value === undefined) return undefined
@@ -50,6 +51,23 @@ function decodeCreatedSessionCursor(value: string | number | undefined) {
   try {
     const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8"))
     const parsed = CreatedSessionCursor.safeParse(decoded)
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function encodeActivitySessionCursor(session: Session.GlobalInfo) {
+  if (session.activityAt === undefined) return undefined
+  return Buffer.from(JSON.stringify({ activityAt: session.activityAt, id: session.id }), "utf8").toString("base64url")
+}
+
+function decodeActivitySessionCursor(value: string | number | undefined) {
+  if (value === undefined) return undefined
+  if (typeof value === "number") return undefined
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8"))
+    const parsed = ActivitySessionCursor.safeParse(decoded)
     return parsed.success ? parsed.data : undefined
   } catch {
     return undefined
@@ -352,7 +370,7 @@ export const ExperimentalRoutes = lazy(() =>
       describeRoute({
         summary: "List sessions",
         description:
-          "Get a list of all OpenCode sessions across projects. Defaults to most recently updated; use sort=created for creation-time order. Archived sessions are excluded by default.",
+          "Get a list of all OpenCode sessions across projects. Defaults to most recently updated; use sort=created for creation-time order or sort=activity for latest user-message activity order. Archived sessions are excluded by default.",
         operationId: "experimental.session.list",
         responses: {
           200: {
@@ -385,9 +403,9 @@ export const ExperimentalRoutes = lazy(() =>
           limit: z.coerce.number().optional().meta({ description: "Maximum number of sessions to return" }),
           archived: z.coerce.boolean().optional().meta({ description: "Include archived sessions (default false)" }),
           sort: z
-            .enum(["updated", "created"])
+            .enum(["updated", "created", "activity"])
             .optional()
-            .meta({ description: "Sort sessions by last update or creation time" }),
+            .meta({ description: "Sort sessions by last update, creation time, or latest user-message activity" }),
         }),
       ),
       async (c) => {
@@ -401,6 +419,8 @@ export const ExperimentalRoutes = lazy(() =>
           cursor:
             query.sort === "created"
               ? decodeCreatedSessionCursor(query.cursor)
+              : query.sort === "activity"
+                ? decodeActivitySessionCursor(query.cursor)
               : decodeUpdatedSessionCursor(query.cursor),
           search: query.search,
           limit: limit + 1,
@@ -417,6 +437,8 @@ export const ExperimentalRoutes = lazy(() =>
             "x-next-cursor",
             query.sort === "created"
               ? encodeCreatedSessionCursor(list[list.length - 1])
+              : query.sort === "activity"
+                ? encodeActivitySessionCursor(list[list.length - 1])
               : String(list[list.length - 1].time.updated),
           )
         }

@@ -772,7 +772,7 @@ export class Session extends HeyApiClient {
   /**
    * List sessions
    *
-   * Get a list of all OpenCode sessions across projects. Defaults to most recently updated; use sort=created for creation-time order. Archived sessions are excluded by default.
+   * Get a list of all OpenCode sessions across projects. Defaults to most recently updated; use sort=created for creation-time order or sort=activity for latest user-message activity order. Archived sessions are excluded by default.
    */
   public list<ThrowOnError extends boolean = false>(
     parameters?: {
@@ -784,7 +784,7 @@ export class Session extends HeyApiClient {
       search?: string
       limit?: number
       archived?: boolean
-      sort?: "updated" | "created"
+      sort?: "updated" | "created" | "activity"
     },
     options?: Options<never, ThrowOnError>,
   ) {
