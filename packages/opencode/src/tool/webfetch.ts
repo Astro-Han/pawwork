@@ -289,11 +289,38 @@ function findTagEnd(html: string, start: number) {
 }
 
 function normalizeExtractedText(text: string) {
-  return text
-    .replace(/[ \t\f\v]+/g, " ")
-    .replace(/\s*\n\s*/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
+  const output: string[] = []
+  let pendingSpace = false
+  let newlineCount = 0
+
+  const appendNewline = () => {
+    pendingSpace = false
+    if (newlineCount < 2) output.push("\n")
+    newlineCount++
+  }
+
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]
+    if (char === "\r") {
+      if (text[index + 1] === "\n") index++
+      appendNewline()
+      continue
+    }
+    if (char === "\n") {
+      appendNewline()
+      continue
+    }
+    if (char === " " || char === "\t" || char === "\f" || char === "\v") {
+      pendingSpace = true
+      continue
+    }
+    if (pendingSpace && output.length > 0 && newlineCount === 0) output.push(" ")
+    output.push(char)
+    pendingSpace = false
+    newlineCount = 0
+  }
+
+  return output.join("").trim()
 }
 
 function decodeHTMLEntities(text: string) {

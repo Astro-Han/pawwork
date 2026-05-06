@@ -191,4 +191,29 @@ describe("tool.webfetch", () => {
       },
     )
   })
+
+  test("handles long whitespace runs without long synchronous normalization", async () => {
+    const html = `<body>${"\r".repeat(50_000)}visible text</body>`
+
+    await withFetch(
+      () =>
+        new Response(html, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      async (url) => {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const start = performance.now()
+            const result = await exec({ url: new URL("/whitespace.html", url).toString(), format: "text" })
+            const elapsed = performance.now() - start
+
+            expect(elapsed).toBeLessThan(500)
+            expect(result.output).toBe("visible text")
+          },
+        })
+      },
+    )
+  })
 })
