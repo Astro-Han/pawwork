@@ -96,6 +96,15 @@ export const PawworkSidebar = (props: {
     })),
   )
 
+  const openRenameDialog = (target: Session) => {
+    dialog.show(() => (
+      <DialogRenameSession
+        name={target.title ?? ""}
+        onConfirm={(next) => props.onRenameSession(target, next)}
+      />
+    ))
+  }
+
   const renderSessionItem = (entry: { item: PawworkSidebarSession }) => {
     const session = entry.item.session
     const isPinned = createMemo(() => props.pinnedIDs().includes(session.id))
@@ -174,12 +183,7 @@ export const PawworkSidebar = (props: {
                 onDblClick={(e: MouseEvent) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  dialog.show(() => (
-                    <DialogRenameSession
-                      name={session.title ?? ""}
-                      onConfirm={(next) => void props.onRenameSession(session, next)}
-                    />
-                  ))
+                  openRenameDialog(session)
                 }}
               >
                 {title()}
@@ -203,14 +207,7 @@ export const PawworkSidebar = (props: {
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content>
                     {renderDropdownActions(
-                      menuActions(rowSession, () => {
-                        dialog.show(() => (
-                          <DialogRenameSession
-                            name={rowSession.title ?? ""}
-                            onConfirm={(next) => void props.onRenameSession(rowSession, next)}
-                          />
-                        ))
-                      }),
+                      menuActions(rowSession, () => openRenameDialog(rowSession)),
                     )}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
@@ -221,14 +218,7 @@ export const PawworkSidebar = (props: {
         <ContextMenu.Portal>
           <ContextMenu.Content>
             {renderContextActions(
-              menuActions(session, () => {
-                dialog.show(() => (
-                  <DialogRenameSession
-                    name={session.title ?? ""}
-                    onConfirm={(next) => void props.onRenameSession(session, next)}
-                  />
-                ))
-              }),
+              menuActions(session, () => openRenameDialog(session)),
             )}
           </ContextMenu.Content>
         </ContextMenu.Portal>
