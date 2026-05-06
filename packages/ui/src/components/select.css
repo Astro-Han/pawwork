@@ -63,7 +63,7 @@
       &[data-expanded]:hover:not(:disabled) {
         background-color: var(--surface-sunken);
         background-image: none;
-        box-shadow: var(--shadow-xs-border-base);
+        box-shadow: none;
       }
 
       &:not([data-expanded]):not(:focus-visible):focus {
@@ -133,13 +133,15 @@
     outline: none;
     user-select: none;
 
-    &[data-highlighted] {
-      background: var(--bg-cream);
+    &[data-highlighted],
+    &:hover {
+      background: var(--surface-interactive-base);
       color: var(--fg-strong);
     }
     &[data-selected] {
       background: var(--surface-interactive-base);
       color: var(--fg-strong);
+      font-weight: var(--font-weight-medium);
     }
     &[data-disabled] {
       background-color: var(--surface-raised);
@@ -150,10 +152,6 @@
     }
     &:focus {
       outline: none;
-    }
-    &:hover {
-      background: var(--bg-cream);
-      color: var(--fg-strong);
     }
   }
 }

@@ -80,22 +80,23 @@ describe("Select: CSS token corrections", () => {
     expect(bgLine).toBeNull()
   })
 
-  test("item hover uses --bg-cream (not --surface-raised)", () => {
-    expect(css).toContain("--bg-cream")
-    // Old incorrect hover token must not appear in highlighted/hover rules.
+  test("item hover and highlighted both use --surface-interactive-base (sidebar-row standard)", () => {
+    // session-row.html locks hover/active 合一 = --surface-interactive-base; dropdown items follow.
     const highlightedIdx = css.indexOf("[data-highlighted]")
     expect(highlightedIdx).toBeGreaterThan(-1)
-    const highlightedRule = css.slice(highlightedIdx, highlightedIdx + 80)
-    expect(highlightedRule).toContain("--bg-cream")
+    const highlightedRule = css.slice(highlightedIdx, highlightedIdx + 200)
+    expect(highlightedRule).toContain("--surface-interactive-base")
     expect(highlightedRule).not.toContain("--surface-raised")
   })
 
-  test("item selected state uses --surface-interactive-base (STANDARDS L30: body weight, not medium)", () => {
+  test("item selected state uses --surface-interactive-base + medium weight", () => {
     expect(css).toContain("--surface-interactive-base")
     expect(css).toContain("[data-selected]")
     const selectedIdx = css.indexOf("[data-selected]")
     const selectedBlock = css.slice(selectedIdx, selectedIdx + 200)
     expect(selectedBlock).toContain("--surface-interactive-base")
+    // Selected differentiates from hover via medium weight.
+    expect(selectedBlock).toContain("--font-weight-medium")
   })
 
   test("item border-radius uses --radius-sm", () => {
