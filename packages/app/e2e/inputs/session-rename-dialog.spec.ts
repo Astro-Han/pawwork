@@ -1,16 +1,16 @@
 /**
- * text-field-ghost-inline-rename.spec.ts @smoke
+ * session-rename-dialog.spec.ts @smoke
  *
- * Golden-path: sidebar rename flow uses TextField ghost variant after InlineInput removal.
- * Verifies the ghost variant renders, focuses, accepts input, and saves on Enter.
+ * Golden-path: sidebar rename opens a Dialog with a TextField, saves on Enter,
+ * and the new title shows up in the sidebar row.
  */
 import { cleanupSession, openSidebar } from "../actions"
 import { test, expect } from "../fixtures"
-import { inlineInputSelector, pawworkSidebarSelector } from "../selectors"
+import { pawworkSidebarSelector } from "../selectors"
 
-test("sidebar rename uses ghost TextField and saves on Enter @smoke", async ({ page, sdk }) => {
+test("sidebar rename uses Dialog and saves on Enter @smoke", async ({ page, sdk }) => {
   const stamp = Date.now()
-  const session = await sdk.session.create({ title: `Ghost rename test ${stamp}` }).then((r) => r.data)
+  const session = await sdk.session.create({ title: `Rename dialog test ${stamp}` }).then((r) => r.data)
   if (!session?.id) throw new Error("Session create did not return an id")
 
   try {
@@ -24,14 +24,18 @@ test("sidebar rename uses ghost TextField and saves on Enter @smoke", async ({ p
     await row.locator('[data-action="session-row-menu"]').click()
     await page.getByRole("menuitem", { name: /rename/i }).click()
 
-    const input = sidebar.locator(`[data-session-id="${session.id}"] ${inlineInputSelector}`)
+    const dialog = page.locator('[data-component="dialog"]')
+    await expect(dialog).toBeVisible()
+
+    const input = dialog.locator('[data-component="input"] input')
     await expect(input).toBeVisible()
     await expect(input).toBeFocused()
 
-    const newTitle = `Renamed ghost ${stamp}`
+    const newTitle = `Renamed dialog ${stamp}`
     await input.fill(newTitle)
     await input.press("Enter")
 
+    await expect(dialog).toBeHidden()
     await expect(sidebar.locator(`[data-session-id="${session.id}"]`)).toContainText(newTitle)
   } finally {
     await cleanupSession({ sdk, sessionID: session.id })
