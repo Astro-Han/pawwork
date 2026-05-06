@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures"
 import { openSidebar } from "../actions"
-import { inlineInputSelector, pawworkSidebarSelector } from "../selectors"
+import { pawworkSidebarSelector } from "../selectors"
 
 test("users can pin, rename, and regroup sessions in the PawWork sidebar", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
@@ -24,11 +24,14 @@ test("users can pin, rename, and regroup sessions in the PawWork sidebar", async
   await renameRow.hover()
   await renameRow.locator('[data-action="session-row-menu"]').click()
   await page.getByRole("menuitem", { name: /rename/i }).click()
-  const input = sidebar.locator(`[data-session-id="${one.id}"] ${inlineInputSelector}`)
+  const dialog = page.locator('[data-component="dialog"]')
+  await expect(dialog).toBeVisible()
+  const input = dialog.getByRole("textbox")
   await expect(input).toBeVisible()
   await expect(input).toBeFocused()
   await input.fill(`Ops weekly renamed ${stamp}`)
   await input.press("Enter")
+  await expect(dialog).toBeHidden()
   await expect(sidebar.locator(`[data-session-id="${one.id}"]`)).toContainText(`Ops weekly renamed ${stamp}`)
 
   await sidebar.locator('[data-action="pawwork-sort-mode"]').click()

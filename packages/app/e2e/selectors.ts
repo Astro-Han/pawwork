@@ -59,7 +59,7 @@ export const popoverBodySelector = '[data-slot="popover-body"]'
 
 export const dropdownMenuContentSelector = '[data-component="dropdown-menu-content"]'
 
-export const inlineInputSelector = '[data-component="input"][data-variant="ghost"]'
+export const inlineInputSelector = '[data-component="input"][data-variant="inline"]'
 
 export const sessionItemSelector = (sessionID: string) => `${sidebarNavSelector} [data-session-id="${sessionID}"]`
 
