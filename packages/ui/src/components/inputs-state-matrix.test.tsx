@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs"
 
 const selectSrc = readFileSync(new URL("./select.tsx", import.meta.url), "utf8")
 const selectCss = readFileSync(new URL("./select.css", import.meta.url), "utf8")
+const pickerCss = readFileSync(new URL("./picker.css", import.meta.url), "utf8")
 const switchSrc = readFileSync(new URL("./switch.tsx", import.meta.url), "utf8")
 const switchCss = readFileSync(new URL("./switch.css", import.meta.url), "utf8")
 const textFieldSrc = readFileSync(new URL("./text-field.tsx", import.meta.url), "utf8")
@@ -48,18 +49,23 @@ describe("state-matrix: Select", () => {
   })
 
   test("selected: item renders ItemIndicator slot (aria-selected managed by Kobalte)", () => {
-    // Kobalte sets data-selected on selected items. The CSS must handle it.
-    expect(selectCss).toContain("[data-selected]")
-    expect(selectCss).toContain("--surface-interactive-base")
+    // Kobalte sets data-selected on selected items. The picker contract layer
+    // (picker.css) handles selected styling for any data-picker-item, which
+    // Select opts into.
+    expect(pickerCss).toContain("[data-picker-item]")
+    expect(pickerCss).toContain("[data-selected]")
+    expect(pickerCss).toContain("--row-active-overlay")
+    expect(selectSrc).toContain('data-picker-item=""')
   })
 
   test("selected: item indicator slot is present in item component", () => {
     expect(selectSrc).toContain('data-slot="select-select-item-indicator"')
   })
 
-  test("default triggerVariant: prop type allows undefined (no variant set)", () => {
-    // triggerVariant is optional — undefined means default style.
-    expect(selectSrc).toMatch(/triggerVariant\?\s*:\s*"settings"\s*\|\s*"review-filter"/)
+  test("default triggerVariant: prop type now includes explicit 'default'", () => {
+    // triggerVariant is optional — when set to "default" (or undefined) the
+    // trigger uses the picker.css contract (h28, radius-md, row-hover-overlay).
+    expect(selectSrc).toMatch(/triggerVariant\?\s*:\s*"default"\s*\|\s*"settings"\s*\|\s*"review-filter"/)
   })
 
   test("settings triggerVariant: adds data-trigger-style='settings' on trigger", () => {

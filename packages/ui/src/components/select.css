@@ -1,3 +1,13 @@
+/*
+ * select.css — Select primitive overrides on top of picker.css contract.
+ *
+ * Trigger / content / item base styles (height, hover, selected, surface)
+ * live in picker.css and apply to any element with data-picker-trigger /
+ * data-picker-content / data-picker-item. This file only adds Select-specific
+ * chrome (chevron transition, value overflow, settings/review-filter
+ * trigger variants) and resets that aren't part of the contract.
+ */
+
 [data-component="select"] {
   [data-slot="select-select-trigger"] {
     padding: 0 4px 0 12px;
@@ -19,10 +29,6 @@
       transition: transform 0.1s ease-in-out;
     }
 
-    &[data-expanded] {
-      background-color: var(--surface-sunken);
-    }
-
     &:not([data-expanded]):focus-visible {
       box-shadow: var(--shadow-xs-border-focus);
     }
@@ -31,39 +37,15 @@
   &[data-trigger-style="settings"] {
     [data-slot="select-select-trigger"] {
       padding: 0 6px 0 12px;
-      box-shadow: none;
-      border-radius: var(--radius-md);
-      height: 28px;
       justify-content: flex-end;
       gap: 12px;
       background-color: transparent;
       background-image: none;
 
       [data-slot="select-select-trigger-value"] {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
         font-size: var(--font-size-base);
         font-weight: var(--font-weight-regular);
         line-height: var(--line-height-large);
-      }
-      [data-slot="select-select-trigger-icon"] {
-        width: 16px;
-        height: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: var(--fg-weak);
-        transition: transform 0.1s ease-in-out;
-      }
-
-      &:hover:not(:disabled),
-      &[data-expanded],
-      &[data-expanded]:hover:not(:disabled) {
-        background-color: var(--surface-sunken);
-        background-image: none;
-        box-shadow: none;
       }
 
       &:not([data-expanded]):not(:focus-visible):focus {
@@ -79,10 +61,6 @@
   min-width: 184px;
   max-width: 23rem;
   overflow: hidden;
-  border-radius: var(--radius-md);
-  background-color: var(--surface-base);
-  padding: 4px;
-  box-shadow: var(--ring-base), var(--shadow-floating);
   z-index: 60;
 
   &[data-expanded] {
@@ -104,75 +82,14 @@
   }
 
   [data-slot="select-select-item"] {
-    position: relative;
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    height: 32px;
-    min-height: 32px;
-    max-height: 32px;
-    overflow: hidden;
-    padding: 0 8px;
-    gap: 12px;
-    border-radius: var(--radius-sm);
-    cursor: default;
-
-    /* text-13-regular (--type-body) */
-    font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: 1.5; /* 150% */
-    letter-spacing: var(--letter-spacing-normal);
-
-    color: var(--fg-base);
-
-    transition:
-      background-color var(--duration-base),
-      color var(--duration-base);
-    outline: none;
-    user-select: none;
-
-    &[data-highlighted],
-    &:hover {
-      background: var(--surface-list-hover);
-      color: var(--fg-strong);
-    }
-    &[data-selected] {
-      background: var(--surface-interactive-base);
-      color: var(--fg-strong);
-      font-weight: var(--font-weight-medium);
-    }
-    &[data-selected]:hover,
-    &[data-selected][data-highlighted] {
-      background: var(--surface-interactive-base);
-    }
-    &[data-disabled] {
-      background-color: var(--surface-raised);
-      pointer-events: none;
-    }
     [data-slot="select-select-item-indicator"] {
       display: none;
-    }
-    &:focus {
-      outline: none;
     }
   }
 }
 
 [data-component="select-content"][data-trigger-style="settings"] {
   min-width: 160px;
-  border-radius: var(--radius-md);
-  padding: 0;
-
-  [data-slot="select-select-content-list"] {
-    padding: 4px;
-  }
-
-  [data-slot="select-select-item"] {
-    /* text-13-regular — unified with default item size per inputs.html */
-    font-size: var(--font-size-small);
-  }
 }
 
 /* review-filter variant: h24, no border, 13/400, radius-sm (DESIGN.md L218) */

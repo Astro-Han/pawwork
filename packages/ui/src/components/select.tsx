@@ -18,7 +18,7 @@ export type SelectProps<T> = Omit<ComponentProps<typeof Kobalte<T>>, "value" | "
   classList?: ComponentProps<"div">["classList"]
   children?: (item: T | undefined) => JSX.Element
   triggerStyle?: JSX.CSSProperties
-  triggerVariant?: "settings" | "review-filter"
+  triggerVariant?: "default" | "settings" | "review-filter"
   triggerProps?: Record<string, string | number | boolean | undefined>
 }
 
@@ -105,6 +105,7 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
         <Kobalte.Item
           {...itemProps}
           data-slot="select-select-item"
+          data-picker-item=""
           classList={{
             ...local.classList,
             [local.class ?? ""]: !!local.class,
@@ -136,6 +137,7 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
         {...local.triggerProps}
         disabled={props.disabled}
         data-slot="select-select-trigger"
+        data-picker-trigger=""
         as={Button}
         size={props.size}
         variant={props.variant}
@@ -164,6 +166,7 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
             [local.class ?? ""]: !!local.class,
           }}
           data-component="select-content"
+          data-picker-content=""
           data-trigger-style={local.triggerVariant}
         >
           <Kobalte.Listbox data-slot="select-select-content-list" />
