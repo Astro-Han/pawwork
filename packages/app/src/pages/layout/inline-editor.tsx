@@ -85,7 +85,8 @@ export function createInlineEditorController() {
         }
       >
         <TextField
-          variant="ghost"
+          variant="inline"
+          selectOnFocus
           hideLabel
           label=""
           ref={(el: HTMLInputElement) => {

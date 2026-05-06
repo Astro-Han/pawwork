@@ -27,10 +27,12 @@ export interface TextFieldProps
   description?: string
   /** Error message text. When set, the field enters invalid state and shows an error icon. */
   error?: string
-  variant?: "normal" | "ghost"
+  variant?: "normal" | "ghost" | "inline"
   copyable?: boolean
   copyKind?: "clipboard" | "link"
   multiline?: boolean
+  /** Auto-select all text when the input gains focus. Useful for inline rename. */
+  selectOnFocus?: boolean
 }
 
 export function TextField(props: TextFieldProps) {
@@ -54,6 +56,7 @@ export function TextField(props: TextFieldProps) {
     "copyable",
     "copyKind",
     "multiline",
+    "selectOnFocus",
   ])
   const [copied, setCopied] = createSignal(false)
 
@@ -106,9 +109,28 @@ export function TextField(props: TextFieldProps) {
       <div data-slot="input-wrapper">
         <Show
           when={local.multiline}
-          fallback={<Kobalte.Input {...others} data-slot="input-input" class={local.class} />}
+          fallback={
+            <Kobalte.Input
+              {...others}
+              data-slot="input-input"
+              class={local.class}
+              onFocus={(event: FocusEvent & { currentTarget: HTMLInputElement }) => {
+                if (local.selectOnFocus) event.currentTarget.select()
+                ;(others as { onFocus?: (e: FocusEvent) => void }).onFocus?.(event)
+              }}
+            />
+          }
         >
-          <Kobalte.TextArea {...others} autoResize data-slot="input-input" class={local.class} />
+          <Kobalte.TextArea
+            {...others}
+            autoResize
+            data-slot="input-input"
+            class={local.class}
+            onFocus={(event: FocusEvent & { currentTarget: HTMLTextAreaElement }) => {
+              if (local.selectOnFocus) event.currentTarget.select()
+              ;(others as { onFocus?: (e: FocusEvent) => void }).onFocus?.(event)
+            }}
+          />
         </Show>
         <Show when={local.copyable}>
           <Tooltip value={label()} placement="top" gutter={4} forceOpen={copied()} skipDelayDuration={0}>

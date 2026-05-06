@@ -126,25 +126,25 @@ describe("Select: review-filter variant CSS", () => {
   test("review-filter trigger has height: 24px", () => {
     const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
     expect(rfIdx).toBeGreaterThan(-1)
-    const rfBlock = css.slice(rfIdx, rfIdx + 300)
+    const rfBlock = css.slice(rfIdx, rfIdx + 600)
     expect(rfBlock).toContain("height: 24px")
   })
 
   test("review-filter trigger has border-radius: var(--radius-sm)", () => {
     const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
-    const rfBlock = css.slice(rfIdx, rfIdx + 300)
+    const rfBlock = css.slice(rfIdx, rfIdx + 600)
     expect(rfBlock).toContain("--radius-sm")
   })
 
   test("review-filter trigger has font-weight: var(--font-weight-regular)", () => {
     const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
-    const rfBlock = css.slice(rfIdx, rfIdx + 300)
+    const rfBlock = css.slice(rfIdx, rfIdx + 600)
     expect(rfBlock).toContain("--font-weight-regular")
   })
 
   test("review-filter trigger has background: transparent", () => {
     const rfIdx = css.indexOf('[data-trigger-style="review-filter"]')
-    const rfBlock = css.slice(rfIdx, rfIdx + 300)
+    const rfBlock = css.slice(rfIdx, rfIdx + 600)
     expect(rfBlock).toContain("transparent")
   })
 })
