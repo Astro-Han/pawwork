@@ -960,21 +960,19 @@ export function MessageTimeline(props: {
     }
 
     return (
-      <Dialog title={language.t("session.delete.title")} fit>
-        <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
-          <div class="flex flex-col gap-1">
-            <span class="text-13-regular text-fg-strong">
-              {language.t("session.delete.confirm", { name: name() })}
-            </span>
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="ghost" size="large" onClick={() => dialog.close()}>
-              {language.t("common.cancel")}
-            </Button>
-            <Button variant="primary" size="large" onClick={handleDelete}>
-              {language.t("session.delete.button")}
-            </Button>
-          </div>
+      <Dialog title={language.t("session.delete.title")} fit class="w-full max-w-[420px] mx-auto">
+        <div class="px-6 pt-2 pb-6">
+          <span class="text-13-regular text-fg-strong">
+            {language.t("session.delete.confirm", { name: name() })}
+          </span>
+        </div>
+        <div class="flex justify-end gap-2 px-6 pb-6">
+          <Button variant="secondary" onClick={() => dialog.close()}>
+            {language.t("common.cancel")}
+          </Button>
+          <Button variant="danger" onClick={handleDelete}>
+            {language.t("session.delete.button")}
+          </Button>
         </div>
       </Dialog>
     )
