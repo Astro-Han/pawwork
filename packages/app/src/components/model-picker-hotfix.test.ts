@@ -10,12 +10,18 @@ describe("model picker visual regression guard", () => {
     expect(source).not.toContain("text-fg-on-brand")
   })
 
-  test("model list active row uses a visible hover surface", async () => {
-    const source = await read("packages/ui/src/components/list.css")
+  test("model list active row uses a visible hover surface (picker contract)", async () => {
+    const list = await read("packages/ui/src/components/list.css")
+    const listSrc = await read("packages/ui/src/components/list.tsx")
+    const picker = await read("packages/ui/src/components/picker.css")
 
-    expect(source).toContain('&[data-active="true"]')
-    expect(source).toMatch(/&\[data-active="true"\]\s*\{[\s\S]*?background:\s*var\(--surface-sunken\)/)
-    expect(source).not.toMatch(/&\[data-active="true"\]\s*\{[\s\S]*?background:\s*var\(--surface-raised\)/)
+    // list-item opts into the picker contract; picker.css owns hover/selected.
+    expect(listSrc).toContain('data-picker-item=""')
+    expect(picker).toContain("--row-hover-overlay")
+    expect(picker).toContain("--row-active-overlay")
+
+    // list.css must not regress to invisible surface-raised on active.
+    expect(list).not.toMatch(/&\[data-active="true"\]\s*\{[\s\S]*?background:\s*var\(--surface-raised\)/)
   })
 
   test("prompt workspace and variant menu rows use a visible hover surface", async () => {

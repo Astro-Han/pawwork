@@ -41,6 +41,7 @@ export interface ListProps<T> extends FilteredListProps<T> {
   onMove?: (item: T | undefined) => void
   onFilter?: (value: string) => void
   activeIcon?: IconProps["name"]
+  selectedIcon?: IconProps["name"]
   filter?: string
   search?: ListSearchProps | boolean
   itemWrapper?: (item: T, node: JSX.Element) => JSX.Element
@@ -339,9 +340,10 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
                           <button
                             data-component="list-item"
                             data-slot="list-item"
+                            data-picker-item=""
                             data-key={props.key(item)}
-                            data-active={props.key(item) === active()}
-                            data-selected={item === props.current}
+                            data-active={props.key(item) === active() ? "true" : undefined}
+                            data-selected={item === props.current ? "true" : undefined}
                             onClick={() => handleSelect(item, i())}
                             onKeyDown={handleKey}
                             type="button"
@@ -356,9 +358,9 @@ export function List<T>(props: ListProps<T> & { ref?: (ref: ListRef) => void }) 
                             }}
                           >
                             {props.children(item)}
-                            <Show when={item === props.current}>
+                            <Show when={props.selectedIcon && item === props.current}>
                               <span data-slot="list-item-selected-icon">
-                                <Icon name="check-small" />
+                                <Icon name={props.selectedIcon!} />
                               </span>
                             </Show>
                             <Show when={props.activeIcon}>

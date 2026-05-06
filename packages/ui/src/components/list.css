@@ -196,7 +196,7 @@
         justify-content: space-between;
         align-items: center;
         align-self: stretch;
-        background: var(--surface-raised);
+        background: var(--surface-base);
         position: sticky;
         top: 0;
 
@@ -217,7 +217,7 @@
           left: 0;
           right: 0;
           height: 16px;
-          background: linear-gradient(to bottom, var(--surface-raised), transparent);
+          background: linear-gradient(to bottom, var(--surface-base), transparent);
           pointer-events: none;
           opacity: 0;
           transition: opacity 0.15s ease;
@@ -233,23 +233,11 @@
         flex-direction: column;
         align-items: flex-start;
         align-self: stretch;
+        gap: 2px;
 
         [data-slot="list-item"] {
-          display: flex;
-          position: relative;
           width: 100%;
-          padding: 6px 8px 6px 8px;
-          align-items: center;
-          color: var(--fg-strong);
           scroll-margin-top: 28px;
-
-          /* text-14-medium */
-          font-family: var(--font-family-sans);
-          font-size: var(--font-size-hierarchy);
-          font-style: normal;
-          font-weight: var(--font-weight-medium);
-          line-height: var(--line-height-large); /* 142.857% */
-          letter-spacing: var(--letter-spacing-normal);
 
           [data-slot="list-item-selected-icon"] {
             display: inline-flex;
@@ -291,14 +279,7 @@
             display: none;
           }
 
-          &:hover:not([data-active="true"]) {
-            border-radius: var(--radius-md);
-            background: var(--surface-list-hover);
-          }
           &[data-active="true"] {
-            border-radius: var(--radius-md);
-            background: var(--surface-interactive-base);
-            font-weight: var(--font-weight-medium);
             [data-slot="list-item-active-icon"] {
               display: inline-flex;
             }
@@ -309,9 +290,6 @@
           }
           &:active {
             background: var(--surface-base-active);
-          }
-          &:focus-visible {
-            outline: none;
           }
         }
 
