@@ -47,7 +47,7 @@
       padding: 0 12px;
       border-radius: var(--radius-md);
       border: 1px solid var(--border-weak);
-      background: var(--surface-sunken);
+      background: var(--surface-base);
 
       transition: box-shadow var(--duration-base);
 
