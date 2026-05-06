@@ -1,30 +1,15 @@
+/* DESIGN.md L264 — `.kbd` `--type-kbd` 加 `--bg-base` 加 1px `--border-weak`
+ * 加 1px 硬阴影，padding 1px 6px (physical keycap look). */
 [data-component="keybind"] {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  height: 20px;
-  padding: 0 8px;
+  padding: 1px 6px;
   border-radius: 2px;
-  /* Spec: scrim/kbd colors inlined per DESIGN.md (no token). */
-  background: #f5f0e9;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-
-  font-family: var(--font-family-sans);
-  font-size: var(--font-size-x-small);
-  font-weight: var(--font-weight-regular);
-  line-height: 1;
+  background: var(--bg-base);
+  border: 1px solid var(--border-weak);
+  box-shadow: 0 1px 0 0 var(--border-weak);
+  font: var(--type-kbd);
   color: var(--fg-weak);
-}
-
-:root[data-color-scheme="dark"] [data-component="keybind"] {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.10);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-color-scheme="light"]) [data-component="keybind"] {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.10);
-  }
 }
