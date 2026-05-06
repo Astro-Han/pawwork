@@ -63,6 +63,28 @@ async function defaultModel() {
   return run((provider) => provider.defaultModel())
 }
 
+async function readAuthSnapshot() {
+  try {
+    return await Filesystem.readText(path.join(Global.Path.data, "auth.json"))
+  } catch (e) {
+    if (typeof e === "object" && e !== null && "code" in e && e.code === "ENOENT") return undefined
+    throw e
+  }
+}
+
+async function restoreAuthSnapshot(snapshot: string | undefined) {
+  const authPath = path.join(Global.Path.data, "auth.json")
+  if (snapshot !== undefined) {
+    await Filesystem.write(authPath, snapshot, 0o600)
+    return
+  }
+  try {
+    await unlink(authPath)
+  } catch (e) {
+    if (!(typeof e === "object" && e !== null && "code" in e && e.code === "ENOENT")) throw e
+  }
+}
+
 test("OpenCode Zen and OpenCode Go providers remain discoverable in PawWork runtime mode", async () => {
   await using tmp = await tmpdir({ git: true })
   const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -2956,6 +2978,7 @@ test("multiple provider model hooks run for the same provider", async () => {
 })
 
 test("Codex no-op hook does not block external OpenAI model hooks", async () => {
+  const authSnapshot = await readAuthSnapshot()
   await Auth.remove(ProviderID.openai)
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -3001,11 +3024,12 @@ test("Codex no-op hook does not block external OpenAI model hooks", async () => 
       },
     })
   } finally {
-    await Auth.remove(ProviderID.openai)
+    await restoreAuthSnapshot(authSnapshot)
   }
 })
 
 test("Codex OAuth provider hook filters OpenAI models added by config", async () => {
+  const authSnapshot = await readAuthSnapshot()
   await Auth.remove(ProviderID.openai)
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -3064,11 +3088,12 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
       },
     })
   } finally {
-    await Auth.remove(ProviderID.openai)
+    await restoreAuthSnapshot(authSnapshot)
   }
 })
 
 test("Codex OAuth config model override survives external OpenAI model hook", async () => {
+  const authSnapshot = await readAuthSnapshot()
   await Auth.remove(ProviderID.openai)
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -3145,11 +3170,12 @@ test("Codex OAuth config model override survives external OpenAI model hook", as
       },
     })
   } finally {
-    await Auth.remove(ProviderID.openai)
+    await restoreAuthSnapshot(authSnapshot)
   }
 })
 
 test("post-config OAuth rerun only reprocesses providers with config models", async () => {
+  const authSnapshot = await readAuthSnapshot()
   await Auth.remove(ProviderID.anthropic)
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -3222,7 +3248,7 @@ test("post-config OAuth rerun only reprocesses providers with config models", as
       },
     })
   } finally {
-    await Auth.remove(ProviderID.anthropic)
+    await restoreAuthSnapshot(authSnapshot)
   }
 })
 

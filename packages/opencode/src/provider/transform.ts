@@ -63,6 +63,15 @@ function sdkKey(npm: string): string | undefined {
   return undefined
 }
 
+function providerOptionsKey(model: Provider.Model): string {
+  const usesDotSplitOptions =
+    model.providerID.includes(".") &&
+    (model.api.npm === "@ai-sdk/openai-compatible" ||
+      model.api.npm === "@ai-sdk/openai" ||
+      model.api.npm === "@ai-sdk/anthropic")
+  return usesDotSplitOptions ? model.providerID.split(".")[0]! : (sdkKey(model.api.npm) ?? model.providerID)
+}
+
 function isDeepSeekModelID(id: string) {
   return /(^|[/:])deepseek(?:[-_/]|$)/.test(id.toLowerCase())
 }
@@ -416,7 +425,7 @@ export function message(msgs: ModelMessage[], model: Provider.Model, options: Re
   }
 
   // Remap providerOptions keys from stored providerID to expected SDK key
-  const key = sdkKey(model.api.npm)
+  const key = providerOptionsKey(model)
   if (key && key !== model.providerID) {
     const remap = (opts: Record<string, any> | undefined) => {
       if (!opts) return opts
@@ -1142,12 +1151,7 @@ export function providerOptions(model: Provider.Model, options: { [x: string]: a
   if (model.api.npm === "@ai-sdk/azure") {
     return { openai: options, azure: options }
   }
-  const usesDotSplitOptions =
-    model.providerID.includes(".") &&
-    (model.api.npm === "@ai-sdk/openai-compatible" ||
-      model.api.npm === "@ai-sdk/openai" ||
-      model.api.npm === "@ai-sdk/anthropic")
-  const key = usesDotSplitOptions ? model.providerID.split(".")[0]! : (sdkKey(model.api.npm) ?? model.providerID)
+  const key = providerOptionsKey(model)
   return { [key]: options }
 }
 

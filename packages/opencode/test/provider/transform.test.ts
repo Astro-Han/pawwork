@@ -2605,6 +2605,55 @@ describe("ProviderTransform.message - providerOptions key remapping", () => {
     expect(result[0].providerOptions?.bedrock).toEqual({ someOption: "value" })
     expect(result[0].providerOptions?.["my-bedrock"]).toBeUndefined()
   })
+
+  test("dotted Anthropic provider remaps message options through dot-split key", () => {
+    const model = createModel("claude.proxy", "@ai-sdk/anthropic")
+    const msgs = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Hello",
+            providerOptions: {
+              "claude.proxy": { part: true },
+            },
+          },
+        ],
+        providerOptions: {
+          "claude.proxy": { someOption: "value" },
+        },
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, model, {}) as any[]
+    const part = result[0].content[0] as any
+
+    expect(result[0].providerOptions?.claude).toEqual({ someOption: "value" })
+    expect(result[0].providerOptions?.["claude.proxy"]).toBeUndefined()
+    expect(result[0].providerOptions?.anthropic).toBeUndefined()
+    expect(part.providerOptions?.claude).toEqual({ part: true })
+    expect(part.providerOptions?.["claude.proxy"]).toBeUndefined()
+  })
+
+  test("dotted OpenAI-compatible provider remaps message options through dot-split key", () => {
+    const model = createModel("wafer.ai", "@ai-sdk/openai-compatible")
+    const msgs = [
+      {
+        role: "user",
+        content: "Hello",
+        providerOptions: {
+          "wafer.ai": { someOption: "value" },
+        },
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, model, {}) as any[]
+
+    expect(result[0].providerOptions?.wafer).toEqual({ someOption: "value" })
+    expect(result[0].providerOptions?.["wafer.ai"]).toBeUndefined()
+    expect(result[0].providerOptions?.openaiCompatible).toBeUndefined()
+  })
 })
 
 describe("ProviderTransform.message - claude w/bedrock custom inference profile", () => {
