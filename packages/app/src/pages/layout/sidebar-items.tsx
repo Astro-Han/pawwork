@@ -186,7 +186,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <>
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-bg-cream [&:has(:focus-visible)]:bg-bg-cream has-[[data-expanded]]:bg-bg-cream has-[.active]:bg-surface-interactive-base has-[.active]:hover:bg-surface-interactive-base"
+        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-[var(--hover-overlay-warm)] [&:has(:focus-visible)]:bg-[var(--hover-overlay-warm)] has-[[data-expanded]]:bg-[var(--hover-overlay-warm)] has-[.active]:bg-surface-interactive-base has-[.active]:hover:bg-surface-interactive-base"
         style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
       >
         <div class="flex min-w-0 items-center gap-1">
@@ -268,7 +268,7 @@ export const NewSessionItem = (props: {
   )
 
   return (
-    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-2 hover:bg-bg-cream [&:has(:focus-visible)]:bg-bg-cream has-[.active]:bg-surface-interactive-base has-[.active]:hover:bg-surface-interactive-base">
+    <div class="group/session relative w-full min-w-0 rounded-md cursor-default transition-colors pl-2 pr-2 hover:bg-[var(--hover-overlay-warm)] [&:has(:focus-visible)]:bg-[var(--hover-overlay-warm)] has-[.active]:bg-surface-interactive-base has-[.active]:hover:bg-surface-interactive-base">
       {item}
     </div>
   )

@@ -135,7 +135,7 @@
 
     &[data-highlighted],
     &:hover {
-      background: var(--bg-cream);
+      background: var(--hover-overlay-warm);
       color: var(--fg-strong);
     }
     &[data-selected] {

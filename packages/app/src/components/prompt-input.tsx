@@ -1143,7 +1143,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               as="div"
               variant="ghost"
               size="normal"
-              class="h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-bg-cream"
+              class="h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-[var(--hover-overlay-warm)]"
               style={triggerStyle()}
               onClick={() => {
                 if (!actionReady()) return
@@ -1184,7 +1184,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-bg-cream",
+                "h-[28px]! min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group rounded-xl! transition-colors hover:bg-[var(--hover-overlay-warm)]",
               "data-action": "prompt-model",
               disabled: !actionReady(),
             }}
@@ -1240,7 +1240,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               disabled: !actionReady(),
               style: triggerStyle(),
               class:
-                "h-[28px] px-2 max-w-[160px] @max-[20rem]/composer:max-w-[80px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-[max-width,colors] duration-200 ease-out hover:bg-bg-cream",
+                "h-[28px] px-2 max-w-[160px] @max-[20rem]/composer:max-w-[80px] inline-flex items-center gap-1.5 rounded-xl text-13-regular text-fg-base transition-[max-width,colors] duration-200 ease-out hover:bg-[var(--hover-overlay-warm)]",
             } as any
           }
           trigger={
@@ -1264,7 +1264,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     role="menuitemradio"
                     aria-checked={active()}
                     classList={{
-                      "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-strong outline-none transition-colors hover:bg-bg-cream focus-visible:bg-bg-cream":
+                      "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-13-regular text-fg-strong outline-none transition-colors hover:bg-[var(--hover-overlay-warm)] focus-visible:bg-[var(--hover-overlay-warm)]":
                         true,
                       "bg-surface-interactive-base font-medium hover:bg-surface-interactive-base focus-visible:bg-surface-interactive-base":
                         active(),

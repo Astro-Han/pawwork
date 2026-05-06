@@ -80,15 +80,16 @@ describe("Select: CSS token corrections", () => {
     expect(bgLine).toBeNull()
   })
 
-  test("item hover and highlighted use --bg-cream (cross-product hover token)", () => {
-    // Two-tier hover/selected pattern: hover uses --bg-cream, selected uses
+  test("item hover and highlighted use --hover-overlay-warm (cross-product hover token)", () => {
+    // Two-tier hover/selected pattern: hover uses --hover-overlay-warm (alpha
+    // overlay so it shows on both white and cream surfaces), selected uses
     // --surface-interactive-base. Both can render at once on different rows so
     // they need to be visually distinct (VSCode list.hoverBackground vs
     // list.activeSelectionBackground convention).
     const highlightedIdx = css.indexOf("[data-highlighted]")
     expect(highlightedIdx).toBeGreaterThan(-1)
     const highlightedRule = css.slice(highlightedIdx, highlightedIdx + 200)
-    expect(highlightedRule).toContain("--bg-cream")
+    expect(highlightedRule).toContain("--hover-overlay-warm")
     expect(highlightedRule).not.toContain("--surface-raised")
   })
 
