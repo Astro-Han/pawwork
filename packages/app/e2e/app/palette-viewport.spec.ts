@@ -16,9 +16,11 @@ test("palette content stays within viewport at 400px height", async ({ page, got
   await page.setViewportSize({ width: 1280, height: 400 })
   await gotoSession()
 
-  const dialog = await openPalette(page)
-  const content = dialog.locator('[data-slot="palette-content"]').first()
-  await expect(content).toBeVisible()
+  // openPalette returns page.getByRole("dialog"), and Kobalte.Content
+  // *is* the role="dialog" element — it carries data-slot="palette-content"
+  // itself. Querying its descendants for the same slot finds nothing.
+  const content = await openPalette(page)
+  await expect(content).toHaveAttribute("data-slot", "palette-content")
 
   const box = await content.boundingBox()
   expect(box).not.toBeNull()
@@ -39,9 +41,11 @@ test("palette content respects the 480px ceiling at large viewport height", asyn
   await page.setViewportSize({ width: 1280, height: 900 })
   await gotoSession()
 
-  const dialog = await openPalette(page)
-  const content = dialog.locator('[data-slot="palette-content"]').first()
-  await expect(content).toBeVisible()
+  // openPalette returns page.getByRole("dialog"), and Kobalte.Content
+  // *is* the role="dialog" element — it carries data-slot="palette-content"
+  // itself. Querying its descendants for the same slot finds nothing.
+  const content = await openPalette(page)
+  await expect(content).toHaveAttribute("data-slot", "palette-content")
 
   const box = await content.boundingBox()
   expect(box).not.toBeNull()
