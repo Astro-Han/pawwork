@@ -32,7 +32,6 @@ test("review diff-style toggle switches between unified and split @smoke", async
   await project.open()
 
   await withSession(project.sdk, "e2e inputs review filter toggle", async (session) => {
-    project.trackSession(session.id)
     {
       const PATCH_TEXT = [
         "*** Begin Patch",
