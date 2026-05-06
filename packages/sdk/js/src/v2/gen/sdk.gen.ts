@@ -13,6 +13,7 @@ import type {
   AuthRemoveResponses,
   AuthSetErrors,
   AuthSetResponses,
+  BlockerListResponses,
   CommandListResponses,
   Config as Config3,
   ConfigGetResponses,
@@ -3093,6 +3094,38 @@ export class Question extends HeyApiClient {
   }
 }
 
+export class Blocker extends HeyApiClient {
+  /**
+   * List active session blockers
+   *
+   * Get active session blockers across all sessions.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<BlockerListResponses, unknown, ThrowOnError>({
+      url: "/blocker",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Oauth extends HeyApiClient {
   /**
    * OAuth authorize
@@ -4124,6 +4157,11 @@ export class OpencodeClient extends HeyApiClient {
   private _question?: Question
   get question(): Question {
     return (this._question ??= new Question({ client: this.client }))
+  }
+
+  private _blocker?: Blocker
+  get blocker(): Blocker {
+    return (this._blocker ??= new Blocker({ client: this.client }))
   }
 
   private _provider?: Provider

@@ -15,6 +15,7 @@ import { LSP } from "../../lsp"
 import { Command } from "../../command"
 import { QuestionRoutes } from "./question"
 import { PermissionRoutes } from "./permission"
+import { BlockerRoutes } from "./blocker"
 import { ProjectRoutes } from "./project"
 import { SessionRoutes } from "./session"
 import { PtyRoutes } from "./pty"
@@ -37,6 +38,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
     .route("/session", SessionRoutes())
     .route("/permission", PermissionRoutes())
     .route("/question", QuestionRoutes())
+    .route("/blocker", BlockerRoutes())
     .route("/provider", ProviderRoutes())
     .route("/", FileRoutes())
     .route("/", EventRoutes())

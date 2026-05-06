@@ -39,6 +39,7 @@ describe("app session cache", () => {
       part: Record<string, Part[] | undefined>
       permission: Record<string, PermissionRequest[] | undefined>
       question: Record<string, QuestionRequest[] | undefined>
+      blocker: Record<string, never[] | undefined>
     } = {
       session_status: { ses_1: { type: "busy" } as SessionStatus },
       session_diff: { ses_1: [] },
@@ -47,6 +48,7 @@ describe("app session cache", () => {
       part: { msg_1: [part("prt_1", "ses_1", "msg_1")] },
       permission: { ses_1: [] as PermissionRequest[] },
       question: { ses_1: [] as QuestionRequest[] },
+      blocker: { ses_1: [] },
     }
 
     dropSessionCaches(store, ["ses_1"])
@@ -70,6 +72,7 @@ describe("app session cache", () => {
       part: Record<string, Part[] | undefined>
       permission: Record<string, PermissionRequest[] | undefined>
       question: Record<string, QuestionRequest[] | undefined>
+      blocker: Record<string, never[] | undefined>
     } = {
       session_status: {},
       session_diff: {},
@@ -78,6 +81,7 @@ describe("app session cache", () => {
       part: { [m.id]: [part("prt_1", "ses_1", m.id)] },
       permission: {},
       question: {},
+      blocker: {},
     }
 
     dropSessionCaches(store, ["ses_1"])

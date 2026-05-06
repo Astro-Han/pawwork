@@ -23,6 +23,7 @@ import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { SessionCompaction } from "../../src/session/compaction"
+import { SessionBlocker } from "../../src/session/blocker"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
@@ -175,6 +176,7 @@ function makeHttp() {
     Plugin.defaultLayer,
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
+    SessionBlocker.defaultLayer,
     lsp,
     mcp,
     AppFileSystem.defaultLayer,

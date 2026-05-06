@@ -12,7 +12,7 @@ import { questionRecoveryReverify } from "./question-recovery-reverify"
 import { resolveQuestionRecoverySnapshot } from "./question-recovery-snapshot"
 import { createQuestionRefetchRunner } from "./question-refetch-runner"
 import { refetchPendingQuestionsForSession } from "./question-reconcile"
-import { sessionPermissionRequest, sessionQuestionRequest } from "./request-tree"
+import { sessionPermissionRequest, sessionQuestionBlockerRequest, sessionQuestionRequest } from "./request-tree"
 
 export function createSessionBlockers(input: {
   sessionID: () => string | undefined
@@ -29,7 +29,10 @@ export function createSessionBlockers(input: {
   })
 
   const questionRequest = createMemo(() => {
-    return sessionQuestionRequest(sync.data.session, sync.data.question, activeSessionID())
+    return (
+      sessionQuestionBlockerRequest(sync.data.session, sync.data.blocker, activeSessionID()) ??
+      sessionQuestionRequest(sync.data.session, sync.data.question, activeSessionID())
+    )
   })
 
   const questionFallbackSessionID = createMemo(() => {

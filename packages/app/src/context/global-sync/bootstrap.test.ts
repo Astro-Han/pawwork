@@ -27,6 +27,7 @@ function createState(): State {
     todo: {},
     permission: {},
     question: {},
+    blocker: {},
     mcp_ready: false,
     mcp: {},
     lsp_ready: false,
@@ -142,6 +143,7 @@ describe("bootstrapDirectory", () => {
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       question: { list: async () => ({ data: [] }) },
+      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: {
         list: async () => {
@@ -226,6 +228,7 @@ describe("bootstrapDirectory", () => {
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       question: { list: async () => ({ data: [] }) },
+      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -281,6 +284,7 @@ describe("bootstrapDirectory", () => {
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       question: { list: async () => ({ data: [] }) },
+      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -336,6 +340,7 @@ describe("bootstrapDirectory", () => {
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => permission.promise },
       question: { list: async () => ({ data: [] }) },
+      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: providers }) },
     } as any
@@ -393,6 +398,7 @@ describe("bootstrapDirectory", () => {
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
       question: { list: async () => ({ data: [] }) },
+      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: {
         list: async () => {

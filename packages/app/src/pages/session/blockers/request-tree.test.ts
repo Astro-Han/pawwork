@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
-import { sessionPermissionRequest, sessionQuestionRequest } from "./request-tree"
+import type { SessionBlockerEntry } from "@/context/global-sync/types"
+import { sessionPermissionRequest, sessionQuestionBlockerRequest, sessionQuestionRequest } from "./request-tree"
 
 const session = (input: { id: string; parentID?: string }) =>
   ({
@@ -20,6 +21,17 @@ const question = (id: string, sessionID: string) =>
     sessionID,
     questions: [],
   }) as QuestionRequest
+
+const questionBlocker = (id: string, sessionID: string) =>
+  ({
+    kind: "question",
+    status: "awaiting_user",
+    sessionID,
+    requestID: id,
+    request: question(id, sessionID),
+    armedAt: 1,
+    updatedAt: 1,
+  }) as SessionBlockerEntry
 
 describe("sessionPermissionRequest", () => {
   test("prefers the current session permission", () => {
@@ -101,5 +113,16 @@ describe("sessionQuestionRequest", () => {
     }
 
     expect(sessionQuestionRequest(sessions, questions, "root")?.id).toBe("q-grand")
+  })
+})
+
+describe("sessionQuestionBlockerRequest", () => {
+  test("returns the question request embedded in the current tree blocker", () => {
+    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
+    const blockers = {
+      child: [questionBlocker("q-child", "child")],
+    }
+
+    expect(sessionQuestionBlockerRequest(sessions, blockers, "root")?.id).toBe("q-child")
   })
 })
