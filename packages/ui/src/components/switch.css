@@ -122,11 +122,13 @@
  * The unchecked track keeps its black alpha — in dark frames it dims to a thin
  * suggestion rather than competing with the thumb, which is the mock's
  * intent (see ui_kits/desktop/styles.css `.pw-toggle-thumb`). */
-[data-color-scheme="dark"] [data-component="switch"] [data-slot="switch-thumb"] {
-  background: #f3ede4;
+/* Excludes [data-disabled] so the disabled rule above (var(--icon-disabled))
+ * still wins; otherwise source order would let the dark thumb override it. */
+[data-color-scheme="dark"] [data-component="switch"]:not([data-disabled]) [data-slot="switch-thumb"] {
+  background-color: #f3ede4;
 }
 @media (prefers-color-scheme: dark) {
-  [data-component="switch"] [data-slot="switch-thumb"] {
-    background: #f3ede4;
+  [data-component="switch"]:not([data-disabled]) [data-slot="switch-thumb"] {
+    background-color: #f3ede4;
   }
 }
