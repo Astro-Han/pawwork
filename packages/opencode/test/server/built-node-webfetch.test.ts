@@ -79,10 +79,11 @@ describe("built node webfetch", () => {
           "</html>",
         ].join("")
         const hostileHTML = \`<body>\${"<script>".repeat(50_000)}visible text</body>\`
+        const rawOpenHTML = \`<body>\${"<".repeat(50_000)}\`
 
         const server = http.createServer((req, res) => {
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
-          res.end(req.url === "/hostile.html" ? hostileHTML : happyHTML)
+          res.end(req.url === "/hostile.html" ? hostileHTML : req.url === "/raw-open.html" ? rawOpenHTML : happyHTML)
         })
 
         await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -119,10 +120,14 @@ describe("built node webfetch", () => {
               const happy = await run("/page.html")
               const hostileStart = performance.now()
               const hostile = await run("/hostile.html")
+              const rawOpenStart = performance.now()
+              const rawOpen = await run("/raw-open.html")
               return {
                 happy: happy.output,
                 hostile: hostile.output,
                 hostileElapsed: performance.now() - hostileStart,
+                rawOpen: rawOpen.output,
+                rawOpenElapsed: performance.now() - rawOpenStart,
               }
             },
           })
@@ -150,6 +155,8 @@ describe("built node webfetch", () => {
         happy: string
         hostile: string
         hostileElapsed: number
+        rawOpen: string
+        rawOpenElapsed: number
       }
       expect(output.happy).toContain("Korea visa center")
       expect(output.happy).toContain("Bring passport & application form.")
@@ -158,6 +165,8 @@ describe("built node webfetch", () => {
       expect(output.happy).not.toContain(".hidden")
       expect(output.hostileElapsed).toBeLessThan(500)
       expect(output.hostile).not.toContain("<script>")
+      expect(output.rawOpenElapsed).toBeLessThan(500)
+      expect(output.rawOpen).toContain("<")
     })
   }, 60_000)
 })

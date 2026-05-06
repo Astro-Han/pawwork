@@ -166,4 +166,29 @@ describe("tool.webfetch", () => {
       },
     )
   })
+
+  test("handles unterminated tag openers without long synchronous processing", async () => {
+    const html = `<body>${"<".repeat(50_000)}`
+
+    await withFetch(
+      () =>
+        new Response(html, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      async (url) => {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const start = performance.now()
+            const result = await exec({ url: new URL("/raw-open.html", url).toString(), format: "text" })
+            const elapsed = performance.now() - start
+
+            expect(elapsed).toBeLessThan(500)
+            expect(result.output).toContain("<")
+          },
+        })
+      },
+    )
+  })
 })

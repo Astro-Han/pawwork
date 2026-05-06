@@ -217,8 +217,13 @@ function scanHTMLText(html: string) {
 
     const tag = readTag(html, index)
     if (!tag) {
-      if (!skipTag) append("<")
-      index += 1
+      const end = findTagEnd(html, index + 1)
+      if (end === -1) {
+        if (!skipTag) append(html.slice(index))
+        break
+      }
+      if (!skipTag) append(html.slice(index, end + 1))
+      index = end + 1
       continue
     }
 
