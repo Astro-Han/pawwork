@@ -1146,19 +1146,23 @@ const layer: Layer.Layer<
         }
 
         const appliedProviderModelHooks = new Set<ProviderID>()
-        const applyProviderModelHooks = Effect.fn("Provider.applyProviderModelHooks")(function* () {
+        const applyProviderModelHooks = Effect.fn("Provider.applyProviderModelHooks")(function* (input?: {
+          rerunOAuth?: boolean
+        }) {
           for (const hook of plugins) {
             const p = hook.provider
             const models = p?.models
             if (!p || !models) continue
 
             const providerID = ProviderID.make(p.id)
-            if (appliedProviderModelHooks.has(providerID)) continue
             if (!isProviderAllowed(providerID)) continue
 
             const provider = database[providerID]
             if (!provider) continue
             const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
+            if (appliedProviderModelHooks.has(providerID) && !(input?.rerunOAuth && pluginAuth?.type === "oauth")) {
+              continue
+            }
 
             provider.models = yield* Effect.promise(async () => {
               const next = await models(provider, { auth: pluginAuth })
@@ -1280,7 +1284,7 @@ const layer: Layer.Layer<
           database[providerID] = parsed
         }
 
-        yield* applyProviderModelHooks()
+        yield* applyProviderModelHooks({ rerunOAuth: true })
 
         // load env
         const envs = yield* env.all()

@@ -1141,9 +1141,10 @@ export function providerOptions(model: Provider.Model, options: { [x: string]: a
     return { openai: options, azure: options }
   }
   const usesDotSplitOptions =
-    model.api.npm === "@ai-sdk/openai-compatible" ||
-    model.api.npm === "@ai-sdk/openai" ||
-    model.api.npm === "@ai-sdk/anthropic"
+    model.providerID.includes(".") &&
+    (model.api.npm === "@ai-sdk/openai-compatible" ||
+      model.api.npm === "@ai-sdk/openai" ||
+      model.api.npm === "@ai-sdk/anthropic")
   const key = usesDotSplitOptions ? model.providerID.split(".")[0]! : (sdkKey(model.api.npm) ?? model.providerID)
   return { [key]: options }
 }

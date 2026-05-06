@@ -6,6 +6,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Global } from "@opencode-ai/core/global"
 import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin/index"
+import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
 import { localProviderImportSpec } from "../../src/provider/provider"
@@ -2871,6 +2872,59 @@ test("plugin provider model hook runs for provider added by plugin config hook",
       const model = providers[ProviderID.make("demo")].models[ModelID.make("chat")]
       expect(model.name).toBe("Hooked Chat")
       expect(model.cost).toEqual({ input: 1, output: 2, cache: { read: 3, write: 4 } })
+    },
+  })
+})
+
+test("Codex OAuth provider hook filters OpenAI models added by config", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-4o-local-alias": {
+                  id: "gpt-4o",
+                  name: "GPT-4o Local Alias",
+                },
+                "gpt-5.3-codex-spark-alias": {
+                  id: "gpt-5.3-codex-spark",
+                  name: "GPT-5.3 Codex Spark Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      await Auth.set(
+        ProviderID.openai,
+        {
+          type: "oauth",
+          access: "access",
+          refresh: "refresh",
+          expires: Date.now() + 60_000,
+        } as never,
+      )
+    },
+    fn: async () => {
+      const providers = await list()
+      const models = providers[ProviderID.openai].models
+      expect(models[ModelID.make("gpt-4o-local-alias")]).toBeUndefined()
+      expect(models[ModelID.make("gpt-5.3-codex-spark-alias")]).toBeDefined()
+      expect(models[ModelID.make("gpt-5.3-codex-spark-alias")].cost).toEqual({
+        input: 0,
+        output: 0,
+        cache: { read: 0, write: 0 },
+      })
     },
   })
 })

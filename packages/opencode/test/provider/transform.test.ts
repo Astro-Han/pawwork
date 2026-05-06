@@ -586,6 +586,29 @@ describe("ProviderTransform.providerOptions", () => {
     })
   })
 
+  test("routes Copilot Anthropic SDK provider options through anthropic", () => {
+    const model = createModel({
+      providerID: "github-copilot",
+      api: {
+        id: "claude-opus-4.7",
+        url: "https://api.githubcopilot.com/v1",
+        npm: "@ai-sdk/anthropic",
+      },
+    })
+
+    expect(
+      ProviderTransform.providerOptions(model, {
+        thinking: { type: "adaptive" },
+        effort: "medium",
+      }),
+    ).toEqual({
+      anthropic: {
+        thinking: { type: "adaptive" },
+        effort: "medium",
+      },
+    })
+  })
+
   test("splits dotted provider id for OpenAI provider options", () => {
     const model = createModel({
       providerID: "openai.proxy",
