@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  buildPawworkSidebarSessionRows,
   pawworkSidebarSessionTime,
   resolvePawworkProjectLabels,
   sortPawworkSidebarSessions,
@@ -127,6 +128,59 @@ describe("sortPawworkSidebarSessions", () => {
     ])
 
     expect(result.map((item) => item.id)).toEqual(["newer-session", "old-with-new-assistant"])
+  })
+})
+
+describe("buildPawworkSidebarSessionRows", () => {
+  test("uses loaded user message time for sidebar rows", () => {
+    const result = buildPawworkSidebarSessionRows(
+      [
+        {
+          id: "session-old",
+          directory: "/repo",
+          time: { created: 100, updated: 900 },
+        },
+      ],
+      {
+        slugForDirectory: (directory) => `slug:${directory}`,
+        projectLabelForSession: () => "PawWork",
+        messagesForSession: () => [
+          { id: "msg_1", role: "assistant", time: { created: 950 } },
+          { id: "msg_2", role: "user", time: { created: 800 } },
+        ],
+      },
+    )
+
+    expect(result).toEqual([
+      {
+        session: {
+          id: "session-old",
+          directory: "/repo",
+          time: { created: 100, updated: 900 },
+        },
+        slug: "slug:/repo",
+        projectLabel: "PawWork",
+        created: 800,
+      },
+    ])
+  })
+
+  test("falls back to session creation time when messages are missing", () => {
+    const result = buildPawworkSidebarSessionRows(
+      [
+        {
+          id: "session-without-cache",
+          directory: "/repo",
+          time: { created: 300, updated: 900 },
+        },
+      ],
+      {
+        slugForDirectory: (directory) => `slug:${directory}`,
+        projectLabelForSession: () => "PawWork",
+      },
+    )
+
+    expect(result[0].created).toBe(300)
   })
 })
 
