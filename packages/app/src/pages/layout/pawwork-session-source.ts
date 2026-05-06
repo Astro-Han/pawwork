@@ -29,6 +29,11 @@ type MessageTimeLike = {
   }
 }
 
+type SidebarRowSessionLike = SessionTimeLike & {
+  id: string
+  directory: string
+}
+
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value)
 
 const shortenHome = (value: string, home?: string) => {
@@ -72,6 +77,22 @@ export function pawworkSidebarSessionTime(session: SessionTimeLike, messages?: M
   }
   const sessionCreated = session.time?.created
   return isFiniteNumber(sessionCreated) ? sessionCreated : 0
+}
+
+export function buildPawworkSidebarSessionRows<T extends SidebarRowSessionLike>(
+  sessions: T[],
+  input: {
+    slugForDirectory: (directory: string) => string
+    projectLabelForSession: (session: T) => string
+    messagesForSession?: (session: T) => MessageTimeLike[] | undefined
+  },
+) {
+  return sessions.map((session) => ({
+    session,
+    slug: input.slugForDirectory(session.directory),
+    projectLabel: input.projectLabelForSession(session),
+    created: pawworkSidebarSessionTime(session, input.messagesForSession?.(session)),
+  }))
 }
 
 export function pawworkSessionDirectories(input: {

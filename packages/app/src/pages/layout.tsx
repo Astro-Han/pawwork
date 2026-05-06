@@ -79,6 +79,7 @@ import {
 } from "./layout/deep-links"
 import { createInlineEditorController } from "./layout/inline-editor"
 import {
+  buildPawworkSidebarSessionRows,
   pawworkSessionDirectories,
   sortPawworkSidebarSessions,
 } from "./layout/pawwork-session-source"
@@ -573,12 +574,14 @@ export default function Layout(props: ParentProps) {
   )
 
   const pawworkSessions = createMemo(() => {
-    const rows = pawworkSessionWindow().sessions.map((session) => ({
-      session,
-      slug: base64Encode(session.directory),
-      projectLabel: projectLabelForSession(session),
-      created: session.time.created,
-    }))
+    const rows = buildPawworkSidebarSessionRows(pawworkSessionWindow().sessions, {
+      slugForDirectory: base64Encode,
+      projectLabelForSession,
+      messagesForSession: (session) => {
+        const [store] = globalSync.child(session.directory, { bootstrap: false })
+        return store.message[session.id]
+      },
+    })
     return sortPawworkSidebarSessions(rows.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
   })
 
