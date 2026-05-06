@@ -50,6 +50,7 @@ export function DialogRenameSession(props: {
             }
             if (e.key === "Escape") {
               e.preventDefault()
+              if (saving()) return
               dialog.close()
             }
           }}
