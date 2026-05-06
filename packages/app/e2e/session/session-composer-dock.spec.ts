@@ -115,7 +115,7 @@ function globalEventStream(page: Page) {
 
 async function e2eAskQuestion(
   project: ProjectQuestionSeed,
-  input: { sessionID: string; questions: typeof defaultQuestions },
+  input: { sessionID: string; questions: QuestionRequest["questions"] },
 ) {
   const response = await fetch(`${project.url}/question/__e2e/ask?directory=${encodeURIComponent(project.directory)}`, {
     method: "POST",
@@ -202,6 +202,65 @@ async function expectPermissionBlocked(page: any) {
 async function expectPermissionOpen(page: any) {
   await expect(page.locator(permissionDockSelector)).toHaveCount(0)
   await expect(page.locator(promptSelector)).toBeVisible()
+}
+
+async function submitVisiblePrompt(page: Page, text: string) {
+  const prompt = page.locator(promptSelector).first()
+  await expect(prompt).toBeVisible()
+  await prompt.click()
+  await page.keyboard.type(text)
+  await expect.poll(async () => (await prompt.textContent())?.replace(/\u200B/g, "").trim()).toBe(text)
+  await page.keyboard.press("Enter")
+}
+
+async function scrollTimelineToBottom(page: Page) {
+  await page.evaluate(() => {
+    const viewport = document.querySelector('[data-component="scroll-viewport"]')
+    if (!(viewport instanceof HTMLElement)) throw new Error("Missing scroll viewport")
+    viewport.scrollTop = viewport.scrollHeight
+    viewport.dispatchEvent(new Event("scroll", { bubbles: true }))
+  })
+  await expect
+    .poll(async () => {
+      return page.evaluate(() => {
+        const viewport = document.querySelector('[data-component="scroll-viewport"]')
+        if (!(viewport instanceof HTMLElement)) return Number.POSITIVE_INFINITY
+        return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      })
+    })
+    .toBeLessThanOrEqual(40)
+}
+
+async function expectQuestionOptionVisible(page: Page, optionIndex: number) {
+  await expect
+    .poll(async () => {
+      return page.evaluate((index) => {
+        const list = document.querySelector('[data-slot="question-options"]')
+        const target = list?.querySelectorAll('[data-slot="question-option"]').item(index)
+        if (!(list instanceof HTMLElement) || !(target instanceof HTMLElement)) return null
+        const active = document.activeElement
+        const optionRect = target.getBoundingClientRect()
+        const listRect = list.getBoundingClientRect()
+        return {
+          focused: active === target || !!target.contains(active),
+          topVisible: optionRect.top >= listRect.top,
+          bottomVisible: optionRect.bottom <= listRect.bottom,
+        }
+      }, optionIndex)
+    })
+    .toMatchObject({ focused: true, topVisible: true, bottomVisible: true })
+}
+
+async function expectQuestionOptionsOverflow(page: Page) {
+  await expect
+    .poll(async () => {
+      return page.evaluate(() => {
+        const list = document.querySelector('[data-slot="question-options"]')
+        if (!(list instanceof HTMLElement)) return false
+        return list.scrollHeight > list.clientHeight
+      })
+    })
+    .toBe(true)
 }
 
 async function todoDock(page: any, sessionID: string) {
@@ -1420,6 +1479,120 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
 
       await mkdir(".artifacts/session-scroll-dock", { recursive: true })
       await page.screenshot({ path: ".artifacts/session-scroll-dock/latest-visible.png" })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("submit to question dock keeps latest turn visible", async ({ page, llm, project, assistant }) => {
+  const title = `e2e question scroll dock ${Date.now()}`
+  const longReply = [
+    "Question dock scroll regression seed:",
+    "",
+    "```",
+    ...Array.from({ length: 150 }, (_, index) => `visible-history-line-${index + 1}`),
+    "```",
+    "",
+    "End of visible history.",
+  ].join("\n")
+  const questionPrompt = [
+    "Call exactly one question tool.",
+    `Use this JSON input: ${JSON.stringify({ questions: defaultQuestions })}`,
+    "Do not output plain text.",
+  ].join(" ")
+
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    title,
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+        await assistant.reply(longReply)
+        await project.prompt("Write long visible history for the question scroll regression.")
+        await scrollTimelineToBottom(page)
+
+        await llm.toolMatch(inputMatch({ questions: defaultQuestions }), "question", { questions: defaultQuestions })
+        await submitVisiblePrompt(page, questionPrompt)
+        await expectQuestionBlocked(page)
+
+        const metrics = await page.evaluate((dockSelector) => {
+          const viewport = document.querySelector('[data-component="scroll-viewport"]')
+          const dock = document.querySelector(dockSelector)
+          const last = [...document.querySelectorAll("[data-message-id]")].at(-1)
+          if (!(viewport instanceof HTMLElement) || !(dock instanceof HTMLElement) || !(last instanceof HTMLElement)) {
+            return null
+          }
+          return {
+            scrollTop: viewport.scrollTop,
+            distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+            dockTop: dock.getBoundingClientRect().top,
+            viewportBottom: viewport.getBoundingClientRect().bottom,
+            lastBottom: last.getBoundingClientRect().bottom,
+          }
+        }, questionDockSelector)
+
+        expect(metrics).not.toBeNull()
+        expect(metrics!.scrollTop).toBeGreaterThan(100)
+        expect(metrics!.distanceFromBottom).toBeLessThanOrEqual(80)
+        expect(metrics!.dockTop).toBeLessThanOrEqual(metrics!.viewportBottom)
+        expect(metrics!.lastBottom).toBeLessThanOrEqual(metrics!.dockTop + 8)
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("overflow question dock keeps keyboard focus visible without moving timeline", async ({ page, project, assistant }) => {
+  const title = `e2e question overflow dock ${Date.now()}`
+  const overflowQuestions = [
+    {
+      header: "Need input",
+      question:
+        "Pick one option after reading this longer prompt. The content is intentionally long enough to make the compact question dock reserve less room for the option list in a short viewport.",
+      custom: false,
+      options: Array.from({ length: 4 }, (_, index) => ({
+        label: `Option ${index + 1}`,
+        description: `Long option ${index + 1} description that fills the row.`,
+      })),
+    },
+  ]
+  const longReply = [
+    "Question dock overflow regression seed:",
+    "",
+    "```",
+    ...Array.from({ length: 150 }, (_, index) => `visible-history-line-${index + 1}`),
+    "```",
+    "",
+    "End of visible history.",
+  ].join("\n")
+
+  await page.setViewportSize({ width: 1280, height: 420 })
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    title,
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+        await assistant.reply(longReply)
+        await project.prompt("Write long visible history for the question overflow regression.")
+        await scrollTimelineToBottom(page)
+
+        await e2eAskQuestion(project, { sessionID: session.id, questions: overflowQuestions })
+        await waitForQuestionSeed(project, session.id)
+        await expectQuestionBlocked(page)
+        await expectQuestionOptionsOverflow(page)
+
+        await page.keyboard.press("End")
+        await expectQuestionOptionVisible(page, overflowQuestions[0].options.length - 1)
+        const distanceAfterEnd = await page.evaluate(() => {
+          const viewport = document.querySelector('[data-component="scroll-viewport"]')
+          if (!(viewport instanceof HTMLElement)) return Number.POSITIVE_INFINITY
+          return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+        })
+        expect(distanceAfterEnd).toBeLessThanOrEqual(80)
+      })
     },
     { trackSession: project.trackSession },
   )

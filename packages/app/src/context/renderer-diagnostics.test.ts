@@ -158,6 +158,60 @@ describe("renderer diagnostics", () => {
     ])
   })
 
+  test("detects submit scroll jumps that browser focus marked as user scrolled", () => {
+    const detect = createRendererIncidentDetector()
+    detect({
+      name: "session.action.submit",
+      route_session_id: "session-1",
+      visible_session_id: "session-1",
+      timeline_session_id: "session-1",
+      trace_id: "message-1",
+      monotonic_ms: 1000,
+      data: { action: "submit" },
+    })
+    expect(
+      detect({
+        name: "session.scroll.sample",
+        route_session_id: "session-1",
+        visible_session_id: "session-1",
+        timeline_session_id: "session-1",
+        monotonic_ms: 1200,
+        data: {
+          scroll_top: 14327,
+          distance_from_bottom: 0,
+          client_height: 905,
+          user_scrolled: false,
+        },
+      }),
+    ).toEqual([])
+
+    expect(
+      detect({
+        name: "session.scroll.sample",
+        route_session_id: "session-1",
+        visible_session_id: "session-1",
+        timeline_session_id: "session-1",
+        monotonic_ms: 2000,
+        data: {
+          scroll_top: 5,
+          distance_from_bottom: 14322,
+          client_height: 905,
+          user_scrolled: true,
+        },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        name: "incident.session_scroll_jump_to_top",
+        trace_id: "message-1",
+        data: expect.objectContaining({
+          scroll_top: 5,
+          distance_from_bottom: 14322,
+          user_scrolled: true,
+        }),
+      }),
+    ])
+  })
+
   test("detects timeline remounts and recovered visible message clears", () => {
     const detect = createRendererIncidentDetector()
 
