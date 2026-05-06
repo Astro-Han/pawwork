@@ -11,12 +11,13 @@ and Kobalte.Root are provided by \`context/dialog.tsx\`.
 
 ### API
 - \`transition\`: enables enter/exit animation.
+- \`label\`: aria-label for the underlying Kobalte dialog content (a11y: WCAG 4.1.2).
 - \`children\`: typically a \`<List>\` component.
 
 ### Dimensions
 - Width: \`min(640px, 100vw - 32px)\`
-- Max height: \`480px\`
-- Floats 80px from the top of the viewport.
+- Max height: \`min(480px, 100dvh - 32px)\` (viewport-clamped for small windows)
+- Centered in the viewport.
 
 ### Theming/tokens
 - Uses \`data-component="command-palette"\` and slot attributes.
@@ -43,7 +44,7 @@ export const Basic = {
     const dialog = useDialog()
     const open = () =>
       dialog.show(() => (
-        <mod.CommandPalette>
+        <mod.CommandPalette label="Command palette">
           <div style={{ padding: "12px 16px", color: "var(--fg-base)" }}>
             Command palette content goes here.
           </div>
@@ -68,7 +69,7 @@ export const WithTransition = {
         variant="secondary"
         onClick={() =>
           dialog.show(() => (
-            <mod.CommandPalette transition>
+            <mod.CommandPalette transition label="Command palette">
               <div style={{ padding: "12px 16px", color: "var(--fg-base)" }}>
                 Animated command palette content.
               </div>
@@ -97,7 +98,7 @@ export const WithMockItems = {
         variant="secondary"
         onClick={() =>
           dialog.show(() => (
-            <mod.CommandPalette transition>
+            <mod.CommandPalette transition label="Command palette">
               <div style={{ "border-bottom": "1px solid var(--border-base)", padding: "10px 14px" }}>
                 <input
                   placeholder="Search commands..."
