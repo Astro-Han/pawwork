@@ -92,8 +92,16 @@ describe("Button — Danger variant", () => {
     expect(BUTTON_CSS).toMatch(/data-variant="danger"[\s\S]*?background-color:\s*var\(--error\)/)
   })
 
-  test("hover background uses --error-text", () => {
-    expect(BUTTON_CSS).toMatch(/data-variant="danger"[\s\S]*?:hover[\s\S]*?background-color:\s*var\(--error-text\)/)
+  test("hover overlays --hover-overlay on top of --error (theme-safe contrast)", () => {
+    expect(BUTTON_CSS).toMatch(
+      /data-variant="danger"[\s\S]*?:hover[\s\S]*?background-image:\s*linear-gradient\(var\(--hover-overlay\)/,
+    )
+  })
+
+  test("active overlays --hover-overlay-warm (deeper than hover)", () => {
+    expect(BUTTON_CSS).toMatch(
+      /data-variant="danger"[\s\S]*?:active[\s\S]*?background-image:\s*linear-gradient\(var\(--hover-overlay-warm\)/,
+    )
   })
 })
 
