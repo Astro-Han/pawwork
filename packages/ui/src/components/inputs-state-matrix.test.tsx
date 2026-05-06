@@ -93,9 +93,8 @@ describe("state-matrix: TextField", () => {
   })
 
   test("error/invalid: error prop sets validationState to 'invalid'", () => {
-    expect(textFieldSrc).toContain('"invalid"')
-    // The derived accessor must check the error string.
-    expect(textFieldSrc).toContain("local.error ? \"invalid\"")
+    // Whitespace-tolerant so a future formatter pass can't break the contract.
+    expect(textFieldSrc).toMatch(/local\.error\s*\?\s*"invalid"/)
   })
 
   test("error/invalid: error prop renders alert-triangle icon in error message", () => {

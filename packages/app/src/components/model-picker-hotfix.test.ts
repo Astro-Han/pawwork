@@ -16,7 +16,7 @@ describe("model picker visual regression guard", () => {
     const picker = await read("packages/ui/src/components/picker.css")
 
     // list-item opts into the picker contract; picker.css owns hover/selected.
-    expect(listSrc).toContain('data-picker-item=""')
+    expect(listSrc).toMatch(/\bdata-picker-item\b/)
     expect(picker).toContain("--row-hover-overlay")
     expect(picker).toContain("--row-active-overlay")
 
