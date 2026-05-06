@@ -31,10 +31,8 @@ export function Sheet(props: SheetProps) {
         <div data-component="sheet" data-side={props.side ?? "right"}>
           <Kobalte.Content
             data-slot="sheet-content"
-            classList={{
-              ...props.classList,
-              [props.class ?? ""]: !!props.class,
-            }}
+            class={props.class}
+            classList={props.classList}
           >
             <Show when={props.title}>
               <div data-slot="sheet-header">
