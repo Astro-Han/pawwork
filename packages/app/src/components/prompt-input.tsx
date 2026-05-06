@@ -1250,7 +1250,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           triggerStyle={triggerStyle()}
           triggerProps={{
             "data-action": "prompt-model-variant",
-            "aria-haspopup": "menu",
             class:
               "max-w-[160px] @max-[20rem]/composer:max-w-[80px] text-13-regular! text-fg-base",
           }}
