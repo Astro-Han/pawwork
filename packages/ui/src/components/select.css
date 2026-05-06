@@ -33,11 +33,11 @@
       padding: 0 6px 0 12px;
       box-shadow: none;
       border-radius: var(--radius-md);
-      min-width: 160px;
       height: 28px;
       justify-content: flex-end;
       gap: 12px;
       background-color: transparent;
+      background-image: none;
 
       [data-slot="select-select-trigger-value"] {
         overflow: hidden;
@@ -45,6 +45,7 @@
         white-space: nowrap;
         font-size: var(--font-size-base);
         font-weight: var(--font-weight-regular);
+        line-height: var(--line-height-large);
       }
       [data-slot="select-select-trigger-icon"] {
         width: 16px;
@@ -57,15 +58,17 @@
         transition: transform 0.1s ease-in-out;
       }
 
-      &[data-slot="select-select-trigger"]:hover:not(:disabled),
-      &[data-slot="select-select-trigger"][data-expanded],
-      &[data-slot="select-select-trigger"][data-expanded]:hover:not(:disabled) {
+      &:hover:not(:disabled),
+      &[data-expanded],
+      &[data-expanded]:hover:not(:disabled) {
         background-color: var(--surface-sunken);
+        background-image: none;
         box-shadow: var(--shadow-xs-border-base);
       }
 
       &:not([data-expanded]):not(:focus-visible):focus {
         background-color: transparent;
+        background-image: none;
         box-shadow: none;
       }
     }
