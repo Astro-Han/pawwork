@@ -1136,6 +1136,9 @@ const layer: Layer.Layer<
 
         // now read config providers - includes any modifications from plugin config() hook
         const configProviders = Object.entries(cfg.provider ?? {})
+        const configModelProviderIDs = new Set(
+          configProviders.filter(([, provider]) => provider.models).map(([providerID]) => ProviderID.make(providerID)),
+        )
         const disabled = new Set(cfg.disabled_providers ?? [])
         const enabled = cfg.enabled_providers ? new Set(cfg.enabled_providers) : null
 
@@ -1160,7 +1163,10 @@ const layer: Layer.Layer<
             const provider = database[providerID]
             if (!provider) continue
             const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
-            if (appliedProviderModelHooks.has(providerID) && !(input?.rerunOAuth && pluginAuth?.type === "oauth")) {
+            if (
+              appliedProviderModelHooks.has(providerID) &&
+              !(input?.rerunOAuth && pluginAuth?.type === "oauth" && configModelProviderIDs.has(providerID))
+            ) {
               continue
             }
 

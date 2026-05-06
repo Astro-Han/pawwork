@@ -2934,6 +2934,83 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
   }
 })
 
+test("post-config OAuth rerun only reprocesses providers with config models", async () => {
+  await Auth.remove(ProviderID.anthropic)
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "anthropic-oauth-model-hook.ts"),
+        [
+          "let calls = 0",
+          "export default {",
+          '  id: "demo.anthropic-oauth-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      async models(provider) {",
+          "        calls += 1",
+          "        return {",
+          "          ...provider.models,",
+          "          'oauth-hook-alias': {",
+          "            ...provider.models['claude-sonnet-4-5'],",
+          "            id: 'oauth-hook-alias',",
+          "            name: calls === 1 ? 'First Hook' : 'Second Hook',",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.3-codex-spark-alias": {
+                  id: "gpt-5.3-codex-spark",
+                  name: "GPT-5.3 Codex Spark Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        set("ANTHROPIC_API_KEY", "test-anthropic-key")
+        await Auth.set(
+          ProviderID.anthropic,
+          {
+            type: "oauth",
+            access: "access",
+            refresh: "refresh",
+            expires: Date.now() + 60_000,
+          } as never,
+        )
+      },
+      fn: async () => {
+        const providers = await list()
+        const alias = providers[ProviderID.anthropic].models[ModelID.make("oauth-hook-alias")]
+        expect(alias.name).toBe("First Hook")
+      },
+    })
+  } finally {
+    await Auth.remove(ProviderID.anthropic)
+  }
+})
+
 test("plugin config enabled and disabled providers are honored", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
