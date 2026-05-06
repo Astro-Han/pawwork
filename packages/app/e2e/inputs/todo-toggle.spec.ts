@@ -77,8 +77,8 @@ test("todo dock shows circle for pending and circle-check for completed items @s
     const items = list.locator('[data-slot="session-todo-item"]')
     await expect(items).toHaveCount(3, { timeout: 5_000 })
 
-    const pendingItem = items.filter({ has: page.locator('[data-state="pending"]') }).first()
-    const completedItem = items.filter({ has: page.locator('[data-state="completed"]') }).first()
+    const pendingItem = list.locator('[data-slot="session-todo-item"][data-state="pending"]').first()
+    const completedItem = list.locator('[data-slot="session-todo-item"][data-state="completed"]').first()
 
     await expect(pendingItem.locator('[data-component="icon"][data-size]')).toBeVisible()
     await expect(completedItem.locator('[data-component="icon"][data-size]')).toBeVisible()
