@@ -116,7 +116,7 @@
 
   /* ── Danger ──────────────────────────────────────── */
   &[data-variant="danger"] {
-    background-color: var(--brand-danger);
+    background-color: var(--error);
     color: var(--fg-on-brand);
 
     [data-slot="icon-svg"] {
@@ -124,13 +124,13 @@
     }
 
     &:hover:not(:disabled) {
-      background-color: var(--brand-danger-hover);
+      background-color: var(--error-text);
     }
     &:active:not(:disabled) {
-      background-color: var(--surface-interactive-base);
+      background-color: var(--error-text);
     }
     &:focus-visible:not(:disabled) {
-      box-shadow: 0 0 0 1px #FF5910, 0 0 0 3px rgba(255,89,16,0.20);
+      box-shadow: 0 0 0 1px var(--error), 0 0 0 3px rgba(210, 74, 58, 0.20);
     }
     &:disabled {
       opacity: 0.45;
