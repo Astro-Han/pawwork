@@ -438,6 +438,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
   return {
     provider: {
       id: "openai",
+      postConfig: true,
       async models(provider, ctx) {
         if (ctx.auth?.type !== "oauth") return provider.models
 

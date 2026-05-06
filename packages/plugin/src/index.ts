@@ -224,6 +224,7 @@ export type ProviderHookContext = {
 
 export type ProviderHook = {
   id: string
+  postConfig?: boolean
   models?: (provider: ProviderV2, ctx: ProviderHookContext) => Promise<Record<string, ModelV2>>
 }
 

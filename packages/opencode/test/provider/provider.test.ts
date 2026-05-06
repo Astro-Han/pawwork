@@ -3063,6 +3063,87 @@ test("Codex OAuth provider hook filters OpenAI models added by config", async ()
   }
 })
 
+test("Codex OAuth config model override survives external OpenAI model hook", async () => {
+  await Auth.remove(ProviderID.openai)
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "openai-oauth-model-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.openai-oauth-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "openai",',
+          "      async models(provider) {",
+          "        return {",
+          "          ...provider.models,",
+          "          'gpt-5.3-codex-spark-alias': {",
+          "            ...provider.models['gpt-5.2'],",
+          "            id: 'gpt-5.3-codex-spark-alias',",
+          "            name: 'Plugin Alias',",
+          "            api: { ...provider.models['gpt-5.2'].api, id: 'plugin-model' },",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.3-codex-spark-alias": {
+                  id: "gpt-5.3-codex-spark",
+                  name: "Config Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        await Auth.set(
+          ProviderID.openai,
+          {
+            type: "oauth",
+            access: "access",
+            refresh: "refresh",
+            expires: Date.now() + 60_000,
+          } as never,
+        )
+      },
+      fn: async () => {
+        const providers = await list()
+        const alias = providers[ProviderID.openai].models[ModelID.make("gpt-5.3-codex-spark-alias")]
+        expect(alias.name).toBe("Config Alias")
+        expect(alias.api.id).toBe("gpt-5.3-codex-spark")
+        expect(alias.cost).toEqual({
+          input: 0,
+          output: 0,
+          cache: { read: 0, write: 0 },
+        })
+      },
+    })
+  } finally {
+    await Auth.remove(ProviderID.openai)
+  }
+})
+
 test("post-config OAuth rerun only reprocesses providers with config models", async () => {
   await Auth.remove(ProviderID.anthropic)
   await using tmp = await tmpdir({
