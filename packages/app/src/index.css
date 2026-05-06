@@ -97,8 +97,8 @@
     padding-inline: 8px;
     background: linear-gradient(
       to right,
-      var(--bg-cream) 0,
-      var(--bg-cream) var(--sidebar-width, 0px),
+      var(--sidebar) 0,
+      var(--sidebar) var(--sidebar-width, 0px),
       var(--bg-base) var(--sidebar-width, 0px),
       var(--bg-base) 100%
     );

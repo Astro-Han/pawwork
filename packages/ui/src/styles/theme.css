@@ -85,7 +85,7 @@
   --surface-base:   #ffffff;
   --surface-raised: #ffffff;
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
-  --sidebar:        #faf9f7;
+  --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
   /* ────────── Light ink · STANDARDS L11 (4 tiers) ────────── */
@@ -151,6 +151,15 @@
    * the hue difference makes the two states visually independent without
    * extra weight or icon decoration. */
   --surface-list-hover: #f4f0ec;
+
+  /* Row hover/active overlays · alpha-on-container, hue-following.
+   * Per ui_kits/desktop mock sidebar recipe (`pw-flat-session.active`):
+   *   hover  = neutral 4% black (light) / 4% white (dark)
+   *   active = neutral 6% black (light) / 6% white (dark)
+   * Selected row stays neutral so chrome and list region read calmly;
+   * brand hue is reserved for picker/menu items via `--surface-interactive-base`. */
+  --row-hover-overlay:  rgba(0, 0, 0, 0.04);
+  --row-active-overlay: rgba(0, 0, 0, 0.06);
 
   color-scheme: light;
 
@@ -312,6 +321,10 @@
    * so hovered rows visibly brighten instead of darken. */
   --surface-list-hover: #2a2622;
 
+  /* Row overlays · dark mirror (white alpha to lift warm-coffee surfaces). */
+  --row-hover-overlay:  rgba(255, 255, 255, 0.04);
+  --row-active-overlay: rgba(255, 255, 255, 0.06);
+
   /* Shadow · L18: dark elevation via L10 surfaces; drop shadows forbidden */
   --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
   --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
@@ -445,6 +458,9 @@
     --hover-overlay-warm: rgba(255, 255, 255, 0.07);
 
     --surface-list-hover: #2a2622;
+
+    --row-hover-overlay:  rgba(255, 255, 255, 0.04);
+    --row-active-overlay: rgba(255, 255, 255, 0.06);
 
     --shadow-raised:   0 1px 0 rgba(255, 255, 255, 0.04) inset;
     --shadow-floating: 0 1px 0 rgba(255, 255, 255, 0.05) inset;

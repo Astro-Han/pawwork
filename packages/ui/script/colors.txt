@@ -6,10 +6,12 @@
 --surface-base: #ffffff;
 --surface-raised: #ffffff;
 --surface-sunken: #faf9f7;
---sidebar: #faf9f7;
+--sidebar: #f9f9f9;
 --surface-interactive-base: #fdf6f0;
 --surface-interactive-hover: #fbece0;
 --surface-list-hover: #f4f0ec;
+--row-hover-overlay: rgba(0, 0, 0, 0.04);
+--row-active-overlay: rgba(0, 0, 0, 0.06);
 --surface-base-active: rgba(0, 0, 0, 0.051);
 --fg-strong: #1a1613;
 --fg-base: #4a4138;
