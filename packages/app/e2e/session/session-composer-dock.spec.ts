@@ -204,6 +204,33 @@ async function expectPermissionOpen(page: any) {
   await expect(page.locator(promptSelector)).toBeVisible()
 }
 
+async function submitVisiblePrompt(page: Page, text: string) {
+  const prompt = page.locator(promptSelector).first()
+  await expect(prompt).toBeVisible()
+  await prompt.click()
+  await page.keyboard.type(text)
+  await expect.poll(async () => (await prompt.textContent())?.replace(/\u200B/g, "").trim()).toBe(text)
+  await page.keyboard.press("Enter")
+}
+
+async function scrollTimelineToBottom(page: Page) {
+  await page.evaluate(() => {
+    const viewport = document.querySelector('[data-component="scroll-viewport"]')
+    if (!(viewport instanceof HTMLElement)) throw new Error("Missing scroll viewport")
+    viewport.scrollTop = viewport.scrollHeight
+    viewport.dispatchEvent(new Event("scroll", { bubbles: true }))
+  })
+  await expect
+    .poll(async () => {
+      return page.evaluate(() => {
+        const viewport = document.querySelector('[data-component="scroll-viewport"]')
+        if (!(viewport instanceof HTMLElement)) return Number.POSITIVE_INFINITY
+        return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      })
+    })
+    .toBeLessThanOrEqual(40)
+}
+
 async function todoDock(page: any, sessionID: string) {
   await page.addInitScript(() => {
     const win = window as ComposerWindow
@@ -1420,6 +1447,65 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
 
       await mkdir(".artifacts/session-scroll-dock", { recursive: true })
       await page.screenshot({ path: ".artifacts/session-scroll-dock/latest-visible.png" })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("submit to question dock keeps latest turn visible", async ({ page, llm, project, assistant }) => {
+  const title = `e2e question scroll dock ${Date.now()}`
+  const longReply = [
+    "Question dock scroll regression seed:",
+    "",
+    "```",
+    ...Array.from({ length: 150 }, (_, index) => `visible-history-line-${index + 1}`),
+    "```",
+    "",
+    "End of visible history.",
+  ].join("\n")
+  const questionPrompt = [
+    "Call exactly one question tool.",
+    `Use this JSON input: ${JSON.stringify({ questions: defaultQuestions })}`,
+    "Do not output plain text.",
+  ].join(" ")
+
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    title,
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+        await assistant.reply(longReply)
+        await project.prompt("Write long visible history for the question scroll regression.")
+        await scrollTimelineToBottom(page)
+
+        await llm.toolMatch(inputMatch({ questions: defaultQuestions }), "question", { questions: defaultQuestions })
+        await submitVisiblePrompt(page, questionPrompt)
+        await expectQuestionBlocked(page)
+
+        const metrics = await page.evaluate((dockSelector) => {
+          const viewport = document.querySelector('[data-component="scroll-viewport"]')
+          const dock = document.querySelector(dockSelector)
+          const last = [...document.querySelectorAll("[data-message-id]")].at(-1)
+          if (!(viewport instanceof HTMLElement) || !(dock instanceof HTMLElement) || !(last instanceof HTMLElement)) {
+            return null
+          }
+          return {
+            scrollTop: viewport.scrollTop,
+            distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+            dockTop: dock.getBoundingClientRect().top,
+            viewportBottom: viewport.getBoundingClientRect().bottom,
+            lastBottom: last.getBoundingClientRect().bottom,
+          }
+        }, questionDockSelector)
+
+        expect(metrics).not.toBeNull()
+        expect(metrics!.scrollTop).toBeGreaterThan(100)
+        expect(metrics!.distanceFromBottom).toBeLessThanOrEqual(80)
+        expect(metrics!.dockTop).toBeLessThanOrEqual(metrics!.viewportBottom)
+        expect(metrics!.lastBottom).toBeLessThanOrEqual(metrics!.dockTop + 8)
+      })
     },
     { trackSession: project.trackSession },
   )

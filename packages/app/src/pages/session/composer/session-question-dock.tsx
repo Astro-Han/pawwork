@@ -13,6 +13,10 @@ type DraftAnswer = QuestionAnswer | undefined
 
 const cache = new Map<string, { tab: number; answers: DraftAnswer[]; custom: string[]; customOn: boolean[] }>()
 
+function focusWithoutScrolling(el: HTMLElement | undefined) {
+  el?.focus({ preventScroll: true })
+}
+
 /**
  * After skipping a question (setting its answer to []), decide the next action.
  * Returns either the tab to navigate to, or a submit signal when all questions are settled.
@@ -160,7 +164,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     focusFrame = requestAnimationFrame(() => {
       focusFrame = undefined
       const el = next === options().length ? customRef : optsRef[next]
-      el?.focus()
+      focusWithoutScrolling(el)
     })
   }
 
@@ -379,7 +383,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
 
   const focusCustom = (el: HTMLTextAreaElement) => {
     setTimeout(() => {
-      el.focus()
+      focusWithoutScrolling(el)
       resizeInput(el)
     }, 0)
   }

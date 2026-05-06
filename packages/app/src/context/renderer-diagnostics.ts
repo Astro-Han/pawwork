@@ -59,14 +59,28 @@ function nearBottomThreshold(clientHeight: number) {
   return Math.min(200, Math.max(80, clientHeight * 0.3))
 }
 
-export function detectSessionScrollJumpToTop(event: RendererDiagnosticInput): RendererDiagnosticInput | undefined {
+function nearTopThreshold(clientHeight: number) {
+  return Math.min(12, Math.max(4, clientHeight * 0.01))
+}
+
+export function detectSessionScrollJumpToTop(
+  event: RendererDiagnosticInput,
+  options?: { allowUserScrolled?: boolean; scrollTopThreshold?: number },
+): RendererDiagnosticInput | undefined {
   if (event.name !== "session.scroll.sample") return
   const scrollTop = numericData(event, "scroll_top")
   const distanceFromBottom = numericData(event, "distance_from_bottom")
   const clientHeight = numericData(event, "client_height")
   const userScrolled = booleanData(event, "user_scrolled")
   if (scrollTop === undefined || distanceFromBottom === undefined || clientHeight === undefined) return
-  if (scrollTop > 4 || distanceFromBottom < nearBottomThreshold(clientHeight) || userScrolled) return
+  const scrollTopThreshold = options?.scrollTopThreshold ?? 4
+  if (
+    scrollTop > scrollTopThreshold ||
+    distanceFromBottom < nearBottomThreshold(clientHeight) ||
+    (userScrolled && !options?.allowUserScrolled)
+  ) {
+    return
+  }
   return {
     name: "incident.session_scroll_jump_to_top",
     level: "warn",
@@ -102,7 +116,6 @@ export function createRendererIncidentDetector() {
     }
 
     if (sessionKey && event.name === "session.scroll.sample") {
-      const scrollIncident = detectSessionScrollJumpToTop(event)
       const distanceFromBottom = numericData(event, "distance_from_bottom")
       const clientHeight = numericData(event, "client_height")
       const nearBottom =
@@ -112,7 +125,13 @@ export function createRendererIncidentDetector() {
       const previous = lastScroll.get(sessionKey)
       const submit = recentSubmits.get(sessionKey)
       const monotonic = event.monotonic_ms ?? performance.now()
-      if (scrollIncident && previous?.nearBottom && submit && monotonic - submit.monotonicMs <= 2_000) {
+      const submittedFromBottom = !!(previous?.nearBottom && submit && monotonic - submit.monotonicMs <= 2_000)
+      const scrollIncident = detectSessionScrollJumpToTop(event, {
+        allowUserScrolled: submittedFromBottom,
+        scrollTopThreshold:
+          submittedFromBottom && clientHeight !== undefined ? nearTopThreshold(clientHeight) : undefined,
+      })
+      if (scrollIncident && submittedFromBottom) {
         incidents.push({
           ...scrollIncident,
           trace_id: scrollIncident.trace_id ?? submit.traceID,
