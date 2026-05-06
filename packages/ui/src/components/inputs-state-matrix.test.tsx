@@ -108,6 +108,10 @@ describe("state-matrix: TextField", () => {
   test("error/invalid: validationState is passed to Kobalte root", () => {
     expect(textFieldSrc).toContain("validationState={validationState()}")
   })
+
+  test("error/invalid: CSS has a [data-invalid] selector for visual state", () => {
+    expect(textFieldCss).toMatch(/\[data-invalid\]/)
+  })
 })
 
 // ---------------------------------------------------------------------------
