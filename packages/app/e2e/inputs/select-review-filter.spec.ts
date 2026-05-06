@@ -34,7 +34,7 @@ test("review diff-style toggle switches between unified and split @smoke", async
   await withSession(project.sdk, "e2e inputs review filter toggle", async (session) => {
     project.trackSession(session.id)
     {
-      const patch = [
+      const PATCH_TEXT = [
         "*** Begin Patch",
         "*** Add File: review-filter-test.txt",
         "+line one",
@@ -46,7 +46,7 @@ test("review diff-style toggle switches between unified and split @smoke", async
       await llm.toolMatch(
         (hit) => bodyText(hit).includes("Your only valid response is one apply_patch tool call."),
         "apply_patch",
-        { patchText: patch },
+        { patchText: PATCH_TEXT },
       )
       await project.sdk.session.prompt({
         sessionID: session.id,
@@ -54,7 +54,7 @@ test("review diff-style toggle switches between unified and split @smoke", async
         system: [
           "You are seeding deterministic e2e UI state.",
           "Your only valid response is one apply_patch tool call.",
-          `Use this JSON input: ${JSON.stringify({ patchText: patch })}`,
+          `Use this JSON input: ${JSON.stringify({ patchText: PATCH_TEXT })}`,
           "Do not call any other tools.",
           "Do not output plain text.",
         ].join("\n"),

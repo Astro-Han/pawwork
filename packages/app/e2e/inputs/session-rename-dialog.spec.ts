@@ -27,7 +27,7 @@ test("sidebar rename uses Dialog and saves on Enter @smoke", async ({ page, sdk 
     const dialog = page.locator('[data-component="dialog"]')
     await expect(dialog).toBeVisible()
 
-    const input = dialog.locator('[data-component="input"] input')
+    const input = dialog.getByRole("textbox")
     await expect(input).toBeVisible()
     await expect(input).toBeFocused()
 
