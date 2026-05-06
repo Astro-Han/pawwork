@@ -174,10 +174,6 @@
     &:hover {
       text-decoration: underline;
     }
-
-    &:first-child {
-      color: inherit;
-    }
   }
 
   [data-slot="toast-close-button"] {
