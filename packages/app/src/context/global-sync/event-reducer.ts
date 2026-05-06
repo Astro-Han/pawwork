@@ -92,12 +92,29 @@ export function applyDetachedDirectoryEvent(input: {
   event: { type: string; properties?: unknown }
   setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
 }) {
-  if (input.event.type !== "todo.updated") return false
   if (!input.event.properties || typeof input.event.properties !== "object") return false
-  const props = input.event.properties as { sessionID?: string; todos?: Todo[] }
-  if (!props.sessionID || !Array.isArray(props.todos)) return false
-  input.setSessionTodo?.(props.sessionID, props.todos)
-  return true
+  switch (input.event.type) {
+    case "todo.updated": {
+      const props = input.event.properties as { sessionID?: string; todos?: Todo[] }
+      if (!props.sessionID || !Array.isArray(props.todos)) return false
+      input.setSessionTodo?.(props.sessionID, props.todos)
+      return true
+    }
+    case "session.deleted": {
+      const info = (input.event.properties as { info?: Session }).info
+      if (!info?.id) return false
+      input.setSessionTodo?.(info.id, undefined)
+      return true
+    }
+    case "session.updated": {
+      const info = (input.event.properties as { info?: Session }).info
+      if (!info?.id || !info.time?.archived) return false
+      input.setSessionTodo?.(info.id, undefined)
+      return true
+    }
+    default:
+      return false
+  }
 }
 
 export function applyDirectoryEvent(input: {

@@ -174,6 +174,34 @@ describe("applyDirectoryEvent", () => {
     expect(handled).toBe(false)
   })
 
+  test("clears detached todo cache for deleted and archived sessions", () => {
+    const writes: Array<{ sessionID: string; todos: Todo[] | undefined }> = []
+    const setSessionTodo = (sessionID: string, todos: Todo[] | undefined) => {
+      writes.push({ sessionID, todos })
+    }
+
+    const deleted = applyDetachedDirectoryEvent({
+      event: { type: "session.deleted", properties: { info: rootSession({ id: "ses_deleted" }) } },
+      setSessionTodo,
+    })
+    const archived = applyDetachedDirectoryEvent({
+      event: { type: "session.updated", properties: { info: rootSession({ id: "ses_archived", archived: 2 }) } },
+      setSessionTodo,
+    })
+    const activeUpdate = applyDetachedDirectoryEvent({
+      event: { type: "session.updated", properties: { info: rootSession({ id: "ses_active" }) } },
+      setSessionTodo,
+    })
+
+    expect(deleted).toBe(true)
+    expect(archived).toBe(true)
+    expect(activeUpdate).toBe(false)
+    expect(writes).toEqual([
+      { sessionID: "ses_deleted", todos: undefined },
+      { sessionID: "ses_archived", todos: undefined },
+    ])
+  })
+
   test("inserts root sessions in sorted order and updates sessionTotal", () => {
     const [store, setStore] = createStore(
       baseState({
