@@ -30,7 +30,7 @@
 
   &[data-trigger-style="settings"] {
     [data-slot="select-select-trigger"] {
-      padding: 6px 6px 6px 12px;
+      padding: 0 6px 0 12px;
       box-shadow: none;
       border-radius: var(--radius-md);
       min-width: 160px;

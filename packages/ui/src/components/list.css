@@ -76,7 +76,12 @@
       [data-slot="list-search-input"] {
         width: 100%;
 
-        &[data-slot="input-input"] {
+        [data-slot="input-wrapper"] {
+          padding: 0;
+          border-bottom: none;
+        }
+
+        [data-slot="input-input"] {
           line-height: 20px;
           max-height: 20px;
         }
