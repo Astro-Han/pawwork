@@ -18,7 +18,12 @@ import { useGlobalSDK } from "./global-sdk"
 import { bootstrapDirectory, bootstrapGlobal, clearProviderRev } from "./global-sync/bootstrap"
 import { createBlockerTerminalCache } from "./global-sync/blocker-terminal-cache"
 import { createChildStoreManager } from "./global-sync/child-store"
-import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./global-sync/event-reducer"
+import {
+  applyDetachedDirectoryEvent,
+  applyDirectoryEvent,
+  applyGlobalEvent,
+  cleanupDroppedSessionCaches,
+} from "./global-sync/event-reducer"
 import { createRefreshQueue } from "./global-sync/queue"
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
@@ -323,7 +328,10 @@ function createGlobalSync() {
     }
 
     const existing = children.children[directory]
-    if (!existing) return
+    if (!existing) {
+      applyDetachedDirectoryEvent({ event, setSessionTodo })
+      return
+    }
     children.mark(directory)
     const [store, setStore] = existing
     applyDirectoryEvent({

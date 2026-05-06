@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part, PermissionRequest, Project, QuestionRequest, Session } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, PermissionRequest, Project, QuestionRequest, Session, Todo } from "@opencode-ai/sdk/v2/client"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
 import { createBlockerTerminalCache } from "./blocker-terminal-cache"
-import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
+import { applyDetachedDirectoryEvent, applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } from "./event-reducer"
 
 const rootSession = (input: { id: string; parentID?: string; archived?: number; created?: number; updated?: number }) =>
   ({
@@ -137,6 +137,43 @@ describe("applyGlobalEvent", () => {
 })
 
 describe("applyDirectoryEvent", () => {
+  test("caches detached todo updates before a directory child store exists", () => {
+    const todos: Todo[] = [{ id: "todo_1", content: "fresh todo", status: "in_progress", priority: "high" } as Todo]
+    const writes: Array<{ sessionID: string; todos: Todo[] | undefined }> = []
+
+    const handled = applyDetachedDirectoryEvent({
+      event: { type: "todo.updated", properties: { sessionID: "ses_fresh", todos } },
+      setSessionTodo(sessionID, value) {
+        writes.push({ sessionID, todos: value })
+      },
+    })
+
+    expect(handled).toBe(true)
+    expect(writes).toEqual([{ sessionID: "ses_fresh", todos }])
+  })
+
+  test("ignores detached events that need a directory child store", () => {
+    const handled = applyDetachedDirectoryEvent({
+      event: { type: "message.updated", properties: { info: userMessage("msg_1", "ses_1") } },
+      setSessionTodo() {
+        throw new Error("should not write detached todo cache")
+      },
+    })
+
+    expect(handled).toBe(false)
+  })
+
+  test("ignores malformed detached todo updates", () => {
+    const handled = applyDetachedDirectoryEvent({
+      event: { type: "todo.updated" },
+      setSessionTodo() {
+        throw new Error("should not write detached todo cache")
+      },
+    })
+
+    expect(handled).toBe(false)
+  })
+
   test("inserts root sessions in sorted order and updates sessionTotal", () => {
     const [store, setStore] = createStore(
       baseState({

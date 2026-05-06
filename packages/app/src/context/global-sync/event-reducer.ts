@@ -88,6 +88,18 @@ export function cleanupDroppedSessionCaches(
   )
 }
 
+export function applyDetachedDirectoryEvent(input: {
+  event: { type: string; properties?: unknown }
+  setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
+}) {
+  if (input.event.type !== "todo.updated") return false
+  if (!input.event.properties || typeof input.event.properties !== "object") return false
+  const props = input.event.properties as { sessionID?: string; todos?: Todo[] }
+  if (!props.sessionID || !Array.isArray(props.todos)) return false
+  input.setSessionTodo?.(props.sessionID, props.todos)
+  return true
+}
+
 export function applyDirectoryEvent(input: {
   event: { type: string; properties?: unknown }
   store: Store<State>
