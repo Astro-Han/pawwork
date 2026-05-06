@@ -96,9 +96,11 @@ export function Select<T>(props: SelectProps<T> & Omit<ButtonProps, "children">)
       optionTextValue={(x) => (local.label ? local.label(x) : (x as string))}
       optionGroupChildren="options"
       placeholder={local.placeholder}
-      sectionComponent={(local) => (
-        <Kobalte.Section data-slot="select-section">{local.section.rawValue.category}</Kobalte.Section>
-      )}
+      sectionComponent={(sectionProps) =>
+        sectionProps.section.rawValue.category ? (
+          <Kobalte.Section data-slot="select-section">{sectionProps.section.rawValue.category}</Kobalte.Section>
+        ) : null
+      }
       itemComponent={(itemProps) => (
         <Kobalte.Item
           {...itemProps}
