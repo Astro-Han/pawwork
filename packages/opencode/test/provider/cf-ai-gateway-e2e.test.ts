@@ -11,14 +11,14 @@ type Captured = { url: string; outerBody: unknown }
 type ProviderOptions = Record<string, Record<string, JSONValue>>
 
 const realFetch = globalThis.fetch
-let captured: Captured | null = null
+let captured: Captured[] = []
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 beforeEach(() => {
-  captured = null
+  captured = []
   const handle = async (
     input: Parameters<typeof fetch>[0],
     init?: Parameters<typeof fetch>[1],
@@ -26,7 +26,7 @@ beforeEach(() => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     if (url.startsWith("https://gateway.ai.cloudflare.com/")) {
       const bodyText = typeof init?.body === "string" ? init.body : ""
-      captured = { url, outerBody: bodyText ? JSON.parse(bodyText) : null }
+      captured.push({ url, outerBody: bodyText ? JSON.parse(bodyText) : null })
       return new Response(
         JSON.stringify({
           id: "chatcmpl-test",
@@ -82,7 +82,7 @@ async function callThroughGateway(apiId: string, providerOptions: ProviderOption
   const aigateway = createAiGateway({ accountId: "test", gateway: "test", apiKey: "test" })
   const unified = createUnified()
   await generateText({ model: aigateway(unified(apiId)), prompt: "hi", providerOptions })
-  return extractUpstreamQuery(captured?.outerBody)
+  return captured.map((entry) => extractUpstreamQuery(entry.outerBody)).find((query) => query !== undefined)
 }
 
 describe("cf-ai-gateway provider options", () => {

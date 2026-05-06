@@ -668,7 +668,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
       return Object.fromEntries(openaiCompatibleEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
     }
 
-    case "@ai-sdk/azure":
+    case "@ai-sdk/azure": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/azure
       if (id === "o1-mini") return {}
       const azureEfforts = ["low", "medium", "high"]
@@ -685,7 +685,8 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
           },
         ]),
       )
-    case "@ai-sdk/openai":
+    }
+    case "@ai-sdk/openai": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/openai
       const openaiEfforts = openaiReasoningEfforts(model.api.id, model.release_date)
       if (!openaiEfforts) return {}
@@ -699,6 +700,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
           },
         ]),
       )
+    }
 
     case "@ai-sdk/anthropic":
     // https://v5.ai-sdk.dev/providers/ai-sdk-providers/anthropic

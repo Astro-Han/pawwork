@@ -9,7 +9,7 @@ import { Plugin } from "../../src/plugin/index"
 import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
-import { localProviderImportSpec } from "../../src/provider/provider"
+import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
@@ -84,6 +84,15 @@ test("OpenCode Zen and OpenCode Go providers remain discoverable in PawWork runt
     if (previous === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
     else process.env.PAWWORK_RUNTIME_NAMESPACE = previous
   }
+})
+
+test("stripOpenAIResponseInputIDs safely handles request body shapes", () => {
+  expect(stripOpenAIResponseInputIDs(new FormData())).toBeUndefined()
+  expect(stripOpenAIResponseInputIDs("{")).toBeUndefined()
+  expect(stripOpenAIResponseInputIDs(JSON.stringify({ input: [{ id: "item-1", type: "message" }, "raw"] }))).toBe(
+    JSON.stringify({ input: [{ type: "message" }, "raw"] }),
+  )
+  expect(stripOpenAIResponseInputIDs(JSON.stringify({ store: true, input: [{ id: "item-1" }] }))).toBeUndefined()
 })
 
 function paid(providers: Awaited<ReturnType<typeof list>>) {

@@ -95,6 +95,29 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   })
 }
 
+export function stripOpenAIResponseInputIDs(body: unknown) {
+  if (typeof body !== "string") return
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return
+  }
+
+  if (!isRecord(parsed)) return
+  if (parsed.store === true) return
+  if (!Array.isArray(parsed.input)) return
+
+  for (const item of parsed.input) {
+    if (isRecord(item) && "id" in item) {
+      delete item.id
+    }
+  }
+
+  return JSON.stringify(parsed)
+}
+
 type BundledSDK = {
   languageModel(modelId: string): LanguageModelV3
   chatModel?(modelId: string): LanguageModelV3
@@ -1529,19 +1552,10 @@ const layer: Layer.Layer<
           // Strip openai itemId metadata following what codex does
           if (
             (model.api.npm === "@ai-sdk/openai" || model.api.npm === "@ai-sdk/azure") &&
-            opts.body &&
+            typeof opts.body === "string" &&
             opts.method === "POST"
           ) {
-            const body = JSON.parse(opts.body as string)
-            const keepIds = body.store === true
-            if (!keepIds && Array.isArray(body.input)) {
-              for (const item of body.input) {
-                if ("id" in item) {
-                  delete item.id
-                }
-              }
-              opts.body = JSON.stringify(body)
-            }
+            opts.body = stripOpenAIResponseInputIDs(opts.body) ?? opts.body
           }
 
           if (model.api.npm.includes("@ai-sdk/openai-compatible") && opts.body && opts.method === "POST") {
