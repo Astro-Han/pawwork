@@ -13,8 +13,23 @@ type DraftAnswer = QuestionAnswer | undefined
 
 const cache = new Map<string, { tab: number; answers: DraftAnswer[]; custom: string[]; customOn: boolean[] }>()
 
-function focusWithoutScrolling(el: HTMLElement | undefined) {
-  el?.focus({ preventScroll: true })
+function keepVisibleInQuestionOptions(el: HTMLElement) {
+  const scroller = el.closest('[data-slot="question-options"]')
+  if (!(scroller instanceof HTMLElement)) return
+
+  const optionRect = el.getBoundingClientRect()
+  const scrollerRect = scroller.getBoundingClientRect()
+  if (optionRect.top < scrollerRect.top) {
+    scroller.scrollTop -= scrollerRect.top - optionRect.top
+  } else if (optionRect.bottom > scrollerRect.bottom) {
+    scroller.scrollTop += optionRect.bottom - scrollerRect.bottom
+  }
+}
+
+function focusWithoutScrollingTimeline(el: HTMLElement | undefined) {
+  if (!el) return
+  el.focus({ preventScroll: true })
+  keepVisibleInQuestionOptions(el)
 }
 
 /**
@@ -164,7 +179,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     focusFrame = requestAnimationFrame(() => {
       focusFrame = undefined
       const el = next === options().length ? customRef : optsRef[next]
-      focusWithoutScrolling(el)
+      focusWithoutScrollingTimeline(el)
     })
   }
 
@@ -383,7 +398,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
 
   const focusCustom = (el: HTMLTextAreaElement) => {
     setTimeout(() => {
-      focusWithoutScrolling(el)
+      focusWithoutScrollingTimeline(el)
       resizeInput(el)
     }, 0)
   }
