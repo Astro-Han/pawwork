@@ -8,6 +8,8 @@ export type SessionScrollState = {
   jump: boolean
 }
 
+const BOTTOM_FOLLOW_LOCK_MS = 3_000
+
 export function calculateSessionScrollState(input: {
   clientHeight: number
   scrollHeight: number
@@ -123,7 +125,7 @@ export function createSessionScrollDock(input: {
     if (bottomFollowLockTimer !== undefined) clearTimeout(bottomFollowLockTimer)
     bottomFollowLockOwner = owner
     setBottomFollowLocked(true)
-    bottomFollowLockTimer = setTimeout(cancelBottomFollowLock, 3_000)
+    bottomFollowLockTimer = setTimeout(cancelBottomFollowLock, BOTTOM_FOLLOW_LOCK_MS)
   }
 
   const bottomFollowLockedFor = (owner?: string) => {
@@ -172,6 +174,8 @@ export function createSessionScrollDock(input: {
     })
   }
 
+  // A non-matching owner means the active lock belongs to an older session path.
+  // Cancel it before it can call followBottom or schedule another scroll sample.
   const restoreBottomIfLocked = (owner?: string) => {
     if (!bottomFollowLockedFor(owner)) {
       if (bottomFollowLocked() && owner !== undefined) cancelBottomFollowLock()
