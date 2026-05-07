@@ -4,7 +4,6 @@ import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
@@ -20,15 +19,6 @@ export type PawworkSidebarSession = {
   slug: string
   projectLabel: string
   created: number
-}
-
-const FilterIcon = (props: { size?: number }) => {
-  const size = props.size ?? 14
-  return (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path d="M2.5 5h15M5 10h10M7.5 15h5" stroke="currentColor" stroke-linecap="square" />
-    </svg>
-  )
 }
 
 export const PawworkSidebar = (props: {
@@ -135,6 +125,9 @@ export const PawworkSidebar = (props: {
               </Show>
               <DropdownMenu.Item onSelect={() => void action.run()}>
                 <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
+                <Show when={action.shortcut}>
+                  <span class="ml-auto pl-4 text-12-regular text-fg-weaker">{action.shortcut}</span>
+                </Show>
               </DropdownMenu.Item>
             </>
           )}
@@ -151,6 +144,9 @@ export const PawworkSidebar = (props: {
               </Show>
               <ContextMenu.Item onSelect={() => void action.run()}>
                 <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
+                <Show when={action.shortcut}>
+                  <span class="ml-auto pl-4 text-12-regular text-fg-weaker">{action.shortcut}</span>
+                </Show>
               </ContextMenu.Item>
             </>
           )}
@@ -246,17 +242,21 @@ export const PawworkSidebar = (props: {
     })
   })
 
-  const tooltipPlacement = () => "right" as const
-  const sortAriaLabel = () =>
-    props.sortMode() === "time" ? language.t("sidebar.pawwork.sort.byProject") : language.t("sidebar.pawwork.sort.byTime")
-
   return (
     <section
       data-component="pawwork-sidebar"
       data-sidebar-scope={props.scope ?? "main"}
       class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar"
     >
-      <div class="shrink-0 px-3 pt-3">
+      {/* slice 17 fills traffic-lights (macOS) and the collapse button.
+         slice 09 reserves the L37 32-high segment so titlebar inclusion in
+         slice 17 doesn't reflow the sidebar geometry. */}
+      <div
+        data-component="pawwork-side-traffic"
+        class="shrink-0 h-8"
+        aria-hidden="true"
+      />
+      <div data-component="pawwork-side-top" class="shrink-0 px-3 pt-3">
         <div class="flex flex-col gap-1">
           <button
             type="button"
@@ -302,7 +302,7 @@ export const PawworkSidebar = (props: {
             scrollEl = el
             props.setScrollContainerRef(el)
           }}
-          data-component="pawwork-session-scroll"
+          data-component="pawwork-side-scroll"
           class="flex-1 min-h-0 overflow-y-auto px-3 pb-3"
         >
           <Show when={props.sessions().length > 0}>
@@ -316,22 +316,44 @@ export const PawworkSidebar = (props: {
               <Show when={rows().length > 0 || groupedRows().length > 0}>
                 <div class="mt-3 flex items-center justify-between pr-2 pl-2 pb-2">
                   <span class="text-12-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
-                  <button
-                    type="button"
-                    data-action="pawwork-sort-mode"
-                    data-mode={props.sortMode()}
-                    aria-label={sortAriaLabel()}
-                    title={sortAriaLabel()}
-                    onClick={() => props.onSetSortMode(props.sortMode() === "time" ? "project" : "time")}
-                    classList={{
-                      "inline-flex items-center justify-center size-5 rounded-md transition-colors": true,
-                      "hover:bg-surface-raised": true,
-                      "text-fg-strong": props.sortMode() === "project",
-                      "text-fg-weak": props.sortMode() !== "project",
-                    }}
-                  >
-                    <FilterIcon size={14} />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenu.Trigger
+                      data-action="pawwork-sort-trigger"
+                      data-mode={props.sortMode()}
+                      class="inline-flex items-center gap-1 h-6 rounded-sm px-2 text-12-medium text-fg-weak transition-colors hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay focus:outline-none"
+                    >
+                      <span>{language.t("sidebar.pawwork.sort.label")}</span>
+                      <Icon name="chevron-down" size="small" class="text-icon-weak" />
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content>
+                        <DropdownMenu.Item
+                          data-action="pawwork-sort-option"
+                          data-value="time"
+                          onSelect={() => props.onSetSortMode("time")}
+                        >
+                          <DropdownMenu.ItemLabel>
+                            {language.t("sidebar.pawwork.sort.optionByTime")}
+                          </DropdownMenu.ItemLabel>
+                          <Show when={props.sortMode() === "time"}>
+                            <span class="ml-auto pl-4 text-12-regular text-fg-weaker">✓</span>
+                          </Show>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          data-action="pawwork-sort-option"
+                          data-value="project"
+                          onSelect={() => props.onSetSortMode("project")}
+                        >
+                          <DropdownMenu.ItemLabel>
+                            {language.t("sidebar.pawwork.sort.optionByProject")}
+                          </DropdownMenu.ItemLabel>
+                          <Show when={props.sortMode() === "project"}>
+                            <span class="ml-auto pl-4 text-12-regular text-fg-weaker">✓</span>
+                          </Show>
+                        </DropdownMenu.Item>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu>
                 </div>
               </Show>
               <Show when={props.sortMode() === "time"}>
@@ -378,27 +400,24 @@ export const PawworkSidebar = (props: {
       </Show>
 
       <div
-        data-component="pawwork-sidebar-footer"
+        data-component="pawwork-side-foot"
         class="shrink-0 border-t border-border-weaker px-3 py-2"
       >
-        <TooltipKeybind
-          placement={tooltipPlacement()}
-          title={props.settingsLabel()}
-          keybind={props.settingsKeybind() ?? ""}
+        <button
+          type="button"
+          data-action="pawwork-open-settings"
+          onClick={props.onOpenSettings}
+          aria-label={props.settingsLabel()}
+          class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
         >
-          <button
-            type="button"
-            data-action="pawwork-open-settings"
-            onClick={props.onOpenSettings}
-            aria-label={props.settingsLabel()}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
-          >
-            <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="settings-gear" size="small" class="text-icon-base" />
-            </span>
-            <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
-          </button>
-        </TooltipKeybind>
+          <span class="shrink-0 w-4 h-4 flex items-center">
+            <Icon name="settings-gear" size="small" class="text-icon-base" />
+          </span>
+          <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
+          <Show when={props.settingsKeybind()}>
+            <span class="text-12-regular text-fg-weaker">{props.settingsKeybind()}</span>
+          </Show>
+        </button>
       </div>
     </section>
   )
