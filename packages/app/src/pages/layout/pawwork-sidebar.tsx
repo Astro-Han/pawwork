@@ -248,14 +248,11 @@ export const PawworkSidebar = (props: {
       data-sidebar-scope={props.scope ?? "main"}
       class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar"
     >
-      {/* slice 17 fills traffic-lights (macOS) and the collapse button.
-         slice 09 reserves the L37 32-high segment so titlebar inclusion in
-         slice 17 doesn't reflow the sidebar geometry. */}
-      <div
-        data-component="pawwork-side-traffic"
-        class="shrink-0 h-[32px]"
-        aria-hidden="true"
-      />
+      {/* L37 reserves a top "traffic" segment for slice 17 to fill with the macOS
+         traffic-light cluster + collapse control. The OS already paints traffic
+         lights on its window chrome, so reserving a second 32px band here would
+         double the empty space at the top. The placeholder will return when
+         slice 17 hides the OS chrome and moves the controls into the sidebar. */}
       <div data-component="pawwork-side-top" class="shrink-0 px-3 pt-3">
         <div class="flex flex-col gap-1">
           <button

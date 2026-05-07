@@ -54,30 +54,32 @@ test("sort trigger is a text+chev popover with two options", async ({ page, sdk,
   })
 })
 
-test("L37 four-segment shape: side-traffic 32px above side-top, side-foot at bottom", async ({
+test("L37 three-segment shape: side-top, side-scroll, side-foot stacked", async ({
   page,
   sdk,
   gotoSession,
 }) => {
+  // The side-traffic placeholder is reserved for slice 17 (when traffic-lights
+  // and collapse control move into the sidebar). Until then, the OS chrome
+  // already supplies that space, so we ship without the placeholder.
   const stamp = Date.now()
   await withSession(sdk, `slice 09 shape ${stamp}`, async (session) => {
     await gotoSession(session.id)
     await openSidebar(page)
 
     const sidebar = page.locator(pawworkSidebarSelector).first()
-    const traffic = sidebar.locator('[data-component="pawwork-side-traffic"]').first()
     const top = sidebar.locator('[data-component="pawwork-side-top"]').first()
     const scroll = sidebar.locator('[data-component="pawwork-side-scroll"]').first()
     const foot = sidebar.locator('[data-component="pawwork-side-foot"]').first()
 
-    await expect(traffic).toBeAttached()
     await expect(top).toBeVisible()
     await expect(scroll).toBeVisible()
     await expect(foot).toBeVisible()
 
-    const trafficBox = await traffic.boundingBox()
     const topBox = await top.boundingBox()
-    expect(trafficBox?.height).toBe(32)
-    expect(trafficBox && topBox && trafficBox.y < topBox.y).toBe(true)
+    const scrollBox = await scroll.boundingBox()
+    const footBox = await foot.boundingBox()
+    expect(topBox && scrollBox && topBox.y < scrollBox.y).toBe(true)
+    expect(scrollBox && footBox && scrollBox.y < footBox.y).toBe(true)
   })
 })
