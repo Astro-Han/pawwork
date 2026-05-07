@@ -100,7 +100,7 @@ export interface IconProps extends ComponentProps<"svg"> {
 export function Icon(props: IconProps) {
   const [local, others] = splitProps(props, ["name", "class", "classList"])
   return (
-    <div data-component="icon">
+    <div data-component="icon" data-icon={local.name}>
       <svg
         data-slot="icon-svg"
         classList={{
