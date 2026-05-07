@@ -330,7 +330,7 @@ export const PawworkSidebar = (props: {
                         as={IconButton}
                         data-action="pawwork-sort-trigger"
                         data-mode={props.sortMode()}
-                        icon="sliders"
+                        icon="sort"
                         aria-label={language.t("sidebar.pawwork.sort.label")}
                       />
                     </Tooltip>
