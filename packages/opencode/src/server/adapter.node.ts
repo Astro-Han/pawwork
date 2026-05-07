@@ -51,9 +51,6 @@ export const adapter: Adapter = {
                 for (const socket of upgradedSockets) {
                   socket.destroy()
                 }
-                for (const client of ws.wss.clients) {
-                  client.terminate()
-                }
               }
               const webSocketClosed = new Promise<void>((resolve, reject) => {
                 ws.wss.close((err) => {

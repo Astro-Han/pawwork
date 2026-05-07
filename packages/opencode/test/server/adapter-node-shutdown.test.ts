@@ -30,10 +30,13 @@ describe("node server adapter shutdown", () => {
 
       try {
         await opened
+        const closed = new Promise((resolve) => {
+          socket.addEventListener("close", resolve, { once: true })
+        })
         await listener.stop(true)
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        if (socket.readyState === WebSocket.OPEN) {
-          throw new Error("websocket remained open after stop(true)")
+        await closed
+        if (socket.readyState !== WebSocket.CLOSED) {
+          throw new Error("websocket was not closed after stop(true)")
         }
       } finally {
         socket.close()
@@ -48,6 +51,6 @@ describe("node server adapter shutdown", () => {
     })
 
     expect(result.code).toBe(0)
-    expect(result.stderr.toString()).not.toContain("websocket remained open after stop(true)")
+    expect(result.stderr.toString()).not.toContain("websocket was not closed after stop(true)")
   }, 10_000)
 })
