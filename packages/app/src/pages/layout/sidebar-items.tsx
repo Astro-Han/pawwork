@@ -30,6 +30,7 @@ export type SessionItemProps = {
   titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
   actionSlot?: (session: Session) => JSX.Element
   timeText?: (session: Session) => string | undefined
+  isPinned?: boolean
 }
 
 const SessionRow = (props: {
@@ -99,13 +100,17 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     return childSessionOnPath(sessionStore.session, props.session.id, params.id)
   })
 
-  const statusKind = createMemo(() =>
-    sidebarStatusKind({
-      asking: isAsking(),
-      busy: !isAsking() && !!sessionRunning(),
-      error: !isAsking() && !sessionRunning() && hasError(),
-    }),
-  )
+  const statusKind = createMemo(() => {
+    const asking = isAsking()
+    const busy = !asking && !!sessionRunning()
+    const error = !asking && !busy && hasError()
+    return sidebarStatusKind({
+      asking,
+      busy,
+      error,
+      pinned: !asking && !busy && !error && !!props.isPinned,
+    })
+  })
 
   const statusContent = (): JSX.Element => {
     switch (statusKind()) {
@@ -115,6 +120,8 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         return <Spinner class="size-[18px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
       case "error":
         return <Icon name="circle-x" class="text-error" />
+      case "pin":
+        return <Icon name="pin" class="text-icon-weak" />
       case "time": {
         const t = props.timeText?.(props.session)
         return t ? <span class="text-12-regular text-fg-weaker whitespace-nowrap">{t}</span> : null
