@@ -218,4 +218,53 @@ test.describe("release notes toast", () => {
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 A")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 B")
   })
+
+  test("falls back to English across the whole window when an older skipped release has no zh section", async ({
+    page,
+    gotoSession,
+  }) => {
+    await page.route(RELEASES_URL_PATTERN, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            tag_name: "v2026.5.7",
+            body: [
+              "## App Update Notice",
+              "",
+              "- newest en bullet",
+              "",
+              "## 中文版本",
+              "",
+              "### 主要更新",
+              "",
+              "- 最新中文 bullet",
+            ].join("\n"),
+          },
+          {
+            tag_name: "v2026.5.6",
+            body: "## App Update Notice\n\n- older en only\n",
+          },
+        ]),
+      })
+    })
+
+    await page.addInitScript((highlightsKey) => {
+      localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.5" }))
+      localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "zh" }))
+    }, HIGHLIGHTS_KEY)
+
+    await gotoSession()
+
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
+    // The newest release has a zh section but the older skipped release does
+    // not. Spec #486 forbids mixing languages, so the entire toast — title,
+    // action, and every segment — must be English.
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• newest en bullet")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• older en only")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).not.toContainText("中文")
+  })
 })

@@ -236,10 +236,24 @@ export function loadReleaseHighlights(
   current?: string,
   previous?: string,
   locale: ReleaseLocale = "en",
-) {
-  const releases = parseChangelog(value, locale)
-  if (!releases?.length) return []
-  return sliceHighlights({ releases, current, previous })
+): ReleaseSummary[] {
+  const tryLocale = (lc: ReleaseLocale): ReleaseSummary[] => {
+    const releases = parseChangelog(value, lc)
+    if (!releases?.length) return []
+    return sliceHighlights({ releases, current, previous })
+  }
+
+  const summaries = tryLocale(locale)
+  if (summaries.length === 0) return summaries
+  // Spec #486: title and description must never mix languages. If any
+  // selected release fell back to a different locale (e.g. user is zh,
+  // newest has a zh section but an older skipped release does not),
+  // re-resolve the entire window in English so every segment — and the
+  // toast title and action — share a single locale.
+  if (summaries.some((s) => s.localeUsed !== locale)) {
+    return tryLocale("en")
+  }
+  return summaries
 }
 
 function buildToastDescription(summaries: ReleaseSummary[]) {

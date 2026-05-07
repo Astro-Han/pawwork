@@ -214,6 +214,52 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     expect(result.map((r) => r.tag)).toEqual(["v1.0.7", "v1.0.6", "v1.0.5", "v1.0.4", "v1.0.3"])
   })
 
+  test("re-resolves the whole window in English when any merged segment lacks the user's locale", () => {
+    const payload = [
+      {
+        tag_name: "v2026.5.7",
+        body: [
+          "## App Update Notice",
+          "",
+          "- newest en bullet",
+          "",
+          "## 中文版本",
+          "",
+          "### 主要更新",
+          "",
+          "- 最新中文 bullet",
+        ].join("\n"),
+      },
+      {
+        tag_name: "v2026.5.6",
+        body: "## App Update Notice\n\n- older en only\n",
+      },
+    ]
+    const highlights = loadReleaseHighlights(payload, "2026.5.7", "2026.5.5", "zh")
+    expect(highlights).toHaveLength(2)
+    expect(highlights.every((h) => h.localeUsed === "en")).toBe(true)
+    expect(highlights[0].description).toBe("• newest en bullet")
+    expect(highlights[1].description).toBe("• older en only")
+  })
+
+  test("keeps zh locale when every selected release has a Chinese section", () => {
+    const payload = [
+      {
+        tag_name: "v2026.5.7",
+        body: ["## App Update Notice", "", "- en a", "", "## 中文版本", "", "- zh a"].join("\n"),
+      },
+      {
+        tag_name: "v2026.5.6",
+        body: ["## App Update Notice", "", "- en b", "", "## 中文版本", "", "- zh b"].join("\n"),
+      },
+    ]
+    const highlights = loadReleaseHighlights(payload, "2026.5.7", "2026.5.5", "zh")
+    expect(highlights).toHaveLength(2)
+    expect(highlights.every((h) => h.localeUsed === "zh")).toBe(true)
+    expect(highlights[0].description).toBe("• zh a")
+    expect(highlights[1].description).toBe("• zh b")
+  })
+
   test("respects previous boundary when an intermediate release lacks an update notice", () => {
     const payload = [
       { tag_name: "v1.0.5", body: "## App Update Notice\n\n- v1.0.5 item\n" },
