@@ -50,4 +50,37 @@ describe("resolveServerList", () => {
     })
     expect(list[0]?.type === "http" ? list[0].authToken : true).toBeUndefined()
   })
+
+  test("keeps persisted display name when startup auth_token credentials override a same-url server", () => {
+    const list = resolveServerList({
+      stored: [
+        {
+          type: "http",
+          displayName: "Team server",
+          http: { url: "https://server.example.test" },
+        },
+      ],
+      props: [
+        {
+          type: "http",
+          authToken: true,
+          http: {
+            url: "https://server.example.test",
+            username: "opencode",
+            password: "secret",
+          },
+        },
+      ],
+    })
+
+    expect(list).toHaveLength(1)
+    expect(list[0]?.type).toBe("http")
+    expect(list[0]?.displayName).toBe("Team server")
+    expect(list[0]?.http).toEqual({
+      url: "https://server.example.test",
+      username: "opencode",
+      password: "secret",
+    })
+    expect(list[0]?.type === "http" ? list[0].authToken : false).toBe(true)
+  })
 })

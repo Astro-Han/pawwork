@@ -114,7 +114,8 @@ export function resolveServerList(input: {
     const conn: ServerConnection.Any = "type" in value ? value : { type: "http", http: value }
     const key = ServerConnection.key(conn)
     if (deduped.has(key) && conn.type === "http" && !conn.authToken) continue
-    deduped.set(key, conn)
+    const existing = deduped.get(key)
+    deduped.set(key, existing ? { ...existing, ...conn, displayName: conn.displayName ?? existing.displayName } : conn)
   }
 
   return [...deduped.values()]
