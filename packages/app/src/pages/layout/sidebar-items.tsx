@@ -100,11 +100,11 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const statusContent = (): JSX.Element => {
     switch (statusKind()) {
       case "asking":
-        return <Icon name="comment" size="small" class="text-brand-primary" />
+        return <Icon name="comment" class="text-brand-primary" />
       case "busy":
         return <Spinner class="size-[16px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
       case "error":
-        return <Icon name="circle-x" size="small" class="text-error" />
+        return <Icon name="circle-x" class="text-error" />
       case "time": {
         const t = props.timeText?.(props.session)
         return t ? <span class="text-12-regular text-fg-weaker">{t}</span> : null
@@ -220,7 +220,7 @@ export const NewSessionItem = (props: {
       }}
     >
       <div data-leading-slot class="shrink-0 w-4 h-4 flex items-center">
-        <Icon name="new-session" size="small" class="text-icon-weak" />
+        <Icon name="new-session" class="text-icon-weak" />
       </div>
       <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">{label}</span>
     </A>
