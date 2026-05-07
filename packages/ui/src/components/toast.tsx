@@ -119,6 +119,10 @@ export interface ToastOptions {
 export function showToast(options: ToastOptions | string) {
   const opts = typeof options === "string" ? { description: options } : options
   return toaster.show((props) => {
+    // onCleanup runs when the toast root unmounts (close button, action click,
+    // swipe, programmatic toaster.dismiss) — covering all dismiss paths in one
+    // hook. The dismissed guard is defense against future Kobalte upgrades
+    // re-invoking this render closure.
     let dismissed = false
     if (opts.onDismiss) {
       onCleanup(() => {

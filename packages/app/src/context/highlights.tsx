@@ -22,6 +22,11 @@ export type ReleaseSummary = {
   localeUsed: ReleaseLocale
 }
 
+// Locale-aware copy lives here, not in i18n/{en,zh}.ts, because the toast
+// title and action must follow the *parsed body's* locale, not the user's
+// UI locale, when the GitHub release lacks the user's locale section
+// (spec: title and description must never mix languages). @solid-primitives/i18n
+// has no per-call locale override, so a small inline table is the cleanest path.
 const TOAST_COPY: Record<ReleaseLocale, { title: (v: string) => string; viewFull: string }> = {
   en: { title: (v) => `Updated to ${v}`, viewFull: "Full release notes →" },
   zh: { title: (v) => `已更新到 ${v}`, viewFull: "查看完整发布说明 →" },
