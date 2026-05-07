@@ -391,10 +391,8 @@ export const dict = {
   "dialog.project.edit.icon.readFailed.title": "Failed to read image",
   "dialog.project.edit.icon.readFailed.description": "The selected file could not be loaded. Please try another image.",
 
-  "dialog.releaseNotes.action.getStarted": "Get started",
-  "dialog.releaseNotes.action.next": "Next",
-  "dialog.releaseNotes.action.hideFuture": "Don't show these in the future",
-  "dialog.releaseNotes.media.alt": "Release preview",
+  "toast.releaseNotes.title": "Updated to {{version}}",
+  "toast.releaseNotes.action.viewFull": "Full release notes →",
 
   "context.breakdown.title": "Context Breakdown",
   "context.breakdown.note": 'Approximate breakdown of input tokens. "Other" includes tool definitions and overhead.',
