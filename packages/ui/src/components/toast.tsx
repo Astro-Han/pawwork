@@ -119,15 +119,23 @@ export interface ToastOptions {
 export function showToast(options: ToastOptions | string) {
   const opts = typeof options === "string" ? { description: options } : options
   return toaster.show((props) => {
-    // onCleanup runs when the toast root unmounts (close button, action click,
-    // swipe, programmatic toaster.dismiss) — covering all dismiss paths in one
-    // hook. The dismissed guard is defense against future Kobalte upgrades
-    // re-invoking this render closure.
-    let dismissed = false
+    // onCleanup runs when the toast root unmounts. That covers explicit dismiss
+    // paths (close button, action click, swipe, programmatic toaster.dismiss)
+    // AND ambient unmounts (parent owner teardown, e.g. app exit). For callers
+    // with "user-acknowledged" semantics (e.g. markSeen on release notes), we
+    // gate onDismiss behind a flag set only by user-driven dismiss handlers.
+    // The fired guard is defense against future Kobalte upgrades re-invoking
+    // this render closure.
+    let userDismissed = false
+    let fired = false
+    const markUserDismissed = () => {
+      userDismissed = true
+    }
     if (opts.onDismiss) {
       onCleanup(() => {
-        if (dismissed) return
-        dismissed = true
+        if (fired) return
+        fired = true
+        if (!userDismissed) return
         opts.onDismiss?.()
       })
     }
@@ -154,6 +162,7 @@ export function showToast(options: ToastOptions | string) {
                 <button
                   data-slot="toast-action"
                   onClick={() => {
+                    markUserDismissed()
                     if (typeof action.onClick === "function") {
                       action.onClick()
                     }
@@ -166,7 +175,7 @@ export function showToast(options: ToastOptions | string) {
             </Toast.Actions>
           </Show>
         </Toast.Content>
-        <Toast.CloseButton />
+        <Toast.CloseButton onClick={markUserDismissed} />
       </Toast>
     )
   })

@@ -291,6 +291,9 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
             return
           }
 
+          // Defer 500ms so the toast region has mounted and the splash has
+          // settled before the toast slides in — avoids a visual collision
+          // on first launch after an update.
           timer = setTimeout(() => {
             timer = undefined
             const newest = summaries[0]
