@@ -321,12 +321,12 @@ export const PawworkSidebar = (props: {
             <nav class="flex flex-col">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
-                  <div class="h-[32px] flex items-center px-2 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
+                  <div class="mt-4 h-[32px] flex items-center px-2 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
               <Show when={rows().length > 0 || groupedRows().length > 0}>
-                <div class="mt-4 first:mt-0 h-[32px] flex items-center justify-between px-2">
+                <div class="mt-4 h-[32px] flex items-center justify-between px-2">
                   <span class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
                   <DropdownMenu>
                     <DropdownMenu.Trigger
