@@ -97,11 +97,14 @@ test.describe("release notes toast", () => {
     await page.locator(toastCloseButtonSelector).click()
     await expect(page.locator(toastSelector)).toBeHidden()
 
-    const stored = await page.evaluate((key) => {
-      const raw = localStorage.getItem(key)
-      return raw ? JSON.parse(raw) : null
-    }, HIGHLIGHTS_KEY)
-    expect(stored?.version).toBe("2026.5.7")
+    await expect
+      .poll(() =>
+        page.evaluate((key) => {
+          const raw = localStorage.getItem(key)
+          return raw ? (JSON.parse(raw)?.version ?? null) : null
+        }, HIGHLIGHTS_KEY),
+      )
+      .toBe("2026.5.7")
   })
 
   test("releaseNotes=false suppresses the toast", async ({ page, gotoSession }) => {
@@ -126,14 +129,19 @@ test.describe("release notes toast", () => {
 
     await gotoSession()
 
-    await page.waitForTimeout(1500)
+    // releaseNotes=false short-circuits start() to call markSeen() synchronously,
+    // so polling localStorage is the deterministic readiness signal that the
+    // controller has run. Once the version advances, we know the toast was
+    // suppressed (not merely "not yet rendered").
+    await expect
+      .poll(() =>
+        page.evaluate((key) => {
+          const raw = localStorage.getItem(key)
+          return raw ? (JSON.parse(raw)?.version ?? null) : null
+        }, HIGHLIGHTS_KEY),
+      )
+      .toBe("2026.5.7")
     await expect(page.locator(toastSelector)).toHaveCount(0)
-
-    const stored = await page.evaluate((key) => {
-      const raw = localStorage.getItem(key)
-      return raw ? JSON.parse(raw) : null
-    }, HIGHLIGHTS_KEY)
-    expect(stored?.version).toBe("2026.5.7")
   })
 
   test("merges multiple skipped versions into one description", async ({ page, gotoSession }) => {
