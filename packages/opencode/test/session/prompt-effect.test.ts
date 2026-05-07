@@ -686,6 +686,77 @@ it.live("loop gate stops repeated successful tools across model steps", () =>
   ),
 )
 
+unix("loop gate stops repeated successful bash calls after metadata updates", () =>
+  provideTmpdirServer(
+    ({ llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Loop gate bash successful stop",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "repeat bash" }],
+        })
+
+        const input = {
+          command: "printf stable",
+          description: "print stable output",
+        }
+        for (let i = 0; i < 5; i++) yield* llm.tool("bash", input)
+        yield* llm.text("done")
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const completedBashParts = allParts.filter(
+          (part): part is CompletedToolPart =>
+            part.type === "tool" && part.tool === "bash" && part.state.status === "completed",
+        )
+        const blockParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.tool === "bash" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction === "block",
+        )
+        const stopParts = allParts.filter(
+          (part): part is ErrorToolPart =>
+            part.type === "tool" &&
+            part.tool === "bash" &&
+            part.state.status === "error" &&
+            part.state.metadata?.diagnostics?.loop?.loopAction === "stop",
+        )
+
+        expect(completedBashParts).toHaveLength(3)
+        expect(blockParts).toHaveLength(1)
+        expect(stopParts).toHaveLength(1)
+        for (const part of completedBashParts) {
+          expect(part.state.metadata?.diagnostics?.loop?.inputHash).toBeString()
+          expect(part.state.metadata?.diagnostics?.loop?.outputHash).toBeString()
+          expect(part.state.metadata?.output).toContain("stable")
+          expect(part.state.metadata?.exit).toBe(0)
+          expect(part.state.metadata?.description).toBe("print stable output")
+          expect(part.state.metadata?.truncated).toBe(false)
+        }
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.outcome).toBe("success")
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopCompletedCount).toBe(3)
+        expect(stopParts[0].state.metadata?.diagnostics?.loop?.loopOccurrenceCount).toBe(5)
+        expect(result.parts.some((part) => part.type === "text" && part.text.includes("stopped the repetition"))).toBe(
+          true,
+        )
+        expect(result.parts.some((part) => part.type === "text" && part.text === "done")).toBe(false)
+      }),
+    { git: true, config: providerCfg },
+  ),
+)
+
 it.live("loop gate allows successful read calls for different ranges of the same file", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>

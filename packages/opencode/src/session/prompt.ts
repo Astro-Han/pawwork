@@ -578,7 +578,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               ...match,
               state: {
                 title: val.title,
-                metadata: val.metadata,
+                metadata: SessionDiagnostics.mergeMetadata(
+                  "metadata" in match.state && match.state.metadata && typeof match.state.metadata === "object"
+                    ? match.state.metadata
+                    : undefined,
+                  val.metadata ?? {},
+                ),
                 status: "running",
                 input: args,
                 time: { start: Date.now() },
