@@ -3,7 +3,7 @@ import { test, expect, settingsKey } from "../fixtures"
 const RELEASES_URL_PATTERN = "**/api.github.com/repos/Astro-Han/pawwork/releases**"
 const HIGHLIGHTS_KEY = "highlights.v1"
 
-const singleReleasePayload = [
+const SINGLE_RELEASE_PAYLOAD = [
   {
     tag_name: "v2026.5.7",
     body: [
@@ -17,7 +17,7 @@ const singleReleasePayload = [
   },
 ]
 
-const multiVersionPayload = [
+const MULTI_VERSION_PAYLOAD = [
   {
     tag_name: "v2026.5.7",
     body: "## App Update Notice\n\n- Newest highlight A\n- Newest highlight B\n",
@@ -28,7 +28,7 @@ const multiVersionPayload = [
   },
 ]
 
-const localizedPayload = [
+const LOCALIZED_PAYLOAD = [
   {
     tag_name: "v2026.5.7",
     body: [
@@ -46,12 +46,12 @@ const localizedPayload = [
   },
 ]
 
-const toastSelector = '[data-component="toast"][data-variant="subtle"]'
-const toastTitleSelector = `${toastSelector} [data-slot="toast-title"]`
-const toastDescriptionSelector = `${toastSelector} [data-slot="toast-description"]`
-const toastActionSelector = `${toastSelector} [data-slot="toast-action"]`
-const toastCloseButtonSelector = `${toastSelector} [data-slot="toast-close-button"]`
-const toastIconSelector = `${toastSelector} [data-slot="toast-icon"]`
+const TOAST_SELECTOR = '[data-component="toast"][data-variant="subtle"]'
+const TOAST_TITLE_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-title"]`
+const TOAST_DESCRIPTION_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-description"]`
+const TOAST_ACTION_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-action"]`
+const TOAST_CLOSE_BUTTON_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-close-button"]`
+const TOAST_ICON_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-icon"]`
 
 test.describe("release notes toast", () => {
   test("@smoke shows subtle toast when stored version is older than current", async ({ page, gotoSession }) => {
@@ -59,7 +59,7 @@ test.describe("release notes toast", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(singleReleasePayload),
+        body: JSON.stringify(SINGLE_RELEASE_PAYLOAD),
       })
     })
 
@@ -69,13 +69,13 @@ test.describe("release notes toast", () => {
 
     await gotoSession()
 
-    await expect(page.locator(toastSelector)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(toastTitleSelector)).toHaveText("Updated to v2026.5.7")
-    await expect(page.locator(toastDescriptionSelector)).toContainText("Important refresh for this release.")
-    await expect(page.locator(toastDescriptionSelector)).toContainText("• Added subtle toast variant")
-    await expect(page.locator(toastDescriptionSelector)).toContainText("• Replaced release notes dialog")
-    await expect(page.locator(toastActionSelector)).toHaveText("Full release notes →")
-    await expect(page.locator(toastIconSelector)).toBeVisible()
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("Important refresh for this release.")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• Added subtle toast variant")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• Replaced release notes dialog")
+    await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
+    await expect(page.locator(TOAST_ICON_SELECTOR)).toBeVisible()
   })
 
   test("clicking the close button marks the current version as seen", async ({ page, gotoSession }) => {
@@ -83,7 +83,7 @@ test.describe("release notes toast", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(singleReleasePayload),
+        body: JSON.stringify(SINGLE_RELEASE_PAYLOAD),
       })
     })
 
@@ -92,10 +92,10 @@ test.describe("release notes toast", () => {
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
-    await expect(page.locator(toastSelector)).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
 
-    await page.locator(toastCloseButtonSelector).click()
-    await expect(page.locator(toastSelector)).toBeHidden()
+    await page.locator(TOAST_CLOSE_BUTTON_SELECTOR).click()
+    await expect(page.locator(TOAST_SELECTOR)).toBeHidden()
 
     await expect
       .poll(() =>
@@ -112,7 +112,7 @@ test.describe("release notes toast", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(singleReleasePayload),
+        body: JSON.stringify(SINGLE_RELEASE_PAYLOAD),
       })
     })
 
@@ -141,7 +141,7 @@ test.describe("release notes toast", () => {
         }, HIGHLIGHTS_KEY),
       )
       .toBe("2026.5.7")
-    await expect(page.locator(toastSelector)).toHaveCount(0)
+    await expect(page.locator(TOAST_SELECTOR)).toHaveCount(0)
   })
 
   test("merges multiple skipped versions into one description", async ({ page, gotoSession }) => {
@@ -149,7 +149,7 @@ test.describe("release notes toast", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(multiVersionPayload),
+        body: JSON.stringify(MULTI_VERSION_PAYLOAD),
       })
     })
 
@@ -159,9 +159,9 @@ test.describe("release notes toast", () => {
 
     await gotoSession()
 
-    await expect(page.locator(toastSelector)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(toastTitleSelector)).toHaveText("Updated to v2026.5.7")
-    const description = page.locator(toastDescriptionSelector)
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    const description = page.locator(TOAST_DESCRIPTION_SELECTOR)
     await expect(description).toContainText("• Newest highlight A")
     await expect(description).toContainText("• Newest highlight B")
     await expect(description).toContainText("v2026.5.6")
@@ -189,11 +189,11 @@ test.describe("release notes toast", () => {
 
     await gotoSession()
 
-    await expect(page.locator(toastSelector)).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
     // Title and action must follow the parsed body's locale (en) — never mix with zh UI locale.
-    await expect(page.locator(toastTitleSelector)).toHaveText("Updated to v2026.5.7")
-    await expect(page.locator(toastActionSelector)).toHaveText("Full release notes →")
-    await expect(page.locator(toastDescriptionSelector)).toContainText("• English fallback bullet")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• English fallback bullet")
   })
 
   test("uses zh title and action when zh release section is present", async ({ page, gotoSession }) => {
@@ -201,7 +201,7 @@ test.describe("release notes toast", () => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(localizedPayload),
+        body: JSON.stringify(LOCALIZED_PAYLOAD),
       })
     })
 
@@ -212,10 +212,10 @@ test.describe("release notes toast", () => {
 
     await gotoSession()
 
-    await expect(page.locator(toastSelector)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(toastTitleSelector)).toHaveText("已更新到 v2026.5.7")
-    await expect(page.locator(toastActionSelector)).toHaveText("查看完整发布说明 →")
-    await expect(page.locator(toastDescriptionSelector)).toContainText("• 中文要点 A")
-    await expect(page.locator(toastDescriptionSelector)).toContainText("• 中文要点 B")
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("已更新到 v2026.5.7")
+    await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("查看完整发布说明 →")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 A")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 B")
   })
 })
