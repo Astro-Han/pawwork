@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { Option, Redacted } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { ServerAuth } from "../../src/server/auth"
+import { AuthMiddleware } from "../../src/server/middleware"
+import { Hono } from "hono"
 
 const mutableFlag = Flag as {
   OPENCODE_SERVER_PASSWORD?: string
@@ -60,5 +62,39 @@ describe("ServerAuth", () => {
     expect(ServerAuth.required(config)).toBe(true)
     expect(ServerAuth.authorized({ username: "alice", password: Redacted.make("secret") }, config)).toBe(true)
     expect(ServerAuth.authorized({ username: "opencode", password: Redacted.make("secret") }, config)).toBe(false)
+  })
+})
+
+describe("AuthMiddleware", () => {
+  const app = () => {
+    const app = new Hono()
+    app.use(AuthMiddleware)
+    app.get("/", (c) => c.text("ok"))
+    return app
+  }
+
+  test("authorizes auth_token query credentials without requiring a mutable request header", async () => {
+    mutableFlag.OPENCODE_SERVER_PASSWORD = "secret"
+    mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
+
+    const token = Buffer.from("alice:secret").toString("base64")
+    const response = await app().request(`/?auth_token=${encodeURIComponent(token)}`)
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
+  })
+
+  test("accepts case-insensitive Basic auth with flexible spacing", async () => {
+    mutableFlag.OPENCODE_SERVER_PASSWORD = "secret"
+    mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
+
+    const response = await app().request("/", {
+      headers: {
+        authorization: `basic   ${Buffer.from("alice:secret").toString("base64")}`,
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
   })
 })

@@ -41,15 +41,19 @@ export const AuthMiddleware: MiddlewareHandler = async (c, next) => {
   // Allow CORS preflight requests to succeed without auth.
   // Browser clients sending Authorization headers will preflight with OPTIONS.
   if (c.req.method === "OPTIONS") return next()
-  if (c.req.query("auth_token")) c.req.raw.headers.set("authorization", `Basic ${c.req.query("auth_token")}`)
 
   const password = Flag.OPENCODE_SERVER_PASSWORD
   if (!password) return next()
 
-  const header = c.req.header("authorization")
-  if (!header?.startsWith("Basic ")) return c.text("Unauthorized", 401)
+  const queryToken = c.req.query("auth_token")
+  const authHeader = c.req.header("authorization")
+  const header = queryToken ? "Basic " + queryToken : authHeader
 
-  const decoded = Buffer.from(header.slice("Basic ".length), "base64").toString("utf8")
+  const match = header?.match(/^Basic\s+(.+)$/i)
+  if (!match) return c.text("Unauthorized", 401)
+
+  const credentialsPart = match[1]
+  const decoded = Buffer.from(credentialsPart, "base64").toString("utf8")
   const separator = decoded.indexOf(":")
   if (separator === -1) return c.text("Unauthorized", 401)
 
