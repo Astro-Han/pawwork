@@ -321,18 +321,18 @@ export const PawworkSidebar = (props: {
             <nav class="flex flex-col gap-1">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
-                  <div class="px-2 pt-3 pb-2 text-12-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
+                  <div class="px-2 pt-3 pb-2 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
               <Show when={rows().length > 0 || groupedRows().length > 0}>
                 <div class="mt-3 flex items-center justify-between pr-2 pl-2 pb-2">
-                  <span class="text-12-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
+                  <span class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
                   <DropdownMenu>
                     <DropdownMenu.Trigger
                       data-action="pawwork-sort-trigger"
                       data-mode={props.sortMode()}
-                      class="inline-flex items-center gap-1 h-6 rounded-sm px-2 text-12-medium text-fg-weak transition-colors hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay focus:outline-none"
+                      class="inline-flex items-center gap-1 h-[24px] rounded-sm px-2 text-13-medium text-fg-weak transition-colors hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay focus:outline-none"
                     >
                       <span>{language.t("sidebar.pawwork.sort.label")}</span>
                       <Icon name="chevron-down" class="text-icon-weak" />
@@ -377,7 +377,7 @@ export const PawworkSidebar = (props: {
                 <For each={groupedRows()}>
                   {(group) => (
                     <section class="flex flex-col gap-0.5">
-                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-2 text-12-regular text-fg-weak">
+                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-2 text-13-regular text-fg-weak">
                         {group.label}
                       </div>
                       <For each={group.items}>{(item) => renderSessionItem({ item })}</For>
