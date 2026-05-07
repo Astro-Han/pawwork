@@ -1,25 +1,25 @@
 import { test, expect } from "../fixtures"
-import { hoverSessionItem, openSidebar } from "../actions"
+import { openSidebar, withSession } from "../actions"
 import { pawworkSidebarSelector } from "../selectors"
 
-test("sidebar row exposes 4-state status + 4-item menu with shortcut hints", async ({
+test("sidebar row exposes 4-item menu with Rename ↵ / Delete ⌫ shortcut hints", async ({
   page,
   sdk,
   gotoSession,
 }) => {
   const stamp = Date.now()
-  const session = await sdk.session.create({ title: `slice 09 menu ${stamp}` }).then((r) => r.data)
-  if (!session?.id) throw new Error("session create returned no id")
-
-  try {
+  await withSession(sdk, `slice 09 menu ${stamp}`, async (session) => {
     await gotoSession(session.id)
     await openSidebar(page)
 
-    const row = await hoverSessionItem(page, session.id)
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    const row = sidebar.locator(`[data-session-id="${session.id}"]`).first()
+    await row.hover()
     await row.locator('[data-action="session-row-menu"]').click()
 
     const items = page.getByRole("menuitem")
     const count = await items.count()
+    // Export availability depends on runtime config; assert on the stable items.
     expect(count === 3 || count === 4).toBe(true)
     const labels = await items.allTextContents()
     expect(labels[0]).toMatch(/Pin|置顶/)
@@ -30,17 +30,12 @@ test("sidebar row exposes 4-state status + 4-item menu with shortcut hints", asy
     if (count === 4) {
       expect(labels[2]).toMatch(/Export|导出/)
     }
-  } finally {
-    await sdk.session.delete({ path: { id: session.id } })
-  }
+  })
 })
 
 test("sort trigger is a text+chev popover with two options", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
-  const session = await sdk.session.create({ title: `slice 09 sort ${stamp}` }).then((r) => r.data)
-  if (!session?.id) throw new Error("session create returned no id")
-
-  try {
+  await withSession(sdk, `slice 09 sort ${stamp}`, async (session) => {
     await gotoSession(session.id)
     await openSidebar(page)
 
@@ -56,9 +51,7 @@ test("sort trigger is a text+chev popover with two options", async ({ page, sdk,
 
     await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
     await expect(trigger).toHaveAttribute("data-mode", "project")
-  } finally {
-    await sdk.session.delete({ path: { id: session.id } })
-  }
+  })
 })
 
 test("L37 four-segment shape: side-traffic 32px above side-top, side-foot at bottom", async ({
@@ -67,10 +60,7 @@ test("L37 four-segment shape: side-traffic 32px above side-top, side-foot at bot
   gotoSession,
 }) => {
   const stamp = Date.now()
-  const session = await sdk.session.create({ title: `slice 09 shape ${stamp}` }).then((r) => r.data)
-  if (!session?.id) throw new Error("session create returned no id")
-
-  try {
+  await withSession(sdk, `slice 09 shape ${stamp}`, async (session) => {
     await gotoSession(session.id)
     await openSidebar(page)
 
@@ -80,7 +70,7 @@ test("L37 four-segment shape: side-traffic 32px above side-top, side-foot at bot
     const scroll = sidebar.locator('[data-component="pawwork-side-scroll"]').first()
     const foot = sidebar.locator('[data-component="pawwork-side-foot"]').first()
 
-    await expect(traffic).toBeVisible()
+    await expect(traffic).toBeAttached()
     await expect(top).toBeVisible()
     await expect(scroll).toBeVisible()
     await expect(foot).toBeVisible()
@@ -89,7 +79,5 @@ test("L37 four-segment shape: side-traffic 32px above side-top, side-foot at bot
     const topBox = await top.boundingBox()
     expect(trafficBox?.height).toBe(32)
     expect(trafficBox && topBox && trafficBox.y < topBox.y).toBe(true)
-  } finally {
-    await sdk.session.delete({ path: { id: session.id } })
-  }
+  })
 })

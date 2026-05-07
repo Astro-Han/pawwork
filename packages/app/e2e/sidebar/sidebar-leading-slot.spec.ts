@@ -44,13 +44,8 @@ test("pawwork sidebar merges pin into the status slot with a stable title baseli
     await pinnedRow.hover()
     expect(await leftOf(pinnedTitle)).toBe(baseline)
 
-    // Pin button should occupy the row's leading slot, not a separate column.
-    const pinButton = pinnedRow.locator('[data-action="pawwork-session-pin"][data-pinned="true"]').first()
-    await expect(pinButton).toBeVisible()
-    const pinRect = await pinButton.evaluate((el) => el.getBoundingClientRect())
-    const rowRect = await pinnedRow.evaluate((el) => el.getBoundingClientRect())
-    expect(Math.round(pinRect.left - rowRect.left)).toBe(8)
-    expect(Math.round(pinRect.width)).toBe(24)
+    // Per L35 the pin glyph is removed from the row entirely; pin status is
+    // signaled by the row's presence in the Pinned section (asserted above).
   })
 })
 

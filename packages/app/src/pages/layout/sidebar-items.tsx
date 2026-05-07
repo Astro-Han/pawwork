@@ -102,7 +102,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       case "asking":
         return <Icon name="comment" size="small" class="text-brand-primary" />
       case "busy":
-        return <Spinner class="size-4" style={{ color: tint() ?? "var(--brand-primary)" }} />
+        return <Spinner class="size-[16px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
       case "error":
         return <Icon name="circle-x" size="small" class="text-error" />
       case "time": {
@@ -152,7 +152,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       <div
         data-session-id={props.session.id}
         data-component="pawwork-session-row"
-        class="group/session relative w-full min-w-0 h-8 flex items-center rounded-sm cursor-default pr-[10px] transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
+        class="group/session relative w-full min-w-0 h-[32px] flex items-center rounded-sm cursor-default pr-[10px] transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
         // Sub-session indentation: base padding is 10 (sidebar row spec); add 16 per nesting level.
         // The flat-row spec locks left-side affordances at 10; nested-row indentation is a deliberate
         // visual departure to express parent/child without re-introducing accent bars.
@@ -178,9 +178,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           </div>
 
           <Show when={!props.level}>
-            <div class="relative shrink-0 flex items-center justify-end h-5 min-w-5">
+            <div class="relative shrink-0 flex items-center justify-end h-[20px] min-w-[20px]">
               {/* default 4-state status (asking|busy|error|time) — fades on hover, never display:none per L35 */}
-              <div class="pointer-events-none size-5 flex items-center justify-center transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0 group-has-[[data-expanded]]/session:opacity-0">
+              <div class="pointer-events-none size-[20px] flex items-center justify-center transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0 group-has-[[data-expanded]]/session:opacity-0">
                 {statusContent()}
               </div>
               {/* hover/focus/menu-open action overlay */}

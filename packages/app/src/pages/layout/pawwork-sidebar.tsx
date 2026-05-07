@@ -253,7 +253,7 @@ export const PawworkSidebar = (props: {
          slice 17 doesn't reflow the sidebar geometry. */}
       <div
         data-component="pawwork-side-traffic"
-        class="shrink-0 h-8"
+        class="shrink-0 h-[32px]"
         aria-hidden="true"
       />
       <div data-component="pawwork-side-top" class="shrink-0 px-3 pt-3">
