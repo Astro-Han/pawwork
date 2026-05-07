@@ -13,8 +13,9 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     const highlights = loadReleaseHighlights(payload, "0.2.3", "0.2.2", "en")
     expect(highlights).toHaveLength(1)
     expect(highlights[0]).toMatchObject({
-      title: "PawWork v0.2.3",
+      tag: "v0.2.3",
       description: "Fixed first-message crash",
+      localeUsed: "en",
     })
   })
 
@@ -39,8 +40,9 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     const highlights = loadReleaseHighlights(payload, "0.2.10", "0.2.9", "zh")
     expect(highlights).toHaveLength(1)
     expect(highlights[0]).toMatchObject({
-      title: "爪印 v0.2.10",
+      tag: "v0.2.10",
       description: "• 修复首条消息崩溃\n• 调整更新提示",
+      localeUsed: "zh",
     })
   })
 
@@ -63,8 +65,9 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     const highlights = loadReleaseHighlights(payload, "0.2.10", "0.2.9", "zh")
     expect(highlights).toHaveLength(1)
     expect(highlights[0]).toMatchObject({
-      title: "爪印 v0.2.10",
+      tag: "v0.2.10",
       description: "• 修复首条消息崩溃\n• 调整更新提示",
+      localeUsed: "zh",
     })
   })
 
@@ -78,8 +81,9 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     const highlights = loadReleaseHighlights(payload, "0.2.10", "0.2.9", "zh")
     expect(highlights).toHaveLength(1)
     expect(highlights[0]).toMatchObject({
-      title: "爪印 v0.2.10",
+      tag: "v0.2.10",
       description: "• Fixed first-message crash",
+      localeUsed: "en",
     })
   })
 
@@ -191,13 +195,85 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     const highlights = loadReleaseHighlights(payload, "1.0.6", "1.0.0", "en")
 
     expect(highlights).toHaveLength(5)
-    expect(highlights.map((highlight) => highlight.title)).toEqual([
-      "PawWork v1.0.6",
-      "PawWork v1.0.5",
-      "PawWork v1.0.4",
-      "PawWork v1.0.3",
-      "PawWork v1.0.2",
+    expect(highlights.map((highlight) => highlight.tag)).toEqual([
+      "v1.0.6",
+      "v1.0.5",
+      "v1.0.4",
+      "v1.0.3",
+      "v1.0.2",
     ])
+  })
+
+  test("returns up to 5 skipped versions newest-first", () => {
+    const payload = Array.from({ length: 7 }, (_, i) => {
+      const patch = 7 - i
+      return { tag_name: `v1.0.${patch}`, body: `## App Update Notice\n\n- item ${patch}\n` }
+    })
+    const result = loadReleaseHighlights(payload, "1.0.7", "1.0.0", "en")
+    expect(result).toHaveLength(5)
+    expect(result.map((r) => r.tag)).toEqual(["v1.0.7", "v1.0.6", "v1.0.5", "v1.0.4", "v1.0.3"])
+  })
+
+  test("re-resolves the whole window in English when any merged segment lacks the user's locale", () => {
+    const payload = [
+      {
+        tag_name: "v2026.5.7",
+        body: [
+          "## App Update Notice",
+          "",
+          "- newest en bullet",
+          "",
+          "## 中文版本",
+          "",
+          "### 主要更新",
+          "",
+          "- 最新中文 bullet",
+        ].join("\n"),
+      },
+      {
+        tag_name: "v2026.5.6",
+        body: "## App Update Notice\n\n- older en only\n",
+      },
+    ]
+    const highlights = loadReleaseHighlights(payload, "2026.5.7", "2026.5.5", "zh")
+    expect(highlights).toHaveLength(2)
+    expect(highlights.every((h) => h.localeUsed === "en")).toBe(true)
+    expect(highlights[0].description).toBe("• newest en bullet")
+    expect(highlights[1].description).toBe("• older en only")
+  })
+
+  test("keeps zh locale when every selected release has a Chinese section", () => {
+    const payload = [
+      {
+        tag_name: "v2026.5.7",
+        body: ["## App Update Notice", "", "- en a", "", "## 中文版本", "", "- zh a"].join("\n"),
+      },
+      {
+        tag_name: "v2026.5.6",
+        body: ["## App Update Notice", "", "- en b", "", "## 中文版本", "", "- zh b"].join("\n"),
+      },
+    ]
+    const highlights = loadReleaseHighlights(payload, "2026.5.7", "2026.5.5", "zh")
+    expect(highlights).toHaveLength(2)
+    expect(highlights.every((h) => h.localeUsed === "zh")).toBe(true)
+    expect(highlights[0].description).toBe("• zh a")
+    expect(highlights[1].description).toBe("• zh b")
+  })
+
+  test("respects previous boundary when an intermediate release lacks an update notice", () => {
+    const payload = [
+      { tag_name: "v1.0.5", body: "## App Update Notice\n\n- v1.0.5 item\n" },
+      { tag_name: "v1.0.4", body: "## Downloads\n\n- [macOS](https://example.com/app.dmg)\n" },
+      { tag_name: "v1.0.3", body: "## App Update Notice\n\n- v1.0.3 item\n" },
+      { tag_name: "v1.0.2", body: "## App Update Notice\n\n- v1.0.2 item\n" },
+    ]
+    const highlights = loadReleaseHighlights(payload, "1.0.5", "1.0.4", "en")
+    expect(highlights.map((h) => h.tag)).toEqual(["v1.0.5"])
+  })
+
+  test("returns empty when current version is not in changelog", () => {
+    const payload = [{ tag_name: "v1.0.0", body: "## App Update Notice\n\n- item\n" }]
+    expect(loadReleaseHighlights(payload, "9.9.9", "1.0.0", "en")).toEqual([])
   })
 
   test("does not cap bullets inside a single version page", () => {
@@ -249,112 +325,6 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
   test("returns no highlights when the body is empty or only headings", () => {
     const payload = [{ tag_name: "v0.2.4", body: "# Title only\n\n## Heading only\n" }]
     expect(loadReleaseHighlights(payload, "0.2.4", "0.2.3", "en")).toHaveLength(0)
-  })
-
-  test("keeps backward compatibility with the structured highlights schema", () => {
-    const payload = [
-      {
-        tag: "v0.2.5",
-        highlights: [
-          {
-            source: "desktop",
-            items: [{ title: "Card Title", description: "Card Description" }],
-          },
-        ],
-      },
-    ]
-    const highlights = loadReleaseHighlights(payload, "0.2.5", "0.2.4", "zh")
-    expect(highlights).toHaveLength(1)
-    expect(highlights[0]).toMatchObject({ title: "Card Title", description: "Card Description" })
-  })
-
-  test("does not rewrite structured highlight titles for zh locale", () => {
-    const payload = [
-      {
-        tag: "v0.2.5",
-        highlights: [
-          {
-            source: "desktop",
-            items: [{ title: "PawWork card", description: "Card Description" }],
-          },
-        ],
-      },
-    ]
-    const highlights = loadReleaseHighlights(payload, "0.2.5", "0.2.4", "zh")
-    expect(highlights[0]?.title).toBe("PawWork card")
-  })
-
-  test("keeps structured highlight items as separate pages", () => {
-    const payload = [
-      {
-        tag: "v0.2.5",
-        highlights: [
-          {
-            source: "desktop",
-            items: [
-              { title: "Card A", description: "Description A" },
-              { title: "Card B", description: "Description B" },
-            ],
-          },
-        ],
-      },
-    ]
-
-    const highlights = loadReleaseHighlights(payload, "0.2.5", "0.2.4", "en")
-
-    expect(highlights).toHaveLength(2)
-    expect(highlights.map((highlight) => highlight.title)).toEqual(["Card A", "Card B"])
-  })
-
-  test("keeps structured highlight cap independent from release-body version cap", () => {
-    const payload = [
-      {
-        tag: "v0.2.5",
-        highlights: [
-          {
-            source: "desktop",
-            items: Array.from({ length: 6 }, (_, index) => ({
-              title: `Card ${index + 1}`,
-              description: `Description ${index + 1}`,
-            })),
-          },
-        ],
-      },
-    ]
-
-    const highlights = loadReleaseHighlights(payload, "0.2.5", "0.2.4", "en")
-
-    expect(highlights).toHaveLength(6)
-    expect(highlights.map((highlight) => highlight.title)).toEqual([
-      "Card 1",
-      "Card 2",
-      "Card 3",
-      "Card 4",
-      "Card 5",
-      "Card 6",
-    ])
-  })
-
-  test("keeps structured highlight limit at fifteen cards", () => {
-    const payload = [
-      {
-        tag: "v0.2.5",
-        highlights: [
-          {
-            source: "desktop",
-            items: Array.from({ length: 16 }, (_, index) => ({
-              title: `Card ${index + 1}`,
-              description: `Description ${index + 1}`,
-            })),
-          },
-        ],
-      },
-    ]
-
-    const highlights = loadReleaseHighlights(payload, "0.2.5", "0.2.4", "en")
-
-    expect(highlights).toHaveLength(15)
-    expect(highlights.at(-1)?.title).toBe("Card 15")
   })
 
   test("preserves intro prose before bullets in mixed content notices", () => {

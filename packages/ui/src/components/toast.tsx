@@ -1,7 +1,7 @@
 import { Toast as Kobalte, toaster } from "@kobalte/core/toast"
 import type { ToastRootProps, ToastCloseButtonProps, ToastTitleProps, ToastDescriptionProps } from "@kobalte/core/toast"
 import type { ComponentProps, JSX } from "solid-js"
-import { Show } from "solid-js"
+import { onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useI18n } from "../context/i18n"
 import { Icon, type IconProps } from "./icon"
@@ -98,7 +98,7 @@ export const Toast = Object.assign(ToastRoot, {
 
 export { toaster }
 
-export type ToastVariant = "default" | "success" | "error" | "loading"
+export type ToastVariant = "default" | "success" | "error" | "loading" | "subtle"
 
 export interface ToastAction {
   label: string
@@ -113,48 +113,96 @@ export interface ToastOptions {
   duration?: number
   persistent?: boolean
   actions?: ToastAction[]
+  onDismiss?: () => void
 }
+
+// Module-scope set used by dismissToast() to flag a toast id as a
+// user-equivalent dismiss before toaster.dismiss runs. The render closure's
+// onCleanup consults this set so external programmatic dismissals fire
+// onDismiss the same as a CloseButton click. Raw toaster.dismiss(id) (used
+// by promise-toast's internal lifecycle, etc.) stays as ambient teardown.
+const userDismissedToastIds = new Set<number>()
 
 export function showToast(options: ToastOptions | string) {
   const opts = typeof options === "string" ? { description: options } : options
-  return toaster.show((props) => (
-    <Toast
-      toastId={props.toastId}
-      duration={opts.duration}
-      persistent={opts.persistent}
-      data-variant={opts.variant ?? "default"}
-    >
-      <Show when={opts.icon}>
-        <Toast.Icon name={opts.icon!} />
-      </Show>
-      <Toast.Content>
-        <Show when={opts.title}>
-          <Toast.Title>{opts.title}</Toast.Title>
+  return toaster.show((props) => {
+    // onCleanup runs when the toast root unmounts. That covers explicit dismiss
+    // paths (close button, action click, swipe, escape, dismissToast wrapper)
+    // AND ambient unmounts (parent owner teardown, e.g. app exit, raw
+    // toaster.dismiss). For callers with "user-acknowledged" semantics (e.g.
+    // markSeen on release notes), we gate onDismiss behind a flag set only by
+    // user-driven dismiss handlers. Kobalte's swipe-end and escape paths call
+    // close() directly without going through CloseButton's onClick, so they
+    // need their own handlers — see <Toast> below. The fired guard is defense
+    // against future Kobalte upgrades re-invoking this render closure.
+    let userDismissed = false
+    let fired = false
+    const markUserDismissed = () => {
+      userDismissed = true
+    }
+    if (opts.onDismiss) {
+      onCleanup(() => {
+        if (fired) return
+        fired = true
+        const flaggedExternally = userDismissedToastIds.delete(props.toastId)
+        if (!userDismissed && !flaggedExternally) return
+        opts.onDismiss?.()
+      })
+    }
+    return (
+      <Toast
+        toastId={props.toastId}
+        duration={opts.duration}
+        persistent={opts.persistent}
+        data-variant={opts.variant ?? "default"}
+        onSwipeEnd={markUserDismissed}
+        onEscapeKeyDown={markUserDismissed}
+      >
+        <Show when={opts.icon}>
+          <Toast.Icon name={opts.icon!} />
         </Show>
-        <Show when={opts.description}>
-          <Toast.Description>{opts.description}</Toast.Description>
-        </Show>
-        <Show when={opts.actions?.length}>
-          <Toast.Actions>
-            {opts.actions!.map((action) => (
-              <button
-                data-slot="toast-action"
-                onClick={() => {
-                  if (typeof action.onClick === "function") {
-                    action.onClick()
-                  }
-                  toaster.dismiss(props.toastId)
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
-          </Toast.Actions>
-        </Show>
-      </Toast.Content>
-      <Toast.CloseButton />
-    </Toast>
-  ))
+        <Toast.Content>
+          <Show when={opts.title}>
+            <Toast.Title>{opts.title}</Toast.Title>
+          </Show>
+          <Show when={opts.description}>
+            <Toast.Description>{opts.description}</Toast.Description>
+          </Show>
+          <Show when={opts.actions?.length}>
+            <Toast.Actions>
+              {opts.actions!.map((action) => (
+                <button
+                  data-slot="toast-action"
+                  onClick={() => {
+                    markUserDismissed()
+                    try {
+                      if (typeof action.onClick === "function") {
+                        action.onClick()
+                      }
+                    } finally {
+                      toaster.dismiss(props.toastId)
+                    }
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </Toast.Actions>
+          </Show>
+        </Toast.Content>
+        <Toast.CloseButton onClick={markUserDismissed} />
+      </Toast>
+    )
+  })
+}
+
+// Programmatic dismiss that counts as a user-equivalent dismiss for
+// onDismiss callbacks (e.g. release-notes markSeen). External callers
+// should use this in preference to raw toaster.dismiss(id) when their
+// caller intent is "the user is done with this toast".
+export function dismissToast(toastId: number) {
+  userDismissedToastIds.add(toastId)
+  toaster.dismiss(toastId)
 }
 
 export interface ToastPromiseOptions<T, U = unknown> {
