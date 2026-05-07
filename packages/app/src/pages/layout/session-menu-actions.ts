@@ -6,6 +6,7 @@ export type SessionMenuAction = {
   id: SessionMenuActionID
   label: string
   separatorBefore?: boolean
+  shortcut?: string
   run: () => Promise<void> | void
 }
 
@@ -34,6 +35,7 @@ export function buildSessionMenuActions(input: {
     {
       id: "rename",
       label: input.labels.rename,
+      shortcut: "↵",
       run: () => input.onRenameSession(input.session),
     },
   ]
@@ -50,6 +52,7 @@ export function buildSessionMenuActions(input: {
     id: "delete",
     label: input.labels.delete,
     separatorBefore: true,
+    shortcut: "⌫",
     run: () => input.onDeleteSession(input.session),
   })
 
