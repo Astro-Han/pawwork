@@ -51,7 +51,9 @@ describe("built node webfetch", () => {
 
       const script = `
         import http from "node:http"
+        import https from "node:https"
         import { Effect } from "effect"
+        import { FetchHttpClient } from "effect/unstable/http"
         import { Instance, Log, ToolRegistry } from ${JSON.stringify(pathToFileURL(distEntry).href)}
 
         if (typeof HTMLRewriter !== "undefined") {
@@ -82,8 +84,61 @@ describe("built node webfetch", () => {
         const rawOpenHTML = \`<body>\${"<".repeat(50_000)}\`
         const whitespaceHTML = \`<body>\${"\\r".repeat(50_000)}visible text</body>\`
 
+        // The test validates the built Node WebFetch parser path. Avoid Node
+        // 24 Windows global fetch teardown, which can abort during process.exit().
+        const nodeFetch = (input, init = {}) => new Promise((resolve, reject) => {
+          const url = new URL(input instanceof Request ? input.url : input)
+          const client = url.protocol === "https:" ? https : http
+          const normalizeHeaders = (headers) => {
+            if (!headers) return {}
+            if (headers instanceof Headers || Array.isArray(headers)) return Object.fromEntries(headers)
+            if (typeof headers[Symbol.iterator] === "function") return Object.fromEntries(headers)
+            return headers
+          }
+          const headers = {
+            ...(input instanceof Request ? Object.fromEntries(input.headers) : {}),
+            ...normalizeHeaders(init.headers),
+          }
+          const req = client.request(
+            url,
+            {
+              method: init.method ?? (input instanceof Request ? input.method : "GET"),
+              headers: { ...headers, connection: "close" },
+              agent: false,
+              signal: init.signal,
+            },
+            (res) => {
+              const chunks = []
+              res.on("data", (chunk) => chunks.push(chunk))
+              res.on("error", reject)
+              res.on("end", () => {
+                const responseHeaders = new Headers()
+                for (const [key, value] of Object.entries(res.headers)) {
+                  if (Array.isArray(value)) {
+                    for (const item of value) responseHeaders.append(key, item)
+                  } else if (value !== undefined) {
+                    responseHeaders.set(key, value)
+                  }
+                }
+                resolve(
+                  new Response(Buffer.concat(chunks), {
+                    status: res.statusCode ?? 200,
+                    statusText: res.statusMessage,
+                    headers: responseHeaders,
+                  }),
+                )
+              })
+            },
+          )
+
+          req.on("error", reject)
+          if (init.signal?.aborted) req.destroy(init.signal.reason)
+          req.end(init.body)
+        })
+
+        const sockets = new Set()
         const server = http.createServer((req, res) => {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8", connection: "close" })
           res.end(
             req.url === "/hostile.html"
               ? hostileHTML
@@ -92,7 +147,11 @@ describe("built node webfetch", () => {
                 : req.url === "/whitespace.html"
                   ? whitespaceHTML
                   : happyHTML,
-          )
+            )
+        })
+        server.on("connection", (socket) => {
+          sockets.add(socket)
+          socket.on("close", () => sockets.delete(socket))
         })
 
         await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -123,7 +182,7 @@ describe("built node webfetch", () => {
                     metadata: () => Effect.void,
                     ask: () => Effect.void,
                   },
-                ),
+                ).pipe(Effect.provideService(FetchHttpClient.Fetch, nodeFetch)),
               )
 
               const happy = await run("/page.html")
@@ -147,8 +206,11 @@ describe("built node webfetch", () => {
 
           console.log(JSON.stringify(output))
         } finally {
+          await Instance.disposeAll()
           await new Promise((resolve, reject) => {
             server.close((error) => (error ? reject(error) : resolve()))
+            server.closeAllConnections?.()
+            for (const socket of sockets) socket.destroy()
           })
         }
 
