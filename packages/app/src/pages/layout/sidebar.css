@@ -12,13 +12,15 @@
   transition: opacity var(--duration-base) ease-out;
 }
 
-/* Slice 09 (L35): action-overlay icon button uses radius-md and a deeper
-   hover (--row-active-overlay = 0.06 alpha) so it reads as its own target
-   on top of a row that already has 0.04 hover. */
-[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="session-row-menu"] {
+/* Slice 09 (L35): row-menu and sort-trigger share radius-md + the deeper
+   --row-active-overlay (0.06 alpha) so they read as the same control class.
+   Default IconButton hover (0.04 alpha) reads too faint next to dot-grid. */
+[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="session-row-menu"],
+[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="pawwork-sort-trigger"] {
   border-radius: var(--radius-md);
 }
 
-[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="session-row-menu"]:hover:not(:disabled) {
+[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="session-row-menu"]:hover:not(:disabled),
+[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="pawwork-sort-trigger"]:hover:not(:disabled) {
   background-color: var(--row-active-overlay);
 }
