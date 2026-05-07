@@ -10,7 +10,7 @@ import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
-import { sessionPermissionRequest } from "../session/blockers/request-tree"
+import { sessionPermissionRequest, sessionQuestionBlockerRequest, sessionQuestionRequest } from "../session/blockers/request-tree"
 import { createSessionRunning } from "../session/session-running-state"
 import { childSessionOnPath } from "./helpers"
 import { sidebarStatusKind } from "./sidebar-status-kind"
@@ -72,10 +72,20 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const globalSync = useGlobalSync()
   const hasError = createMemo(() => notification.session.unseenHasError(props.session.id))
   const [sessionStore] = globalSync.child(props.session.directory)
-  const hasPermissions = createMemo(() => {
-    return !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, props.session.id, (item) => {
-      return !permission.autoResponds(item, props.session.directory)
-    })
+  // 4-state right-slot "asking" must mirror the main-region blocker semantics
+  // (permission || question-blocker || question), not just permission. Otherwise
+  // an agent ask() pause shows as busy in the sidebar while the main region
+  // shows the question. See use-session-blockers.ts for the canonical OR set.
+  const isAsking = createMemo(() => {
+    if (
+      sessionPermissionRequest(sessionStore.session, sessionStore.permission, props.session.id, (item) => {
+        return !permission.autoResponds(item, props.session.directory)
+      })
+    )
+      return true
+    if (sessionQuestionBlockerRequest(sessionStore.session, sessionStore.blocker, props.session.id)) return true
+    if (sessionQuestionRequest(sessionStore.session, sessionStore.question, props.session.id)) return true
+    return false
   })
   const sessionRunning = createSessionRunning(
     () => sessionStore.session_status[props.session.id],
@@ -91,9 +101,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
   const statusKind = createMemo(() =>
     sidebarStatusKind({
-      asking: hasPermissions(),
-      busy: !hasPermissions() && !!sessionRunning(),
-      error: !hasPermissions() && !sessionRunning() && hasError(),
+      asking: isAsking(),
+      busy: !isAsking() && !!sessionRunning(),
+      error: !isAsking() && !sessionRunning() && hasError(),
     }),
   )
 
