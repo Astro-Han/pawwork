@@ -2,6 +2,7 @@ import { test, expect, settingsKey } from "../fixtures"
 
 const RELEASES_URL_PATTERN = "**/api.github.com/repos/Astro-Han/pawwork/releases**"
 const HIGHLIGHTS_KEY = "highlights.v1"
+const LANGUAGE_KEY = "pawwork.global.dat:language"
 
 const SINGLE_RELEASE_PAYLOAD = [
   {
@@ -267,7 +268,7 @@ test.describe("release notes toast", () => {
 
     await page.addInitScript((highlightsKey) => {
       localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.6" }))
-      localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "zh" }))
+      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
@@ -290,7 +291,7 @@ test.describe("release notes toast", () => {
 
     await page.addInitScript((highlightsKey) => {
       localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.6" }))
-      localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "zh" }))
+      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
@@ -327,7 +328,7 @@ test.describe("release notes toast", () => {
 
     await page.addInitScript((highlightsKey) => {
       localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.5" }))
-      localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "zh" }))
+      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
@@ -380,7 +381,7 @@ test.describe("release notes toast", () => {
 
     await page.addInitScript((highlightsKey) => {
       localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.5" }))
-      localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "zh" }))
+      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
