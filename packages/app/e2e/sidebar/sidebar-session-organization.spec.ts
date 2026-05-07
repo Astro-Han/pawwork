@@ -34,6 +34,7 @@ test("users can pin, rename, and regroup sessions in the PawWork sidebar", async
   await expect(dialog).toBeHidden()
   await expect(sidebar.locator(`[data-session-id="${one.id}"]`)).toContainText(`Ops weekly renamed ${stamp}`)
 
-  await sidebar.locator('[data-action="pawwork-sort-mode"]').click()
+  await sidebar.locator('[data-action="pawwork-sort-trigger"]').click()
+  await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
   await expect(sidebar.locator('[data-component="pawwork-group-header"]')).toHaveCount(1)
 })
