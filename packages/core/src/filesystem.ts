@@ -186,9 +186,9 @@ export namespace AppFileSystem {
     return lookup(path) || "application/octet-stream"
   }
 
-  export function normalizePath(path: string): string {
+  export function normalizePath(path: string, options?: WindowsPathOptions): string {
     if (process.platform !== "win32") return path
-    const resolved = normalizeWindowsAbsolutePath(windowsPath(path))
+    const resolved = normalizeWindowsPath(path, options)
     try {
       return realpathSync.native(resolved)
     } catch {
@@ -196,18 +196,17 @@ export namespace AppFileSystem {
     }
   }
 
-  export function normalizePathPattern(path: string): string {
+  export function normalizePathPattern(path: string, options?: WindowsPathOptions): string {
     if (process.platform !== "win32") return path
     if (path === "*") return path
     const match = path.match(/^(.*)[\\/]\*$/)
-    if (!match) return normalizePath(path)
+    if (!match) return normalizePath(path, options)
     const dir = /^[A-Za-z]:$/.test(match[1]) ? match[1] + "\\" : match[1]
-    return join(normalizePath(dir), "*")
+    return join(normalizePath(dir, options), "*")
   }
 
-  export function resolve(path: string): string {
-    const resolved =
-      process.platform === "win32" ? normalizeWindowsAbsolutePath(windowsPath(path)) : pathResolve(path)
+  export function resolve(path: string, options?: WindowsPathOptions): string {
+    const resolved = process.platform === "win32" ? normalizeWindowsPath(path, options) : pathResolve(path)
     try {
       return normalizePath(realpathSync(resolved))
     } catch (error: any) {
@@ -225,28 +224,60 @@ export namespace AppFileSystem {
       .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
   }
 
+  export type WindowsPathOptions = {
+    base?: string
+    driveRoots?: string[]
+    exists?: (path: string) => boolean
+  }
+
   // Rooted but driveless paths (e.g. "/users/runner/...") arrive when callers
   // strip the drive letter before handing the path back. path.resolve would
   // bind such a path to the cwd's drive, which silently mismatches when the
-  // file actually lives on a different drive. Probe each known drive root for
-  // an existing file and fall back to win32.resolve only when none match.
-  //
-  // Important: this only repairs *existing* rooted-driveless paths. Targets
-  // that have not been created yet (e.g. write destinations) still fall back
-  // to the cwd-drive answer that win32.resolve produces. Callers that need
-  // a stable drive for a future path should pre-resolve via the project root.
-  function normalizeWindowsAbsolutePath(p: string): string {
-    const existing = resolveRootedWindowsVariant(p)
-    return win32.normalize(existing ?? win32.resolve(p))
+  // file actually lives on a different drive. Probe known drive roots for an
+  // existing file; if none match, bind future targets to the explicit base
+  // drive when one is available.
+  export function normalizeWindowsPath(path: string, options: WindowsPathOptions = {}): string {
+    const p = stripExtendedLengthPrefix(windowsPathInput(path))
+    const existing = resolveRootedWindowsVariant(p, options)
+    if (existing) return uppercaseDriveRoot(win32.normalize(existing))
+    if (isRootedDriveless(p) && options.base) return uppercaseDriveRoot(win32.resolve(options.base, p))
+    return uppercaseDriveRoot(win32.normalize(win32.resolve(p)))
   }
 
-  function resolveRootedWindowsVariant(p: string): string | undefined {
-    if (!/^[\\/](?![\\/])/.test(p)) return
+  function windowsPathInput(path: string): string {
+    return path
+      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
+  }
+
+  function stripExtendedLengthPrefix(path: string): string {
+    if (/^\\\\\?\\UNC\\/i.test(path)) return path.replace(/^\\\\\?\\UNC\\/i, "\\\\")
+    if (/^\\\\\?\\[A-Za-z]:\\/i.test(path)) return path.slice(4)
+    return path
+  }
+
+  function resolveRootedWindowsVariant(p: string, options: WindowsPathOptions): string | undefined {
+    if (!isRootedDriveless(p)) return
     const suffix = p.replace(/^[\\/]+/, "").replaceAll("/", "\\")
-    for (const root of windowsDriveRoots()) {
+    const matches: string[] = []
+    for (const root of options.driveRoots ?? windowsDriveRoots()) {
       const candidate = win32.join(root, suffix)
-      if (existsSync(candidate)) return candidate
+      if ((options.exists ?? existsSync)(candidate)) matches.push(candidate)
     }
+    if (matches.length > 1) {
+      throw new Error(`Ambiguous Windows path ${p}; use a drive-qualified path.`)
+    }
+    return matches[0]
+  }
+
+  function isRootedDriveless(p: string): boolean {
+    return /^[\\/](?![\\/])/.test(p)
+  }
+
+  function uppercaseDriveRoot(path: string): string {
+    return path.replace(/^([a-z]):/, (_, drive) => `${drive.toUpperCase()}:`)
   }
 
   function windowsDriveRoots(): string[] {

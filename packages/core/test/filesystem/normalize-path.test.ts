@@ -14,6 +14,50 @@ test("normalizePath is identity on non-Windows", () => {
   expect(AppFileSystem.normalizePath(p)).toBe(p)
 })
 
+function withWin32Platform(fn: () => void) {
+  const original = process.platform
+  Object.defineProperty(process, "platform", { value: "win32" })
+  try {
+    fn()
+  } finally {
+    Object.defineProperty(process, "platform", { value: original })
+  }
+}
+
+test("normalizePath folds extended-length drive paths on Windows", () => {
+  withWin32Platform(() => {
+    expect(AppFileSystem.normalizePath("\\\\?\\D:\\Users\\Ada\\file.txt")).toBe("D:\\Users\\Ada\\file.txt")
+  })
+})
+
+test("normalizePath folds extended-length UNC paths on Windows", () => {
+  withWin32Platform(() => {
+    expect(AppFileSystem.normalizePath("\\\\?\\UNC\\server\\share\\dir\\file.txt")).toBe(
+      "\\\\server\\share\\dir\\file.txt",
+    )
+  })
+})
+
+test("normalizeWindowsPath resolves non-existing rooted-driveless paths from an explicit base drive", () => {
+  expect(AppFileSystem.normalizeWindowsPath("\\future\\file.txt", { base: "D:\\project\\work" })).toBe(
+    "D:\\future\\file.txt",
+  )
+})
+
+test("normalizeWindowsPath uppercases drive letters for non-existing drive-qualified paths", () => {
+  expect(AppFileSystem.normalizeWindowsPath("d:\\future\\file.txt")).toBe("D:\\future\\file.txt")
+})
+
+test("normalizeWindowsPath rejects ambiguous rooted-driveless existing paths", () => {
+  expect(() =>
+    AppFileSystem.normalizeWindowsPath("\\shared\\file.txt", {
+      driveRoots: ["C:\\", "D:\\"],
+      exists: (candidate) =>
+        candidate.toLowerCase() === "c:\\shared\\file.txt" || candidate.toLowerCase() === "d:\\shared\\file.txt",
+    }),
+  ).toThrow("Ambiguous Windows path")
+})
+
 test.skipIf(process.platform !== "win32")(
   "normalizePath probes drive roots for rooted-but-driveless paths to existing files",
   () => {
