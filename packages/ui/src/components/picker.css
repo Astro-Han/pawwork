@@ -18,7 +18,7 @@
  */
 
 [data-picker-trigger] {
-  height: 28px;
+  height: 32px;
   border-radius: var(--radius-md);
   transition: background-color var(--duration-base);
 }
