@@ -141,7 +141,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     if (hasPermissions()) return <div class="size-1.5 rounded-full bg-warning-bg" />
     if (hasError()) return <div class="size-1.5 rounded-full bg-error-text" />
     if (unseenCount() > 0) return <div class="size-1.5 rounded-full bg-brand-primary" />
-    if (isPinned()) return <Icon name="pin" size="small" class="text-fg-weak" />
+    if (isPinned()) return <Icon name="pin" class="text-fg-weak" />
     return null
   }
   const statusTime = () => (statusGlyph() ? undefined : props.timeText?.(props.session))
@@ -261,7 +261,7 @@ export const NewSessionItem = (props: {
       }}
     >
       <div data-leading-slot class="shrink-0 w-4 h-4 flex items-center">
-        <Icon name="new-session" size="small" class="text-icon-weak" />
+        <Icon name="new-session" class="text-icon-weak" />
       </div>
       <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">{label}</span>
     </A>

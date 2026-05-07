@@ -314,7 +314,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                       >
                         <div class="flex-1" />
                         <Show when={server.current && key === ServerConnection.key(server.current)}>
-                          <Icon name="check" size="small" class="text-icon-weak shrink-0" />
+                          <Icon name="check" class="text-icon-weak shrink-0" />
                         </Show>
                       </ServerRow>
                     </button>

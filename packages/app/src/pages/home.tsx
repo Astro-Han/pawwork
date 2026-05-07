@@ -123,7 +123,7 @@ export default function Home() {
         </Match>
         <Match when={true}>
           <div class="mt-30 mx-auto flex flex-col items-center gap-3">
-            <Icon name="folder-add-left" size="large" />
+            <Icon name="folder-add-left" />
             <div class="flex flex-col gap-1 items-center justify-center">
               <div class="text-13-medium text-fg-strong">{language.t("home.empty.title")}</div>
               <div class="text-13-regular text-fg-weak">{language.t("home.empty.description")}</div>

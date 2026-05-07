@@ -50,7 +50,6 @@ export function PawworkWorktreeBadge(props: {
       >
         <Icon
           name="worktree"
-          size="small"
           class="shrink-0 text-fg-weak transition-colors group-hover:text-fg-strong"
         />
         <span class="min-w-0 truncate">{label()}</span>

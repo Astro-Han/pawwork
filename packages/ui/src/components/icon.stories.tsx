@@ -9,11 +9,10 @@ Use with \`Button\`, \`IconButton\`, and menu items.
 
 ### API
 - Required: \`name\` (icon key).
-- Optional: \`size\` (small | normal | medium | large).
 - Accepts standard SVG props.
 
 ### Variants and states
-- Size variants only.
+- Single 16×16 size; no size prop.
 
 ### Behavior
 - Uses an internal SVG path map.
@@ -22,7 +21,7 @@ Use with \`Button\`, \`IconButton\`, and menu items.
 - Icons are aria-hidden by default; wrap with accessible text when needed.
 
 ### Theming/tokens
-- Uses \`data-component="icon"\` with size data attributes.
+- Uses \`data-component="icon"\`; \`data-color\` (\`base\` | \`strong\` | \`weak\` | \`disabled\`) drives color tokens.
 
 `
 
@@ -107,25 +106,10 @@ export default {
       control: "select",
       options: names,
     },
-    size: {
-      control: "select",
-      options: ["small", "normal", "medium", "large"],
-    },
   },
 }
 
 export const Basic = story.Basic
-
-export const Sizes = {
-  render: () => (
-    <div style={{ display: "flex", gap: "12px", "align-items": "center" }}>
-      <mod.Icon name="check" size="small" />
-      <mod.Icon name="check" size="normal" />
-      <mod.Icon name="check" size="medium" />
-      <mod.Icon name="check" size="large" />
-    </div>
-  ),
-}
 
 export const Gallery = {
   render: () => (

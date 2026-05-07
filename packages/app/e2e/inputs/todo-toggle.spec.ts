@@ -80,8 +80,8 @@ test("todo dock shows circle for pending and circle-check for completed items @s
     const pendingItem = list.locator('[data-slot="session-todo-item"][data-state="pending"]').first()
     const completedItem = list.locator('[data-slot="session-todo-item"][data-state="completed"]').first()
 
-    await expect(pendingItem.locator('[data-component="icon"][data-size]')).toBeVisible()
-    await expect(completedItem.locator('[data-component="icon"][data-size]')).toBeVisible()
+    await expect(pendingItem.locator('[data-icon="circle"]')).toBeVisible()
+    await expect(completedItem.locator('[data-icon="circle-check"]')).toBeVisible()
 
     await driverWrite(page, session.id, undefined)
   } finally {

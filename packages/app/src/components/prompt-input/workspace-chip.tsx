@@ -54,9 +54,9 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
       }
       trigger={
         <>
-          <Icon name="folder" size="small" class="shrink-0 text-fg-weak" />
+          <Icon name="folder" class="shrink-0 text-fg-weak" />
           <span class="max-w-[120px] truncate transition-[max-width] duration-200 ease-out @max-[24rem]/composer:max-w-0">{label()}</span>
-          <Icon name="chevron-down" size="small" class="shrink-0 text-fg-weak" />
+          <Icon name="chevron-down" class="shrink-0 text-fg-weak" />
         </>
       }
       class="min-w-56 max-w-xs"
@@ -89,7 +89,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
                     setOpen(false)
                   }}
                 >
-                  <Icon name="folder" size="small" class="shrink-0 text-fg-weak" />
+                  <Icon name="folder" class="shrink-0 text-fg-weak" />
                   <span class="min-w-0 flex-1 truncate">
                     {getFilename(workspace.path)}
                   </span>
@@ -111,7 +111,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
               layoutPage.openProject()
             }}
           >
-            <Icon name="folder-add-left" size="small" class="shrink-0 text-fg-weak" />
+            <Icon name="folder-add-left" class="shrink-0 text-fg-weak" />
             <span class="min-w-0 flex-1 truncate">{language.t("workspace.chip.add")}</span>
           </button>
         </div>

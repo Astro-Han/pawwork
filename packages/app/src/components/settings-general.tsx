@@ -693,7 +693,7 @@ export const SettingsGeneral: Component = () => {
                         <span>{language.t("settings.general.row.wayland.title")}</span>
                         <Tooltip value={language.t("settings.general.row.wayland.tooltip")} placement="top">
                           <span class="text-fg-weak">
-                            <Icon name="help" size="small" />
+                            <Icon name="help" />
                           </span>
                         </Tooltip>
                       </div>

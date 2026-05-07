@@ -415,7 +415,7 @@ export default function FileTree(props: {
                       marks={marks()}
                     >
                       <div class="size-4 flex items-center justify-center text-icon-weak">
-                        <Icon name={expanded() ? "chevron-down" : "chevron-right"} size="small" />
+                        <Icon name={expanded() ? "chevron-down" : "chevron-right"} />
                       </div>
                     </FileTreeNode>
                   </Collapsible.Trigger>

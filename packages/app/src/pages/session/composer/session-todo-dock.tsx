@@ -235,7 +235,6 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
                 fallback={
                   <Icon
                     name={todo().status === "completed" ? "circle-check" : "circle"}
-                    size="small"
                     style={{ color: "var(--icon-base)", "flex-shrink": "0", "margin-top": "1px" }}
                   />
                 }

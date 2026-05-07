@@ -97,8 +97,8 @@ describe("state-matrix: TextField", () => {
     expect(textFieldSrc).toMatch(/local\.error\s*\?\s*"invalid"/)
   })
 
-  test("error/invalid: error prop renders alert-triangle icon in error message", () => {
-    expect(textFieldSrc).toContain('name="alert-triangle"')
+  test("error/invalid: error prop renders warning icon in error message", () => {
+    expect(textFieldSrc).toContain('name="warning"')
   })
 
   test("error/invalid: error prop renders error message slot", () => {

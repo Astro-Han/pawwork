@@ -1323,7 +1323,7 @@ function ToolFileAccordion(props: { path: string; actions?: JSX.Element; childre
               </div>
               <div data-slot="apply-patch-trigger-actions">
                 {props.actions}
-                <Icon name="chevron-grabber-vertical" size="small" />
+                <Icon name="chevron-grabber-vertical" />
               </div>
             </div>
           </Accordion.Trigger>
@@ -1605,7 +1605,7 @@ ToolRegistry.register({
         <For each={loaded()}>
           {(filepath) => (
             <div data-component="tool-loaded-file">
-              <Icon name="enter" size="small" />
+              <Icon name="enter" />
               <span>
                 {i18n.t("ui.tool.loaded")} {relativizeProjectPath(filepath, data.directory)}
               </span>
@@ -1724,7 +1724,7 @@ ToolRegistry.register({
             </div>
             <Show when={!pending() && url()}>
               <div data-component="tool-action">
-                <Icon name="square-arrow-top-right" size="small" />
+                <Icon name="square-arrow-top-right" />
               </div>
             </Show>
           </div>
@@ -1878,7 +1878,7 @@ const renderAgentToolPart: ToolComponent = (props) => {
       </div>
       <Show when={clickable()}>
         <div data-component="task-tool-action">
-          <Icon name="square-arrow-top-right" size="small" />
+          <Icon name="square-arrow-top-right" />
         </div>
       </Show>
     </div>
@@ -2200,7 +2200,7 @@ ToolRegistry.register({
                                       <DiffChanges changes={{ additions: file.additions, deletions: file.deletions }} />
                                     </Match>
                                   </Switch>
-                                  <Icon name="chevron-grabber-vertical" size="small" />
+                                  <Icon name="chevron-grabber-vertical" />
                                 </div>
                               </div>
                             </Accordion.Trigger>
@@ -2328,7 +2328,6 @@ ToolRegistry.register({
                     fallback={
                       <Icon
                         name={todo.status === "completed" ? "circle-check" : "circle"}
-                        size="small"
                         style={{ color: "var(--icon-base)", "flex-shrink": "0" }}
                       />
                     }

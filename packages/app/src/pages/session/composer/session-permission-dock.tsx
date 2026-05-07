@@ -25,7 +25,7 @@ export function SessionPermissionDock(props: {
       header={
         <div data-slot="permission-row" data-variant="header">
           <span data-slot="permission-icon">
-            <Icon name="warning" size="normal" />
+            <Icon name="warning" />
           </span>
           <div data-slot="permission-header-title">{language.t("notification.permission.title")}</div>
         </div>
