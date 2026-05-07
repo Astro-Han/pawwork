@@ -38,6 +38,11 @@ export const ErrorMiddleware: ErrorHandler = (err, c) => {
 }
 
 export const AuthMiddleware: MiddlewareHandler = async (c, next) => {
+  const unauthorized = () => {
+    c.header("WWW-Authenticate", 'Basic realm="opencode"')
+    return c.text("Unauthorized", 401)
+  }
+
   // Allow CORS preflight requests to succeed without auth.
   // Browser clients sending Authorization headers will preflight with OPTIONS.
   if (c.req.method === "OPTIONS") return next()
@@ -50,12 +55,12 @@ export const AuthMiddleware: MiddlewareHandler = async (c, next) => {
   const header = queryToken ? "Basic " + queryToken : authHeader
 
   const match = header?.match(/^Basic\s+(.+)$/i)
-  if (!match) return c.text("Unauthorized", 401)
+  if (!match) return unauthorized()
 
   const credentialsPart = match[1]
   const decoded = Buffer.from(credentialsPart, "base64").toString("utf8")
   const separator = decoded.indexOf(":")
-  if (separator === -1) return c.text("Unauthorized", 401)
+  if (separator === -1) return unauthorized()
 
   const config = {
     password: Option.some(password),
@@ -65,7 +70,7 @@ export const AuthMiddleware: MiddlewareHandler = async (c, next) => {
     username: decoded.slice(0, separator),
     password: Redacted.make(decoded.slice(separator + 1)),
   }
-  if (!ServerAuth.authorized(credentials, config)) return c.text("Unauthorized", 401)
+  if (!ServerAuth.authorized(credentials, config)) return unauthorized()
   return next()
 }
 

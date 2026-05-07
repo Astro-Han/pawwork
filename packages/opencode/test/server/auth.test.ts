@@ -97,4 +97,28 @@ describe("AuthMiddleware", () => {
     expect(response.status).toBe(200)
     expect(await response.text()).toBe("ok")
   })
+
+  test("returns a Basic challenge when credentials are missing", async () => {
+    mutableFlag.OPENCODE_SERVER_PASSWORD = "secret"
+    mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
+
+    const response = await app().request("/")
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe('Basic realm="opencode"')
+  })
+
+  test("returns a Basic challenge when credentials are invalid", async () => {
+    mutableFlag.OPENCODE_SERVER_PASSWORD = "secret"
+    mutableFlag.OPENCODE_SERVER_USERNAME = "alice"
+
+    const response = await app().request("/", {
+      headers: {
+        authorization: `Basic ${Buffer.from("alice:wrong").toString("base64")}`,
+      },
+    })
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe('Basic realm="opencode"')
+  })
 })
