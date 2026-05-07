@@ -34,7 +34,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 8px;
+    /* Lock to the L30 menu / L35 sidebar 32 row family. Padding keeps icons
+     * 8px from edge while min-height enforces the row rhythm regardless of
+     * label wrap behavior. */
+    min-height: 32px;
+    padding: 0 8px;
     border-radius: var(--radius-md);
     cursor: default;
     user-select: none;
@@ -47,8 +51,11 @@
     letter-spacing: var(--letter-spacing-normal);
     color: var(--fg-strong);
 
+    /* Match picker.css item hover overlay so dropdown / picker / list-row
+     * hover states all use the same --row-hover-overlay token (was using
+     * surface-raised which read as a solid panel, not an overlay). */
     &[data-highlighted] {
-      background: var(--surface-raised);
+      background: var(--row-hover-overlay);
     }
 
     &[data-disabled] {
