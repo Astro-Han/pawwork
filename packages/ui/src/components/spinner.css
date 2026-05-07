@@ -3,4 +3,15 @@
   flex-shrink: 0;
   width: 18px;
   aspect-ratio: 1;
+  box-sizing: border-box;
+  border: 1.4px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spinner-rotate 700ms linear infinite;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
