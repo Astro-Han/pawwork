@@ -340,11 +340,12 @@ export const PawworkSidebar = (props: {
                           data-value="time"
                           onSelect={() => props.onSetSortMode("time")}
                         >
+                          <Icon name="schedule" class="text-icon-weak" />
                           <DropdownMenu.ItemLabel>
                             {language.t("sidebar.pawwork.sort.optionByTime")}
                           </DropdownMenu.ItemLabel>
                           <Show when={props.sortMode() === "time"}>
-                            <span class="ml-auto pl-4 text-12-regular text-fg-weaker">✓</span>
+                            <Icon name="check" class="ml-auto text-icon-weak" />
                           </Show>
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
@@ -352,11 +353,12 @@ export const PawworkSidebar = (props: {
                           data-value="project"
                           onSelect={() => props.onSetSortMode("project")}
                         >
+                          <Icon name="folder" class="text-icon-weak" />
                           <DropdownMenu.ItemLabel>
                             {language.t("sidebar.pawwork.sort.optionByProject")}
                           </DropdownMenu.ItemLabel>
                           <Show when={props.sortMode() === "project"}>
-                            <span class="ml-auto pl-4 text-12-regular text-fg-weaker">✓</span>
+                            <Icon name="check" class="ml-auto text-icon-weak" />
                           </Show>
                         </DropdownMenu.Item>
                       </DropdownMenu.Content>
