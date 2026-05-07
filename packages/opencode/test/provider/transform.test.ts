@@ -3839,6 +3839,27 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
+    test("Copilot opus 4.7 hyphen ids only return medium adaptive effort", () => {
+      const model = createMockModel({
+        id: "github-copilot/claude-opus-4-7",
+        providerID: "github-copilot",
+        api: {
+          id: "claude-opus-4-7",
+          url: "https://api.githubcopilot.com/v1",
+          npm: "@ai-sdk/anthropic",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["medium"])
+      expect(result.medium).toEqual({
+        thinking: {
+          type: "adaptive",
+          display: "summarized",
+        },
+        effort: "medium",
+      })
+    })
+
     test("returns high and max with thinking config", () => {
       const model = createMockModel({
         id: "anthropic/claude-4",

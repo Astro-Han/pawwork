@@ -719,7 +719,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
       if (adaptiveEfforts) {
         let efforts = [...adaptiveEfforts]
         if (model.providerID === "github-copilot") {
-          if (model.api.id.includes("opus-4.7")) efforts = ["medium"]
+          if (model.api.id.includes("opus-4-7") || model.api.id.includes("opus-4.7")) efforts = ["medium"]
           efforts = efforts.filter((effort) => effort !== "max" && effort !== "xhigh")
         }
         return Object.fromEntries(
