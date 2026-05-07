@@ -721,6 +721,9 @@ export const dict = {
   "sidebar.pawwork.unpinSession": "取消置顶",
   "sidebar.pawwork.sort.byProject": "按项目分组",
   "sidebar.pawwork.sort.byTime": "按时间排序",
+  "sidebar.pawwork.sort.label": "排序",
+  "sidebar.pawwork.sort.optionByTime": "按时间",
+  "sidebar.pawwork.sort.optionByProject": "按项目",
   "sidebar.pawwork.searchHistory": "搜索历史会话",
 
   "app.name.desktop": "爪印",

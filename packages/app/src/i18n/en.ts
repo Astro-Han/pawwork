@@ -809,6 +809,9 @@ export const dict = {
   "sidebar.pawwork.unpinSession": "Unpin session",
   "sidebar.pawwork.sort.byProject": "Group by project",
   "sidebar.pawwork.sort.byTime": "Sort by time",
+  "sidebar.pawwork.sort.label": "Sort",
+  "sidebar.pawwork.sort.optionByTime": "By time",
+  "sidebar.pawwork.sort.optionByProject": "By project",
   "sidebar.pawwork.searchHistory": "Use Search for older sessions",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
