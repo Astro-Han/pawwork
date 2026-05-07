@@ -56,6 +56,7 @@ export const GrepTool = Tool.define(
             path.isAbsolute(params.path ?? ins.directory)
               ? (params.path ?? ins.directory)
               : path.join(ins.directory, params.path ?? "."),
+            { base: ins.directory },
           )
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
           const cwd = info?.type === "Directory" ? search : path.dirname(search)
