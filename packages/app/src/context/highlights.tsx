@@ -1,28 +1,31 @@
 import { createEffect, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { showToast } from "@opencode-ai/ui/toast"
 import { type Locale, useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { useSettings } from "@/context/settings"
 import { persisted } from "@/utils/persist"
-import { DialogReleaseNotes, type Highlight } from "@/components/dialog-release-notes"
 
 const CHANGELOG_URL = "https://api.github.com/repos/Astro-Han/pawwork/releases"
 const MAX_RELEASE_VERSION_PAGES = 5
-const MAX_STRUCTURED_HIGHLIGHTS = 15
 
 type Store = {
   version?: string
 }
 
-type ParsedRelease = {
-  tag?: string
-  highlights: Highlight[]
-  source: "release-body" | "structured"
+type ReleaseLocale = Locale
+
+export type ReleaseSummary = {
+  tag: string
+  description: string
+  localeUsed: ReleaseLocale
 }
 
-type ReleaseLocale = Locale
+const TOAST_COPY: Record<ReleaseLocale, { title: (v: string) => string; viewFull: string }> = {
+  en: { title: (v) => `Updated to ${v}`, viewFull: "Full release notes →" },
+  zh: { title: (v) => `已更新到 ${v}`, viewFull: "查看完整发布说明 →" },
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -42,29 +45,6 @@ function normalizeVersion(value: string | undefined) {
   const text = value?.trim()
   if (!text) return
   return text.startsWith("v") || text.startsWith("V") ? text.slice(1) : text
-}
-
-function parseMedia(value: unknown, alt: string): Highlight["media"] | undefined {
-  if (!isRecord(value)) return
-  const type = getText(value.type)?.toLowerCase()
-  const src = getText(value.src) ?? getText(value.url)
-  if (!src) return
-  if (type !== "image" && type !== "video") return
-
-  return { type, src, alt }
-}
-
-function parseHighlight(value: unknown): Highlight | undefined {
-  if (!isRecord(value)) return
-
-  const title = getText(value.title)
-  if (!title) return
-
-  const description = getText(value.description) ?? getText(value.shortDescription)
-  if (!description) return
-
-  const media = parseMedia(value.media, title)
-  return { title, description, media }
 }
 
 function findHeadingSection(body: string, matcher: RegExp): string | undefined {
@@ -122,7 +102,6 @@ function parseNoticeContent(notice: string | undefined): ParsedNotice | undefine
 
   for (const line of lines) {
     if (line.length === 0) {
-      // Empty line acts as a paragraph break: flush any active bullet
       if (currentBullet) {
         bullets.push(trimNoticeItem(currentBullet))
         currentBullet = undefined
@@ -143,7 +122,6 @@ function parseNoticeContent(notice: string | undefined): ParsedNotice | undefine
     } else if (!hasSeenBullet) {
       prose.push(line)
     }
-    // trailing prose after last bullet is ignored (intentionally)
   }
   if (currentBullet) bullets.push(trimNoticeItem(currentBullet))
 
@@ -165,12 +143,16 @@ function parseNoticeContent(notice: string | undefined): ParsedNotice | undefine
   }
 }
 
-function parseReleaseBodyNotice(body: string, locale: ReleaseLocale): ParsedNotice | undefined {
+function parseReleaseBodyNotice(
+  body: string,
+  locale: ReleaseLocale,
+): { notice: ParsedNotice; localeUsed: ReleaseLocale } | undefined {
   if (locale === "zh") {
     const chinese = parseNoticeContent(findChineseUpdateNotice(body))
-    if (chinese) return chinese
+    if (chinese) return { notice: chinese, localeUsed: "zh" }
   }
-  return parseNoticeContent(findAppUpdateNotice(body))
+  const english = parseNoticeContent(findAppUpdateNotice(body))
+  return english ? { notice: english, localeUsed: "en" } : undefined
 }
 
 function formatReleaseNoticeDescription(notice: ParsedNotice) {
@@ -185,120 +167,45 @@ function formatReleaseNoticeDescription(notice: ParsedNotice) {
   return notice.text
 }
 
-function releaseTitle(tag: string, locale: ReleaseLocale) {
-  return `${locale === "zh" ? "爪印" : "PawWork"} ${tag}`
-}
-
-function parseRelease(value: unknown, locale: ReleaseLocale): ParsedRelease | undefined {
+function parseRelease(value: unknown, locale: ReleaseLocale): ReleaseSummary | undefined {
   if (!isRecord(value)) return
   const tag = getText(value.tag) ?? getText(value.tag_name) ?? getText(value.name)
-
-  if (Array.isArray(value.highlights)) {
-    const highlights = value.highlights.flatMap((group) => {
-      if (!isRecord(group)) return []
-
-      const source = getText(group.source)
-      if (!source) return []
-      if (!source.toLowerCase().includes("desktop")) return []
-
-      if (Array.isArray(group.items)) {
-        return group.items.map((item) => parseHighlight(item)).filter((item): item is Highlight => item !== undefined)
-      }
-
-      const item = parseHighlight(group)
-      if (!item) return []
-      return [item]
-    })
-
-    return { tag, highlights, source: "structured" }
-  }
+  if (!tag) return
 
   const body = getText(value.body)
-  if (tag && body) {
-    const notice = parseReleaseBodyNotice(body, locale)
-    if (notice) {
-      return {
-        tag,
-        source: "release-body",
-        highlights: [
-          {
-            title: releaseTitle(tag, locale),
-            description: formatReleaseNoticeDescription(notice),
-          },
-        ],
-      }
-    }
-  }
+  if (!body) return
 
-  return { tag, highlights: [], source: "release-body" }
+  const parsed = parseReleaseBodyNotice(body, locale)
+  if (!parsed) return
+
+  return {
+    tag,
+    description: formatReleaseNoticeDescription(parsed.notice),
+    localeUsed: parsed.localeUsed,
+  }
 }
 
-function parseChangelog(value: unknown, locale: ReleaseLocale): ParsedRelease[] | undefined {
-  if (Array.isArray(value)) {
-    return value
-      .map((release) => parseRelease(release, locale))
-      .filter((release): release is ParsedRelease => release !== undefined)
-  }
-
-  if (!isRecord(value)) return
-  if (!Array.isArray(value.releases)) return
-
-  return value.releases
+function parseChangelog(value: unknown, locale: ReleaseLocale): ReleaseSummary[] | undefined {
+  if (!Array.isArray(value)) return
+  return value
     .map((release) => parseRelease(release, locale))
-    .filter((release): release is ParsedRelease => release !== undefined)
+    .filter((release): release is ReleaseSummary => release !== undefined)
 }
 
-function sliceHighlights(input: { releases: ParsedRelease[]; current?: string; previous?: string }) {
+function sliceHighlights(input: { releases: ReleaseSummary[]; current?: string; previous?: string }) {
   const current = normalizeVersion(input.current)
   const previous = normalizeVersion(input.previous)
-  const releases = input.releases
+  const startIndex = current
+    ? input.releases.findIndex((r) => normalizeVersion(r.tag) === current)
+    : 0
+  if (startIndex === -1) return []
 
-  const start = (() => {
-    if (!current) return 0
-    const index = releases.findIndex((release) => normalizeVersion(release.tag) === current)
-    return index === -1 ? 0 : index
-  })()
+  const endIndex = previous
+    ? input.releases.findIndex((r, i) => i >= startIndex && normalizeVersion(r.tag) === previous)
+    : input.releases.length
 
-  const end = (() => {
-    if (!previous) return releases.length
-    const index = releases.findIndex((release, i) => i >= start && normalizeVersion(release.tag) === previous)
-    return index === -1 ? releases.length : index
-  })()
-
-  const selected = releases.slice(start, end)
-  const highlights: Highlight[] = []
-  let releaseBodyPages = 0
-  let structuredHighlights = 0
-
-  for (const release of selected) {
-    if (release.source === "release-body") {
-      if (release.highlights.length === 0) continue
-      if (releaseBodyPages >= MAX_RELEASE_VERSION_PAGES) continue
-
-      highlights.push(...release.highlights)
-      releaseBodyPages += 1
-      continue
-    }
-
-    const remaining = MAX_STRUCTURED_HIGHLIGHTS - structuredHighlights
-    if (remaining <= 0) continue
-
-    const next = release.highlights.slice(0, remaining)
-    highlights.push(...next)
-    structuredHighlights += next.length
-  }
-
-  const seen = new Set<string>()
-  return highlights.filter((highlight) => {
-    const key = dedupeKey(highlight)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
-function dedupeKey(highlight: Highlight) {
-  return [highlight.title, highlight.description, highlight.media?.type ?? "", highlight.media?.src ?? ""].join("\n")
+  const sliced = input.releases.slice(startIndex, endIndex === -1 ? undefined : endIndex)
+  return sliced.slice(0, MAX_RELEASE_VERSION_PAGES)
 }
 
 export function loadReleaseHighlights(
@@ -312,13 +219,20 @@ export function loadReleaseHighlights(
   return sliceHighlights({ releases, current, previous })
 }
 
+function buildToastDescription(summaries: ReleaseSummary[]) {
+  if (summaries.length === 1) return summaries[0].description
+  return [
+    summaries[0].description,
+    ...summaries.slice(1).map((s) => `${s.tag}\n${s.description}`),
+  ].join("\n\n")
+}
+
 export const { use: useHighlights, provider: HighlightsProvider } = createSimpleContext({
   name: "Highlights",
   gate: false,
   init: () => {
     const language = useLanguage()
     const platform = usePlatform()
-    const dialog = useDialog()
     const settings = useSettings()
     const [store, setStore, _, ready] = persisted("highlights.v1", createStore<Store>({ version: undefined }))
 
@@ -359,25 +273,39 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
       })
         .then((response) => {
           if (response.ok) return response.json() as Promise<unknown>
-          // GitHub returns 403 (rate limit) or 304 (etag-hit) under normal load;
-          // keep the failure visible in devtools instead of silently dropping it.
           console.warn("[highlights] changelog fetch failed", response.status)
           return undefined
         })
         .then((json) => {
           if (!json) return
-          const highlights = loadReleaseHighlights(json, platform.version, previous, language.locale())
+          const summaries = loadReleaseHighlights(json, platform.version, previous, language.locale())
           if (controller.signal.aborted) return
 
-          if (highlights.length === 0) {
+          if (summaries.length === 0) {
             markSeen()
             return
           }
 
           timer = setTimeout(() => {
             timer = undefined
-            markSeen()
-            dialog.show(() => <DialogReleaseNotes highlights={highlights} />)
+            const newest = summaries[0]
+            const copy = TOAST_COPY[newest.localeUsed]
+            const url = `https://github.com/Astro-Han/pawwork/releases/tag/${newest.tag}`
+
+            showToast({
+              title: copy.title(newest.tag),
+              description: buildToastDescription(summaries),
+              icon: "bullet-list",
+              variant: "subtle",
+              persistent: true,
+              actions: [
+                {
+                  label: copy.viewFull,
+                  onClick: () => platform.openLink(url),
+                },
+              ],
+              onDismiss: markSeen,
+            })
           }, 500)
         })
         .catch(() => undefined)
