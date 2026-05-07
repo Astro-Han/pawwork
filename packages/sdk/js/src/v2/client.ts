@@ -84,5 +84,21 @@ export function createOpencodeClient(config?: Config & { directory?: string; exp
 
     return response
   })
+  client.interceptors.error.use((error, response, request) => {
+    const isEmpty =
+      error === undefined ||
+      error === null ||
+      error === "" ||
+      (typeof error === "object" && !(error instanceof Error) && Object.keys(error).length === 0)
+
+    if (!isEmpty) return error
+
+    const method = request?.method ?? "?"
+    const url = request?.url ?? "?"
+    if (!response) return new Error(`opencode server ${method} ${url}: network error (no response)`)
+
+    const statusText = response.statusText ? " " + response.statusText : ""
+    return new Error(`opencode server ${method} ${url} -> ${response.status}${statusText}: (empty response body)`)
+  })
   return new OpencodeClient({ client })
 }
