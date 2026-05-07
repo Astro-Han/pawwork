@@ -89,7 +89,7 @@ export const LineCommentAnchor = (props: LineCommentAnchorProps) => {
             >
               <Show
                 when={props.inline}
-                fallback={<Icon name={icon() === "plus" ? "plus-small" : "comment"} size="small" />}
+                fallback={<Icon name={icon() === "plus" ? "plus-small" : "comment"} />}
               >
                 <InlineGlyph icon={icon()} />
               </Show>

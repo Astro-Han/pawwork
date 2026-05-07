@@ -99,8 +99,8 @@ export const ApplyPatchTool = Tool.define(
       let totalDiff = ""
 
       for (const hunk of hunks) {
-        const filePath = path.resolve(Instance.directory, hunk.path)
-        yield* assertExternalDirectoryEffect(ctx, filePath)
+        const rawFilePath = path.resolve(Instance.directory, hunk.path)
+        const filePath = (yield* assertExternalDirectoryEffect(ctx, rawFilePath)) ?? rawFilePath
 
         switch (hunk.type) {
           case "add": {
@@ -172,8 +172,10 @@ export const ApplyPatchTool = Tool.define(
               if (change.removed) deletions += change.count || 0
             }
 
-            const movePath = hunk.move_path ? path.resolve(Instance.directory, hunk.move_path) : undefined
-            yield* assertExternalDirectoryEffect(ctx, movePath)
+            const rawMovePath = hunk.move_path ? path.resolve(Instance.directory, hunk.move_path) : undefined
+            const movePath = rawMovePath
+              ? ((yield* assertExternalDirectoryEffect(ctx, rawMovePath)) ?? rawMovePath)
+              : undefined
             const moveBefore = movePath
               ? yield* Bom.readFile(afs, movePath).pipe(Effect.catchIf(notFound, () => Effect.succeed(undefined)))
               : undefined

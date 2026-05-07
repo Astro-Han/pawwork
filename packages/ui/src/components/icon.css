@@ -10,14 +10,12 @@
   &[data-color="weak"]   { color: var(--icon-weak); }
   &[data-color="disabled"] { color: var(--icon-disabled); }
 
-  /* size="small" is the standard chrome size (16px); normal/medium/large for special contexts */
-  &[data-size="small"]  { width: 16px; height: 16px; }
-  &[data-size="normal"] { width: 20px; height: 20px; }
-  &[data-size="medium"] { width: 24px; height: 24px; }
-  &[data-size="large"]  { width: 24px; height: 24px; }
+  width: 16px;
+  height: 16px;
 
   [data-slot="icon-svg"] {
     width: 100%;
     height: auto;
+    fill-rule: evenodd;
   }
 }

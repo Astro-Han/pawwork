@@ -572,7 +572,7 @@ export function SessionTurn(
                               >
                                 <span data-slot="session-turn-change-chevron">
                                   <Show when={file.expandable}>
-                                    <Icon name="chevron-down" size="small" />
+                                    <Icon name="chevron-down" />
                                   </Show>
                                 </span>
                                 <span data-slot="session-turn-change-path">{file.path}</span>
@@ -706,7 +706,7 @@ export function SessionTurn(
                                           <DiffChanges changes={diff} />
                                         </span>
                                         <span data-slot="session-turn-diff-chevron">
-                                          <Icon name="chevron-down" size="small" />
+                                          <Icon name="chevron-down" />
                                         </span>
                                       </div>
                                     </div>

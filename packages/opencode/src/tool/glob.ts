@@ -39,11 +39,12 @@ export const GlobTool = Tool.define(
 
           let search = params.path ?? ins.directory
           search = path.isAbsolute(search) ? search : path.resolve(ins.directory, search)
+          if (process.platform === "win32") search = AppFileSystem.normalizePath(search, { base: ins.directory })
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
           if (info?.type === "File") {
             throw new Error(`glob path must be a directory: ${search}`)
           }
-          yield* assertExternalDirectoryEffect(ctx, search, { kind: "directory" })
+          search = (yield* assertExternalDirectoryEffect(ctx, search, { kind: "directory" })) ?? search
 
           const limit = 100
           let truncated = false

@@ -79,7 +79,6 @@ function codeUrl(text: string) {
 function createIcon(path: string, slot: string) {
   const icon = document.createElement("div")
   icon.setAttribute("data-component", "icon")
-  icon.setAttribute("data-size", "small")
   icon.setAttribute("data-slot", slot)
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
   svg.setAttribute("data-slot", "icon-svg")
@@ -96,7 +95,6 @@ function createCopyButton(labels: CopyLabels) {
   button.type = "button"
   button.setAttribute("data-component", "icon-button")
   button.setAttribute("data-variant", "secondary")
-  button.setAttribute("data-size", "small")
   button.setAttribute("data-slot", "markdown-copy-button")
   button.setAttribute("aria-label", labels.copy)
   button.setAttribute("data-tooltip", labels.copy)

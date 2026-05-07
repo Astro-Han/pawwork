@@ -32,7 +32,8 @@ describe("icon registry slice-05 additions (#440)", () => {
     expect(Object.keys(icons)).toContain("circle-check")
   })
 
-  test("alert-triangle exists for error icon in TextField", () => {
-    expect(Object.keys(icons)).toContain("alert-triangle")
+  test("warning exists for error icon in TextField", () => {
+    expect(Object.keys(icons)).toContain("warning")
+    expect(Object.keys(icons)).not.toContain("alert-triangle")
   })
 })

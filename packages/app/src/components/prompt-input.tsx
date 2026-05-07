@@ -317,7 +317,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return (
       <div class="flex items-center gap-2">
         <span>{language.t("prompt.action.send")}</span>
-        <Icon name="enter" size="small" class="text-icon-base" />
+        <Icon name="enter" class="text-icon-base" />
       </div>
     )
   }
@@ -1167,7 +1167,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               >
                 {local.model.current()?.name ?? language.t("dialog.model.select.title")}
               </span>
-              <Icon name="chevron-down" size="small" class="shrink-0" />
+              <Icon name="chevron-down" class="shrink-0" />
             </Button>
           </TooltipKeybind>
         }
@@ -1206,7 +1206,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             >
               {local.model.current()?.name ?? language.t("dialog.model.select.title")}
             </span>
-            <Icon name="chevron-down" size="small" class="shrink-0" />
+            <Icon name="chevron-down" class="shrink-0" />
           </ModelSelectorPopover>
         </TooltipKeybind>
       </Show>

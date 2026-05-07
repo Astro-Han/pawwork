@@ -898,7 +898,7 @@ export function MessageTimeline(props: {
             onClick={props.onResumeScroll}
             aria-label={language.t("session.messages.jumpToLatest")}
           >
-            <Icon name="chevron-down" size="small" />
+            <Icon name="chevron-down" />
           </button>
         </div>
         <ScrollView

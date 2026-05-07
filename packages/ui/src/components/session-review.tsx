@@ -536,7 +536,7 @@ export const SessionReview = (props: SessionReviewProps) => {
                                           props.onViewFile?.(file)
                                         }}
                                       >
-                                        <Icon name="open-file" size="small" />
+                                        <Icon name="open-file" />
                                       </button>
                                     </Tooltip>
                                   </Show>
@@ -568,7 +568,7 @@ export const SessionReview = (props: SessionReviewProps) => {
                                 </Switch>
                                 <Show when={diffCanRender()}>
                                   <span data-slot="session-review-diff-chevron">
-                                    <Icon name="chevron-down" size="small" />
+                                    <Icon name="chevron-down" />
                                   </span>
                                 </Show>
                               </div>

@@ -58,7 +58,7 @@ function Mark(props: { multi: boolean; picked: boolean; onClick?: (event: MouseE
     <span data-slot="question-option-check" aria-hidden="true" onClick={props.onClick}>
       <span data-slot="question-option-box" data-type={props.multi ? "checkbox" : "radio"} data-picked={props.picked}>
         <Show when={props.multi} fallback={<span data-slot="question-option-radio-dot" />}>
-          <Icon name="check-small" size="small" />
+          <Icon name="check-small" />
         </Show>
       </span>
     </span>

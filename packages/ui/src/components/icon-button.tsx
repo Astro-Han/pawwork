@@ -19,7 +19,7 @@ export function IconButton(props: ComponentProps<"button"> & IconButtonProps) {
         [split.class ?? ""]: !!split.class,
       }}
     >
-      <Icon name={props.icon} size="small" />
+      <Icon name={props.icon} />
     </Kobalte>
   )
 }
