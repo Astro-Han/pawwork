@@ -43,7 +43,6 @@ function SectionRow(props: {
         <div class="flex-1" />
         <Icon
           name="chevron-down"
-          size="small"
           class="text-icon-disabled transition-transform"
           classList={{ "rotate-180": props.expanded }}
         />

@@ -33,7 +33,7 @@ export function SettingsWorktreeRow(props: {
         when={!props.confirming}
         fallback={
           <>
-            <Icon name="worktree" size="normal" class="shrink-0 text-fg-base" />
+            <Icon name="worktree" class="shrink-0 text-fg-base" />
             <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
               <span class="truncate text-13-medium text-fg-strong">
                 {language.t("settings.worktrees.confirmDelete.question", { name: name() })}
@@ -58,7 +58,7 @@ export function SettingsWorktreeRow(props: {
           </>
         }
       >
-        <Icon name="worktree" size="normal" class="shrink-0 text-fg-weak" />
+        <Icon name="worktree" class="shrink-0 text-fg-weak" />
         <div class="flex min-w-0 flex-1 flex-col gap-[2px]" title={rowTooltip()}>
           <span class="truncate text-12-regular text-fg-weak">{props.ownerName}</span>
           <span class="truncate text-13-medium text-fg-strong">{identity()}</span>

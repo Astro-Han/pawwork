@@ -112,7 +112,7 @@ export function Titlebar() {
               aria-label={language.t("command.sidebar.toggle")}
               aria-expanded={layout.sidebar.opened()}
             >
-              <Icon size="small" name={layout.sidebar.opened() ? "sidebar-active" : "sidebar"} />
+              <Icon name={layout.sidebar.opened() ? "sidebar-active" : "sidebar"} />
             </Button>
           </TooltipKeybind>
           <Show when={params.dir && !layout.sidebar.opened()}>

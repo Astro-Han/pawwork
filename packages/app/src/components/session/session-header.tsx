@@ -120,7 +120,7 @@ export function SessionHeader() {
                       }
                       disabled={!canOpenProjectDirectory()}
                     >
-                      <Icon name="folder" size="small" class="shrink-0 text-fg-weak transition-colors group-hover:text-fg-strong" />
+                      <Icon name="folder" class="shrink-0 text-fg-weak transition-colors group-hover:text-fg-strong" />
                       <span class="min-w-0 truncate">{name()}</span>
                     </Button>
                   </Show>
@@ -163,7 +163,6 @@ export function SessionHeader() {
                   aria-controls="right-panel"
                 >
                   <Icon
-                    size="small"
                     name={rightPanelOpen() ? "sidebar-active" : "sidebar"}
                     class="-scale-x-100"
                   />

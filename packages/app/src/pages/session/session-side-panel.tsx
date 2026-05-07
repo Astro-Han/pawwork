@@ -76,16 +76,16 @@ function RightPanelShellIcon(props: { icon: ShellTabIcon; active?: boolean }) {
         <SessionContextUsage variant="indicator" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "status"}>
-        <Icon name="status" size="small" class="text-fg-weaker" />
+        <Icon name="status" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "folder"}>
-        <Icon name="folder" size="small" class="text-fg-weaker" />
+        <Icon name="folder" class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "review"}>
-        <Icon name={props.active ? "review-active" : "review"} size="small" class="text-fg-weaker" />
+        <Icon name={props.active ? "review-active" : "review"} class="text-fg-weaker" />
       </Match>
       <Match when={props.icon.kind === "icon" && props.icon.name === "terminal"}>
-        <Icon name={props.active ? "terminal-active" : "terminal"} size="small" class="text-fg-weaker" />
+        <Icon name={props.active ? "terminal-active" : "terminal"} class="text-fg-weaker" />
       </Match>
     </Switch>
   )
@@ -350,7 +350,7 @@ export function SessionSidePanel(props: {
                   <DropdownMenu.Portal>
                     <DropdownMenu.Content>
                       <DropdownMenu.Item onSelect={() => openFilePicker(showAllFiles)}>
-                        <Icon name="open-file" size="small" />
+                        <Icon name="open-file" />
                         <DropdownMenu.ItemLabel>{language.t("command.file.open")}</DropdownMenu.ItemLabel>
                         <span class="ml-auto text-13-regular text-fg-weaker">{command.keybind("file.open")}</span>
                       </DropdownMenu.Item>
@@ -359,7 +359,7 @@ export function SessionSidePanel(props: {
                         <For each={closableMissingTabs()}>
                           {(tab) => (
                             <DropdownMenu.Item onSelect={() => view().sidePanel.openTab(tab.value)}>
-                              <Icon name={tab.iconName} size="small" />
+                              <Icon name={tab.iconName} />
                               <DropdownMenu.ItemLabel>{tab.label}</DropdownMenu.ItemLabel>
                               <Show when={tab.keybind}>
                                 {(keybind) => (

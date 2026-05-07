@@ -470,7 +470,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
             <Match when={item.type === "session"}>
               <div class="w-full flex items-center justify-between rounded-md pl-1">
                 <div class="flex items-center gap-x-3 grow min-w-0">
-                  <Icon name="bubble-5" size="small" class="shrink-0 text-icon-weak" />
+                  <Icon name="bubble-5" class="shrink-0 text-icon-weak" />
                   <div class="flex items-center gap-2 min-w-0">
                     <span
                       class="text-13-regular text-fg-strong truncate"

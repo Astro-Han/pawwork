@@ -46,7 +46,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   }}
                   onClick={() => toggleSkill(card.name)}
                 >
-                  <Icon name={card.homeIcon} size="small" class="shrink-0 text-icon-weak" />
+                  <Icon name={card.homeIcon} class="shrink-0 text-icon-weak" />
                   <span class="truncate">{language.t(card.titleKey)}</span>
                 </button>
               )

@@ -267,7 +267,7 @@ export const PawworkSidebar = (props: {
             class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="new-session" size="small" class="text-icon-base" />
+              <Icon name="new-session" class="text-icon-base" />
             </span>
             <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
           </button>
@@ -278,7 +278,7 @@ export const PawworkSidebar = (props: {
             class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="magnifying-glass" size="small" class="text-icon-base" />
+              <Icon name="magnifying-glass" class="text-icon-base" />
             </span>
             <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
           </button>
@@ -396,7 +396,7 @@ export const PawworkSidebar = (props: {
             class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="settings-gear" size="small" class="text-icon-base" />
+              <Icon name="settings-gear" class="text-icon-base" />
             </span>
             <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
           </button>

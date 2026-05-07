@@ -134,7 +134,7 @@ export const SettingsWorktrees: Component = () => {
             when={(data() ?? []).length > 0}
             fallback={
               <div class="flex flex-col items-center gap-2 py-12">
-                <Icon name="worktree" size="medium" class="text-fg-weaker" />
+                <Icon name="worktree" class="text-fg-weaker" />
                 <div class="text-13-medium text-fg-strong">{language.t("settings.worktrees.empty.title")}</div>
                 <div class="text-13-regular text-fg-weak">{language.t("settings.worktrees.empty.body")}</div>
               </div>
