@@ -172,32 +172,47 @@ function formatReleaseNoticeDescription(notice: ParsedNotice) {
   return notice.text
 }
 
-function parseRelease(value: unknown, locale: ReleaseLocale): ReleaseSummary | undefined {
+// Carries the raw tag for every release in the GitHub Releases response, even
+// when the body has no app-facing notice. Window-slicing must run on the full
+// tag list — not the filtered summary list — otherwise a release whose body
+// lacks an "App Update Notice" section silently drops out of the array, and
+// `previous` may not be found, so the slice spills into older versions the
+// user has already seen.
+type RawRelease = { tag: string; summary: ReleaseSummary | undefined }
+
+function parseRawRelease(value: unknown, locale: ReleaseLocale): RawRelease | undefined {
   if (!isRecord(value)) return
   const tag = getText(value.tag) ?? getText(value.tag_name) ?? getText(value.name)
   if (!tag) return
 
   const body = getText(value.body)
-  if (!body) return
+  if (!body) return { tag, summary: undefined }
 
   const parsed = parseReleaseBodyNotice(body, locale)
-  if (!parsed) return
+  if (!parsed) return { tag, summary: undefined }
 
   return {
     tag,
-    description: formatReleaseNoticeDescription(parsed.notice),
-    localeUsed: parsed.localeUsed,
+    summary: {
+      tag,
+      description: formatReleaseNoticeDescription(parsed.notice),
+      localeUsed: parsed.localeUsed,
+    },
   }
 }
 
-function parseChangelog(value: unknown, locale: ReleaseLocale): ReleaseSummary[] | undefined {
+function parseChangelog(value: unknown, locale: ReleaseLocale): RawRelease[] | undefined {
   if (!Array.isArray(value)) return
   return value
-    .map((release) => parseRelease(release, locale))
-    .filter((release): release is ReleaseSummary => release !== undefined)
+    .map((release) => parseRawRelease(release, locale))
+    .filter((release): release is RawRelease => release !== undefined)
 }
 
-function sliceHighlights(input: { releases: ReleaseSummary[]; current?: string; previous?: string }) {
+function sliceHighlights(input: {
+  releases: RawRelease[]
+  current?: string
+  previous?: string
+}): ReleaseSummary[] {
   const current = normalizeVersion(input.current)
   const previous = normalizeVersion(input.previous)
   const startIndex = current
@@ -210,7 +225,10 @@ function sliceHighlights(input: { releases: ReleaseSummary[]; current?: string; 
     : input.releases.length
 
   const sliced = input.releases.slice(startIndex, endIndex === -1 ? undefined : endIndex)
-  return sliced.slice(0, MAX_RELEASE_VERSION_PAGES)
+  return sliced
+    .map((r) => r.summary)
+    .filter((s): s is ReleaseSummary => s !== undefined)
+    .slice(0, MAX_RELEASE_VERSION_PAGES)
 }
 
 export function loadReleaseHighlights(

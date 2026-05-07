@@ -214,6 +214,17 @@ describe("loadReleaseHighlights (GitHub Releases API)", () => {
     expect(result.map((r) => r.tag)).toEqual(["v1.0.7", "v1.0.6", "v1.0.5", "v1.0.4", "v1.0.3"])
   })
 
+  test("respects previous boundary when an intermediate release lacks an update notice", () => {
+    const payload = [
+      { tag_name: "v1.0.5", body: "## App Update Notice\n\n- v1.0.5 item\n" },
+      { tag_name: "v1.0.4", body: "## Downloads\n\n- [macOS](https://example.com/app.dmg)\n" },
+      { tag_name: "v1.0.3", body: "## App Update Notice\n\n- v1.0.3 item\n" },
+      { tag_name: "v1.0.2", body: "## App Update Notice\n\n- v1.0.2 item\n" },
+    ]
+    const highlights = loadReleaseHighlights(payload, "1.0.5", "1.0.4", "en")
+    expect(highlights.map((h) => h.tag)).toEqual(["v1.0.5"])
+  })
+
   test("returns empty when current version is not in changelog", () => {
     const payload = [{ tag_name: "v1.0.0", body: "## App Update Notice\n\n- item\n" }]
     expect(loadReleaseHighlights(payload, "9.9.9", "1.0.0", "en")).toEqual([])
