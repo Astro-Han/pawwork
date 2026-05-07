@@ -1,7 +1,7 @@
 import { Toast as Kobalte, toaster } from "@kobalte/core/toast"
 import type { ToastRootProps, ToastCloseButtonProps, ToastTitleProps, ToastDescriptionProps } from "@kobalte/core/toast"
 import type { ComponentProps, JSX } from "solid-js"
-import { Show } from "solid-js"
+import { onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useI18n } from "../context/i18n"
 import { Icon, type IconProps } from "./icon"
@@ -98,7 +98,7 @@ export const Toast = Object.assign(ToastRoot, {
 
 export { toaster }
 
-export type ToastVariant = "default" | "success" | "error" | "loading"
+export type ToastVariant = "default" | "success" | "error" | "loading" | "subtle"
 
 export interface ToastAction {
   label: string
@@ -113,48 +113,59 @@ export interface ToastOptions {
   duration?: number
   persistent?: boolean
   actions?: ToastAction[]
+  onDismiss?: () => void
 }
 
 export function showToast(options: ToastOptions | string) {
   const opts = typeof options === "string" ? { description: options } : options
-  return toaster.show((props) => (
-    <Toast
-      toastId={props.toastId}
-      duration={opts.duration}
-      persistent={opts.persistent}
-      data-variant={opts.variant ?? "default"}
-    >
-      <Show when={opts.icon}>
-        <Toast.Icon name={opts.icon!} />
-      </Show>
-      <Toast.Content>
-        <Show when={opts.title}>
-          <Toast.Title>{opts.title}</Toast.Title>
+  return toaster.show((props) => {
+    let dismissed = false
+    if (opts.onDismiss) {
+      onCleanup(() => {
+        if (dismissed) return
+        dismissed = true
+        opts.onDismiss?.()
+      })
+    }
+    return (
+      <Toast
+        toastId={props.toastId}
+        duration={opts.duration}
+        persistent={opts.persistent}
+        data-variant={opts.variant ?? "default"}
+      >
+        <Show when={opts.icon}>
+          <Toast.Icon name={opts.icon!} />
         </Show>
-        <Show when={opts.description}>
-          <Toast.Description>{opts.description}</Toast.Description>
-        </Show>
-        <Show when={opts.actions?.length}>
-          <Toast.Actions>
-            {opts.actions!.map((action) => (
-              <button
-                data-slot="toast-action"
-                onClick={() => {
-                  if (typeof action.onClick === "function") {
-                    action.onClick()
-                  }
-                  toaster.dismiss(props.toastId)
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
-          </Toast.Actions>
-        </Show>
-      </Toast.Content>
-      <Toast.CloseButton />
-    </Toast>
-  ))
+        <Toast.Content>
+          <Show when={opts.title}>
+            <Toast.Title>{opts.title}</Toast.Title>
+          </Show>
+          <Show when={opts.description}>
+            <Toast.Description>{opts.description}</Toast.Description>
+          </Show>
+          <Show when={opts.actions?.length}>
+            <Toast.Actions>
+              {opts.actions!.map((action) => (
+                <button
+                  data-slot="toast-action"
+                  onClick={() => {
+                    if (typeof action.onClick === "function") {
+                      action.onClick()
+                    }
+                    toaster.dismiss(props.toastId)
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </Toast.Actions>
+          </Show>
+        </Toast.Content>
+        <Toast.CloseButton />
+      </Toast>
+    )
+  })
 }
 
 export interface ToastPromiseOptions<T, U = unknown> {

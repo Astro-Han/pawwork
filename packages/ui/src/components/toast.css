@@ -85,6 +85,16 @@
   /*   border-color: var(--fg-base); */
   /* } */
 
+  &[data-variant="subtle"] {
+    background: var(--surface-raised);
+    color: var(--fg-strong);
+    border-color: var(--border-weak);
+
+    [data-slot="toast-description"] {
+      white-space: pre-line;
+    }
+  }
+
   [data-slot="toast-icon"] {
     flex-shrink: 0;
     display: flex;
