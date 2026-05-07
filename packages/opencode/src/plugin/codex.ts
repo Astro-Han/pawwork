@@ -22,6 +22,7 @@ const CODEX_OAUTH_ALLOWED_MODELS = new Set([
   "gpt-5.2",
   "gpt-5.2-codex",
   "gpt-5.3-codex",
+  "gpt-5.3-codex-spark",
   "gpt-5.4",
   "gpt-5.4-mini",
 ])
@@ -99,7 +100,7 @@ export function extractAccountId(tokens: TokenResponse): string | undefined {
 }
 
 export function shouldKeepCodexOAuthModel(modelId: string, apiId: string): boolean {
-  if (modelId.includes("codex")) return true
+  if (apiId.includes("codex")) return true
   if (CODEX_OAUTH_ALLOWED_MODELS.has(apiId)) return true
   const match = apiId.match(/^gpt-(\d+)\.(\d+)/)
   if (!match) return false
@@ -435,34 +436,41 @@ function waitForOAuthCallback(pkce: PkceCodes, state: string): Promise<TokenResp
 
 export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
   return {
+    provider: {
+      id: "openai",
+      postConfig: true,
+      async models(provider, ctx) {
+        if (ctx.auth?.type !== "oauth") return provider.models
+
+        return Object.fromEntries(
+          Object.entries(provider.models)
+            .filter(([modelId, model]) => shouldKeepCodexOAuthModel(modelId, model.api.id))
+            .map(([modelId, model]) => [
+              modelId,
+              {
+                ...model,
+                cost: {
+                  input: 0,
+                  output: 0,
+                  cache: { read: 0, write: 0 },
+                },
+                limit: hasCodexOAuthGpt55Limit(model.api.id)
+                  ? ({
+                      context: 400_000,
+                      input: 272_000,
+                      output: 128_000,
+                    } satisfies typeof model.limit & { input: number })
+                  : model.limit,
+              },
+            ]),
+        )
+      },
+    },
     auth: {
       provider: "openai",
-      async loader(getAuth, provider) {
+      async loader(getAuth) {
         const auth = await getAuth()
         if (auth.type !== "oauth") return {}
-
-        for (const [modelId, model] of Object.entries(provider.models)) {
-          if (shouldKeepCodexOAuthModel(modelId, model.api.id)) continue
-          delete provider.models[modelId]
-        }
-
-        // Zero out costs for Codex (included with ChatGPT subscription)
-        for (const model of Object.values(provider.models)) {
-          model.cost = {
-            input: 0,
-            output: 0,
-            cache: { read: 0, write: 0 },
-          }
-
-          if (hasCodexOAuthGpt55Limit(model.api.id)) {
-            const limit: typeof model.limit & { input: number } = {
-              context: 400_000,
-              input: 272_000,
-              output: 128_000,
-            }
-            model.limit = limit
-          }
-        }
 
         return {
           apiKey: OAUTH_DUMMY_KEY,

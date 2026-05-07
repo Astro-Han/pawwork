@@ -95,6 +95,29 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   })
 }
 
+export function stripOpenAIResponseInputIDs(body: unknown) {
+  if (typeof body !== "string") return
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return
+  }
+
+  if (!isRecord(parsed)) return
+  if (parsed.store === true) return
+  if (!Array.isArray(parsed.input)) return
+
+  for (const item of parsed.input) {
+    if (isRecord(item) && "id" in item) {
+      delete item.id
+    }
+  }
+
+  return JSON.stringify(parsed)
+}
+
 type BundledSDK = {
   languageModel(modelId: string): LanguageModelV3
   chatModel?(modelId: string): LanguageModelV3
@@ -151,6 +174,14 @@ type CustomDep = {
 
 function useLanguageModel(sdk: any) {
   return sdk.responses === undefined && sdk.chat === undefined
+}
+
+function selectAzureLanguageModel(sdk: any, modelID: string, useChat: boolean) {
+  if (useChat && sdk.chat) return sdk.chat(modelID)
+  if (sdk.responses) return sdk.responses(modelID)
+  if (sdk.messages) return sdk.messages(modelID)
+  if (sdk.chat) return sdk.chat(modelID)
+  return sdk.languageModel(modelID)
 }
 
 function custom(dep: CustomDep): Record<string, CustomLoader> {
@@ -223,12 +254,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-          if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-          if (options?.["useCompletionUrls"]) {
-            return sdk.chat(modelID)
-          } else {
-            return sdk.responses(modelID)
-          }
+          return selectAzureLanguageModel(sdk, modelID, Boolean(options?.["useCompletionUrls"]))
         },
         options: {},
         vars(_options) {
@@ -243,12 +269,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
-          if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-          if (options?.["useCompletionUrls"]) {
-            return sdk.chat(modelID)
-          } else {
-            return sdk.responses(modelID)
-          }
+          return selectAzureLanguageModel(sdk, modelID, Boolean(options?.["useCompletionUrls"]))
         },
         options: {
           baseURL: resourceName ? `https://${resourceName}.cognitiveservices.azure.com/openai` : undefined,
@@ -1138,6 +1159,9 @@ const layer: Layer.Layer<
 
         // now read config providers - includes any modifications from plugin config() hook
         const configProviders = Object.entries(cfg.provider ?? {})
+        const configModelProviderIDs = new Set(
+          configProviders.filter(([, provider]) => provider.models).map(([providerID]) => ProviderID.make(providerID)),
+        )
         const disabled = new Set(cfg.disabled_providers ?? [])
         const enabled = cfg.enabled_providers ? new Set(cfg.enabled_providers) : null
 
@@ -1146,6 +1170,48 @@ const layer: Layer.Layer<
           if (disabled.has(providerID)) return false
           return true
         }
+
+        const appliedProviderModelHooks = new Set<string>()
+        const applyProviderModelHooks = Effect.fn("Provider.applyProviderModelHooks")(function* (input?: {
+          postConfig?: boolean
+        }) {
+          for (const [index, hook] of plugins.entries()) {
+            const p = hook.provider
+            const models = p?.models
+            if (!p || !models) continue
+
+            const providerID = ProviderID.make(p.id)
+            const hookKey = `${index}:${providerID}`
+            if (!isProviderAllowed(providerID)) continue
+
+            const provider = database[providerID]
+            if (!provider) continue
+            const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
+            if (
+              appliedProviderModelHooks.has(hookKey) &&
+              !(input?.postConfig && p.postConfig && pluginAuth?.type === "oauth" && configModelProviderIDs.has(providerID))
+            ) {
+              continue
+            }
+
+            provider.models = yield* Effect.promise(async () => {
+              const next = await models(provider, { auth: pluginAuth })
+              return Object.fromEntries(
+                Object.entries(next).map(([id, model]) => [
+                  id,
+                  {
+                    ...model,
+                    id: ModelID.make(id),
+                    providerID,
+                  },
+                ]),
+              )
+            })
+            appliedProviderModelHooks.add(hookKey)
+          }
+        })
+
+        yield* applyProviderModelHooks()
 
         // extend database from config
         for (const [providerID, provider] of configProviders) {
@@ -1161,6 +1227,13 @@ const layer: Layer.Layer<
 
           for (const [modelID, model] of Object.entries(provider.models ?? {})) {
             const existingModel = parsed.models[model.id ?? modelID]
+            const apiID = model.id ?? existingModel?.api.id ?? modelID
+            const apiNpm =
+              model.provider?.npm ??
+              provider.npm ??
+              existingModel?.api.npm ??
+              modelsDev.providers[providerID]?.npm ??
+              "@ai-sdk/openai-compatible"
             const name = iife(() => {
               if (model.name) return model.name
               if (model.id && model.id !== modelID) return modelID
@@ -1169,13 +1242,8 @@ const layer: Layer.Layer<
             const parsedModel: Model = {
               id: ModelID.make(modelID),
               api: {
-                id: model.id ?? existingModel?.api.id ?? modelID,
-                npm:
-                  model.provider?.npm ??
-                  provider.npm ??
-                  existingModel?.api.npm ??
-                  modelsDev.providers[providerID]?.npm ??
-                  "@ai-sdk/openai-compatible",
+                id: apiID,
+                npm: apiNpm,
                 url:
                   model.provider?.api ??
                   provider?.api ??
@@ -1208,7 +1276,14 @@ const layer: Layer.Layer<
                     model.modalities?.output?.includes("video") ?? existingModel?.capabilities.output.video ?? false,
                   pdf: model.modalities?.output?.includes("pdf") ?? existingModel?.capabilities.output.pdf ?? false,
                 },
-                interleaved: model.interleaved ?? existingModel?.capabilities.interleaved ?? false,
+                interleaved:
+                  model.interleaved ??
+                  existingModel?.capabilities.interleaved ??
+                  (!existingModel &&
+                  apiNpm === "@ai-sdk/openai-compatible" &&
+                  /(^|[/:])deepseek(?:[-_/]|$)/.test(apiID.toLowerCase())
+                    ? { field: "reasoning_content" }
+                    : false),
               },
               cost: {
                 input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
@@ -1238,6 +1313,8 @@ const layer: Layer.Layer<
           }
           database[providerID] = parsed
         }
+
+        yield* applyProviderModelHooks({ postConfig: true })
 
         // load env
         const envs = yield* env.all()
@@ -1331,33 +1408,6 @@ const layer: Layer.Layer<
           })
         }
 
-        for (const hook of plugins) {
-          const p = hook.provider
-          const models = p?.models
-          if (!p || !models) continue
-
-          const providerID = ProviderID.make(p.id)
-          if (disabled.has(providerID)) continue
-
-          const provider = providers[providerID]
-          if (!provider) continue
-          const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
-
-          provider.models = yield* Effect.promise(async () => {
-            const next = await models(provider, { auth: pluginAuth })
-            return Object.fromEntries(
-              Object.entries(next).map(([id, model]) => [
-                id,
-                {
-                  ...model,
-                  id: ModelID.make(id),
-                  providerID,
-                },
-              ]),
-            )
-          })
-        }
-
         for (const [id, provider] of Object.entries(providers)) {
           const providerID = ProviderID.make(id)
           if (!isProviderAllowed(providerID)) {
@@ -1382,7 +1432,9 @@ const layer: Layer.Layer<
             )
               delete provider.models[modelID]
 
-            model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
+            if (!model.variants || Object.keys(model.variants).length === 0) {
+              model.variants = mapValues(ProviderTransform.variants(model), (v) => v)
+            }
 
             const configVariants = configProvider?.models?.[modelID]?.variants
             if (configVariants && model.variants) {
@@ -1499,18 +1551,12 @@ const layer: Layer.Layer<
           if (combined) opts.signal = combined
 
           // Strip openai itemId metadata following what codex does
-          if (model.api.npm === "@ai-sdk/openai" && opts.body && opts.method === "POST") {
-            const body = JSON.parse(opts.body as string)
-            const isAzure = model.providerID.includes("azure")
-            const keepIds = isAzure && body.store === true
-            if (!keepIds && Array.isArray(body.input)) {
-              for (const item of body.input) {
-                if ("id" in item) {
-                  delete item.id
-                }
-              }
-              opts.body = JSON.stringify(body)
-            }
+          if (
+            (model.api.npm === "@ai-sdk/openai" || model.api.npm === "@ai-sdk/azure") &&
+            typeof opts.body === "string" &&
+            opts.method === "POST"
+          ) {
+            opts.body = stripOpenAIResponseInputIDs(opts.body) ?? opts.body
           }
 
           if (model.api.npm.includes("@ai-sdk/openai-compatible") && opts.body && opts.method === "POST") {

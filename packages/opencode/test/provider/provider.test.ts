@@ -6,9 +6,10 @@ import { tmpdir } from "../fixture/fixture"
 import { Global } from "@opencode-ai/core/global"
 import { Instance } from "../../src/project/instance"
 import { Plugin } from "../../src/plugin/index"
+import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
-import { localProviderImportSpec } from "../../src/provider/provider"
+import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
@@ -62,6 +63,28 @@ async function defaultModel() {
   return run((provider) => provider.defaultModel())
 }
 
+async function readAuthSnapshot() {
+  try {
+    return await Filesystem.readText(path.join(Global.Path.data, "auth.json"))
+  } catch (e) {
+    if (typeof e === "object" && e !== null && "code" in e && e.code === "ENOENT") return undefined
+    throw e
+  }
+}
+
+async function restoreAuthSnapshot(snapshot: string | undefined) {
+  const authPath = path.join(Global.Path.data, "auth.json")
+  if (snapshot !== undefined) {
+    await Filesystem.write(authPath, snapshot, 0o600)
+    return
+  }
+  try {
+    await unlink(authPath)
+  } catch (e) {
+    if (!(typeof e === "object" && e !== null && "code" in e && e.code === "ENOENT")) throw e
+  }
+}
+
 test("OpenCode Zen and OpenCode Go providers remain discoverable in PawWork runtime mode", async () => {
   await using tmp = await tmpdir({ git: true })
   const previous = process.env.PAWWORK_RUNTIME_NAMESPACE
@@ -83,6 +106,15 @@ test("OpenCode Zen and OpenCode Go providers remain discoverable in PawWork runt
     if (previous === undefined) delete process.env.PAWWORK_RUNTIME_NAMESPACE
     else process.env.PAWWORK_RUNTIME_NAMESPACE = previous
   }
+})
+
+test("stripOpenAIResponseInputIDs safely handles request body shapes", () => {
+  expect(stripOpenAIResponseInputIDs(new FormData())).toBeUndefined()
+  expect(stripOpenAIResponseInputIDs("{")).toBeUndefined()
+  expect(stripOpenAIResponseInputIDs(JSON.stringify({ input: [{ id: "item-1", type: "message" }, "raw"] }))).toBe(
+    JSON.stringify({ input: [{ type: "message" }, "raw"] }),
+  )
+  expect(stripOpenAIResponseInputIDs(JSON.stringify({ store: true, input: [{ id: "item-1" }] }))).toBeUndefined()
 })
 
 function paid(providers: Awaited<ReturnType<typeof list>>) {
@@ -330,6 +362,70 @@ test("custom provider with npm package", async () => {
       expect(providers[ProviderID.make("custom-provider")]).toBeDefined()
       expect(providers[ProviderID.make("custom-provider")].name).toBe("Custom Provider")
       expect(providers[ProviderID.make("custom-provider")].models["custom-model"]).toBeDefined()
+    },
+  })
+})
+
+test("custom DeepSeek openai-compatible model defaults interleaved reasoning field", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            "custom-provider": {
+              name: "Custom Provider",
+              npm: "@ai-sdk/openai-compatible",
+              api: "https://api.custom.com/v1",
+              models: {
+                "DeepSeek-R1": {
+                  name: "DeepSeek R1",
+                },
+                "deepseek-details": {
+                  name: "DeepSeek Details",
+                  interleaved: { field: "reasoning_details" },
+                },
+                "custom-model": {
+                  name: "Custom Model",
+                },
+              },
+              options: {
+                apiKey: "custom-key",
+              },
+            },
+            "custom-anthropic-provider": {
+              name: "Custom Anthropic Provider",
+              npm: "@ai-sdk/anthropic",
+              api: "https://api.custom.com/v1",
+              models: {
+                "deepseek-r1": {
+                  name: "DeepSeek R1",
+                },
+              },
+              options: {
+                apiKey: "custom-key",
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      expect(providers[ProviderID.make("custom-provider")].models["DeepSeek-R1"].capabilities.interleaved).toEqual({
+        field: "reasoning_content",
+      })
+      expect(providers[ProviderID.make("custom-provider")].models["deepseek-details"].capabilities.interleaved).toEqual(
+        { field: "reasoning_details" },
+      )
+      expect(providers[ProviderID.make("custom-provider")].models["custom-model"].capabilities.interleaved).toBe(false)
+      expect(
+        providers[ProviderID.make("custom-anthropic-provider")].models["deepseek-r1"].capabilities.interleaved,
+      ).toBe(false)
     },
   })
 })
@@ -2688,6 +2784,472 @@ test("plugin config providers persist after instance dispose", async () => {
   })
   expect(second[ProviderID.make("demo")]).toBeDefined()
   expect(second[ProviderID.make("demo")].models[ModelID.make("chat")]).toBeDefined()
+})
+
+test("user config model overrides plugin provider model hook output", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "anthropic-model-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.anthropic-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      async models(provider) {",
+          "        return {",
+          "          ...provider.models,",
+          "          'my-alias': {",
+          "            ...provider.models['claude-sonnet-4-5'],",
+          "            id: 'my-alias',",
+          "            name: 'Plugin Alias',",
+          "            api: { ...provider.models['claude-sonnet-4-5'].api, id: 'plugin-model' },",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            anthropic: {
+              models: {
+                "my-alias": {
+                  id: "claude-sonnet-4-5",
+                  name: "Config Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-anthropic-key")
+    },
+    fn: async () => {
+      const providers = await list()
+      const alias = providers[ProviderID.anthropic].models[ModelID.make("my-alias")]
+      expect(alias.name).toBe("Config Alias")
+      expect(alias.api.id).toBe("claude-sonnet-4-5")
+    },
+  })
+})
+
+test("plugin provider model hook runs for provider added by plugin config hook", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "config-added-provider-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.config-added-provider-hook",',
+          "  server: async () => ({",
+          "    async config(cfg) {",
+          "      cfg.provider ??= {}",
+          "      cfg.provider.demo = {",
+          '        name: "Demo Provider",',
+          '        npm: "@ai-sdk/openai-compatible",',
+          '        api: "https://example.com/v1",',
+          "        options: { apiKey: 'demo-key' },",
+          "        models: {",
+          "          chat: {",
+          '            name: "Raw Chat",',
+          "            tool_call: true,",
+          "            limit: { context: 128000, output: 4096 },",
+          "          },",
+          "        },",
+          "      }",
+          "    },",
+          "    provider: {",
+          '      id: "demo",',
+          "      async models(provider) {",
+          "        return {",
+          "          chat: {",
+          "            ...provider.models.chat,",
+          '            name: "Hooked Chat",',
+          "            cost: { input: 1, output: 2, cache: { read: 3, write: 4 } },",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const providers = await list()
+      const model = providers[ProviderID.make("demo")].models[ModelID.make("chat")]
+      expect(model.name).toBe("Hooked Chat")
+      expect(model.cost).toEqual({ input: 1, output: 2, cache: { read: 3, write: 4 } })
+    },
+  })
+})
+
+test("multiple provider model hooks run for the same provider", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "anthropic-first-model-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.anthropic-first-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      async models(provider) {",
+          "        return {",
+          "          ...provider.models,",
+          "          'first-alias': {",
+          "            ...provider.models['claude-sonnet-4-5'],",
+          "            id: 'first-alias',",
+          "            name: 'First Alias',",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+      await Bun.write(
+        path.join(root, "anthropic-second-model-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.anthropic-second-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      async models(provider) {",
+          "        return {",
+          "          ...provider.models,",
+          "          'second-alias': {",
+          "            ...provider.models['claude-sonnet-4-5'],",
+          "            id: 'second-alias',",
+          "            name: 'Second Alias',",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      set("ANTHROPIC_API_KEY", "test-anthropic-key")
+    },
+    fn: async () => {
+      const providers = await list()
+      const models = providers[ProviderID.anthropic].models
+      expect(models[ModelID.make("first-alias")]?.name).toBe("First Alias")
+      expect(models[ModelID.make("second-alias")]?.name).toBe("Second Alias")
+    },
+  })
+})
+
+test("Codex no-op hook does not block external OpenAI model hooks", async () => {
+  const authSnapshot = await readAuthSnapshot()
+  await Auth.remove(ProviderID.openai)
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "openai-model-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.openai-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "openai",',
+          "      async models(provider) {",
+          "        return {",
+          "          ...provider.models,",
+          "          'openai-plugin-alias': {",
+          "            ...provider.models['gpt-5.2'],",
+          "            id: 'openai-plugin-alias',",
+          "            name: 'OpenAI Plugin Alias',",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+    },
+  })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        set("OPENAI_API_KEY", "test-openai-key")
+      },
+      fn: async () => {
+        const providers = await list()
+        const alias = providers[ProviderID.openai].models[ModelID.make("openai-plugin-alias")]
+        expect(alias.name).toBe("OpenAI Plugin Alias")
+      },
+    })
+  } finally {
+    await restoreAuthSnapshot(authSnapshot)
+  }
+})
+
+test("Codex OAuth provider hook filters OpenAI models added by config", async () => {
+  const authSnapshot = await readAuthSnapshot()
+  await Auth.remove(ProviderID.openai)
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-4o-local-alias": {
+                  id: "gpt-4o",
+                  name: "GPT-4o Local Alias",
+                },
+                "my-codex-alias": {
+                  id: "gpt-4o",
+                  name: "My Codex Alias",
+                },
+                "gpt-5.3-codex-spark-alias": {
+                  id: "gpt-5.3-codex-spark",
+                  name: "GPT-5.3 Codex Spark Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        await Auth.set(
+          ProviderID.openai,
+          {
+            type: "oauth",
+            access: "access",
+            refresh: "refresh",
+            expires: Date.now() + 60_000,
+          } as never,
+        )
+      },
+      fn: async () => {
+        const providers = await list()
+        const models = providers[ProviderID.openai].models
+        expect(models[ModelID.make("gpt-4o-local-alias")]).toBeUndefined()
+        expect(models[ModelID.make("my-codex-alias")]).toBeUndefined()
+        expect(models[ModelID.make("gpt-5.3-codex-spark-alias")]).toBeDefined()
+        expect(models[ModelID.make("gpt-5.3-codex-spark-alias")].cost).toEqual({
+          input: 0,
+          output: 0,
+          cache: { read: 0, write: 0 },
+        })
+      },
+    })
+  } finally {
+    await restoreAuthSnapshot(authSnapshot)
+  }
+})
+
+test("Codex OAuth config model override survives external OpenAI model hook", async () => {
+  const authSnapshot = await readAuthSnapshot()
+  await Auth.remove(ProviderID.openai)
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "openai-oauth-model-hook.ts"),
+        [
+          "export default {",
+          '  id: "demo.openai-oauth-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "openai",',
+          "      async models(provider) {",
+          "        return {",
+          "          ...provider.models,",
+          "          'gpt-5.3-codex-spark-alias': {",
+          "            ...provider.models['gpt-5.2'],",
+          "            id: 'gpt-5.3-codex-spark-alias',",
+          "            name: 'Plugin Alias',",
+          "            api: { ...provider.models['gpt-5.2'].api, id: 'plugin-model' },",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.3-codex-spark-alias": {
+                  id: "gpt-5.3-codex-spark",
+                  name: "Config Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        await Auth.set(
+          ProviderID.openai,
+          {
+            type: "oauth",
+            access: "access",
+            refresh: "refresh",
+            expires: Date.now() + 60_000,
+          } as never,
+        )
+      },
+      fn: async () => {
+        const providers = await list()
+        const alias = providers[ProviderID.openai].models[ModelID.make("gpt-5.3-codex-spark-alias")]
+        expect(alias.name).toBe("Config Alias")
+        expect(alias.api.id).toBe("gpt-5.3-codex-spark")
+        expect(alias.cost).toEqual({
+          input: 0,
+          output: 0,
+          cache: { read: 0, write: 0 },
+        })
+      },
+    })
+  } finally {
+    await restoreAuthSnapshot(authSnapshot)
+  }
+})
+
+test("post-config OAuth rerun only reprocesses providers with config models", async () => {
+  const authSnapshot = await readAuthSnapshot()
+  await Auth.remove(ProviderID.anthropic)
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const root = path.join(dir, ".opencode", "plugin")
+      await mkdir(root, { recursive: true })
+      await Bun.write(
+        path.join(root, "anthropic-oauth-model-hook.ts"),
+        [
+          "let calls = 0",
+          "export default {",
+          '  id: "demo.anthropic-oauth-model-hook",',
+          "  server: async () => ({",
+          "    provider: {",
+          '      id: "anthropic",',
+          "      async models(provider) {",
+          "        calls += 1",
+          "        return {",
+          "          ...provider.models,",
+          "          'oauth-hook-alias': {",
+          "            ...provider.models['claude-sonnet-4-5'],",
+          "            id: 'oauth-hook-alias',",
+          "            name: calls === 1 ? 'First Hook' : 'Second Hook',",
+          "          },",
+          "        }",
+          "      },",
+          "    },",
+          "  }),",
+          "}",
+          "",
+        ].join("\n"),
+      )
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          provider: {
+            openai: {
+              models: {
+                "gpt-5.3-codex-spark-alias": {
+                  id: "gpt-5.3-codex-spark",
+                  name: "GPT-5.3 Codex Spark Alias",
+                },
+              },
+            },
+          },
+        }),
+      )
+    },
+  })
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        set("ANTHROPIC_API_KEY", "test-anthropic-key")
+        await Auth.set(
+          ProviderID.anthropic,
+          {
+            type: "oauth",
+            access: "access",
+            refresh: "refresh",
+            expires: Date.now() + 60_000,
+          } as never,
+        )
+      },
+      fn: async () => {
+        const providers = await list()
+        const alias = providers[ProviderID.anthropic].models[ModelID.make("oauth-hook-alias")]
+        expect(alias.name).toBe("First Hook")
+      },
+    })
+  } finally {
+    await restoreAuthSnapshot(authSnapshot)
+  }
 })
 
 test("plugin config enabled and disabled providers are honored", async () => {
