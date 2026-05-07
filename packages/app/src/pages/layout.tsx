@@ -2168,6 +2168,8 @@ export default function Layout(props: ParentProps) {
       onOpenSettings={openSettings}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
+      newSessionKeybind={() => command.keybind("session.new")}
+      searchKeybind={() => command.keybind("command.palette")}
     />
   )
   const sidebarContent = () =>

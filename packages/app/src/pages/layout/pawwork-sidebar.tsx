@@ -8,6 +8,7 @@ import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "so
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
@@ -47,6 +48,8 @@ export const PawworkSidebar = (props: {
   onOpenSettings: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
+  newSessionKeybind: Accessor<string | undefined>
+  searchKeybind: Accessor<string | undefined>
 }): JSX.Element => {
   const language = useLanguage()
   const dialog = useDialog()
@@ -255,28 +258,40 @@ export const PawworkSidebar = (props: {
          slice 17 hides the OS chrome and moves the controls into the sidebar. */}
       <div data-component="pawwork-side-top" class="shrink-0 px-3 pt-3">
         <div class="flex flex-col gap-1">
-          <button
-            type="button"
-            data-action="pawwork-session-new"
-            onClick={props.onNew}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+          <TooltipKeybind
+            placement="right"
+            title={language.t("command.session.new")}
+            keybind={props.newSessionKeybind() ?? ""}
           >
-            <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="new-session" class="text-icon-base" />
-            </span>
-            <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
-          </button>
-          <button
-            type="button"
-            data-action="pawwork-session-search"
-            onClick={props.onSearch}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            <button
+              type="button"
+              data-action="pawwork-session-new"
+              onClick={props.onNew}
+              class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            >
+              <span class="shrink-0 w-4 h-4 flex items-center">
+                <Icon name="new-session" class="text-icon-base" />
+              </span>
+              <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
+            </button>
+          </TooltipKeybind>
+          <TooltipKeybind
+            placement="right"
+            title={language.t("sidebar.pawwork.search")}
+            keybind={props.searchKeybind() ?? ""}
           >
-            <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="magnifying-glass" class="text-icon-base" />
-            </span>
-            <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
-          </button>
+            <button
+              type="button"
+              data-action="pawwork-session-search"
+              onClick={props.onSearch}
+              class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            >
+              <span class="shrink-0 w-4 h-4 flex items-center">
+                <Icon name="magnifying-glass" class="text-icon-base" />
+              </span>
+              <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
+            </button>
+          </TooltipKeybind>
         </div>
       </div>
 
@@ -400,21 +415,24 @@ export const PawworkSidebar = (props: {
         data-component="pawwork-side-foot"
         class="shrink-0 border-t border-border-weaker px-3 py-2"
       >
-        <button
-          type="button"
-          data-action="pawwork-open-settings"
-          onClick={props.onOpenSettings}
-          aria-label={props.settingsLabel()}
-          class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+        <TooltipKeybind
+          placement="top"
+          title={props.settingsLabel()}
+          keybind={props.settingsKeybind() ?? ""}
         >
-          <span class="shrink-0 w-4 h-4 flex items-center">
-            <Icon name="settings-gear" class="text-icon-base" />
-          </span>
-          <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
-          <Show when={props.settingsKeybind()}>
-            <span class="text-12-regular text-fg-weaker">{props.settingsKeybind()}</span>
-          </Show>
-        </button>
+          <button
+            type="button"
+            data-action="pawwork-open-settings"
+            onClick={props.onOpenSettings}
+            aria-label={props.settingsLabel()}
+            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+          >
+            <span class="shrink-0 w-4 h-4 flex items-center">
+              <Icon name="settings-gear" class="text-icon-base" />
+            </span>
+            <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
+          </button>
+        </TooltipKeybind>
       </div>
     </section>
   )
