@@ -127,10 +127,8 @@ export const PawworkSidebar = (props: {
                 <DropdownMenu.Separator />
               </Show>
               <DropdownMenu.Item onSelect={() => void action.run()}>
+                <Icon name={action.icon} class="text-icon-weak" />
                 <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
-                <Show when={action.shortcut}>
-                  <span class="ml-auto pl-4 text-12-regular text-fg-weaker">{action.shortcut}</span>
-                </Show>
               </DropdownMenu.Item>
             </>
           )}
@@ -146,10 +144,8 @@ export const PawworkSidebar = (props: {
                 <ContextMenu.Separator />
               </Show>
               <ContextMenu.Item onSelect={() => void action.run()}>
+                <Icon name={action.icon} class="text-icon-weak" />
                 <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
-                <Show when={action.shortcut}>
-                  <span class="ml-auto pl-4 text-12-regular text-fg-weaker">{action.shortcut}</span>
-                </Show>
               </ContextMenu.Item>
             </>
           )}

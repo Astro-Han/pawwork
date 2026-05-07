@@ -2,7 +2,7 @@ import { test, expect } from "../fixtures"
 import { openSidebar, withSession } from "../actions"
 import { pawworkSidebarSelector } from "../selectors"
 
-test("sidebar row exposes 4-item menu with Rename ↵ / Delete ⌫ shortcut hints", async ({
+test("sidebar row exposes 4-item menu with leading icons", async ({
   page,
   sdk,
   gotoSession,
@@ -24,11 +24,14 @@ test("sidebar row exposes 4-item menu with Rename ↵ / Delete ⌫ shortcut hint
     const labels = await items.allTextContents()
     expect(labels[0]).toMatch(/Pin|置顶/)
     expect(labels[1]).toMatch(/Rename|重命名/)
-    expect(labels[1]).toContain("↵")
     expect(labels[count - 1]).toMatch(/Delete|删除/)
-    expect(labels[count - 1]).toContain("⌫")
     if (count === 4) {
       expect(labels[2]).toMatch(/Export|导出/)
+    }
+
+    // Each item carries a leading icon-svg slot.
+    for (let i = 0; i < count; i++) {
+      await expect(items.nth(i).locator('[data-slot="icon-svg"]')).toBeVisible()
     }
   })
 })

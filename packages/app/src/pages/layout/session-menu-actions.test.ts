@@ -27,11 +27,8 @@ describe("buildSessionMenuActions", () => {
 
     expect(actions.map((action) => action.id)).toEqual(["pin", "rename", "export", "delete"])
     expect(actions.map((action) => action.label)).toEqual(["Pin", "Rename", "Export", "Delete"])
+    expect(actions.map((action) => action.icon)).toEqual(["pin", "pencil-line", "download", "trash"])
     expect(actions.find((action) => action.id === "delete")?.separatorBefore).toBe(true)
-    expect(actions.find((action) => action.id === "rename")?.shortcut).toBe("↵")
-    expect(actions.find((action) => action.id === "delete")?.shortcut).toBe("⌫")
-    expect(actions.find((action) => action.id === "pin")?.shortcut).toBeUndefined()
-    expect(actions.find((action) => action.id === "export")?.shortcut).toBeUndefined()
   })
 
   test("uses unpin label for pinned sessions and omits export when unavailable", () => {
