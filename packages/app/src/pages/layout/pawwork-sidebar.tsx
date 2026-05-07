@@ -8,7 +8,7 @@ import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "so
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
@@ -325,14 +325,15 @@ export const PawworkSidebar = (props: {
                 <div class="mt-4 h-[32px] flex items-center justify-between px-2">
                   <span class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
                   <DropdownMenu>
-                    <DropdownMenu.Trigger
-                      data-action="pawwork-sort-trigger"
-                      data-mode={props.sortMode()}
-                      class="inline-flex items-center gap-1 h-[24px] rounded-sm px-2 text-13-medium text-fg-weak transition-colors hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay focus:outline-none"
-                    >
-                      <span>{language.t("sidebar.pawwork.sort.label")}</span>
-                      <Icon name="chevron-down" class="text-icon-weak" />
-                    </DropdownMenu.Trigger>
+                    <Tooltip placement="bottom" value={language.t("sidebar.pawwork.sort.label")}>
+                      <DropdownMenu.Trigger
+                        as={IconButton}
+                        data-action="pawwork-sort-trigger"
+                        data-mode={props.sortMode()}
+                        icon="sliders"
+                        aria-label={language.t("sidebar.pawwork.sort.label")}
+                      />
+                    </Tooltip>
                     <DropdownMenu.Portal>
                       <DropdownMenu.Content>
                         <DropdownMenu.Item
