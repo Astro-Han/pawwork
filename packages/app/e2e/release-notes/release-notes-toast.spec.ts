@@ -291,6 +291,11 @@ test.describe("release notes toast", () => {
     // link must still anchor on the app's current version, not summaries[0].
     await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
+    // Description's first segment must carry the v2026.5.6 tag, otherwise
+    // the older release's bullet would read as if it described the current
+    // version (the title says v2026.5.7 but summaries[0] here is v2026.5.6
+    // because the English fallback dropped v2026.5.7).
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("v2026.5.6")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• older en-only bullet")
   })
 

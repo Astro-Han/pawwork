@@ -256,12 +256,19 @@ export function loadReleaseHighlights(
   return summaries
 }
 
-function buildToastDescription(summaries: ReleaseSummary[]) {
-  if (summaries.length === 1) return summaries[0].description
-  return [
-    summaries[0].description,
-    ...summaries.slice(1).map((s) => `${s.tag}\n${s.description}`),
-  ].join("\n\n")
+function buildToastDescription(summaries: ReleaseSummary[], currentTag: string) {
+  // First segment omits its tag only when it matches the toast title's
+  // version. When summaries[0] is an older release (e.g. zh-locale fallback
+  // dropped a zh-only newest release that has no English notice), the first
+  // segment must carry its tag too, otherwise it reads as if the older
+  // release's bullets describe the current version.
+  return summaries
+    .map((s, i) =>
+      i === 0 && normalizeVersion(s.tag) === normalizeVersion(currentTag)
+        ? s.description
+        : `${s.tag}\n${s.description}`,
+    )
+    .join("\n\n")
 }
 
 export const { use: useHighlights, provider: HighlightsProvider } = createSimpleContext({
@@ -340,7 +347,7 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
 
             showToast({
               title: copy.title(currentTag),
-              description: buildToastDescription(summaries),
+              description: buildToastDescription(summaries, currentTag),
               icon: "bullet-list",
               variant: "subtle",
               persistent: true,
