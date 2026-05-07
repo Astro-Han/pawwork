@@ -107,7 +107,6 @@ export const PawworkSidebar = (props: {
 
   const renderSessionItem = (entry: { item: PawworkSidebarSession }) => {
     const session = entry.item.session
-    const isPinned = createMemo(() => props.pinnedIDs().includes(session.id))
     const menuLabels = () => ({
       pin: language.t("sidebar.pawwork.pinSession"),
       unpin: language.t("sidebar.pawwork.unpinSession"),
@@ -171,7 +170,6 @@ export const PawworkSidebar = (props: {
             prefetchSession={props.prefetchSession}
             hrefForSession={props.hrefForSession}
             onOpenSession={props.onOpenSession}
-            pinned={() => isPinned()}
             timeText={() =>
               entry.item.created > 0
                 ? getRelativeTime(new Date(entry.item.created).toISOString(), language.t)
@@ -179,7 +177,7 @@ export const PawworkSidebar = (props: {
             }
             titleContent={({ title }) => (
               <span
-                class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate"
+                class="text-13-regular text-fg-base [.active_&]:text-fg-strong [.active_&]:font-medium min-w-0 flex-1 truncate"
                 onDblClick={(e: MouseEvent) => {
                   e.preventDefault()
                   e.stopPropagation()
