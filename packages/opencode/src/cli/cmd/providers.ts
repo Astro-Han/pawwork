@@ -303,6 +303,7 @@ export const ProvidersLoginCommand = cmd({
           prompts.log.info(`Running \`${wellknown.auth.command.join(" ")}\``)
           const proc = Process.spawn(wellknown.auth.command, {
             stdout: "pipe",
+            stderr: "inherit",
           })
           if (!proc.stdout) {
             prompts.log.error("Failed")
