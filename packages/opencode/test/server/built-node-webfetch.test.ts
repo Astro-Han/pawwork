@@ -89,7 +89,16 @@ describe("built node webfetch", () => {
         const nodeFetch = (input, init = {}) => new Promise((resolve, reject) => {
           const url = new URL(input instanceof Request ? input.url : input)
           const client = url.protocol === "https:" ? https : http
-          const headers = { ...(input instanceof Request ? Object.fromEntries(input.headers) : {}), ...(init.headers ?? {}) }
+          const normalizeHeaders = (headers) => {
+            if (!headers) return {}
+            if (headers instanceof Headers || Array.isArray(headers)) return Object.fromEntries(headers)
+            if (typeof headers[Symbol.iterator] === "function") return Object.fromEntries(headers)
+            return headers
+          }
+          const headers = {
+            ...(input instanceof Request ? Object.fromEntries(input.headers) : {}),
+            ...normalizeHeaders(init.headers),
+          }
           const req = client.request(
             url,
             {
