@@ -11,7 +11,6 @@ import { Config } from "../config/config"
 import { Bus } from "../bus"
 import { Log } from "@opencode-ai/core/util/log"
 import { createOpencodeClient } from "@opencode-ai/sdk"
-import { Flag } from "@opencode-ai/core/flag/flag"
 import { CodexAuthPlugin } from "./codex"
 import { Session } from "../session"
 import { NamedError } from "@opencode-ai/util/error"
@@ -29,6 +28,8 @@ import { PluginLoader } from "./loader"
 import { parsePluginSpecifier, readPluginId, readV1Plugin, resolvePluginId } from "./shared"
 import { installAdaptor, ownerKey, uninstallAdaptor } from "@/control-plane/adaptors"
 import type { Adaptor } from "@/control-plane/types"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { ServerAuth } from "@/server/auth"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
@@ -137,11 +138,7 @@ export namespace Plugin {
           const client = createOpencodeClient({
             baseUrl: "http://localhost:4096",
             directory: ctx.directory,
-            headers: Flag.OPENCODE_SERVER_PASSWORD
-              ? {
-                  Authorization: `Basic ${Buffer.from(`${Flag.OPENCODE_SERVER_USERNAME ?? "opencode"}:${Flag.OPENCODE_SERVER_PASSWORD}`).toString("base64")}`,
-                }
-              : undefined,
+            headers: ServerAuth.headers(),
             fetch: async (...args) => (await Server.Default()).app.fetch(...args),
           })
           const cfg = yield* config.get()

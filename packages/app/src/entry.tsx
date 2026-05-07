@@ -9,6 +9,7 @@ import { handleNotificationClick } from "@/utils/notification-click"
 import { showToast } from "@opencode-ai/ui/toast"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
+import { authFromToken } from "@/utils/server"
 
 const DEFAULT_SERVER_URL_KEY = "pawwork.settings.dat:defaultServerUrl"
 
@@ -146,6 +147,13 @@ const getDefaultUrl = () => {
   return getCurrentUrl()
 }
 
+const clearAuthToken = () => {
+  const params = new URLSearchParams(location.search)
+  if (!params.has("auth_token")) return
+  params.delete("auth_token")
+  history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : "") + location.hash)
+}
+
 const platform: Platform = {
   platform: "web",
   shell: { kind: "desktop", os: detectShellOs() },
@@ -163,7 +171,17 @@ const platform: Platform = {
 }
 
 if (root instanceof HTMLElement) {
-  const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
+  const authToken = new URLSearchParams(location.search).get("auth_token")
+  const auth = authFromToken(authToken)
+  clearAuthToken()
+  const server: ServerConnection.Http = {
+    type: "http",
+    authToken: !!auth,
+    http: {
+      url: getCurrentUrl(),
+      ...auth,
+    },
+  }
   render(
     () => (
       <PlatformProvider value={platform}>

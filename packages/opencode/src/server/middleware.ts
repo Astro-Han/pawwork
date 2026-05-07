@@ -7,9 +7,10 @@ import type { ErrorHandler, MiddlewareHandler } from "hono"
 import { HTTPException } from "hono/http-exception"
 import { Log } from "@opencode-ai/core/util/log"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { basicAuth } from "hono/basic-auth"
 import { cors } from "hono/cors"
 import { compress } from "hono/compress"
+import { Option, Redacted } from "effect"
+import { ServerAuth } from "./auth"
 
 const log = Log.create({ service: "server" })
 
@@ -36,17 +37,41 @@ export const ErrorMiddleware: ErrorHandler = (err, c) => {
   })
 }
 
-export const AuthMiddleware: MiddlewareHandler = (c, next) => {
+export const AuthMiddleware: MiddlewareHandler = async (c, next) => {
+  const unauthorized = () => {
+    c.header("WWW-Authenticate", 'Basic realm="opencode"')
+    return c.text("Unauthorized", 401)
+  }
+
   // Allow CORS preflight requests to succeed without auth.
   // Browser clients sending Authorization headers will preflight with OPTIONS.
   if (c.req.method === "OPTIONS") return next()
+
   const password = Flag.OPENCODE_SERVER_PASSWORD
   if (!password) return next()
-  const username = Flag.OPENCODE_SERVER_USERNAME ?? "opencode"
 
-  if (c.req.query("auth_token")) c.req.raw.headers.set("authorization", `Basic ${c.req.query("auth_token")}`)
+  const queryToken = c.req.query("auth_token")
+  const authHeader = c.req.header("authorization")
+  const header = queryToken ? "Basic " + queryToken : authHeader
 
-  return basicAuth({ username, password })(c, next)
+  const match = header?.match(/^Basic\s+(.+)$/i)
+  if (!match) return unauthorized()
+
+  const credentialsPart = match[1]
+  const decoded = Buffer.from(credentialsPart, "base64").toString("utf8")
+  const separator = decoded.indexOf(":")
+  if (separator === -1) return unauthorized()
+
+  const config = {
+    password: Option.some(password),
+    username: Flag.OPENCODE_SERVER_USERNAME ?? "opencode",
+  }
+  const credentials = {
+    username: decoded.slice(0, separator),
+    password: Redacted.make(decoded.slice(separator + 1)),
+  }
+  if (!ServerAuth.authorized(credentials, config)) return unauthorized()
+  return next()
 }
 
 export const LoggerMiddleware: MiddlewareHandler = async (c, next) => {

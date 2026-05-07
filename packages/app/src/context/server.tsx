@@ -5,7 +5,6 @@ import { Persist, persisted } from "@/utils/persist"
 import { useCheckServerHealth } from "@/utils/server-health"
 
 type StoredProject = { worktree: string; expanded: boolean }
-type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 const HEALTH_POLL_INTERVAL_MS = 10_000
 
 export function normalizeServerUrl(input: string) {
@@ -46,6 +45,7 @@ export namespace ServerConnection {
   export type Http = {
     type: "http"
     http: HttpBase
+    authToken?: boolean
   } & Base
 
   export type Sidecar = {
@@ -92,6 +92,37 @@ export namespace ServerConnection {
   export const Key = { make: (v: string) => v as Key }
 }
 
+type StoredHttp = Omit<ServerConnection.Http, "authToken"> & { authToken?: never }
+export type StoredServer = string | ServerConnection.HttpBase | StoredHttp
+
+export function resolveServerList(input: {
+  props?: Array<ServerConnection.Any>
+  stored: StoredServer[]
+}): Array<ServerConnection.Any> {
+  const servers = [
+    ...input.stored.map((value) =>
+      typeof value === "string"
+        ? {
+            type: "http" as const,
+            http: { url: value },
+          }
+        : value,
+    ),
+    ...(input.props ?? []),
+  ]
+
+  const deduped = new Map<ServerConnection.Key, ServerConnection.Any>()
+  for (const value of servers) {
+    const conn: ServerConnection.Any = "type" in value ? value : { type: "http", http: value }
+    const key = ServerConnection.key(conn)
+    if (deduped.has(key) && conn.type === "http" && !conn.authToken) continue
+    const existing = deduped.get(key)
+    deduped.set(key, existing ? { ...existing, ...conn, displayName: conn.displayName ?? existing.displayName } : conn)
+  }
+
+  return [...deduped.values()]
+}
+
 export const { use: useServer, provider: ServerProvider } = createSimpleContext({
   name: "Server",
   init: (props: {
@@ -113,26 +144,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     const url = (x: StoredServer) => (typeof x === "string" ? x : "type" in x ? x.http.url : x.url)
 
     const allServers = createMemo((): Array<ServerConnection.Any> => {
-      const servers = [
-        ...(props.servers ?? []),
-        ...store.list.map((value) =>
-          typeof value === "string"
-            ? {
-                type: "http" as const,
-                http: { url: value },
-              }
-            : value,
-        ),
-      ]
-
-      const deduped = new Map(
-        servers.map((value) => {
-          const conn: ServerConnection.Any = "type" in value ? value : { type: "http", http: value }
-          return [ServerConnection.key(conn), conn]
-        }),
-      )
-
-      return [...deduped.values()]
+      return resolveServerList({ stored: store.list, props: props.servers })
     })
 
     const [state, setState] = createStore({
@@ -174,7 +186,8 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     function add(input: ServerConnection.Http) {
       const url_ = normalizeServerUrl(input.http.url)
       if (!url_) return
-      const conn = { ...input, http: { ...input.http, url: url_ } }
+      const { authToken: _authToken, ...persisted } = input
+      const conn: StoredHttp = { ...persisted, http: { ...input.http, url: url_ } }
       return batch(() => {
         const existing = store.list.findIndex((x) => url(x) === url_)
         if (existing !== -1) {
