@@ -120,12 +120,14 @@ export function showToast(options: ToastOptions | string) {
   const opts = typeof options === "string" ? { description: options } : options
   return toaster.show((props) => {
     // onCleanup runs when the toast root unmounts. That covers explicit dismiss
-    // paths (close button, action click, swipe, programmatic toaster.dismiss)
-    // AND ambient unmounts (parent owner teardown, e.g. app exit). For callers
-    // with "user-acknowledged" semantics (e.g. markSeen on release notes), we
-    // gate onDismiss behind a flag set only by user-driven dismiss handlers.
-    // The fired guard is defense against future Kobalte upgrades re-invoking
-    // this render closure.
+    // paths (close button, action click, swipe, escape, programmatic
+    // toaster.dismiss) AND ambient unmounts (parent owner teardown, e.g. app
+    // exit). For callers with "user-acknowledged" semantics (e.g. markSeen on
+    // release notes), we gate onDismiss behind a flag set only by user-driven
+    // dismiss handlers. Kobalte's swipe-end and escape paths call close()
+    // directly without going through CloseButton's onClick, so they need
+    // their own handlers — see <Toast> below. The fired guard is defense
+    // against future Kobalte upgrades re-invoking this render closure.
     let userDismissed = false
     let fired = false
     const markUserDismissed = () => {
@@ -145,6 +147,8 @@ export function showToast(options: ToastOptions | string) {
         duration={opts.duration}
         persistent={opts.persistent}
         data-variant={opts.variant ?? "default"}
+        onSwipeEnd={markUserDismissed}
+        onEscapeKeyDown={markUserDismissed}
       >
         <Show when={opts.icon}>
           <Toast.Icon name={opts.icon!} />

@@ -107,6 +107,41 @@ test.describe("release notes toast", () => {
       .toBe("2026.5.7")
   })
 
+  test("pressing Escape marks the current version as seen", async ({ page, gotoSession }) => {
+    await page.route(RELEASES_URL_PATTERN, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(SINGLE_RELEASE_PAYLOAD),
+      })
+    })
+
+    await page.addInitScript((key) => {
+      localStorage.setItem(key, JSON.stringify({ version: "2026.5.6" }))
+    }, HIGHLIGHTS_KEY)
+
+    await gotoSession()
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
+
+    // Escape key dismisses via Kobalte's onEscapeKeyDown → close() path,
+    // which bypasses CloseButton's onClick. This guards the same code path
+    // used by swipe-to-dismiss on touch devices: both must mark the version
+    // as seen via the onSwipeEnd / onEscapeKeyDown handlers we add to the
+    // Toast root, otherwise the toast re-shows on next launch.
+    await page.locator(TOAST_SELECTOR).focus()
+    await page.keyboard.press("Escape")
+    await expect(page.locator(TOAST_SELECTOR)).toBeHidden()
+
+    await expect
+      .poll(() =>
+        page.evaluate((key) => {
+          const raw = localStorage.getItem(key)
+          return raw ? (JSON.parse(raw)?.version ?? null) : null
+        }, HIGHLIGHTS_KEY),
+      )
+      .toBe("2026.5.7")
+  })
+
   test("releaseNotes=false suppresses the toast", async ({ page, gotoSession }) => {
     await page.route(RELEASES_URL_PATTERN, async (route) => {
       await route.fulfill({
