@@ -150,7 +150,7 @@ export function TextField(props: TextFieldProps) {
         <Kobalte.Description data-slot="input-description">{local.description}</Kobalte.Description>
       </Show>
       <Kobalte.ErrorMessage data-slot="input-error">
-        <Icon name="alert-triangle" size="small" aria-hidden="true" />
+        <Icon name="warning" aria-hidden="true" />
         {local.error}
       </Kobalte.ErrorMessage>
     </Kobalte>
