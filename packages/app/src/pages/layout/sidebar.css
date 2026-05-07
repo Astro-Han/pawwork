@@ -1,6 +1,10 @@
-/* sidebar leading-slot icon: 14px (hierarchy-tight) without touching global Icon size="small" */
-[data-leading-slot] [data-size="small"],
-[data-leading-slot] svg {
-  width: 14px;
-  height: 14px;
+/* Slice 09 (L35): action-overlay icon button uses radius-md and a deeper
+   hover (--row-active-overlay = 0.06 alpha) so it reads as its own target
+   on top of a row that already has 0.04 hover. */
+[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="session-row-menu"] {
+  border-radius: var(--radius-md);
+}
+
+[data-component="pawwork-sidebar"] [data-component="icon-button"][data-action="session-row-menu"]:hover:not(:disabled) {
+  background-color: var(--row-active-overlay);
 }
