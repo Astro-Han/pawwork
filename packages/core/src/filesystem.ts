@@ -217,6 +217,10 @@ export namespace AppFileSystem {
 
   export function windowsPath(path: string): string {
     if (process.platform !== "win32") return path
+    return normalizeWindowsShellInput(path)
+  }
+
+  function normalizeWindowsShellInput(path: string): string {
     return path
       .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
       .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
@@ -237,19 +241,11 @@ export namespace AppFileSystem {
   // existing file; if none match, bind future targets to the explicit base
   // drive when one is available.
   export function normalizeWindowsPath(path: string, options: WindowsPathOptions = {}): string {
-    const p = stripExtendedLengthPrefix(windowsPathInput(path))
+    const p = stripExtendedLengthPrefix(normalizeWindowsShellInput(path))
     const existing = resolveRootedWindowsVariant(p, options)
     if (existing) return uppercaseDriveRoot(win32.normalize(existing))
     if (isRootedDriveless(p) && options.base) return uppercaseDriveRoot(win32.resolve(options.base, p))
     return uppercaseDriveRoot(win32.normalize(win32.resolve(p)))
-  }
-
-  function windowsPathInput(path: string): string {
-    return path
-      .replace(/^\/([a-zA-Z]):(?:[\\/]|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-      .replace(/^\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-      .replace(/^\/cygdrive\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
-      .replace(/^\/mnt\/([a-zA-Z])(?:\/|$)/, (_, drive) => `${drive.toUpperCase()}:/`)
   }
 
   function stripExtendedLengthPrefix(path: string): string {
