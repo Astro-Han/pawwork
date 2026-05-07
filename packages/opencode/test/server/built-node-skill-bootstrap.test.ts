@@ -94,19 +94,11 @@ describe("built node server skill bootstrap", () => {
         req.end()
       })
 
-      const readEndpoint = async (pathname) => {
-        const response = await request(pathname)
-        return {
-          status: response.status,
-          body: response.body,
-        }
-      }
-
       let exitCode = 0
       try {
         const result = {
-          agent: await readEndpoint("/agent"),
-          command: await readEndpoint("/command"),
+          agent: await request("/agent"),
+          command: await request("/command"),
         }
         console.log(JSON.stringify(result))
         if (result.agent.status !== 200 || result.command.status !== 200) {
