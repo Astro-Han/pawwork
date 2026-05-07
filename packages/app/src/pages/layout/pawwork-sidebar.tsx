@@ -267,7 +267,7 @@ export const PawworkSidebar = (props: {
               type="button"
               data-action="pawwork-session-new"
               onClick={props.onNew}
-              class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+              class="w-full h-[32px] flex items-center gap-2 pl-2 pr-3 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
             >
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="new-session" class="text-icon-base" />
@@ -284,7 +284,7 @@ export const PawworkSidebar = (props: {
               type="button"
               data-action="pawwork-session-search"
               onClick={props.onSearch}
-              class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+              class="w-full h-[32px] flex items-center gap-2 pl-2 pr-3 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
             >
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="magnifying-glass" class="text-icon-base" />
@@ -425,7 +425,7 @@ export const PawworkSidebar = (props: {
             data-action="pawwork-open-settings"
             onClick={props.onOpenSettings}
             aria-label={props.settingsLabel()}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            class="w-full h-[32px] flex items-center gap-2 pl-2 pr-3 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" class="text-icon-base" />
