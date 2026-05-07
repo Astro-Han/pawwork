@@ -258,7 +258,7 @@ export namespace AppFileSystem {
     if (!isRootedDriveless(p)) return
     const suffix = p.replace(/^[\\/]+/, "").replaceAll("/", "\\")
     const matches: string[] = []
-    for (const root of options.driveRoots ?? windowsDriveRoots()) {
+    for (const root of uniqueWindowsDriveRoots(options.driveRoots ?? windowsDriveRoots())) {
       const candidate = win32.join(root, suffix)
       if ((options.exists ?? existsSync)(candidate)) matches.push(candidate)
     }
@@ -266,6 +266,19 @@ export namespace AppFileSystem {
       throw new Error(`Ambiguous Windows path ${p}; use a drive-qualified path.`)
     }
     return matches[0]
+  }
+
+  function uniqueWindowsDriveRoots(roots: string[]): string[] {
+    const result: string[] = []
+    const seen = new Set<string>()
+    for (const root of roots) {
+      const normalized = uppercaseDriveRoot(win32.normalize(root))
+      const key = normalized.toUpperCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push(normalized)
+    }
+    return result
   }
 
   function isRootedDriveless(p: string): boolean {

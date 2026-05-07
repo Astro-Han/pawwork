@@ -15,12 +15,12 @@ test("normalizePath is identity on non-Windows", () => {
 })
 
 function withWin32Platform(fn: () => void) {
-  const original = process.platform
-  Object.defineProperty(process, "platform", { value: "win32" })
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true })
   try {
     fn()
   } finally {
-    Object.defineProperty(process, "platform", { value: original })
+    if (descriptor) Object.defineProperty(process, "platform", descriptor)
   }
 }
 
@@ -56,6 +56,15 @@ test("normalizeWindowsPath rejects ambiguous rooted-driveless existing paths", (
         candidate.toLowerCase() === "c:\\shared\\file.txt" || candidate.toLowerCase() === "d:\\shared\\file.txt",
     }),
   ).toThrow("Ambiguous Windows path")
+})
+
+test("normalizeWindowsPath de-duplicates caller-supplied drive roots before ambiguity checks", () => {
+  expect(
+    AppFileSystem.normalizeWindowsPath("\\shared\\file.txt", {
+      driveRoots: ["C:\\", "c:\\"],
+      exists: (candidate) => candidate.toLowerCase() === "c:\\shared\\file.txt",
+    }),
+  ).toBe("C:\\shared\\file.txt")
 })
 
 test.skipIf(process.platform !== "win32")(

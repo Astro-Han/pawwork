@@ -23,10 +23,10 @@ const glob = (p: string) =>
   process.platform === "win32" ? Filesystem.normalizePathPattern(p) : p.replaceAll("\\", "/")
 
 function withWin32Platform(fn: () => Promise<void>) {
-  const original = process.platform
-  Object.defineProperty(process, "platform", { value: "win32" })
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true })
   return fn().finally(() => {
-    Object.defineProperty(process, "platform", { value: original })
+    if (descriptor) Object.defineProperty(process, "platform", descriptor)
   })
 }
 
