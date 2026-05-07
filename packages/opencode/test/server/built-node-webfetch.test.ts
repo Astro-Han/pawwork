@@ -82,8 +82,9 @@ describe("built node webfetch", () => {
         const rawOpenHTML = \`<body>\${"<".repeat(50_000)}\`
         const whitespaceHTML = \`<body>\${"\\r".repeat(50_000)}visible text</body>\`
 
+        const sockets = new Set()
         const server = http.createServer((req, res) => {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8" })
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8", connection: "close" })
           res.end(
             req.url === "/hostile.html"
               ? hostileHTML
@@ -92,7 +93,11 @@ describe("built node webfetch", () => {
                 : req.url === "/whitespace.html"
                   ? whitespaceHTML
                   : happyHTML,
-          )
+            )
+        })
+        server.on("connection", (socket) => {
+          sockets.add(socket)
+          socket.on("close", () => sockets.delete(socket))
         })
 
         await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -147,8 +152,11 @@ describe("built node webfetch", () => {
 
           console.log(JSON.stringify(output))
         } finally {
+          await Instance.disposeAll()
           await new Promise((resolve, reject) => {
             server.close((error) => (error ? reject(error) : resolve()))
+            server.closeAllConnections?.()
+            for (const socket of sockets) socket.destroy()
           })
         }
 
