@@ -1,3 +1,9 @@
+/* Slice 09 (L35): session row transition tracks --duration-fast (80ms) per
+   the L35 lock instead of Tailwind's default 150ms transition-colors. */
+[data-component="pawwork-session-row"] {
+  transition: background-color var(--duration-fast) ease-out;
+}
+
 /* Slice 09 (L35): action-overlay icon button uses radius-md and a deeper
    hover (--row-active-overlay = 0.06 alpha) so it reads as its own target
    on top of a row that already has 0.04 hover. */
