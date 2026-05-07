@@ -50,6 +50,7 @@ describe("built node server skill bootstrap", () => {
       expectModelsSnapshotUnchanged(modelsFixture)
 
       const script = `
+      import { request as httpRequest } from "node:http"
       import { Server, Log } from ${JSON.stringify(pathToFileURL(distEntry).href)}
 
       const password = process.env.OPENCODE_SERVER_PASSWORD
@@ -61,25 +62,51 @@ describe("built node server skill bootstrap", () => {
       const listener = await Server.listen({ port: 0, hostname: "127.0.0.1" })
       const auth = "Basic " + Buffer.from(\`opencode:\${password}\`).toString("base64")
 
-      const request = async (pathname) => {
+      // This test exits the child process explicitly. On Windows Node 24, fetch
+      // can abort during process.exit() handle teardown and hide the bootstrap result.
+      const request = (pathname) => new Promise((resolve, reject) => {
         const url = new URL(pathname, listener.url)
         url.searchParams.set("directory", directory)
-        const response = await fetch(url, {
-          headers: {
-            authorization: auth,
+
+        const req = httpRequest(
+          url,
+          {
+            agent: false,
+            headers: {
+              authorization: auth,
+              connection: "close",
+            },
           },
-        })
+          (response) => {
+            const chunks = []
+            response.on("data", (chunk) => chunks.push(chunk))
+            response.on("error", reject)
+            response.on("end", () => {
+              resolve({
+                status: response.statusCode ?? 0,
+                body: Buffer.concat(chunks).toString("utf8"),
+              })
+            })
+          },
+        )
+
+        req.on("error", reject)
+        req.end()
+      })
+
+      const readEndpoint = async (pathname) => {
+        const response = await request(pathname)
         return {
           status: response.status,
-          body: await response.text(),
+          body: response.body,
         }
       }
 
       let exitCode = 0
       try {
         const result = {
-          agent: await request("/agent"),
-          command: await request("/command"),
+          agent: await readEndpoint("/agent"),
+          command: await readEndpoint("/command"),
         }
         console.log(JSON.stringify(result))
         if (result.agent.status !== 200 || result.command.status !== 200) {
