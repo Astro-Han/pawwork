@@ -413,7 +413,7 @@ export const PawworkSidebar = (props: {
 
       <div
         data-component="pawwork-side-foot"
-        class="shrink-0 border-t border-border-weaker px-3 py-2"
+        class="shrink-0 px-3 pt-4 pb-3"
       >
         <TooltipKeybind
           placement="top"
