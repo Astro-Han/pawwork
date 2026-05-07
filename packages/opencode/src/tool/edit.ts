@@ -79,10 +79,10 @@ export const EditTool = Tool.define(
             throw new Error("No changes to apply: oldString and newString are identical.")
           }
 
-          const filePath = path.isAbsolute(params.filePath)
+          const rawFilePath = path.isAbsolute(params.filePath)
             ? params.filePath
             : path.join(Instance.directory, params.filePath)
-          yield* assertExternalDirectoryEffect(ctx, filePath)
+          const filePath = (yield* assertExternalDirectoryEffect(ctx, rawFilePath)) ?? rawFilePath
           const relativeFilePath = path.relative(Instance.worktree, filePath)
 
           let diff = ""

@@ -52,17 +52,19 @@ export const GrepTool = Tool.define(
           })
 
           const ins = yield* InstanceState.context
-          const search = AppFileSystem.resolve(
+          let search = AppFileSystem.resolve(
             path.isAbsolute(params.path ?? ins.directory)
               ? (params.path ?? ins.directory)
               : path.join(ins.directory, params.path ?? "."),
+            { base: ins.directory },
           )
           const info = yield* fs.stat(search).pipe(Effect.catch(() => Effect.succeed(undefined)))
+          search =
+            (yield* assertExternalDirectoryEffect(ctx, search, {
+              kind: info?.type === "Directory" ? "directory" : "file",
+            })) ?? search
           const cwd = info?.type === "Directory" ? search : path.dirname(search)
           const file = info?.type === "Directory" ? undefined : [path.relative(cwd, search)]
-          yield* assertExternalDirectoryEffect(ctx, search, {
-            kind: info?.type === "Directory" ? "directory" : "file",
-          })
 
           const result = yield* rg.search({
             cwd,

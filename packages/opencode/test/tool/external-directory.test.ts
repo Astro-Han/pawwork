@@ -22,6 +22,14 @@ const baseCtx: Omit<Tool.Context, "ask"> = {
 const glob = (p: string) =>
   process.platform === "win32" ? Filesystem.normalizePathPattern(p) : p.replaceAll("\\", "/")
 
+function withWin32Platform(fn: () => Promise<void>) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true })
+  return fn().finally(() => {
+    if (descriptor) Object.defineProperty(process, "platform", descriptor)
+  })
+}
+
 function makeCtx() {
   const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
   const ctx: Tool.Context = {
@@ -112,6 +120,24 @@ describe("tool.assertExternalDirectory", () => {
     })
 
     expect(requests.length).toBe(0)
+  })
+
+  test("returns the canonical Windows target used for permission metadata", async () => {
+    await withWin32Platform(async () => {
+      const { requests, ctx } = makeCtx()
+
+      await Instance.provide({
+        directory: "D:\\project",
+        fn: async () => {
+          const target = await assertExternalDirectory(ctx, "\\\\?\\D:\\outside\\file.txt")
+          expect(target).toBe("D:\\outside\\file.txt")
+        },
+      })
+
+      const req = requests.find((r) => r.permission === "external_directory")
+      expect(req).toBeDefined()
+      expect(req!.metadata.filepath).toBe("D:\\outside\\file.txt")
+    })
   })
 
   if (process.platform === "win32") {

@@ -167,7 +167,7 @@ export const ReadTool = Tool.define(
         filepath = path.resolve(Instance.directory, filepath)
       }
       if (process.platform === "win32") {
-        filepath = AppFileSystem.normalizePath(filepath)
+        filepath = AppFileSystem.normalizePath(filepath, { base: Instance.directory })
       }
       const title = path.relative(Instance.worktree, filepath)
 
@@ -178,10 +178,11 @@ export const ReadTool = Tool.define(
         ),
       )
 
-      yield* assertExternalDirectoryEffect(ctx, filepath, {
-        bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
-        kind: stat?.type === "Directory" ? "directory" : "file",
-      })
+      filepath =
+        (yield* assertExternalDirectoryEffect(ctx, filepath, {
+          bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
+          kind: stat?.type === "Directory" ? "directory" : "file",
+        })) ?? filepath
 
       yield* ctx.ask({
         permission: "read",
