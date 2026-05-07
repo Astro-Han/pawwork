@@ -107,6 +107,7 @@ export function createSessionScrollDock(input: {
   let scrollStateFrame: number | undefined
   let scrollStateTarget: HTMLDivElement | undefined
   let bottomFollowLockTimer: ReturnType<typeof setTimeout> | undefined
+  let bottomFollowLockOwner: string | undefined
   const [bottomFollowLocked, setBottomFollowLocked] = createSignal(false)
 
   const cancelBottomFollowLock = () => {
@@ -115,15 +116,25 @@ export function createSessionScrollDock(input: {
       bottomFollowLockTimer = undefined
     }
     setBottomFollowLocked(false)
+    bottomFollowLockOwner = undefined
   }
 
-  const armBottomFollowLock = () => {
+  const armBottomFollowLock = (owner?: string) => {
     if (bottomFollowLockTimer !== undefined) clearTimeout(bottomFollowLockTimer)
+    bottomFollowLockOwner = owner
     setBottomFollowLocked(true)
-    bottomFollowLockTimer = setTimeout(() => {
-      bottomFollowLockTimer = undefined
-      setBottomFollowLocked(false)
-    }, 3_000)
+    bottomFollowLockTimer = setTimeout(cancelBottomFollowLock, 3_000)
+  }
+
+  const bottomFollowLockedFor = (owner?: string) => {
+    if (!bottomFollowLocked()) return false
+    return owner === undefined || bottomFollowLockOwner === undefined || owner === bottomFollowLockOwner
+  }
+
+  const followBottom = () => {
+    input.clearActiveMessage()
+    autoScroll.forceScrollToBottom()
+    input.clearMessageHash()
   }
 
   const updateScrollState = (el: HTMLDivElement) => {
@@ -145,9 +156,7 @@ export function createSessionScrollDock(input: {
         scrollTop: el.scrollTop,
       })
       if (next.overflow && !next.bottom) {
-        input.clearActiveMessage()
-        autoScroll.forceScrollToBottom()
-        input.clearMessageHash()
+        followBottom()
       }
     }
 
@@ -163,11 +172,12 @@ export function createSessionScrollDock(input: {
     })
   }
 
-  const restoreBottomIfLocked = () => {
-    if (!bottomFollowLocked()) return false
-    input.clearActiveMessage()
-    autoScroll.forceScrollToBottom()
-    input.clearMessageHash()
+  const restoreBottomIfLocked = (owner?: string) => {
+    if (!bottomFollowLockedFor(owner)) {
+      if (bottomFollowLocked() && owner !== undefined) cancelBottomFollowLock()
+      return false
+    }
+    followBottom()
     if (scroller) scheduleScrollState(scroller)
     return true
   }
@@ -241,9 +251,9 @@ export function createSessionScrollDock(input: {
     promptDockObserver.observe(el)
   }
 
-  const resumeScroll = () => {
-    armBottomFollowLock()
-    restoreBottomIfLocked()
+  const resumeScroll = (owner?: string) => {
+    armBottomFollowLock(owner)
+    restoreBottomIfLocked(owner)
   }
 
   createEffect(
@@ -281,6 +291,6 @@ export function createSessionScrollDock(input: {
     armBottomFollowLock,
     restoreBottomIfLocked,
     cancelBottomFollowLock,
-    bottomFollowLocked,
+    bottomFollowLocked: bottomFollowLockedFor,
   }
 }

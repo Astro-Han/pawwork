@@ -398,13 +398,13 @@ export default function Page() {
     dialogActive: () => !!dialog.active,
     inputRef: () => inputRef,
     isChildSession: timelineIsChildSession,
-    markScrollGesture: activeMessage.markScrollGesture,
+    markScrollGesture: timelineInteraction.markScrollGesture,
     terminalActive: terminal.active,
     terminalOpened: () => view().terminal.opened(),
   })
 
   useSessionCommands({
-    navigateMessageByOffset: activeMessage.navigateMessageByOffset,
+    navigateMessageByOffset: timelineInteraction.navigateMessageByOffset,
     setActiveMessage: activeMessage.setActiveMessage,
     focusInput,
     review: reviewTab,

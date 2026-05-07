@@ -44,8 +44,9 @@ export function createSessionTimelineInteraction(input: {
     },
   })
   const autoScroll = scrollDock.autoScroll
-  const resumeScroll = scrollDock.resumeScroll
-  const userScrolledForHistory = () => (scrollDock.bottomFollowLocked() ? false : autoScroll.userScrolled())
+  const lockOwner = () => input.sessionKey()
+  const resumeScroll = () => scrollDock.resumeScroll(lockOwner())
+  const userScrolledForHistory = () => (scrollDock.bottomFollowLocked(lockOwner()) ? false : autoScroll.userScrolled())
 
   activeMessage = createSessionActiveMessage({
     sessionKey: input.sessionKey,
@@ -91,11 +92,16 @@ export function createSessionTimelineInteraction(input: {
     activeMessage.markScrollGesture(target)
   }
 
+  const navigateMessageByOffset = (offset: number) => {
+    scrollDock.cancelBottomFollowLock()
+    activeMessage.navigateMessageByOffset(offset)
+  }
+
   createEffect(
     on(
       () => [input.sessionID(), input.visibleUserMessages().at(-1)?.id, historyWindow.turnStart()] as const,
       () => {
-        scrollDock.restoreBottomIfLocked()
+        scrollDock.restoreBottomIfLocked(lockOwner())
       },
       { defer: true },
     ),
@@ -120,6 +126,7 @@ export function createSessionTimelineInteraction(input: {
     anchor,
     scheduleScrollState: scrollDock.scheduleScrollState,
     consumePendingMessage: input.consumePendingMessage,
+    onMessageNavigation: scrollDock.cancelBottomFollowLock,
     onMessageHashCleared: () => historyWindow.clearHashTarget(),
   })
   clearMessageHash = hashScroll.clearMessageHash
@@ -135,5 +142,6 @@ export function createSessionTimelineInteraction(input: {
     scrollDock,
     setScrollRef: scrollDock.setScrollRef,
     markScrollGesture,
+    navigateMessageByOffset,
   }
 }

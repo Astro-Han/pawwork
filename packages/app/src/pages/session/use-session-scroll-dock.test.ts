@@ -364,4 +364,33 @@ describe("session scroll dock", () => {
       dispose()
     })
   })
+
+  test("does not restore or clear hash when the lock belongs to another session", () => {
+    createRoot((dispose) => {
+      const scroller = makeScroller({
+        clientHeight: 400,
+        scrollHeight: 1000,
+        scrollTop: 600,
+      })
+      let clearedHash = 0
+      const scrollDock = createSessionScrollDock({
+        clearMessageHash: () => {
+          clearedHash += 1
+        },
+        clearActiveMessage: () => undefined,
+        fill: () => undefined,
+      })
+
+      scrollDock.setScrollRef(scroller.el)
+      scrollDock.resumeScroll("session-a")
+      scroller.el.scrollTop = 0
+
+      expect(scrollDock.restoreBottomIfLocked("session-b")).toBe(false)
+      expect(scroller.top).toBe(0)
+      expect(clearedHash).toBe(1)
+      expect(scrollDock.bottomFollowLocked("session-a")).toBe(false)
+
+      dispose()
+    })
+  })
 })

@@ -22,6 +22,7 @@ export const useSessionHashScroll = (input: {
   anchor: (id: string) => string
   scheduleScrollState: (el: HTMLDivElement) => void
   consumePendingMessage: (key: string) => string | undefined
+  onMessageNavigation?: () => void
   onMessageHashCleared?: () => void
 }) => {
   const visibleUserMessages = createMemo(() => input.visibleUserMessages())
@@ -90,6 +91,7 @@ export const useSessionHashScroll = (input: {
 
   const scrollToMessage = (message: UserMessage, behavior: ScrollBehavior = "smooth") => {
     cancel()
+    input.onMessageNavigation?.()
     if (input.currentMessageId() !== message.id) input.setActiveMessage(message)
 
     const index = messageIndex().get(message.id) ?? -1
@@ -122,6 +124,7 @@ export const useSessionHashScroll = (input: {
 
     const messageId = messageIdFromHash(hash)
     if (messageId) {
+      input.onMessageNavigation?.()
       input.autoScroll.pause()
       const msg = messageById().get(messageId)
       if (msg) {
@@ -133,6 +136,7 @@ export const useSessionHashScroll = (input: {
 
     const target = document.getElementById(hash)
     if (target) {
+      input.onMessageNavigation?.()
       input.autoScroll.pause()
       scrollToElement(target, behavior)
       return
