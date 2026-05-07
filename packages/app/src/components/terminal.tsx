@@ -15,6 +15,7 @@ import { monoFontFamily, useSettings } from "@/context/settings"
 import type { LocalPTY } from "@/context/terminal"
 import { terminalAttr, terminalProbe } from "@/testing/terminal"
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
+import { terminalWebSocketURL } from "@/utils/terminal-websocket-url"
 import { terminalWriter } from "@/utils/terminal-writer"
 
 const TOGGLE_TERMINAL_ID = "terminal.toggle"
@@ -523,18 +524,18 @@ export const Terminal = (props: TerminalProps) => {
         if (disposed) return
         drop?.()
 
-        const next = new URL(url + `/pty/${id}/connect`)
-        next.searchParams.set("directory", directory)
-        next.searchParams.set("cursor", String(seek))
-        next.protocol = next.protocol === "https:" ? "wss:" : "ws:"
-        if (!sameOrigin && password) {
-          next.searchParams.set("auth_token", btoa(`${username}:${password}`))
-          // For same-origin requests, let the browser reuse the page's existing auth.
-          next.username = username
-          next.password = password
-        }
-
-        const socket = new WebSocket(next)
+        const socket = new WebSocket(
+          terminalWebSocketURL({
+            url,
+            id,
+            directory,
+            cursor: seek,
+            sameOrigin,
+            username,
+            password,
+            authToken: server.current?.type === "http" ? server.current.authToken : false,
+          }),
+        )
         socket.binaryType = "arraybuffer"
         ws = socket
 
