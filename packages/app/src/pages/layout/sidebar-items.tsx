@@ -107,7 +107,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         return <Icon name="circle-x" class="text-error" />
       case "time": {
         const t = props.timeText?.(props.session)
-        return t ? <span class="text-12-regular text-fg-weaker">{t}</span> : null
+        return t ? <span class="text-12-regular text-fg-weaker whitespace-nowrap">{t}</span> : null
       }
     }
   }
@@ -179,8 +179,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
 
           <Show when={!props.level}>
             <div class="relative shrink-0 flex items-center justify-end h-[20px] min-w-[20px]">
-              {/* default 4-state status (asking|busy|error|time) — fades on hover, never display:none per L35 */}
-              <div class="pointer-events-none size-[20px] flex items-center justify-center transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0 group-has-[[data-expanded]]/session:opacity-0">
+              {/* default 4-state status (asking|busy|error|time) — fades on hover, never display:none per L35.
+                 Inner box centers icons in a 20px square but lets time text grow horizontally. */}
+              <div class="pointer-events-none h-full min-w-[20px] flex items-center justify-center transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0 group-has-[[data-expanded]]/session:opacity-0">
                 {statusContent()}
               </div>
               {/* hover/focus/menu-open action overlay */}
