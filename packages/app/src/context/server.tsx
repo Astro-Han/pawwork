@@ -5,7 +5,6 @@ import { Persist, persisted } from "@/utils/persist"
 import { useCheckServerHealth } from "@/utils/server-health"
 
 type StoredProject = { worktree: string; expanded: boolean }
-export type StoredServer = string | ServerConnection.HttpBase | ServerConnection.Http
 const HEALTH_POLL_INTERVAL_MS = 10_000
 
 export function normalizeServerUrl(input: string) {
@@ -92,6 +91,9 @@ export namespace ServerConnection {
   export type Key = string & { _brand: "Key" }
   export const Key = { make: (v: string) => v as Key }
 }
+
+type StoredHttp = Omit<ServerConnection.Http, "authToken"> & { authToken?: never }
+export type StoredServer = string | ServerConnection.HttpBase | StoredHttp
 
 export function resolveServerList(input: {
   props?: Array<ServerConnection.Any>
@@ -184,7 +186,8 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     function add(input: ServerConnection.Http) {
       const url_ = normalizeServerUrl(input.http.url)
       if (!url_) return
-      const conn: ServerConnection.Http = { ...input, authToken: undefined, http: { ...input.http, url: url_ } }
+      const { authToken: _authToken, ...persisted } = input
+      const conn: StoredHttp = { ...persisted, http: { ...input.http, url: url_ } }
       return batch(() => {
         const existing = store.list.findIndex((x) => url(x) === url_)
         if (existing !== -1) {
