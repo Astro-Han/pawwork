@@ -1,5 +1,5 @@
 import { createAutoScroll } from "@opencode-ai/ui/hooks"
-import { createEffect, on, onCleanup } from "solid-js"
+import { createEffect, createSignal, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 
 export type SessionScrollState = {
@@ -106,6 +106,25 @@ export function createSessionScrollDock(input: {
   let dockHeight = 0
   let scrollStateFrame: number | undefined
   let scrollStateTarget: HTMLDivElement | undefined
+  let bottomFollowLockTimer: ReturnType<typeof setTimeout> | undefined
+  const [bottomFollowLocked, setBottomFollowLocked] = createSignal(false)
+
+  const cancelBottomFollowLock = () => {
+    if (bottomFollowLockTimer !== undefined) {
+      clearTimeout(bottomFollowLockTimer)
+      bottomFollowLockTimer = undefined
+    }
+    setBottomFollowLocked(false)
+  }
+
+  const armBottomFollowLock = () => {
+    if (bottomFollowLockTimer !== undefined) clearTimeout(bottomFollowLockTimer)
+    setBottomFollowLocked(true)
+    bottomFollowLockTimer = setTimeout(() => {
+      bottomFollowLockTimer = undefined
+      setBottomFollowLocked(false)
+    }, 3_000)
+  }
 
   const updateScrollState = (el: HTMLDivElement) => {
     const next = calculateSessionScrollState({
@@ -119,6 +138,19 @@ export function createSessionScrollDock(input: {
   }
 
   const scheduleScrollState = (el: HTMLDivElement) => {
+    if (bottomFollowLocked()) {
+      const next = calculateSessionScrollState({
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+      })
+      if (next.overflow && !next.bottom) {
+        input.clearActiveMessage()
+        autoScroll.forceScrollToBottom()
+        input.clearMessageHash()
+      }
+    }
+
     scrollStateTarget = el
     if (scrollStateFrame !== undefined) return
 
@@ -131,12 +163,22 @@ export function createSessionScrollDock(input: {
     })
   }
 
+  const restoreBottomIfLocked = () => {
+    if (!bottomFollowLocked()) return false
+    input.clearActiveMessage()
+    autoScroll.forceScrollToBottom()
+    input.clearMessageHash()
+    if (scroller) scheduleScrollState(scroller)
+    return true
+  }
+
   const setScrollRef = (el: HTMLDivElement | undefined) => {
     scroller = el
     autoScroll.scrollRef(el)
     if (!el) return
     scheduleScrollState(el)
     input.fill()
+    restoreBottomIfLocked()
   }
 
   const setContentRef = (el: HTMLDivElement | undefined) => {
@@ -149,6 +191,7 @@ export function createSessionScrollDock(input: {
     contentObserver = new ResizeObserver(() => {
       if (scroller) scheduleScrollState(scroller)
       input.fill()
+      restoreBottomIfLocked()
     })
     contentObserver.observe(el)
   }
@@ -199,17 +242,18 @@ export function createSessionScrollDock(input: {
   }
 
   const resumeScroll = () => {
-    input.clearActiveMessage()
-    autoScroll.forceScrollToBottom()
-    input.clearMessageHash()
-    if (scroller) scheduleScrollState(scroller)
+    armBottomFollowLock()
+    restoreBottomIfLocked()
   }
 
   createEffect(
     on(
       autoScroll.userScrolled,
       (scrolled) => {
-        if (scrolled) return
+        if (scrolled) {
+          cancelBottomFollowLock()
+          return
+        }
         input.clearActiveMessage()
         input.clearMessageHash()
       },
@@ -221,6 +265,7 @@ export function createSessionScrollDock(input: {
     contentObserver?.disconnect()
     promptDockObserver?.disconnect()
     if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
+    if (bottomFollowLockTimer !== undefined) clearTimeout(bottomFollowLockTimer)
     document.documentElement.style.removeProperty("--composer-dock-height")
   })
 
@@ -233,5 +278,9 @@ export function createSessionScrollDock(input: {
     setPromptDockRef,
     scheduleScrollState,
     resumeScroll,
+    armBottomFollowLock,
+    restoreBottomIfLocked,
+    cancelBottomFollowLock,
+    bottomFollowLocked,
   }
 }

@@ -1,4 +1,5 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
+import { createEffect, on } from "solid-js"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
@@ -44,6 +45,7 @@ export function createSessionTimelineInteraction(input: {
   })
   const autoScroll = scrollDock.autoScroll
   const resumeScroll = scrollDock.resumeScroll
+  const userScrolledForHistory = () => (scrollDock.bottomFollowLocked() ? false : autoScroll.userScrolled())
 
   activeMessage = createSessionActiveMessage({
     sessionKey: input.sessionKey,
@@ -62,7 +64,7 @@ export function createSessionTimelineInteraction(input: {
     historyMore: input.historyMore,
     historyLoading: input.historyLoading,
     loadMore: input.loadMore,
-    userScrolled: autoScroll.userScrolled,
+    userScrolled: userScrolledForHistory,
     isAtBottom: () => scrollDock.scroll.bottom,
     scroller: scrollDock.scroller,
   })
@@ -83,6 +85,21 @@ export function createSessionTimelineInteraction(input: {
     userScrolled: autoScroll.userScrolled,
     scroller: scrollDock.scroller,
   })
+
+  const markScrollGesture = (target?: EventTarget | null) => {
+    scrollDock.cancelBottomFollowLock()
+    activeMessage.markScrollGesture(target)
+  }
+
+  createEffect(
+    on(
+      () => [input.sessionID(), input.visibleUserMessages().at(-1)?.id, historyWindow.turnStart()] as const,
+      () => {
+        scrollDock.restoreBottomIfLocked()
+      },
+      { defer: true },
+    ),
+  )
 
   const hashScroll = useSessionHashScroll({
     sessionKey: input.sessionKey,
@@ -117,5 +134,6 @@ export function createSessionTimelineInteraction(input: {
     scheduleScrollState: scrollDock.scheduleScrollState,
     scrollDock,
     setScrollRef: scrollDock.setScrollRef,
+    markScrollGesture,
   }
 }

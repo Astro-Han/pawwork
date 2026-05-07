@@ -291,4 +291,77 @@ describe("session scroll dock", () => {
       })
     })
   })
+
+  test("restores a submit-time browser reset while bottom follow is locked", () => {
+    createRoot((dispose) => {
+      const scroller = makeScroller({
+        clientHeight: 400,
+        scrollHeight: 1000,
+        scrollTop: 600,
+      })
+      const scrollDock = createSessionScrollDock({
+        clearMessageHash: () => undefined,
+        clearActiveMessage: () => undefined,
+        fill: () => undefined,
+      })
+
+      scrollDock.setScrollRef(scroller.el)
+      scrollDock.resumeScroll()
+      scroller.el.scrollTop = 0
+
+      expect(scrollDock.restoreBottomIfLocked()).toBe(true)
+      expect(scroller.top).toBe(1000)
+
+      dispose()
+    })
+  })
+
+  test("repairs a locked reset before the next scroll state sample", () => {
+    createRoot((dispose) => {
+      const scroller = makeScroller({
+        clientHeight: 400,
+        scrollHeight: 1000,
+        scrollTop: 600,
+      })
+      const scrollDock = createSessionScrollDock({
+        clearMessageHash: () => undefined,
+        clearActiveMessage: () => undefined,
+        fill: () => undefined,
+      })
+
+      scrollDock.setScrollRef(scroller.el)
+      scrollDock.resumeScroll()
+      scroller.el.scrollTop = 0
+      scrollDock.scheduleScrollState(scroller.el)
+
+      expect(scroller.top).toBe(1000)
+
+      dispose()
+    })
+  })
+
+  test("does not restore after a real scroll gesture cancels the bottom follow lock", () => {
+    createRoot((dispose) => {
+      const scroller = makeScroller({
+        clientHeight: 400,
+        scrollHeight: 1000,
+        scrollTop: 600,
+      })
+      const scrollDock = createSessionScrollDock({
+        clearMessageHash: () => undefined,
+        clearActiveMessage: () => undefined,
+        fill: () => undefined,
+      })
+
+      scrollDock.setScrollRef(scroller.el)
+      scrollDock.resumeScroll()
+      scrollDock.cancelBottomFollowLock()
+      scroller.el.scrollTop = 0
+
+      expect(scrollDock.restoreBottomIfLocked()).toBe(false)
+      expect(scroller.top).toBe(0)
+
+      dispose()
+    })
+  })
 })

@@ -627,7 +627,7 @@ export default function Page() {
       setScrollRef={setScrollRef}
       scheduleScrollState={scheduleScrollState}
       autoScroll={autoScroll}
-      markScrollGesture={activeMessage.markScrollGesture}
+      markScrollGesture={timelineInteraction.markScrollGesture}
       hasScrollGesture={activeMessage.hasScrollGesture}
       markUserScroll={activeMessage.markUserScroll}
       historyWindow={historyWindow}

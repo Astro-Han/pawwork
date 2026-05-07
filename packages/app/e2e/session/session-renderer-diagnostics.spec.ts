@@ -109,6 +109,21 @@ async function scrollTimelineToBottom(page: Page) {
   expect(found, "session timeline viewport should exist").toBe(true)
 }
 
+async function resetTimelineToTop(page: Page) {
+  const found = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return false
+      viewport.scrollTop = 0
+      viewport.dispatchEvent(new Event("scroll", { bubbles: true }))
+      return true
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(found, "session timeline viewport should exist").toBe(true)
+}
+
 async function sendVisiblePrompt(input: { page: Page; text: string }) {
   const prompt = input.page.locator(promptSelector)
   await expect(prompt).toBeVisible()
@@ -143,21 +158,24 @@ test("captures renderer diagnostics while guarding send scroll position", async 
       .locator(sessionMessageItemSelector)
       .last()
       .evaluate((item) => (item instanceof HTMLElement ? item.dataset.messageId : null))
-    const metricsBefore = await expectTimelineMetrics(page)
-    const beforeCount = await page.locator(sessionMessageItemSelector).count()
-
-    await sendVisiblePrompt({ page, text: `diagnostics guard ${Date.now()}` })
-    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(beforeCount + 1, { timeout: 30_000 })
+    const promptText = `diagnostics guard ${Date.now()}`
+    await sendVisiblePrompt({ page, text: promptText })
+    await expect(page.locator(sessionMessageItemSelector).last()).toContainText(promptText, { timeout: 30_000 })
+    await resetTimelineToTop(page)
     await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(80)
 
     const metricsAfter = await expectTimelineMetrics(page)
-    const scrollAnchorAfter = await page
-      .locator(sessionMessageItemSelector)
-      .nth(beforeCount - 1)
-      .evaluate((item) => (item instanceof HTMLElement ? item.dataset.messageId : null))
+    const scrollAnchorAfter = await page.locator(sessionTurnListSelector).evaluate((list, id) => {
+      if (!(list instanceof HTMLElement) || !id) return null
+      return Array.from(list.querySelectorAll("[data-message-id]")).some(
+        (item) => item instanceof HTMLElement && item.dataset.messageId === id,
+      )
+        ? id
+        : null
+    }, scrollAnchorBefore)
     expect(scrollAnchorBefore).not.toBeNull()
     expect(scrollAnchorAfter).toBe(scrollAnchorBefore)
-    expect(Math.abs(metricsAfter.top - metricsBefore.top)).toBeLessThan(200)
+    expect(metricsAfter.distanceFromBottom).toBeLessThan(80)
 
     const events = await readRendererDiagnostics(page)
     expect(events.some((event) => event.name === "session.action.submit")).toBe(true)
