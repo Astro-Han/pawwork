@@ -318,7 +318,7 @@ export const PawworkSidebar = (props: {
           class="flex-1 min-h-0 overflow-y-auto px-3 pb-3"
         >
           <Show when={props.sessions().length > 0}>
-            <nav class="flex flex-col gap-1">
+            <nav class="flex flex-col">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
                   <div class="h-[32px] flex items-center px-2 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
@@ -326,7 +326,7 @@ export const PawworkSidebar = (props: {
                 </section>
               </Show>
               <Show when={rows().length > 0 || groupedRows().length > 0}>
-                <div class="h-[32px] flex items-center justify-between px-2">
+                <div class="mt-4 first:mt-0 h-[32px] flex items-center justify-between px-2">
                   <span class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
                   <DropdownMenu>
                     <DropdownMenu.Trigger
@@ -375,8 +375,8 @@ export const PawworkSidebar = (props: {
               </Show>
               <Show when={props.sortMode() === "project"}>
                 <For each={groupedRows()}>
-                  {(group) => (
-                    <section class="flex flex-col gap-0.5">
+                  {(group, index) => (
+                    <section class={`${index() > 0 ? "mt-4 " : ""}flex flex-col gap-0.5`}>
                       <div data-component="pawwork-group-header" class="h-[32px] flex items-center px-2 text-13-regular text-fg-weak">
                         {group.label}
                       </div>
