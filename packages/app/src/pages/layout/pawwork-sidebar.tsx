@@ -188,8 +188,6 @@ export const PawworkSidebar = (props: {
                   as={IconButton}
                   icon="dot-grid"
                   variant="ghost"
-
-                  class="rounded-md"
                   data-action="session-row-menu"
                   aria-label={language.t("common.moreOptions")}
                   onClick={(event: MouseEvent) => {

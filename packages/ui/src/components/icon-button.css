@@ -5,7 +5,7 @@
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background-color: transparent;
   flex-shrink: 0;
   cursor: default;
@@ -17,7 +17,7 @@
   }
 
   &:hover:not(:disabled) {
-    background-color: var(--hover-overlay);
+    background-color: var(--row-active-overlay);
   }
   &:active:not(:disabled) {
     background-color: var(--surface-interactive-base);
@@ -26,7 +26,7 @@
     box-shadow: 0 0 0 1px #FF5910, 0 0 0 3px rgba(255,89,16,0.20);
   }
   &[data-selected="true"]:not(:disabled) {
-    background-color: var(--hover-overlay);
+    background-color: var(--row-active-overlay);
 
     [data-slot="icon-svg"] {
       color: var(--icon-strong);

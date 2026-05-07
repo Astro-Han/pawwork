@@ -61,8 +61,8 @@ describe("IconButton — ghost-only", () => {
     expect(CSS).toContain("background-color: transparent")
   })
 
-  test("hover applies --hover-overlay token", () => {
-    expect(CSS).toContain("var(--hover-overlay)")
+  test("hover applies --row-active-overlay token", () => {
+    expect(CSS).toContain("var(--row-active-overlay)")
   })
 
   test("active state uses --surface-interactive-base", () => {
