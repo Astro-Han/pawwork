@@ -254,6 +254,46 @@ test.describe("release notes toast", () => {
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 B")
   })
 
+  test("title and link anchor on the app's current version even when its release lacks a notice in the resolved locale", async ({
+    page,
+    gotoSession,
+  }) => {
+    await page.route(RELEASES_URL_PATTERN, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            tag_name: "v2026.5.7",
+            // newest release: zh-only notice, no English App Update Notice
+            body: ["## 中文版本", "", "### 主要更新", "", "- 仅中文要点"].join("\n"),
+          },
+          {
+            tag_name: "v2026.5.6",
+            // older skipped release: en-only notice, no 中文版本
+            body: "## App Update Notice\n\n- older en-only bullet\n",
+          },
+        ]),
+      })
+    })
+
+    await page.addInitScript((highlightsKey) => {
+      localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.5" }))
+      localStorage.setItem("pawwork.global.dat:language", JSON.stringify({ locale: "zh" }))
+    }, HIGHLIGHTS_KEY)
+
+    await gotoSession()
+
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
+    // First-pass zh resolves to mixed (v2026.5.7 zh + v2026.5.6 en fallback),
+    // so we re-resolve the whole window in English. The English window does
+    // not contain v2026.5.7 (no App Update Notice there), but the title and
+    // link must still anchor on the app's current version, not summaries[0].
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• older en-only bullet")
+  })
+
   test("falls back to English across the whole window when an older skipped release has no zh section", async ({
     page,
     gotoSession,

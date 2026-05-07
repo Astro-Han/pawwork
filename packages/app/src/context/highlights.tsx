@@ -328,12 +328,18 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
           // on first launch after an update.
           timer = setTimeout(() => {
             timer = undefined
-            const newest = summaries[0]
-            const copy = TOAST_COPY[newest.localeUsed]
-            const url = `https://github.com/Astro-Han/pawwork/releases/tag/${newest.tag}`
+            // Title and link always anchor on the app's current version,
+            // not summaries[0].tag. The two diverge when the current
+            // release has no notice in the resolved locale (e.g. zh user,
+            // newest release has only a 中文版本 section, an older skipped
+            // release has only English; English rebuild drops the newest
+            // release and summaries[0] becomes the older one).
+            const currentTag = `v${platform.version}`
+            const copy = TOAST_COPY[summaries[0].localeUsed]
+            const url = `https://github.com/Astro-Han/pawwork/releases/tag/${currentTag}`
 
             showToast({
-              title: copy.title(newest.tag),
+              title: copy.title(currentTag),
               description: buildToastDescription(summaries),
               icon: "bullet-list",
               variant: "subtle",
