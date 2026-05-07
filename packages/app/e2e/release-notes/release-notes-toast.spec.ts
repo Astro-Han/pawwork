@@ -107,6 +107,54 @@ test.describe("release notes toast", () => {
       .toBe("2026.5.7")
   })
 
+  test("clicking the action opens the release URL and marks the current version as seen", async ({
+    page,
+    gotoSession,
+  }) => {
+    await page.route(RELEASES_URL_PATTERN, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(SINGLE_RELEASE_PAYLOAD),
+      })
+    })
+
+    await page.addInitScript((key) => {
+      localStorage.setItem(key, JSON.stringify({ version: "2026.5.6" }))
+      // Capture window.open calls so we can assert the action opened the
+      // expected release URL. platform.openLink in the web shell calls
+      // window.open(url, "_blank"); stubbing it avoids opening a real popup.
+      const captured: string[] = []
+      ;(window as unknown as { __OPENED_LINKS: string[] }).__OPENED_LINKS = captured
+      window.open = ((url?: string | URL) => {
+        if (typeof url === "string") captured.push(url)
+        else if (url) captured.push(url.toString())
+        return null
+      }) as typeof window.open
+    }, HIGHLIGHTS_KEY)
+
+    await gotoSession()
+    await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
+
+    await page.locator(TOAST_ACTION_SELECTOR).click()
+    await expect(page.locator(TOAST_SELECTOR)).toBeHidden()
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as unknown as { __OPENED_LINKS: string[] }).__OPENED_LINKS),
+      )
+      .toContain("https://github.com/Astro-Han/pawwork/releases/tag/v2026.5.7")
+
+    await expect
+      .poll(() =>
+        page.evaluate((key) => {
+          const raw = localStorage.getItem(key)
+          return raw ? (JSON.parse(raw)?.version ?? null) : null
+        }, HIGHLIGHTS_KEY),
+      )
+      .toBe("2026.5.7")
+  })
+
   test("pressing Escape marks the current version as seen", async ({ page, gotoSession }) => {
     await page.route(RELEASES_URL_PATTERN, async (route) => {
       await route.fulfill({
