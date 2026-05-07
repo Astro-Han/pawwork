@@ -7,7 +7,7 @@
   border: 1.5px solid currentColor;
   border-right-color: transparent;
   border-radius: 50%;
-  animation: pw-spin 700ms linear infinite;
+  animation: pw-spin 1200ms linear infinite;
 }
 
 @keyframes pw-spin {
