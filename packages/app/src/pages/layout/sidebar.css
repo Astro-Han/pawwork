@@ -4,6 +4,14 @@
   transition: background-color var(--duration-fast) ease-out;
 }
 
+/* Status box and action overlay opacity track --duration-base (120ms) — opacity
+   fade needs base over fast for perceptual smoothness, while staying inside
+   the L22 three-tier ladder (80 / 120 / 240) and off Tailwind's default 150. */
+[data-component="pawwork-session-row"] [data-status-default],
+[data-component="pawwork-session-row"] [data-status-overlay] {
+  transition: opacity var(--duration-base) ease-out;
+}
+
 /* Slice 09 (L35): action-overlay icon button uses radius-md and a deeper
    hover (--row-active-overlay = 0.06 alpha) so it reads as its own target
    on top of a row that already has 0.04 hover. */
