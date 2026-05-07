@@ -112,7 +112,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       case "asking":
         return <Icon name="comment" class="text-brand-primary" />
       case "busy":
-        return <Spinner class="size-[16px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
+        return <Spinner class="size-[18px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
       case "error":
         return <Icon name="circle-x" class="text-error" />
       case "time": {
