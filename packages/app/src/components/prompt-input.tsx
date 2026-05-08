@@ -7,9 +7,9 @@ import { DEFAULT_PROMPT, Prompt, usePrompt, ImageAttachmentPart } from "@/contex
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
-import { Button } from "@opencode-ai/ui/button"
 import { DockSegmentForm } from "@opencode-ai/ui/dock-card"
 import { Icon } from "@opencode-ai/ui/icon"
+import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { openModelPicker } from "@/components/prompt-input/model-picker"
@@ -640,10 +640,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             }}
           />
 
-          <div class="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-3">
+          <div class="pointer-events-none absolute inset-x-4 bottom-3 flex items-center justify-between gap-2">
             <div
               aria-hidden={store.mode !== "normal"}
-              class="pointer-events-auto flex min-w-0 items-center gap-2"
+              class="pointer-events-auto flex min-w-0 items-center gap-1"
               style={{
                 "pointer-events": buttonsSpring() > 0.5 ? "auto" : "none",
               }}
@@ -653,19 +653,16 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 title={language.t("prompt.action.attachFile")}
                 keybind={command.keybind("file.attach")}
               >
-                <Button
+                <IconButton
+                  icon="plus"
                   data-action="prompt-attach"
                   type="button"
-                  variant="ghost"
-                  class="size-7 shrink-0 p-0 rounded-xl!"
                   style={buttons()}
                   onClick={pick}
                   disabled={store.mode !== "normal" || !actionReady()}
                   tabIndex={store.mode === "normal" ? undefined : -1}
                   aria-label={language.t("prompt.action.attachFile")}
-                >
-                  <Icon name="plus" class="size-4" />
-                </Button>
+                />
               </TooltipKeybind>
               <Show when={store.mode === "normal"}>
                 <PromptModelControl

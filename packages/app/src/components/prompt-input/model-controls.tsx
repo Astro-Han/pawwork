@@ -38,7 +38,7 @@ export function PromptModelControl(props: {
             variant: "ghost",
             size: "normal",
             style: props.triggerStyle(),
-            class: "min-w-0 px-1.5 justify-start text-13-regular text-fg-base font-normal group",
+            class: "min-w-0 justify-start text-13-regular text-fg-base font-normal",
             "data-action": "prompt-model",
             "data-picker-trigger": "",
             disabled: !props.actionReady(),
@@ -48,8 +48,7 @@ export function PromptModelControl(props: {
           <Show when={props.model.current()?.provider?.id}>
             <ProviderIcon
               id={props.model.current()?.provider?.id ?? ""}
-              class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
-              style={{ "will-change": "opacity", transform: "translateZ(0)" }}
+              class="size-4 shrink-0"
             />
           </Show>
           <span

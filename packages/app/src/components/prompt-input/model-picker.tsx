@@ -102,7 +102,7 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
 
   return (
     <Show when={variants().length > 0}>
-      <div class="border-t border-border-weaker px-1 pt-3 pb-1">
+      <div class="border-t border-border-weaker pt-3 pb-1">
         <Kobalte modal={false} placement="right-start" gutter={4}>
           <Kobalte.Trigger
             class="group/think w-full h-8 px-2 gap-3 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong"
@@ -205,8 +205,8 @@ export function ModelSelectorPopover(props: {
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="w-[280px] h-[400px] flex flex-col bg-surface-base z-50 outline-none overflow-hidden"
-          style={{ "border-radius": "14px", "box-shadow": "var(--shadow-floating)" }}
+          data-picker-content=""
+          class="w-[280px] h-[400px] flex flex-col z-50 outline-none overflow-hidden"
           onEscapeKeyDown={(event) => {
             close("escape")
             event.preventDefault()
@@ -230,7 +230,6 @@ export function ModelSelectorPopover(props: {
             provider={props.provider}
             model={props.model}
             onSelect={() => close("select")}
-            class="p-1"
           />
           <ThinkingLevelSection model={props.model} />
         </Kobalte.Content>
