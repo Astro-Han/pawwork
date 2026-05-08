@@ -48,6 +48,7 @@ describe("buildSessionMenuActions", () => {
       ["rename", "Rename"],
       ["delete", "Delete"],
     ])
+    expect(actions.map((action) => action.icon)).toEqual(["pin", "pencil-line", "trash"])
   })
 
   test("binds each action to the target session", () => {
