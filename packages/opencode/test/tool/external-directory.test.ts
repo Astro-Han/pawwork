@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import { Global } from "@opencode-ai/core/global"
 import type * as Tool from "../../src/tool/tool"
 import { Instance } from "../../src/project/instance"
-import { assertExternalDirectory } from "../../src/tool/external-directory"
+import { assertExternalDirectory, resolveExternalPathForPermission } from "../../src/tool/external-directory"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
@@ -239,6 +239,44 @@ describe("tool.assertExternalDirectory", () => {
       const req = requests.find((r) => r.permission === "external_directory")
       expect(req).toBeDefined()
       expect(req!.metadata.filepath).toBe("D:\\outside\\file.txt")
+    })
+  })
+
+  test("resolves Windows junction traversal before dot-dot normalization", async () => {
+    await withWin32Platform(async () => {
+      const junction = "C:\\project\\tmp\\link"
+      const outside = "D:\\outside"
+      const missing = "D:\\secret.txt"
+      const missingError = Object.assign(new Error("missing"), { code: "ENOENT" })
+      const resolved = resolveExternalPathForPermission("C:\\project\\tmp\\link\\..\\secret.txt", "C:\\project", {
+        lstat: (candidate) => {
+          if (candidate.toLowerCase() === missing.toLowerCase()) throw missingError
+          return {
+            isSymbolicLink: () => candidate.toLowerCase() === junction.toLowerCase(),
+          } as ReturnType<typeof import("fs").lstatSync>
+        },
+        realpath: (candidate) => (candidate.toLowerCase() === junction.toLowerCase() ? outside : candidate),
+      })
+
+      expect(resolved).toBe(missing)
+    })
+  })
+
+  test("resolves Windows drive-relative paths against the base path", async () => {
+    await withWin32Platform(async () => {
+      const expected = "C:\\project\\outside.txt"
+      const missingError = Object.assign(new Error("missing"), { code: "ENOENT" })
+      const resolved = resolveExternalPathForPermission("C:..\\outside.txt", "C:\\project\\child", {
+        lstat: (candidate) => {
+          if (candidate.toLowerCase() === expected.toLowerCase()) throw missingError
+          return {
+            isSymbolicLink: () => false,
+          } as ReturnType<typeof import("fs").lstatSync>
+        },
+        realpath: (candidate) => candidate,
+      })
+
+      expect(resolved).toBe(expected)
     })
   })
 

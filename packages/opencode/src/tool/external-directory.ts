@@ -14,12 +14,26 @@ type Options = {
   kind?: Kind
 }
 
-export function resolveExternalPathForPermission(target: string, base: string): string {
-  if (process.platform !== "win32") return resolvePosixForPermission(target, base)
-  return resolveWindowsForPermission(target, base)
+type PermissionPathFs = {
+  lstat: (path: string) => ReturnType<typeof lstatSync>
+  realpath: (path: string) => string
 }
 
-function resolveWindowsForPermission(target: string, base: string): string {
+const defaultPermissionPathFs: PermissionPathFs = {
+  lstat: lstatSync,
+  realpath: realpathSync.native,
+}
+
+export function resolveExternalPathForPermission(
+  target: string,
+  base: string,
+  fs: PermissionPathFs = defaultPermissionPathFs,
+): string {
+  if (process.platform !== "win32") return resolvePosixForPermission(target, base, fs)
+  return resolveWindowsForPermission(target, base, fs)
+}
+
+function resolveWindowsForPermission(target: string, base: string, fs: PermissionPathFs): string {
   const raw = windowsPermissionPath(target, base)
   const parsed = path.win32.parse(raw)
   if (!parsed.root) return AppFileSystem.normalizePath(raw, { base })
@@ -37,8 +51,9 @@ function resolveWindowsForPermission(target: string, base: string): string {
 
     const candidate = path.win32.join(current, part)
     try {
-      const stat = lstatSync(candidate)
-      current = stat.isSymbolicLink() ? realpathSync.native(candidate) : candidate
+      const stat = fs.lstat(candidate)
+      if (!stat) throw Object.assign(new Error("missing"), { code: "ENOENT" })
+      current = stat.isSymbolicLink() ? fs.realpath(candidate) : candidate
     } catch (error: any) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
       return AppFileSystem.normalizePath(path.win32.join(current, part, ...parts.slice(i + 1)), { base })
@@ -46,7 +61,7 @@ function resolveWindowsForPermission(target: string, base: string): string {
   }
 
   try {
-    return AppFileSystem.normalizePath(realpathSync.native(current), { base })
+    return AppFileSystem.normalizePath(fs.realpath(current), { base })
   } catch {
     return AppFileSystem.normalizePath(current, { base })
   }
@@ -55,11 +70,18 @@ function resolveWindowsForPermission(target: string, base: string): string {
 function windowsPermissionPath(target: string, base: string): string {
   const input = stripWindowsExtendedPrefix(AppFileSystem.windowsPath(target)).replaceAll("/", "\\")
   if (/^\\\\/.test(input) || /^[A-Za-z]:[\\/]/.test(input)) return uppercaseDriveRoot(input)
+  const driveRelative = input.match(/^([A-Za-z]):(?![\\/])(.*)$/)
+  if (driveRelative) {
+    const drive = `${driveRelative[1].toUpperCase()}:`
+    const baseRoot = path.win32.parse(base).root
+    const baseDrive = baseRoot.slice(0, 2).toUpperCase()
+    const root = drive === baseDrive ? base : `${drive}\\`
+    return uppercaseDriveRoot(`${root.replace(/[\\/]+$/, "")}\\${driveRelative[2]}`)
+  }
   if (/^[\\/](?![\\/])/.test(input)) {
     const root = path.win32.parse(AppFileSystem.normalizePath(base, { base })).root
     if (root) return uppercaseDriveRoot(root.replace(/[\\/]+$/, "") + input)
   }
-  if (/^[A-Za-z]:/.test(input)) return uppercaseDriveRoot(input)
   return uppercaseDriveRoot(`${base.replace(/[\\/]+$/, "")}\\${input}`)
 }
 
@@ -73,7 +95,7 @@ function uppercaseDriveRoot(target: string): string {
   return target.replace(/^([a-z]):/, (_, drive) => `${drive.toUpperCase()}:`)
 }
 
-function resolvePosixForPermission(target: string, base: string): string {
+function resolvePosixForPermission(target: string, base: string, fs: PermissionPathFs): string {
   const raw = path.isAbsolute(target) ? target : `${base.replace(/\/+$/, "")}/${target}`
   const parts = raw.split("/").filter(Boolean)
   let current = "/"
@@ -88,15 +110,16 @@ function resolvePosixForPermission(target: string, base: string): string {
 
     const candidate = path.join(current, part)
     try {
-      const stat = lstatSync(candidate)
-      current = stat.isSymbolicLink() ? realpathSync.native(candidate) : candidate
+      const stat = fs.lstat(candidate)
+      if (!stat) throw Object.assign(new Error("missing"), { code: "ENOENT" })
+      current = stat.isSymbolicLink() ? fs.realpath(candidate) : candidate
     } catch (error: any) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
       return path.resolve(current, part, ...parts.slice(i + 1))
     }
   }
 
-  return realpathSync.native(current)
+  return fs.realpath(current)
 }
 
 export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirectory")(function* (

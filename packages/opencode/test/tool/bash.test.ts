@@ -415,6 +415,167 @@ describe("tool.bash permissions", () => {
 
     for (const item of ps) {
       test(
+        `asks for real external_directory when PowerShell reads through tmp junction [${item.label}]`,
+        withShell(item, async () => {
+          await using outside = await tmpdir({
+            init: async (dir) => {
+              await Bun.write(path.join(dir, "secret.txt"), "secret")
+            },
+          })
+          await using tmp = await tmpdir({ git: true })
+
+          const link = path.join(Global.Path.tmp, `bash-win-existing-${process.pid}-${Date.now()}`)
+          await fs.promises.rm(link, { recursive: true, force: true })
+          await fs.promises.symlink(outside.path, link, "junction")
+          try {
+            await Instance.provide({
+              directory: tmp.path,
+              fn: async () => {
+                const bash = await initBash()
+                const err = new Error("stop after permission")
+                const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+                await expect(
+                  Effect.runPromise(
+                    bash.execute(
+                      {
+                        command: `Get-Content "${path.join(link, "secret.txt")}"`,
+                        description: "Read tmp junction file",
+                      },
+                      capture(requests, err),
+                    ),
+                  ),
+                ).rejects.toThrow(err.message)
+                const extDirReq = requests.find((r) => r.permission === "external_directory")
+                const expected = glob(path.join(await fs.promises.realpath(outside.path), "*"))
+                expect(extDirReq).toBeDefined()
+                expect(extDirReq!.patterns).toContain(expected)
+              },
+            })
+          } finally {
+            await fs.promises.rm(link, { recursive: true, force: true })
+          }
+        }),
+      )
+
+      test(
+        `asks for real external_directory when PowerShell creates through tmp junction [${item.label}]`,
+        withShell(item, async () => {
+          await using outside = await tmpdir()
+          await using tmp = await tmpdir({ git: true })
+
+          const link = path.join(Global.Path.tmp, `bash-win-new-${process.pid}-${Date.now()}`)
+          await fs.promises.rm(link, { recursive: true, force: true })
+          await fs.promises.symlink(outside.path, link, "junction")
+          try {
+            await Instance.provide({
+              directory: tmp.path,
+              fn: async () => {
+                const bash = await initBash()
+                const err = new Error("stop after permission")
+                const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+                await expect(
+                  Effect.runPromise(
+                    bash.execute(
+                      {
+                        command: `New-Item -ItemType File "${path.join(link, "new.txt")}"`,
+                        description: "Create tmp junction file",
+                      },
+                      capture(requests, err),
+                    ),
+                  ),
+                ).rejects.toThrow(err.message)
+                const extDirReq = requests.find((r) => r.permission === "external_directory")
+                const expected = glob(path.join(await fs.promises.realpath(outside.path), "*"))
+                expect(extDirReq).toBeDefined()
+                expect(extDirReq!.patterns).toContain(expected)
+              },
+            })
+          } finally {
+            await fs.promises.rm(link, { recursive: true, force: true })
+          }
+        }),
+      )
+
+      test(
+        `asks for real external_directory when PowerShell path traverses after tmp junction [${item.label}]`,
+        withShell(item, async () => {
+          await using outside = await tmpdir()
+          await using tmp = await tmpdir({ git: true })
+
+          const link = path.join(Global.Path.tmp, `bash-win-dotdot-${process.pid}-${Date.now()}`)
+          await fs.promises.rm(link, { recursive: true, force: true })
+          await fs.promises.symlink(outside.path, link, "junction")
+          try {
+            await Instance.provide({
+              directory: tmp.path,
+              fn: async () => {
+                const bash = await initBash()
+                const err = new Error("stop after permission")
+                const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+                const target = `${link}\\..\\new.txt`
+                await expect(
+                  Effect.runPromise(
+                    bash.execute(
+                      {
+                        command: `Set-Content "${target}" "x"`,
+                        description: "Write parent junction file",
+                      },
+                      capture(requests, err),
+                    ),
+                  ),
+                ).rejects.toThrow(err.message)
+                const extDirReq = requests.find((r) => r.permission === "external_directory")
+                const expected = glob(path.join(path.dirname(await fs.promises.realpath(outside.path)), "*"))
+                expect(extDirReq).toBeDefined()
+                expect(extDirReq!.patterns).toContain(expected)
+              },
+            })
+          } finally {
+            await fs.promises.rm(link, { recursive: true, force: true })
+          }
+        }),
+      )
+
+      test(
+        `asks for real external_directory when PowerShell workdir traverses after junction [${item.label}]`,
+        withShell(item, async () => {
+          await using outside = await tmpdir()
+          await using tmp = await tmpdir({ git: true })
+
+          const link = path.join(tmp.path, "link")
+          await fs.promises.symlink(outside.path, link, "junction")
+
+          await Instance.provide({
+            directory: tmp.path,
+            fn: async () => {
+              const bash = await initBash()
+              const err = new Error("stop after permission")
+              const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+              const workdir = `${link}\\..`
+              await expect(
+                Effect.runPromise(
+                  bash.execute(
+                    {
+                      command: "Write-Output ok",
+                      workdir,
+                      description: "Echo from junction parent",
+                    },
+                    capture(requests, err),
+                  ),
+                ),
+              ).rejects.toThrow(err.message)
+              const extDirReq = requests.find((r) => r.permission === "external_directory")
+              const expected = glob(path.join(path.dirname(await fs.promises.realpath(outside.path)), "*"))
+              expect(extDirReq).toBeDefined()
+              expect(extDirReq!.patterns).toContain(expected)
+            },
+          })
+        }),
+      )
+    }
+
+    for (const item of ps) {
+      test(
         `asks for nested PowerShell command permissions [${item.label}]`,
         withShell(item, async () => {
           await Instance.provide({

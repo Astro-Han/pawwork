@@ -345,7 +345,11 @@ export const BashTool = Tool.define(
       return AppFileSystem.normalizePath(file)
     })
 
-    const resolvePath = Effect.fn("BashTool.resolvePath")(function* (text: string, root: string, shell: string) {
+    const resolveExecutionPath = Effect.fn("BashTool.resolveExecutionPath")(function* (
+      text: string,
+      root: string,
+      shell: string,
+    ) {
       if (process.platform === "win32") {
         if (Shell.posix(shell) && text.startsWith("/") && AppFileSystem.windowsPath(text) === text) {
           const file = yield* cygpath(shell, text)
@@ -356,13 +360,28 @@ export const BashTool = Tool.define(
       return path.isAbsolute(text) ? text : `${root.replace(/\/+$/, "")}/${text}`
     })
 
+    const resolvePermissionTarget = Effect.fn("BashTool.resolvePermissionTarget")(function* (
+      text: string,
+      root: string,
+      shell: string,
+    ) {
+      if (process.platform === "win32") {
+        if (Shell.posix(shell) && text.startsWith("/") && AppFileSystem.windowsPath(text) === text) {
+          const file = yield* cygpath(shell, text)
+          if (file) return file
+        }
+        return AppFileSystem.windowsPath(text)
+      }
+      return path.isAbsolute(text) ? text : `${root.replace(/\/+$/, "")}/${text}`
+    })
+
     const argPath = Effect.fn("BashTool.argPath")(function* (arg: string, cwd: string, ps: boolean, shell: string) {
       const text = ps ? expand(arg, cwd, shell) : home(unquote(arg))
       const file = text && prefix(text)
       if (!file || dynamic(file, ps)) return
       const next = ps ? provider(file) : file
       if (!next) return
-      return yield* resolvePath(next, cwd, shell)
+      return yield* resolvePermissionTarget(next, cwd, shell)
     })
 
     const collect = Effect.fn("BashTool.collect")(function* (root: Node, cwd: string, ps: boolean, shell: string) {
@@ -382,7 +401,7 @@ export const BashTool = Tool.define(
             const resolved = yield* argPath(arg, cwd, ps, shell)
             log.info("resolved path", { arg, resolved })
             if (!resolved) continue
-            const permissionPath = resolveExternalPathForPermission(resolved, Instance.directory)
+            const permissionPath = resolveExternalPathForPermission(resolved, cwd)
             if (Instance.containsPath(permissionPath)) continue
             const dir = (yield* fs.isDir(permissionPath)) ? permissionPath : path.dirname(permissionPath)
             scan.dirs.add(dir)
@@ -602,8 +621,9 @@ export const BashTool = Tool.define(
           parameters: Parameters,
           execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
             Effect.gen(function* () {
-              const cwd = params.workdir
-                ? yield* resolvePath(params.workdir, Instance.directory, shell)
+              const cwd = params.workdir ? yield* resolveExecutionPath(params.workdir, Instance.directory, shell) : Instance.directory
+              const permissionCwdTarget = params.workdir
+                ? yield* resolvePermissionTarget(params.workdir, Instance.directory, shell)
                 : Instance.directory
               if (params.timeout !== undefined && params.timeout <= 0) {
                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
@@ -617,7 +637,7 @@ export const BashTool = Tool.define(
                     (tree: Tree) => Effect.sync(() => tree.delete()),
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell)
-                  const permissionCwd = resolveExternalPathForPermission(cwd, Instance.directory)
+                  const permissionCwd = resolveExternalPathForPermission(permissionCwdTarget, Instance.directory)
                   if (!Instance.containsPath(permissionCwd)) scan.dirs.add(permissionCwd)
                   yield* ask(ctx, scan)
                 }),
