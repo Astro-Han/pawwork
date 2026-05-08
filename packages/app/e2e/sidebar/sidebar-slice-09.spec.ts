@@ -20,7 +20,7 @@ test("sidebar row exposes 4-item menu with leading icons", async ({
     const items = page.getByRole("menuitem")
     const count = await items.count()
     // Export availability depends on runtime config; assert on the stable items.
-    expect(count === 3 || count === 4).toBe(true)
+    expect([3, 4]).toContain(count)
     const labels = await items.allTextContents()
     expect(labels[0]).toMatch(/Pin|置顶/)
     expect(labels[1]).toMatch(/Rename|重命名/)
@@ -36,7 +36,7 @@ test("sidebar row exposes 4-item menu with leading icons", async ({
   })
 })
 
-test("sort trigger is a text+chev popover with two options", async ({ page, sdk, gotoSession }) => {
+test("sort trigger opens a dropdown with two options and reflects the active mode", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
   await withSession(sdk, `slice 09 sort ${stamp}`, async (session) => {
     await gotoSession(session.id)
@@ -82,7 +82,10 @@ test("L37 three-segment shape: side-top, side-scroll, side-foot stacked", async 
     const topBox = await top.boundingBox()
     const scrollBox = await scroll.boundingBox()
     const footBox = await foot.boundingBox()
-    expect(topBox && scrollBox && topBox.y < scrollBox.y).toBe(true)
-    expect(scrollBox && footBox && scrollBox.y < footBox.y).toBe(true)
+    expect(topBox).not.toBeNull()
+    expect(scrollBox).not.toBeNull()
+    expect(footBox).not.toBeNull()
+    expect(topBox!.y).toBeLessThan(scrollBox!.y)
+    expect(scrollBox!.y).toBeLessThan(footBox!.y)
   })
 })
