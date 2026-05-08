@@ -418,7 +418,7 @@ export const SettingsKeybinds: Component = () => {
                           type="button"
                           data-keybind-id={id}
                           classList={{
-                            "h-8 px-3 rounded-md text-13-regular": true,
+                            "h-[30px] px-3 rounded-md text-13-regular": true,
                             "bg-surface-base text-fg-weak hover:bg-surface-raised active:bg-surface-base":
                               store.active !== id,
                             "border border-border-weak bg-surface-sunken text-fg-weak": store.active === id,

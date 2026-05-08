@@ -38,7 +38,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   data-skill-card={card.name}
                   aria-pressed={isSelected()}
                   classList={{
-                    "inline-flex h-7 items-center gap-1.5 rounded-xl border px-3 text-13-regular transition-colors": true,
+                    "inline-flex h-[30px] items-center gap-1.5 rounded-xl border px-3 text-13-regular transition-colors": true,
                     "border-border-base bg-transparent text-fg-base hover:bg-surface-sunken":
                       !isSelected(),
                     "border-brand-primary bg-surface-interactive-base text-fg-strong":

@@ -2,8 +2,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   border: none;
   border-radius: var(--radius-sm);
   background-color: transparent;
@@ -79,7 +79,7 @@
 /* titlebar-icon: 32×24 non-square, DESIGN.md §172 — only 4 uses in titlebar.tsx */
 [data-component="icon-button"].titlebar-icon {
   width: 32px;
-  height: 24px;
+  height: 30px;
   aspect-ratio: auto;
 }
 

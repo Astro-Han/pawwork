@@ -284,7 +284,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                   return (
                     <button
                       type="button"
-                      class="flex items-center gap-2 w-full h-8 pl-3 pr-1.5 py-1.5 rounded-md transition-colors text-left"
+                      class="flex items-center gap-2 w-full h-[30px] pl-3 pr-1.5 py-1.5 rounded-md transition-colors text-left"
                       classList={{
                         "hover:bg-surface-raised": !blocked(),
                         "cursor-not-allowed": blocked(),
@@ -324,7 +324,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
 
               <Button
                 variant="secondary"
-                class="mt-3 self-start h-8 px-3 py-1.5"
+                class="mt-3 self-start h-[30px] px-3 py-1.5"
                 onClick={() => {
                   const run = ++dialogRun
                   void import("./dialog-select-server").then((x) => {
@@ -355,7 +355,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                     return (
                       <button
                         type="button"
-                        class="flex items-center gap-2 w-full h-8 pl-3 pr-2 py-1 rounded-md hover:bg-surface-raised transition-colors text-left"
+                        class="flex items-center gap-2 w-full h-[30px] pl-3 pr-2 py-1 rounded-md hover:bg-surface-raised transition-colors text-left"
                         onClick={() => {
                           if (toggleMcp.isPending) return
                           toggleMcp.mutate(name)

@@ -344,7 +344,7 @@ export function SessionSidePanel(props: {
                     as={IconButton}
                     icon="plus-small"
                     variant="ghost"
-                    class="w-8 h-7 shrink-0"
+                    class="shrink-0"
                     aria-label={language.t("session.panel.addTab")}
                   />
                   <DropdownMenu.Portal>

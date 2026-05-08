@@ -298,7 +298,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
       </SectionRow>
 
       <div class="px-4 py-3">
-        <Button variant="secondary" class="h-8 px-3 py-1.5" onClick={openServerPicker}>
+        <Button variant="secondary" class="px-3 py-1.5" onClick={openServerPicker}>
           {language.t("status.popover.action.manageServers")}
         </Button>
       </div>

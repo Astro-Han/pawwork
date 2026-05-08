@@ -263,7 +263,7 @@ export const PawworkSidebar = (props: {
               type="button"
               data-action="pawwork-session-new"
               onClick={props.onNew}
-              class="w-full h-[32px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+              class="w-full h-[30px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
             >
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="new-session" class="text-icon-base" />
@@ -280,7 +280,7 @@ export const PawworkSidebar = (props: {
               type="button"
               data-action="pawwork-session-search"
               onClick={props.onSearch}
-              class="w-full h-[32px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+              class="w-full h-[30px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
             >
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="magnifying-glass" class="text-icon-base" />
@@ -317,12 +317,12 @@ export const PawworkSidebar = (props: {
             <nav class="flex flex-col">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
-                  <div class="mt-4 h-[32px] flex items-center px-2.5 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
+                  <div class="mt-4 h-[30px] flex items-center px-2.5 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
               <Show when={rows().length > 0 || groupedRows().length > 0}>
-                <div class="mt-4 h-[32px] flex items-center justify-between px-2.5">
+                <div class="mt-4 h-[30px] flex items-center justify-between px-2.5">
                   <span class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
                   <DropdownMenu>
                     <Tooltip placement="bottom" value={language.t("sidebar.pawwork.sort.label")}>
@@ -385,7 +385,7 @@ export const PawworkSidebar = (props: {
                           data-collapsed={collapsed() ? "true" : undefined}
                           aria-expanded={!collapsed()}
                           onClick={() => props.onToggleProjectCollapsed(group.label)}
-                          class="group/group-header h-[32px] flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
+                          class="group/group-header h-[30px] flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
                         >
                           <Icon name="folder" class="shrink-0 text-icon-weak" />
                           <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
@@ -462,7 +462,7 @@ export const PawworkSidebar = (props: {
             data-action="pawwork-open-settings"
             onClick={props.onOpenSettings}
             aria-label={props.settingsLabel()}
-            class="w-full h-[32px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            class="w-full h-[30px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" class="text-icon-base" />

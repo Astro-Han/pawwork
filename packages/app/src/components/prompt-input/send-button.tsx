@@ -28,7 +28,7 @@ export const SendButton: Component<SendButtonProps> = (props) => {
             ? "var(--fg-strong)"
             : "var(--button-brand-base)",
       }}
-      class="inline-flex h-[32px] w-[32px] items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-not-allowed"
+      class="inline-flex h-[30px] w-[30px] items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-not-allowed"
     >
       <Icon
         name={props.stopping ? "stop-square" : "arrow-up"}

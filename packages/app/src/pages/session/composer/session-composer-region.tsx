@@ -148,7 +148,7 @@ export function SessionComposerRegion(props: {
               </DockCard>
             }
           >
-            <DockCard class="min-h-[140px]">
+            <DockCard>
               <Show when={props.state.dock()}>
                 <SessionTodoDock
                   sessionID={displaySessionID()}

@@ -52,7 +52,7 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                   data-selected={selected ? "" : undefined}
                   classList={{
                     "group inline-flex shrink-0 items-center gap-1 cursor-default transition-colors": true,
-                    "h-[24px] rounded-full pl-2 pr-1 max-w-[200px]": true,
+                    "h-[26px] rounded-full pl-2 pr-1 max-w-[200px]": true,
                     "bg-surface-interactive-hover": selected,
                     "bg-bg-weak hover:bg-surface-interactive-base": !selected,
                   }}

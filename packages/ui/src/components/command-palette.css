@@ -48,7 +48,7 @@
 /* Refinements layered over the generic List component. The palette wants a
  * generous 52px ghost header — wide enough that the search input feels like
  * the primary surface — with a structural 1px divider below, then a dense
- * 32px list body per L32. Scope every override to the palette so other List
+ * 30px list body (L32 unified to L25 button 30 in slice 10). Scope every override to the palette so other List
  * consumers (model picker, file picker) keep their flat in-popover search. */
 
 [data-component="command-palette"] [data-component="list"] {
@@ -127,9 +127,9 @@
 }
 
 [data-component="command-palette"] [data-slot="list-item"] {
-  /* L32 row: 32 high, padding 0/12, radius-sm, type-body. */
-  height: 32px;
-  min-height: 32px;
+  /* L32 row: aligned with L25 button 28 after slice 10 unification. */
+  height: 30px;
+  min-height: 30px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-base);

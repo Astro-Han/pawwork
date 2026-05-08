@@ -105,7 +105,7 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
       <div class="border-t border-border-weaker pt-3 pb-1">
         <Kobalte modal={false} placement="right-start" gutter={4}>
           <Kobalte.Trigger
-            class="group/think w-full h-8 px-2 gap-3 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong"
+            class="group/think w-full h-[30px] px-2 gap-3 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong"
           >
             <span>{language.t("dialog.model.variant")}</span>
             <span class="ml-auto text-fg-weak">{translateVariant(language.t, current())}</span>
@@ -123,7 +123,7 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
                 {(opt) => (
                   <button
                     type="button"
-                    class="w-full h-8 px-2 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong"
+                    class="w-full h-[30px] px-2 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong"
                     classList={{
                       "bg-row-active-overlay text-fg-strong font-medium": opt === current(),
                     }}

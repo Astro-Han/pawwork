@@ -34,7 +34,7 @@ export const DialogManageModels: Component = () => {
       title={language.t("dialog.model.manage")}
       description={language.t("dialog.model.manage.description")}
       action={
-        <Button class="h-7 -my-1 text-13-medium" icon="plus-small" tabIndex={-1} onClick={handleConnectProvider}>
+        <Button class="-my-1 text-13-medium" icon="plus-small" tabIndex={-1} onClick={handleConnectProvider}>
           {language.t("command.provider.connect")}
         </Button>
       }

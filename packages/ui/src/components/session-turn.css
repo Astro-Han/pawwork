@@ -149,7 +149,9 @@
   }
 
   [data-slot="session-turn-changes-action"] {
-    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
     padding: 0 10px;
     border: 0;
     border-radius: 6px;
@@ -157,7 +159,7 @@
     color: var(--fg-weak);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-base);
-    line-height: 24px;
+    line-height: 1;
     font-weight: var(--font-weight-regular);
     cursor: pointer;
   }
@@ -181,7 +183,7 @@
   }
 
   [data-slot="session-turn-change-row"] {
-    height: 32px;
+    height: 30px;
     display: grid;
     grid-template-columns: 20px minmax(0, 1fr) max-content 56px;
     align-items: center;

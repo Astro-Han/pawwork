@@ -126,7 +126,7 @@ function ReviewCommentMenu(props: {
         <DropdownMenu.Trigger
           as={IconButton}
           icon="dot-grid"
-          class="size-6 rounded-md"
+          class="rounded-md"
           aria-label={props.labels.moreLabel}
         />
         <DropdownMenu.Portal>

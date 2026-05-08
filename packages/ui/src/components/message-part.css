@@ -147,7 +147,7 @@
   }
 
   [data-slot="user-message-copy-wrapper"] {
-    min-height: 24px;
+    min-height: 30px;
     margin-top: 4px;
     display: flex;
     align-items: center;
@@ -216,7 +216,7 @@
   }
 
   [data-slot="text-part-copy-wrapper"] {
-    min-height: 24px;
+    min-height: 30px;
     margin-top: 4px;
     display: flex;
     align-items: center;
@@ -547,8 +547,8 @@
 }
 
 [data-component="tool-action"] {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -623,7 +623,7 @@
 
 [data-component="context-tool-group-trigger"] {
   width: 100%;
-  min-height: 24px;
+  min-height: 30px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
