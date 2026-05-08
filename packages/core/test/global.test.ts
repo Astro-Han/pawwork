@@ -51,6 +51,7 @@ describe("shared Global runtime namespace", () => {
     expect(paths.cache).toBe(path.join(root.cache, "pawwork"))
     expect(paths.config).toBe(path.join(root.config, "pawwork"))
     expect(paths.state).toBe(path.join(root.state, "pawwork"))
+    expect(paths.tmp).toBe(path.join(root.state, "pawwork", "tmp"))
   })
 
   test("accepts PawWork variant namespaces", () => {

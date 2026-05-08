@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import fs from "fs/promises"
 import { Effect } from "effect"
+import { Global } from "@opencode-ai/core/global"
 import type * as Tool from "../../src/tool/tool"
 import { Instance } from "../../src/project/instance"
 import { assertExternalDirectory } from "../../src/tool/external-directory"
@@ -88,6 +90,44 @@ describe("tool.assertExternalDirectory", () => {
     expect(req!.patterns).toEqual([expected])
     expect(req!.always).toEqual([expected])
   })
+
+  if (process.platform !== "win32") {
+    test("asks for the real target when a tmp child is a symlink", async () => {
+      const { requests, ctx } = makeCtx()
+
+      await using outside = await tmpdir({
+        init: async (dir) => {
+          await Bun.write(path.join(dir, "secret.txt"), "secret")
+        },
+      })
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(Global.Path.tmp, `external-directory-${process.pid}-${Date.now()}`)
+      await fs.rm(link, { recursive: true, force: true })
+      await fs.symlink(outside.path, link, "dir")
+      try {
+        const target = path.join(link, "secret.txt")
+        const realTarget = path.join(await fs.realpath(outside.path), "secret.txt")
+        const expected = glob(path.join(path.dirname(realTarget), "*"))
+
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            await assertExternalDirectory(ctx, target)
+          },
+        })
+
+        const req = requests.find((r) => r.permission === "external_directory")
+        expect(req).toBeDefined()
+        expect(req!.patterns).toEqual([expected])
+        expect(req!.always).toEqual([expected])
+        expect(req!.metadata.filepath).toBe(target)
+        expect(req!.metadata.realpath).toBe(realTarget)
+      } finally {
+        await fs.rm(link, { recursive: true, force: true })
+      }
+    })
+  }
 
   test("uses target directory when kind=directory", async () => {
     const { requests, ctx } = makeCtx()

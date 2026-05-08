@@ -21,12 +21,18 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
   if (!target) return
 
   const ins = yield* InstanceState.context
-  const full = process.platform === "win32" ? AppFileSystem.normalizePath(target, { base: ins.directory }) : target
+  const full =
+    process.platform === "win32"
+      ? AppFileSystem.normalizePath(target, { base: ins.directory })
+      : path.isAbsolute(target)
+        ? target
+        : path.resolve(ins.directory, target)
+  const resolved = AppFileSystem.resolve(full, { base: ins.directory })
   if (options?.bypass) return full
-  if (Instance.containsPath(full, ins)) return full
+  if (Instance.containsPath(resolved, ins)) return full
 
   const kind = options?.kind ?? "file"
-  const dir = kind === "directory" ? full : path.dirname(full)
+  const dir = kind === "directory" ? resolved : path.dirname(resolved)
   const glob =
     process.platform === "win32"
       ? AppFileSystem.normalizePathPattern(path.join(dir, "*"), { base: ins.directory })
@@ -38,6 +44,7 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
     always: [glob],
     metadata: {
       filepath: full,
+      realpath: resolved,
       parentDir: dir,
     },
   })
