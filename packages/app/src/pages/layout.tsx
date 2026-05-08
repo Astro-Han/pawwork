@@ -127,7 +127,14 @@ export default function Layout(props: ParentProps) {
   const notification = useNotification()
   const permission = usePermission()
   const navigate = useNavigate()
-  setNavigate(navigate)
+  // Wrap navigate so non-shell entry points (notification clicks, deep links
+  // dispatched through @/utils/notification-click) also close the settings
+  // overlay before routing. Shell-driven navigation (openNewSession /
+  // openSession) closes settings explicitly through closeSettingsSurface.
+  setNavigate((href) => {
+    closeSettings()
+    navigate(href)
+  })
   const providers = useProviders()
   const dialog = useDialog()
   const command = useCommand()
