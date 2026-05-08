@@ -129,7 +129,6 @@ export const dict: Record<string, string> = {
   "ui.tool.grep": "Grep",
   "ui.tool.webfetch": "Webfetch",
   "ui.tool.websearch": "Web Search",
-  "ui.tool.codesearch": "Code Search",
   "ui.tool.worktree.enter": "Enter worktree",
   "ui.tool.worktree.enter.fromProject": "{{project}} → {{target}}",
   "ui.tool.worktree.exit": "Exit worktree",

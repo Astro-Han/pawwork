@@ -17,7 +17,7 @@ Use this tool proactively when you need a user decision that meaningfully shapes
 
 - Factual lookups you can answer by reading code, docs, or running a command.
 - The user already gave a specific instruction; just execute it.
-- Pure exploration tasks (use the explore agent or codesearch instead).
+- Pure exploration tasks (use the explore agent or search tools instead).
 - Trivial style choices a sensible default covers.
 - Confirmation theater: don't ask "should I proceed?" after the user already said proceed.
 

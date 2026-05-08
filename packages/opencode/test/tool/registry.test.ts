@@ -549,6 +549,17 @@ describe("tool.registry", () => {
     })
   })
 
+  test("does not register broken codesearch tool", async () => {
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const ids = await ToolRegistry.ids()
+        expect(ids).not.toContain("codesearch")
+      },
+    })
+  })
+
   test("includes lsp tool when Settings.lspEnabled=true", async () => {
     await using tmp = await tmpdir()
     await Settings.setLspEnabled(true)
@@ -591,7 +602,7 @@ describe("tool.registry", () => {
     }
   })
 
-  test("exposes websearch for non-opencode providers by default while codesearch stays gated", async () => {
+  test("exposes websearch for non-opencode providers without codesearch", async () => {
     await using tmp = await tmpdir()
     const previous = await Settings.webSearchEnabled()
     try {
