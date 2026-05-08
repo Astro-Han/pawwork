@@ -136,13 +136,13 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
       : path.isAbsolute(target)
       ? target
       : `${ins.directory.replace(/\/+$/, "")}/${target}`
+  if (options?.bypass) return full
   const resolved = resolveExternalPathForPermission(full, ins.directory)
   const scope = {
     ...ins,
     directory: resolveExternalPathForPermission(ins.directory, ins.directory),
     worktree: ins.worktree === "/" ? ins.worktree : resolveExternalPathForPermission(ins.worktree, ins.directory),
   }
-  if (options?.bypass) return full
   if (Instance.containsPath(resolved, scope)) return full
 
   const kind = options?.kind ?? "file"
