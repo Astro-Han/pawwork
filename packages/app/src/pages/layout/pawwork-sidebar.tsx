@@ -190,6 +190,7 @@ export const PawworkSidebar = (props: {
                   as={IconButton}
                   icon="dot-grid"
                   variant="ghost"
+                  class="h-[26px] w-[26px]"
                   data-action="session-row-menu"
                   aria-label={language.t("common.moreOptions")}
                   onClick={(event: MouseEvent) => {
@@ -331,6 +332,7 @@ export const PawworkSidebar = (props: {
                         data-action="pawwork-sort-trigger"
                         data-mode={props.sortMode()}
                         icon="sort"
+                        class="h-[26px] w-[26px]"
                         aria-label={language.t("sidebar.pawwork.sort.label")}
                       />
                     </Tooltip>
