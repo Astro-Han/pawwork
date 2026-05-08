@@ -359,7 +359,13 @@ export const AgentTool = Tool.define(
 
             const runCancel = yield* EffectBridge.make()
             const cancelChild = ops.cancel(nextSession.id)
-            const onParentAbort = () => runCancel.fork(cancelChild)
+            let cancelledChild = false
+            const cancelChildOnce = Effect.suspend(() => {
+              if (cancelledChild) return Effect.void
+              cancelledChild = true
+              return cancelChild
+            })
+            const onParentAbort = () => runCancel.fork(cancelChildOnce)
 
             // Pre-aborted short-circuit. If parent already aborted before we got here, skip
             // ops.prompt entirely and finalize as canceled_by_user with no partial_result.
@@ -457,7 +463,7 @@ export const AgentTool = Tool.define(
                 }),
               (_, exit) =>
                 Effect.gen(function* () {
-                  if (Exit.hasInterrupts(exit)) yield* cancelChild
+                  if (Exit.hasInterrupts(exit)) yield* cancelChildOnce
                 }).pipe(
                   Effect.ensuring(
                     Effect.sync(() => {

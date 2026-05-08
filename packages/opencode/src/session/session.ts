@@ -796,7 +796,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
             sessionID: session.id,
           }
           if (p.type === "compaction" && p.tail_start_id) {
-            p.tail_start_id = idMap.get(p.tail_start_id)
+            p.tail_start_id = idMap.get(p.tail_start_id) ?? p.tail_start_id
           }
           yield* updatePart(p)
         }

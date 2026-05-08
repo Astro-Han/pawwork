@@ -28,7 +28,7 @@ const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "
 export const Parameters = Schema.Struct({
   filePath: Schema.String.annotate({ description: "The absolute path to the file or directory to read" }),
   offset: Schema.optional(Schema.Number).annotate({
-    description: "The line number to start reading from (1-indexed)",
+    description: "The line number to start reading from (1-indexed; 0 is accepted as the first line/entry)",
   }),
   limit: Schema.optional(Schema.Number).annotate({
     description: "The maximum number of lines to read (defaults to 2000)",

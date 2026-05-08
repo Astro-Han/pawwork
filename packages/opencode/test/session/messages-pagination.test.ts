@@ -875,6 +875,29 @@ describe("MessageV2.filterCompacted", () => {
     })
   })
 
+  test("fork preserves compaction tail_start_id when the tail is not cloned", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const session = await svc.create({})
+
+        const boundary = await addUser(session.id, "compact")
+        const tail = await addUser(session.id, "retained")
+        await addCompactionPart(session.id, boundary, tail)
+
+        const forked = await svc.fork({ sessionID: session.id, messageID: tail })
+        const childMessages = MessageV2.filterCompacted(MessageV2.stream(forked.id))
+        const tailPart = childMessages.flatMap((message) => message.parts).find((part) => part.type === "compaction")
+        expect(tailPart?.type).toBe("compaction")
+        if (!tailPart || tailPart.type !== "compaction") throw new Error("Expected forked compaction part")
+        expect(tailPart.tail_start_id).toBe(tail)
+
+        await svc.remove(forked.id)
+        await svc.remove(session.id)
+      },
+    })
+  })
+
   it.live(
     "keeps retained tail messages after successful compaction summary",
     provideTmpdirInstance(() =>
