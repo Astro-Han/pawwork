@@ -7,18 +7,14 @@ type KeydownHandler = (event: {
   preventDefault: () => void
 }) => void
 
-const originalNavigator = globalThis.navigator
-const originalWindow = globalThis.window
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator")
+const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window")
 
 afterEach(() => {
-  Object.defineProperty(globalThis, "navigator", {
-    value: originalNavigator,
-    configurable: true,
-  })
-  Object.defineProperty(globalThis, "window", {
-    value: originalWindow,
-    configurable: true,
-  })
+  if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator)
+  else delete (globalThis as { navigator?: Navigator }).navigator
+  if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow)
+  else delete (globalThis as { window?: Window }).window
 })
 
 function deferred() {
@@ -38,6 +34,7 @@ async function loadZoomModule(options?: { userAgent?: string; setZoomFactor?: (f
   Object.defineProperty(globalThis, "navigator", {
     value: { userAgent: options?.userAgent ?? "Windows" },
     configurable: true,
+    writable: true,
   })
   Object.defineProperty(globalThis, "window", {
     value: {
@@ -47,6 +44,7 @@ async function loadZoomModule(options?: { userAgent?: string; setZoomFactor?: (f
       },
     },
     configurable: true,
+    writable: true,
   })
 
   const module = await import(`./webview-zoom?webview-zoom-test=${crypto.randomUUID()}`)
