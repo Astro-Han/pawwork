@@ -569,22 +569,68 @@ export function topK(model: Provider.Model) {
 
 const WIDELY_SUPPORTED_EFFORTS = ["low", "medium", "high"]
 const OPENAI_EFFORTS = ["none", "minimal", ...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
+const OPENAI_GPT5_1_EFFORTS = ["none", ...WIDELY_SUPPORTED_EFFORTS]
+const OPENAI_GPT5_2_PLUS_EFFORTS = [...OPENAI_GPT5_1_EFFORTS, "xhigh"]
+const OPENAI_GPT5_PRO_EFFORTS = ["high"]
+const OPENAI_GPT5_PRO_2_PLUS_EFFORTS = ["medium", "high", "xhigh"]
+const OPENAI_GPT5_CHAT_EFFORTS = ["medium"]
+const OPENAI_GPT5_CODEX_XHIGH_EFFORTS = [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
+const OPENAI_GPT5_CODEX_3_PLUS_EFFORTS = ["none", ...OPENAI_GPT5_CODEX_XHIGH_EFFORTS]
 const OPENAI_NONE_EFFORT_RELEASE_DATE = "2025-11-13"
 const OPENAI_XHIGH_EFFORT_RELEASE_DATE = "2025-12-04"
 const GPT5_FAMILY_RE = /(?:^|\/)gpt-5(?:[.-]|$)/
+const GPT5_VERSION_RE = /(?:^|\/)gpt-5[.-](\d+)(?:[.-]|$)/
+const GPT5_PRO_RE = /(?:^|\/)gpt-5[.-]?pro(?:[.-]|$)/
+const GPT5_VERSIONED_PRO_RE = /(?:^|\/)gpt-5[.-]\d+[.-]pro(?:[.-]|$)/
 
-function openaiReasoningEfforts(apiId: string, releaseDate: string): string[] | null {
+function gpt5Version(apiId: string) {
+  return Number(GPT5_VERSION_RE.exec(apiId)?.[1]) || undefined
+}
+
+function versionedGpt5ReasoningEfforts(apiId: string) {
+  if (GPT5_VERSIONED_PRO_RE.test(apiId)) return OPENAI_GPT5_PRO_2_PLUS_EFFORTS
+  const version = gpt5Version(apiId)
+  if (version === undefined) return undefined
+  if (version === 1) return OPENAI_GPT5_1_EFFORTS
+  return OPENAI_GPT5_2_PLUS_EFFORTS
+}
+
+function gpt5CodexReasoningEfforts(apiId: string) {
+  if (!GPT5_FAMILY_RE.test(apiId) || !apiId.includes("codex")) return undefined
+  const version = gpt5Version(apiId)
+  if (version !== undefined && version >= 3) return OPENAI_GPT5_CODEX_3_PLUS_EFFORTS
+  if (apiId.includes("codex-max") || (version !== undefined && version >= 2)) return OPENAI_GPT5_CODEX_XHIGH_EFFORTS
+  return WIDELY_SUPPORTED_EFFORTS
+}
+
+function gpt5ChatReasoningEfforts(apiId: string) {
+  if (!GPT5_FAMILY_RE.test(apiId) || !apiId.includes("-chat")) return undefined
+  return gpt5Version(apiId) === undefined ? [] : OPENAI_GPT5_CHAT_EFFORTS
+}
+
+function openaiReasoningEfforts(apiId: string, releaseDate: string) {
   const id = apiId.toLowerCase()
-  if (id === "gpt-5-pro" || id === "openai/gpt-5-pro") return null
-  if (id.includes("codex")) {
-    if (id.includes("5.2") || id.includes("5.3")) return [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
-    return [...WIDELY_SUPPORTED_EFFORTS]
-  }
+  if (id.includes("deep-research")) return ["medium"]
+  const chatEfforts = gpt5ChatReasoningEfforts(id)
+  if (chatEfforts) return chatEfforts
+  if (GPT5_PRO_RE.test(id)) return OPENAI_GPT5_PRO_EFFORTS
+  const codexEfforts = gpt5CodexReasoningEfforts(id)
+  if (codexEfforts) return codexEfforts
+  const versionedEfforts = versionedGpt5ReasoningEfforts(id)
+  if (versionedEfforts) return versionedEfforts
   const efforts = [...WIDELY_SUPPORTED_EFFORTS]
   if (GPT5_FAMILY_RE.test(id)) efforts.unshift("minimal")
   if (releaseDate >= OPENAI_NONE_EFFORT_RELEASE_DATE) efforts.unshift("none")
   if (releaseDate >= OPENAI_XHIGH_EFFORT_RELEASE_DATE) efforts.push("xhigh")
   return efforts
+}
+
+function openaiCompatibleReasoningEfforts(id: string) {
+  const apiId = id.toLowerCase()
+  const chatEfforts = gpt5ChatReasoningEfforts(apiId)
+  if (chatEfforts) return chatEfforts
+  if (GPT5_PRO_RE.test(apiId)) return OPENAI_GPT5_PRO_EFFORTS
+  return gpt5CodexReasoningEfforts(apiId) ?? versionedGpt5ReasoningEfforts(apiId) ?? OPENAI_EFFORTS
 }
 
 function anthropicAdaptiveEfforts(apiId: string): string[] | null {
@@ -601,6 +647,29 @@ function deepseekMajorVersion(apiId: string): number | undefined {
   const match = apiId.toLowerCase().match(/(^|[/:])deepseek-v(\d+)(?:[.\-/]|$)/)
   if (!match) return undefined
   return Number.parseInt(match[2]!, 10)
+}
+
+function googleThinkingLevelEfforts(apiId: string) {
+  const id = apiId.toLowerCase()
+  if (!id.includes("gemini-3")) return ["low", "high"]
+  if (id.includes("flash-image")) return ["minimal", "high"]
+  if (id.includes("pro-image")) return ["high"]
+  if (id.includes("flash")) return ["minimal", "low", "medium", "high"]
+  return ["low", "medium", "high"]
+}
+
+function googleThinkingBudgetMax(apiId: string) {
+  const id = apiId.toLowerCase()
+  if (id.includes("2.5") && id.includes("pro") && !id.includes("flash")) return 32_768
+  return 24_576
+}
+
+function googleSmallThinkingConfig(apiId: string) {
+  const levels = googleThinkingLevelEfforts(apiId)
+  if (apiId.toLowerCase().includes("gemini-3")) {
+    return { thinkingLevel: levels.includes("minimal") ? "minimal" : levels.includes("low") ? "low" : "high" }
+  }
+  return { thinkingBudget: googleThinkingBudgetMax(apiId) === 32_768 ? 128 : 0 }
 }
 
 export function variants(model: Provider.Model): Record<string, Record<string, any>> {
@@ -637,8 +706,13 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
 
   switch (model.api.npm) {
     case "@openrouter/ai-sdk-provider":
-      if (!model.id.includes("gpt") && !model.id.includes("gemini-3") && !model.id.includes("claude")) return {}
-      return Object.fromEntries(OPENAI_EFFORTS.map((effort) => [effort, { reasoning: { effort } }]))
+      if (!id.includes("gpt") && !id.includes("gemini-3") && !id.includes("claude")) return {}
+      return Object.fromEntries(
+        (id.includes("gpt") ? openaiCompatibleReasoningEfforts(id) : OPENAI_EFFORTS).map((effort) => [
+          effort,
+          { reasoning: { effort } },
+        ]),
+      )
 
     case "@ai-sdk/gateway":
       if (model.id.includes("anthropic")) {
@@ -702,7 +776,6 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     case "ai-gateway-provider": {
       if (model.api.id.startsWith("openai/")) {
         const efforts = openaiReasoningEfforts(model.api.id, model.release_date)
-        if (!efforts) return {}
         return Object.fromEntries(efforts.map((effort) => [effort, { reasoningEffort: effort }]))
       }
       return Object.fromEntries(WIDELY_SUPPORTED_EFFORTS.map((effort) => [effort, { reasoningEffort: effort }]))
@@ -750,18 +823,22 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
       if (deepseekMajor !== undefined && deepseekMajor >= 4) {
         openaiCompatibleEfforts.push("max")
       }
-      return Object.fromEntries(openaiCompatibleEfforts.map((effort) => [effort, { reasoningEffort: effort }]))
+      return Object.fromEntries(
+        (GPT5_FAMILY_RE.test(model.api.id.toLowerCase())
+          ? openaiCompatibleReasoningEfforts(model.api.id)
+          : openaiCompatibleEfforts
+        ).map((effort) => [effort, { reasoningEffort: effort }]),
+      )
     }
 
     case "@ai-sdk/azure": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/azure
       if (id === "o1-mini") return {}
-      const azureEfforts = ["low", "medium", "high"]
-      if (GPT5_FAMILY_RE.test(id)) {
-        azureEfforts.unshift("minimal")
-      }
       return Object.fromEntries(
-        azureEfforts.map((effort) => [
+        (GPT5_FAMILY_RE.test(id) && gpt5Version(id) === undefined
+          ? ["minimal", ...WIDELY_SUPPORTED_EFFORTS]
+          : WIDELY_SUPPORTED_EFFORTS
+        ).map((effort) => [
           effort,
           {
             reasoningEffort: effort,
@@ -774,7 +851,6 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     case "@ai-sdk/openai": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/openai
       const openaiEfforts = openaiReasoningEfforts(model.api.id, model.release_date)
-      if (!openaiEfforts) return {}
       return Object.fromEntries(
         openaiEfforts.map((effort) => [
           effort,
@@ -812,6 +888,10 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
             },
           ]),
         )
+      }
+
+      if (["opus-4-5", "opus-4.5"].some((v) => model.api.id.includes(v))) {
+        return Object.fromEntries(WIDELY_SUPPORTED_EFFORTS.map((effort) => [effort, { effort }]))
       }
 
       return {
@@ -890,18 +970,14 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
           max: {
             thinkingConfig: {
               includeThoughts: true,
-              thinkingBudget: 24576,
+              thinkingBudget: googleThinkingBudgetMax(id),
             },
           },
         }
       }
-      let levels = ["low", "high"]
-      if (id.includes("3.1")) {
-        levels = ["low", "medium", "high"]
-      }
 
       return Object.fromEntries(
-        levels.map((effort) => [
+        googleThinkingLevelEfforts(id).map((effort) => [
           effort,
           {
             thinkingConfig: {
@@ -1156,6 +1232,11 @@ export function smallOptions(model: Provider.Model) {
     model.api.npm === "@ai-sdk/github-copilot"
   ) {
     if (model.api.id.includes("gpt-5")) {
+      if (model.api.id.includes("-chat")) {
+        if (gpt5Version(model.api.id) === undefined) return { store: false }
+        return { store: false, reasoningEffort: "medium" }
+      }
+      if (model.api.id.includes("search-api")) return { store: false }
       if (model.api.id.includes("5.") || model.api.id.includes("5-mini")) {
         return { store: false, reasoningEffort: "low" }
       }
@@ -1165,10 +1246,7 @@ export function smallOptions(model: Provider.Model) {
   }
   if (model.providerID === "google") {
     // gemini-3 uses thinkingLevel, gemini-2.5 uses thinkingBudget
-    if (model.api.id.includes("gemini-3")) {
-      return { thinkingConfig: { thinkingLevel: "minimal" } }
-    }
-    return { thinkingConfig: { thinkingBudget: 0 } }
+    return { thinkingConfig: googleSmallThinkingConfig(model.api.id) }
   }
   if (model.providerID === "openrouter" || model.providerID === "llmgateway") {
     if (model.api.id.includes("google")) {
