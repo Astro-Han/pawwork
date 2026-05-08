@@ -294,6 +294,7 @@ test("Claude Code skills flag does not disable .agents/skills discovery", async 
     git: true,
     init: async (dir) => {
       const agentDir = path.join(dir, ".agents", "skills", "agent-skill")
+      const claudeDir = path.join(dir, ".claude", "skills", "claude-skill")
       await Bun.write(
         path.join(agentDir, "SKILL.md"),
         `---
@@ -302,6 +303,16 @@ description: A skill in the .agents/skills directory.
 ---
 
 # Agent Skill
+`,
+      )
+      await Bun.write(
+        path.join(claudeDir, "SKILL.md"),
+        `---
+name: claude-skill
+description: A skill in the .claude/skills directory.
+---
+
+# Claude Skill
 `,
       )
     },
@@ -316,6 +327,7 @@ description: A skill in the .agents/skills directory.
       fn: async () => {
         const skills = await Skill.all()
         expect(skills.find((s) => s.name === "agent-skill")).toBeDefined()
+        expect(skills.find((s) => s.name === "claude-skill")).toBeUndefined()
       },
     })
   } finally {

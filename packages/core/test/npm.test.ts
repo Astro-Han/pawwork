@@ -76,6 +76,7 @@ describe("Npm.add", () => {
     const entry = await Effect.runPromise(effect)
 
     expect(Option.isSome(entry.entrypoint)).toBe(true)
+    expect(Option.getOrThrow(entry.entrypoint)).toContain(path.join("fixture-provider", "index.js"))
   })
 })
 

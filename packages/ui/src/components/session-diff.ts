@@ -29,6 +29,7 @@ function patch(diff: ReviewDiff) {
   if (typeof diff.patch === "string") {
     try {
       const [patch] = parsePatch(diff.patch)
+      if (!patch) return { before: "", after: "", patch: diff.patch }
 
       const beforeLines = []
       const afterLines = []
