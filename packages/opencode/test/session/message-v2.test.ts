@@ -158,6 +158,54 @@ describe("session.message-v2.toModelMessage", () => {
     expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
   })
 
+  test("filters out user messages with only empty text parts", async () => {
+    const messageID = "m-user"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(messageID),
+        parts: [
+          {
+            ...basePart(messageID, "p1"),
+            type: "text",
+            text: "",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([])
+  })
+
+  test("filters empty user text parts while keeping non-empty parts", async () => {
+    const messageID = "m-user"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(messageID),
+        parts: [
+          {
+            ...basePart(messageID, "p1"),
+            type: "text",
+            text: "",
+          },
+          {
+            ...basePart(messageID, "p2"),
+            type: "text",
+            text: "hello",
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+      },
+    ])
+  })
+
   test("includes synthetic text parts", async () => {
     const messageID = "m-user"
 
@@ -423,6 +471,167 @@ describe("session.message-v2.toModelMessage", () => {
         },
       ],
     })
+  })
+
+  test("omits empty text when tool output only has media attachments", async () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1"),
+            type: "text",
+            text: "inspect image",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-1",
+            tool: "read",
+            state: {
+              status: "completed",
+              input: { filePath: "image.png" },
+              output: "",
+              title: "Read",
+              metadata: {},
+              time: { start: 0, end: 1 },
+              attachments: [
+                {
+                  ...basePart(assistantID, "file-1"),
+                  type: "file",
+                  mime: "image/png",
+                  filename: "image.png",
+                  url: "data:image/png;base64,aW1hZ2U=",
+                },
+              ],
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const [, , tool] = await MessageV2.toModelMessages(input, model)
+    expect(tool).toMatchObject({
+      role: "tool",
+      content: [
+        {
+          output: {
+            type: "content",
+            value: [{ type: "media", mediaType: "image/png", data: "aW1hZ2U=" }],
+          },
+        },
+      ],
+    })
+  })
+
+  test("moves bedrock pdf tool-result media into a separate user message", async () => {
+    const bedrockModel: Provider.Model = {
+      ...model,
+      id: ModelID.make("amazon-bedrock/anthropic.claude-sonnet-4-6"),
+      providerID: ProviderID.make("amazon-bedrock"),
+      api: {
+        id: "anthropic.claude-sonnet-4-6",
+        url: "https://bedrock-runtime.us-east-1.amazonaws.com",
+        npm: "@ai-sdk/amazon-bedrock",
+      },
+      capabilities: {
+        ...model.capabilities,
+        attachment: true,
+        input: {
+          ...model.capabilities.input,
+          image: true,
+          pdf: true,
+        },
+      },
+    }
+    const pdf = Buffer.from("%PDF-1.4\n").toString("base64")
+    const userID = "m-user-bedrock-pdf"
+    const assistantID = "m-assistant-bedrock-pdf"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [
+          {
+            ...basePart(userID, "u1-bedrock-pdf"),
+            type: "text",
+            text: "run tool",
+          },
+        ] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(assistantID, userID),
+        parts: [
+          {
+            ...basePart(assistantID, "a1-bedrock-pdf"),
+            type: "tool",
+            callID: "call-bedrock-pdf-1",
+            tool: "read",
+            state: {
+              status: "completed",
+              input: { filePath: "/tmp/example.pdf" },
+              output: "PDF read successfully",
+              title: "Read",
+              metadata: {},
+              time: { start: 0, end: 1 },
+              attachments: [
+                {
+                  ...basePart(assistantID, "file-bedrock-pdf-1"),
+                  type: "file",
+                  mime: "application/pdf",
+                  filename: "example.pdf",
+                  url: `data:application/pdf;base64,${pdf}`,
+                },
+              ],
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(await MessageV2.toModelMessages(input, bedrockModel)).toStrictEqual([
+      {
+        role: "user",
+        content: [{ type: "text", text: "run tool" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-bedrock-pdf-1",
+            toolName: "read",
+            input: { filePath: "/tmp/example.pdf" },
+            providerExecuted: undefined,
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-bedrock-pdf-1",
+            toolName: "read",
+            output: { type: "text", value: "PDF read successfully" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Attached media from tool result:" },
+          { type: "file", mediaType: "application/pdf", filename: "example.pdf", data: `data:application/pdf;base64,${pdf}` },
+        ],
+      },
+    ])
   })
 
   test("omits provider metadata when assistant model differs", async () => {
@@ -1084,6 +1293,66 @@ describe("session.message-v2.toModelMessage", () => {
           },
         ],
       },
+    ])
+  })
+
+  test("substitutes space for empty text between Anthropic signed reasoning blocks", async () => {
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent"),
+        parts: [
+          { ...basePart(assistantID, "p1"), type: "step-start" },
+          {
+            ...basePart(assistantID, "p2"),
+            type: "reasoning",
+            text: "thinking-one",
+            metadata: { anthropic: { signature: "sig1" } },
+          },
+          { ...basePart(assistantID, "p3"), type: "text", text: "" },
+          { ...basePart(assistantID, "p4"), type: "step-start" },
+          {
+            ...basePart(assistantID, "p5"),
+            type: "reasoning",
+            text: "thinking-two",
+            metadata: { anthropic: { signature: "sig2" } },
+          },
+          { ...basePart(assistantID, "p6"), type: "text", text: "the answer" },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const result = await MessageV2.toModelMessages(input, model)
+
+    expect(result).toHaveLength(2)
+    expect((result[0].content as any[]).find((p) => p.type === "text").text).toBe(" ")
+    expect((result[1].content as any[]).find((p) => p.type === "text").text).toBe("the answer")
+  })
+
+  test("leaves empty text alone when reasoning signature is under bedrock namespace", async () => {
+    const assistantID = "m-assistant-bedrock"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: assistantInfo(assistantID, "m-parent"),
+        parts: [
+          {
+            ...basePart(assistantID, "p1"),
+            type: "reasoning",
+            text: "thinking-bedrock",
+            metadata: { bedrock: { signature: "bedrock-sig" } },
+          },
+          { ...basePart(assistantID, "p2"), type: "text", text: "" },
+          { ...basePart(assistantID, "p3"), type: "text", text: "answer" },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    const result = await MessageV2.toModelMessages(input, model)
+
+    expect(result).toHaveLength(1)
+    expect((result[0].content as any[]).filter((p) => p.type === "text").map((p) => p.text)).toStrictEqual([
+      "",
+      "answer",
     ])
   })
 })
