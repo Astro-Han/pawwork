@@ -24,13 +24,6 @@ LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"
   ${EndIf}
 !macroend
 
-!macro PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES
-  SetShellVarContext current
-  !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
-  SetShellVarContext all
-  !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
-!macroend
-
 !macro PAWWORK_RESTORE_INSTALL_SCOPE
   ${If} $installMode == "all"
     SetShellVarContext all
@@ -85,8 +78,8 @@ LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"
 
     ${If} $AddDesktopShortcut == ${BST_CHECKED}
       !insertmacro PAWWORK_STANDARD_SHORTCUT
-      !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES
       !insertmacro PAWWORK_RESTORE_INSTALL_SCOPE
+      !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
       ${If} "${SHORTCUT_NAME}" == "PawWork"
       ${AndIf} $PawWorkStandardShortcutName == "爪印"
       ${AndIf} ${FileExists} "$DESKTOP\PawWork.lnk"
@@ -105,8 +98,8 @@ LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"
     ${GetParameters} $0
     ${GetOptions} $0 "--updated" $1
     ${If} ${Errors}
-      !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES
       !insertmacro PAWWORK_RESTORE_INSTALL_SCOPE
+      !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
     ${EndIf}
   !macroend
 !endif

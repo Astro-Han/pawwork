@@ -50,12 +50,13 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain('$PawWorkStandardShortcutName == "爪印"')
   })
 
-  test("owns uninstall and cross-scope cleanup for standard shortcuts", () => {
+  test("owns uninstall cleanup for standard shortcuts in the selected install scope", () => {
     expect(script).toContain("customUnInstall")
     expect(script).toContain("PAWWORK_REMOVE_STANDARD_SHORTCUTS")
+    expect(script).not.toContain("PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES")
     expect(script).toContain("SetShellVarContext current")
     expect(script).toContain("SetShellVarContext all")
     expect(script).toContain("PAWWORK_RESTORE_INSTALL_SCOPE")
-    expect(script).toMatch(/PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES\s+!insertmacro PAWWORK_RESTORE_INSTALL_SCOPE/)
+    expect(script).toMatch(/PAWWORK_RESTORE_INSTALL_SCOPE\s+!insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS/)
   })
 })
