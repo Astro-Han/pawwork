@@ -3,20 +3,12 @@ import { createEffect, on, Component, For, Show, onCleanup, createMemo, createSi
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
-import {
-  ContentPart,
-  DEFAULT_PROMPT,
-  Prompt,
-  usePrompt,
-  ImageAttachmentPart,
-} from "@/context/prompt"
-import { useLayout } from "@/context/layout"
+import { DEFAULT_PROMPT, Prompt, usePrompt, ImageAttachmentPart } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
 import { DockSegmentForm } from "@opencode-ai/ui/dock-card"
-import { Popover } from "@opencode-ai/ui/popover"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
@@ -109,14 +101,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const local = useLocal()
   const files = useFile()
   const prompt = usePrompt()
-  const layout = useLayout()
   const comments = useComments()
   const dialog = useDialog()
   const command = useCommand()
   const permission = usePermission()
   const language = useLanguage()
   const platform = usePlatform()
-  const { params, tabs, view } = useSessionLayout()
+  const { params } = useSessionLayout()
   const activeSessionID = createMemo(() => (props.sessionIDControlled ? props.sessionID : params.id))
   let editorRef!: HTMLDivElement
   let fileInputRef: HTMLInputElement | undefined
@@ -225,7 +216,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return messages.some((m) => m.role === "user")
   })
 
-  const { historyComments, addToHistory, navigateHistory } = createHistoryNavigation({
+  const { addToHistory, navigateHistory } = createHistoryNavigation({
     store,
     setStore,
     prompt,

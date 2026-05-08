@@ -14,7 +14,6 @@ export interface CommentRoutingDeps {
 }
 
 export interface CommentRouting {
-  activeFileTab: () => string | undefined
   recent: () => string[]
   openComment: (item: { path: string; commentID?: string; commentOrigin?: "review" | "file" }) => void
 }
@@ -98,5 +97,5 @@ export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
     return paths
   })
 
-  return { activeFileTab, recent, openComment }
+  return { recent, openComment }
 }
