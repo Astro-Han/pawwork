@@ -160,6 +160,34 @@ describe("tool.assertExternalDirectory", () => {
         await fs.rm(link, { recursive: true, force: true })
       }
     })
+
+    test("preserves symlink traversal before dot-dot normalization", async () => {
+      const { requests, ctx } = makeCtx()
+
+      await using outside = await tmpdir()
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(tmp.path, "link")
+      await fs.symlink(outside.path, link, "dir")
+
+      const target = `${link}/../external-directory-${process.pid}-${Date.now()}.txt`
+      const realTarget = path.join(path.dirname(await fs.realpath(outside.path)), path.basename(target))
+      const expected = glob(path.join(path.dirname(realTarget), "*"))
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await assertExternalDirectory(ctx, target)
+        },
+      })
+
+      const req = requests.find((r) => r.permission === "external_directory")
+      expect(req).toBeDefined()
+      expect(req!.patterns).toEqual([expected])
+      expect(req!.always).toEqual([expected])
+      expect(req!.metadata.filepath).toBe(target)
+      expect(req!.metadata.realpath).toBe(realTarget)
+    })
   }
 
   test("uses target directory when kind=directory", async () => {

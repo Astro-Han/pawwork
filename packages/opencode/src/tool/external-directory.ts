@@ -1,5 +1,5 @@
 import path from "path"
-import { realpathSync } from "fs"
+import { lstatSync, realpathSync } from "fs"
 import { Effect } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
@@ -15,14 +15,16 @@ type Options = {
 }
 
 function resolveForPermission(target: string, base: string): string {
-  const normalized = process.platform === "win32" ? AppFileSystem.normalizePath(target, { base }) : path.resolve(target)
+  if (process.platform !== "win32") return resolvePosixForPermission(target, base)
+
+  const normalized = AppFileSystem.normalizePath(target, { base })
   const missing: string[] = []
   let current = normalized
 
   while (true) {
     try {
-      const real = process.platform === "win32" ? realpathSync.native(current) : realpathSync(current)
-      const resolved = process.platform === "win32" ? AppFileSystem.normalizePath(real, { base }) : real
+      const real = realpathSync.native(current)
+      const resolved = AppFileSystem.normalizePath(real, { base })
       return missing.length === 0 ? resolved : path.join(resolved, ...missing.reverse())
     } catch (error: any) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
@@ -32,6 +34,32 @@ function resolveForPermission(target: string, base: string): string {
       current = parent
     }
   }
+}
+
+function resolvePosixForPermission(target: string, base: string): string {
+  const raw = path.isAbsolute(target) ? target : `${base.replace(/\/+$/, "")}/${target}`
+  const parts = raw.split("/").filter(Boolean)
+  let current = "/"
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!
+    if (part === ".") continue
+    if (part === "..") {
+      current = path.dirname(current)
+      continue
+    }
+
+    const candidate = path.join(current, part)
+    try {
+      const stat = lstatSync(candidate)
+      current = stat.isSymbolicLink() ? realpathSync.native(candidate) : candidate
+    } catch (error: any) {
+      if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
+      return path.resolve(current, part, ...parts.slice(i + 1))
+    }
+  }
+
+  return realpathSync.native(current)
 }
 
 export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirectory")(function* (
@@ -47,7 +75,7 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
       ? AppFileSystem.normalizePath(target, { base: ins.directory })
       : path.isAbsolute(target)
       ? target
-      : path.resolve(ins.directory, target)
+      : `${ins.directory.replace(/\/+$/, "")}/${target}`
   const resolved = resolveForPermission(full, ins.directory)
   const scope = {
     ...ins,

@@ -331,7 +331,8 @@ description: A skill in the .claude/skills directory.
       },
     })
   } finally {
-    process.env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = original
+    if (original === undefined) delete process.env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS
+    else process.env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = original
   }
 })
 
