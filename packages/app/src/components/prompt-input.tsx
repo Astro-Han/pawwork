@@ -3,7 +3,7 @@ import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { createEffect, on, Component, For, Show, onCleanup, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
-import { selectionFromLines, type SelectedLineRange, useFile } from "@/context/file"
+import { useFile } from "@/context/file"
 import {
   ContentPart,
   DEFAULT_PROMPT,
@@ -31,7 +31,6 @@ import { SessionContextUsage } from "@/components/session-context-usage"
 import { translateVariant } from "./prompt-input/variant-label"
 import { SendButton } from "./prompt-input/send-button"
 import { useCommand } from "@/context/command"
-import { Persist, persisted } from "@/utils/persist"
 import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { canUseNativeFilePicker, usePlatform } from "@/context/platform"
@@ -45,18 +44,12 @@ import {
 } from "./prompt-input/editor-serialize"
 import { createEditorImperatives } from "./prompt-input/editor-imperatives"
 import { createCommentRouting } from "./prompt-input/comment-routing"
+import { createHistoryNavigation } from "./prompt-input/history-navigation"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
-import {
-  canNavigateHistoryAtCursor,
-  navigatePromptHistory,
-  prependHistoryEntry,
-  type PromptHistoryComment,
-  type PromptHistoryEntry,
-  type PromptHistoryStoredEntry,
-  promptLength,
-} from "./prompt-input/history"
+import { canNavigateHistoryAtCursor, promptLength } from "./prompt-input/history"
+import type { PromptStore } from "./prompt-input/store-types"
 import { createPromptSubmit, type FollowupDraft } from "./prompt-input/submit"
 import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
@@ -174,18 +167,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const actionReady = createMemo(() => props.actionReady?.() ?? true)
   const abortReady = createMemo(() => props.abortReady?.() ?? actionReady())
 
-  const [store, setStore] = createStore<{
-    popover: "at" | "slash" | null
-    historyIndex: number
-    savedPrompt: PromptHistoryEntry | null
-    placeholder: number
-    draggingType: "image" | "@mention" | null
-    mode: "normal" | "shell"
-    applyingHistory: boolean
-  }>({
+  const [store, setStore] = createStore<PromptStore>({
     popover: null,
     historyIndex: -1,
-    savedPrompt: null as PromptHistoryEntry | null,
+    savedPrompt: null,
     placeholder: Math.floor(Math.random() * EXAMPLES.length),
     draggingType: null,
     mode: "normal",
@@ -247,22 +232,14 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return messages.some((m) => m.role === "user")
   })
 
-  const [history, setHistory] = persisted(
-    Persist.global("prompt-history", ["prompt-history.v1"]),
-    createStore<{
-      entries: PromptHistoryStoredEntry[]
-    }>({
-      entries: [],
-    }),
-  )
-  const [shellHistory, setShellHistory] = persisted(
-    Persist.global("prompt-history-shell", ["prompt-history-shell.v1"]),
-    createStore<{
-      entries: PromptHistoryStoredEntry[]
-    }>({
-      entries: [],
-    }),
-  )
+  const { historyComments, addToHistory, navigateHistory } = createHistoryNavigation({
+    store,
+    setStore,
+    prompt,
+    comments,
+    editorRef: () => editorRef,
+    queueScroll,
+  })
 
   const suggest = createMemo(() => !hasUserPrompt())
 
@@ -286,75 +263,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         })
       : language.t("prompt.loading"),
   )
-
-  const historyComments = () => {
-    const byID = new Map(comments.all().map((item) => [`${item.file}\n${item.id}`, item] as const))
-    return prompt.context.items().flatMap((item) => {
-      if (item.type !== "file") return []
-      const comment = item.comment?.trim()
-      if (!comment) return []
-
-      const selection = item.commentID ? byID.get(`${item.path}\n${item.commentID}`)?.selection : undefined
-      const nextSelection =
-        selection ??
-        (item.selection
-          ? ({
-              start: item.selection.startLine,
-              end: item.selection.endLine,
-            } satisfies SelectedLineRange)
-          : undefined)
-      if (!nextSelection) return []
-
-      return [
-        {
-          id: item.commentID ?? item.key,
-          path: item.path,
-          selection: { ...nextSelection },
-          comment,
-          time: item.commentID ? (byID.get(`${item.path}\n${item.commentID}`)?.time ?? Date.now()) : Date.now(),
-          origin: item.commentOrigin,
-          preview: item.preview,
-        } satisfies PromptHistoryComment,
-      ]
-    })
-  }
-
-  const applyHistoryComments = (items: PromptHistoryComment[]) => {
-    comments.replace(
-      items.map((item) => ({
-        id: item.id,
-        file: item.path,
-        selection: { ...item.selection },
-        comment: item.comment,
-        time: item.time,
-      })),
-    )
-    prompt.context.replaceComments(
-      items.map((item) => ({
-        type: "file" as const,
-        path: item.path,
-        selection: selectionFromLines(item.selection),
-        comment: item.comment,
-        commentID: item.id,
-        commentOrigin: item.origin,
-        preview: item.preview,
-      })),
-    )
-  }
-
-  const applyHistoryPrompt = (entry: PromptHistoryEntry, position: "start" | "end") => {
-    const p = entry.prompt
-    const length = position === "start" ? 0 : promptLength(p)
-    setStore("applyingHistory", true)
-    applyHistoryComments(entry.comments)
-    prompt.set(p, length)
-    requestAnimationFrame(() => {
-      editorRef.focus()
-      setCursorPosition(editorRef, length)
-      setStore("applyingHistory", false)
-      queueScroll()
-    })
-  }
 
   const pick = () => {
     if (!actionReady()) return
@@ -747,14 +655,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return true
   }
 
-  const addToHistory = (prompt: Prompt, mode: "normal" | "shell") => {
-    const currentHistory = mode === "shell" ? shellHistory : history
-    const setCurrentHistory = mode === "shell" ? setShellHistory : setHistory
-    const next = prependHistoryEntry(currentHistory.entries, prompt, mode === "shell" ? [] : historyComments())
-    if (next === currentHistory.entries) return
-    setCurrentHistory("entries", next)
-  }
-
   createEffect(
     on(
       () => props.edit?.id,
@@ -793,22 +693,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       { defer: true },
     ),
   )
-
-  const navigateHistory = (direction: "up" | "down") => {
-    const result = navigatePromptHistory({
-      direction,
-      entries: store.mode === "shell" ? shellHistory.entries : history.entries,
-      historyIndex: store.historyIndex,
-      currentPrompt: prompt.current(),
-      currentComments: historyComments(),
-      savedPrompt: store.savedPrompt,
-    })
-    if (!result.handled) return false
-    setStore("historyIndex", result.historyIndex)
-    setStore("savedPrompt", result.savedPrompt)
-    applyHistoryPrompt(result.entry, result.cursor)
-    return true
-  }
 
   const { addAttachments, addPickedPaths, removeAttachment, handlePaste } = createPromptAttachments({
     editor: () => editorRef,
