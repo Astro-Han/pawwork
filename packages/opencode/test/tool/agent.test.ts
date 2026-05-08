@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "../../src/config/config"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
@@ -7,7 +7,7 @@ import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import type { SessionPrompt } from "../../src/session/prompt"
-import { MessageID, PartID } from "../../src/session/schema"
+import { MessageID, PartID, type SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { AgentTool, sanitizeErrorMessage, type AgentPromptOps } from "../../src/tool/agent"
 import { SubagentRun } from "../../src/session/subagent-run"
@@ -37,13 +37,12 @@ const it = testEffect(
   ),
 )
 
-const seed = Effect.fn("AgentToolTest.seed")(function* (title = "Pinned") {
+const seedAssistant = Effect.fn("AgentToolTest.seedAssistant")(function* (sessionID: SessionID) {
   const session = yield* Session.Service
-  const chat = yield* session.create({ title })
   const user = yield* session.updateMessage({
     id: MessageID.ascending(),
     role: "user",
-    sessionID: chat.id,
+    sessionID,
     agent: "build",
     model: ref,
     time: { created: Date.now() },
@@ -52,7 +51,7 @@ const seed = Effect.fn("AgentToolTest.seed")(function* (title = "Pinned") {
     id: MessageID.ascending(),
     role: "assistant",
     parentID: user.id,
-    sessionID: chat.id,
+    sessionID,
     mode: "build",
     agent: "build",
     cost: 0,
@@ -63,6 +62,13 @@ const seed = Effect.fn("AgentToolTest.seed")(function* (title = "Pinned") {
     time: { created: Date.now() },
   }
   yield* session.updateMessage(assistant)
+  return assistant
+})
+
+const seed = Effect.fn("AgentToolTest.seed")(function* (title = "Pinned") {
+  const session = yield* Session.Service
+  const chat = yield* session.create({ title })
+  const assistant = yield* seedAssistant(chat.id)
   return { chat, assistant }
 })
 
@@ -72,7 +78,7 @@ function stubOps(opts?: {
   interruptedSessions?: ReadonlySet<string>
 }): AgentPromptOps {
   return {
-    cancel() {},
+    cancel: () => Effect.void,
     resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
     prompt: (input) =>
       Effect.sync(() => {
@@ -572,6 +578,118 @@ describe("tool.agent", () => {
           },
         },
       },
+    ),
+  )
+
+  it.live("execute preserves parent external-directory and deny permissions in child sessions", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({
+          title: "Pinned",
+          permission: [
+            { permission: "external_directory", pattern: "/tmp/project/*", action: "allow" },
+            { permission: "bash", pattern: "rm *", action: "deny" },
+            { permission: "read", pattern: "*", action: "allow" },
+          ],
+        })
+        const assistant = yield* seedAssistant(chat.id)
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+
+        const result = yield* def.execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            callID: "call_test_" + Math.random().toString(36).slice(2),
+            extra: { promptOps: stubOps(), bypassAgentCheck: true },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const child = yield* sessions.get(result.metadata.sessionId!)
+        expect(child.permission).toContainEqual({
+          permission: "external_directory",
+          pattern: "/tmp/project/*",
+          action: "allow",
+        })
+        expect(child.permission).toContainEqual({
+          permission: "bash",
+          pattern: "rm *",
+          action: "deny",
+        })
+        expect(child.permission).not.toContainEqual({
+          permission: "read",
+          pattern: "*",
+          action: "allow",
+        })
+      }),
+    ),
+  )
+
+  it.live("execute cancels child session when abort signal fires", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const { chat, assistant } = yield* seed()
+        const tool = yield* AgentTool
+        const def = yield* tool.init()
+        const abort = new AbortController()
+        let resolveReady!: (input: SessionPrompt.PromptInput) => void
+        let resolveCancelled!: (sessionID: string) => void
+        const ready = new Promise<SessionPrompt.PromptInput>((resolve) => {
+          resolveReady = resolve
+        })
+        const cancelled = new Promise<string>((resolve) => {
+          resolveCancelled = resolve
+        })
+        const promptOps: AgentPromptOps = {
+          cancel: (sessionID) => Effect.sync(() => resolveCancelled(sessionID)),
+          resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+          prompt: (input) =>
+            Effect.promise(() => {
+              resolveReady(input)
+              return cancelled
+            }).pipe(Effect.as(reply(input, "cancelled"))),
+          wasInterrupted: () => false,
+        }
+
+        const fiber = yield* def
+          .execute(
+            {
+              description: "inspect bug",
+              prompt: "look into the cache key path",
+              subagent_type: "general",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: abort.signal,
+              callID: "call_test_" + Math.random().toString(36).slice(2),
+              extra: { promptOps, bypassAgentCheck: true },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+          .pipe(Effect.forkChild)
+
+        const input = yield* Effect.promise(() => ready)
+        abort.abort()
+        expect(yield* Effect.promise(() => cancelled)).toBe(input.sessionID)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+      }),
     ),
   )
 })

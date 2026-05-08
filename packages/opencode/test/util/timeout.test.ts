@@ -18,4 +18,20 @@ describe("util.timeout", () => {
 
     await expect(withTimeout(slowPromise, 50)).rejects.toThrow("Operation timed out after 50ms")
   })
+
+  test("should clear timeout after promise rejection", async () => {
+    const original = globalThis.clearTimeout
+    let cleared = 0
+    globalThis.clearTimeout = ((timer: Parameters<typeof clearTimeout>[0]) => {
+      cleared++
+      return original(timer)
+    }) as typeof clearTimeout
+
+    try {
+      await expect(withTimeout(Promise.reject(new Error("boom")), 100)).rejects.toThrow("boom")
+      expect(cleared).toBe(1)
+    } finally {
+      globalThis.clearTimeout = original
+    }
+  })
 })

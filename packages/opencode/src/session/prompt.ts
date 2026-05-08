@@ -268,9 +268,8 @@ export const layer = Layer.effect(
     // "child runner aborted" from "model returned naturally" without racing ctx.abort.aborted.
     const interruptedSessions = new Set<SessionID>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
-      const run = yield* runner()
       return {
-        cancel: (sessionID: SessionID) => run.fork(cancel(sessionID)),
+        cancel: (sessionID: SessionID) => cancel(sessionID),
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input),
         // Self-cleaning read: each subagent dispatch reads `wasInterrupted` exactly once after
