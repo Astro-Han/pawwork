@@ -48,7 +48,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "px-1.5 inline-flex items-center gap-1.5 text-13-regular text-fg-base",
+            "px-1.5 inline-flex items-center gap-1.5 text-13-regular text-fg-base font-normal",
           style: props.style,
         } as any
       }

@@ -1,6 +1,14 @@
-/* sidebar leading-slot icon: 14px (hierarchy-tight) without touching global Icon size="small" */
-[data-leading-slot] [data-size="small"],
-[data-leading-slot] svg {
-  width: 14px;
-  height: 14px;
+/* Slice 09 (L35): session row transition tracks --duration-fast (80ms) per
+   the L35 lock instead of Tailwind's default 150ms transition-colors. */
+[data-component="pawwork-session-row"] {
+  transition: background-color var(--duration-fast) ease-out;
 }
+
+/* Status box and action overlay opacity track --duration-base (120ms) — opacity
+   fade needs base over fast for perceptual smoothness, while staying inside
+   the L22 three-tier ladder (80 / 120 / 240) and off Tailwind's default 150. */
+[data-component="pawwork-session-row"] [data-status-default],
+[data-component="pawwork-session-row"] [data-status-overlay] {
+  transition: opacity var(--duration-base) ease-out;
+}
+

@@ -127,7 +127,14 @@ export default function Layout(props: ParentProps) {
   const notification = useNotification()
   const permission = usePermission()
   const navigate = useNavigate()
-  setNavigate(navigate)
+  // Wrap navigate so non-shell entry points (notification clicks, deep links
+  // dispatched through @/utils/notification-click) also close the settings
+  // overlay before routing. Shell-driven navigation (openNewSession /
+  // openSession) closes settings explicitly through closeSettingsSurface.
+  setNavigate((href) => {
+    closeSettings()
+    navigate(href)
+  })
   const providers = useProviders()
   const dialog = useDialog()
   const command = useCommand()
@@ -1088,6 +1095,14 @@ export default function Layout(props: ParentProps) {
     setStore("pawworkSortMode", mode)
   }
 
+  function toggleProjectCollapsed(label: string) {
+    const current = store.pawworkProjectCollapsed
+    const next: Record<string, boolean> = { ...current }
+    if (next[label]) delete next[label]
+    else next[label] = true
+    setStore("pawworkProjectCollapsed", reconcile(next))
+  }
+
   // Export hits the embedded sidecar via main-process IPC. When the user has
   // switched the active server to a remote target, the sidecar holds different
   // data than the UI; hide the action rather than ship a misleading export.
@@ -1446,16 +1461,6 @@ export default function Layout(props: ParentProps) {
     setSettingsOpen(false)
   }
 
-  let lastSettingsPath: string | undefined
-  createEffect(() => {
-    const current = location.pathname
-    if (settingsOpen()) {
-      if (lastSettingsPath === undefined) lastSettingsPath = current
-      else if (lastSettingsPath !== current) closeSettings()
-    } else {
-      lastSettingsPath = undefined
-    }
-  })
 
   function projectRoot(directory: string) {
     const key = workspaceKey(directory)
@@ -1524,6 +1529,7 @@ export default function Layout(props: ParentProps) {
     currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(currentDir()),
     chooseProject,
     openSettingsSurface,
+    closeSettingsSurface: closeSettings,
   })
 
   function openProject(directory: string, shouldNavigate = true) {
@@ -2151,6 +2157,8 @@ export default function Layout(props: ParentProps) {
       activeSessionID={() => params.id}
       pinnedIDs={() => store.pawworkPinnedSessions}
       sortMode={() => store.pawworkSortMode}
+      collapsedProjects={() => store.pawworkProjectCollapsed}
+      onToggleProjectCollapsed={toggleProjectCollapsed}
       setScrollContainerRef={workspaceSidebarCtx.setScrollContainerRef}
       prefetchSession={prefetchSession}
       onOpenSession={navigateToSession}
@@ -2168,6 +2176,8 @@ export default function Layout(props: ParentProps) {
       onOpenSettings={openSettings}
       settingsLabel={() => language.t("sidebar.settings")}
       settingsKeybind={() => command.keybind("settings.open")}
+      newSessionKeybind={() => command.keybind("session.new")}
+      searchKeybind={() => command.keybind("command.palette")}
     />
   )
   const sidebarContent = () =>

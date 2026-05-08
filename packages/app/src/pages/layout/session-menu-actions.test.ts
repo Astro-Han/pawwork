@@ -27,6 +27,7 @@ describe("buildSessionMenuActions", () => {
 
     expect(actions.map((action) => action.id)).toEqual(["pin", "rename", "export", "delete"])
     expect(actions.map((action) => action.label)).toEqual(["Pin", "Rename", "Export", "Delete"])
+    expect(actions.map((action) => action.icon)).toEqual(["pin", "pencil-line", "download", "trash"])
     expect(actions.find((action) => action.id === "delete")?.separatorBefore).toBe(true)
   })
 
@@ -47,6 +48,7 @@ describe("buildSessionMenuActions", () => {
       ["rename", "Rename"],
       ["delete", "Delete"],
     ])
+    expect(actions.map((action) => action.icon)).toEqual(["pin", "pencil-line", "trash"])
   })
 
   test("binds each action to the target session", () => {

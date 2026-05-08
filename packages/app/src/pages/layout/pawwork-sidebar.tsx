@@ -4,11 +4,11 @@ import { ContextMenu } from "@opencode-ai/ui/context-menu"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { createEffect, createMemo, For, Show, type Accessor, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { DialogRenameSession } from "@/components/dialog-rename-session"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
@@ -22,15 +22,6 @@ export type PawworkSidebarSession = {
   created: number
 }
 
-const FilterIcon = (props: { size?: number }) => {
-  const size = props.size ?? 14
-  return (
-    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path d="M2.5 5h15M5 10h10M7.5 15h5" stroke="currentColor" stroke-linecap="square" />
-    </svg>
-  )
-}
-
 export const PawworkSidebar = (props: {
   scope?: "main" | "peek"
   sessions: Accessor<PawworkSidebarSession[]>
@@ -39,6 +30,8 @@ export const PawworkSidebar = (props: {
   activeSessionID?: Accessor<string | undefined>
   pinnedIDs: Accessor<string[]>
   sortMode: Accessor<PawworkSortMode>
+  collapsedProjects: Accessor<Record<string, boolean>>
+  onToggleProjectCollapsed: (label: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined) => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   hrefForSession?: (session: Session) => string
@@ -57,6 +50,8 @@ export const PawworkSidebar = (props: {
   onOpenSettings: () => void
   settingsLabel: Accessor<string>
   settingsKeybind: Accessor<string | undefined>
+  newSessionKeybind: Accessor<string | undefined>
+  searchKeybind: Accessor<string | undefined>
 }): JSX.Element => {
   const language = useLanguage()
   const dialog = useDialog()
@@ -107,7 +102,6 @@ export const PawworkSidebar = (props: {
 
   const renderSessionItem = (entry: { item: PawworkSidebarSession }) => {
     const session = entry.item.session
-    const isPinned = createMemo(() => props.pinnedIDs().includes(session.id))
     const menuLabels = () => ({
       pin: language.t("sidebar.pawwork.pinSession"),
       unpin: language.t("sidebar.pawwork.unpinSession"),
@@ -135,6 +129,7 @@ export const PawworkSidebar = (props: {
                 <DropdownMenu.Separator />
               </Show>
               <DropdownMenu.Item onSelect={() => void action.run()}>
+                <Icon name={action.icon} class="text-icon-weak" />
                 <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
               </DropdownMenu.Item>
             </>
@@ -151,6 +146,7 @@ export const PawworkSidebar = (props: {
                 <ContextMenu.Separator />
               </Show>
               <ContextMenu.Item onSelect={() => void action.run()}>
+                <Icon name={action.icon} class="text-icon-weak" />
                 <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
               </ContextMenu.Item>
             </>
@@ -171,7 +167,6 @@ export const PawworkSidebar = (props: {
             prefetchSession={props.prefetchSession}
             hrefForSession={props.hrefForSession}
             onOpenSession={props.onOpenSession}
-            pinned={() => isPinned()}
             timeText={() =>
               entry.item.created > 0
                 ? getRelativeTime(new Date(entry.item.created).toISOString(), language.t)
@@ -179,7 +174,7 @@ export const PawworkSidebar = (props: {
             }
             titleContent={({ title }) => (
               <span
-                class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate"
+                class="text-13-regular text-fg-base [.active_&]:text-fg-strong [.active_&]:font-medium min-w-0 flex-1 truncate"
                 onDblClick={(e: MouseEvent) => {
                   e.preventDefault()
                   e.stopPropagation()
@@ -195,8 +190,6 @@ export const PawworkSidebar = (props: {
                   as={IconButton}
                   icon="dot-grid"
                   variant="ghost"
-
-                  class="rounded-md"
                   data-action="session-row-menu"
                   aria-label={language.t("common.moreOptions")}
                   onClick={(event: MouseEvent) => {
@@ -248,40 +241,53 @@ export const PawworkSidebar = (props: {
     })
   })
 
-  const tooltipPlacement = () => "right" as const
-  const sortAriaLabel = () =>
-    props.sortMode() === "time" ? language.t("sidebar.pawwork.sort.byProject") : language.t("sidebar.pawwork.sort.byTime")
-
   return (
     <section
       data-component="pawwork-sidebar"
       data-sidebar-scope={props.scope ?? "main"}
       class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar"
     >
-      <div class="shrink-0 px-3 pt-3">
+      {/* L37 reserves a top "traffic" segment for slice 17 to fill with the macOS
+         traffic-light cluster + collapse control. The OS already paints traffic
+         lights on its window chrome, so reserving a second 32px band here would
+         double the empty space at the top. The placeholder will return when
+         slice 17 hides the OS chrome and moves the controls into the sidebar. */}
+      <div data-component="pawwork-side-top" class="shrink-0 px-3 pt-3">
         <div class="flex flex-col gap-1">
-          <button
-            type="button"
-            data-action="pawwork-session-new"
-            onClick={props.onNew}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+          <TooltipKeybind
+            placement="right"
+            title={language.t("command.session.new")}
+            keybind={props.newSessionKeybind() ?? ""}
           >
-            <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="new-session" class="text-icon-base" />
-            </span>
-            <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
-          </button>
-          <button
-            type="button"
-            data-action="pawwork-session-search"
-            onClick={props.onSearch}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            <button
+              type="button"
+              data-action="pawwork-session-new"
+              onClick={props.onNew}
+              class="w-full h-[32px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            >
+              <span class="shrink-0 w-4 h-4 flex items-center">
+                <Icon name="new-session" class="text-icon-base" />
+              </span>
+              <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
+            </button>
+          </TooltipKeybind>
+          <TooltipKeybind
+            placement="right"
+            title={language.t("sidebar.pawwork.search")}
+            keybind={props.searchKeybind() ?? ""}
           >
-            <span class="shrink-0 w-4 h-4 flex items-center">
-              <Icon name="magnifying-glass" class="text-icon-base" />
-            </span>
-            <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
-          </button>
+            <button
+              type="button"
+              data-action="pawwork-session-search"
+              onClick={props.onSearch}
+              class="w-full h-[32px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            >
+              <span class="shrink-0 w-4 h-4 flex items-center">
+                <Icon name="magnifying-glass" class="text-icon-base" />
+              </span>
+              <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
+            </button>
+          </TooltipKeybind>
         </div>
       </div>
 
@@ -304,36 +310,61 @@ export const PawworkSidebar = (props: {
             scrollEl = el
             props.setScrollContainerRef(el)
           }}
-          data-component="pawwork-session-scroll"
+          data-component="pawwork-side-scroll"
           class="flex-1 min-h-0 overflow-y-auto px-3 pb-3"
         >
           <Show when={props.sessions().length > 0}>
-            <nav class="flex flex-col gap-1">
+            <nav class="flex flex-col">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
-                  <div class="px-2 pt-3 pb-2 text-12-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
+                  <div class="mt-4 h-[32px] flex items-center px-2.5 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
               <Show when={rows().length > 0 || groupedRows().length > 0}>
-                <div class="mt-3 flex items-center justify-between pr-2 pl-2 pb-2">
-                  <span class="text-12-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
-                  <button
-                    type="button"
-                    data-action="pawwork-sort-mode"
-                    data-mode={props.sortMode()}
-                    aria-label={sortAriaLabel()}
-                    title={sortAriaLabel()}
-                    onClick={() => props.onSetSortMode(props.sortMode() === "time" ? "project" : "time")}
-                    classList={{
-                      "inline-flex items-center justify-center size-5 rounded-md transition-colors": true,
-                      "hover:bg-surface-raised": true,
-                      "text-fg-strong": props.sortMode() === "project",
-                      "text-fg-weak": props.sortMode() !== "project",
-                    }}
-                  >
-                    <FilterIcon size={14} />
-                  </button>
+                <div class="mt-4 h-[32px] flex items-center justify-between px-2.5">
+                  <span class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
+                  <DropdownMenu>
+                    <Tooltip placement="bottom" value={language.t("sidebar.pawwork.sort.label")}>
+                      <DropdownMenu.Trigger
+                        as={IconButton}
+                        data-action="pawwork-sort-trigger"
+                        data-mode={props.sortMode()}
+                        icon="sort"
+                        aria-label={language.t("sidebar.pawwork.sort.label")}
+                      />
+                    </Tooltip>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content>
+                        <DropdownMenu.Item
+                          data-action="pawwork-sort-option"
+                          data-value="time"
+                          onSelect={() => props.onSetSortMode("time")}
+                        >
+                          <Icon name="schedule" class="text-icon-weak" />
+                          <DropdownMenu.ItemLabel>
+                            {language.t("sidebar.pawwork.sort.optionByTime")}
+                          </DropdownMenu.ItemLabel>
+                          <Show when={props.sortMode() === "time"}>
+                            <Icon name="check" class="ml-auto text-icon-weak" />
+                          </Show>
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          data-action="pawwork-sort-option"
+                          data-value="project"
+                          onSelect={() => props.onSetSortMode("project")}
+                        >
+                          <Icon name="folder" class="text-icon-weak" />
+                          <DropdownMenu.ItemLabel>
+                            {language.t("sidebar.pawwork.sort.optionByProject")}
+                          </DropdownMenu.ItemLabel>
+                          <Show when={props.sortMode() === "project"}>
+                            <Icon name="check" class="ml-auto text-icon-weak" />
+                          </Show>
+                        </DropdownMenu.Item>
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu>
                 </div>
               </Show>
               <Show when={props.sortMode() === "time"}>
@@ -343,14 +374,52 @@ export const PawworkSidebar = (props: {
               </Show>
               <Show when={props.sortMode() === "project"}>
                 <For each={groupedRows()}>
-                  {(group) => (
-                    <section class="flex flex-col gap-0.5">
-                      <div data-component="pawwork-group-header" class="px-2 pt-3 pb-2 text-12-regular text-fg-weak">
-                        {group.label}
-                      </div>
-                      <For each={group.items}>{(item) => renderSessionItem({ item })}</For>
-                    </section>
-                  )}
+                  {(group, index) => {
+                    const collapsed = createMemo(() => !!props.collapsedProjects()[group.label])
+                    return (
+                      <section class={`${index() > 0 ? "mt-0.5 " : ""}flex flex-col gap-0.5`}>
+                        <button
+                          type="button"
+                          data-component="pawwork-group-header"
+                          data-action="pawwork-group-toggle"
+                          data-collapsed={collapsed() ? "true" : undefined}
+                          aria-expanded={!collapsed()}
+                          onClick={() => props.onToggleProjectCollapsed(group.label)}
+                          class="group/group-header h-[32px] flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
+                        >
+                          <Icon name="folder" class="shrink-0 text-icon-weak" />
+                          <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
+                          <Icon
+                            name="chevron-down"
+                            class="shrink-0 text-icon-weak transition-[opacity,transform] duration-150"
+                            classList={{
+                              "-rotate-90 opacity-100": collapsed(),
+                              "opacity-0 group-hover/group-header:opacity-100 group-focus-visible/group-header:opacity-100":
+                                !collapsed(),
+                            }}
+                          />
+                        </button>
+                        {/* grid-template-rows trick: 0fr → 1fr animates height without
+                          * touching layout-thrashing properties. Items stay mounted so
+                          * focus / scroll position survive the toggle; inert on the
+                          * inner wrapper takes them out of the tab order while collapsed. */}
+                        <div
+                          data-component="pawwork-group-content"
+                          data-collapsed={collapsed() ? "true" : undefined}
+                          class="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                          style={{ "grid-template-rows": collapsed() ? "0fr" : "1fr" }}
+                          aria-hidden={collapsed()}
+                        >
+                          <div
+                            class="min-h-0 overflow-hidden flex flex-col gap-0.5"
+                            inert={collapsed() ? true : undefined}
+                          >
+                            <For each={group.items}>{(item) => renderSessionItem({ item })}</For>
+                          </div>
+                        </div>
+                      </section>
+                    )
+                  }}
                 </For>
               </Show>
               <Show when={props.sessionWindow().canShowMore}>
@@ -359,7 +428,7 @@ export const PawworkSidebar = (props: {
                   data-action="pawwork-session-show-more"
                   disabled={props.sessionWindow().loading}
                   onClick={props.onShowMore}
-                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay disabled:opacity-50"
+                  class="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay disabled:opacity-50"
                 >
                   {props.sessionWindow().loading ? language.t("common.loading") : language.t("common.showMore")}
                 </button>
@@ -369,7 +438,7 @@ export const PawworkSidebar = (props: {
                   type="button"
                   data-action="pawwork-session-search-history"
                   onClick={props.onSearchOlderSessions}
-                  class="mt-2 w-full rounded-md px-2 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay"
+                  class="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay"
                 >
                   {language.t("sidebar.pawwork.searchHistory")}
                 </button>
@@ -380,11 +449,11 @@ export const PawworkSidebar = (props: {
       </Show>
 
       <div
-        data-component="pawwork-sidebar-footer"
-        class="shrink-0 border-t border-border-weaker px-3 py-2"
+        data-component="pawwork-side-foot"
+        class="shrink-0 px-3 pt-4 pb-3"
       >
         <TooltipKeybind
-          placement={tooltipPlacement()}
+          placement="top"
           title={props.settingsLabel()}
           keybind={props.settingsKeybind() ?? ""}
         >
@@ -393,7 +462,7 @@ export const PawworkSidebar = (props: {
             data-action="pawwork-open-settings"
             onClick={props.onOpenSettings}
             aria-label={props.settingsLabel()}
-            class="w-full flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
+            class="w-full h-[32px] flex items-center gap-2 px-2.5 rounded-md hover:bg-row-hover-overlay focus-visible:bg-row-hover-overlay transition-colors text-left focus:outline-none"
           >
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" class="text-icon-base" />

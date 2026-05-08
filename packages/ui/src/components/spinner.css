@@ -3,4 +3,21 @@
   flex-shrink: 0;
   width: 18px;
   aspect-ratio: 1;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: pw-spin 1200ms linear infinite;
+}
+
+@keyframes pw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-component="spinner"] {
+    animation: none;
+  }
 }

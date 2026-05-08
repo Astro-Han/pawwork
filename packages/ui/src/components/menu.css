@@ -1,40 +1,57 @@
+/* Shared visual rules for dropdown (three-dots) and context (right-click) menus.
+ * Single source of truth — both Kobalte primitives share the same look.
+ * Trigger semantics still differ at the component layer (different React/Solid
+ * trees from Kobalte); only the visual surface is unified here. */
+
 [data-component="dropdown-menu-content"],
-[data-component="dropdown-menu-sub-content"] {
+[data-component="dropdown-menu-sub-content"],
+[data-component="context-menu-content"],
+[data-component="context-menu-sub-content"] {
   min-width: 8rem;
   overflow: hidden;
+  border: none;
   border-radius: 14px;
   background-clip: padding-box;
   background-color: var(--surface-raised);
   padding: 4px;
   box-shadow: var(--shadow-floating);
-  z-index: 50;
+  z-index: 100;
   transform-origin: var(--kb-menu-content-transform-origin);
 
   &:focus,
-  &:focus-visible {
+  &:focus-visible,
+  &:focus-within {
     outline: none;
   }
 
   &[data-closed] {
-    animation: dropdown-menu-close 0.15s ease-out;
+    animation: menu-close 0.15s ease-out;
   }
 
   &[data-expanded] {
-    animation: dropdown-menu-open 0.15s ease-out;
+    animation: menu-open 0.15s ease-out;
   }
 }
 
 [data-component="dropdown-menu-content"],
-[data-component="dropdown-menu-sub-content"] {
+[data-component="dropdown-menu-sub-content"],
+[data-component="context-menu-content"],
+[data-component="context-menu-sub-content"] {
   [data-slot="dropdown-menu-item"],
   [data-slot="dropdown-menu-checkbox-item"],
   [data-slot="dropdown-menu-radio-item"],
-  [data-slot="dropdown-menu-sub-trigger"] {
+  [data-slot="dropdown-menu-sub-trigger"],
+  [data-slot="context-menu-item"],
+  [data-slot="context-menu-checkbox-item"],
+  [data-slot="context-menu-radio-item"],
+  [data-slot="context-menu-sub-trigger"] {
     position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 8px;
+    /* Lock to the L30 menu / L35 sidebar 32 row family. */
+    min-height: 32px;
+    padding: 0 8px;
     border-radius: var(--radius-md);
     cursor: default;
     user-select: none;
@@ -47,8 +64,11 @@
     letter-spacing: var(--letter-spacing-normal);
     color: var(--fg-strong);
 
-    &[data-highlighted] {
-      background: var(--surface-raised);
+    /* Match picker.css item hover overlay so dropdown / context / picker /
+     * list-row hover states all use the same --row-hover-overlay token. */
+    &[data-highlighted],
+    &:hover {
+      background-color: var(--row-hover-overlay);
     }
 
     &[data-disabled] {
@@ -58,17 +78,21 @@
   }
 
   [data-slot="dropdown-menu-checkbox-item"],
-  [data-slot="dropdown-menu-radio-item"] {
+  [data-slot="dropdown-menu-radio-item"],
+  [data-slot="context-menu-checkbox-item"],
+  [data-slot="context-menu-radio-item"] {
     padding-right: 28px;
   }
 
-  [data-slot="dropdown-menu-sub-trigger"] {
+  [data-slot="dropdown-menu-sub-trigger"],
+  [data-slot="context-menu-sub-trigger"] {
     &[data-expanded] {
       background: var(--surface-raised);
     }
   }
 
-  [data-slot="dropdown-menu-item-indicator"] {
+  [data-slot="dropdown-menu-item-indicator"],
+  [data-slot="context-menu-item-indicator"] {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -80,22 +104,26 @@
     transform: translateY(-50%);
   }
 
-  [data-slot="dropdown-menu-item-label"] {
+  [data-slot="dropdown-menu-item-label"],
+  [data-slot="context-menu-item-label"] {
     flex: 1;
   }
 
-  [data-slot="dropdown-menu-item-description"] {
+  [data-slot="dropdown-menu-item-description"],
+  [data-slot="context-menu-item-description"] {
     font-size: var(--font-size-x-small);
     color: var(--fg-weak);
   }
 
-  [data-slot="dropdown-menu-separator"] {
+  [data-slot="dropdown-menu-separator"],
+  [data-slot="context-menu-separator"] {
     height: 1px;
     margin: 4px -4px;
     border-top-color: var(--border-weak);
   }
 
-  [data-slot="dropdown-menu-group-label"] {
+  [data-slot="dropdown-menu-group-label"],
+  [data-slot="context-menu-group-label"] {
     display: block;
     padding: 4px 8px;
     font-family: var(--font-family-sans);
@@ -106,12 +134,13 @@
     color: var(--fg-weak);
   }
 
-  [data-slot="dropdown-menu-arrow"] {
+  [data-slot="dropdown-menu-arrow"],
+  [data-slot="context-menu-arrow"] {
     fill: var(--surface-raised);
   }
 }
 
-@keyframes dropdown-menu-open {
+@keyframes menu-open {
   from {
     opacity: 0;
     transform: scale(0.96);
@@ -122,7 +151,7 @@
   }
 }
 
-@keyframes dropdown-menu-close {
+@keyframes menu-close {
   from {
     opacity: 1;
     transform: scale(1);

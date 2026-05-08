@@ -1,72 +1,26 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import { Avatar } from "@opencode-ai/ui/avatar"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { getFilename } from "@opencode-ai/util/path"
 import { A, useParams } from "@solidjs/router"
 import { type Accessor, createMemo, For, type JSX, Show } from "solid-js"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
-import { getAvatarColors, type LocalProject } from "@/context/layout"
 import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
-import { sessionPermissionRequest } from "../session/blockers/request-tree"
+import { sessionPermissionRequest, sessionQuestionBlockerRequest, sessionQuestionRequest } from "../session/blockers/request-tree"
 import { createSessionRunning } from "../session/session-running-state"
-import { childSessionOnPath, hasProjectPermissions } from "./helpers"
+import { childSessionOnPath } from "./helpers"
+import { sidebarStatusKind } from "./sidebar-status-kind"
 import { defaultNewSessionHref, defaultSessionHref, openShellLinkWithOwner } from "./sidebar-item-navigation"
-
-export const ProjectIcon = (props: { project: LocalProject; class?: string; notify?: boolean }): JSX.Element => {
-  const globalSync = useGlobalSync()
-  const notification = useNotification()
-  const permission = usePermission()
-  const dirs = createMemo(() => [props.project.worktree, ...(props.project.sandboxes ?? [])])
-  const unseenCount = createMemo(() =>
-    dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
-  )
-  const hasError = createMemo(() => dirs().some((directory) => notification.project.unseenHasError(directory)))
-  const hasPermissions = createMemo(() =>
-    dirs().some((directory) => {
-      const [store] = globalSync.child(directory, { bootstrap: false })
-      return hasProjectPermissions(store.permission, (item) => !permission.autoResponds(item, directory))
-    }),
-  )
-  const notify = createMemo(() => props.notify && (hasPermissions() || unseenCount() > 0))
-  const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
-
-  return (
-    <div class={`relative size-8 shrink-0 rounded ${props.class ?? ""}`}>
-      <div class="size-full rounded overflow-clip">
-        <Avatar
-          fallback={name()}
-          src={props.project.icon?.override}
-          {...getAvatarColors(props.project.icon?.color)}
-          class="size-full rounded"
-          classList={{ "badge-mask": notify() }}
-        />
-      </div>
-      <Show when={notify()}>
-        <div
-          classList={{
-            "absolute top-px right-px size-1.5 rounded-full z-10": true,
-            "bg-warning-bg": hasPermissions(),
-            "bg-error": !hasPermissions() && hasError(),
-            "bg-brand-primary": !hasPermissions() && !hasError(),
-          }}
-        />
-      </Show>
-    </div>
-  )
-}
 
 export type SessionItemProps = {
   session: Session
   list: Session[]
   navList?: Accessor<Session[]>
   slug: string
-  dense?: boolean
   showTooltip?: boolean
   showChild?: boolean
   level?: number
@@ -75,14 +29,12 @@ export type SessionItemProps = {
   onOpenSession?: (session: Session) => void
   titleContent?: (input: { session: Session; title: Accessor<string> }) => JSX.Element
   actionSlot?: (session: Session) => JSX.Element
-  pinned?: (session: Session) => boolean
   timeText?: (session: Session) => string | undefined
 }
 
 const SessionRow = (props: {
   session: Session
   slug: string
-  dense?: boolean
   warmPress: () => void
   warmFocus: () => void
   href: string
@@ -94,12 +46,19 @@ const SessionRow = (props: {
   return (
     <A
       href={props.href}
-      class={`flex items-center min-w-0 w-full text-left focus:outline-none leading-[1.4] ${props.dense ? "py-1" : "py-[5px]"}`}
+      class="flex items-center min-w-0 w-full text-left focus:outline-none"
       onPointerDown={props.warmPress}
       onFocus={props.warmFocus}
       onClick={props.onOpenSession}
     >
-      <Show when={props.titleContent} fallback={<span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">{title()}</span>}>
+      <Show
+        when={props.titleContent}
+        fallback={
+          <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong [.active_&]:font-medium min-w-0 flex-1 truncate">
+            {title()}
+          </span>
+        }
+      >
         {props.titleContent}
       </Show>
     </A>
@@ -111,22 +70,28 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const notification = useNotification()
   const permission = usePermission()
   const globalSync = useGlobalSync()
-  const unseenCount = createMemo(() => notification.session.unseenCount(props.session.id))
+  const language = useLanguage()
   const hasError = createMemo(() => notification.session.unseenHasError(props.session.id))
   const [sessionStore] = globalSync.child(props.session.directory)
-  const hasPermissions = createMemo(() => {
-    return !!sessionPermissionRequest(sessionStore.session, sessionStore.permission, props.session.id, (item) => {
-      return !permission.autoResponds(item, props.session.directory)
-    })
+  // 4-state right-slot "asking" must mirror the main-region blocker semantics
+  // (permission || question-blocker || question), not just permission. Otherwise
+  // an agent ask() pause shows as busy in the sidebar while the main region
+  // shows the question. See use-session-blockers.ts for the canonical OR set.
+  const isAsking = createMemo(() => {
+    if (
+      sessionPermissionRequest(sessionStore.session, sessionStore.permission, props.session.id, (item) => {
+        return !permission.autoResponds(item, props.session.directory)
+      })
+    )
+      return true
+    if (sessionQuestionBlockerRequest(sessionStore.session, sessionStore.blocker, props.session.id)) return true
+    if (sessionQuestionRequest(sessionStore.session, sessionStore.question, props.session.id)) return true
+    return false
   })
   const sessionRunning = createSessionRunning(
     () => sessionStore.session_status[props.session.id],
     () => sessionStore.message[props.session.id],
   )
-  const isWorking = createMemo(() => {
-    if (hasPermissions()) return false
-    return sessionRunning()
-  })
 
   const tint = createMemo(() => messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent))
   const tooltip = createMemo(() => props.showTooltip ?? false)
@@ -135,16 +100,33 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     return childSessionOnPath(sessionStore.session, props.session.id, params.id)
   })
 
-  const isPinned = createMemo(() => props.pinned?.(props.session) ?? false)
-  const statusGlyph = () => {
-    if (isWorking()) return <Spinner class="size-[14px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
-    if (hasPermissions()) return <div class="size-1.5 rounded-full bg-warning-bg" />
-    if (hasError()) return <div class="size-1.5 rounded-full bg-error-text" />
-    if (unseenCount() > 0) return <div class="size-1.5 rounded-full bg-brand-primary" />
-    if (isPinned()) return <Icon name="pin" class="text-fg-weak" />
-    return null
+  const statusKind = createMemo(() => {
+    const asking = isAsking()
+    const busy = !asking && !!sessionRunning()
+    const error = !asking && !busy && hasError()
+    return sidebarStatusKind({ asking, busy, error })
+  })
+
+  const statusContent = (): JSX.Element => {
+    switch (statusKind()) {
+      case "asking":
+        return <Icon name="comment" class="text-brand-primary" />
+      case "busy":
+        return (
+          <Spinner
+            aria-label={language.t("common.loading")}
+            class="size-[18px]"
+            style={{ color: tint() ?? "var(--brand-primary)" }}
+          />
+        )
+      case "error":
+        return <Icon name="circle-x" class="text-error" />
+      case "time": {
+        const t = props.timeText?.(props.session)
+        return t ? <span class="text-12-regular text-fg-weaker whitespace-nowrap">{t}</span> : null
+      }
+    }
   }
-  const statusTime = () => (statusGlyph() ? undefined : props.timeText?.(props.session))
 
   const warm = (span: number, priority: "high" | "low") => {
     const nav = props.navList?.()
@@ -170,7 +152,6 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <SessionRow
       session={props.session}
       slug={props.slug}
-      dense={props.dense}
       href={props.hrefForSession?.(props.session) ?? defaultSessionHref(props.slug, props.session)}
       onOpenSession={(event) => {
         if (!props.onOpenSession) return
@@ -186,10 +167,14 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     <>
       <div
         data-session-id={props.session.id}
-        class="group/session relative w-full min-w-0 rounded-md cursor-default pr-2 transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
-        style={{ "padding-left": `${8 + (props.level ?? 0) * 16}px` }}
+        data-component="pawwork-session-row"
+        class="group/session relative w-full min-w-0 h-[32px] flex items-center rounded-sm cursor-default pr-[10px] transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
+        // Sub-session indentation: base padding is 10 (sidebar row spec); add 16 per nesting level.
+        // The flat-row spec locks left-side affordances at 10; nested-row indentation is a deliberate
+        // visual departure to express parent/child without re-introducing accent bars.
+        style={{ "padding-left": `${10 + (props.level ?? 0) * 16}px` }}
       >
-        <div class="flex min-w-0 items-center gap-1">
+        <div class="flex min-w-0 items-center gap-1 flex-1">
           <div class="min-w-0 flex-1">
             <Show
               when={!tooltip()}
@@ -209,23 +194,14 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
           </div>
 
           <Show when={!props.level}>
-            <div class="relative shrink-0 flex items-center justify-end h-5 min-w-5">
-              {/* default glyph (running / permission / error / unread / pinned) — 20×20 box matches dropdown trigger; fades on hover */}
-              <Show when={statusGlyph()}>
-                <div class="pointer-events-none size-5 flex items-center justify-center transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0">
-                  {statusGlyph()}
-                </div>
-              </Show>
-              {/* fallback time text — free width, fades on hover */}
-              <Show when={statusTime()}>
-                {(time) => (
-                  <span class="pointer-events-none text-12-regular text-fg-weaker transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0">
-                    {time()}
-                  </span>
-                )}
-              </Show>
-              {/* hover/focus action — overlays status icon */}
-              <div class="absolute inset-y-0 right-0 flex items-center justify-end opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
+            <div class="relative shrink-0 flex items-center justify-end h-[20px] min-w-[20px]">
+              {/* default 4-state status (asking|busy|error|time) — fades on hover, never display:none per L35.
+                 Inner box centers icons in a 20px square but lets time text grow horizontally. */}
+              <div data-status-default class="pointer-events-none h-full min-w-[20px] flex items-center justify-center group-hover/session:opacity-0 group-focus-within/session:opacity-0 group-has-[[data-expanded]]/session:opacity-0">
+                {statusContent()}
+              </div>
+              {/* hover/focus/menu-open action overlay */}
+              <div data-status-overlay class="absolute inset-y-0 right-0 flex items-center justify-end opacity-0 pointer-events-none group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto group-has-[[data-expanded]]/session:opacity-100 group-has-[[data-expanded]]/session:pointer-events-auto">
                 <Show when={props.actionSlot}>{props.actionSlot?.(props.session)}</Show>
               </div>
             </div>

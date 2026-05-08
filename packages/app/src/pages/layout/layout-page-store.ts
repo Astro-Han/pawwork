@@ -25,8 +25,21 @@ function pinnedSessions(value: unknown) {
   })
 }
 
+function projectCollapsed(value: unknown) {
+  if (!record(value)) return {} as Record<string, boolean>
+  const out: Record<string, boolean> = {}
+  for (const [key, val] of Object.entries(value)) {
+    if (typeof key === "string" && key && val === true) out[key] = true
+  }
+  return out
+}
+
 function hasLayoutPageFields(value: Record<string, unknown>) {
-  return "pawworkPinnedSessions" in value || "pawworkSortMode" in value
+  return (
+    "pawworkPinnedSessions" in value ||
+    "pawworkSortMode" in value ||
+    "pawworkProjectCollapsed" in value
+  )
 }
 
 export function createDefaultLayoutPageState() {
@@ -40,6 +53,7 @@ export function createDefaultLayoutPageState() {
     gettingStartedDismissed: false,
     pawworkPinnedSessions: [] as string[],
     pawworkSortMode: "time" as "time" | "project",
+    pawworkProjectCollapsed: {} as Record<string, boolean>,
   }
 }
 
@@ -55,6 +69,7 @@ export function migrateLayoutPageState(value: unknown) {
         ...decoded,
         pawworkPinnedSessions: pinnedSessions(decoded.pawworkPinnedSessions),
         pawworkSortMode: decoded.pawworkSortMode === "project" ? "project" : "time",
+        pawworkProjectCollapsed: projectCollapsed(decoded.pawworkProjectCollapsed),
       }
     }
     if (!hasLayoutPageFields(parsedPage)) return undefined
@@ -62,6 +77,7 @@ export function migrateLayoutPageState(value: unknown) {
       ...parsedPage,
       pawworkPinnedSessions: pinnedSessions(parsedPage.pawworkPinnedSessions),
       pawworkSortMode: parsedPage.pawworkSortMode === "project" ? "project" : "time",
+      pawworkProjectCollapsed: projectCollapsed(parsedPage.pawworkProjectCollapsed),
     }
   }
 
@@ -71,6 +87,7 @@ export function migrateLayoutPageState(value: unknown) {
     ...decoded,
     pawworkPinnedSessions: pinnedSessions(decoded.pawworkPinnedSessions),
     pawworkSortMode: decoded.pawworkSortMode === "project" ? "project" : "time",
+    pawworkProjectCollapsed: projectCollapsed(decoded.pawworkProjectCollapsed),
   }
 }
 

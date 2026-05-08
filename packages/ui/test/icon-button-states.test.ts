@@ -44,6 +44,10 @@ describe("IconButton — single canonical size (24×24)", () => {
   test("height 24px declared at root level", () => {
     expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*height:\s*24px/)
   })
+
+  test("base border-radius is radius-sm (DESIGN.md §157)", () => {
+    expect(CSS).toMatch(/\[data-component="icon-button"\]\s*\{[^}]*border-radius:\s*var\(--radius-sm\)/)
+  })
 })
 
 // ── Ghost-only behaviour ────────────────────────────────────────────────────
@@ -61,12 +65,21 @@ describe("IconButton — ghost-only", () => {
     expect(CSS).toContain("background-color: transparent")
   })
 
-  test("hover applies --hover-overlay token", () => {
-    expect(CSS).toContain("var(--hover-overlay)")
+  test("base hover applies --hover-overlay token", () => {
+    expect(CSS).toMatch(
+      /&:hover:not\(:disabled\)\s*\{[^}]*background-color:\s*var\(--hover-overlay\)/,
+    )
   })
 
   test("active state uses --surface-interactive-base", () => {
     expect(CSS).toContain("var(--surface-interactive-base)")
+  })
+
+  test("sidebar row menu trigger overrides to --row-active-overlay (slice 09)", () => {
+    expect(CSS).toMatch(
+      /\[data-component="pawwork-session-row"\]\s*\[data-action="session-row-menu"\]\[data-component="icon-button"\]/,
+    )
+    expect(CSS).toMatch(/var\(--row-active-overlay\)/)
   })
 })
 

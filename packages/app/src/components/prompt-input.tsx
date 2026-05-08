@@ -1186,7 +1186,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               size: "normal",
               style: triggerStyle(),
               class:
-                "min-w-0 px-1.5 justify-start! text-13-regular! text-fg-base group",
+                "min-w-0 px-1.5 justify-start text-13-regular text-fg-base font-normal group",
               "data-action": "prompt-model",
               "data-picker-trigger": "",
               disabled: !actionReady(),
@@ -1201,7 +1201,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               />
             </Show>
             <span
-              class="truncate text-center max-w-[7rem] transition-[max-width] duration-200 ease-out"
+              class="truncate text-center max-w-[7rem] transition-[max-width] duration-200 ease-out font-normal"
               classList={{ "@max-[28rem]/composer:max-w-0": !!local.model.current()?.provider?.id }}
             >
               {local.model.current()?.name ?? language.t("dialog.model.select.title")}
@@ -1251,7 +1251,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           triggerProps={{
             "data-action": "prompt-model-variant",
             class:
-              "max-w-[160px] @max-[20rem]/composer:max-w-[80px] text-13-regular! text-fg-base",
+              "max-w-[160px] @max-[20rem]/composer:max-w-[80px] text-13-regular text-fg-base font-normal",
           }}
         />
       </TooltipKeybind>

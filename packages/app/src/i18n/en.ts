@@ -391,6 +391,11 @@ export const dict = {
   "dialog.project.edit.icon.readFailed.title": "Failed to read image",
   "dialog.project.edit.icon.readFailed.description": "The selected file could not be loaded. Please try another image.",
 
+  "dialog.releaseNotes.action.getStarted": "Get started",
+  "dialog.releaseNotes.action.next": "Next",
+  "dialog.releaseNotes.action.hideFuture": "Don't show these in the future",
+  "dialog.releaseNotes.media.alt": "Release preview",
+
   "context.breakdown.title": "Context Breakdown",
   "context.breakdown.note": 'Approximate breakdown of input tokens. "Other" includes tool definitions and overhead.',
   "context.breakdown.system": "System",
@@ -804,6 +809,9 @@ export const dict = {
   "sidebar.pawwork.unpinSession": "Unpin session",
   "sidebar.pawwork.sort.byProject": "Group by project",
   "sidebar.pawwork.sort.byTime": "Sort by time",
+  "sidebar.pawwork.sort.label": "Sort",
+  "sidebar.pawwork.sort.optionByTime": "By time",
+  "sidebar.pawwork.sort.optionByProject": "By project",
   "sidebar.pawwork.searchHistory": "Use Search for older sessions",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
@@ -830,7 +838,7 @@ export const dict = {
   "debugBar.mem.tipUnavailable": "Used JS heap vs heap limit. Chromium only.",
   "debugBar.mem.tip": "Used JS heap vs heap limit. {{used}} of {{limit}}.",
 
-  "app.name.desktop": "PawWork Desktop",
+  "app.name.desktop": "PawWork",
 
   "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",

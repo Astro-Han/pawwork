@@ -420,7 +420,6 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
             ? language.t("session.header.searchFiles")
             : language.t("palette.search.placeholder"),
           autofocus: true,
-          hideIcon: true,
         }}
         emptyMessage={language.t("palette.empty")}
         loadingMessage={language.t("common.loading")}

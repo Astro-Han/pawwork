@@ -1,10 +1,12 @@
 import type { Session } from "@opencode-ai/sdk/v2/client"
+import type { IconName } from "@opencode-ai/ui/icon"
 
 export type SessionMenuActionID = "pin" | "rename" | "export" | "delete"
 
 export type SessionMenuAction = {
   id: SessionMenuActionID
   label: string
+  icon: IconName
   separatorBefore?: boolean
   run: () => Promise<void> | void
 }
@@ -29,11 +31,13 @@ export function buildSessionMenuActions(input: {
     {
       id: "pin",
       label: input.pinned ? input.labels.unpin : input.labels.pin,
+      icon: "pin",
       run: () => input.onTogglePinnedSession(input.session.id),
     },
     {
       id: "rename",
       label: input.labels.rename,
+      icon: "pencil-line",
       run: () => input.onRenameSession(input.session),
     },
   ]
@@ -42,6 +46,7 @@ export function buildSessionMenuActions(input: {
     actions.push({
       id: "export",
       label: input.labels.export,
+      icon: "download",
       run: () => input.onExportSession(input.session),
     })
   }
@@ -49,6 +54,7 @@ export function buildSessionMenuActions(input: {
   actions.push({
     id: "delete",
     label: input.labels.delete,
+    icon: "trash",
     separatorBefore: true,
     run: () => input.onDeleteSession(input.session),
   })

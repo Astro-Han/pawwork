@@ -1,0 +1,91 @@
+import { test, expect } from "../fixtures"
+import { openSidebar, withSession } from "../actions"
+import { pawworkSidebarSelector } from "../selectors"
+
+test("sidebar row exposes 4-item menu with leading icons", async ({
+  page,
+  sdk,
+  gotoSession,
+}) => {
+  const stamp = Date.now()
+  await withSession(sdk, `slice 09 menu ${stamp}`, async (session) => {
+    await gotoSession(session.id)
+    await openSidebar(page)
+
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    const row = sidebar.locator(`[data-session-id="${session.id}"]`).first()
+    await row.hover()
+    await row.locator('[data-action="session-row-menu"]').click()
+
+    const items = page.getByRole("menuitem")
+    const count = await items.count()
+    // Export availability depends on runtime config; assert on the stable items.
+    expect([3, 4]).toContain(count)
+    const labels = await items.allTextContents()
+    expect(labels[0]).toMatch(/Pin|置顶/)
+    expect(labels[1]).toMatch(/Rename|重命名/)
+    expect(labels[count - 1]).toMatch(/Delete|删除/)
+    if (count === 4) {
+      expect(labels[2]).toMatch(/Export|导出/)
+    }
+
+    // Each item carries a leading icon-svg slot.
+    for (let i = 0; i < count; i++) {
+      await expect(items.nth(i).locator('[data-slot="icon-svg"]')).toBeVisible()
+    }
+  })
+})
+
+test("sort trigger opens a dropdown with two options and reflects the active mode", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  await withSession(sdk, `slice 09 sort ${stamp}`, async (session) => {
+    await gotoSession(session.id)
+    await openSidebar(page)
+
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    const trigger = sidebar.locator('[data-action="pawwork-sort-trigger"]').first()
+    await expect(trigger).toBeVisible()
+    await trigger.click()
+
+    const options = page.locator('[data-action="pawwork-sort-option"]')
+    await expect(options).toHaveCount(2)
+    await expect(page.locator('[data-action="pawwork-sort-option"][data-value="time"]')).toBeVisible()
+    await expect(page.locator('[data-action="pawwork-sort-option"][data-value="project"]')).toBeVisible()
+
+    await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
+    await expect(trigger).toHaveAttribute("data-mode", "project")
+  })
+})
+
+test("L37 three-segment shape: side-top, side-scroll, side-foot stacked", async ({
+  page,
+  sdk,
+  gotoSession,
+}) => {
+  // The side-traffic placeholder is reserved for slice 17 (when traffic-lights
+  // and collapse control move into the sidebar). Until then, the OS chrome
+  // already supplies that space, so we ship without the placeholder.
+  const stamp = Date.now()
+  await withSession(sdk, `slice 09 shape ${stamp}`, async (session) => {
+    await gotoSession(session.id)
+    await openSidebar(page)
+
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    const top = sidebar.locator('[data-component="pawwork-side-top"]').first()
+    const scroll = sidebar.locator('[data-component="pawwork-side-scroll"]').first()
+    const foot = sidebar.locator('[data-component="pawwork-side-foot"]').first()
+
+    await expect(top).toBeVisible()
+    await expect(scroll).toBeVisible()
+    await expect(foot).toBeVisible()
+
+    const topBox = await top.boundingBox()
+    const scrollBox = await scroll.boundingBox()
+    const footBox = await foot.boundingBox()
+    expect(topBox).not.toBeNull()
+    expect(scrollBox).not.toBeNull()
+    expect(footBox).not.toBeNull()
+    expect(topBox!.y).toBeLessThan(scrollBox!.y)
+    expect(scrollBox!.y).toBeLessThan(footBox!.y)
+  })
+})

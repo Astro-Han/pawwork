@@ -42,6 +42,22 @@
   }
 }
 
+/* Row action overlay (slice 09): the three-dot trigger sits on top of a row
+ * that already has its own hover layer, so it needs a stronger overlay
+ * (--row-active-overlay = 0.06 vs base 0.04) and the wider radius-md to read
+ * as a distinct target. Scoped to the sidebar session row to avoid touching
+ * other IconButton uses in the app. */
+[data-component="pawwork-session-row"] [data-action="session-row-menu"][data-component="icon-button"] {
+  border-radius: var(--radius-md);
+
+  &:hover:not(:disabled) {
+    background-color: var(--row-active-overlay);
+  }
+  &[data-selected="true"]:not(:disabled) {
+    background-color: var(--row-active-overlay);
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   [data-component="icon-button"][data-icon="stop"] [data-slot="icon-svg"] rect {
     transform-origin: center;
