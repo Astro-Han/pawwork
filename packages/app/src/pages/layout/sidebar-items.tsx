@@ -70,6 +70,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const notification = useNotification()
   const permission = usePermission()
   const globalSync = useGlobalSync()
+  const language = useLanguage()
   const hasError = createMemo(() => notification.session.unseenHasError(props.session.id))
   const [sessionStore] = globalSync.child(props.session.directory)
   // 4-state right-slot "asking" must mirror the main-region blocker semantics
@@ -111,7 +112,13 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       case "asking":
         return <Icon name="comment" class="text-brand-primary" />
       case "busy":
-        return <Spinner class="size-[18px]" style={{ color: tint() ?? "var(--brand-primary)" }} />
+        return (
+          <Spinner
+            aria-label={language.t("common.loading")}
+            class="size-[18px]"
+            style={{ color: tint() ?? "var(--brand-primary)" }}
+          />
+        )
       case "error":
         return <Icon name="circle-x" class="text-error" />
       case "time": {
