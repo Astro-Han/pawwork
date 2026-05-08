@@ -17,15 +17,12 @@ import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
 import { DockSegmentForm } from "@opencode-ai/ui/dock-card"
 import { Popover } from "@opencode-ai/ui/popover"
-import { Select } from "@opencode-ai/ui/select"
 import { Icon } from "@opencode-ai/ui/icon"
-import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { ModelSelectorPopover, openModelPicker } from "@/components/prompt-input/model-picker"
+import { openModelPicker } from "@/components/prompt-input/model-picker"
 import { WorkspaceChip } from "@/components/prompt-input/workspace-chip"
 import { SessionContextUsage } from "@/components/session-context-usage"
-import { translateVariant } from "./prompt-input/variant-label"
 import { SendButton } from "./prompt-input/send-button"
 import { useCommand } from "@/context/command"
 import { usePermission } from "@/context/permission"
@@ -42,6 +39,7 @@ import {
   type PopoverControllers,
 } from "./prompt-input/popover-controllers"
 import { createPromptKeydownHandler } from "./prompt-input/keydown"
+import { PromptModelControl, PromptVariantControl } from "./prompt-input/model-controls"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
@@ -444,7 +442,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     readClipboardImage: platform.readClipboardImage,
   })
 
-  const variants = createMemo(() => ["default", ...local.model.variant.list()])
   const accepting = createMemo(() => {
     const id = activeSessionID()
     if (!id) return permission.isAutoAcceptingDirectory(sdk.directory)
@@ -480,47 +477,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSubmit: props.onSubmit,
   })
 
-  const renderModelControl = (triggerStyle: () => Record<string, string | number | undefined>) => (
-    <div data-component="prompt-model-control">
-      <TooltipKeybind
-        placement="top"
-        gutter={4}
-        title={language.t("command.model.choose")}
-        keybind={command.keybind("model.choose")}
-      >
-        <ModelSelectorPopover
-          model={local.model}
-          triggerAs={Button}
-          triggerProps={{
-            variant: "ghost",
-            size: "normal",
-            style: triggerStyle(),
-            class: "min-w-0 px-1.5 justify-start text-13-regular text-fg-base font-normal group",
-            "data-action": "prompt-model",
-            "data-picker-trigger": "",
-            disabled: !actionReady(),
-          }}
-          onClose={restoreFocus}
-        >
-          <Show when={local.model.current()?.provider?.id}>
-            <ProviderIcon
-              id={local.model.current()?.provider?.id ?? ""}
-              class="size-4 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity duration-150"
-              style={{ "will-change": "opacity", transform: "translateZ(0)" }}
-            />
-          </Show>
-          <span
-            class="truncate text-center max-w-[7rem] transition-[max-width] duration-200 ease-out font-normal"
-            classList={{ "@max-[28rem]/composer:max-w-0": !!local.model.current()?.provider?.id }}
-          >
-            {local.model.current()?.name ?? language.t("dialog.model.select.title")}
-          </span>
-          <Icon name="chevron-down" class="shrink-0" />
-        </ModelSelectorPopover>
-      </TooltipKeybind>
-    </div>
-  )
-
   const [variantOpen, setVariantOpen] = createSignal(false)
 
   createEffect(() => {
@@ -529,42 +485,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setVariantOpen(false)
     setStore("draggingType", null)
   })
-
-  const renderVariantControl = (triggerStyle: () => Record<string, string | number | undefined>) => (
-    <div data-component="prompt-variant-control">
-      <TooltipKeybind
-        placement="top"
-        gutter={4}
-        title={language.t("command.model.variant.cycle")}
-        keybind={command.keybind("model.variant.cycle")}
-      >
-        <Select<string>
-          open={variantOpen()}
-          options={variants()}
-          current={local.model.variant.current() ?? "default"}
-          value={(v) => v}
-          label={(v) => translateVariant(language.t, v)}
-          onSelect={(v) => {
-            if (!actionReady() || !v) return
-            local.model.variant.set(v === "default" ? undefined : v)
-          }}
-          onOpenChange={(open) => {
-            setVariantOpen(open)
-            if (!open) restoreFocus()
-          }}
-          variant="ghost"
-          size="normal"
-          disabled={!actionReady()}
-          triggerStyle={triggerStyle()}
-          triggerProps={{
-            "data-action": "prompt-model-variant",
-            class:
-              "max-w-[160px] @max-[20rem]/composer:max-w-[80px] text-13-regular text-fg-base font-normal",
-          }}
-        />
-      </TooltipKeybind>
-    </div>
-  )
 
   const handleKeyDown = createPromptKeydownHandler({
     store,
@@ -760,8 +680,27 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                 </Button>
               </TooltipKeybind>
               <Show when={store.mode === "normal"}>
-                {renderModelControl(buttons)}
-                {renderVariantControl(buttons)}
+                <PromptModelControl
+                  triggerStyle={buttons}
+                  actionReady={actionReady}
+                  model={local.model}
+                  language={language}
+                  command={command}
+                  onClose={restoreFocus}
+                />
+                <PromptVariantControl
+                  triggerStyle={buttons}
+                  open={variantOpen()}
+                  onOpenChange={(open) => {
+                    setVariantOpen(open)
+                    if (!open) restoreFocus()
+                  }}
+                  actionReady={actionReady}
+                  model={local.model}
+                  language={language}
+                  command={command}
+                />
+
               </Show>
               <Show when={props.homeMode && store.mode === "normal"}>
                 <WorkspaceChip style={buttons()} />
