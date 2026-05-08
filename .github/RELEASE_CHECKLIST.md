@@ -214,6 +214,16 @@ try {
 }
 ```
 
+For Windows installer shortcut verification, record:
+
+- install mode: `Just me` or `All users`
+- desktop shortcut checkbox state
+- actual desktop shortcut result
+- actual Start Menu result
+- whether the desktop shortcut launches PawWork
+- whether the Start Menu entry launches PawWork
+- whether an update from the previous affected version leaves the existing desktop state unchanged
+
 Keep `.zip`, `.blockmap`, and `latest*.yml` assets unless updater requirements are proven safe without them.
 
 If verification fails, check the reported missing or malformed asset first, rerun only the affected build phase, and publish the release only after the verification helper passes.

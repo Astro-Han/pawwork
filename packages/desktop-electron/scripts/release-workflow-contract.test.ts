@@ -52,3 +52,14 @@ describe("release workflow app-update verification", () => {
     expect(workflow).toContain('officecli_platform="win32"')
   })
 })
+
+const checklist = readFileSync(join(import.meta.dir, "..", "..", "..", ".github", "RELEASE_CHECKLIST.md"), "utf8")
+
+describe("release checklist Windows installer verification", () => {
+  test("records desktop and Start Menu launch evidence", () => {
+    expect(checklist).toContain("desktop shortcut checkbox state")
+    expect(checklist).toContain("desktop shortcut launches PawWork")
+    expect(checklist).toContain("Start Menu entry launches PawWork")
+    expect(checklist).toContain("previous affected version")
+  })
+})
