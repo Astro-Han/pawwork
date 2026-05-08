@@ -19,11 +19,11 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
 
   return (
     <div data-component="session-new-home" class="size-full overflow-y-auto">
-      <div class="mx-auto flex w-full max-w-200 flex-col items-center px-6 pt-[28vh] pb-10 text-center md:px-8">
+      <div class="mx-auto flex w-full flex-col items-center px-6 pt-[28vh] pb-10 text-center md:px-8">
         <h1 class="text-28-regular text-fg-strong">{language.t("session.new.title")}</h1>
 
         <Show when={props.composer}>
-          <div class="mt-12 flex w-full max-w-[720px] 2xl:max-w-[920px] flex-col items-center">
+          <div class="mt-12 flex w-full max-w-[640px] flex-col items-center">
             {props.composer!({ onModeChange: setMode, selectedSkill })}
           </div>
         </Show>
