@@ -8,7 +8,7 @@ import DESCRIPTION from "./read.txt"
 import { Instance } from "../project/instance"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { Instruction } from "../session/instruction"
-import { isImageAttachment, isPdfAttachment, sniffAttachmentMime } from "@/util/media"
+import { isPdfAttachment, sniffAttachmentMime } from "@/util/media"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -18,6 +18,7 @@ const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 const MAX_ATTACHMENT_BYTES_LABEL = `${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`
 const SAMPLE_BYTES = 4096
+const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"])
 
 // `offset` and `limit` were originally `z.coerce.number()` — the runtime
 // coercion was useful when the tool was called from a shell but serves no
@@ -155,8 +156,8 @@ export const ReadTool = Tool.define(
       params: Schema.Schema.Type<typeof Parameters>,
       ctx: Tool.Context,
     ) {
-      if (params.offset !== undefined && (!Number.isInteger(params.offset) || params.offset < 1)) {
-        return yield* Effect.fail(new Error("offset must be a positive integer (>= 1)"))
+      if (params.offset !== undefined && (!Number.isInteger(params.offset) || params.offset < 0)) {
+        return yield* Effect.fail(new Error("offset must be a non-negative integer"))
       }
       if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit < 1)) {
         return yield* Effect.fail(new Error("limit must be a positive integer (>= 1)"))
@@ -196,7 +197,7 @@ export const ReadTool = Tool.define(
       if (stat.type === "Directory") {
         const items = yield* list(filepath)
         const limit = params.limit ?? DEFAULT_READ_LIMIT
-        const offset = params.offset ?? 1
+        const offset = params.offset || 1
         const start = offset - 1
         const sliced = items.slice(start, start + limit)
         const truncated = start + sliced.length < items.length
@@ -234,7 +235,8 @@ export const ReadTool = Tool.define(
 
       const sample = yield* readSample(filepath, Number(stat.size), SAMPLE_BYTES)
       const mime = sniffAttachmentMime(sample, AppFileSystem.mimeType(filepath))
-      if (isImageAttachment(mime) || isPdfAttachment(mime)) {
+      const isImage = SUPPORTED_IMAGE_MIMES.has(mime)
+      if (isImage || isPdfAttachment(mime)) {
         if (Number(stat.size) > MAX_ATTACHMENT_BYTES) {
           return yield* Effect.fail(
             new Error(`Cannot read attachment larger than ${MAX_ATTACHMENT_BYTES_LABEL}: ${filepath}`),
@@ -265,7 +267,7 @@ export const ReadTool = Tool.define(
       }
 
       const file = yield* Effect.promise(() =>
-        lines(filepath, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset ?? 1 }),
+        lines(filepath, { limit: params.limit ?? DEFAULT_READ_LIMIT, offset: params.offset || 1 }),
       )
       if (file.count < file.offset && !(file.count === 0 && file.offset === 1)) {
         return yield* Effect.fail(

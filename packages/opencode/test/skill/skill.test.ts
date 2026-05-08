@@ -250,7 +250,7 @@ This skill is loaded from the global home directory.
   }
 })
 
-test("discovers skills from .agents/skills/ only", async () => {
+test("discovers skills from .agents/skills/ and .claude/skills by default", async () => {
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
@@ -284,7 +284,7 @@ description: A skill in the .claude/skills directory.
     fn: async () => {
       const skills = await Skill.all()
       expect(skills.find((s) => s.name === "agent-skill")).toBeDefined()
-      expect(skills.find((s) => s.name === "claude-skill")).toBeUndefined()
+      expect(skills.find((s) => s.name === "claude-skill")).toBeDefined()
     },
   })
 })

@@ -183,7 +183,16 @@ export namespace ToolRegistry {
                       outputPath: out.truncated ? out.outputPath : undefined,
                     },
                   }
-                }),
+                }).pipe(
+                  Effect.withSpan("Tool.execute", {
+                    attributes: {
+                      "tool.name": id,
+                      "session.id": toolCtx.sessionID,
+                      "message.id": toolCtx.messageID,
+                      ...(toolCtx.callID ? { "tool.call_id": toolCtx.callID } : {}),
+                    },
+                  }),
+                ),
             }
           }
 

@@ -335,6 +335,18 @@ describe("tool.read truncation", () => {
     }),
   )
 
+  it.live("treats offset 0 as the first line", () =>
+    Effect.gen(function* () {
+      const dir = yield* tmpdirScoped()
+      yield* put(path.join(dir, "offset-zero.txt"), "first\nsecond")
+
+      const result = yield* exec(dir, { filePath: path.join(dir, "offset-zero.txt"), offset: 0, limit: 1 })
+
+      expect(result.output).toContain("1: first")
+      expect(result.output).not.toContain("2: second")
+    }),
+  )
+
   it.live("throws when offset is beyond end of file", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
@@ -454,20 +466,20 @@ describe("tool.read truncation", () => {
     }),
   )
 
-  it.live("detects modern image attachment media from file contents", () =>
+  it.live("does not attach unsupported modern image formats", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
       yield* put(path.join(dir, "photo.bin"), Buffer.from([0x49, 0x49, 0x2a, 0x00, 0x00, 0x08, 0x00, 0x00]))
       yield* put(path.join(dir, "phone.dat"), ftyp("heic", "\0\0\0\0"))
       yield* put(path.join(dir, "screen.bin"), ftyp("avif", "\0\0\0\0"))
 
-      const tiff = yield* exec(dir, { filePath: path.join(dir, "photo.bin") })
-      const heic = yield* exec(dir, { filePath: path.join(dir, "phone.dat") })
-      const avif = yield* exec(dir, { filePath: path.join(dir, "screen.bin") })
+      const tiff = yield* fail(dir, { filePath: path.join(dir, "photo.bin") })
+      const heic = yield* fail(dir, { filePath: path.join(dir, "phone.dat") })
+      const avif = yield* fail(dir, { filePath: path.join(dir, "screen.bin") })
 
-      expect(tiff.attachments?.[0]?.mime).toBe("image/tiff")
-      expect(heic.attachments?.[0]?.mime).toBe("image/heic")
-      expect(avif.attachments?.[0]?.mime).toBe("image/avif")
+      expect(tiff.message).toContain("Cannot read binary file")
+      expect(heic.message).toContain("Cannot read binary file")
+      expect(avif.message).toContain("Cannot read binary file")
     }),
   )
 
@@ -483,20 +495,20 @@ describe("tool.read truncation", () => {
     }),
   )
 
-  it.live("detects ftyp compatible-brand image media from file contents", () =>
+  it.live("does not attach unsupported ftyp compatible-brand image media", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()
       yield* put(path.join(dir, "phone.bin"), ftyp("isom", "\0\0\0\0", "heix"))
       yield* put(path.join(dir, "motion.bin"), ftyp("isom", "\0\0\0\0", "hevx"))
       yield* put(path.join(dir, "screen.dat"), ftyp("isom", "\0\0\0\0", "avis"))
 
-      const heix = yield* exec(dir, { filePath: path.join(dir, "phone.bin") })
-      const hevx = yield* exec(dir, { filePath: path.join(dir, "motion.bin") })
-      const avis = yield* exec(dir, { filePath: path.join(dir, "screen.dat") })
+      const heix = yield* fail(dir, { filePath: path.join(dir, "phone.bin") })
+      const hevx = yield* fail(dir, { filePath: path.join(dir, "motion.bin") })
+      const avis = yield* fail(dir, { filePath: path.join(dir, "screen.dat") })
 
-      expect(heix.attachments?.[0]?.mime).toBe("image/heic")
-      expect(hevx.attachments?.[0]?.mime).toBe("image/heic")
-      expect(avis.attachments?.[0]?.mime).toBe("image/avif")
+      expect(heix.message).toContain("Cannot read binary file")
+      expect(hevx.message).toContain("Cannot read binary file")
+      expect(avis.message).toContain("Cannot read binary file")
     }),
   )
 

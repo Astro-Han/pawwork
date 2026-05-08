@@ -21,7 +21,8 @@ import { Discovery } from "./discovery"
 export namespace Skill {
   const log = Log.create({ service: "skill" })
   const processWithResourcesPath = process as NodeJS.Process & { resourcesPath?: string }
-  const EXTERNAL_DIRS = [".agents"]
+  const CLAUDE_EXTERNAL_DIR = ".claude"
+  const AGENTS_EXTERNAL_DIR = ".agents"
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
   const BUILTIN_SKILL_PATTERN = "*/SKILL.md"
   const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
@@ -176,14 +177,18 @@ export namespace Skill {
     worktree: string,
   ) {
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
-      for (const dir of EXTERNAL_DIRS) {
+      const externalDirs = [
+        ...(Flag.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ? [] : [CLAUDE_EXTERNAL_DIR]),
+        AGENTS_EXTERNAL_DIR,
+      ]
+      for (const dir of externalDirs) {
         const root = path.join(Global.Path.home, dir)
         if (!(yield* fsys.isDir(root))) continue
         yield* scan(state, bus, root, EXTERNAL_SKILL_PATTERN, { dot: true, scope: "global" })
       }
 
       const upDirs = yield* fsys
-        .up({ targets: EXTERNAL_DIRS, start: directory, stop: worktree })
+        .up({ targets: externalDirs, start: directory, stop: worktree })
         .pipe(Effect.catch(() => Effect.succeed([] as string[])))
 
       for (const root of upDirs) {

@@ -151,3 +151,22 @@ test("no requestInit when headers are not provided", async () => {
     },
   })
 })
+
+test("invalid remote url returns failed status without constructing transports", async () => {
+  await using tmp = await tmpdir()
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      transportCalls.length = 0
+
+      const result = await MCP.add("bad-url", {
+        type: "remote",
+        url: "not a valid url",
+      })
+
+      expect(result.status).toEqual({ "bad-url": { status: "failed", error: 'Invalid MCP URL for "bad-url"' } })
+      expect(transportCalls.length).toBe(0)
+    },
+  })
+})

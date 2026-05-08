@@ -19,6 +19,8 @@ import { Plugin } from "@/plugin"
 import { Effect, Context, Layer } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { Global } from "@opencode-ai/core/global"
+import path from "path"
 
 export namespace Agent {
   export const Info = z
@@ -244,20 +246,24 @@ export namespace Agent {
             item.permission = Permission.merge(item.permission, Permission.fromConfig(value.permission ?? {}))
           }
 
-          // Ensure Truncate.GLOB is allowed unless explicitly configured
+          // Ensure runtime-owned helper dirs are allowed unless explicitly configured.
           for (const name in agents) {
             const agent = agents[name]
-            const explicit = agent.permission.some((r) => {
-              if (r.permission !== "external_directory") return false
-              if (r.action !== "deny") return false
-              return r.pattern === Truncate.GLOB
-            })
-            if (explicit) continue
-
-            agents[name].permission = Permission.merge(
-              agents[name].permission,
-              Permission.fromConfig({ external_directory: { [Truncate.GLOB]: "allow" } }),
-            )
+            const allow: Record<string, "allow"> = {}
+            for (const pattern of [Truncate.GLOB, path.join(Global.Path.tmp, "*")]) {
+              const explicit = agent.permission.some((r) => {
+                if (r.permission !== "external_directory") return false
+                if (r.action !== "deny") return false
+                return r.pattern === pattern
+              })
+              if (!explicit) allow[pattern] = "allow"
+            }
+            if (Object.keys(allow).length > 0) {
+              agents[name].permission = Permission.merge(
+                agents[name].permission,
+                Permission.fromConfig({ external_directory: allow }),
+              )
+            }
           }
 
           const get = Effect.fnUntraced(function* (agent: string) {
