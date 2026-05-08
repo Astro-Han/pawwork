@@ -404,6 +404,8 @@ export const PawworkSidebar = (props: {
                           * focus / scroll position survive the toggle; inert on the
                           * inner wrapper takes them out of the tab order while collapsed. */}
                         <div
+                          data-component="pawwork-group-content"
+                          data-collapsed={collapsed() ? "true" : undefined}
                           class="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
                           style={{ "grid-template-rows": collapsed() ? "0fr" : "1fr" }}
                           aria-hidden={collapsed()}
