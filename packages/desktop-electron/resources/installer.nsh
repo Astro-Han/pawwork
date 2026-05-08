@@ -6,21 +6,28 @@ Var PawWorkStandardShortcutName
 
 LangString PawWorkAddDesktopShortcut 1033 "Add desktop shortcut"
 LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"
+LangString PawWorkShortcutOptions 1033 "Shortcut Options"
+LangString PawWorkShortcutOptions 2052 "快捷方式选项"
 
 !macro PAWWORK_STANDARD_SHORTCUT
   StrCpy $PawWorkStandardShortcutName "${SHORTCUT_NAME}"
   ${If} $LANGUAGE == 2052
   ${AndIf} "${SHORTCUT_NAME}" == "PawWork"
     StrCpy $PawWorkStandardShortcutName "爪印"
+  ${ElseIf} $LANGUAGE == 2052
+  ${AndIf} "${SHORTCUT_NAME}" == "PawWork Beta"
+    StrCpy $PawWorkStandardShortcutName "爪印 Beta"
+  ${ElseIf} $LANGUAGE == 2052
+  ${AndIf} "${SHORTCUT_NAME}" == "PawWork Dev"
+    StrCpy $PawWorkStandardShortcutName "爪印 Dev"
   ${EndIf}
 !macroend
 
 !macro PAWWORK_REMOVE_STANDARD_SHORTCUTS
   !insertmacro PAWWORK_STANDARD_SHORTCUT
   Delete "$DESKTOP\$PawWorkStandardShortcutName.lnk"
-  ${If} "${SHORTCUT_NAME}" == "PawWork"
-    Delete "$DESKTOP\PawWork.lnk"
-    Delete "$DESKTOP\爪印.lnk"
+  ${If} $PawWorkStandardShortcutName != "${SHORTCUT_NAME}"
+    Delete "$DESKTOP\${SHORTCUT_NAME}.lnk"
   ${EndIf}
 !macroend
 
@@ -39,7 +46,7 @@ LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"
   !macro customPageAfterChangeDir
     PageEx custom
       PageCallbacks PawWorkDesktopShortcutPageCreate PawWorkDesktopShortcutPageLeave
-      Caption " "
+      Caption "$(PawWorkShortcutOptions)"
     PageExEnd
   !macroend
 
@@ -80,11 +87,6 @@ LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"
       !insertmacro PAWWORK_STANDARD_SHORTCUT
       !insertmacro PAWWORK_RESTORE_INSTALL_SCOPE
       !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
-      ${If} "${SHORTCUT_NAME}" == "PawWork"
-      ${AndIf} $PawWorkStandardShortcutName == "爪印"
-      ${AndIf} ${FileExists} "$DESKTOP\PawWork.lnk"
-        Delete "$DESKTOP\PawWork.lnk"
-      ${EndIf}
       CreateShortCut "$DESKTOP\$PawWorkStandardShortcutName.lnk" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
       ClearErrors
       WinShell::SetLnkAUMI "$DESKTOP\$PawWorkStandardShortcutName.lnk" "${APP_ID}"

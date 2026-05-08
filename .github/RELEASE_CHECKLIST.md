@@ -214,15 +214,21 @@ try {
 }
 ```
 
-For Windows installer shortcut verification, record:
+For Windows installer shortcut verification, record the minimum matrix:
 
-- install mode: `Just me` or `All users`
-- desktop shortcut checkbox state
-- actual desktop shortcut result
-- actual Start Menu result
-- whether the desktop shortcut launches PawWork
-- whether the Start Menu entry launches PawWork
-- whether an update from the previous affected version leaves the existing desktop state unchanged
+- English Windows fresh install, `Just me`, desktop shortcut checked: current user desktop shortcut exists and launches PawWork
+- English Windows fresh install, `All users`, desktop shortcut checked: public desktop shortcut exists and launches PawWork
+- Chinese Windows fresh install, `Just me`, desktop shortcut checked: current user desktop shortcut is `爪印.lnk` and launches PawWork
+- Chinese Windows fresh install, `All users`, desktop shortcut checked: public desktop shortcut is `爪印.lnk` and launches PawWork
+- unchecked install: no desktop shortcut is created and the Start Menu entry still launches PawWork
+- reinstall with desktop shortcut checked: missing standard desktop shortcut is repaired
+- reinstall with desktop shortcut unchecked: existing desktop shortcut state is left unchanged
+- scope switch between `Just me` and `All users`: standard desktop shortcut only exists in the selected install scope
+- Chinese reinstall over an older standard `PawWork.lnk`: standard desktop shortcut migrates to `爪印.lnk`
+- app language change after install: desktop shortcut name is not changed
+- auto-update from the previous affected version: existing desktop shortcut state is left unchanged, including the no-desktop-shortcut state
+
+Do not close the Windows desktop shortcut issue until this real Windows installer evidence is recorded.
 
 Keep `.zip`, `.blockmap`, and `latest*.yml` assets unless updater requirements are proven safe without them.
 

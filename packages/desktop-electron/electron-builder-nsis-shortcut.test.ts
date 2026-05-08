@@ -9,8 +9,12 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain("AddDesktopShortcut")
     expect(script).toContain("添加桌面快捷方式")
     expect(script).toContain("Add desktop shortcut")
+    expect(script).toContain("Shortcut Options")
+    expect(script).toContain("快捷方式选项")
     expect(script).toContain('LangString PawWorkAddDesktopShortcut 1033 "Add desktop shortcut"')
     expect(script).toContain('LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"')
+    expect(script).toContain('LangString PawWorkShortcutOptions 1033 "Shortcut Options"')
+    expect(script).toContain('LangString PawWorkShortcutOptions 2052 "快捷方式选项"')
     expect(script).not.toContain("LANG_ENGLISH")
     expect(script).not.toContain("LANG_SIMPCHINESE")
     expect(script).toContain("BST_CHECKED")
@@ -19,6 +23,8 @@ describe("windows nsis desktop shortcut customization", () => {
   test("uses language-aware standard shortcut names", () => {
     expect(script).toContain("PawWork")
     expect(script).toContain("爪印")
+    expect(script).toContain("爪印 Beta")
+    expect(script).toContain("爪印 Dev")
     expect(script).toContain("$LANGUAGE")
   })
 
@@ -39,6 +45,7 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain("!ifndef BUILD_UNINSTALLER")
     expect(script).toContain("!ifndef BUILD_UNINSTALLER\n  Var AddDesktopShortcutCheckbox")
     expect(script).toContain("PageEx custom")
+    expect(script).toContain('Caption "$(PawWorkShortcutOptions)"')
     expect(script).toContain("PageCallbacks PawWorkDesktopShortcutPageCreate PawWorkDesktopShortcutPageLeave")
     expect(script).toContain('Function "PawWorkDesktopShortcutPageCreate"')
     expect(script).toContain('Function "PawWorkDesktopShortcutPageLeave"')
@@ -46,8 +53,10 @@ describe("windows nsis desktop shortcut customization", () => {
 
   test("uses channel-specific shortcut names instead of hard-coded prod names", () => {
     expect(script).toContain("${SHORTCUT_NAME}")
-    expect(script).toContain('${If} "${SHORTCUT_NAME}" == "PawWork"')
-    expect(script).toContain('$PawWorkStandardShortcutName == "爪印"')
+    expect(script).toContain('${AndIf} "${SHORTCUT_NAME}" == "PawWork"')
+    expect(script).toContain('${AndIf} "${SHORTCUT_NAME}" == "PawWork Beta"')
+    expect(script).toContain('${AndIf} "${SHORTCUT_NAME}" == "PawWork Dev"')
+    expect(script).toContain('Delete "$DESKTOP\\${SHORTCUT_NAME}.lnk"')
   })
 
   test("owns uninstall cleanup for standard shortcuts in the selected install scope", () => {
