@@ -17,6 +17,7 @@ import { SessionID, MessageID } from "../../src/session/schema"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Plugin } from "../../src/plugin"
+import { Global } from "@opencode-ai/core/global"
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(
@@ -323,7 +324,8 @@ describe("tool.bash permissions", () => {
         const err = new Error("stop after permission")
         const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
         const file = process.platform === "win32" ? `${process.env.WINDIR!.replaceAll("\\", "/")}/*` : "/etc/*"
-        const want = process.platform === "win32" ? glob(path.join(process.env.WINDIR!, "*")) : "/etc/*"
+        const want =
+          process.platform === "win32" ? glob(path.join(process.env.WINDIR!, "*")) : path.join(await fs.promises.realpath("/etc"), "*")
         await expect(
           Effect.runPromise(
             bash.execute(
@@ -803,7 +805,7 @@ describe("tool.bash permissions", () => {
         ).rejects.toThrow(err.message)
         const extDirReq = requests.find((r) => r.permission === "external_directory")
         expect(extDirReq).toBeDefined()
-        expect(extDirReq!.patterns).toContain(glob(path.join(os.tmpdir(), "*")))
+        expect(extDirReq!.patterns).toContain(glob(path.join(await fs.promises.realpath(os.tmpdir()), "*")))
       },
     })
   })
@@ -944,6 +946,155 @@ describe("tool.bash permissions", () => {
       },
     })
   })
+
+  if (process.platform !== "win32") {
+    test("asks for real external_directory when bash reads through tmp symlink", async () => {
+      await using outside = await tmpdir({
+        init: async (dir) => {
+          await Bun.write(path.join(dir, "secret.txt"), "secret")
+        },
+      })
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(Global.Path.tmp, `bash-existing-${process.pid}-${Date.now()}`)
+      await fs.promises.rm(link, { recursive: true, force: true })
+      await fs.promises.symlink(outside.path, link, "dir")
+      try {
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            const bash = await initBash()
+            const err = new Error("stop after permission")
+            const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+            await expect(
+              Effect.runPromise(
+                bash.execute(
+                  {
+                    command: `cat ${link}/secret.txt`,
+                    description: "Read tmp symlink file",
+                  },
+                  capture(requests, err),
+                ),
+              ),
+            ).rejects.toThrow(err.message)
+            const extDirReq = requests.find((r) => r.permission === "external_directory")
+            const expected = glob(path.join(await fs.promises.realpath(outside.path), "*"))
+            expect(extDirReq).toBeDefined()
+            expect(extDirReq!.patterns).toContain(expected)
+          },
+        })
+      } finally {
+        await fs.promises.rm(link, { recursive: true, force: true })
+      }
+    })
+
+    test("asks for real external_directory when bash creates through tmp symlink", async () => {
+      await using outside = await tmpdir()
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(Global.Path.tmp, `bash-new-${process.pid}-${Date.now()}`)
+      await fs.promises.rm(link, { recursive: true, force: true })
+      await fs.promises.symlink(outside.path, link, "dir")
+      try {
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            const bash = await initBash()
+            const err = new Error("stop after permission")
+            const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+            await expect(
+              Effect.runPromise(
+                bash.execute(
+                  {
+                    command: `touch ${link}/new.txt`,
+                    description: "Create tmp symlink file",
+                  },
+                  capture(requests, err),
+                ),
+              ),
+            ).rejects.toThrow(err.message)
+            const extDirReq = requests.find((r) => r.permission === "external_directory")
+            const expected = glob(path.join(await fs.promises.realpath(outside.path), "*"))
+            expect(extDirReq).toBeDefined()
+            expect(extDirReq!.patterns).toContain(expected)
+          },
+        })
+      } finally {
+        await fs.promises.rm(link, { recursive: true, force: true })
+      }
+    })
+
+    test("asks for real external_directory when bash path traverses after tmp symlink", async () => {
+      await using outside = await tmpdir()
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(Global.Path.tmp, `bash-dotdot-${process.pid}-${Date.now()}`)
+      await fs.promises.rm(link, { recursive: true, force: true })
+      await fs.promises.symlink(outside.path, link, "dir")
+      try {
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            const bash = await initBash()
+            const err = new Error("stop after permission")
+            const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+            const target = `${link}/../new.txt`
+            await expect(
+              Effect.runPromise(
+                bash.execute(
+                  {
+                    command: `touch ${target}`,
+                    description: "Create parent symlink file",
+                  },
+                  capture(requests, err),
+                ),
+              ),
+            ).rejects.toThrow(err.message)
+            const extDirReq = requests.find((r) => r.permission === "external_directory")
+            const expected = glob(path.join(path.dirname(await fs.promises.realpath(outside.path)), "*"))
+            expect(extDirReq).toBeDefined()
+            expect(extDirReq!.patterns).toContain(expected)
+          },
+        })
+      } finally {
+        await fs.promises.rm(link, { recursive: true, force: true })
+      }
+    })
+
+    test("asks for real external_directory when bash workdir traverses after symlink", async () => {
+      await using outside = await tmpdir()
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(tmp.path, "link")
+      await fs.promises.symlink(outside.path, link, "dir")
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const bash = await initBash()
+          const err = new Error("stop after permission")
+          const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+          const workdir = `${link}/..`
+          await expect(
+            Effect.runPromise(
+              bash.execute(
+                {
+                  command: "echo ok",
+                  workdir,
+                  description: "Echo from symlink parent",
+                },
+                capture(requests, err),
+              ),
+            ),
+          ).rejects.toThrow(err.message)
+          const extDirReq = requests.find((r) => r.permission === "external_directory")
+          const expected = glob(path.join(path.dirname(await fs.promises.realpath(outside.path)), "*"))
+          expect(extDirReq).toBeDefined()
+          expect(extDirReq!.patterns).toContain(expected)
+        },
+      })
+    })
+  }
 
   each("does not ask for external_directory permission when rm inside project", async () => {
     await using tmp = await tmpdir({

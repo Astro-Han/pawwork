@@ -14,7 +14,7 @@ type Options = {
   kind?: Kind
 }
 
-function resolveForPermission(target: string, base: string): string {
+export function resolveExternalPathForPermission(target: string, base: string): string {
   if (process.platform !== "win32") return resolvePosixForPermission(target, base)
 
   const normalized = AppFileSystem.normalizePath(target, { base })
@@ -76,11 +76,11 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
       : path.isAbsolute(target)
       ? target
       : `${ins.directory.replace(/\/+$/, "")}/${target}`
-  const resolved = resolveForPermission(full, ins.directory)
+  const resolved = resolveExternalPathForPermission(full, ins.directory)
   const scope = {
     ...ins,
-    directory: resolveForPermission(ins.directory, ins.directory),
-    worktree: ins.worktree === "/" ? ins.worktree : resolveForPermission(ins.worktree, ins.directory),
+    directory: resolveExternalPathForPermission(ins.directory, ins.directory),
+    worktree: ins.worktree === "/" ? ins.worktree : resolveExternalPathForPermission(ins.worktree, ins.directory),
   }
   if (options?.bypass) return full
   if (Instance.containsPath(resolved, scope)) return full

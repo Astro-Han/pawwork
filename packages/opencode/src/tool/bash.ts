@@ -23,6 +23,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { withoutInternalServerAuthEnv } from "@/util/env"
 import { Global } from "@opencode-ai/core/global"
+import { resolveExternalPathForPermission } from "./external-directory"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -352,7 +353,7 @@ export const BashTool = Tool.define(
         }
         return AppFileSystem.normalizePath(path.resolve(root, AppFileSystem.windowsPath(text)))
       }
-      return path.resolve(root, text)
+      return path.isAbsolute(text) ? text : `${root.replace(/\/+$/, "")}/${text}`
     })
 
     const argPath = Effect.fn("BashTool.argPath")(function* (arg: string, cwd: string, ps: boolean, shell: string) {
@@ -380,8 +381,10 @@ export const BashTool = Tool.define(
           for (const arg of pathArgs(command, ps)) {
             const resolved = yield* argPath(arg, cwd, ps, shell)
             log.info("resolved path", { arg, resolved })
-            if (!resolved || Instance.containsPath(resolved)) continue
-            const dir = (yield* fs.isDir(resolved)) ? resolved : path.dirname(resolved)
+            if (!resolved) continue
+            const permissionPath = resolveExternalPathForPermission(resolved, Instance.directory)
+            if (Instance.containsPath(permissionPath)) continue
+            const dir = (yield* fs.isDir(permissionPath)) ? permissionPath : path.dirname(permissionPath)
             scan.dirs.add(dir)
           }
         }
@@ -614,7 +617,8 @@ export const BashTool = Tool.define(
                     (tree: Tree) => Effect.sync(() => tree.delete()),
                   )
                   const scan = yield* collect(tree.rootNode, cwd, ps, shell)
-                  if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
+                  const permissionCwd = resolveExternalPathForPermission(cwd, Instance.directory)
+                  if (!Instance.containsPath(permissionCwd)) scan.dirs.add(permissionCwd)
                   yield* ask(ctx, scan)
                 }),
               )
