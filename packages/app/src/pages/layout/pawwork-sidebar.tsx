@@ -30,6 +30,8 @@ export const PawworkSidebar = (props: {
   activeSessionID?: Accessor<string | undefined>
   pinnedIDs: Accessor<string[]>
   sortMode: Accessor<PawworkSortMode>
+  collapsedProjects: Accessor<Record<string, boolean>>
+  onToggleProjectCollapsed: (label: string) => void
   setScrollContainerRef: (el: HTMLDivElement | undefined) => void
   prefetchSession: (session: Session, priority?: "high" | "low") => void
   hrefForSession?: (session: Session) => string
@@ -372,14 +374,50 @@ export const PawworkSidebar = (props: {
               </Show>
               <Show when={props.sortMode() === "project"}>
                 <For each={groupedRows()}>
-                  {(group, index) => (
-                    <section class={`${index() > 0 ? "mt-4 " : ""}flex flex-col gap-0.5`}>
-                      <div data-component="pawwork-group-header" class="h-[32px] flex items-center px-2.5 text-13-regular text-fg-weak">
-                        {group.label}
-                      </div>
-                      <For each={group.items}>{(item) => renderSessionItem({ item })}</For>
-                    </section>
-                  )}
+                  {(group, index) => {
+                    const collapsed = createMemo(() => !!props.collapsedProjects()[group.label])
+                    return (
+                      <section class={`${index() > 0 ? "mt-0.5 " : ""}flex flex-col gap-0.5`}>
+                        <button
+                          type="button"
+                          data-component="pawwork-group-header"
+                          data-action="pawwork-group-toggle"
+                          data-collapsed={collapsed() ? "true" : undefined}
+                          aria-expanded={!collapsed()}
+                          onClick={() => props.onToggleProjectCollapsed(group.label)}
+                          class="group/group-header h-[32px] flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
+                        >
+                          <Icon name="folder" class="shrink-0 text-icon-weak" />
+                          <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
+                          <Icon
+                            name="chevron-down"
+                            class="shrink-0 text-icon-weak transition-[opacity,transform] duration-150"
+                            classList={{
+                              "-rotate-90 opacity-100": collapsed(),
+                              "opacity-0 group-hover/group-header:opacity-100 group-focus-visible/group-header:opacity-100":
+                                !collapsed(),
+                            }}
+                          />
+                        </button>
+                        {/* grid-template-rows trick: 0fr → 1fr animates height without
+                          * touching layout-thrashing properties. Items stay mounted so
+                          * focus / scroll position survive the toggle; inert on the
+                          * inner wrapper takes them out of the tab order while collapsed. */}
+                        <div
+                          class="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                          style={{ "grid-template-rows": collapsed() ? "0fr" : "1fr" }}
+                          aria-hidden={collapsed()}
+                        >
+                          <div
+                            class="min-h-0 overflow-hidden flex flex-col gap-0.5"
+                            inert={collapsed() ? true : undefined}
+                          >
+                            <For each={group.items}>{(item) => renderSessionItem({ item })}</For>
+                          </div>
+                        </div>
+                      </section>
+                    )
+                  }}
                 </For>
               </Show>
               <Show when={props.sessionWindow().canShowMore}>

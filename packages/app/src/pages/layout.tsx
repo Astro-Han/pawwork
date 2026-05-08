@@ -1088,6 +1088,14 @@ export default function Layout(props: ParentProps) {
     setStore("pawworkSortMode", mode)
   }
 
+  function toggleProjectCollapsed(label: string) {
+    const current = store.pawworkProjectCollapsed
+    const next: Record<string, boolean> = { ...current }
+    if (next[label]) delete next[label]
+    else next[label] = true
+    setStore("pawworkProjectCollapsed", reconcile(next))
+  }
+
   // Export hits the embedded sidecar via main-process IPC. When the user has
   // switched the active server to a remote target, the sidecar holds different
   // data than the UI; hide the action rather than ship a misleading export.
@@ -2142,6 +2150,8 @@ export default function Layout(props: ParentProps) {
       activeSessionID={() => params.id}
       pinnedIDs={() => store.pawworkPinnedSessions}
       sortMode={() => store.pawworkSortMode}
+      collapsedProjects={() => store.pawworkProjectCollapsed}
+      onToggleProjectCollapsed={toggleProjectCollapsed}
       setScrollContainerRef={workspaceSidebarCtx.setScrollContainerRef}
       prefetchSession={prefetchSession}
       onOpenSession={navigateToSession}
