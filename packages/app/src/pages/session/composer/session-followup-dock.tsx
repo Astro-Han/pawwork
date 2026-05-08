@@ -1,7 +1,7 @@
 import { For, Show, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
-import { DockTray } from "@opencode-ai/ui/dock-surface"
+import { DockSegment } from "@opencode-ai/ui/dock-card"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useLanguage } from "@/context/language"
 
@@ -26,14 +26,7 @@ export function SessionFollowupDock(props: {
   const preview = createMemo(() => props.items[0]?.text ?? "")
 
   return (
-    <DockTray
-      data-component="session-followup-dock"
-      style={{
-        "margin-bottom": "-0.875rem",
-        "border-bottom-left-radius": 0,
-        "border-bottom-right-radius": 0,
-      }}
-    >
+    <DockSegment data-component="session-followup-dock">
       <div
         class="pl-3 pr-2 py-2 flex items-center gap-2"
         role="button"
@@ -104,6 +97,6 @@ export function SessionFollowupDock(props: {
           </For>
         </div>
       </Show>
-    </DockTray>
+    </DockSegment>
   )
 }

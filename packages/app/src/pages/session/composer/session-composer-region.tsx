@@ -1,7 +1,6 @@
-import { Show, createEffect, createMemo, onCleanup } from "solid-js"
-import { createStore } from "solid-js/store"
+import { Show, createEffect, createMemo } from "solid-js"
 import { useNavigate } from "@solidjs/router"
-import { useSpring } from "@opencode-ai/ui/motion-spring"
+import { DockCard, DockSegment } from "@opencode-ai/ui/dock-card"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
@@ -16,7 +15,6 @@ import type { SessionComposerState } from "@/pages/session/composer/session-comp
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
-import { createResizeObserver } from "@solid-primitives/resize-observer"
 
 export function SessionComposerRegion(props: {
   variant?: "session" | "home"
@@ -92,66 +90,13 @@ export function SessionComposerRegion(props: {
     setSessionHandoff(key, { prompt: previewPrompt() })
   })
 
-  const [store, setStore] = createStore({
-    ready: false,
-    height: 320,
-    body: undefined as HTMLDivElement | undefined,
-  })
-  let timer: number | undefined
-  let frame: number | undefined
-
-  const clear = () => {
-    if (timer !== undefined) {
-      window.clearTimeout(timer)
-      timer = undefined
-    }
-    if (frame !== undefined) {
-      cancelAnimationFrame(frame)
-      frame = undefined
-    }
-  }
-
-  createEffect(() => {
-    displaySessionKey()
-    const ready = props.ready
-    const delay = 140
-
-    clear()
-    setStore("ready", false)
-    if (!ready) return
-
-    frame = requestAnimationFrame(() => {
-      frame = undefined
-      timer = window.setTimeout(() => {
-        setStore("ready", true)
-        timer = undefined
-      }, delay)
-    })
-  })
-
-  onCleanup(clear)
-
-  const open = createMemo(() => store.ready && props.state.dock())
-  const progress = useSpring(() => (open() ? 1 : 0), { visualDuration: 0.3, bounce: 0 })
-  const value = createMemo(() => Math.max(0, Math.min(1, progress())))
-  const dock = createMemo(() => (store.ready && props.state.dock()) || value() > 0.001)
   const rolled = createMemo(() => (props.revert?.items.length ? props.revert : undefined))
-  const lift = createMemo(() => (rolled() ? 18 : 36 * value()))
-  const full = createMemo(() => Math.max(78, store.height))
 
   const openParent = () => {
     const id = parentID()
     if (!id) return
     navigate(`/${route.params.dir}/session/${id}`)
   }
-
-  createResizeObserver(
-    () => store.body,
-    () => {
-      const el = store.body
-      if (el) setStore("height", el.getBoundingClientRect().height)
-    },
-  )
 
   return (
     <div
@@ -202,73 +147,43 @@ export function SessionComposerRegion(props: {
           <Show
             when={prompt.ready()}
             fallback={
-              <>
+              <DockCard>
                 <Show when={rolled()} keyed>
                   {(revert) => (
-                    <div class="pb-2">
-                      <SessionRevertDock
-                        items={revert.items}
-                        restoring={revert.restoring}
-                        disabled={revert.disabled}
-                        onRestore={revert.onRestore}
-                      />
-                    </div>
+                    <SessionRevertDock
+                      items={revert.items}
+                      restoring={revert.restoring}
+                      disabled={revert.disabled}
+                      onRestore={revert.onRestore}
+                    />
                   )}
                 </Show>
-                <div
-                  data-dock-surface="shell"
-                  class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none"
-                >
+                <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none">
                   {handoffPrompt() || language.t("prompt.loading")}
-                </div>
-              </>
+                </DockSegment>
+              </DockCard>
             }
           >
-            <Show when={dock()}>
-              <div
-                classList={{
-                  "overflow-hidden": true,
-                  "pointer-events-none": value() < 0.98,
-                }}
-                style={{
-                  "max-height": `${full() * value()}px`,
-                }}
-              >
-                <div ref={(el) => setStore("body", el)}>
-                  <SessionTodoDock
-                    sessionID={displaySessionID()}
-                    todos={props.state.todos()}
-                    collapseLabel={language.t("session.todo.collapse")}
-                    expandLabel={language.t("session.todo.expand")}
-                    dockProgress={value()}
-                  />
-                </div>
-              </div>
-            </Show>
-            <Show when={rolled()} keyed>
-              {(revert) => (
-                <div
-                  style={{
-                    "margin-top": `${-36 * value()}px`,
-                  }}
-                >
+            <DockCard>
+              <Show when={props.state.dock()}>
+                <SessionTodoDock
+                  sessionID={displaySessionID()}
+                  todos={props.state.todos()}
+                  collapseLabel={language.t("session.todo.collapse")}
+                  expandLabel={language.t("session.todo.expand")}
+                  dockProgress={1}
+                />
+              </Show>
+              <Show when={rolled()} keyed>
+                {(revert) => (
                   <SessionRevertDock
                     items={revert.items}
                     restoring={revert.restoring}
                     disabled={revert.disabled}
                     onRestore={revert.onRestore}
                   />
-                </div>
-              )}
-            </Show>
-            <div
-              classList={{
-                "relative z-10": true,
-              }}
-              style={{
-                "margin-top": `${-lift()}px`,
-              }}
-            >
+                )}
+              </Show>
               <Show when={props.followup?.items.length}>
                 <SessionFollowupDock
                   items={props.followup!.items}
@@ -302,9 +217,9 @@ export function SessionComposerRegion(props: {
                   </Show>
                 }
               >
-                <div
-                  ref={props.inputRef}
-                  class="w-full rounded-[12px] border border-border-weak bg-bg-base p-3 text-16-regular text-fg-weak"
+                <DockSegment
+                  ref={props.inputRef as (el: HTMLDivElement) => void}
+                  class="w-full p-3 text-16-regular text-fg-weak"
                 >
                   <span>{language.t("session.child.promptDisabled")} </span>
                   <Show when={parentID()}>
@@ -316,9 +231,9 @@ export function SessionComposerRegion(props: {
                       {language.t("session.child.backToParent")}
                     </button>
                   </Show>
-                </div>
+                </DockSegment>
               </Show>
-            </div>
+            </DockCard>
           </Show>
         </Show>
       </div>

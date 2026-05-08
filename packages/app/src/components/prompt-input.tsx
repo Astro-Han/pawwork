@@ -19,7 +19,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useComments } from "@/context/comments"
 import { Button } from "@opencode-ai/ui/button"
-import { DockShellForm } from "@opencode-ai/ui/dock-surface"
+import { DockSegmentForm } from "@opencode-ai/ui/dock-card"
 import { Popover } from "@opencode-ai/ui/popover"
 import { Select } from "@opencode-ai/ui/select"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -1445,7 +1445,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         commandKeybind={command.keybind}
         t={(key) => language.t(key as Parameters<typeof language.t>[0])}
       />
-      <DockShellForm
+      <DockSegmentForm
         onSubmit={handleSubmit}
         classList={{
           "group/prompt-input @container/composer": true,
@@ -1625,7 +1625,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             </div>
           </div>
         </div>
-      </DockShellForm>
+      </DockSegmentForm>
     </div>
   )
 }

@@ -15,6 +15,6 @@
   position: relative;
 }
 
-[data-dock="card"] > [data-dock="segment"] + [data-dock="segment"] {
-  border-top: 1px solid var(--border-weaker);
+[data-dock="card"] > [data-dock="segment"]:not(:last-child) {
+  border-bottom: 1px solid var(--border-weaker);
 }

@@ -1,7 +1,7 @@
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { AnimatedNumber } from "@opencode-ai/ui/animated-number"
 import { Icon } from "@opencode-ai/ui/icon"
-import { DockTray } from "@opencode-ai/ui/dock-surface"
+import { DockSegment } from "@opencode-ai/ui/dock-card"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
@@ -102,7 +102,7 @@ export function SessionTodoDock(props: {
   })
 
   return (
-    <DockTray
+    <DockSegment
       data-component="session-todo-dock"
       style={{
         "overflow-x": "visible",
@@ -201,7 +201,7 @@ export function SessionTodoDock(props: {
           <TodoList todos={props.todos} />
         </div>
       </div>
-    </DockTray>
+    </DockSegment>
   )
 }
 
