@@ -23,7 +23,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
         <h1 class="text-28-regular text-fg-strong">{language.t("session.new.title")}</h1>
 
         <Show when={props.composer}>
-          <div class="mt-12 flex w-full max-w-[720px] flex-col items-center">
+          <div class="mt-12 flex w-full max-w-[720px] 2xl:max-w-[920px] flex-col items-center">
             {props.composer!({ onModeChange: setMode, selectedSkill })}
           </div>
         </Show>

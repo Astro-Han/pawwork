@@ -1,14 +1,15 @@
 [data-dock="card"] {
   background-color: var(--bg-base);
   border-radius: var(--radius-lg);
-  box-shadow: var(--ring-base), var(--shadow-raised);
+  box-shadow: 0 0 0 1px var(--border-weak), var(--shadow-raised);
   overflow: hidden;
   position: relative;
   z-index: 10;
 }
 
 :root[data-color-scheme="dark"] [data-dock="card"] {
-  box-shadow: var(--shadow-raised);
+  background-color: var(--surface-raised);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 [data-dock="segment"] {

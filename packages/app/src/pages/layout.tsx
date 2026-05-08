@@ -2265,11 +2265,6 @@ export default function Layout(props: ParentProps) {
               </Show>
 
               <div
-                class="pointer-events-none absolute top-0 right-0 z-0 border-t border-border-weaker"
-                style={{ left: "var(--sidebar-width)" }}
-              />
-
-              <div
                 classList={{
                   "absolute inset-y-0 right-0 left-[var(--main-left)]": true,
                   "z-20": true,
@@ -2285,7 +2280,7 @@ export default function Layout(props: ParentProps) {
                   data-platform={platform.platform}
                   {...shellAttrs(platform)}
                   classList={{
-                    "size-full overflow-x-hidden flex flex-col items-start contain-strict bg-bg-base": true,
+                    "size-full overflow-x-hidden flex flex-col items-start contain-strict": true,
                   }}
                 >
                   <div class="relative size-full">

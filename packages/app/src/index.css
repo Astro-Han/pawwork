@@ -52,13 +52,13 @@
   }
 
   :root[data-color-scheme="dark"] [data-component="desktop-shell"][data-shell="desktop"] {
-    --shell-background-base: #212121;
-    --shell-background-weak: #181818;
-    --shell-surface-base: #181818;
-    --shell-surface-raised: #181818;
-    --shell-surface-strong: #212121;
-    --shell-border-base: #2F323A;
-    --shell-border-weak: #23252A;
+    --shell-background-base: #221f1c;
+    --shell-background-weak: #1a1714;
+    --shell-surface-base: #1a1714;
+    --shell-surface-raised: #1a1714;
+    --shell-surface-strong: #221f1c;
+    --shell-border-base: #2F2B28;
+    --shell-border-weak: #25211D;
     --shell-highlight-overlay: radial-gradient(circle at top, rgb(255 255 255 / 0.04), transparent 52%);
     --shell-frame-border: color-mix(in srgb, var(--shell-border-base) 78%, #5a5e68 22%);
     --shell-frame-shadow:
@@ -99,8 +99,8 @@
       to right,
       var(--sidebar) 0,
       var(--sidebar) var(--sidebar-width, 0px),
-      var(--bg-base) var(--sidebar-width, 0px),
-      var(--bg-base) 100%
+      transparent var(--sidebar-width, 0px),
+      transparent 100%
     );
   }
 

@@ -68,7 +68,7 @@ export function SessionMainView(props: {
     })
 
   return (
-    <div class="relative bg-bg-base size-full overflow-hidden flex flex-col">
+    <div class="relative size-full overflow-hidden flex flex-col">
       <SessionHeader />
       <div class="flex-1 min-h-0 flex flex-col md:flex-row">
         <Show when={!props.isDesktop && !!props.activeSessionID}>
@@ -96,7 +96,7 @@ export function SessionMainView(props: {
           </Tabs>
         </Show>
 
-        <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full bg-bg-base flex-1">
+        <div class="@container relative min-w-[24rem] flex flex-col min-h-0 h-full flex-1">
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
               <Match when={showSessionOpeningState()}>
