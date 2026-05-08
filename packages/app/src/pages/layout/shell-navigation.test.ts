@@ -12,11 +12,16 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
+      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openNewSession("/repo")
 
-    expect(calls).toEqual([`release:new-session`, `navigate:/${base64Encode("/root:/repo")}/session`])
+    expect(calls).toEqual([
+      "close-settings",
+      `release:new-session`,
+      `navigate:/${base64Encode("/root:/repo")}/session`,
+    ])
   })
 
   test("opens an existing session through one shell action and releases transient locks first", () => {
@@ -28,11 +33,16 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
+      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openSession({ directory: "/repo", id: "ses_123" })
 
-    expect(calls).toEqual([`release:session`, `navigate:/${base64Encode("/repo")}/session/ses_123`])
+    expect(calls).toEqual([
+      "close-settings",
+      `release:session`,
+      `navigate:/${base64Encode("/repo")}/session/ses_123`,
+    ])
   })
 
   test("opens settings through the same shell action owner instead of a standalone signal", () => {
@@ -44,6 +54,7 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
+      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openSettings()
@@ -60,11 +71,12 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => undefined,
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
+      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openNewSession()
 
-    expect(calls).toEqual(["release:choose-project", "chooseProject"])
+    expect(calls).toEqual(["close-settings", "release:choose-project", "chooseProject"])
   })
 
   test("falls back to project chooser when an explicit directory cannot be resolved", () => {
@@ -76,10 +88,11 @@ describe("createShellNavigation", () => {
       currentProjectRoot: () => "/current",
       chooseProject: () => calls.push("chooseProject"),
       openSettingsSurface: () => calls.push("settings"),
+      closeSettingsSurface: () => calls.push("close-settings"),
     })
 
     shell.openNewSession("/repo")
 
-    expect(calls).toEqual(["release:choose-project", "chooseProject"])
+    expect(calls).toEqual(["close-settings", "release:choose-project", "chooseProject"])
   })
 })

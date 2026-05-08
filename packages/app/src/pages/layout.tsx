@@ -1446,16 +1446,6 @@ export default function Layout(props: ParentProps) {
     setSettingsOpen(false)
   }
 
-  let lastSettingsPath: string | undefined
-  createEffect(() => {
-    const current = location.pathname
-    if (settingsOpen()) {
-      if (lastSettingsPath === undefined) lastSettingsPath = current
-      else if (lastSettingsPath !== current) closeSettings()
-    } else {
-      lastSettingsPath = undefined
-    }
-  })
 
   function projectRoot(directory: string) {
     const key = workspaceKey(directory)
@@ -1524,6 +1514,7 @@ export default function Layout(props: ParentProps) {
     currentProjectRoot: () => currentProject()?.worktree ?? projectRoot(currentDir()),
     chooseProject,
     openSettingsSurface,
+    closeSettingsSurface: closeSettings,
   })
 
   function openProject(directory: string, shouldNavigate = true) {
