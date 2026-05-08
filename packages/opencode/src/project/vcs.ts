@@ -13,6 +13,7 @@ import z from "zod"
 export namespace Vcs {
   const log = Log.create({ service: "vcs" })
   const PATCH_CONTEXT_LINES = 2_147_483_647
+  // A single useful patch may consume the whole budget; later files then fall back to empty patches.
   const MAX_PATCH_BYTES = 10_000_000
   const MAX_TOTAL_PATCH_BYTES = 10_000_000
 
@@ -29,7 +30,7 @@ export namespace Vcs {
     return [...out.values()]
   }
 
-  type PatchBatch = { patches: Map<string, string>; total: number; capped: boolean }
+  type PatchBatch = { total: number; capped: boolean }
 
   const boundedPatch = Effect.fnUntraced(function* (
     batch: PatchBatch,
@@ -54,7 +55,7 @@ export namespace Vcs {
   const staged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
     const [list, stats] = yield* Effect.all([git.diffStaged(cwd), git.statsStaged(cwd)], { concurrency: 2 })
     const statMap = nums(stats)
-    const batch: PatchBatch = { patches: new Map(), total: 0, capped: false }
+    const batch: PatchBatch = { total: 0, capped: false }
     const next = yield* Effect.forEach(
       list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>
@@ -86,7 +87,7 @@ export namespace Vcs {
       extra.filter((item) => item.code === "??"),
     )
     const statMap = nums(stats)
-    const batch: PatchBatch = { patches: new Map(), total: 0, capped: false }
+    const batch: PatchBatch = { total: 0, capped: false }
     const next = yield* Effect.forEach(
       list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>
@@ -112,7 +113,7 @@ export namespace Vcs {
   const branchHead = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, ref: string) {
     const [list, stats] = yield* Effect.all([git.diffHead(cwd, ref), git.statsHead(cwd, ref)], { concurrency: 2 })
     const statMap = nums(stats)
-    const batch: PatchBatch = { patches: new Map(), total: 0, capped: false }
+    const batch: PatchBatch = { total: 0, capped: false }
     const next = yield* Effect.forEach(
       list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>

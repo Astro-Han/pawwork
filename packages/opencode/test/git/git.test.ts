@@ -243,6 +243,31 @@ describe("Git", () => {
     })
   })
 
+  test("run keeps stderr truncation separate from stdout truncation", async () => {
+    if (process.platform === "win32") return
+    await using tmp = await tmpdir({ git: true })
+
+    await withGit(async (rt) => {
+      const result = await rt.runPromise(
+        Git.Service.use((git) =>
+          git.run(
+            [
+              "-c",
+              "alias.noisy=!f() { printf ok; i=0; while [ $i -lt 2048 ]; do printf x >&2; i=$((i+1)); done; }; f",
+              "noisy",
+            ],
+            { cwd: tmp.path, maxOutputBytes: 16 },
+          ),
+        ),
+      )
+
+      expect(result.text()).toBe("ok")
+      expect(result.truncated).toBe(false)
+      expect(result.stdoutTruncated).toBe(false)
+      expect(result.stderrTruncated).toBe(true)
+    })
+  })
+
   test("patchUntracked() and statUntracked() handle added files", async () => {
     await using tmp = await tmpdir({ git: true })
     await fs.writeFile(path.join(tmp.path, weird), "one\ntwo\n", "utf-8")

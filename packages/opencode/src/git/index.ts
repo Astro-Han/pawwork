@@ -26,6 +26,8 @@ export namespace Git {
       stdout: Buffer.alloc(0),
       stderr: Buffer.from(err instanceof Error ? err.message : String(err)),
       truncated: false,
+      stdoutTruncated: false,
+      stderrTruncated: false,
     }) satisfies Result
 
   export type Kind = "added" | "deleted" | "modified"
@@ -63,6 +65,8 @@ export namespace Git {
     readonly stdout: Buffer
     readonly stderr: Buffer
     readonly truncated: boolean
+    readonly stdoutTruncated: boolean
+    readonly stderrTruncated: boolean
   }
 
   export interface Options {
@@ -149,7 +153,9 @@ export namespace Git {
             text: () => stdout.buffer.toString("utf8"),
             stdout: stdout.buffer,
             stderr: stderr.buffer,
-            truncated: stdout.truncated || stderr.truncated,
+            truncated: stdout.truncated,
+            stdoutTruncated: stdout.truncated,
+            stderrTruncated: stderr.truncated,
           } satisfies Result
         },
         Effect.scoped,
@@ -478,10 +484,13 @@ export namespace Git {
           maxOutputBytes: 4096,
         })
         if (result.truncated) return
-        const parts = result.text().split("\t")
-        if (parts.length < 2) return
-        const additions = parts[0] === "-" ? 0 : Number.parseInt(parts[0] || "0", 10)
-        const deletions = parts[1] === "-" ? 0 : Number.parseInt(parts[1] || "0", 10)
+        const match = result
+          .text()
+          .trim()
+          .match(/^(\d+|-)\t(\d+|-)\t/)
+        if (!match) return
+        const additions = match[1] === "-" ? 0 : Number.parseInt(match[1] || "0", 10)
+        const deletions = match[2] === "-" ? 0 : Number.parseInt(match[2] || "0", 10)
         return {
           file,
           additions: Number.isFinite(additions) ? additions : 0,
