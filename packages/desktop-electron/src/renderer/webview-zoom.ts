@@ -49,6 +49,7 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "0") {
     event.preventDefault()
     applyZoom(1)
+    return
   }
 })
 
