@@ -16,8 +16,10 @@
       display: flex;
       flex-direction: column;
       width: 100%;
-      /* Clamp to viewport so small/split windows don't overflow. */
-      max-height: min(480px, calc(100dvh - 32px));
+      /* Lock the palette to a fixed height so result count changes don't
+       * jump the modal. The list-scroll inside handles overflow. Clamp to
+       * the viewport for small / split windows. */
+      height: min(480px, calc(100dvh - 32px));
       overflow: hidden;
       pointer-events: auto;
 
@@ -40,5 +42,117 @@
 
   &[data-expanded] {
     animation: contentShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+/* Refinements layered over the generic List component. The palette wants a
+ * generous 52px ghost header — wide enough that the search input feels like
+ * the primary surface — with a structural 1px divider below, then a dense
+ * 32px list body per L32. Scope every override to the palette so other List
+ * consumers (model picker, file picker) keep their flat in-popover search. */
+
+[data-component="command-palette"] [data-component="list"] {
+  /* Negate the generic list's horizontal padding so the search header
+   * spans edge-to-edge. Items reintroduce 12px padding for the L32 row
+   * spec. flex-1 + min-height: 0 lets the inner scroll fill the palette's
+   * fixed height so result count changes never jump the modal. */
+  padding: 0;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+[data-component="command-palette"] [data-slot="list-scroll"] {
+  flex: 1;
+  min-height: 0;
+}
+
+[data-component="command-palette"] [data-slot="list-search-wrapper"] {
+  margin-bottom: 0;
+}
+
+[data-component="command-palette"] [data-slot="list-search"] {
+  height: 52px;
+  padding: 0 16px;
+  gap: 12px;
+  border-radius: 0;
+  background: transparent;
+
+  [data-slot="list-search-container"] {
+    /* Allow the input to grow with the header; the generic 20px clamp
+     * compresses the type-body line and made the box read as cramped. */
+    max-height: none;
+
+    > [data-component="icon"] {
+      color: var(--icon-weak);
+      flex-shrink: 0;
+    }
+
+    [data-slot="list-search-input"] [data-slot="input-input"] {
+      font-size: var(--font-size-base);
+      line-height: 1.4;
+      max-height: none;
+    }
+  }
+}
+
+[data-component="command-palette"] [data-slot="list-scroll"] {
+  padding: 8px 0 12px;
+  gap: 4px;
+}
+
+[data-component="command-palette"] [data-slot="list-group"]:last-child {
+  padding-bottom: 0;
+}
+
+[data-component="command-palette"] [data-slot="list-header"] {
+  /* Section headers per L32: type-h3 family (500 13) uppercase 0.5 tracking. */
+  padding: 12px 16px 6px;
+  font-size: var(--font-size-x-small);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  color: var(--fg-weak);
+  background: transparent;
+
+  &::after {
+    display: none;
+  }
+}
+
+[data-component="command-palette"] [data-slot="list-items"] {
+  padding: 0 8px;
+  gap: 2px;
+}
+
+[data-component="command-palette"] [data-slot="list-item"] {
+  /* L32 row: 32 high, padding 0/12, radius-sm, type-body. */
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+}
+
+[data-component="command-palette"] [data-slot="list-item"][data-active="true"]:not([data-selected]) {
+  background: var(--row-hover-overlay);
+}
+
+[data-component="command-palette"] [data-slot="list-item"][data-selected="true"] {
+  background: var(--surface-interactive-base);
+  color: var(--fg-strong);
+
+  [data-slot="list-item-selected-icon"] [data-component="icon"] {
+    color: var(--brand-primary);
+  }
+}
+
+[data-component="command-palette"] [data-slot="list-empty-state"] {
+  padding: 48px 32px;
+
+  [data-slot="list-message"] {
+    font-size: var(--font-size-base);
+    color: var(--fg-weak);
   }
 }
