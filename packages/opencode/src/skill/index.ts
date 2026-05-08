@@ -21,7 +21,6 @@ import { Discovery } from "./discovery"
 export namespace Skill {
   const log = Log.create({ service: "skill" })
   const processWithResourcesPath = process as NodeJS.Process & { resourcesPath?: string }
-  const CLAUDE_EXTERNAL_DIR = ".claude"
   const AGENTS_EXTERNAL_DIR = ".agents"
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
   const BUILTIN_SKILL_PATTERN = "*/SKILL.md"
@@ -177,10 +176,7 @@ export namespace Skill {
     worktree: string,
   ) {
     if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
-      const externalDirs = [
-        ...(Flag.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ? [] : [CLAUDE_EXTERNAL_DIR]),
-        AGENTS_EXTERNAL_DIR,
-      ]
+      const externalDirs = [AGENTS_EXTERNAL_DIR]
       for (const dir of externalDirs) {
         const root = path.join(Global.Path.home, dir)
         if (!(yield* fsys.isDir(root))) continue

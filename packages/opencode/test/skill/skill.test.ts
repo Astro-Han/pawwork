@@ -250,7 +250,7 @@ This skill is loaded from the global home directory.
   }
 })
 
-test("discovers skills from .agents/skills/ and .claude/skills by default", async () => {
+test("discovers skills from .agents/skills/ only", async () => {
   await using tmp = await tmpdir({
     git: true,
     init: async (dir) => {
@@ -284,9 +284,43 @@ description: A skill in the .claude/skills directory.
     fn: async () => {
       const skills = await Skill.all()
       expect(skills.find((s) => s.name === "agent-skill")).toBeDefined()
-      expect(skills.find((s) => s.name === "claude-skill")).toBeDefined()
+      expect(skills.find((s) => s.name === "claude-skill")).toBeUndefined()
     },
   })
+})
+
+test("Claude Code skills flag does not disable .agents/skills discovery", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      const agentDir = path.join(dir, ".agents", "skills", "agent-skill")
+      await Bun.write(
+        path.join(agentDir, "SKILL.md"),
+        `---
+name: agent-skill
+description: A skill in the .agents/skills directory.
+---
+
+# Agent Skill
+`,
+      )
+    },
+  })
+
+  const original = process.env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS
+  process.env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = "true"
+
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const skills = await Skill.all()
+        expect(skills.find((s) => s.name === "agent-skill")).toBeDefined()
+      },
+    })
+  } finally {
+    process.env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = original
+  }
 })
 
 test("properly resolves directories that skills live in", async () => {
