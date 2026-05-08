@@ -221,6 +221,46 @@ describe("Git", () => {
     }),
   )
 
+  test("patch helpers return capped native patch output", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, weird), "before\n", "utf-8")
+    await $`git add .`.cwd(tmp.path).quiet()
+    await $`git commit --no-gpg-sign -m "add file"`.cwd(tmp.path).quiet()
+    await fs.writeFile(path.join(tmp.path, weird), "after\n", "utf-8")
+
+    await withGit(async (rt) => {
+      const [patch, capped] = await Promise.all([
+        rt.runPromise(Git.Service.use((git) => git.patch(tmp.path, "HEAD", weird, { context: 2_147_483_647 }))),
+        rt.runPromise(Git.Service.use((git) => git.patch(tmp.path, "HEAD", weird, { maxOutputBytes: 1 }))),
+      ])
+
+      expect(patch.truncated).toBe(false)
+      expect(patch.text).toContain("diff --git")
+      expect(patch.text).toContain("-before")
+      expect(patch.text).toContain("+after")
+      expect(capped.truncated).toBe(true)
+      expect(capped.text).toBe("")
+    })
+  })
+
+  test("patchUntracked() and statUntracked() handle added files", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await fs.writeFile(path.join(tmp.path, weird), "one\ntwo\n", "utf-8")
+
+    await withGit(async (rt) => {
+      const [patch, stat] = await Promise.all([
+        rt.runPromise(Git.Service.use((git) => git.patchUntracked(tmp.path, weird, { context: 2_147_483_647 }))),
+        rt.runPromise(Git.Service.use((git) => git.statUntracked(tmp.path, weird))),
+      ])
+
+      expect(patch.truncated).toBe(false)
+      expect(patch.text).toContain("diff --git")
+      expect(patch.text).toContain("+one")
+      expect(patch.text).toContain("+two")
+      expect(stat).toEqual(expect.objectContaining({ file: weird, additions: 2, deletions: 0 }))
+    })
+  })
+
   test("show() returns empty text for binary blobs", async () => {
     await using tmp = await tmpdir({ git: true })
     await fs.writeFile(path.join(tmp.path, "bin.dat"), new Uint8Array([0, 1, 2, 3]))

@@ -57,6 +57,12 @@ const resolveEntryPoint = (name: string, dir: string): EntryPoint => {
   }
 }
 
+const packageName = (pkg: string) => {
+  const scoped = pkg.match(/^(@[^/]+\/[^@]+)/)?.[1]
+  if (scoped) return scoped
+  return pkg.match(/^([^@]+)/)?.[1] ?? pkg
+}
+
 interface ArboristNode {
   name: string
   path: string
@@ -121,6 +127,7 @@ export const layer = Layer.effect(
 
     const add = Effect.fn("Npm.add")(function* (pkg: string) {
       const dir = directory(pkg)
+      const name = packageName(pkg)
 
       // Only validate cached installs when the lockfile is present — bare cache
       // dirs without package-lock.json mean reify never finished, so skip
@@ -153,7 +160,11 @@ export const layer = Layer.effect(
 
       const tree = yield* reify({ dir, add: [pkg] })
       const first = tree.edgesOut.values().next().value?.to
-      if (!first) return yield* new InstallFailedError({ add: [pkg], dir })
+      if (!first) {
+        const result = resolveEntryPoint(name, path.join(dir, "node_modules", name))
+        if (Option.isSome(result.entrypoint)) return result
+        return yield* new InstallFailedError({ add: [pkg], dir })
+      }
       return resolveEntryPoint(first.name, first.path)
     }, Effect.scoped)
 
