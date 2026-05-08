@@ -28,6 +28,8 @@ describe("desktop startup IPC", () => {
   test("store-get returns null when persisted store reads fail", () => {
     const start = source.indexOf('ipcMain.handle("store-get"')
     const end = source.indexOf('ipcMain.handle("store-set"', start)
+    expect(start).toBeGreaterThanOrEqual(0)
+    expect(end).toBeGreaterThan(start)
     const handler = source.slice(start, end)
 
     expect(handler).toContain("try {")
