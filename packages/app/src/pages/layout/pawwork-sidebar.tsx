@@ -162,7 +162,6 @@ export const PawworkSidebar = (props: {
             navList={navList}
             slug={entry.item.slug}
             showChild
-            isPinned={props.pinnedIDs().includes(session.id)}
             prefetchSession={props.prefetchSession}
             hrefForSession={props.hrefForSession}
             onOpenSession={props.onOpenSession}
