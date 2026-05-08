@@ -1,24 +1,29 @@
 import { Popover as Kobalte } from "@kobalte/core/popover"
-import { Component, ComponentProps, createMemo, For, JSX, ValidComponent } from "solid-js"
+import { Component, ComponentProps, createMemo, createSignal, For, JSX, Show, ValidComponent } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { popularProviders } from "@/hooks/use-providers"
+import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { Button } from "@opencode-ai/ui/button"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Tag } from "@opencode-ai/ui/tag"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
-import { ModelTooltip } from "./model-tooltip"
+import { ModelTooltip } from "@/components/model-tooltip"
 import { useLanguage } from "@/context/language"
 import { compareModelsForDisplay } from "@/utils/model-order"
-import { modelSupportsInput } from "./prompt-input/attachment-routing"
+import { modelSupportsInput } from "@/components/prompt-input/attachment-routing"
 
 const isFree = (provider: string, cost: { input: number } | undefined) =>
   provider === "opencode" && (!cost || cost.input === 0)
 
 type ModelState = ReturnType<typeof useLocal>["model"]
+
+const [externalOpen, setExternalOpen] = createSignal(false)
+
+export function openModelPicker() {
+  setExternalOpen(true)
+}
 
 const ModelList: Component<{
   provider?: string
@@ -81,9 +86,7 @@ const ModelList: Component<{
         return (
           <div class="w-full min-w-0 flex items-center gap-x-2 text-13-regular text-left">
             <span class="min-w-0 truncate">{i.name}</span>
-            <For each={visible}>
-              {(tag) => <Tag class="shrink-0">{language.t(`model.tag.${tag}`)}</Tag>}
-            </For>
+            <For each={visible}>{(tag) => <Tag class="shrink-0">{language.t(`model.tag.${tag}`)}</Tag>}</For>
           </div>
         )
       }}
@@ -110,10 +113,15 @@ export function ModelSelectorPopover(props: {
     dismiss: null,
   })
   const dialog = useDialog()
+  const providers = useProviders()
+  const language = useLanguage()
+
+  const open = createMemo(() => store.open || externalOpen())
 
   const close = (dismiss: Dismiss) => {
     setStore("dismiss", dismiss)
     setStore("open", false)
+    setExternalOpen(false)
   }
   let ignoreFocusOutsideForPointerInside = false
 
@@ -137,25 +145,27 @@ export function ModelSelectorPopover(props: {
 
   const handleManage = () => {
     close("manage")
-    void import("./dialog-manage-models").then((x) => {
+    void import("@/components/dialog-manage-models").then((x) => {
       dialog.show(() => <x.DialogManageModels />)
     })
   }
 
   const handleConnectProvider = () => {
     close("provider")
-    void import("./dialog-select-provider").then((x) => {
+    void import("@/components/dialog-select-provider").then((x) => {
       dialog.show(() => <x.DialogSelectProvider />)
     })
   }
-  const language = useLanguage()
+
+  const hasPaid = createMemo(() => providers.paid().length > 0)
 
   return (
     <Kobalte
-      open={store.open}
+      open={open()}
       onOpenChange={(next) => {
         if (next) setStore("dismiss", null)
         setStore("open", next)
+        if (!next) setExternalOpen(false)
       }}
       modal={false}
       placement="bottom-start"
@@ -166,7 +176,7 @@ export function ModelSelectorPopover(props: {
       </Kobalte.Trigger>
       <Kobalte.Portal>
         <Kobalte.Content
-          class="w-72 h-80 flex flex-col bg-surface-base z-50 outline-none overflow-hidden"
+          class="w-[340px] h-[400px] flex flex-col bg-surface-base z-50 outline-none overflow-hidden"
           style={{ "border-radius": "14px", "box-shadow": "var(--shadow-floating)" }}
           onEscapeKeyDown={(event) => {
             close("escape")
@@ -193,65 +203,46 @@ export function ModelSelectorPopover(props: {
             onSelect={() => close("select")}
             class="p-1"
             action={
-              <div class="flex items-center gap-1">
-                <Tooltip placement="top" value={language.t("command.provider.connect")}>
-                  <IconButton
-                    icon="plus"
-                    variant="ghost"
-                    iconSize="small"
-                    class="size-6"
-                    aria-label={language.t("command.provider.connect")}
-                    onClick={handleConnectProvider}
-                  />
-                </Tooltip>
-                <Tooltip placement="top" value={language.t("dialog.model.manage")}>
-                  <IconButton
-                    icon="sliders"
-                    variant="ghost"
-                    iconSize="small"
-                    class="size-6"
-                    aria-label={language.t("dialog.model.manage")}
-                    onClick={handleManage}
-                  />
-                </Tooltip>
-              </div>
+              <Show when={hasPaid()}>
+                <div class="flex items-center gap-1">
+                  <Tooltip placement="top" value={language.t("command.provider.connect")}>
+                    <IconButton
+                      icon="plus"
+                      variant="ghost"
+                      iconSize="small"
+                      class="size-6"
+                      aria-label={language.t("command.provider.connect")}
+                      onClick={handleConnectProvider}
+                    />
+                  </Tooltip>
+                  <Tooltip placement="top" value={language.t("dialog.model.manage")}>
+                    <IconButton
+                      icon="sliders"
+                      variant="ghost"
+                      iconSize="small"
+                      class="size-6"
+                      aria-label={language.t("dialog.model.manage")}
+                      onClick={handleManage}
+                    />
+                  </Tooltip>
+                </div>
+              </Show>
             }
           />
+          <Show when={!hasPaid()}>
+            <div class="border-t border-border-weaker p-1">
+              <Button
+                variant="ghost"
+                class="w-full justify-start text-13-regular"
+                icon="plus-small"
+                onClick={handleConnectProvider}
+              >
+                {language.t("dialog.model.unpaid.addMore.title")}
+              </Button>
+            </div>
+          </Show>
         </Kobalte.Content>
       </Kobalte.Portal>
     </Kobalte>
-  )
-}
-
-export const DialogSelectModel: Component<{ provider?: string; model?: ModelState }> = (props) => {
-  const dialog = useDialog()
-  const language = useLanguage()
-
-  const provider = () => {
-    void import("./dialog-select-provider").then((x) => {
-      dialog.show(() => <x.DialogSelectProvider />)
-    })
-  }
-
-  const manage = () => {
-    void import("./dialog-manage-models").then((x) => {
-      dialog.show(() => <x.DialogManageModels />)
-    })
-  }
-
-  return (
-    <Dialog
-      title={language.t("dialog.model.select.title")}
-      action={
-        <Button class="h-7 -my-1 text-13-medium" icon="plus-small" tabIndex={-1} onClick={provider}>
-          {language.t("command.provider.connect")}
-        </Button>
-      }
-    >
-      <ModelList provider={props.provider} model={props.model} onSelect={() => dialog.close()} />
-      <Button variant="ghost" class="ml-3 mt-5 mb-6 text-fg-base self-start" onClick={manage}>
-        {language.t("dialog.model.manage")}
-      </Button>
-    </Dialog>
   )
 }

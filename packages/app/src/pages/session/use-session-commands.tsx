@@ -270,8 +270,8 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
   }
 
   const chooseModel = () => {
-    void import("@/components/dialog-select-model").then((x) => {
-      dialog.show(() => <x.DialogSelectModel model={local.model} />)
+    void import("@/components/prompt-input/model-picker").then((x) => {
+      x.openModelPicker()
     })
   }
 
