@@ -789,12 +789,16 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
         })
 
         for (const part of msg.parts) {
-          yield* updatePart({
+          const p: MessageV2.Part = {
             ...part,
             id: PartID.ascending(),
             messageID: cloned.id,
             sessionID: session.id,
-          })
+          }
+          if (p.type === "compaction" && p.tail_start_id) {
+            p.tail_start_id = idMap.get(p.tail_start_id)
+          }
+          yield* updatePart(p)
         }
       }
       return session

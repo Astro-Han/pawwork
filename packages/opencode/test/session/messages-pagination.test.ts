@@ -33,6 +33,9 @@ const svc = {
   updatePart<T extends MessageV2.Part>(part: T) {
     return run(SessionNs.Service.use((svc) => svc.updatePart(part)))
   },
+  fork(input: { sessionID: SessionID; messageID?: MessageID }) {
+    return run(SessionNs.Service.use((svc) => svc.fork(input)))
+  },
 }
 
 async function fill(sessionID: SessionID, count: number, time = (i: number) => Date.now() + i) {
@@ -111,13 +114,14 @@ async function addAssistant(
   return id
 }
 
-async function addCompactionPart(sessionID: SessionID, messageID: MessageID) {
+async function addCompactionPart(sessionID: SessionID, messageID: MessageID, tailStartID?: MessageID) {
   await svc.updatePart({
     id: PartID.ascending(),
     sessionID,
     messageID,
     type: "compaction",
     auto: true,
+    tail_start_id: tailStartID,
   } as any)
 }
 
@@ -809,6 +813,67 @@ describe("MessageV2.filterCompacted", () => {
       }),
     ),
   )
+
+  test("fork remaps compaction tail_start_id for filterCompacted", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const session = await svc.create({})
+
+        const old = await addUser(session.id, "old")
+        const oldAssistant = await addAssistant(session.id, old)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          sessionID: session.id,
+          messageID: oldAssistant,
+          type: "text",
+          text: "old reply",
+        })
+
+        const retained = await addUser(session.id, "retained")
+        const retainedAssistant = await addAssistant(session.id, retained)
+        await svc.updatePart({
+          id: PartID.ascending(),
+          sessionID: session.id,
+          messageID: retainedAssistant,
+          type: "text",
+          text: "retained reply",
+        })
+
+        const boundary = await addUser(session.id, "compact")
+        await addCompactionPart(session.id, boundary, retained)
+        const summary = await addAssistant(session.id, boundary, { summary: true, finish: "end_turn" })
+        await svc.updatePart({
+          id: PartID.ascending(),
+          sessionID: session.id,
+          messageID: summary,
+          type: "text",
+          text: "summary",
+        })
+
+        const parentFiltered = MessageV2.filterCompacted(MessageV2.stream(session.id))
+        expect(parentFiltered.map((message) => message.info.id)).toEqual([
+          boundary,
+          summary,
+          retained,
+          retainedAssistant,
+        ])
+
+        const forked = await svc.fork({ sessionID: session.id })
+        const childFiltered = MessageV2.filterCompacted(MessageV2.stream(forked.id))
+        expect(childFiltered).toHaveLength(parentFiltered.length)
+
+        const tailPart = childFiltered.flatMap((message) => message.parts).find((part) => part.type === "compaction")
+        expect(tailPart?.type).toBe("compaction")
+        if (!tailPart || tailPart.type !== "compaction") throw new Error("Expected forked compaction part")
+        expect(tailPart.tail_start_id).toBeDefined()
+        expect(childFiltered.some((message) => message.info.id === tailPart.tail_start_id)).toBe(true)
+
+        await svc.remove(forked.id)
+        await svc.remove(session.id)
+      },
+    })
+  })
 
   it.live(
     "keeps retained tail messages after successful compaction summary",

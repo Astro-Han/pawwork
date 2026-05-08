@@ -1035,12 +1035,39 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
       completed.add(msg.info.parentID)
   }
   result.reverse()
+  let filtered = result
   if (tailStartID) {
     // After reversing to chronological order, drop everything before the retained tail.
     const idx = result.findIndex((msg) => msg.info.id === tailStartID)
-    if (idx >= 0) return result.slice(idx)
+    if (idx >= 0) filtered = result.slice(idx)
   }
-  return result
+  const compactionIndex = filtered.findLastIndex(
+    (msg) =>
+      msg.info.role === "user" &&
+      msg.parts.some((item): item is CompactionPart => item.type === "compaction" && item.tail_start_id !== undefined),
+  )
+  const compaction = filtered[compactionIndex]
+  const part = compaction?.parts.find(
+    (item): item is CompactionPart => item.type === "compaction" && item.tail_start_id !== undefined,
+  )
+  const summaryIndex = compaction
+    ? filtered.findIndex(
+        (msg, index) =>
+          index > compactionIndex &&
+          msg.info.role === "assistant" &&
+          msg.info.summary &&
+          msg.info.parentID === compaction.info.id,
+      )
+    : -1
+  const tailIndex = part?.tail_start_id ? filtered.findIndex((msg) => msg.info.id === part.tail_start_id) : -1
+  if (tailIndex >= 0 && tailIndex < compactionIndex && summaryIndex > compactionIndex) {
+    return [
+      ...filtered.slice(compactionIndex, summaryIndex + 1),
+      ...filtered.slice(tailIndex, compactionIndex),
+      ...filtered.slice(summaryIndex + 1),
+    ]
+  }
+  return filtered
 }
 
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {
