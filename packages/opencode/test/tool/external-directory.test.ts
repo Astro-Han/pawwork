@@ -76,7 +76,8 @@ describe("tool.assertExternalDirectory", () => {
 
     const directory = "/tmp/project"
     const target = "/tmp/outside/file.txt"
-    const expected = glob(path.join(path.dirname(target), "*"))
+    const realTmp = process.platform === "win32" ? "/tmp" : await fs.realpath("/tmp")
+    const expected = glob(path.join(realTmp, "outside", "*"))
 
     await Instance.provide({
       directory,
@@ -127,6 +128,38 @@ describe("tool.assertExternalDirectory", () => {
         await fs.rm(link, { recursive: true, force: true })
       }
     })
+
+    test("asks for the real parent when a new tmp symlink child does not exist yet", async () => {
+      const { requests, ctx } = makeCtx()
+
+      await using outside = await tmpdir()
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(Global.Path.tmp, `external-directory-new-${process.pid}-${Date.now()}`)
+      await fs.rm(link, { recursive: true, force: true })
+      await fs.symlink(outside.path, link, "dir")
+      try {
+        const target = path.join(link, "new.txt")
+        const realTarget = path.join(await fs.realpath(outside.path), "new.txt")
+        const expected = glob(path.join(path.dirname(realTarget), "*"))
+
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            await assertExternalDirectory(ctx, target)
+          },
+        })
+
+        const req = requests.find((r) => r.permission === "external_directory")
+        expect(req).toBeDefined()
+        expect(req!.patterns).toEqual([expected])
+        expect(req!.always).toEqual([expected])
+        expect(req!.metadata.filepath).toBe(target)
+        expect(req!.metadata.realpath).toBe(realTarget)
+      } finally {
+        await fs.rm(link, { recursive: true, force: true })
+      }
+    })
   }
 
   test("uses target directory when kind=directory", async () => {
@@ -134,7 +167,8 @@ describe("tool.assertExternalDirectory", () => {
 
     const directory = "/tmp/project"
     const target = "/tmp/outside"
-    const expected = glob(path.join(target, "*"))
+    const realTmp = process.platform === "win32" ? "/tmp" : await fs.realpath("/tmp")
+    const expected = glob(path.join(realTmp, "outside", "*"))
 
     await Instance.provide({
       directory,

@@ -1,4 +1,5 @@
 import path from "path"
+import { realpathSync } from "fs"
 import { Effect } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
@@ -13,6 +14,26 @@ type Options = {
   kind?: Kind
 }
 
+function resolveForPermission(target: string, base: string): string {
+  const normalized = process.platform === "win32" ? AppFileSystem.normalizePath(target, { base }) : path.resolve(target)
+  const missing: string[] = []
+  let current = normalized
+
+  while (true) {
+    try {
+      const real = process.platform === "win32" ? realpathSync.native(current) : realpathSync(current)
+      const resolved = process.platform === "win32" ? AppFileSystem.normalizePath(real, { base }) : real
+      return missing.length === 0 ? resolved : path.join(resolved, ...missing.reverse())
+    } catch (error: any) {
+      if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
+      const parent = path.dirname(current)
+      if (parent === current) return normalized
+      missing.push(path.basename(current))
+      current = parent
+    }
+  }
+}
+
 export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirectory")(function* (
   ctx: Tool.Context,
   target?: string,
@@ -25,11 +46,16 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
     process.platform === "win32"
       ? AppFileSystem.normalizePath(target, { base: ins.directory })
       : path.isAbsolute(target)
-        ? target
-        : path.resolve(ins.directory, target)
-  const resolved = AppFileSystem.resolve(full, { base: ins.directory })
+      ? target
+      : path.resolve(ins.directory, target)
+  const resolved = resolveForPermission(full, ins.directory)
+  const scope = {
+    ...ins,
+    directory: resolveForPermission(ins.directory, ins.directory),
+    worktree: ins.worktree === "/" ? ins.worktree : resolveForPermission(ins.worktree, ins.directory),
+  }
   if (options?.bypass) return full
-  if (Instance.containsPath(resolved, ins)) return full
+  if (Instance.containsPath(resolved, scope)) return full
 
   const kind = options?.kind ?? "file"
   const dir = kind === "directory" ? resolved : path.dirname(resolved)
