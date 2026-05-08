@@ -100,20 +100,23 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
   const current = createMemo(() => model.variant.current() ?? "default")
   const options = createMemo(() => ["default", ...variants()])
 
+  const supported = createMemo(() => variants().length > 0)
+
   return (
-    <Show when={variants().length > 0}>
-      <div class="border-t border-border-weaker pt-3 pb-1">
-        <Kobalte modal={false} placement="right-start" gutter={4}>
-          <Kobalte.Trigger
-            class="group/think w-full h-[30px] px-2 gap-3 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong"
-          >
-            <span>{language.t("dialog.model.variant")}</span>
-            <span class="ml-auto text-fg-weak">{translateVariant(language.t, current())}</span>
-            <Icon
-              name="chevron-right"
-              class="size-3.5 text-icon-weak transition-transform duration-150 group-data-[expanded]/think:rotate-90"
-            />
-          </Kobalte.Trigger>
+    <div class="border-t border-border-weaker pt-3 pb-1">
+      <Kobalte modal={false} placement="right-start" gutter={4}>
+        <Kobalte.Trigger
+          disabled={!supported()}
+          class="group/think w-full h-[30px] px-2 gap-3 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-fg-base"
+        >
+          <span>{language.t("dialog.model.variant")}</span>
+          <span class="ml-auto text-fg-weak">{translateVariant(language.t, current())}</span>
+          <Icon
+            name="chevron-right"
+            class="size-3.5 text-icon-weak transition-transform duration-150 group-data-[expanded]/think:rotate-90"
+          />
+        </Kobalte.Trigger>
+        <Show when={supported()}>
           <Kobalte.Portal>
             <Kobalte.Content
               class="min-w-[140px] p-1 bg-surface-base z-50 outline-none rounded-[10px]"
@@ -135,9 +138,9 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
               </For>
             </Kobalte.Content>
           </Kobalte.Portal>
-        </Kobalte>
-      </div>
-    </Show>
+        </Show>
+      </Kobalte>
+    </div>
   )
 }
 
@@ -206,7 +209,7 @@ export function ModelSelectorPopover(props: {
       <Kobalte.Portal>
         <Kobalte.Content
           data-picker-content=""
-          class="w-[280px] h-[400px] flex flex-col z-50 outline-none overflow-hidden"
+          class="w-[240px] h-[400px] flex flex-col z-50 outline-none overflow-hidden"
           onEscapeKeyDown={(event) => {
             close("escape")
             event.preventDefault()

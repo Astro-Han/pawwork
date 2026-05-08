@@ -35,6 +35,25 @@
   box-shadow: var(--ring-base), var(--shadow-floating);
 }
 
+/* Picker is a popover contract; nested List inherits picker padding (4)
+   and item padding (0/8) — its own 0/12 wrapper is double-padding. */
+[data-picker-content] [data-component="list"] {
+  padding: 0;
+}
+
+/* Picker groups are short (≤ a handful of items), so sticky group labels
+   add no value and instead overlap items during mouse-wheel scroll.
+   Let labels scroll with their group, and add a small gap so the label
+   doesn't read as glued to the first item. */
+[data-picker-content] [data-slot="list-header"] {
+  position: static;
+  z-index: auto;
+}
+
+[data-picker-content] [data-slot="list-group"] {
+  gap: 4px;
+}
+
 [data-picker-item] {
   position: relative;
   display: flex;
