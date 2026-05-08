@@ -27,6 +27,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover, openModelPicker } from "@/components/prompt-input/model-picker"
+import { recordDraftEdit, consumeCarryOver } from "@/components/prompt-input/draft-carryover"
 import { WorkspaceChip } from "@/components/prompt-input/workspace-chip"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { translateVariant } from "./prompt-input/variant-label"
@@ -797,6 +798,23 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     ),
   )
 
+  createEffect(
+    on(
+      () => [sdk.directory, prompt.ready()] as const,
+      ([dir, ready]) => {
+        if (!ready || !dir) return
+        const parts = prompt.current()
+        const isEmpty =
+          parts.length === 0 ||
+          (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
+        const carry = consumeCarryOver(dir, isEmpty)
+        if (!carry) return
+        const text = carry.text
+        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+      },
+    ),
+  )
+
   const parseFromDOM = (): Prompt => {
     const parts: Prompt = []
     let position = 0
@@ -924,6 +942,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
     mirror.input = true
     prompt.set([...rawParts, ...images], cursorPosition)
+    recordDraftEdit(sdk.directory, { text: rawText })
     queueScroll()
   }
 
