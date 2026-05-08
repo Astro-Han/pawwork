@@ -16,24 +16,61 @@ type Options = {
 
 export function resolveExternalPathForPermission(target: string, base: string): string {
   if (process.platform !== "win32") return resolvePosixForPermission(target, base)
+  return resolveWindowsForPermission(target, base)
+}
 
-  const normalized = AppFileSystem.normalizePath(target, { base })
-  const missing: string[] = []
-  let current = normalized
+function resolveWindowsForPermission(target: string, base: string): string {
+  const raw = windowsPermissionPath(target, base)
+  const parsed = path.win32.parse(raw)
+  if (!parsed.root) return AppFileSystem.normalizePath(raw, { base })
 
-  while (true) {
+  const parts = raw.slice(parsed.root.length).split(/[\\/]+/).filter(Boolean)
+  let current = parsed.root
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]!
+    if (part === ".") continue
+    if (part === "..") {
+      current = path.win32.dirname(current)
+      continue
+    }
+
+    const candidate = path.win32.join(current, part)
     try {
-      const real = realpathSync.native(current)
-      const resolved = AppFileSystem.normalizePath(real, { base })
-      return missing.length === 0 ? resolved : path.join(resolved, ...missing.reverse())
+      const stat = lstatSync(candidate)
+      current = stat.isSymbolicLink() ? realpathSync.native(candidate) : candidate
     } catch (error: any) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
-      const parent = path.dirname(current)
-      if (parent === current) return normalized
-      missing.push(path.basename(current))
-      current = parent
+      return AppFileSystem.normalizePath(path.win32.join(current, part, ...parts.slice(i + 1)), { base })
     }
   }
+
+  try {
+    return AppFileSystem.normalizePath(realpathSync.native(current), { base })
+  } catch {
+    return AppFileSystem.normalizePath(current, { base })
+  }
+}
+
+function windowsPermissionPath(target: string, base: string): string {
+  const input = stripWindowsExtendedPrefix(AppFileSystem.windowsPath(target)).replaceAll("/", "\\")
+  if (/^\\\\/.test(input) || /^[A-Za-z]:[\\/]/.test(input)) return uppercaseDriveRoot(input)
+  if (/^[\\/](?![\\/])/.test(input)) {
+    const root = path.win32.parse(AppFileSystem.normalizePath(base, { base })).root
+    if (root) return uppercaseDriveRoot(root.replace(/[\\/]+$/, "") + input)
+  }
+  if (/^[A-Za-z]:/.test(input)) return uppercaseDriveRoot(input)
+  return uppercaseDriveRoot(`${base.replace(/[\\/]+$/, "")}\\${input}`)
+}
+
+function stripWindowsExtendedPrefix(target: string): string {
+  if (/^\\\\\?\\UNC\\/i.test(target)) return target.replace(/^\\\\\?\\UNC\\/i, "\\\\")
+  if (/^\\\\\?\\[A-Za-z]:\\/i.test(target)) return target.slice(4)
+  return target
+}
+
+function uppercaseDriveRoot(target: string): string {
+  return target.replace(/^([a-z]):/, (_, drive) => `${drive.toUpperCase()}:`)
 }
 
 function resolvePosixForPermission(target: string, base: string): string {
@@ -72,7 +109,7 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
   const ins = yield* InstanceState.context
   const full =
     process.platform === "win32"
-      ? AppFileSystem.normalizePath(target, { base: ins.directory })
+      ? windowsPermissionPath(target, ins.directory)
       : path.isAbsolute(target)
       ? target
       : `${ins.directory.replace(/\/+$/, "")}/${target}`
