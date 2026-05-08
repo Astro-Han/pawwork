@@ -43,8 +43,8 @@ import {
   createPill,
   isNormalizedEditor,
   parseEditorToParts,
-  renderPartsToEditor,
 } from "./prompt-input/editor-serialize"
+import { createEditorImperatives } from "./prompt-input/editor-imperatives"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
@@ -141,45 +141,22 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const inset = 56
   const space = `${inset}px`
 
-  const scrollCursorIntoView = () => {
-    const container = scrollRef
-    const selection = window.getSelection()
-    if (!container || !selection || selection.rangeCount === 0) return
-
-    const range = selection.getRangeAt(0)
-    if (!editorRef.contains(range.startContainer)) return
-
-    const cursor = getCursorPosition(editorRef)
-    const length = promptLength(prompt.current().filter((part) => part.type !== "image"))
-    if (cursor >= length) {
-      container.scrollTop = container.scrollHeight
-      return
-    }
-
-    const rect = range.getClientRects().item(0) ?? range.getBoundingClientRect()
-    if (!rect.height) return
-
-    const containerRect = container.getBoundingClientRect()
-    const top = rect.top - containerRect.top + container.scrollTop
-    const bottom = rect.bottom - containerRect.top + container.scrollTop
-    const padding = 12
-
-    if (top < container.scrollTop + padding) {
-      container.scrollTop = Math.max(0, top - padding)
-      return
-    }
-
-    if (bottom > container.scrollTop + container.clientHeight - inset) {
-      container.scrollTop = bottom - container.clientHeight + inset
-    }
-  }
-
-  const queueScroll = (count = 2) => {
-    requestAnimationFrame(() => {
-      scrollCursorIntoView()
-      if (count > 1) queueScroll(count - 1)
-    })
-  }
+  const {
+    queueScroll,
+    clearEditor,
+    setEditorText,
+    focusEditorEnd,
+    restoreFocus,
+    renderEditorWithCursor,
+    getCaretState,
+    escBlur,
+  } = createEditorImperatives({
+    editorRef: () => editorRef,
+    scrollRef: () => scrollRef,
+    prompt,
+    platform,
+    inset,
+  })
 
   const activeFileTab = createSessionTabs({
     tabs,
@@ -448,25 +425,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     })
   }
 
-  const getCaretState = () => {
-    const selection = window.getSelection()
-    const textLength = promptLength(prompt.current())
-    if (!selection || selection.rangeCount === 0) {
-      return { collapsed: false, cursorPosition: 0, textLength }
-    }
-    const anchorNode = selection.anchorNode
-    if (!anchorNode || !editorRef.contains(anchorNode)) {
-      return { collapsed: false, cursorPosition: 0, textLength }
-    }
-    return {
-      collapsed: selection.isCollapsed,
-      cursorPosition: getCursorPosition(editorRef),
-      textLength,
-    }
-  }
-
-  const escBlur = () => platform.platform === "desktop" && platform.os === "macos"
-
   const pick = () => {
     if (!actionReady()) return
     const openFilePickerDialog = platform.openFilePickerDialog
@@ -520,48 +478,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     if (!force && (store.historyIndex < 0 || store.applyingHistory)) return
     setStore("historyIndex", -1)
     setStore("savedPrompt", null)
-  }
-
-  const clearEditor = () => {
-    editorRef.innerHTML = ""
-  }
-
-  const setEditorText = (text: string) => {
-    clearEditor()
-    editorRef.textContent = text
-  }
-
-  const focusEditorEnd = () => {
-    requestAnimationFrame(() => {
-      editorRef.focus()
-      const range = document.createRange()
-      const selection = window.getSelection()
-      range.selectNodeContents(editorRef)
-      range.collapse(false)
-      selection?.removeAllRanges()
-      selection?.addRange(range)
-    })
-  }
-
-  const currentCursor = () => {
-    const selection = window.getSelection()
-    if (!selection || selection.rangeCount === 0 || !editorRef.contains(selection.anchorNode)) return null
-    return getCursorPosition(editorRef)
-  }
-
-  const restoreFocus = () => {
-    requestAnimationFrame(() => {
-      const cursor = prompt.cursor() ?? promptLength(prompt.current())
-      editorRef.focus()
-      setCursorPosition(editorRef, cursor)
-      queueScroll()
-    })
-  }
-
-  const renderEditorWithCursor = (parts: Prompt) => {
-    const cursor = currentCursor()
-    renderPartsToEditor(editorRef, parts)
-    if (cursor !== null) setCursorPosition(editorRef, cursor)
   }
 
   createEffect(() => {
