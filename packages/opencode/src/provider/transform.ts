@@ -834,11 +834,15 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     case "@ai-sdk/azure": {
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/azure
       if (id === "o1-mini") return {}
-      return Object.fromEntries(
-        (GPT5_FAMILY_RE.test(id) && gpt5Version(id) === undefined
+      const azureID = model.api.id.toLowerCase()
+      const chatEfforts = gpt5ChatReasoningEfforts(azureID) ?? gpt5ChatReasoningEfforts(id)
+      const azureEfforts =
+        chatEfforts ??
+        (GPT5_FAMILY_RE.test(azureID) && gpt5Version(azureID) === undefined
           ? ["minimal", ...WIDELY_SUPPORTED_EFFORTS]
-          : WIDELY_SUPPORTED_EFFORTS
-        ).map((effort) => [
+          : WIDELY_SUPPORTED_EFFORTS)
+      return Object.fromEntries(
+        azureEfforts.map((effort) => [
           effort,
           {
             reasoningEffort: effort,

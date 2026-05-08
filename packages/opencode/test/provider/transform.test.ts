@@ -3876,6 +3876,39 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "medium", "high"])
     })
+
+    test("versioned gpt-5 chat models expose only medium effort", () => {
+      const model = createMockModel({
+        id: "gpt-5.2-chat-latest",
+        providerID: "azure",
+        api: {
+          id: "gpt-5.2-chat-latest",
+          url: "https://azure.com",
+          npm: "@ai-sdk/azure",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["medium"])
+      expect(result.medium).toEqual({
+        reasoningEffort: "medium",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
+    })
+
+    test("unversioned gpt-5 chat models do not expose effort variants", () => {
+      const model = createMockModel({
+        id: "gpt-5-chat",
+        providerID: "azure",
+        api: {
+          id: "gpt-5-chat",
+          url: "https://azure.com",
+          npm: "@ai-sdk/azure",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(result).toEqual({})
+    })
   })
 
   describe("@ai-sdk/openai", () => {
