@@ -1,6 +1,8 @@
 !include nsDialogs.nsh
 !include LogicLib.nsh
 !include FileFunc.nsh
+!include StdUtils.nsh
+!include UAC.nsh
 
 Var PawWorkStandardShortcutName
 
@@ -26,8 +28,32 @@ LangString PawWorkShortcutOptions 2052 "快捷方式选项"
 !macro PAWWORK_REMOVE_STANDARD_SHORTCUTS
   !insertmacro PAWWORK_STANDARD_SHORTCUT
   Delete "$DESKTOP\$PawWorkStandardShortcutName.lnk"
-  ${If} $PawWorkStandardShortcutName != "${SHORTCUT_NAME}"
-    Delete "$DESKTOP\${SHORTCUT_NAME}.lnk"
+  Delete "$DESKTOP\${SHORTCUT_NAME}.lnk"
+  ${If} "${SHORTCUT_NAME}" == "PawWork"
+    Delete "$DESKTOP\PawWork.lnk"
+    Delete "$DESKTOP\爪印.lnk"
+  ${ElseIf} "${SHORTCUT_NAME}" == "PawWork Beta"
+    Delete "$DESKTOP\PawWork Beta.lnk"
+    Delete "$DESKTOP\爪印 Beta.lnk"
+  ${ElseIf} "${SHORTCUT_NAME}" == "PawWork Dev"
+    Delete "$DESKTOP\PawWork Dev.lnk"
+    Delete "$DESKTOP\爪印 Dev.lnk"
+  ${EndIf}
+!macroend
+
+!macro PAWWORK_REMOVE_PUBLIC_STANDARD_SHORTCUTS_ELEVATED
+  # A per-user reinstall cannot remove Public Desktop shortcuts without elevation.
+  ${IfNot} ${UAC_IsAdmin}
+  ${AndIf} $installMode != "all"
+  ${AndIf} $hasPerMachineInstallation == "1"
+    SetShellVarContext all
+    ${If} "${SHORTCUT_NAME}" == "PawWork"
+      ${StdUtils.ExecShellWaitEx} $0 $1 "$SYSDIR\cmd.exe" "runas" '/C del /F /Q "$DESKTOP\PawWork.lnk" "$DESKTOP\爪印.lnk"'
+    ${ElseIf} "${SHORTCUT_NAME}" == "PawWork Beta"
+      ${StdUtils.ExecShellWaitEx} $0 $1 "$SYSDIR\cmd.exe" "runas" '/C del /F /Q "$DESKTOP\PawWork Beta.lnk" "$DESKTOP\爪印 Beta.lnk"'
+    ${ElseIf} "${SHORTCUT_NAME}" == "PawWork Dev"
+      ${StdUtils.ExecShellWaitEx} $0 $1 "$SYSDIR\cmd.exe" "runas" '/C del /F /Q "$DESKTOP\PawWork Dev.lnk" "$DESKTOP\爪印 Dev.lnk"'
+    ${EndIf}
   ${EndIf}
 !macroend
 
@@ -36,6 +62,7 @@ LangString PawWorkShortcutOptions 2052 "快捷方式选项"
   !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
   SetShellVarContext all
   !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
+  !insertmacro PAWWORK_REMOVE_PUBLIC_STANDARD_SHORTCUTS_ELEVATED
 !macroend
 
 !macro PAWWORK_RESTORE_INSTALL_SCOPE

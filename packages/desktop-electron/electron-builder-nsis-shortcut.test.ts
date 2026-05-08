@@ -57,6 +57,9 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain('${AndIf} "${SHORTCUT_NAME}" == "PawWork Beta"')
     expect(script).toContain('${AndIf} "${SHORTCUT_NAME}" == "PawWork Dev"')
     expect(script).toContain('Delete "$DESKTOP\\${SHORTCUT_NAME}.lnk"')
+    expect(script).toContain('Delete "$DESKTOP\\爪印.lnk"')
+    expect(script).toContain('Delete "$DESKTOP\\爪印 Beta.lnk"')
+    expect(script).toContain('Delete "$DESKTOP\\爪印 Dev.lnk"')
   })
 
   test("cleans standard shortcuts across scopes only for checked installs", () => {
@@ -64,6 +67,14 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toMatch(
       /\$AddDesktopShortcut == \$\{BST_CHECKED\}[\s\S]*PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_ALL_INSTALL_SCOPES[\s\S]*PAWWORK_RESTORE_INSTALL_SCOPE[\s\S]*CreateShortCut/,
     )
+  })
+
+  test("uses an elevated public desktop cleanup when switching from all-users to just-me", () => {
+    expect(script).toContain("PAWWORK_REMOVE_PUBLIC_STANDARD_SHORTCUTS_ELEVATED")
+    expect(script).toContain('${IfNot} ${UAC_IsAdmin}')
+    expect(script).toContain('$installMode != "all"')
+    expect(script).toContain('$hasPerMachineInstallation == "1"')
+    expect(script).toContain('${StdUtils.ExecShellWaitEx} $0 $1 "$SYSDIR\\cmd.exe" "runas"')
   })
 
   test("owns uninstall cleanup for standard shortcuts in the selected install scope", () => {
