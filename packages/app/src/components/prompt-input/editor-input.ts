@@ -28,6 +28,7 @@ import {
 } from "./editor-serialize"
 import { promptLength } from "./history"
 import type { EditorImperatives } from "./editor-imperatives"
+import type { PopoverControllers } from "./popover-controllers"
 import type { PromptStore } from "./store-types"
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
@@ -41,12 +42,12 @@ export interface EditorInputDeps {
   editorRef: () => HTMLDivElement
   mirror: { input: boolean }
   imperatives: Pick<EditorImperatives, "queueScroll" | "renderEditorWithCursor">
-  // Popover handlers come from the main file's closure for now; commit 6
-  // converts these to a `popovers()` ref forward when popover-controllers is
-  // extracted, since editor-input.addPart and popover-controllers.addPart
-  // form a circular dep.
-  atOnInput: (query: string) => void
-  slashOnInput: (query: string) => void
+  // popover-controllers and editor-input both depend on each other (popover
+  // wants addPart, editor-input wants popover handlers). The main file
+  // creates editor-input first, then popover-controllers, and only then
+  // initializes popoversRef. The factory MUST throw if a caller reaches in
+  // before init, so we never silently drop @/slash input events.
+  popovers: () => PopoverControllers
   closePopover: () => void
   resetHistoryNavigation: () => void
 }
@@ -71,8 +72,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     editorRef,
     mirror,
     imperatives,
-    atOnInput,
-    slashOnInput,
+    popovers,
     closePopover,
     resetHistoryNavigation,
   } = deps
@@ -171,10 +171,10 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       const slashMatch = rawText.match(/^\/(\S*)$/)
 
       if (atMatch) {
-        atOnInput(atMatch[1])
+        popovers().atOnInput(atMatch[1])
         setStore("popover", "at")
       } else if (slashMatch) {
-        slashOnInput(slashMatch[1])
+        popovers().slashOnInput(slashMatch[1])
         setStore("popover", "slash")
       } else {
         closePopover()

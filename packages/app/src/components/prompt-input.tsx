@@ -1,4 +1,3 @@
-import { useFilteredList } from "@opencode-ai/ui/hooks"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { createEffect, on, Component, For, Show, onCleanup, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
@@ -33,19 +32,22 @@ import { usePermission } from "@/context/permission"
 import { useLanguage } from "@/context/language"
 import { canUseNativeFilePicker, usePlatform } from "@/context/platform"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { promptEnabled, promptProbe } from "@/testing/prompt"
 import { getCursorPosition, setCursorPosition } from "./prompt-input/editor-dom"
 import { createEditorImperatives } from "./prompt-input/editor-imperatives"
 import { createCommentRouting } from "./prompt-input/comment-routing"
 import { createHistoryNavigation } from "./prompt-input/history-navigation"
 import { createEditorInput } from "./prompt-input/editor-input"
+import {
+  createPopoverControllers,
+  type PopoverControllers,
+} from "./prompt-input/popover-controllers"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
 import { canNavigateHistoryAtCursor, promptLength } from "./prompt-input/history"
 import type { PromptStore } from "./prompt-input/store-types"
 import { createPromptSubmit, type FollowupDraft } from "./prompt-input/submit"
-import { PromptPopover, type AtOption, type SlashCommand } from "./prompt-input/slash-popover"
+import { PromptPopover } from "./prompt-input/slash-popover"
 import { PromptContextItems } from "./prompt-input/context-items"
 import { PromptImageAttachments } from "./prompt-input/image-attachments"
 import { PromptDragOverlay } from "./prompt-input/drag-overlay"
@@ -321,149 +323,13 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onCleanup(() => clearInterval(interval))
   })
 
-  const handleAtSelect = (option: AtOption | undefined) => {
-    if (!actionReady()) return
-    if (!option) return
-    addPart({ type: "file", path: option.path, content: "@" + option.path, start: 0, end: 0 })
+  let popoversRef: PopoverControllers | null = null
+  const popoversAccess = () => {
+    if (!popoversRef) throw new Error("popoversRef accessed before initialization")
+    return popoversRef
   }
 
-  const atKey = (x: AtOption | undefined) => x?.path ?? ""
-
-  const {
-    flat: atFlat,
-    active: atActive,
-    setActive: setAtActive,
-    onInput: atOnInput,
-    onKeyDown: atOnKeyDown,
-  } = useFilteredList<AtOption>({
-    items: async (query) => {
-      const open = recent()
-      const seen = new Set(open)
-      const pinned: AtOption[] = open.map((path) => ({ type: "file", path, display: path, recent: true }))
-      if (!query.trim()) return pinned
-      const paths = await files.searchFilesAndDirectories(query)
-      const fileOptions: AtOption[] = paths
-        .filter((path) => !seen.has(path))
-        .map((path) => ({ type: "file", path, display: path }))
-      return [...pinned, ...fileOptions]
-    },
-    key: atKey,
-    filterKeys: ["display"],
-    groupBy: (item) => (item.recent ? "recent" : "file"),
-    sortGroupsBy: (a, b) => (a.category === "recent" ? -1 : b.category === "recent" ? 1 : 0),
-    onSelect: handleAtSelect,
-  })
-
-  const slashCommands = createMemo<SlashCommand[]>(() => {
-    const builtin = command.options
-      .filter((opt) => !opt.disabled && !opt.id.startsWith("suggested.") && opt.slash)
-      .map((opt) => ({
-        id: opt.id,
-        trigger: opt.slash!,
-        title: opt.title,
-        description: opt.description,
-        keybind: opt.keybind,
-        type: "builtin" as const,
-      }))
-
-    const custom = sync.data.command.map((cmd) => ({
-      id: `custom.${cmd.name}`,
-      trigger: cmd.name,
-      title: cmd.name,
-      description: cmd.description,
-      type: "custom" as const,
-      source: cmd.source,
-    }))
-
-    return [...custom, ...builtin]
-  })
-
-  const handleSlashSelect = (cmd: SlashCommand | undefined) => {
-    if (!actionReady()) return
-    if (!cmd) return
-    promptProbe.select(cmd.id)
-    closePopover()
-    const images = imageAttachments()
-
-    if (cmd.type === "custom") {
-      const text = `/${cmd.trigger} `
-      setEditorText(text)
-      prompt.set([{ type: "text", content: text, start: 0, end: text.length }, ...images], text.length)
-      focusEditorEnd()
-      return
-    }
-
-    clearEditor()
-    prompt.set([...DEFAULT_PROMPT, ...images], 0)
-    command.trigger(cmd.id, "slash")
-  }
-
-  const {
-    flat: slashFlat,
-    active: slashActive,
-    setActive: setSlashActive,
-    onInput: slashOnInput,
-    onKeyDown: slashOnKeyDown,
-  } = useFilteredList<SlashCommand>({
-    items: slashCommands,
-    key: (x) => x?.id,
-    filterKeys: ["trigger", "title"],
-    onSelect: handleSlashSelect,
-  })
-
-  // Auto-scroll active command into view when navigating with keyboard
-  createEffect(() => {
-    const activeId = slashActive()
-    if (!activeId || !slashPopoverRef) return
-
-    requestAnimationFrame(() => {
-      const element = slashPopoverRef.querySelector(`[data-slash-id="${activeId}"]`)
-      element?.scrollIntoView({ block: "nearest", behavior: "smooth" })
-    })
-  })
-
-  if (promptEnabled()) {
-    createEffect(() => {
-      promptProbe.set({
-        popover: store.popover,
-        slash: {
-          active: slashActive() ?? null,
-          ids: slashFlat().map((cmd) => cmd.id),
-        },
-      })
-    })
-
-    onCleanup(() => promptProbe.clear())
-  }
-
-  const selectPopoverActive = () => {
-    if (store.popover === "at") {
-      const items = atFlat()
-      if (items.length === 0) return
-      const active = atActive()
-      const item = items.find((entry) => atKey(entry) === active) ?? items[0]
-      handleAtSelect(item)
-      return
-    }
-
-    if (store.popover === "slash") {
-      const items = slashFlat()
-      if (items.length === 0) return
-      const active = slashActive()
-      const item = items.find((entry) => entry.id === active) ?? items[0]
-      handleSlashSelect(item)
-    }
-  }
-
-  const {
-    composing,
-    isImeComposing,
-    handleBlur,
-    handleCompositionStart,
-    handleCompositionEnd,
-    handleInput,
-    addPart,
-  } = createEditorInput({
+  const editorInput = createEditorInput({
     store,
     setStore,
     prompt,
@@ -472,11 +338,54 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     editorRef: () => editorRef,
     mirror,
     imperatives: { queueScroll, renderEditorWithCursor },
-    atOnInput,
-    slashOnInput,
+    popovers: popoversAccess,
     closePopover,
     resetHistoryNavigation,
   })
+
+  const popovers = createPopoverControllers({
+    store,
+    setStore,
+    prompt,
+    command,
+    sync,
+    files,
+    language,
+    recent,
+    imageAttachments,
+    actionReady,
+    slashPopoverRef: () => slashPopoverRef,
+    addPart: editorInput.addPart,
+    closePopover,
+    clearEditor,
+    setEditorText,
+    focusEditorEnd,
+  })
+  popoversRef = popovers
+
+  const {
+    atFlat,
+    atActive,
+    setAtActive,
+    atOnKeyDown,
+    atKey,
+    handleAtSelect,
+    slashFlat,
+    slashActive,
+    setSlashActive,
+    slashOnKeyDown,
+    handleSlashSelect,
+    selectPopoverActive,
+  } = popovers
+  const {
+    composing,
+    isImeComposing,
+    handleBlur,
+    handleCompositionStart,
+    handleCompositionEnd,
+    handleInput,
+    addPart,
+  } = editorInput
 
   createEffect(
     on(
