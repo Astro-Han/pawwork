@@ -31,7 +31,7 @@ import {
   type PopoverControllers,
 } from "./prompt-input/popover-controllers"
 import { createPromptKeydownHandler } from "./prompt-input/keydown"
-import { PromptModelControl, PromptVariantControl } from "./prompt-input/model-controls"
+import { PromptModelControl } from "./prompt-input/model-controls"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
@@ -468,12 +468,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onSubmit: props.onSubmit,
   })
 
-  const [variantOpen, setVariantOpen] = createSignal(false)
-
   createEffect(() => {
     if (actionReady()) return
     closePopover()
-    setVariantOpen(false)
     setStore("draggingType", null)
   })
 
@@ -679,19 +676,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                   command={command}
                   onClose={restoreFocus}
                 />
-                <PromptVariantControl
-                  triggerStyle={buttons}
-                  open={variantOpen()}
-                  onOpenChange={(open) => {
-                    setVariantOpen(open)
-                    if (!open) restoreFocus()
-                  }}
-                  actionReady={actionReady}
-                  model={local.model}
-                  language={language}
-                  command={command}
-                />
-
               </Show>
               <Show when={props.homeMode && store.mode === "normal"}>
                 <WorkspaceChip style={buttons()} />

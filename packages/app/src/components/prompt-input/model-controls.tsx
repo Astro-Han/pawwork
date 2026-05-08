@@ -1,13 +1,11 @@
-// Composer bottom-bar model + variant controls. Each renders its own
-// TooltipKeybind + selector. variantOpen state is owned by PromptInput
-// (paired with the close-on-disable effect there) so this file stays
-// stateless.
+// Composer bottom-bar model control with inline thinking-level indicator.
+// Variant selection moved into the model picker popover (see model-picker.tsx);
+// this control is the trigger for the combined picker.
 
-import { createMemo, Show, type JSX } from "solid-js"
+import { Show, type JSX } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
-import { Select } from "@opencode-ai/ui/select"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import type { useCommand } from "@/context/command"
 import type { useLanguage } from "@/context/language"
@@ -60,53 +58,15 @@ export function PromptModelControl(props: {
           >
             {props.model.current()?.name ?? props.language.t("dialog.model.select.title")}
           </span>
+          <Show when={props.model.variant.current()}>
+            {(v) => (
+              <span class="shrink-0 text-fg-weak font-normal">
+                · {translateVariant(props.language.t, v())}
+              </span>
+            )}
+          </Show>
           <Icon name="chevron-down" class="shrink-0" />
         </ModelSelectorPopover>
-      </TooltipKeybind>
-    </div>
-  )
-}
-
-export function PromptVariantControl(props: {
-  triggerStyle: TriggerStyle
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  actionReady: () => boolean
-  model: ReturnType<typeof useLocal>["model"]
-  language: ReturnType<typeof useLanguage>
-  command: ReturnType<typeof useCommand>
-}): JSX.Element {
-  const variants = createMemo(() => ["default", ...props.model.variant.list()])
-
-  return (
-    <div data-component="prompt-variant-control">
-      <TooltipKeybind
-        placement="top"
-        gutter={4}
-        title={props.language.t("command.model.variant.cycle")}
-        keybind={props.command.keybind("model.variant.cycle")}
-      >
-        <Select<string>
-          open={props.open}
-          options={variants()}
-          current={props.model.variant.current() ?? "default"}
-          value={(v) => v}
-          label={(v) => translateVariant(props.language.t, v)}
-          onSelect={(v) => {
-            if (!props.actionReady() || !v) return
-            props.model.variant.set(v === "default" ? undefined : v)
-          }}
-          onOpenChange={props.onOpenChange}
-          variant="ghost"
-          size="normal"
-          disabled={!props.actionReady()}
-          triggerStyle={props.triggerStyle()}
-          triggerProps={{
-            "data-action": "prompt-model-variant",
-            class:
-              "max-w-[160px] @max-[20rem]/composer:max-w-[80px] text-13-regular text-fg-base font-normal",
-          }}
-        />
       </TooltipKeybind>
     </div>
   )
