@@ -260,7 +260,6 @@ Individual tools, ordered by value:
 - [ ] `edit.ts` — HIGH: multi-step diff/format/publish pipeline, FileWatcher lock
 - [ ] `grep.ts` — MEDIUM: spawns ripgrep → ChildProcessSpawner, timeout handling
 - [ ] `write.ts` — MEDIUM: permission checks, diagnostics polling, Bus events
-- [ ] `codesearch.ts` — MEDIUM: HTTP + SSE + manual timeout → HttpClient + Effect.timeout
 - [ ] `webfetch.ts` — MEDIUM: fetch with UA retry, size limits → HttpClient
 - [ ] `websearch.ts` — MEDIUM: MCP over HTTP → HttpClient
 - [ ] `batch.ts` — MEDIUM: parallel execution, per-call error recovery → Effect.all

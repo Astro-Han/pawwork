@@ -98,8 +98,6 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
       return { icon: "window-cursor", title: i18n.t("ui.tool.webfetch"), subtitle: input.url }
     case "websearch":
       return { icon: "window-cursor", title: i18n.t("ui.tool.websearch"), subtitle: input.query }
-    case "codesearch":
-      return { icon: "code", title: i18n.t("ui.tool.codesearch"), subtitle: input.query }
     case "enter-worktree": {
       return {
         icon: "worktree",

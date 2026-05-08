@@ -127,7 +127,6 @@ export const dict = {
   "ui.tool.grep": "搜索文本",
   "ui.tool.webfetch": "读取网页",
   "ui.tool.websearch": "网络搜索",
-  "ui.tool.codesearch": "代码搜索",
   "ui.tool.worktree.enter": "进入工作树",
   "ui.tool.worktree.enter.fromProject": "{{project}} → {{target}}",
   "ui.tool.worktree.exit": "退出工作树",

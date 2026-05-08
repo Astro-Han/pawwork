@@ -22,7 +22,6 @@ import { Plugin } from "../plugin"
 import { Provider } from "../provider/provider"
 import { ProviderID, type ModelID } from "../provider/schema"
 import { WebSearchTool } from "./websearch"
-import { CodeSearchTool } from "./codesearch"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Settings } from "@/settings"
 import { Log } from "@opencode-ai/core/util/log"
@@ -135,7 +134,6 @@ export namespace ToolRegistry {
       const webfetch = yield* WebFetchTool
       const websearch = yield* WebSearchTool
       const bash = yield* BashTool
-      const codesearch = yield* CodeSearchTool
       const globtool = yield* GlobTool
       const writetool = yield* WriteTool
       const edit = yield* EditTool
@@ -272,7 +270,6 @@ export namespace ToolRegistry {
             fetch: Tool.init(webfetch),
             todo: Tool.init(todo),
             search: Tool.init(websearch),
-            code: Tool.init(codesearch),
             skill: Tool.init(skilltool),
             patch: Tool.init(patchtool),
             question: Tool.init(question),
@@ -299,7 +296,6 @@ export namespace ToolRegistry {
               tool.fetch,
               tool.todo,
               ...(webSearchEnabled ? [tool.search] : []),
-              tool.code,
               tool.skill,
               tool.patch,
               ...(lspEnabled ? [tool.lsp] : []),
@@ -360,9 +356,6 @@ export namespace ToolRegistry {
         const webSearchEnabled = yield* settings.webSearchEnabled()
         const filtered = (yield* all()).filter((tool) => {
           if (tool.id === WebSearchTool.id) return webSearchEnabled
-          if (tool.id === CodeSearchTool.id) {
-            return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
-          }
 
           const usePatch =
             !!Env.get("OPENCODE_E2E_LLM_URL") ||

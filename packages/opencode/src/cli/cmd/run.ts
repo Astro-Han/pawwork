@@ -19,7 +19,6 @@ import { ReadTool } from "../../tool/read"
 import { WebFetchTool } from "../../tool/webfetch"
 import { EditTool } from "../../tool/edit"
 import { WriteTool } from "../../tool/write"
-import { CodeSearchTool } from "../../tool/codesearch"
 import { WebSearchTool } from "../../tool/websearch"
 import { AgentTool } from "../../tool/agent"
 import { SkillTool } from "../../tool/skill"
@@ -151,13 +150,6 @@ function edit(info: ToolProps<typeof EditTool>) {
     },
     diff,
   )
-}
-
-function codesearch(info: ToolProps<typeof CodeSearchTool>) {
-  inline({
-    icon: "◇",
-    title: `Exa Code Search "${info.input.query}"`,
-  })
 }
 
 function websearch(info: ToolProps<typeof WebSearchTool>) {
@@ -428,7 +420,6 @@ export const RunCommand = cmd({
           if (part.tool === "write") return write(props<typeof WriteTool>(part))
           if (part.tool === "webfetch") return webfetch(props<typeof WebFetchTool>(part))
           if (part.tool === "edit") return edit(props<typeof EditTool>(part))
-          if (part.tool === "codesearch") return codesearch(props<typeof CodeSearchTool>(part))
           if (part.tool === "websearch") return websearch(props<typeof WebSearchTool>(part))
           if (isAgentToolPart(part.tool)) return agent(props<typeof AgentTool>(part))
           if (part.tool === "todowrite") return todo(props<typeof TodoWriteTool>(part))
