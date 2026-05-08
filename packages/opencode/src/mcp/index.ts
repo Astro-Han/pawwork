@@ -129,6 +129,11 @@ export namespace MCP {
 
   const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_")
 
+  function remoteURL(key: string, value: string) {
+    if (URL.canParse(value)) return new URL(value)
+    log.warn("invalid remote mcp url", { key })
+  }
+
   // Convert MCP tool definition to AI SDK Tool type
   function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number): Tool {
     const inputSchema = mcpTool.inputSchema
@@ -276,6 +281,13 @@ export namespace MCP {
       ) {
         const oauthDisabled = mcp.oauth === false
         const oauthConfig = typeof mcp.oauth === "object" ? mcp.oauth : undefined
+        const url = remoteURL(key, mcp.url)
+        if (!url) {
+          return {
+            client: undefined as MCPClient | undefined,
+            status: { status: "failed" as const, error: `Invalid MCP URL for "${key}"` },
+          }
+        }
         let authProvider: McpOAuthProvider | undefined
 
         if (!oauthDisabled) {
@@ -299,14 +311,14 @@ export namespace MCP {
         const transports: Array<{ name: string; transport: TransportWithAuth }> = [
           {
             name: "StreamableHTTP",
-            transport: new StreamableHTTPClientTransport(new URL(mcp.url), {
+            transport: new StreamableHTTPClientTransport(url, {
               authProvider,
               requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
             }),
           },
           {
             name: "SSE",
-            transport: new SSEClientTransport(new URL(mcp.url), {
+            transport: new SSEClientTransport(url, {
               authProvider,
               requestInit: mcp.headers ? { headers: mcp.headers } : undefined,
             }),
@@ -704,6 +716,8 @@ export namespace MCP {
         if (!mcpConfig) throw new Error(`MCP server ${mcpName} not found or disabled`)
         if (mcpConfig.type !== "remote") throw new Error(`MCP server ${mcpName} is not a remote server`)
         if (mcpConfig.oauth === false) throw new Error(`MCP server ${mcpName} has OAuth explicitly disabled`)
+        const url = remoteURL(mcpName, mcpConfig.url)
+        if (!url) throw new Error(`Invalid MCP URL for "${mcpName}"`)
 
         // OAuth config is optional - if not provided, we'll use auto-discovery
         const oauthConfig = typeof mcpConfig.oauth === "object" ? mcpConfig.oauth : undefined
@@ -732,7 +746,7 @@ export namespace MCP {
           },
         )
 
-        const transport = new StreamableHTTPClientTransport(new URL(mcpConfig.url), { authProvider })
+        const transport = new StreamableHTTPClientTransport(url, { authProvider })
 
         return yield* Effect.tryPromise({
           try: () => {

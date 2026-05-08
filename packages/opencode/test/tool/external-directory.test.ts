@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import fs from "fs/promises"
 import { Effect } from "effect"
+import { Global } from "@opencode-ai/core/global"
 import type * as Tool from "../../src/tool/tool"
 import { Instance } from "../../src/project/instance"
-import { assertExternalDirectory } from "../../src/tool/external-directory"
+import { assertExternalDirectory, resolveExternalPathForPermission } from "../../src/tool/external-directory"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
@@ -74,7 +76,8 @@ describe("tool.assertExternalDirectory", () => {
 
     const directory = "/tmp/project"
     const target = "/tmp/outside/file.txt"
-    const expected = glob(path.join(path.dirname(target), "*"))
+    const realTmp = process.platform === "win32" ? "/tmp" : await fs.realpath("/tmp")
+    const expected = glob(path.join(realTmp, "outside", "*"))
 
     await Instance.provide({
       directory,
@@ -89,12 +92,111 @@ describe("tool.assertExternalDirectory", () => {
     expect(req!.always).toEqual([expected])
   })
 
+  if (process.platform !== "win32") {
+    test("asks for the real target when a tmp child is a symlink", async () => {
+      const { requests, ctx } = makeCtx()
+
+      await using outside = await tmpdir({
+        init: async (dir) => {
+          await Bun.write(path.join(dir, "secret.txt"), "secret")
+        },
+      })
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(Global.Path.tmp, `external-directory-${process.pid}-${Date.now()}`)
+      await fs.rm(link, { recursive: true, force: true })
+      await fs.symlink(outside.path, link, "dir")
+      try {
+        const target = path.join(link, "secret.txt")
+        const realTarget = path.join(await fs.realpath(outside.path), "secret.txt")
+        const expected = glob(path.join(path.dirname(realTarget), "*"))
+
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            await assertExternalDirectory(ctx, target)
+          },
+        })
+
+        const req = requests.find((r) => r.permission === "external_directory")
+        expect(req).toBeDefined()
+        expect(req!.patterns).toEqual([expected])
+        expect(req!.always).toEqual([expected])
+        expect(req!.metadata.filepath).toBe(target)
+        expect(req!.metadata.realpath).toBe(realTarget)
+      } finally {
+        await fs.rm(link, { recursive: true, force: true })
+      }
+    })
+
+    test("asks for the real parent when a new tmp symlink child does not exist yet", async () => {
+      const { requests, ctx } = makeCtx()
+
+      await using outside = await tmpdir()
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(Global.Path.tmp, `external-directory-new-${process.pid}-${Date.now()}`)
+      await fs.rm(link, { recursive: true, force: true })
+      await fs.symlink(outside.path, link, "dir")
+      try {
+        const target = path.join(link, "new.txt")
+        const realTarget = path.join(await fs.realpath(outside.path), "new.txt")
+        const expected = glob(path.join(path.dirname(realTarget), "*"))
+
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            await assertExternalDirectory(ctx, target)
+          },
+        })
+
+        const req = requests.find((r) => r.permission === "external_directory")
+        expect(req).toBeDefined()
+        expect(req!.patterns).toEqual([expected])
+        expect(req!.always).toEqual([expected])
+        expect(req!.metadata.filepath).toBe(target)
+        expect(req!.metadata.realpath).toBe(realTarget)
+      } finally {
+        await fs.rm(link, { recursive: true, force: true })
+      }
+    })
+
+    test("preserves symlink traversal before dot-dot normalization", async () => {
+      const { requests, ctx } = makeCtx()
+
+      await using outside = await tmpdir()
+      await using tmp = await tmpdir({ git: true })
+
+      const link = path.join(tmp.path, "link")
+      await fs.symlink(outside.path, link, "dir")
+
+      const target = `${link}/../external-directory-${process.pid}-${Date.now()}.txt`
+      const realTarget = path.join(path.dirname(await fs.realpath(outside.path)), path.basename(target))
+      const expected = glob(path.join(path.dirname(realTarget), "*"))
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await assertExternalDirectory(ctx, target)
+        },
+      })
+
+      const req = requests.find((r) => r.permission === "external_directory")
+      expect(req).toBeDefined()
+      expect(req!.patterns).toEqual([expected])
+      expect(req!.always).toEqual([expected])
+      expect(req!.metadata.filepath).toBe(target)
+      expect(req!.metadata.realpath).toBe(realTarget)
+    })
+  }
+
   test("uses target directory when kind=directory", async () => {
     const { requests, ctx } = makeCtx()
 
     const directory = "/tmp/project"
     const target = "/tmp/outside"
-    const expected = glob(path.join(target, "*"))
+    const realTmp = process.platform === "win32" ? "/tmp" : await fs.realpath("/tmp")
+    const expected = glob(path.join(realTmp, "outside", "*"))
 
     await Instance.provide({
       directory,
@@ -137,6 +239,44 @@ describe("tool.assertExternalDirectory", () => {
       const req = requests.find((r) => r.permission === "external_directory")
       expect(req).toBeDefined()
       expect(req!.metadata.filepath).toBe("D:\\outside\\file.txt")
+    })
+  })
+
+  test("resolves Windows junction traversal before dot-dot normalization", async () => {
+    await withWin32Platform(async () => {
+      const junction = "C:\\project\\tmp\\link"
+      const outside = "D:\\outside"
+      const missing = "D:\\secret.txt"
+      const missingError = Object.assign(new Error("missing"), { code: "ENOENT" })
+      const resolved = resolveExternalPathForPermission("C:\\project\\tmp\\link\\..\\secret.txt", "C:\\project", {
+        lstat: (candidate) => {
+          if (candidate.toLowerCase() === missing.toLowerCase()) throw missingError
+          return {
+            isSymbolicLink: () => candidate.toLowerCase() === junction.toLowerCase(),
+          } as ReturnType<typeof import("fs").lstatSync>
+        },
+        realpath: (candidate) => (candidate.toLowerCase() === junction.toLowerCase() ? outside : candidate),
+      })
+
+      expect(resolved).toBe(missing)
+    })
+  })
+
+  test("resolves Windows drive-relative paths against the base path", async () => {
+    await withWin32Platform(async () => {
+      const expected = "C:\\project\\outside.txt"
+      const missingError = Object.assign(new Error("missing"), { code: "ENOENT" })
+      const resolved = resolveExternalPathForPermission("C:..\\outside.txt", "C:\\project\\child", {
+        lstat: (candidate) => {
+          if (candidate.toLowerCase() === expected.toLowerCase()) throw missingError
+          return {
+            isSymbolicLink: () => false,
+          } as ReturnType<typeof import("fs").lstatSync>
+        },
+        realpath: (candidate) => candidate,
+      })
+
+      expect(resolved).toBe(expected)
     })
   })
 

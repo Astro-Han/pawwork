@@ -177,10 +177,11 @@ describe("Worktree", () => {
   })
 
   describe("createFromInfo", () => {
-    wintest("creates and bootstraps git worktree", async () => {
+    wintest("creates git worktree and boots asynchronously", async () => {
       await using tmp = await tmpdir({ git: true })
 
       const info = await withInstance(tmp.path, () => Worktree.makeWorktreeInfo("from-info-test"))
+      const ready = waitReady(path.join(tmp.path, ".worktrees", "pawwork"))
       await withInstance(tmp.path, () => Worktree.createFromInfo(info))
 
       // Worktree should exist in git (normalize slashes for Windows)
@@ -189,7 +190,7 @@ describe("Worktree", () => {
       const normalizedDir = info.directory.replace(/\\/g, "/")
       expect(normalizedList).toContain(normalizedDir)
 
-      // Cleanup
+      await ready
       await withInstance(tmp.path, () => Worktree.remove({ directory: info.directory }))
     })
   })

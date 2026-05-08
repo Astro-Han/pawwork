@@ -1,11 +1,9 @@
 import { Effect, Layer, Context, Stream } from "effect"
 import { formatPatch, structuredPatch } from "diff"
-import path from "path"
 import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
-import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { FileWatcher } from "@/file/watcher"
 import { Git } from "@/git"
 import { Log } from "@opencode-ai/core/util/log"
@@ -14,20 +12,12 @@ import z from "zod"
 
 export namespace Vcs {
   const log = Log.create({ service: "vcs" })
+  const PATCH_CONTEXT_LINES = 2_147_483_647
+  // A single useful patch may consume the whole budget; later files then fall back to empty patches.
+  const MAX_PATCH_BYTES = 10_000_000
+  const MAX_TOTAL_PATCH_BYTES = 10_000_000
 
-  const count = (text: string) => {
-    if (!text) return 0
-    if (!text.endsWith("\n")) return text.split("\n").length
-    return text.slice(0, -1).split("\n").length
-  }
-
-  const work = Effect.fnUntraced(function* (fs: AppFileSystem.Interface, cwd: string, file: string) {
-    const full = path.join(cwd, file)
-    if (!(yield* fs.exists(full).pipe(Effect.orDie))) return ""
-    const buf = yield* fs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
-    if (Buffer.from(buf).includes(0)) return ""
-    return Buffer.from(buf).toString("utf8")
-  })
+  const emptyPatch = (file: string) => formatPatch(structuredPatch(file, file, "", "", "", "", { context: 0 }))
 
   const nums = (list: Git.Stat[]) =>
     new Map(list.map((item) => [item.file, { additions: item.additions, deletions: item.deletions }] as const))
@@ -40,37 +30,54 @@ export namespace Vcs {
     return [...out.values()]
   }
 
-  const staged = Effect.fnUntraced(function* (fs: AppFileSystem.Interface, git: Git.Interface, cwd: string) {
+  type PatchBatch = { total: number; capped: boolean }
+
+  const boundedPatch = Effect.fnUntraced(function* (
+    batch: PatchBatch,
+    item: Git.Item,
+    patch: Effect.Effect<Git.Patch>,
+  ) {
+    if (batch.capped) return emptyPatch(item.file)
+    const result = yield* patch
+    if (result.truncated) {
+      batch.capped = true
+      return emptyPatch(item.file)
+    }
+    const size = Buffer.byteLength(result.text)
+    if (batch.total + size > MAX_TOTAL_PATCH_BYTES) {
+      batch.capped = true
+      return emptyPatch(item.file)
+    }
+    batch.total += size
+    return result.text || emptyPatch(item.file)
+  })
+
+  const staged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
     const [list, stats] = yield* Effect.all([git.diffStaged(cwd), git.statsStaged(cwd)], { concurrency: 2 })
     const statMap = nums(stats)
-    const base = yield* git.prefix(cwd)
-    const patch = (file: string, before: string, after: string) =>
-      formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
+    const batch: PatchBatch = { total: 0, capped: false }
     const next = yield* Effect.forEach(
-      list,
+      list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>
         Effect.gen(function* () {
-          const before = item.status === "added" ? "" : yield* git.show(cwd, "HEAD", item.file, base)
-          const after = item.status === "deleted" ? "" : yield* git.showIndex(cwd, item.file, base)
           const stat = statMap.get(item.file)
           return {
             file: item.file,
-            patch: patch(item.file, before, after),
-            additions: stat?.additions ?? (item.status === "added" ? count(after) : 0),
-            deletions: stat?.deletions ?? (item.status === "deleted" ? count(before) : 0),
+            patch: yield* boundedPatch(batch, item, git.patchStaged(cwd, item.file, {
+              context: PATCH_CONTEXT_LINES,
+              maxOutputBytes: MAX_PATCH_BYTES,
+            })),
+            additions: stat?.additions ?? 0,
+            deletions: stat?.deletions ?? 0,
             status: item.status,
           } satisfies FileDiff
         }),
-      { concurrency: 8 },
+      { concurrency: 1 },
     )
-    return next.toSorted((a, b) => a.file.localeCompare(b.file))
+    return next
   })
 
-  const unstaged = Effect.fnUntraced(function* (
-    fs: AppFileSystem.Interface,
-    git: Git.Interface,
-    cwd: string,
-  ) {
+  const unstaged = Effect.fnUntraced(function* (git: Git.Interface, cwd: string) {
     const [tracked, extra, stats] = yield* Effect.all(
       [git.diffUnstaged(cwd), git.statusUnstaged(cwd), git.statsUnstaged(cwd)],
       { concurrency: 3 },
@@ -80,58 +87,52 @@ export namespace Vcs {
       extra.filter((item) => item.code === "??"),
     )
     const statMap = nums(stats)
-    const base = yield* git.prefix(cwd)
-    const patch = (file: string, before: string, after: string) =>
-      formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
+    const batch: PatchBatch = { total: 0, capped: false }
     const next = yield* Effect.forEach(
-      list,
+      list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>
         Effect.gen(function* () {
-          const before = item.code === "??" ? "" : yield* git.showIndex(cwd, item.file, base)
-          const after = item.status === "deleted" ? "" : yield* work(fs, cwd, item.file)
-          const stat = statMap.get(item.file)
+          const stat = statMap.get(item.file) ?? (item.status === "added" ? yield* git.statUntracked(cwd, item.file) : undefined)
+          const patch =
+            item.code === "??"
+              ? git.patchUntracked(cwd, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
+              : git.patchUnstaged(cwd, item.file, { context: PATCH_CONTEXT_LINES, maxOutputBytes: MAX_PATCH_BYTES })
           return {
             file: item.file,
-            patch: patch(item.file, before, after),
-            additions: stat?.additions ?? (item.status === "added" ? count(after) : 0),
-            deletions: stat?.deletions ?? (item.status === "deleted" ? count(before) : 0),
+            patch: yield* boundedPatch(batch, item, patch),
+            additions: stat?.additions ?? 0,
+            deletions: stat?.deletions ?? 0,
             status: item.status,
           } satisfies FileDiff
         }),
-      { concurrency: 8 },
+      { concurrency: 1 },
     )
-    return next.toSorted((a, b) => a.file.localeCompare(b.file))
+    return next
   })
 
-  const branchHead = Effect.fnUntraced(function* (
-    fs: AppFileSystem.Interface,
-    git: Git.Interface,
-    cwd: string,
-    ref: string,
-  ) {
+  const branchHead = Effect.fnUntraced(function* (git: Git.Interface, cwd: string, ref: string) {
     const [list, stats] = yield* Effect.all([git.diffHead(cwd, ref), git.statsHead(cwd, ref)], { concurrency: 2 })
     const statMap = nums(stats)
-    const base = yield* git.prefix(cwd)
-    const patch = (file: string, before: string, after: string) =>
-      formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
+    const batch: PatchBatch = { total: 0, capped: false }
     const next = yield* Effect.forEach(
-      list,
+      list.toSorted((a, b) => a.file.localeCompare(b.file)),
       (item) =>
         Effect.gen(function* () {
-          const before = item.status === "added" ? "" : yield* git.show(cwd, ref, item.file, base)
-          const after = item.status === "deleted" ? "" : yield* git.show(cwd, "HEAD", item.file, base)
           const stat = statMap.get(item.file)
           return {
             file: item.file,
-            patch: patch(item.file, before, after),
-            additions: stat?.additions ?? (item.status === "added" ? count(after) : 0),
-            deletions: stat?.deletions ?? (item.status === "deleted" ? count(before) : 0),
+            patch: yield* boundedPatch(batch, item, git.patchHead(cwd, ref, item.file, {
+              context: PATCH_CONTEXT_LINES,
+              maxOutputBytes: MAX_PATCH_BYTES,
+            })),
+            additions: stat?.additions ?? 0,
+            deletions: stat?.deletions ?? 0,
             status: item.status,
           } satisfies FileDiff
         }),
-      { concurrency: 8 },
+      { concurrency: 1 },
     )
-    return next.toSorted((a, b) => a.file.localeCompare(b.file))
+    return next
   })
 
   export const Mode = z.enum(["unstaged", "staged", "branch"])
@@ -183,10 +184,9 @@ export namespace Vcs {
 
   export class Service extends Context.Service<Service, Interface>()("@opencode/Vcs") {}
 
-  export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Git.Service | Bus.Service> = Layer.effect(
+  export const layer: Layer.Layer<Service, never, Git.Service | Bus.Service> = Layer.effect(
     Service,
     Effect.gen(function* () {
-      const fs = yield* AppFileSystem.Service
       const git = yield* Git.Service
       const bus = yield* Bus.Service
 
@@ -238,28 +238,24 @@ export namespace Vcs {
           const value = yield* InstanceState.get(state)
           if (Instance.project.vcs !== "git") return []
           if (mode === "unstaged") {
-            return yield* unstaged(fs, git, Instance.directory)
+            return yield* unstaged(git, Instance.directory)
           }
 
           if (mode === "staged") {
-            return yield* staged(fs, git, Instance.directory)
+            return yield* staged(git, Instance.directory)
           }
 
           if (!value.root) return []
           if (value.current && value.current === value.root.name) return []
           const ref = yield* git.mergeBase(Instance.directory, value.root.ref)
           if (!ref) return []
-          return yield* branchHead(fs, git, Instance.directory, ref)
+          return yield* branchHead(git, Instance.directory, ref)
         }),
       })
     }),
   )
 
-  export const defaultLayer = layer.pipe(
-    Layer.provide(Git.defaultLayer),
-    Layer.provide(AppFileSystem.defaultLayer),
-    Layer.provide(Bus.layer),
-  )
+  export const defaultLayer = layer.pipe(Layer.provide(Git.defaultLayer), Layer.provide(Bus.layer))
 
   const { runPromise } = makeRuntime(Service, defaultLayer)
 

@@ -187,6 +187,8 @@ describe("Vcs diff", () => {
           expect.objectContaining({ file: "untracked.txt", status: "added" }),
         ]),
       )
+      expect(diff.find((item) => item.file === "tracked.txt")?.patch).toContain("diff --git")
+      expect(diff.find((item) => item.file === "untracked.txt")?.patch).toContain("+untracked")
       expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
     })
   })
@@ -221,6 +223,7 @@ describe("Vcs diff", () => {
     await withVcsOnly(tmp.path, async () => {
       const diff = await Vcs.diff("staged")
       expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt", status: "added" })]))
+      expect(diff.find((item) => item.file === "staged.txt")?.patch).toContain("+staged")
       expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
     })
   })
@@ -253,6 +256,7 @@ describe("Vcs diff", () => {
     await withVcsOnly(tmp.path, async () => {
       const diff = await Vcs.diff("branch")
       expect(diff).toEqual(expect.arrayContaining([expect.objectContaining({ file: "branch.txt", status: "added" })]))
+      expect(diff.find((item) => item.file === "branch.txt")?.patch).toContain("+branch")
       expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "staged.txt" })]))
       expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "unstaged.txt" })]))
       expect(diff).not.toEqual(expect.arrayContaining([expect.objectContaining({ file: "untracked.txt" })]))

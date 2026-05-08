@@ -7,11 +7,12 @@ import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "../config"
 import { SubagentRun } from "../session/subagent-run"
-import { Cause, Effect, Schema } from "effect"
+import { Cause, Effect, Exit, Schema } from "effect"
 import { NotFoundError } from "../storage/db"
+import { EffectBridge } from "@/effect"
 
 export interface AgentPromptOps {
-  cancel(sessionID: SessionID): void
+  cancel(sessionID: SessionID): Effect.Effect<void>
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
   /**
@@ -302,6 +303,9 @@ export const AgentTool = Tool.define(
                 createdByAgentTool: true,
                 subagentType: params.subagent_type,
                 permission: [
+                  ...(parent.permission ?? []).filter(
+                    (rule) => rule.permission === "external_directory" || rule.action === "deny",
+                  ),
                   // v1 nested-deny: agent is denied unconditionally so a subagent cannot
                   // recursively dispatch its own subagents (#283 non-goal: nested subagents).
                   {
@@ -353,11 +357,15 @@ export const AgentTool = Tool.define(
               },
             })
 
-            const onParentAbort = () => ops.cancel(nextSession.id)
-            ctx.abort.addEventListener("abort", onParentAbort)
-            yield* Effect.addFinalizer(() =>
-              Effect.sync(() => ctx.abort.removeEventListener("abort", onParentAbort)),
-            )
+            const runCancel = yield* EffectBridge.make()
+            const cancelChild = ops.cancel(nextSession.id)
+            let cancelledChild = false
+            const cancelChildOnce = Effect.suspend(() => {
+              if (cancelledChild) return Effect.void
+              cancelledChild = true
+              return cancelChild
+            })
+            const onParentAbort = () => runCancel.fork(cancelChildOnce)
 
             // Pre-aborted short-circuit. If parent already aborted before we got here, skip
             // ops.prompt entirely and finalize as canceled_by_user with no partial_result.
@@ -416,36 +424,54 @@ export const AgentTool = Tool.define(
             //    row that synthesizeOutput would render as a defective success.
             //  - failure: err-finalize runs (best-effort row cleanup), then the original cause
             //    re-raises via failCause so stack/annotations survive.
-            const parts = yield* ops.resolvePromptParts(params.prompt)
-            yield* ops
-              .prompt({
-                messageID: MessageID.ascending(),
-                sessionID: nextSession.id,
-                model: { modelID: model.modelID, providerID: model.providerID },
-                agent: next.name,
-                tools: {
-                  agent: false,
-                  "enter-worktree": false,
-                  "exit-worktree": false,
-                  ...(canTodo ? {} : { todowrite: false }),
-                  ...Object.fromEntries(
-                    (cfg.experimental?.primary_tools ?? []).map((item) => [item, false]),
-                  ),
-                },
-                parts,
-              })
-              .pipe(
-                Effect.matchCauseEffect({
-                  onSuccess: (r) => finalizeAfter({ kind: "ok", r }),
-                  onFailure: (cause) =>
-                    Effect.gen(function* () {
-                      yield* finalizeAfter({ kind: "err", error: Cause.squash(cause) }).pipe(
-                        Effect.catchCause(() => Effect.void),
-                      )
-                      return yield* Effect.failCause(cause)
-                    }),
+            yield* Effect.acquireUseRelease(
+              Effect.sync(() => {
+                ctx.abort.addEventListener("abort", onParentAbort)
+              }),
+              () =>
+                Effect.gen(function* () {
+                  const parts = yield* ops.resolvePromptParts(params.prompt)
+                  yield* ops
+                    .prompt({
+                      messageID: MessageID.ascending(),
+                      sessionID: nextSession.id,
+                      model: { modelID: model.modelID, providerID: model.providerID },
+                      agent: next.name,
+                      tools: {
+                        agent: false,
+                        "enter-worktree": false,
+                        "exit-worktree": false,
+                        ...(canTodo ? {} : { todowrite: false }),
+                        ...Object.fromEntries(
+                          (cfg.experimental?.primary_tools ?? []).map((item) => [item, false]),
+                        ),
+                      },
+                      parts,
+                    })
+                    .pipe(
+                      Effect.matchCauseEffect({
+                        onSuccess: (r) => finalizeAfter({ kind: "ok", r }),
+                        onFailure: (cause) =>
+                          Effect.gen(function* () {
+                            yield* finalizeAfter({ kind: "err", error: Cause.squash(cause) }).pipe(
+                              Effect.catchCause(() => Effect.void),
+                            )
+                            return yield* Effect.failCause(cause)
+                          }),
+                      }),
+                    )
                 }),
-              )
+              (_, exit) =>
+                Effect.gen(function* () {
+                  if (Exit.hasInterrupts(exit)) yield* cancelChildOnce
+                }).pipe(
+                  Effect.ensuring(
+                    Effect.sync(() => {
+                      ctx.abort.removeEventListener("abort", onParentAbort)
+                    }),
+                  ),
+                ),
+            )
 
             const finalPart = yield* subagentRun.read(ctx.callID!)
             return synthesizeOutput(finalPart, nextSession.id)

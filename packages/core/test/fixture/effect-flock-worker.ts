@@ -28,6 +28,7 @@ const testGlobal = Layer.succeed(
     cache: os.tmpdir(),
     config: os.tmpdir(),
     state: os.tmpdir(),
+    tmp: os.tmpdir(),
     bin: os.tmpdir(),
     log: os.tmpdir(),
   }),

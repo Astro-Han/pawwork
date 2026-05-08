@@ -268,9 +268,8 @@ export const layer = Layer.effect(
     // "child runner aborted" from "model returned naturally" without racing ctx.abort.aborted.
     const interruptedSessions = new Set<SessionID>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
-      const run = yield* runner()
       return {
-        cancel: (sessionID: SessionID) => run.fork(cancel(sessionID)),
+        cancel: (sessionID: SessionID) => cancel(sessionID),
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input),
         // Self-cleaning read: each subagent dispatch reads `wasInterrupted` exactly once after
@@ -685,9 +684,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },
                     { args },
                   )
-                  yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-                  const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.promise(() =>
-                    execute(args, opts),
+                  const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
+                    yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
+                    return yield* Effect.promise(() => execute(args, opts))
+                  }).pipe(
+                    Effect.withSpan("Tool.execute", {
+                      attributes: {
+                        "tool.name": key,
+                        "tool.call_id": opts.toolCallId,
+                        "session.id": ctx.sessionID,
+                        "message.id": input.processor.message.id,
+                      },
+                    }),
                   )
                   yield* plugin.trigger(
                     "tool.execute.after",

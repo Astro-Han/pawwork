@@ -126,11 +126,14 @@ export namespace Format {
                 const dir = yield* InstanceState.directory
                 const code = yield* spawner
                   .spawn(
-                    ChildProcess.make(replaced[0]!, replaced.slice(1), {
-                      cwd: dir,
-                      env: item.environment,
-                      extendEnv: true,
-                    }),
+                  ChildProcess.make(replaced[0]!, replaced.slice(1), {
+                    cwd: dir,
+                    env: item.environment,
+                    extendEnv: true,
+                    stdin: "ignore",
+                    stdout: "ignore",
+                    stderr: "ignore",
+                  }),
                   )
                   .pipe(
                     Effect.flatMap((handle) => handle.exitCode),

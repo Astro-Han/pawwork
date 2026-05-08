@@ -50,7 +50,7 @@ interface FetchDecompressionError extends Error {
   path: string
 }
 
-export const SYNTHETIC_ATTACHMENT_PROMPT = "Attached image(s) from tool result:"
+export const SYNTHETIC_ATTACHMENT_PROMPT = "Attached media from tool result:"
 
 export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
 export const AbortedError = NamedError.create("MessageAbortedError", z.object({ message: z.string() }))
@@ -659,25 +659,25 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
   const result: UIMessage[] = []
   const toolNames = new Set<string>()
   // Track media from tool results that need to be injected as user messages
-  // for providers that don't support media in tool results.
+  // for providers that don't support that media type in tool results.
   //
   // OpenAI-compatible APIs only support string content in tool results, so we need
-  // to extract media and inject as user messages. Other SDKs (anthropic, google,
-  // bedrock) handle type: "content" with media parts natively.
+  // to extract media and inject as user messages. Some SDKs only support a subset
+  // of media in tool results; e.g. Bedrock supports images but not PDFs there.
   //
-  // Only apply this workaround if the model actually supports image input -
-  // otherwise there's no point extracting images.
-  const supportsMediaInToolResults = (() => {
+  // Only apply this workaround if the model actually supports that media input -
+  // otherwise unsupportedParts() will turn it into a user-visible error.
+  const supportsMediaInToolResult = (attachment: { mime: string }) => {
     if (model.api.npm === "@ai-sdk/anthropic") return true
     if (model.api.npm === "@ai-sdk/openai") return true
-    if (model.api.npm === "@ai-sdk/amazon-bedrock") return true
+    if (model.api.npm === "@ai-sdk/amazon-bedrock") return attachment.mime.startsWith("image/")
     if (model.api.npm === "@ai-sdk/google-vertex/anthropic") return true
     if (model.api.npm === "@ai-sdk/google") {
       const id = model.api.id.toLowerCase()
       return id.includes("gemini-3") && !id.includes("gemini-2")
     }
     return false
-  })()
+  }
 
   const toModelOutput = (options: { toolCallId: string; input: unknown; output: unknown }) => {
     const output = options.output
@@ -697,7 +697,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
       return {
         type: "content",
         value: [
-          { type: "text", text: outputObject.text },
+          ...(outputObject.text ? [{ type: "text", text: outputObject.text }] : []),
           ...attachments.map((attachment) => ({
             type: "media",
             mediaType: attachment.mime,
@@ -722,9 +722,8 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         role: "user",
         parts: [],
       }
-      result.push(userMessage)
       for (const part of msg.parts) {
-        if (part.type === "text" && !part.ignored)
+        if (part.type === "text" && !part.ignored && part.text !== "")
           userMessage.parts.push({
             type: "text",
             text: part.text,
@@ -759,11 +758,12 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
           })
         }
       }
+      if (userMessage.parts.length > 0) result.push(userMessage)
     }
 
     if (msg.info.role === "assistant") {
       const differentModel = `${model.providerID}/${model.id}` !== `${msg.info.providerID}/${msg.info.modelID}`
-      const media: Array<{ mime: string; url: string }> = []
+      const media: Array<{ mime: string; url: string; filename?: string }> = []
 
       if (
         msg.info.error &&
@@ -779,13 +779,19 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         role: "assistant",
         parts: [],
       }
+      const hasAnthropicSignedReasoning = msg.parts.some((part) => {
+        if (part.type !== "reasoning") return false
+        return part.metadata?.anthropic?.signature != null
+      })
       for (const part of msg.parts) {
-        if (part.type === "text")
+        if (part.type === "text") {
+          const text = part.text === "" && hasAnthropicSignedReasoning ? " " : part.text
           assistantMessage.parts.push({
             type: "text",
-            text: part.text,
+            text,
             ...(differentModel ? {} : { providerMetadata: part.metadata }),
           })
+        }
         if (part.type === "step-start")
           assistantMessage.parts.push({
             type: "step-start",
@@ -801,11 +807,11 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             // For providers that don't support media in tool results, extract media files
             // (images, PDFs) to be sent as a separate user message
             const mediaAttachments = attachments.filter((a) => isMedia(a.mime))
-            const nonMediaAttachments = attachments.filter((a) => !isMedia(a.mime))
-            if (!supportsMediaInToolResults && mediaAttachments.length > 0) {
-              media.push(...mediaAttachments)
+            const extractedMedia = mediaAttachments.filter((a) => !supportsMediaInToolResult(a))
+            if (extractedMedia.length > 0) {
+              media.push(...extractedMedia)
             }
-            const finalAttachments = supportsMediaInToolResults ? attachments : nonMediaAttachments
+            const finalAttachments = attachments.filter((a) => !isMedia(a.mime) || supportsMediaInToolResult(a))
 
             const output =
               finalAttachments.length > 0
@@ -907,6 +913,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
                 type: "file" as const,
                 url: attachment.url,
                 mediaType: attachment.mime,
+                filename: attachment.filename,
               })),
             ],
           })
@@ -1035,12 +1042,39 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
       completed.add(msg.info.parentID)
   }
   result.reverse()
+  let filtered = result
   if (tailStartID) {
     // After reversing to chronological order, drop everything before the retained tail.
     const idx = result.findIndex((msg) => msg.info.id === tailStartID)
-    if (idx >= 0) return result.slice(idx)
+    if (idx >= 0) filtered = result.slice(idx)
   }
-  return result
+  const compactionIndex = filtered.findLastIndex(
+    (msg) =>
+      msg.info.role === "user" &&
+      msg.parts.some((item): item is CompactionPart => item.type === "compaction" && item.tail_start_id !== undefined),
+  )
+  const compaction = filtered[compactionIndex]
+  const part = compaction?.parts.find(
+    (item): item is CompactionPart => item.type === "compaction" && item.tail_start_id !== undefined,
+  )
+  const summaryIndex = compaction
+    ? filtered.findIndex(
+        (msg, index) =>
+          index > compactionIndex &&
+          msg.info.role === "assistant" &&
+          msg.info.summary &&
+          msg.info.parentID === compaction.info.id,
+      )
+    : -1
+  const tailIndex = part?.tail_start_id ? filtered.findIndex((msg) => msg.info.id === part.tail_start_id) : -1
+  if (tailIndex >= 0 && tailIndex < compactionIndex && summaryIndex > compactionIndex) {
+    return [
+      ...filtered.slice(compactionIndex, summaryIndex + 1),
+      ...filtered.slice(tailIndex, compactionIndex),
+      ...filtered.slice(summaryIndex + 1),
+    ]
+  }
+  return filtered
 }
 
 export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: SessionID) {

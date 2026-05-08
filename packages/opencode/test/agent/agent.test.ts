@@ -4,6 +4,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Agent } from "../../src/agent/agent"
 import { Permission } from "../../src/permission"
+import { Global } from "@opencode-ai/core/global"
 
 // Helper to evaluate permission for a tool with wildcard pattern
 function evalPerm(agent: Agent.Info | undefined, permission: string): Permission.Action | undefined {
@@ -591,6 +592,29 @@ description: Permission skill.
   } finally {
     process.env.OPENCODE_TEST_HOME = home
   }
+})
+
+test("opencode tmp directory is allowed for external_directory", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      permission: {
+        external_directory: {
+          "*": "deny",
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const build = await Agent.get("build")
+      const target = path.join(Global.Path.tmp, "agent-work", "scratch.txt")
+      expect(Permission.evaluate("external_directory", target, build!.permission).action).toBe("allow")
+      expect(
+        Permission.evaluate("external_directory", path.join(path.dirname(tmp.path), "random", "scratch.txt"), build!.permission).action,
+      ).toBe("deny")
+    },
+  })
 })
 
 test("defaultAgent returns build when no default_agent config", async () => {
