@@ -160,6 +160,10 @@ const getBase = (): Configuration => ({
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
+    createDesktopShortcut: false,
+    createStartMenuShortcut: true,
+    include: "resources/installer.nsh",
+    installerLanguages: ["en_US", "zh_CN"],
     installerIcon: `resources/icons/icon.ico`,
     installerHeaderIcon: `resources/icons/icon.ico`,
   },

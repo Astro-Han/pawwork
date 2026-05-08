@@ -52,3 +52,21 @@ describe("release workflow app-update verification", () => {
     expect(workflow).toContain('officecli_platform="win32"')
   })
 })
+
+const checklist = readFileSync(join(import.meta.dir, "..", "..", "..", ".github", "RELEASE_CHECKLIST.md"), "utf8")
+
+describe("release checklist Windows installer verification", () => {
+  test("records the Windows desktop shortcut verification matrix", () => {
+    expect(checklist).toContain("English Windows fresh install")
+    expect(checklist).toContain("Chinese Windows fresh install")
+    expect(checklist).toContain("unchecked install")
+    expect(checklist).toContain("reinstall with desktop shortcut checked")
+    expect(checklist).toContain("reinstall with desktop shortcut unchecked")
+    expect(checklist).toContain("scope switch between `Just me` and `All users`")
+    expect(checklist).toContain("older standard `PawWork.lnk`")
+    expect(checklist).toContain("app language change after install")
+    expect(checklist).toContain("previous affected version")
+    expect(checklist).toContain("no-desktop-shortcut state")
+    expect(checklist).toContain("Do not close the Windows desktop shortcut issue")
+  })
+})
