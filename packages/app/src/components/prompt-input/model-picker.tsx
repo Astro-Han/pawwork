@@ -1,8 +1,9 @@
 import { Popover as Kobalte } from "@kobalte/core/popover"
-import { Component, ComponentProps, createMemo, createSignal, For, JSX, ValidComponent } from "solid-js"
+import { Component, ComponentProps, createMemo, createSignal, For, JSX, Show, ValidComponent } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { popularProviders } from "@/hooks/use-providers"
+import { Icon } from "@opencode-ai/ui/icon"
 import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/tag"
 import { List } from "@opencode-ai/ui/list"
@@ -11,6 +12,7 @@ import { ModelTooltip } from "@/components/model-tooltip"
 import { useLanguage } from "@/context/language"
 import { compareModelsForDisplay } from "@/utils/model-order"
 import { modelSupportsInput } from "@/components/prompt-input/attachment-routing"
+import { translateVariant } from "@/components/prompt-input/variant-label"
 
 const isFree = (provider: string, cost: { input: number } | undefined) =>
   provider === "opencode" && (!cost || cost.input === 0)
@@ -88,6 +90,54 @@ const ModelList: Component<{
         )
       }}
     </List>
+  )
+}
+
+const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
+  const model = props.model ?? useLocal().model
+  const language = useLanguage()
+  const variants = createMemo(() => model.variant.list())
+  const current = createMemo(() => model.variant.current() ?? "default")
+  const options = createMemo(() => ["default", ...variants()])
+
+  return (
+    <Show when={variants().length > 0}>
+      <div class="border-t border-border-weaker px-1 pt-3 pb-1">
+        <Kobalte modal={false} placement="right-start" gutter={4}>
+          <Kobalte.Trigger
+            class="group/think w-full h-8 px-2 gap-3 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong"
+          >
+            <span>{language.t("dialog.model.variant")}</span>
+            <span class="ml-auto text-fg-weak">{translateVariant(language.t, current())}</span>
+            <Icon
+              name="chevron-right"
+              class="size-3.5 text-icon-weak transition-transform duration-150 group-data-[expanded]/think:rotate-90"
+            />
+          </Kobalte.Trigger>
+          <Kobalte.Portal>
+            <Kobalte.Content
+              class="min-w-[140px] p-1 bg-surface-base z-50 outline-none rounded-[10px]"
+              style={{ "box-shadow": "var(--ring-base), var(--shadow-floating)" }}
+            >
+              <For each={options()}>
+                {(opt) => (
+                  <button
+                    type="button"
+                    class="w-full h-8 px-2 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong"
+                    classList={{
+                      "bg-row-active-overlay text-fg-strong font-medium": opt === current(),
+                    }}
+                    onClick={() => model.variant.set(opt === "default" ? undefined : opt)}
+                  >
+                    {translateVariant(language.t, opt)}
+                  </button>
+                )}
+              </For>
+            </Kobalte.Content>
+          </Kobalte.Portal>
+        </Kobalte>
+      </div>
+    </Show>
   )
 }
 
@@ -182,6 +232,7 @@ export function ModelSelectorPopover(props: {
             onSelect={() => close("select")}
             class="p-1"
           />
+          <ThinkingLevelSection model={props.model} />
         </Kobalte.Content>
       </Kobalte.Portal>
     </Kobalte>
