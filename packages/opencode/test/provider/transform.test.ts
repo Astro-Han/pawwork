@@ -3069,6 +3069,132 @@ describe("ProviderTransform.message - cache control on gateway", () => {
   })
 })
 
+describe("ProviderTransform.smallOptions", () => {
+  const createSmallModel = (overrides: Partial<any> = {}): any => ({
+    id: "test/test-model",
+    providerID: "openai",
+    api: {
+      id: "gpt-4",
+      url: "https://api.test.com",
+      npm: "@ai-sdk/openai",
+    },
+    capabilities: {
+      reasoning: true,
+    },
+    ...overrides,
+  })
+
+  test("uses medium effort for versioned gpt-5 chat models", () => {
+    const model = createSmallModel({
+      id: "openai/gpt-5.2-chat-latest",
+      api: {
+        id: "gpt-5.2-chat-latest",
+        url: "https://api.openai.com",
+        npm: "@ai-sdk/openai",
+      },
+    })
+
+    expect(ProviderTransform.smallOptions(model)).toEqual({ store: false, reasoningEffort: "medium" })
+  })
+
+  test("does not send reasoning effort for unversioned gpt-5 chat models", () => {
+    const model = createSmallModel({
+      id: "openai/gpt-5-chat-latest",
+      api: {
+        id: "gpt-5-chat-latest",
+        url: "https://api.openai.com",
+        npm: "@ai-sdk/openai",
+      },
+    })
+
+    expect(ProviderTransform.smallOptions(model)).toEqual({ store: false })
+  })
+
+  test("does not send reasoning effort for gpt-5 search api models", () => {
+    const model = createSmallModel({
+      id: "openai/gpt-5-search-api",
+      api: {
+        id: "gpt-5-search-api",
+        url: "https://api.openai.com",
+        npm: "@ai-sdk/openai",
+      },
+    })
+
+    expect(ProviderTransform.smallOptions(model)).toEqual({ store: false })
+  })
+
+  test("uses small thinking budgets for gemini 2.5 models", () => {
+    expect(
+      ProviderTransform.smallOptions(
+        createSmallModel({
+          id: "google/gemini-2.5-pro",
+          providerID: "google",
+          api: {
+            id: "gemini-2.5-pro",
+            url: "https://generativelanguage.googleapis.com",
+            npm: "@ai-sdk/google",
+          },
+        }),
+      ),
+    ).toEqual({ thinkingConfig: { thinkingBudget: 128 } })
+    expect(
+      ProviderTransform.smallOptions(
+        createSmallModel({
+          id: "google/gemini-2.5-flash",
+          providerID: "google",
+          api: {
+            id: "gemini-2.5-flash",
+            url: "https://generativelanguage.googleapis.com",
+            npm: "@ai-sdk/google",
+          },
+        }),
+      ),
+    ).toEqual({ thinkingConfig: { thinkingBudget: 0 } })
+  })
+
+  test("uses small thinking levels for gemini 3 models", () => {
+    expect(
+      ProviderTransform.smallOptions(
+        createSmallModel({
+          id: "google/gemini-3-flash-preview",
+          providerID: "google",
+          api: {
+            id: "gemini-3-flash-preview",
+            url: "https://generativelanguage.googleapis.com",
+            npm: "@ai-sdk/google",
+          },
+        }),
+      ),
+    ).toEqual({ thinkingConfig: { thinkingLevel: "minimal" } })
+    expect(
+      ProviderTransform.smallOptions(
+        createSmallModel({
+          id: "google/gemini-3-pro-preview",
+          providerID: "google",
+          api: {
+            id: "gemini-3-pro-preview",
+            url: "https://generativelanguage.googleapis.com",
+            npm: "@ai-sdk/google",
+          },
+        }),
+      ),
+    ).toEqual({ thinkingConfig: { thinkingLevel: "low" } })
+    expect(
+      ProviderTransform.smallOptions(
+        createSmallModel({
+          id: "google/gemini-3-pro-image-preview",
+          providerID: "google",
+          api: {
+            id: "gemini-3-pro-image-preview",
+            url: "https://generativelanguage.googleapis.com",
+            npm: "@ai-sdk/google",
+          },
+        }),
+      ),
+    ).toEqual({ thinkingConfig: { thinkingLevel: "high" } })
+  })
+})
+
 describe("ProviderTransform.variants", () => {
   const createMockModel = (overrides: Partial<any> = {}): any => ({
     id: "test/test-model",
