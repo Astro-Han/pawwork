@@ -31,6 +31,13 @@ LangString PawWorkShortcutOptions 2052 "快捷方式选项"
   ${EndIf}
 !macroend
 
+!macro PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_ALL_INSTALL_SCOPES
+  SetShellVarContext current
+  !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
+  SetShellVarContext all
+  !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
+!macroend
+
 !macro PAWWORK_RESTORE_INSTALL_SCOPE
   ${If} $installMode == "all"
     SetShellVarContext all
@@ -85,8 +92,8 @@ LangString PawWorkShortcutOptions 2052 "快捷方式选项"
 
     ${If} $AddDesktopShortcut == ${BST_CHECKED}
       !insertmacro PAWWORK_STANDARD_SHORTCUT
+      !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_ALL_INSTALL_SCOPES
       !insertmacro PAWWORK_RESTORE_INSTALL_SCOPE
-      !insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS
       CreateShortCut "$DESKTOP\$PawWorkStandardShortcutName.lnk" "$appExe" "" "$appExe" 0 "" "" "${APP_DESCRIPTION}"
       ClearErrors
       WinShell::SetLnkAUMI "$DESKTOP\$PawWorkStandardShortcutName.lnk" "${APP_ID}"

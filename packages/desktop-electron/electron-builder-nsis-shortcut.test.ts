@@ -59,6 +59,13 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain('Delete "$DESKTOP\\${SHORTCUT_NAME}.lnk"')
   })
 
+  test("cleans standard shortcuts across scopes only for checked installs", () => {
+    expect(script).toContain("PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_ALL_INSTALL_SCOPES")
+    expect(script).toMatch(
+      /\$AddDesktopShortcut == \$\{BST_CHECKED\}[\s\S]*PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_ALL_INSTALL_SCOPES[\s\S]*PAWWORK_RESTORE_INSTALL_SCOPE[\s\S]*CreateShortCut/,
+    )
+  })
+
   test("owns uninstall cleanup for standard shortcuts in the selected install scope", () => {
     expect(script).toContain("customUnInstall")
     expect(script).toContain("PAWWORK_REMOVE_STANDARD_SHORTCUTS")
