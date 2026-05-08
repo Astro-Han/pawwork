@@ -61,6 +61,19 @@ describe("electron builder app-update config", () => {
     })
   })
 
+  test("windows nsis installer uses PawWork shortcut customizations", () => {
+    const config = createConfig("prod")
+
+    expect(config.nsis).toMatchObject({
+      oneClick: false,
+      allowToChangeInstallationDirectory: true,
+      createDesktopShortcut: false,
+      createStartMenuShortcut: true,
+      include: "resources/installer.nsh",
+      installerLanguages: ["en_US", "zh_CN"],
+    })
+  })
+
   test("all channels share the versioned artifact name", () => {
     expect(createConfig("dev").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")
     expect(createConfig("beta").artifactName).toBe("pawwork-${os}-${arch}-${version}.${ext}")

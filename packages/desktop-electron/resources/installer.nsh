@@ -1,0 +1,2 @@
+!macro customInstallMode
+!macroend
