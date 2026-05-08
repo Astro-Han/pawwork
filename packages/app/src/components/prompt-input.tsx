@@ -7,7 +7,6 @@ import { useFile } from "@/context/file"
 import {
   ContentPart,
   DEFAULT_PROMPT,
-  isPromptEqual,
   Prompt,
   usePrompt,
   ImageAttachmentPart,
@@ -25,7 +24,6 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover, openModelPicker } from "@/components/prompt-input/model-picker"
-import { recordDraftEdit, consumeCarryOver } from "@/components/prompt-input/draft-carryover"
 import { WorkspaceChip } from "@/components/prompt-input/workspace-chip"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { translateVariant } from "./prompt-input/variant-label"
@@ -36,15 +34,11 @@ import { useLanguage } from "@/context/language"
 import { canUseNativeFilePicker, usePlatform } from "@/context/platform"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { promptEnabled, promptProbe } from "@/testing/prompt"
-import { createTextFragment, getCursorPosition, setCursorPosition, setRangeEdge } from "./prompt-input/editor-dom"
-import {
-  createPill,
-  isNormalizedEditor,
-  parseEditorToParts,
-} from "./prompt-input/editor-serialize"
+import { getCursorPosition, setCursorPosition } from "./prompt-input/editor-dom"
 import { createEditorImperatives } from "./prompt-input/editor-imperatives"
 import { createCommentRouting } from "./prompt-input/comment-routing"
 import { createHistoryNavigation } from "./prompt-input/history-navigation"
+import { createEditorInput } from "./prompt-input/editor-input"
 import { createPromptAttachments } from "./prompt-input/attachments"
 import { pickAttachments } from "./prompt-input/pick-attachments"
 import { ACCEPTED_FILE_TYPES } from "./prompt-input/files"
@@ -107,8 +101,6 @@ const EXAMPLES = [
   "prompt.example.24",
   "prompt.example.25",
 ] as const
-
-const NON_EMPTY_TEXT = /[^\s\u200B]/
 
 export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
@@ -329,26 +321,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     onCleanup(() => clearInterval(interval))
   })
 
-  const [composing, setComposing] = createSignal(false)
-  const isImeComposing = (event: KeyboardEvent) => event.isComposing || composing() || event.keyCode === 229
-
-  const handleBlur = () => {
-    closePopover()
-    setComposing(false)
-  }
-
-  const handleCompositionStart = () => {
-    setComposing(true)
-  }
-
-  const handleCompositionEnd = () => {
-    setComposing(false)
-    requestAnimationFrame(() => {
-      if (composing()) return
-      reconcile(prompt.current().filter((part) => part.type !== "image"))
-    })
-  }
-
   const handleAtSelect = (option: AtOption | undefined) => {
     if (!actionReady()) return
     if (!option) return
@@ -483,177 +455,28 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     }
   }
 
-  const reconcile = (input: Prompt) => {
-    if (mirror.input) {
-      mirror.input = false
-      if (isNormalizedEditor(editorRef)) return
-
-      renderEditorWithCursor(input)
-      return
-    }
-
-    const dom = parseEditorToParts(editorRef)
-    if (isNormalizedEditor(editorRef) && isPromptEqual(input, dom)) return
-
-    renderEditorWithCursor(input)
-  }
-
-  createEffect(
-    on(
-      () => prompt.current(),
-      (parts) => {
-        if (composing()) return
-        reconcile(parts.filter((part) => part.type !== "image"))
-      },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => [sdk.directory, prompt.ready()] as const,
-      ([dir, ready]) => {
-        if (!ready || !dir) return
-        const parts = prompt.current()
-        const isEmpty =
-          parts.length === 0 ||
-          (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
-        const carry = consumeCarryOver(dir, isEmpty)
-        if (!carry) return
-        const text = carry.text
-        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
-      },
-    ),
-  )
-
-  const handleInput = () => {
-    const rawParts = parseEditorToParts(editorRef)
-    const images = imageAttachments()
-    const cursorPosition = getCursorPosition(editorRef)
-    const rawText =
-      rawParts.length === 1 && rawParts[0]?.type === "text"
-        ? rawParts[0].content
-        : rawParts.map((p) => ("content" in p ? p.content : "")).join("")
-    const hasNonText = rawParts.some((part) => part.type !== "text")
-    const shouldReset = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
-
-    if (shouldReset) {
-      closePopover()
-      resetHistoryNavigation()
-      if (prompt.dirty()) {
-        mirror.input = true
-        prompt.set(DEFAULT_PROMPT, 0)
-      }
-      queueScroll()
-      return
-    }
-
-    const shellMode = store.mode === "shell"
-
-    if (!shellMode) {
-      const atMatch = rawText.substring(0, cursorPosition).match(/@(\S*)$/)
-      const slashMatch = rawText.match(/^\/(\S*)$/)
-
-      if (atMatch) {
-        atOnInput(atMatch[1])
-        setStore("popover", "at")
-      } else if (slashMatch) {
-        slashOnInput(slashMatch[1])
-        setStore("popover", "slash")
-      } else {
-        closePopover()
-      }
-    } else {
-      closePopover()
-    }
-
-    resetHistoryNavigation()
-
-    mirror.input = true
-    prompt.set([...rawParts, ...images], cursorPosition)
-    recordDraftEdit(sdk.directory, { text: rawText })
-    queueScroll()
-  }
-
-  const addPart = (part: ContentPart) => {
-    if (part.type === "image") return false
-
-    const selection = window.getSelection()
-    if (!selection) return false
-
-    if (selection.rangeCount === 0 || !editorRef.contains(selection.anchorNode)) {
-      editorRef.focus()
-      const cursor = prompt.cursor() ?? promptLength(prompt.current())
-      setCursorPosition(editorRef, cursor)
-    }
-
-    if (selection.rangeCount === 0) return false
-    const range = selection.getRangeAt(0)
-    if (!editorRef.contains(range.startContainer)) return false
-
-    if (part.type === "file" || part.type === "agent") {
-      const cursorPosition = getCursorPosition(editorRef)
-      const rawText = prompt
-        .current()
-        .map((p) => ("content" in p ? p.content : ""))
-        .join("")
-      const textBeforeCursor = rawText.substring(0, cursorPosition)
-      const atMatch = textBeforeCursor.match(/@(\S*)$/)
-      const pill = createPill(part)
-      const gap = document.createTextNode(" ")
-
-      if (atMatch) {
-        const start = atMatch.index ?? cursorPosition - atMatch[0].length
-        setRangeEdge(editorRef, range, "start", start)
-        setRangeEdge(editorRef, range, "end", cursorPosition)
-      }
-
-      range.deleteContents()
-      range.insertNode(gap)
-      range.insertNode(pill)
-      range.setStartAfter(gap)
-      range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
-    }
-
-    if (part.type === "text") {
-      const fragment = createTextFragment(part.content)
-      const last = fragment.lastChild
-      range.deleteContents()
-      range.insertNode(fragment)
-      if (last) {
-        if (last.nodeType === Node.TEXT_NODE) {
-          const text = last.textContent ?? ""
-          if (text === "\u200B") {
-            range.setStart(last, 0)
-          }
-          if (text !== "\u200B") {
-            range.setStart(last, text.length)
-          }
-        }
-        if (last.nodeType !== Node.TEXT_NODE) {
-          const isBreak = last.nodeType === Node.ELEMENT_NODE && (last as HTMLElement).tagName === "BR"
-          const next = last.nextSibling
-          const emptyText = next?.nodeType === Node.TEXT_NODE && (next.textContent ?? "") === ""
-          if (isBreak && (!next || emptyText)) {
-            const placeholder = next && emptyText ? next : document.createTextNode("\u200B")
-            if (!next) last.parentNode?.insertBefore(placeholder, null)
-            placeholder.textContent = "\u200B"
-            range.setStart(placeholder, 0)
-          } else {
-            range.setStartAfter(last)
-          }
-        }
-      }
-      range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
-    }
-
-    handleInput()
-    closePopover()
-    return true
-  }
+  const {
+    composing,
+    isImeComposing,
+    handleBlur,
+    handleCompositionStart,
+    handleCompositionEnd,
+    handleInput,
+    addPart,
+  } = createEditorInput({
+    store,
+    setStore,
+    prompt,
+    sdk,
+    imageAttachments,
+    editorRef: () => editorRef,
+    mirror,
+    imperatives: { queueScroll, renderEditorWithCursor },
+    atOnInput,
+    slashOnInput,
+    closePopover,
+    resetHistoryNavigation,
+  })
 
   createEffect(
     on(
