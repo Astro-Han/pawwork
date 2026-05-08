@@ -9,6 +9,10 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain("AddDesktopShortcut")
     expect(script).toContain("添加桌面快捷方式")
     expect(script).toContain("Add desktop shortcut")
+    expect(script).toContain('LangString PawWorkAddDesktopShortcut 1033 "Add desktop shortcut"')
+    expect(script).toContain('LangString PawWorkAddDesktopShortcut 2052 "添加桌面快捷方式"')
+    expect(script).not.toContain("LANG_ENGLISH")
+    expect(script).not.toContain("LANG_SIMPCHINESE")
     expect(script).toContain("BST_CHECKED")
   })
 
@@ -19,7 +23,10 @@ describe("windows nsis desktop shortcut customization", () => {
   })
 
   test("does not mutate desktop shortcuts during auto-update", () => {
-    expect(script).toContain("${isUpdated}")
+    expect(script).toContain("!include FileFunc.nsh")
+    expect(script).toContain('"--updated"')
+    expect(script).not.toContain("${isUpdated}")
+    expect(script).not.toContain("!insertmacro skipPageIfUpdated")
     expect(script).toContain("PAWWORK_SKIP_DESKTOP_SHORTCUT")
   })
 
@@ -29,6 +36,8 @@ describe("windows nsis desktop shortcut customization", () => {
   })
 
   test("declares a real custom page instead of running page commands inline", () => {
+    expect(script).toContain("!ifndef BUILD_UNINSTALLER")
+    expect(script).toContain("!ifndef BUILD_UNINSTALLER\n  Var AddDesktopShortcutCheckbox")
     expect(script).toContain("PageEx custom")
     expect(script).toContain("PageCallbacks PawWorkDesktopShortcutPageCreate PawWorkDesktopShortcutPageLeave")
     expect(script).toContain('Function "PawWorkDesktopShortcutPageCreate"')
@@ -47,8 +56,6 @@ describe("windows nsis desktop shortcut customization", () => {
     expect(script).toContain("SetShellVarContext current")
     expect(script).toContain("SetShellVarContext all")
     expect(script).toContain("PAWWORK_RESTORE_INSTALL_SCOPE")
-    expect(script).toContain(
-      "!insertmacro PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES\n    !insertmacro PAWWORK_RESTORE_INSTALL_SCOPE",
-    )
+    expect(script).toMatch(/PAWWORK_REMOVE_STANDARD_SHORTCUTS_IN_BOTH_SCOPES\s+!insertmacro PAWWORK_RESTORE_INSTALL_SCOPE/)
   })
 })
