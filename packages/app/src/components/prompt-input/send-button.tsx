@@ -36,7 +36,7 @@ export const SendButton: Component<SendButtonProps> = (props) => {
     >
       <Icon
         name={props.stopping ? "stop-square" : "arrow-up"}
-        class="size-4"
+        class="size-[16px]"
         data-icon={props.stopping ? "stop" : "arrow-up"}
         style={{ color: props.disabled ? "var(--fg-weak)" : "#FFFFFF" }}
       />
