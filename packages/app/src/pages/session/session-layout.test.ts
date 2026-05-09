@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
+import { sessionRouteLayoutKey } from "./session-layout"
 import { createStableLayoutMemo } from "./stable-layout-memo"
+
+describe("session route layout key", () => {
+  test("uses route directory and session id only", () => {
+    expect(sessionRouteLayoutKey({ dir: "repo-slug", id: "ses_1" })).toBe("repo-slug/ses_1")
+    expect(sessionRouteLayoutKey({ dir: "repo-slug", id: undefined })).toBe("repo-slug")
+  })
+})
 
 describe("createStableLayoutMemo", () => {
   test("reuses the last value when a disposed memo turns empty", () => {

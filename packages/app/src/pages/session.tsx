@@ -59,7 +59,7 @@ export default function Page() {
   const terminal = useTerminal()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
-  const { params, sessionKey, tabs, view } = useSessionLayout()
+  const { params, tabs, view } = useSessionLayout()
 
   useSessionDesktopContext({
     context: () =>
@@ -300,7 +300,7 @@ export default function Page() {
   )
   const reviewState = createSessionReviewState({
     directory: () => sdk.directory,
-    sessionKey,
+    sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
     sync,
     sdk,
@@ -363,7 +363,7 @@ export default function Page() {
     reviewState,
     routeSessionID: () => params.id,
     sdk,
-    sessionKey,
+    sessionKey: timelineSessionKey,
     sync,
     timelineDiffs,
     turnDiffs,

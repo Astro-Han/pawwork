@@ -75,7 +75,7 @@ beforeAll(async () => {
   mock.module("@/pages/session/handoff", () => ({ setSessionHandoff: () => undefined }))
   mock.module("@/pages/session/session-layout", () => ({
     useSessionLayout: () => ({
-      sessionKey: () => "dir/demo",
+      layoutRouteKey: () => "dir/demo",
       tabs: () => ({
         all: () => [],
         open: () => undefined,

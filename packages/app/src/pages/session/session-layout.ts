@@ -3,19 +3,23 @@ import { createMemo } from "solid-js"
 import { useLayout } from "@/context/layout"
 import { createStableLayoutMemo } from "./stable-layout-memo"
 
-export const useSessionKey = () => {
+export function sessionRouteLayoutKey(params: { dir: string | undefined; id: string | undefined }) {
+  return `${params.dir}${params.id ? "/" + params.id : ""}`
+}
+
+export const useSessionRouteKey = () => {
   const params = useParams()
-  const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
-  return { params, sessionKey }
+  const layoutRouteKey = createMemo(() => sessionRouteLayoutKey(params))
+  return { params, layoutRouteKey }
 }
 
 export const useSessionLayout = () => {
   const layout = useLayout()
-  const { params, sessionKey } = useSessionKey()
+  const { params, layoutRouteKey } = useSessionRouteKey()
   return {
     params,
-    sessionKey,
-    tabs: createStableLayoutMemo(() => layout.tabs(sessionKey)),
-    view: createStableLayoutMemo(() => layout.view(sessionKey)),
+    layoutRouteKey,
+    tabs: createStableLayoutMemo(() => layout.tabs(layoutRouteKey)),
+    view: createStableLayoutMemo(() => layout.view(layoutRouteKey)),
   }
 }
