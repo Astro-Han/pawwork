@@ -414,8 +414,13 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
-  ipcMain.handle("show-item-in-folder", (_event: IpcMainInvokeEvent, path: string) => {
-    shell.showItemInFolder(path)
+  ipcMain.handle("show-item-in-folder", (_event: IpcMainInvokeEvent, target: string) => {
+    // shell.showItemInFolder needs an absolute path; relative paths silently
+    // no-op on macOS. Resolve against the main-process cwd as a fallback when
+    // the renderer hands us a relative path (e.g. markdown body emitted by
+    // an assistant turn whose caller did not absolutize the link target).
+    const absolute = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target)
+    shell.showItemInFolder(absolute)
   })
 
   ipcMain.handle("stat-paths", async (_event: IpcMainInvokeEvent, paths: string[]) => {
