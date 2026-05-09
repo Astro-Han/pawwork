@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal } from "solid-js"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
+import { DOCK_MOTION } from "./motion"
 
 // Shared collapse animation for composer dock widgets (Followup / Revert).
 // Spring drives a 0..1 value (1 = collapsed). Caller observes contentRef via
@@ -26,7 +27,7 @@ export function useDockCollapse(collapsed: () => boolean) {
     createResizeObserver(el, update)
   })
 
-  const spring = useSpring(() => (collapsed() ? 1 : 0), { visualDuration: 0.3, bounce: 0 })
+  const spring = useSpring(() => (collapsed() ? 1 : 0), DOCK_MOTION)
   const value = createMemo(() => Math.max(0, Math.min(1, spring())))
   const off = createMemo(() => value() > 0.98)
   const turn = createMemo(() => Math.max(0, Math.min(1, value())))

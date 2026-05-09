@@ -12,6 +12,7 @@ import { Index, Show, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { composerEnabled, composerProbe } from "@/testing/session-composer"
 import { useLanguage } from "@/context/language"
+import { DOCK_MOTION } from "@/pages/session/composer/motion"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 
 const currentToken = "\u0000current\u0000"
@@ -63,7 +64,7 @@ export function SessionTodoDock(props: {
   )
 
   const preview = createMemo(() => active()?.content ?? "")
-  const collapse = useSpring(() => (store.collapsed ? 1 : 0), { visualDuration: 0.3, bounce: 0 })
+  const collapse = useSpring(() => (store.collapsed ? 1 : 0), DOCK_MOTION)
   const dock = createMemo(() => Math.max(0, Math.min(1, props.dockProgress)))
   const shut = createMemo(() => 1 - dock())
   const value = createMemo(() => Math.max(0, Math.min(1, collapse())))
@@ -111,7 +112,11 @@ export function SessionTodoDock(props: {
       style={{
         "overflow-x": "visible",
         "overflow-y": "hidden",
-        "max-height": `${Math.max(36, full() - value() * (full() - 36))}px`,
+        // dock() drives the 0 → visible mount slide-in (fed by parent spring
+        // when props.state.dock() flips true). Inner factor is the collapse
+        // animation: 36 collapsed, full when expanded. Multiplied so both
+        // animations compose without double-clamping at min 36.
+        "max-height": `${dock() * Math.max(36, full() - value() * (full() - 36))}px`,
       }}
     >
       <div ref={contentRef}>

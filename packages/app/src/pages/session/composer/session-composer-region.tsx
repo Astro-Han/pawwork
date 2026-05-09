@@ -1,5 +1,6 @@
 import { Show, createEffect, createMemo } from "solid-js"
 import { useNavigate } from "@solidjs/router"
+import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { DockCard, DockSegment } from "@opencode-ai/ui/dock-card"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
@@ -12,6 +13,7 @@ import { SessionQuestionDock } from "@/pages/session/composer/session-question-d
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
+import { DOCK_MOTION } from "@/pages/session/composer/motion"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
@@ -92,6 +94,15 @@ export function SessionComposerRegion(props: {
 
   const rolled = createMemo(() => (props.revert?.items.length ? props.revert : undefined))
 
+  // Animate the Todo dock from 0 → visible when todos first appear (and back
+  // out when the dock closes). Multiplied into max-height inside the segment
+  // for slide-in + fed as dockProgress for content fade. Without this the
+  // dock pops in the moment props.state.dock() flips true.
+  const dockOpen = createMemo(() => props.state.dock())
+  const dockSpring = useSpring(() => (dockOpen() ? 1 : 0), DOCK_MOTION)
+  const dockProgress = createMemo(() => Math.max(0, Math.min(1, dockSpring())))
+  const dockMounted = createMemo(() => dockOpen() || dockProgress() > 0.001)
+
   const openParent = () => {
     const id = parentID()
     if (!id) return
@@ -149,13 +160,13 @@ export function SessionComposerRegion(props: {
             }
           >
             <DockCard>
-              <Show when={props.state.dock()}>
+              <Show when={dockMounted()}>
                 <SessionTodoDock
                   sessionID={displaySessionID()}
                   todos={props.state.todos()}
                   collapseLabel={language.t("session.todo.collapse")}
                   expandLabel={language.t("session.todo.expand")}
-                  dockProgress={1}
+                  dockProgress={dockProgress()}
                 />
               </Show>
               <Show when={rolled()} keyed>
