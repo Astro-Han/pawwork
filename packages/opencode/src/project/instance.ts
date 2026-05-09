@@ -125,6 +125,12 @@ export const Instance = {
     await instanceRuntime.disposeInstance(ctx)
     directories.delete(ctx.directory)
   },
+  async disposeDirectory(inputDirectory: string) {
+    const directory = Filesystem.resolve(inputDirectory)
+    const instanceRuntime = await runtime()
+    await instanceRuntime.disposeDirectory(directory)
+    directories.delete(directory)
+  },
   async disposeAll() {
     const { disposeAllLoadedInstances } = await import("./instance-store")
     await disposeAllLoadedInstances()

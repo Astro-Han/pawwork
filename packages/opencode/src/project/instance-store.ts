@@ -19,6 +19,7 @@ export interface Interface {
   readonly load: (input: LoadInput) => Effect.Effect<InstanceContext, unknown>
   readonly reload: (input: LoadInput) => Effect.Effect<InstanceContext, unknown>
   readonly dispose: (ctx: InstanceContext) => Effect.Effect<void>
+  readonly disposeDirectory: (directory: string) => Effect.Effect<void>
   readonly disposeAll: () => Effect.Effect<void>
   readonly provide: <A, E, R>(input: LoadInput, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E | unknown, R>
 }
@@ -186,6 +187,17 @@ export const layer = Layer.effect(
         yield* disposeEntry(directory, entry, ctx).pipe(Effect.asVoid)
       })
 
+    const disposeDirectory = (inputDirectory: string) =>
+      Effect.gen(function* () {
+        const directory = Filesystem.resolve(inputDirectory)
+        const entry = entries.get(directory)
+        if (!entry) return
+
+        const exit = yield* Deferred.await(entry.deferred).pipe(Effect.exit)
+        if (Exit.isFailure(exit)) return yield* removeEntry(directory, entry).pipe(Effect.asVoid)
+        yield* disposeEntry(directory, entry, exit.value).pipe(Effect.asVoid)
+      })
+
     const disposeAllOnce = Effect.gen(function* () {
       yield* Effect.forEach(
         [...entries.entries()],
@@ -222,6 +234,7 @@ export const layer = Layer.effect(
       load,
       reload,
       dispose,
+      disposeDirectory,
       disposeAll,
       provide: (input, effect) => load(input).pipe(Effect.flatMap((ctx) => effect.pipe(Effect.provideService(InstanceRef, ctx)))),
     }
