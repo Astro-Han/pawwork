@@ -69,7 +69,12 @@ export function SessionTodoDock(props: {
   const hide = createMemo(() => Math.max(value(), shut()))
   const off = createMemo(() => hide() > 0.98)
   const turn = createMemo(() => Math.max(0, Math.min(1, value())))
-  const full = createMemo(() => Math.max(78, store.height))
+  // Collapsed widget height is 36 per DESIGN.md (Composer · dock · model menu):
+  // 30 chev IconButton centered in a 36 row gives 3px breathing top/bottom and
+  // distinguishes a widget header from a plain control row. Pre-L34 the dock
+  // was a standalone rounded card and 78 over-padded it; 30 (the previous
+  // attempt at slimmer) collapses to a control row and loses the breathing.
+  const full = createMemo(() => Math.max(36, store.height))
   const e2e = composerEnabled()
   const probe = composerProbe(props.sessionID)
   let contentRef: HTMLDivElement | undefined
@@ -107,13 +112,13 @@ export function SessionTodoDock(props: {
       style={{
         "overflow-x": "visible",
         "overflow-y": "hidden",
-        "max-height": `${Math.max(78, full() - value() * (full() - 78))}px`,
+        "max-height": `${Math.max(36, full() - value() * (full() - 36))}px`,
       }}
     >
       <div ref={contentRef}>
         <div
           data-action="session-todo-toggle"
-          class="pl-3 pr-2 py-2 flex items-center gap-2 overflow-visible"
+          class="pl-3 pr-2 h-9 flex items-center gap-2 overflow-visible"
           role="button"
           tabIndex={0}
           onClick={toggle}
@@ -125,7 +130,7 @@ export function SessionTodoDock(props: {
         >
           <span
             data-slot="session-todo-progress"
-            class="text-13-regular text-fg-strong cursor-default inline-flex items-baseline shrink-0 overflow-visible"
+            class="text-13-regular text-fg-strong cursor-default inline-flex items-center shrink-0 overflow-visible leading-none"
             aria-label={label()}
             style={{
               "--tool-motion-odometer-ms": "600ms",
@@ -157,7 +162,7 @@ export function SessionTodoDock(props: {
             }}
           >
             <TextReveal
-              class="text-13-regular text-fg-base cursor-default"
+              class="text-13-regular text-fg-base cursor-default leading-none"
               text={store.collapsed ? preview() : undefined}
               duration={600}
               travel={25}
@@ -206,18 +211,11 @@ export function SessionTodoDock(props: {
 }
 
 function TodoList(props: { todos: SessionTodoItem[] }) {
-  const [store, setStore] = createStore({
-    stuck: false,
-  })
-
   return (
     <div class="relative">
       <div
-        class="px-3 pb-11 flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar"
+        class="px-3 pb-3 flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar"
         style={{ "overflow-anchor": "none" }}
-        onScroll={(e) => {
-          setStore("stuck", e.currentTarget.scrollTop > 0)
-        }}
       >
         <Index each={props.todos}>
           {(todo) => (
@@ -282,13 +280,6 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
           )}
         </Index>
       </div>
-      <div
-        class="pointer-events-none absolute top-0 left-0 right-0 h-4 transition-opacity duration-150"
-        style={{
-          background: "linear-gradient(to bottom, var(--bg-base), transparent)",
-          opacity: store.stuck ? 1 : 0,
-        }}
-      />
     </div>
   )
 }
