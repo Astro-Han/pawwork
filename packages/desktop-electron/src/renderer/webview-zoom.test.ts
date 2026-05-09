@@ -112,6 +112,10 @@ describe("desktop renderer webview zoom", () => {
     handler(keyEvent("-"))
     handler(keyEvent("0"))
 
-    expect(setZoomFactor.mock.calls.map(([factor]) => factor)).toEqual([0.8, 0.6000000000000001, 1])
+    const factors = setZoomFactor.mock.calls.map(([factor]) => factor)
+    expect(factors).toHaveLength(3)
+    expect(factors[0]).toBeCloseTo(0.8, 10)
+    expect(factors[1]).toBeCloseTo(0.6, 10)
+    expect(factors[2]).toBe(1)
   })
 })
