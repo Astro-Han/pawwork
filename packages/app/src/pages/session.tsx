@@ -20,7 +20,9 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState } from "@/pages/session/composer"
+import { createExecutionScopeTracker, type ExecutionScope } from "@/pages/session/execution-scope"
 import { createSizing } from "@/pages/session/helpers"
+import { promptScopeForSession } from "@/pages/session/prompt-route-scope"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
@@ -301,8 +303,15 @@ export default function Page() {
       ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
       : mobileChanges(),
   )
+  const executionScopeTracker = createExecutionScopeTracker()
+  const currentExecutionScope = (): ExecutionScope =>
+    executionScopeTracker({
+      serverKey: server.key,
+      directory: sdk.directory,
+    })
   const reviewState = createSessionReviewState({
     directory: () => sdk.directory,
+    executionScope: currentExecutionScope,
     sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
     sync,
@@ -500,15 +509,20 @@ export default function Page() {
     snapshot: () => {
       const directory = sdk.directory
       const handle = sync.retainDirectory(directory)
+      const scope = currentExecutionScope()
       return {
+        scope,
+        currentScope: currentExecutionScope,
         client: sdk.createClient({ directory, throwOnError: true }),
         store: handle.store,
         setStore: handle.setStore,
         prompt: prompt.current().slice(),
-        promptScope: {
-          dir: params.dir ?? directory,
-          id: timelineSessionID(),
-        },
+        promptScope: promptScopeForSession({
+          routeDir: params.dir,
+          routeDirectory: directory,
+          targetDirectory: directory,
+          sessionID: timelineSessionID(),
+        }),
         release: handle.release,
         directory,
       }
