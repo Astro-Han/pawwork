@@ -70,11 +70,9 @@ export function SessionTodoDock(props: {
   const hide = createMemo(() => Math.max(value(), shut()))
   const off = createMemo(() => hide() > 0.98)
   const turn = createMemo(() => Math.max(0, Math.min(1, value())))
-  // Collapsed widget height is 36 per DESIGN.md (Composer · dock · model menu):
-  // 30 chev IconButton centered in a 36 row gives 3px breathing top/bottom and
-  // distinguishes a widget header from a plain control row. Pre-L34 the dock
-  // was a standalone rounded card and 78 over-padded it; 30 (the previous
-  // attempt at slimmer) collapses to a control row and loses the breathing.
+  // Collapsed widget height is 36 per DESIGN.md L305: 30 chev centered → 3+3
+  // breathing. See DockWidgetHeader for the wrapper flex fix that makes that
+  // breathing actually symmetric.
   const full = createMemo(() => Math.max(36, store.height))
   const e2e = composerEnabled()
   const probe = composerProbe(props.sessionID)
@@ -207,7 +205,7 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
   return (
     <div class="relative">
       <div
-        class="px-3 pb-3 flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar"
+        class="px-3 pb-2 flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar"
         style={{ "overflow-anchor": "none" }}
       >
         <Index each={props.todos}>

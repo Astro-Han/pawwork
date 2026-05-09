@@ -1,8 +1,16 @@
 import type { JSX } from "solid-js"
 
 // Shared header geometry for composer dock widgets (Todo / Revert / Followup).
-// DESIGN.md L305: collapsed height 36, 30 chev IconButton centered → 3px breathing.
-// Caller owns label/preview content and chev props (rotation, data-attrs, handlers).
+// DESIGN.md L305 contract: collapsed height 36px, 30px chev IconButton
+// centered → 3+3 breathing each side.
+//
+// h-[36px] is intentional, not h-9. This app sets root font-size to 13px via
+// `html { font: var(--type-body) }` in theme.css (where --type-body is
+// 400 13px/150%), so Tailwind's rem-based scale resolves h-9 to
+// 2.25rem × 13 = 29.25px — short of the 30px IconButton, which would force the
+// chev to overflow the row and clip against the segment's overflow-y: hidden.
+// DESIGN.md contracts are absolute pixels, so absolute-pixel utilities are the
+// honest mapping.
 export function DockWidgetHeader(props: {
   ref?: (el: HTMLDivElement) => void
   children: JSX.Element
@@ -14,7 +22,7 @@ export function DockWidgetHeader(props: {
     <div
       ref={props.ref}
       data-action={props["data-action"]}
-      class="pl-3 pr-2 h-9 flex items-center gap-2 overflow-visible"
+      class="pl-3 pr-2 h-[36px] flex items-center gap-2 overflow-visible"
       role="button"
       tabIndex={0}
       onClick={props.onToggle}
@@ -25,7 +33,7 @@ export function DockWidgetHeader(props: {
       }}
     >
       {props.children}
-      <div class="ml-auto shrink-0">{props.chev}</div>
+      <div class="ml-auto shrink-0 flex items-center">{props.chev}</div>
     </div>
   )
 }
