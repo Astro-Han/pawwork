@@ -7,14 +7,14 @@ test.describe("composer slice 10 (L34)", () => {
     await expect(cards).toHaveCount(1)
   })
 
-  test("send button is round 32 and exposes data-state", async ({ page, gotoSession }) => {
+  test("send button is round 30 and exposes data-state", async ({ page, gotoSession }) => {
     await gotoSession()
     const send = page.locator('[data-action="prompt-submit"]').first()
     await expect(send).toBeVisible()
     await expect(send).toHaveAttribute("data-state", "idle")
     const box = await send.boundingBox()
-    expect(box?.width).toBeCloseTo(32, 0)
-    expect(box?.height).toBeCloseTo(32, 0)
+    expect(box?.width).toBeCloseTo(30, 0)
+    expect(box?.height).toBeCloseTo(30, 0)
   })
 
   test("model trigger opens a popover (not a dialog)", async ({ page, gotoSession }) => {
