@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { rewriteTaskListsForTest, sanitizeConfig } from "./markdown"
+import { resolveLinkAction, rewriteTaskListsForTest, sanitizeConfig } from "./markdown"
 
 describe("DOMPurify whitelist config", () => {
   test("forbids unsafe tags", () => {
@@ -58,5 +58,38 @@ describe("task list svg rendering", () => {
     document.body.innerHTML = '<ul><li><input type="checkbox" disabled> read the spec</li></ul>'
     rewriteTaskListsForTest(document.body)
     expect(document.body.textContent).toContain("read the spec")
+  })
+})
+
+describe("link action routing", () => {
+  test("https → external", () => {
+    expect(resolveLinkAction("https://example.com")).toEqual({ kind: "external", url: "https://example.com" })
+  })
+  test("http → external", () => {
+    expect(resolveLinkAction("http://example.com")).toEqual({ kind: "external", url: "http://example.com" })
+  })
+  test("relative repo path → reveal", () => {
+    expect(resolveLinkAction("packages/ui/src/foo.ts")).toEqual({
+      kind: "reveal",
+      path: "packages/ui/src/foo.ts",
+    })
+  })
+  test("absolute path → reveal", () => {
+    expect(resolveLinkAction("/Users/u/p/foo.ts")).toEqual({ kind: "reveal", path: "/Users/u/p/foo.ts" })
+  })
+  test("anchor-only stays default", () => {
+    expect(resolveLinkAction("#section")).toEqual({ kind: "anchor", url: "#section" })
+  })
+  test("javascript: rejected", () => {
+    expect(resolveLinkAction("javascript:alert(1)")).toEqual({ kind: "block" })
+  })
+  test("data: rejected", () => {
+    expect(resolveLinkAction("data:text/html,foo")).toEqual({ kind: "block" })
+  })
+  test("empty href blocks", () => {
+    expect(resolveLinkAction("")).toEqual({ kind: "block" })
+  })
+  test("trims surrounding whitespace", () => {
+    expect(resolveLinkAction("  https://x.com  ")).toEqual({ kind: "external", url: "https://x.com" })
   })
 })

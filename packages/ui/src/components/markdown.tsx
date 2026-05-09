@@ -175,6 +175,69 @@ function markCodeLinks(root: HTMLDivElement) {
   }
 }
 
+export type LinkAction =
+  | { kind: "external"; url: string }
+  | { kind: "reveal"; path: string }
+  | { kind: "anchor"; url: string }
+  | { kind: "block" }
+
+export function resolveLinkAction(href: string): LinkAction {
+  const trimmed = href.trim()
+  if (!trimmed) return { kind: "block" }
+  if (trimmed.startsWith("#")) return { kind: "anchor", url: trimmed }
+  if (/^https?:\/\//i.test(trimmed)) return { kind: "external", url: trimmed }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return { kind: "block" }
+  return { kind: "reveal", path: trimmed }
+}
+
+export type LinkActionHandlers = {
+  openExternal?: (url: string) => void
+  revealPath?: (path: string) => void
+}
+
+function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
+  const handler = (event: MouseEvent) => {
+    if (event.defaultPrevented) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const anchor = target.closest("a")
+    if (!(anchor instanceof HTMLAnchorElement)) return
+    if (anchor.closest('[data-slot="markdown-copy-button"]')) return
+    const href = anchor.getAttribute("href") ?? ""
+    const action = resolveLinkAction(href)
+    if (action.kind === "anchor") return
+    event.preventDefault()
+    if (action.kind === "block") return
+    if (action.kind === "external") {
+      if (handlers.openExternal) {
+        handlers.openExternal(action.url)
+      } else if (typeof window !== "undefined") {
+        window.open(action.url, "_blank", "noopener,noreferrer")
+      }
+      return
+    }
+    if (action.kind === "reveal") {
+      handlers.revealPath?.(action.path)
+    }
+  }
+  root.addEventListener("click", handler)
+  return () => root.removeEventListener("click", handler)
+}
+
+function setupImageClicks(root: HTMLDivElement, openImage: (src: string) => void) {
+  const handler = (event: MouseEvent) => {
+    if (event.defaultPrevented) return
+    const target = event.target
+    if (!(target instanceof HTMLImageElement)) return
+    const src = target.getAttribute("src") ?? ""
+    if (!src) return
+    event.preventDefault()
+    openImage(src)
+  }
+  root.addEventListener("click", handler)
+  return () => root.removeEventListener("click", handler)
+}
+
 const taskListIcons = {
   unchecked:
     '<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor"/>',
@@ -278,9 +341,21 @@ export function Markdown(
     streaming?: boolean
     class?: string
     classList?: Record<string, boolean>
+    onLinkOpenExternal?: (url: string) => void
+    onLinkRevealPath?: (path: string) => void
+    onImageClick?: (src: string) => void
   },
 ) {
-  const [local, others] = splitProps(props, ["text", "cacheKey", "streaming", "class", "classList"])
+  const [local, others] = splitProps(props, [
+    "text",
+    "cacheKey",
+    "streaming",
+    "class",
+    "classList",
+    "onLinkOpenExternal",
+    "onLinkRevealPath",
+    "onImageClick",
+  ])
   const marked = useMarked()
   const i18n = useI18n()
   const [root, setRoot] = createSignal<HTMLDivElement>()
@@ -321,6 +396,8 @@ export function Markdown(
   )
 
   let copyCleanup: (() => void) | undefined
+  let linkCleanup: (() => void) | undefined
+  let imageCleanup: (() => void) | undefined
 
   createEffect(() => {
     const container = root()
@@ -363,10 +440,21 @@ export function Markdown(
         copy: i18n.t("ui.message.copy"),
         copied: i18n.t("ui.message.copied"),
       }))
+    if (!linkCleanup) {
+      linkCleanup = setupLinkClicks(container, {
+        openExternal: local.onLinkOpenExternal,
+        revealPath: local.onLinkRevealPath,
+      })
+    }
+    if (local.onImageClick && !imageCleanup) {
+      imageCleanup = setupImageClicks(container, local.onImageClick)
+    }
   })
 
   onCleanup(() => {
     if (copyCleanup) copyCleanup()
+    if (linkCleanup) linkCleanup()
+    if (imageCleanup) imageCleanup()
   })
 
   return (
