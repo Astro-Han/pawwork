@@ -1,61 +1,14 @@
-import { GlobalBus } from "@/bus/global"
-import { disposeInstance } from "@/effect/instance-registry"
 import { Filesystem } from "@/util/filesystem"
-import { iife } from "@/util/iife"
-import { Log } from "@opencode-ai/core/util/log"
-import { LocalContext } from "../util/local-context"
+import { context, containsPath as containsPathInContext, type InstanceContext } from "./instance-context"
 import { Project } from "./project"
-import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { State } from "./state"
 
-export interface InstanceContext {
-  directory: string
-  worktree: string
-  project: Project.Info
-}
+export type { InstanceContext } from "./instance-context"
 
-const context = LocalContext.create<InstanceContext>("instance")
-const cache = new Map<string, Promise<InstanceContext>>()
+const directories = new Set<string>()
 
-const disposal = {
-  all: undefined as Promise<void> | undefined,
-}
-
-function emitDisposed(directory: string) {}
-
-function boot(input: { directory: string; init?: () => Promise<any>; worktree?: string; project?: Project.Info }) {
-  return iife(async () => {
-    const ctx =
-      input.project && input.worktree
-        ? {
-            directory: input.directory,
-            worktree: input.worktree,
-            project: input.project,
-          }
-        : await Project.fromDirectory(input.directory).then(({ project, sandbox }) => ({
-            directory: input.directory,
-            worktree: sandbox,
-            project,
-          }))
-    await context.provide(ctx, async () => {
-      await input.init?.()
-    })
-    return ctx
-  })
-}
-
-function track(directory: string, next: Promise<InstanceContext>) {
-  const task = next.catch((error) => {
-    if (cache.get(directory) === task) cache.delete(directory)
-    throw error
-  })
-  cache.set(directory, task)
-  return task
-}
-
-function matchesOverride(ctx: InstanceContext, input: { worktree?: string; project?: Project.Info }) {
-  if (!input.worktree && !input.project) return true
-  return ctx.worktree === input.worktree && ctx.project.id === input.project?.id
+async function runtime() {
+  return (await import("./instance-runtime")).InstanceRuntime
 }
 
 export const Instance = {
@@ -71,34 +24,15 @@ export const Instance = {
     }
 
     const directory = Filesystem.resolve(input.directory)
-    let existing = cache.get(directory)
-    if (!existing) {
-      Log.Default.info("creating instance", { directory })
-      existing = track(
-        directory,
-        boot({
-          directory,
-          init: input.init,
-          worktree: input.worktree,
-          project: input.project,
-        }),
-      )
-    }
-    let ctx = await existing
-    if (!matchesOverride(ctx, input)) {
-      Log.Default.info("recreating instance with explicit context", { directory })
-      existing = track(
-        directory,
-        boot({
-          directory,
-          init: input.init,
-          worktree: input.worktree,
-          project: input.project,
-        }),
-      )
-      ctx = await existing
-    }
+    const instanceRuntime = await runtime()
+    const ctx = await instanceRuntime.load({
+      directory,
+      worktree: input.worktree,
+      project: input.project,
+    })
+    directories.add(ctx.directory)
     return context.provide(ctx, async () => {
+      await input.init?.()
       return input.fn()
     })
   },
@@ -129,7 +63,7 @@ export const Instance = {
     return context.use()
   },
   directories() {
-    return [...cache.keys()]
+    return [...directories]
   },
   get directory() {
     return context.use().directory
@@ -140,19 +74,8 @@ export const Instance = {
   get project() {
     return context.use().project
   },
-
-  /**
-   * Check if a path is within the project boundary.
-   * Returns true if path is inside Instance.directory OR Instance.worktree.
-   * Paths within the worktree but outside the working directory should not trigger external_directory permission.
-   */
   containsPath(filepath: string, ctx?: InstanceContext) {
-    const instance = ctx ?? Instance
-    if (Filesystem.contains(instance.directory, filepath)) return true
-    // Non-git projects set worktree to "/" which would match ANY absolute path.
-    // Skip worktree check in this case to preserve external_directory permissions.
-    if (instance.worktree === "/") return false
-    return Filesystem.contains(instance.worktree, filepath)
+    return containsPathInContext(filepath, ctx ?? context.use())
   },
   /**
    * Captures the current instance ALS context and returns a wrapper that
@@ -175,74 +98,29 @@ export const Instance = {
     return State.create(() => Instance.directory, init, dispose)
   },
   async reload(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
+    if (!!input.worktree !== !!input.project) {
+      throw new Error("Instance.reload requires both worktree and project when overriding context")
+    }
     const directory = Filesystem.resolve(input.directory)
-    Log.Default.info("reloading instance", { directory })
-    await Promise.all([State.dispose(directory), disposeInstance(directory)])
-    cache.delete(directory)
-    const next = track(directory, boot({ ...input, directory }))
-
-    GlobalBus.emit("event", {
+    const instanceRuntime = await runtime()
+    const ctx = await instanceRuntime.reloadInstance({
       directory,
-      project: input.project?.id,
-      workspace: WorkspaceContext.workspaceID,
-      payload: {
-        type: "server.instance.disposed",
-        properties: {
-          directory,
-        },
-      },
+      worktree: input.worktree,
+      project: input.project,
     })
-
-    return await next
+    directories.add(ctx.directory)
+    await context.provide(ctx, () => input.init?.())
+    return ctx
   },
   async dispose() {
-    const directory = Instance.directory
-    const project = Instance.project
-    Log.Default.info("disposing instance", { directory })
-    await Promise.all([State.dispose(directory), disposeInstance(directory)])
-    cache.delete(directory)
-
-    GlobalBus.emit("event", {
-      directory,
-      project: project.id,
-      workspace: WorkspaceContext.workspaceID,
-      payload: {
-        type: "server.instance.disposed",
-        properties: {
-          directory,
-        },
-      },
-    })
+    const ctx = Instance.current
+    const instanceRuntime = await runtime()
+    await instanceRuntime.disposeInstance(ctx)
+    directories.delete(ctx.directory)
   },
   async disposeAll() {
-    if (disposal.all) return disposal.all
-
-    disposal.all = iife(async () => {
-      Log.Default.info("disposing all instances")
-      const entries = [...cache.entries()]
-      for (const [key, value] of entries) {
-        if (cache.get(key) !== value) continue
-
-        const ctx = await value.catch((error) => {
-          Log.Default.warn("instance dispose failed", { key, error })
-          return undefined
-        })
-
-        if (!ctx) {
-          if (cache.get(key) === value) cache.delete(key)
-          continue
-        }
-
-        if (cache.get(key) !== value) continue
-
-        await context.provide(ctx, async () => {
-          await Instance.dispose()
-        })
-      }
-    }).finally(() => {
-      disposal.all = undefined
-    })
-
-    return disposal.all
+    const { disposeAllLoadedInstances } = await import("./instance-store")
+    await disposeAllLoadedInstances()
+    directories.clear()
   },
 }

@@ -56,7 +56,6 @@ const seed = async () => {
   await prepareConfigDependencies()
 
   const { Instance } = await import("../src/project/instance")
-  const { InstanceBootstrap } = await import("../src/project/bootstrap")
   const { Config } = await import("../src/config/config")
   const { Session } = await import("../src/session")
   const { MessageID, PartID } = await import("../src/session/schema")
@@ -66,7 +65,6 @@ const seed = async () => {
   try {
     await Instance.provide({
       directory: dir,
-      init: InstanceBootstrap,
       fn: async () => {
         await Config.waitForDependencies()
 

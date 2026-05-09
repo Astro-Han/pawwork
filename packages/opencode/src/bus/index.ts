@@ -7,6 +7,7 @@ import { GlobalBus } from "./global"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { LocalContext } from "@/util/local-context"
 
 export namespace Bus {
   const log = Log.create({ service: "bus" })
@@ -177,7 +178,15 @@ export namespace Bus {
   // runSync is safe here because the subscribe chain (InstanceState.get, PubSub.subscribe,
   // Scope.make, Effect.forkScoped) is entirely synchronous. If any step becomes async, this will throw.
   export async function publish<D extends BusEvent.Definition>(def: D, properties: z.output<D["properties"]>) {
-    return runPromise((svc) => svc.publish(def, properties))
+    try {
+      return await runPromise((svc) => svc.publish(def, properties))
+    } catch (error) {
+      if (!(error instanceof LocalContext.NotFound) || error.name !== "instance") throw error
+      GlobalBus.emit("event", {
+        directory: "global",
+        payload: { type: def.type, properties },
+      })
+    }
   }
 
   export function subscribe<D extends BusEvent.Definition>(

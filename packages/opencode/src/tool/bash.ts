@@ -5,7 +5,7 @@ import * as Tool from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
 import { Log } from "../util"
-import { Instance } from "../project/instance"
+import { Instance, type InstanceContext } from "../project/instance"
 import { lazy } from "@/util/lazy"
 import { Language, type Node, type Tree } from "web-tree-sitter"
 
@@ -24,6 +24,7 @@ import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner
 import { withoutInternalServerAuthEnv } from "@/util/env"
 import { Global } from "@opencode-ai/core/global"
 import { resolveExternalPathForPermission } from "./external-directory"
+import { InstanceState } from "@/effect/instance-state"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -384,7 +385,13 @@ export const BashTool = Tool.define(
       return yield* resolvePermissionTarget(next, cwd, shell)
     })
 
-    const collect = Effect.fn("BashTool.collect")(function* (root: Node, cwd: string, ps: boolean, shell: string) {
+    const collect = Effect.fn("BashTool.collect")(function* (
+      root: Node,
+      cwd: string,
+      ps: boolean,
+      shell: string,
+      instance: InstanceContext,
+    ) {
       const scan: Scan = {
         dirs: new Set<string>(),
         patterns: new Set<string>(),
@@ -402,7 +409,7 @@ export const BashTool = Tool.define(
             log.info("resolved path", { arg, resolved })
             if (!resolved) continue
             const permissionPath = resolveExternalPathForPermission(resolved, cwd)
-            if (Instance.containsPath(permissionPath)) continue
+            if (Instance.containsPath(permissionPath, instance)) continue
             const dir = (yield* fs.isDir(permissionPath)) ? permissionPath : path.dirname(permissionPath)
             scan.dirs.add(dir)
           }
@@ -601,7 +608,8 @@ export const BashTool = Tool.define(
     })
 
     return () =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        const directory = (yield* InstanceState.context).directory
         const shell = Shell.acceptable()
         const name = Shell.name(shell)
         const chain =
@@ -611,7 +619,7 @@ export const BashTool = Tool.define(
         log.info("bash tool using shell", { shell })
 
         return {
-          description: DESCRIPTION.replaceAll("${directory}", Instance.directory)
+          description: DESCRIPTION.replaceAll("${directory}", directory)
             .replaceAll("${tmp}", Global.Path.tmp)
             .replaceAll("${os}", process.platform)
             .replaceAll("${shell}", name)
@@ -621,10 +629,12 @@ export const BashTool = Tool.define(
           parameters: Parameters,
           execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
             Effect.gen(function* () {
-              const cwd = params.workdir ? yield* resolveExecutionPath(params.workdir, Instance.directory, shell) : Instance.directory
+              const instance = yield* InstanceState.context
+              const directory = instance.directory
+              const cwd = params.workdir ? yield* resolveExecutionPath(params.workdir, directory, shell) : directory
               const permissionCwdTarget = params.workdir
-                ? yield* resolvePermissionTarget(params.workdir, Instance.directory, shell)
-                : Instance.directory
+                ? yield* resolvePermissionTarget(params.workdir, directory, shell)
+                : directory
               if (params.timeout !== undefined && params.timeout <= 0) {
                 throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
               }
@@ -636,9 +646,9 @@ export const BashTool = Tool.define(
                     parse(params.command, ps),
                     (tree: Tree) => Effect.sync(() => tree.delete()),
                   )
-                  const scan = yield* collect(tree.rootNode, cwd, ps, shell)
-                  const permissionCwd = resolveExternalPathForPermission(permissionCwdTarget, Instance.directory)
-                  if (!Instance.containsPath(permissionCwd)) scan.dirs.add(permissionCwd)
+                  const scan = yield* collect(tree.rootNode, cwd, ps, shell, instance)
+                  const permissionCwd = resolveExternalPathForPermission(permissionCwdTarget, directory)
+                  if (!Instance.containsPath(permissionCwd, instance)) scan.dirs.add(permissionCwd)
                   yield* ask(ctx, scan)
                 }),
               )

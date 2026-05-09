@@ -19,6 +19,7 @@ const { Flag } = await import("@opencode-ai/core/flag/flag")
 const { Plugin } = await import("../../src/plugin/index")
 const { Workspace } = await import("../../src/control-plane/workspace")
 const { Instance } = await import("../../src/project/instance")
+const { getAdaptor, ownerKey } = await import("../../src/control-plane/adaptors")
 
 const experimental = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
 // @ts-expect-error test-only flag override
@@ -287,25 +288,28 @@ describe("plugin.workspace", () => {
     )
   })
 
-  test("plugin workspace adaptor registration does not survive instance disposal", async () => {
+  test("plugin workspace adaptor registration is removed on dispose and restored on bootstrap", async () => {
     await using source = await pluginProject()
 
-    await Instance.provide({
+    const owner = await Instance.provide({
       directory: source.path,
-      fn: async () =>
-        Effect.gen(function* () {
-          const plugin = yield* Plugin.Service
-          yield* plugin.init()
-          return Workspace.create({
-            type: source.extra.type,
-            branch: null,
-            extra: null,
-            projectID: Instance.project.id,
-          })
-        }).pipe(Effect.provide(Plugin.defaultLayer), Effect.runPromise),
+      fn: async () => {
+        await Workspace.create({
+          type: source.extra.type,
+          branch: null,
+          extra: null,
+          projectID: Instance.project.id,
+        })
+        return {
+          projectID: Instance.project.id,
+          owner: ownerKey(Instance.directory, Instance.worktree),
+        }
+      },
     })
 
     await Instance.disposeAll()
+
+    await expect(getAdaptor(owner.projectID, source.extra.type, owner.owner)).rejects.toThrow(/workspace adaptor/i)
 
     await expect(
       Instance.provide({
@@ -318,7 +322,7 @@ describe("plugin.workspace", () => {
             projectID: Instance.project.id,
           }),
       }),
-    ).rejects.toThrow(/workspace adaptor/i)
+    ).resolves.toMatchObject({ directory: source.extra.space })
   })
 
   test("disposing one checkout restores the previous adaptor for the same project and type", async () => {
