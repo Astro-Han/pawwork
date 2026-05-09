@@ -6,8 +6,11 @@ import type { FollowupDraft } from "@/components/prompt-input/submit"
 import type {
   canSendFollowupItem as CanSendFollowupItem,
   createSessionFollowups as CreateSessionFollowups,
+  followupDraftMatchesScope as FollowupDraftMatchesScope,
   followupDraftForDirectory as DraftForDirectory,
   followupPreviewText as PreviewText,
+  followupStoreKey as FollowupStoreKey,
+  scopedFollowupDraft as ScopedFollowupDraft,
   shouldAutoSendFollowup as ShouldAutoSend,
 } from "./use-session-followups"
 
@@ -16,6 +19,9 @@ let shouldAutoSendFollowup: typeof ShouldAutoSend
 let followupDraftForDirectory: typeof DraftForDirectory
 let canSendFollowupItem: typeof CanSendFollowupItem
 let createSessionFollowups: typeof CreateSessionFollowups
+let followupStoreKey: typeof FollowupStoreKey
+let scopedFollowupDraft: typeof ScopedFollowupDraft
+let followupDraftMatchesScope: typeof FollowupDraftMatchesScope
 const sendFollowupCalls: unknown[] = []
 
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
@@ -65,6 +71,9 @@ beforeAll(async () => {
   followupDraftForDirectory = mod.followupDraftForDirectory
   canSendFollowupItem = mod.canSendFollowupItem
   createSessionFollowups = mod.createSessionFollowups
+  followupStoreKey = mod.followupStoreKey
+  scopedFollowupDraft = mod.scopedFollowupDraft
+  followupDraftMatchesScope = mod.followupDraftMatchesScope
 })
 
 describe("session followups", () => {
@@ -163,6 +172,46 @@ describe("session followups", () => {
     expect(shouldAutoSendFollowup({ ...switchingDirectory, actionReady: true })).toBe(true)
   })
 
+  test("followup store key includes server and session", () => {
+    expect(followupStoreKey({ serverKey: "sidecar", sessionID: "ses_same" })).not.toBe(
+      followupStoreKey({ serverKey: "remote", sessionID: "ses_same" }),
+    )
+  })
+
+  test("unscoped v2 followup item is rejected", () => {
+    const item = {
+      id: "msg_1",
+      sessionID: "ses_same",
+      sessionDirectory: "/repo",
+      prompt: [{ type: "text" as const, content: "next", start: 0, end: 4 }],
+      context: [],
+      agent: "build",
+      model: { providerID: "anthropic", modelID: "claude" },
+      locale: "en-US",
+    }
+
+    expect(followupDraftMatchesScope(item, { serverKey: "sidecar", sessionID: "ses_same" })).toBe(false)
+  })
+
+  test("scoped followup validates exact source scope", () => {
+    const item = scopedFollowupDraft(
+      {
+        id: "msg_1",
+        sessionID: "ses_same",
+        sessionDirectory: "/repo",
+        prompt: [{ type: "text" as const, content: "next", start: 0, end: 4 }],
+        context: [],
+        agent: "build",
+        model: { providerID: "anthropic", modelID: "claude" },
+        locale: "en-US",
+      },
+      { serverKey: "sidecar", sessionID: "ses_same" },
+    )
+
+    expect(followupDraftMatchesScope(item, { serverKey: "sidecar", sessionID: "ses_same" })).toBe(true)
+    expect(followupDraftMatchesScope(item, { serverKey: "remote", sessionID: "ses_same" })).toBe(false)
+  })
+
   test("queued slash follow-up with leading image waits for command hydration", () => {
     const item = draft({
       prompt: [
@@ -202,6 +251,7 @@ describe("session followups", () => {
             directory: () => "/repo",
             client: () => ({}) as never,
             sessionID: () => "ses_send",
+            sessionScope: () => ({ serverKey: "sidecar", sessionID: "ses_send" }),
             actionReady: () => true,
             isChildSession: () => false,
             busy: () => false,
@@ -244,11 +294,11 @@ describe("session followups", () => {
         agent: "agent",
         model: { providerID: "provider", modelID: "model" },
       })
-      await followups.sendFollowup("ses_send", "message_queued", { manual: true })
+      await followups.sendFollowup("message_queued", { manual: true })
       expect(sendFollowupCalls).toHaveLength(0)
 
       setSyncData("command_ready", true)
-      await followups.sendFollowup("ses_send", "message_queued", { manual: true })
+      await followups.sendFollowup("message_queued", { manual: true })
       expect(sendFollowupCalls).toHaveLength(1)
     } finally {
       disposeRoot()
@@ -270,13 +320,16 @@ describe("session followups", () => {
         commentOrigin: "review",
       },
     ] as FollowupDraft["context"]
-    const item = {
-      id: "msg_1",
-      ...draft({
-        prompt,
-        context,
-      }),
-    }
+    const item = scopedFollowupDraft(
+      {
+        id: "msg_1",
+        ...draft({
+          prompt,
+          context,
+        }),
+      },
+      { serverKey: "sidecar", sessionID: "ses_1" },
+    )
 
     const next = followupDraftForDirectory(item, "/repo")
     expect(next).toBe(item)

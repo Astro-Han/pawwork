@@ -477,6 +477,7 @@ export default function Page() {
     directory: () => sdk.directory,
     client: () => sdk.client,
     sessionID: timelineSessionID,
+    sessionScope: timeline.sessionScope,
     actionReady: submitReady,
     isChildSession: timelineIsChildSession,
     busy,
@@ -568,14 +569,10 @@ export default function Page() {
               edit: followups.editingFollowup(),
               onQueue: followups.queueFollowup,
               onAbort: () => {
-                const id = timelineSessionID()
-                if (!id) return
-                followups.pause(id)
+                followups.pause()
               },
               onSend: (id) => {
-                const sessionID = timelineSessionID()
-                if (!sessionID) return
-                void followups.sendFollowup(sessionID, id, { manual: true })
+                void followups.sendFollowup(id, { manual: true })
               },
               onEdit: followups.editFollowup,
               onEditLoaded: followups.clearFollowupEdit,

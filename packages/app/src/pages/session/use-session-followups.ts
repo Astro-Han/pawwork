@@ -10,8 +10,9 @@ import type { useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Persist, persisted } from "@/utils/persist"
 import { canSendFollowupDraft } from "./session-action-readiness"
+import { sameSessionScope, sessionScopeKey, type SessionScope } from "./session-scope"
 
-export type FollowupItem = FollowupDraft & { id: string }
+export type FollowupItem = FollowupDraft & { id: string; sourceScope: SessionScope }
 export type FollowupEdit = Pick<FollowupItem, "id" | "prompt" | "context">
 export const emptyFollowups: FollowupItem[] = []
 
@@ -63,6 +64,23 @@ export function followupDraftForDirectory(item: FollowupItem, directory: string)
   return { ...item, sessionDirectory: directory }
 }
 
+export function followupStoreKey(scope: SessionScope) {
+  return sessionScopeKey(scope)
+}
+
+export function scopedFollowupDraft<T extends FollowupDraft & { id: string }>(
+  draft: T,
+  scope: SessionScope,
+): T & { sourceScope: SessionScope } {
+  return { ...draft, sourceScope: { ...scope } }
+}
+
+export function followupDraftMatchesScope(item: { sourceScope?: SessionScope }, scope: SessionScope | undefined) {
+  if (!scope) return false
+  if (!item.sourceScope) return false
+  return sameSessionScope(item.sourceScope, scope)
+}
+
 export function canSendFollowupItem(input: { item: FollowupDraft; actionReady: boolean; commandsReady: boolean }) {
   return canSendFollowupDraft({
     draft: { text: followupCommandText(input.item) },
@@ -75,6 +93,7 @@ export function createSessionFollowups(input: {
   directory: () => string
   client: () => ReturnType<typeof useSDK>["client"]
   sessionID: () => string | undefined
+  sessionScope: () => SessionScope | undefined
   actionReady: () => boolean
   isChildSession: () => boolean
   busy: () => boolean
@@ -86,12 +105,8 @@ export function createSessionFollowups(input: {
   resumeScroll: () => void
   attachmentLabel: () => string
 }) {
-  // This persisted store intentionally moved from Persist.workspace(..., "followup", ["followup.v1"]) to
-  // Persist.global("session-followup.v1"). Legacy workspace-scoped followup.v1 queues are not migrated
-  // because their saved execution directory can be stale after worktree exit. Entries remain keyed by
-  // sessionID for Stage 1; server-scoped identity belongs with the later session-scoped store migration.
   const [followup, setFollowup] = persisted(
-    Persist.global("session-followup.v1", ["followup.v1"]),
+    Persist.global("session-followup.v2", ["followup.v2"]),
     createStore<{
       items: Record<string, FollowupItem[] | undefined>
       failed: Record<string, string | undefined>
@@ -105,25 +120,37 @@ export function createSessionFollowups(input: {
     }),
   )
 
+  const activeFollowupKey = createMemo(() => {
+    const scope = input.sessionScope()
+    return scope ? followupStoreKey(scope) : undefined
+  })
+
   const queuedFollowups = createMemo(() => {
-    const id = input.sessionID()
-    if (!id) return emptyFollowups
-    return followup.items[id] ?? emptyFollowups
+    const key = activeFollowupKey()
+    if (!key) return emptyFollowups
+    return followup.items[key] ?? emptyFollowups
   })
 
   const editingFollowup = createMemo(() => {
-    const id = input.sessionID()
-    if (!id) return
-    return followup.edit[id]
+    const key = activeFollowupKey()
+    if (!key) return
+    return followup.edit[key]
   })
 
-  const followupMutation = useMutation(() => ({
-    mutationFn: async (params: { sessionID: string; id: string; manual?: boolean }) => {
-      const item = (followup.items[params.sessionID] ?? []).find((entry) => entry.id === params.id)
-      if (!item) return
+  type SendFollowupVariables = {
+    key: string
+    sessionID: string
+    id: string
+    manual?: boolean
+  }
 
-      if (params.manual) setFollowup("paused", params.sessionID, undefined)
-      setFollowup("failed", params.sessionID, undefined)
+  const followupMutation = useMutation(() => ({
+    mutationFn: async (params: SendFollowupVariables) => {
+      const item = (followup.items[params.key] ?? []).find((entry) => entry.id === params.id)
+      if (!item || item.sessionID !== params.sessionID || !followupDraftMatchesScope(item, input.sessionScope())) return
+
+      if (params.manual) setFollowup("paused", params.key, undefined)
+      setFollowup("failed", params.key, undefined)
 
       const directory = input.directory()
       const draft = followupDraftForDirectory(item, directory)
@@ -134,30 +161,30 @@ export function createSessionFollowups(input: {
         draft,
         optimisticBusy: draft.sessionDirectory === directory,
       }).catch((err) => {
-        setFollowup("failed", params.sessionID, params.id)
+        setFollowup("failed", params.key, params.id)
         input.fail(err)
         return false
       })
       if (!ok) return
 
-      setFollowup("items", params.sessionID, (items) => (items ?? []).filter((entry) => entry.id !== params.id))
+      setFollowup("items", params.key, (items) => (items ?? []).filter((entry) => entry.id !== params.id))
       if (params.manual) input.resumeScroll()
     },
   }))
 
-  const followupBusy = (sessionID: string) =>
-    followupMutation.isPending && followupMutation.variables?.sessionID === sessionID
+  const followupBusy = (key: string | undefined) =>
+    !!key && followupMutation.isPending && followupMutation.variables?.key === key
 
   const sendingFollowup = createMemo(() => {
-    const id = input.sessionID()
-    if (!id) return
-    if (!followupBusy(id)) return
+    const key = activeFollowupKey()
+    if (!followupBusy(key)) return
     return followupMutation.variables?.id
   })
 
   const queueEnabled = createMemo(() => {
     const id = input.sessionID()
-    if (!id) return false
+    const key = activeFollowupKey()
+    if (!id || !key) return false
     return (
       input.actionReady() &&
       input.settings.general.followup() === "queue" &&
@@ -168,12 +195,13 @@ export function createSessionFollowups(input: {
   })
 
   const queueFollowup = (draft: FollowupDraft) => {
-    setFollowup("items", draft.sessionID, (items) => [
-      ...(items ?? []),
-      { id: Identifier.ascending("message"), ...draft },
-    ])
-    setFollowup("failed", draft.sessionID, undefined)
-    setFollowup("paused", draft.sessionID, undefined)
+    const scope = input.sessionScope()
+    if (!scope) return
+    const key = followupStoreKey(scope)
+    const item = scopedFollowupDraft({ id: Identifier.ascending("message"), ...draft }, scope)
+    setFollowup("items", key, (items) => [...(items ?? []), item])
+    setFollowup("failed", key, undefined)
+    setFollowup("paused", key, undefined)
   }
 
   const followupDock = createMemo(() =>
@@ -183,10 +211,14 @@ export function createSessionFollowups(input: {
     })),
   )
 
-  const sendFollowup = (sessionID: string, id: string, opts?: { manual?: boolean }) => {
+  const sendFollowup = (id: string, opts?: { manual?: boolean }) => {
+    const key = activeFollowupKey()
+    const sessionID = input.sessionID()
+    if (!key || !sessionID) return Promise.resolve()
     if (input.sync.session.get(sessionID)?.parentID) return Promise.resolve()
-    const item = (followup.items[sessionID] ?? []).find((entry) => entry.id === id)
+    const item = (followup.items[key] ?? []).find((entry) => entry.id === id)
     if (!item) return Promise.resolve()
+    if (!followupDraftMatchesScope(item, input.sessionScope())) return Promise.resolve()
     if (
       !canSendFollowupItem({
         item,
@@ -196,22 +228,22 @@ export function createSessionFollowups(input: {
     ) {
       return Promise.resolve()
     }
-    if (followupBusy(sessionID)) return Promise.resolve()
+    if (followupBusy(key)) return Promise.resolve()
 
-    return followupMutation.mutateAsync({ sessionID, id, manual: opts?.manual })
+    return followupMutation.mutateAsync({ key, sessionID, id, manual: opts?.manual })
   }
 
   const editFollowup = (id: string) => {
-    const sessionID = input.sessionID()
-    if (!sessionID) return
-    if (followupBusy(sessionID)) return
+    const key = activeFollowupKey()
+    if (!key) return
+    if (followupBusy(key)) return
 
     const item = queuedFollowups().find((entry) => entry.id === id)
     if (!item) return
 
-    setFollowup("items", sessionID, (items) => (items ?? []).filter((entry) => entry.id !== id))
-    setFollowup("failed", sessionID, (value) => (value === id ? undefined : value))
-    setFollowup("edit", sessionID, {
+    setFollowup("items", key, (items) => (items ?? []).filter((entry) => entry.id !== id))
+    setFollowup("failed", key, (value) => (value === id ? undefined : value))
+    setFollowup("edit", key, {
       id: item.id,
       prompt: item.prompt,
       context: item.context,
@@ -219,13 +251,14 @@ export function createSessionFollowups(input: {
   }
 
   const clearFollowupEdit = () => {
-    const id = input.sessionID()
-    if (!id) return
-    setFollowup("edit", id, undefined)
+    const key = activeFollowupKey()
+    if (!key) return
+    setFollowup("edit", key, undefined)
   }
 
   createEffect(() => {
     const sessionID = input.sessionID()
+    const key = activeFollowupKey()
     const item = queuedFollowups()[0]
 
     if (
@@ -241,17 +274,17 @@ export function createSessionFollowups(input: {
           })
         ),
         busy: input.busy(),
-        failed: !!(sessionID && item && followup.failed[sessionID] === item.id),
-        paused: !!(sessionID && followup.paused[sessionID]),
+        failed: !!(key && item && followup.failed[key] === item.id),
+        paused: !!(key && followup.paused[key]),
         childSession: input.isChildSession(),
         blocked: input.blocked(),
-        followupBusy: !!(sessionID && followupBusy(sessionID)),
+        followupBusy: followupBusy(key),
       })
     ) {
       return
     }
 
-    void sendFollowup(sessionID!, item!.id)
+    void sendFollowup(item!.id)
   })
 
   return {
@@ -264,8 +297,10 @@ export function createSessionFollowups(input: {
     sendFollowup,
     editFollowup,
     clearFollowupEdit,
-    pause(sessionID: string) {
-      setFollowup("paused", sessionID, true)
+    pause() {
+      const key = activeFollowupKey()
+      if (!key) return
+      setFollowup("paused", key, true)
     },
   }
 }
