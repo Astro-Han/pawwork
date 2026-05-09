@@ -43,7 +43,7 @@ describe("windows nsis desktop shortcut customization", () => {
 
   test("declares a real custom page instead of running page commands inline", () => {
     expect(script).toContain("!ifndef BUILD_UNINSTALLER")
-    expect(script).toContain("!ifndef BUILD_UNINSTALLER\n  Var AddDesktopShortcutCheckbox")
+    expect(script).toMatch(/!ifndef BUILD_UNINSTALLER\r?\n[^\S\r\n]*Var AddDesktopShortcutCheckbox/)
     expect(script).toContain("PageEx custom")
     expect(script).toContain('Caption "$(PawWorkShortcutOptions)"')
     expect(script).toContain("PageCallbacks PawWorkDesktopShortcutPageCreate PawWorkDesktopShortcutPageLeave")
