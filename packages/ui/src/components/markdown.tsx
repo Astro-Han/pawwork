@@ -213,15 +213,24 @@ export type LinkActionHandlers = {
 }
 
 function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
+  // eslint-disable-next-line no-console
+  console.log("[md/link] setupLinkClicks attached", { root })
   const handler = (event: MouseEvent) => {
     if (event.defaultPrevented) return
     const target = event.target
     if (!(target instanceof Element)) return
     const anchor = target.closest("a")
+    // eslint-disable-next-line no-console
+    console.log("[md/link] click", {
+      target: target instanceof HTMLElement ? target.outerHTML.slice(0, 200) : String(target),
+      anchor: anchor ? anchor.outerHTML.slice(0, 200) : null,
+    })
     if (!(anchor instanceof HTMLAnchorElement)) return
     if (anchor.closest('[data-slot="markdown-copy-button"]')) return
     const href = anchor.getAttribute("href") ?? ""
     const action = resolveLinkAction(href)
+    // eslint-disable-next-line no-console
+    console.log("[md/link] action", { href, action })
     event.preventDefault()
     if (action.kind === "block") return
     if (action.kind === "anchor") {
@@ -251,6 +260,12 @@ function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
       return
     }
     if (action.kind === "reveal") {
+      // eslint-disable-next-line no-console
+      console.log("[md/link] reveal", {
+        path: action.path,
+        hasHandler: Boolean(handlers.revealPath),
+        hasDesktopApi: Boolean(desktop?.showItemInFolder),
+      })
       if (handlers.revealPath) {
         handlers.revealPath(action.path)
       } else if (desktop?.showItemInFolder) {
