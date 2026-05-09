@@ -414,12 +414,22 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
-  ipcMain.handle("show-item-in-folder", (_event: IpcMainInvokeEvent, target: string) => {
-    // shell.showItemInFolder needs an absolute path; relative paths silently
-    // no-op on macOS. Resolve against the main-process cwd as a fallback when
-    // the renderer hands us a relative path (e.g. markdown body emitted by
-    // an assistant turn whose caller did not absolutize the link target).
+  ipcMain.handle("show-item-in-folder", async (_event: IpcMainInvokeEvent, target: string) => {
     const absolute = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target)
+    let exists = false
+    try {
+      await fs.stat(absolute)
+      exists = true
+    } catch {
+      exists = false
+    }
+    // eslint-disable-next-line no-console
+    console.log("[ipc/show-item-in-folder]", {
+      target,
+      cwd: process.cwd(),
+      absolute,
+      exists,
+    })
     shell.showItemInFolder(absolute)
   })
 
