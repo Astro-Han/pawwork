@@ -26,12 +26,24 @@ if (typeof window !== "undefined" && DOMPurify.isSupported) {
     set.add("noreferrer")
     node.setAttribute("rel", Array.from(set).join(" "))
   })
+  // Allow only disabled checkbox inputs (GFM task list); strip every other
+  // input variant that DOMPurify's html profile would otherwise pass through.
+  DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+    if (data.tagName !== "input") return
+    if (!(node instanceof HTMLInputElement)) return
+    const type = (node.getAttribute("type") ?? "").toLowerCase()
+    if (type !== "checkbox") {
+      node.parentNode?.removeChild(node)
+      return
+    }
+    node.setAttribute("disabled", "")
+  })
 }
 
 const config = {
   USE_PROFILES: { html: true, mathMl: true },
   SANITIZE_NAMED_PROPS: true,
-  FORBID_TAGS: ["script", "iframe", "style", "form", "input", "object", "embed"],
+  FORBID_TAGS: ["script", "iframe", "style", "form", "object", "embed"],
   FORBID_CONTENTS: ["script", "iframe", "style"],
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|file):|\/|\.{1,2}\/|#|[^:]*$)/i,
 }
@@ -47,6 +59,8 @@ function sanitize(html: string) {
   if (!DOMPurify.isSupported) return ""
   return DOMPurify.sanitize(html, config)
 }
+
+export const sanitizeForTest = sanitize
 
 
 function escape(text: string) {
@@ -185,7 +199,10 @@ export function resolveLinkAction(href: string): LinkAction {
   const trimmed = href.trim()
   if (!trimmed) return { kind: "block" }
   if (trimmed.startsWith("#")) return { kind: "anchor", url: trimmed }
+  // Protocol-relative URLs (//host/path) are remote-shaped — never reveal.
+  if (trimmed.startsWith("//")) return { kind: "block" }
   if (/^https?:\/\//i.test(trimmed)) return { kind: "external", url: trimmed }
+  if (/^mailto:/i.test(trimmed)) return { kind: "external", url: trimmed }
   if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return { kind: "block" }
   return { kind: "reveal", path: trimmed }
 }
@@ -205,10 +222,27 @@ function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
     if (anchor.closest('[data-slot="markdown-copy-button"]')) return
     const href = anchor.getAttribute("href") ?? ""
     const action = resolveLinkAction(href)
-    if (action.kind === "anchor") return
     event.preventDefault()
     if (action.kind === "block") return
-    const desktop = typeof window !== "undefined" ? (window as unknown as { api?: { openLink?: (url: string) => void; showItemInFolder?: (path: string) => unknown } }).api : undefined
+    if (action.kind === "anchor") {
+      // Scroll within the markdown container instead of letting Electron's
+      // hash router consume the anchor change.
+      const id = action.url.slice(1)
+      if (id) {
+        const inner = root.querySelector(`#${CSS.escape(id)}`)
+        if (inner instanceof HTMLElement) inner.scrollIntoView({ block: "start" })
+      }
+      return
+    }
+    const desktop =
+      typeof window !== "undefined"
+        ? (window as unknown as {
+            api?: {
+              openLink?: (url: string) => void
+              showItemInFolder?: (path: string) => unknown
+            }
+          }).api
+        : undefined
     if (action.kind === "external") {
       if (handlers.openExternal) {
         handlers.openExternal(action.url)
@@ -227,8 +261,9 @@ function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
       }
     }
   }
-  root.addEventListener("click", handler)
-  return () => root.removeEventListener("click", handler)
+  // Capture phase so descendant stopPropagation cannot bypass routing.
+  root.addEventListener("click", handler, true)
+  return () => root.removeEventListener("click", handler, true)
 }
 
 function setupImageClicks(root: HTMLDivElement, openImage: (src: string) => void) {
@@ -254,13 +289,12 @@ const taskListIcons = {
 
 function rewriteTaskLists(root: ParentNode) {
   const inputs = Array.from(
-    root.querySelectorAll<HTMLInputElement>('li > input[type="checkbox"]'),
+    root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
   )
   for (const input of inputs) {
-    const li = input.parentElement
+    const li = input.closest("li")
     if (!(li instanceof HTMLLIElement)) continue
-    const ul = li.parentElement
-    if (ul instanceof HTMLUListElement) ul.classList.add("task-list")
+    li.classList.add("task-item")
     const checked = input.hasAttribute("checked")
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
     svg.setAttribute("viewBox", "0 0 16 16")
@@ -268,6 +302,12 @@ function rewriteTaskLists(root: ParentNode) {
     svg.setAttribute("data-state", checked ? "checked" : "unchecked")
     svg.innerHTML = checked ? taskListIcons.checked : taskListIcons.unchecked
     input.replaceWith(svg)
+    // marked may wrap the checkbox in <p> for loose lists. Hoist the svg up
+    // so the LI flexbox aligns icon and label in one row.
+    const wrapper = svg.parentElement
+    if (wrapper && wrapper !== li && wrapper.tagName === "P") {
+      li.insertBefore(svg, wrapper)
+    }
     const next = svg.nextSibling
     if (next && next.nodeType === Node.TEXT_NODE && /^\s+/.test(next.textContent ?? "")) {
       next.textContent = (next.textContent ?? "").replace(/^\s+/, "")
@@ -277,6 +317,20 @@ function rewriteTaskLists(root: ParentNode) {
 
 export const rewriteTaskListsForTest = rewriteTaskLists
 
+const chevSvg =
+  '<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+
+function ensureDetailsChev(root: ParentNode) {
+  const summaries = Array.from(root.querySelectorAll<HTMLElement>("details > summary"))
+  for (const summary of summaries) {
+    if (summary.querySelector("svg.chev")) continue
+    const wrap = document.createElement("template")
+    wrap.innerHTML = chevSvg
+    const svg = wrap.content.firstElementChild
+    if (svg) summary.insertBefore(svg, summary.firstChild)
+  }
+}
+
 function decorate(root: HTMLDivElement, labels: CopyLabels) {
   const blocks = Array.from(root.querySelectorAll("pre"))
   for (const block of blocks) {
@@ -284,6 +338,7 @@ function decorate(root: HTMLDivElement, labels: CopyLabels) {
   }
   markCodeLinks(root)
   rewriteTaskLists(root)
+  ensureDetailsChev(root)
 }
 
 function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {

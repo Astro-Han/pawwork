@@ -140,28 +140,29 @@
     color: var(--fg-weak);
   }
 
-  /* §6 Task list · 16px circle / circle-check svg, read-only */
-  ul.task-list {
+  /* §6 Task list · 16px circle / circle-check svg, read-only.
+     Per-li opt-in (li.task-item) so a list mixing tasks and bullets keeps
+     the bullet on the non-task siblings. */
+  li.task-item {
     list-style: none;
+    margin-left: -24px;
     padding-left: 0;
-  }
-  ul.task-list li {
     display: flex;
     align-items: flex-start;
     gap: var(--space-sm);
-    padding-left: 0;
-    margin: 0 0 var(--space-xs);
   }
   /* 偏离: svg margin-top 2px (DESIGN.md 4pt 网格).
      理由: 16px 图标对齐 13/160 文字基线的光学调整 ((20.8-16)/2 ≈ 2),
      不属布局间距 */
-  ul.task-list li > svg {
+  li.task-item > svg {
     flex: 0 0 16px;
     width: 16px;
     height: 16px;
     color: var(--fg-strong);
     margin-top: 2px;
   }
+  /* If marked wraps loose-list content in <p>, the paragraph just inherits
+     normal margin handling. */
 
   /* §7 Blockquote · cream + radius-sm, no left line (avoids BAN 1) */
   blockquote {
@@ -211,7 +212,9 @@
     border-bottom: 0;
   }
   th[data-numeric="true"],
-  td[data-numeric="true"] {
+  td[data-numeric="true"],
+  th[align="right"],
+  td[align="right"] {
     text-align: right;
     font-variant-numeric: tabular-nums;
   }

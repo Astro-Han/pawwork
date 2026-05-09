@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { resolveLinkAction, rewriteTaskListsForTest, sanitizeConfig } from "./markdown"
+import { resolveLinkAction, rewriteTaskListsForTest, sanitizeConfig, sanitizeForTest } from "./markdown"
 
 describe("DOMPurify whitelist config", () => {
   test("forbids unsafe tags", () => {
@@ -7,9 +7,11 @@ describe("DOMPurify whitelist config", () => {
     expect(sanitizeConfig.FORBID_TAGS).toContain("iframe")
     expect(sanitizeConfig.FORBID_TAGS).toContain("style")
     expect(sanitizeConfig.FORBID_TAGS).toContain("form")
-    expect(sanitizeConfig.FORBID_TAGS).toContain("input")
     expect(sanitizeConfig.FORBID_TAGS).toContain("object")
     expect(sanitizeConfig.FORBID_TAGS).toContain("embed")
+  })
+  test("permits input only as GFM checkbox (handled via uponSanitizeElement hook)", () => {
+    expect(sanitizeConfig.FORBID_TAGS).not.toContain("input")
   })
   test("forbids unsafe text content", () => {
     expect(sanitizeConfig.FORBID_CONTENTS).toContain("script")
@@ -37,13 +39,13 @@ describe("DOMPurify whitelist config", () => {
 })
 
 describe("task list svg rendering", () => {
-  test("replaces unchecked input with circle svg", () => {
+  test("replaces unchecked input with circle svg + tags li", () => {
     document.body.innerHTML = '<ul><li><input type="checkbox" disabled> read</li></ul>'
-    const ul = document.querySelector("ul")!
+    const li = document.querySelector("li")!
     rewriteTaskListsForTest(document.body)
-    expect(ul.classList.contains("task-list")).toBe(true)
-    expect(ul.querySelector("input")).toBeNull()
-    const svg = ul.querySelector("svg")
+    expect(li.classList.contains("task-item")).toBe(true)
+    expect(li.querySelector("input")).toBeNull()
+    const svg = li.querySelector("svg")
     expect(svg).not.toBeNull()
     expect(svg!.getAttribute("data-state")).toBe("unchecked")
   })
@@ -59,6 +61,38 @@ describe("task list svg rendering", () => {
     rewriteTaskListsForTest(document.body)
     expect(document.body.textContent).toContain("read the spec")
   })
+  test("does not tag sibling LI without checkbox", () => {
+    document.body.innerHTML =
+      '<ul><li><input type="checkbox" disabled> task</li><li>plain bullet</li></ul>'
+    rewriteTaskListsForTest(document.body)
+    const items = document.querySelectorAll("li")
+    expect(items[0]!.classList.contains("task-item")).toBe(true)
+    expect(items[1]!.classList.contains("task-item")).toBe(false)
+  })
+  test("handles loose-list paragraph wrap", () => {
+    document.body.innerHTML =
+      '<ul><li><p><input type="checkbox" disabled> loose item</p></li></ul>'
+    const li = document.querySelector("li")!
+    rewriteTaskListsForTest(document.body)
+    expect(li.classList.contains("task-item")).toBe(true)
+    expect(li.querySelector("input")).toBeNull()
+    expect(li.querySelector("svg")).not.toBeNull()
+  })
+  test("sanitize-then-decorate keeps GFM checkbox alive", () => {
+    const cleaned = sanitizeForTest(
+      '<ul><li><input disabled="" type="checkbox"> task</li></ul>',
+    )
+    const root = document.createElement("div")
+    root.innerHTML = cleaned
+    rewriteTaskListsForTest(root)
+    const li = root.querySelector("li")!
+    expect(li.classList.contains("task-item")).toBe(true)
+    expect(li.querySelector("svg")).not.toBeNull()
+  })
+  test("sanitize strips non-checkbox inputs", () => {
+    const cleaned = sanitizeForTest('<input type="text" name="leak">')
+    expect(cleaned).not.toContain("<input")
+  })
 })
 
 describe("link action routing", () => {
@@ -67,6 +101,9 @@ describe("link action routing", () => {
   })
   test("http → external", () => {
     expect(resolveLinkAction("http://example.com")).toEqual({ kind: "external", url: "http://example.com" })
+  })
+  test("mailto: → external", () => {
+    expect(resolveLinkAction("mailto:hi@x.com")).toEqual({ kind: "external", url: "mailto:hi@x.com" })
   })
   test("relative repo path → reveal", () => {
     expect(resolveLinkAction("packages/ui/src/foo.ts")).toEqual({
@@ -79,6 +116,9 @@ describe("link action routing", () => {
   })
   test("anchor-only stays default", () => {
     expect(resolveLinkAction("#section")).toEqual({ kind: "anchor", url: "#section" })
+  })
+  test("protocol-relative // blocks (cannot be local path)", () => {
+    expect(resolveLinkAction("//evil.com/x")).toEqual({ kind: "block" })
   })
   test("javascript: rejected", () => {
     expect(resolveLinkAction("javascript:alert(1)")).toEqual({ kind: "block" })
