@@ -42,15 +42,15 @@ export interface PopoverControllersDeps {
 
 export interface PopoverControllers {
   atFlat: Accessor<AtOption[]>
-  atActive: Accessor<string | undefined>
-  setAtActive: Setter<string | undefined>
+  atActive: Accessor<string | null>
+  setAtActive: Setter<string | null>
   atOnInput: (query: string) => void
   atOnKeyDown: (event: KeyboardEvent) => void
   atKey: (x: AtOption | undefined) => string
   handleAtSelect: (option: AtOption | undefined) => void
   slashFlat: Accessor<SlashCommand[]>
-  slashActive: Accessor<string | undefined>
-  setSlashActive: Setter<string | undefined>
+  slashActive: Accessor<string | null>
+  setSlashActive: Setter<string | null>
   slashOnInput: (query: string) => void
   slashOnKeyDown: (event: KeyboardEvent) => void
   handleSlashSelect: (cmd: SlashCommand | undefined) => void

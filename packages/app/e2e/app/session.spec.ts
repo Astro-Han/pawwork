@@ -42,9 +42,10 @@ test("@smoke session composer matches home structure without docktray or agent c
     // WorkspaceChip hidden in session (breadcrumb replaces it)
     await expect(page.getByRole("button", { name: /Switch workspace|切换工作目录/i })).toHaveCount(0)
 
-    // Model + Variant controls are inside the unified bar
+    // Model control is inside the unified bar; variant selection is now folded
+    // into the model picker popover (see prompt-input/model-controls.tsx) and
+    // no longer renders as a separate trigger.
     await expect(composer.locator('[data-component="prompt-model-control"]')).toBeVisible()
-    await expect(composer.locator('[data-component="prompt-variant-control"]')).toBeVisible()
 
     // send button is the brand-orange circle
     const send = composer.locator('[data-action="prompt-submit"]')
