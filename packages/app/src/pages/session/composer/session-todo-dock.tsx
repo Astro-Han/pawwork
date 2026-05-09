@@ -3,6 +3,7 @@ import { AnimatedNumber } from "@opencode-ai/ui/animated-number"
 import { Icon } from "@opencode-ai/ui/icon"
 import { DockSegment } from "@opencode-ai/ui/dock-card"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { DockWidgetHeader } from "@/pages/session/composer/dock-widget-header"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { TextStrikethrough } from "@opencode-ai/ui/text-strikethrough"
@@ -116,17 +117,26 @@ export function SessionTodoDock(props: {
       }}
     >
       <div ref={contentRef}>
-        <div
+        <DockWidgetHeader
           data-action="session-todo-toggle"
-          class="pl-3 pr-2 h-9 flex items-center gap-2 overflow-visible"
-          role="button"
-          tabIndex={0}
-          onClick={toggle}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return
-            event.preventDefault()
-            toggle()
-          }}
+          onToggle={toggle}
+          chev={
+            <IconButton
+              data-action="session-todo-toggle-button"
+              data-collapsed={store.collapsed ? "true" : "false"}
+              icon="chevron-down"
+              style={{ transform: `rotate(${turn() * 180}deg)` }}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onClick={(event) => {
+                event.stopPropagation()
+                toggle()
+              }}
+              aria-label={store.collapsed ? props.expandLabel : props.collapseLabel}
+            />
+          }
         >
           <span
             data-slot="session-todo-progress"
@@ -173,24 +183,7 @@ export function SessionTodoDock(props: {
               truncate
             />
           </div>
-          <div class="ml-auto">
-            <IconButton
-              data-action="session-todo-toggle-button"
-              data-collapsed={store.collapsed ? "true" : "false"}
-              icon="chevron-down"
-              style={{ transform: `rotate(${turn() * 180}deg)` }}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-              onClick={(event) => {
-                event.stopPropagation()
-                toggle()
-              }}
-              aria-label={store.collapsed ? props.expandLabel : props.collapseLabel}
-            />
-          </div>
-        </div>
+        </DockWidgetHeader>
 
         <div
           data-slot="session-todo-list"
