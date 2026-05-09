@@ -50,7 +50,9 @@ export function readTimelineMessages(input: {
 
   const dataIdentity =
     input.dataIdentity ??
-    (sameSessionScope(input.lastGood?.scope, input.scope) ? input.lastGood.dataIdentity : sessionScopeKey(input.scope))
+    (sameSessionScope(input.lastGood?.scope, input.scope) && input.lastGood
+      ? input.lastGood.dataIdentity
+      : sessionScopeKey(input.scope))
 
   if (input.raw !== undefined) {
     const messages = readSessionMessages(input.raw)

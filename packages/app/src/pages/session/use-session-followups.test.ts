@@ -190,7 +190,9 @@ describe("session followups", () => {
       locale: "en-US",
     }
 
-    expect(followupDraftMatchesScope(item, { serverKey: "sidecar", sessionID: "ses_same" })).toBe(false)
+    expect(followupDraftMatchesScope(item as { sourceScope?: never }, { serverKey: "sidecar", sessionID: "ses_same" })).toBe(
+      false,
+    )
   })
 
   test("scoped followup validates exact source scope", () => {
@@ -270,9 +272,9 @@ describe("session followups", () => {
             resumeScroll: () => undefined,
             attachmentLabel: () => "Attachment",
           })
-          return undefined
+          return null
         },
-      })
+      } as never)
       return dispose
     })
 

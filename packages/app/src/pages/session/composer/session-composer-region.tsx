@@ -7,7 +7,7 @@ import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { useSync } from "@/context/sync"
 import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
-import { useSessionKey } from "@/pages/session/session-layout"
+import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { SessionPermissionContent } from "@/pages/session/composer/session-permission-dock"
 import { SessionQuestionDock } from "@/pages/session/composer/session-question-dock"
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
@@ -56,11 +56,11 @@ export function SessionComposerRegion(props: {
   const navigate = useNavigate()
   const prompt = usePrompt()
   const language = useLanguage()
-  const route = useSessionKey()
+  const route = useSessionRouteKey()
   const sync = useSync()
   const displaySessionID = createMemo(() => (props.variant === "session" ? props.displaySessionID : route.params.id))
   const displaySessionKey = createMemo(() =>
-    props.variant === "session" ? props.displaySessionKey : route.sessionKey(),
+    props.variant === "session" ? props.displaySessionKey : route.layoutRouteKey(),
   )
 
   const handoffPrompt = createMemo(() => {

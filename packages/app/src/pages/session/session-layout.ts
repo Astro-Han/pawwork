@@ -8,7 +8,7 @@ export function sessionRouteLayoutKey(params: { dir: string | undefined; id: str
 }
 
 export const useSessionRouteKey = () => {
-  const params = useParams()
+  const params = useParams() as { dir: string | undefined; id: string | undefined }
   const layoutRouteKey = createMemo(() => sessionRouteLayoutKey(params))
   return { params, layoutRouteKey }
 }
