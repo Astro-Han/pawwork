@@ -97,7 +97,10 @@ export namespace FileWatcher {
 
             const cb: ParcelWatcher.SubscribeCallback = (err, evts) =>
               Instance.restore(ctx, () => {
-                if (err) return
+                if (err) {
+                  log.error("watcher callback error", { err })
+                  return
+                }
                 for (const evt of evts) {
                   if (evt.type === "create") Bus.publish(Event.Updated, { file: evt.path, event: "add" })
                   if (evt.type === "update") Bus.publish(Event.Updated, { file: evt.path, event: "change" })

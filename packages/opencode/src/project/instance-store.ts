@@ -16,23 +16,23 @@ export interface LoadInput {
 }
 
 export interface Interface {
-  readonly load: (input: LoadInput) => Effect.Effect<InstanceContext, never>
-  readonly reload: (input: LoadInput) => Effect.Effect<InstanceContext, never>
+  readonly load: (input: LoadInput) => Effect.Effect<InstanceContext, unknown>
+  readonly reload: (input: LoadInput) => Effect.Effect<InstanceContext, unknown>
   readonly dispose: (ctx: InstanceContext) => Effect.Effect<void>
   readonly disposeAll: () => Effect.Effect<void>
-  readonly provide: <A, E, R>(input: LoadInput, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
+  readonly provide: <A, E, R>(input: LoadInput, effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E | unknown, R>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/InstanceStore") {}
 
 type Entry = {
-  readonly deferred: Deferred.Deferred<InstanceContext>
+  readonly deferred: Deferred.Deferred<InstanceContext, unknown>
 }
 
-let disposeLoadedInstances: (() => Promise<void>) | undefined
+const disposeLoadedInstances = new Set<() => Promise<void>>()
 
 export async function disposeAllLoadedInstances() {
-  await disposeLoadedInstances?.()
+  await Promise.all([...disposeLoadedInstances].map((dispose) => dispose()))
 }
 
 function hasExplicitContext(input: LoadInput) {
@@ -58,7 +58,7 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const entries = new Map<string, Entry>()
 
-    const boot = (input: LoadInput & { directory: string }): Effect.Effect<InstanceContext> =>
+    const boot = (input: LoadInput & { directory: string }): Effect.Effect<InstanceContext, unknown> =>
       Effect.gen(function* () {
         validateExplicitContext(input)
 
@@ -128,13 +128,13 @@ export const layer = Layer.effect(
         return true
       })
 
-    const reload = (input: LoadInput): Effect.Effect<InstanceContext> => {
+    const reload = (input: LoadInput): Effect.Effect<InstanceContext, unknown> => {
       const directory = Filesystem.resolve(input.directory)
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           validateExplicitContext(input)
           const previous = entries.get(directory)
-          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>() }
+          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext, unknown>() }
           entries.set(directory, entry)
           yield* Effect.gen(function* () {
             if (previous) {
@@ -149,7 +149,7 @@ export const layer = Layer.effect(
       ).pipe(Effect.withSpan("InstanceStore.reload"))
     }
 
-    const load = (input: LoadInput): Effect.Effect<InstanceContext> => {
+    const load = (input: LoadInput): Effect.Effect<InstanceContext, unknown> => {
       const directory = Filesystem.resolve(input.directory)
       return Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
@@ -164,7 +164,7 @@ export const layer = Layer.effect(
             return yield* reload(input)
           }
 
-          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext>() }
+          const entry: Entry = { deferred: Deferred.makeUnsafe<InstanceContext, unknown>() }
           entries.set(directory, entry)
           yield* Effect.gen(function* () {
             yield* completeLoad(directory, input, entry)
@@ -206,13 +206,13 @@ export const layer = Layer.effect(
 
     const disposeAllPromise = () => Effect.runPromise(disposeAll())
     yield* Effect.sync(() => {
-      disposeLoadedInstances = disposeAllPromise
+      disposeLoadedInstances.add(disposeAllPromise)
     })
     yield* Effect.addFinalizer(() =>
       disposeAll().pipe(
         Effect.andThen(
           Effect.sync(() => {
-            if (disposeLoadedInstances === disposeAllPromise) disposeLoadedInstances = undefined
+            disposeLoadedInstances.delete(disposeAllPromise)
           }),
         ),
       ),

@@ -47,6 +47,8 @@ export const effectCmd = <Args, A>(opts: EffectCmdOpts<Args, A>) =>
           AppRuntime.runPromise(opts.handler(args).pipe(Effect.provideService(InstanceRef, ctx))),
         )
       } finally {
+        // A yargs command is a one-shot boundary. Dispose here so watchers and
+        // subscriptions cannot keep CLI processes alive after the handler returns.
         await AppRuntime.runPromise(store.dispose(ctx))
       }
     },

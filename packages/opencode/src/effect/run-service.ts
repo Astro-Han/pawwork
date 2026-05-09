@@ -24,7 +24,13 @@ export function attachWith<A, E, R>(effect: Effect.Effect<A, E, R>, refs: Refs):
 }
 
 export function attach<A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
-  const workspace = WorkspaceContext.workspaceID
+  const workspace = (() => {
+    try {
+      return WorkspaceContext.workspaceID
+    } catch (err) {
+      if (!(err instanceof LocalContext.NotFound)) throw err
+    }
+  })()
   const instance = (() => {
     try {
       return Instance.current

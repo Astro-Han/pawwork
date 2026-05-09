@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { Effect, Exit, Fiber, Layer } from "effect"
+import { Effect, Exit, Fiber, Layer, ManagedRuntime } from "effect"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 
 import { InstanceRef } from "../../src/effect/instance-ref"
@@ -138,5 +138,32 @@ describe("InstanceStore", () => {
         expect(Project.get(projectID!)).toBeDefined()
       },
     })
+  })
+
+  test("disposeAll covers instances from every active store runtime", async () => {
+    await using first = await tmpdir()
+    await using second = await tmpdir()
+    const disposed: string[] = []
+    const off = registerDisposer(async (directory) => {
+      disposed.push(directory)
+    })
+    const layer = Layer.mergeAll(
+      InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),
+      CrossSpawnSpawner.defaultLayer,
+    )
+    const firstRuntime = ManagedRuntime.make(layer)
+    const secondRuntime = ManagedRuntime.make(layer)
+
+    try {
+      await firstRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: first.path })))
+      await secondRuntime.runPromise(InstanceStore.Service.use((store) => store.load({ directory: second.path })))
+
+      await Instance.disposeAll()
+
+      expect(new Set(disposed)).toEqual(new Set([first.path, second.path]))
+    } finally {
+      off()
+      await Promise.all([firstRuntime.dispose(), secondRuntime.dispose()])
+    }
   })
 })

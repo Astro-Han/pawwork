@@ -12,6 +12,7 @@ import { Snapshot } from "@/snapshot"
 import { ShareNext } from "@/share/share-next"
 import { Log } from "@opencode-ai/core/util/log"
 import { Effect, Layer } from "effect"
+import { registerDisposer } from "@/effect/instance-registry"
 import { InstanceBootstrap as BootstrapService } from "./bootstrap-service"
 import { Vcs } from "./vcs"
 
@@ -46,14 +47,24 @@ export const layer = Layer.effect(
             ),
           )
 
+        // Plugin and config failures are fatal: callers must not run instance code
+        // against an invalid project configuration.
         yield* plugin.init()
-        yield* bus.subscribeCallback(Command.Event.Executed, (payload) => {
+        const unsubscribe = yield* bus.subscribeCallback(Command.Event.Executed, (payload) => {
           if (payload.properties.name === Command.Default.INIT) {
             Project.setInitialized(ctx.project.id)
           }
-        }).pipe(Effect.ignore)
+        })
+        yield* Effect.sync(() => {
+          let off = () => {}
+          off = registerDisposer(async (directory) => {
+            if (directory !== ctx.directory) return
+            unsubscribe()
+            off()
+          })
+        })
 
-        yield* config.get()
+        yield* config.get().pipe(Effect.asVoid)
         yield* Effect.forEach(
           [
             shareNext.init(),
