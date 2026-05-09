@@ -208,16 +208,23 @@ function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
     if (action.kind === "anchor") return
     event.preventDefault()
     if (action.kind === "block") return
+    const desktop = typeof window !== "undefined" ? (window as unknown as { api?: { openLink?: (url: string) => void; showItemInFolder?: (path: string) => unknown } }).api : undefined
     if (action.kind === "external") {
       if (handlers.openExternal) {
         handlers.openExternal(action.url)
+      } else if (desktop?.openLink) {
+        desktop.openLink(action.url)
       } else if (typeof window !== "undefined") {
         window.open(action.url, "_blank", "noopener,noreferrer")
       }
       return
     }
     if (action.kind === "reveal") {
-      handlers.revealPath?.(action.path)
+      if (handlers.revealPath) {
+        handlers.revealPath(action.path)
+      } else if (desktop?.showItemInFolder) {
+        void desktop.showItemInFolder(action.path)
+      }
     }
   }
   root.addEventListener("click", handler)
