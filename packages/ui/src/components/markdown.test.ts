@@ -126,6 +126,13 @@ describe("link action routing", () => {
   test("data: rejected", () => {
     expect(resolveLinkAction("data:text/html,foo")).toEqual({ kind: "block" })
   })
+  test("vbscript: rejected", () => {
+    expect(resolveLinkAction("vbscript:msgbox")).toEqual({ kind: "block" })
+  })
+  test("non-dangerous custom scheme routes external (sanitize allowlist gates the surface)", () => {
+    expect(resolveLinkAction("vscode://file/foo")).toEqual({ kind: "external", url: "vscode://file/foo" })
+    expect(resolveLinkAction("tel:+15551234")).toEqual({ kind: "external", url: "tel:+15551234" })
+  })
   test("empty href blocks", () => {
     expect(resolveLinkAction("")).toEqual({ kind: "block" })
   })

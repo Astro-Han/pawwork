@@ -201,9 +201,15 @@ export function resolveLinkAction(href: string): LinkAction {
   if (trimmed.startsWith("#")) return { kind: "anchor", url: trimmed }
   // Protocol-relative URLs (//host/path) are remote-shaped — never reveal.
   if (trimmed.startsWith("//")) return { kind: "block" }
-  if (/^https?:\/\//i.test(trimmed)) return { kind: "external", url: trimmed }
-  if (/^mailto:/i.test(trimmed)) return { kind: "external", url: trimmed }
-  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return { kind: "block" }
+  // Block dangerous schemes outright; sanitize already strips most of these
+  // at the href level, but defense in depth keeps the routing predictable.
+  if (/^(?:javascript|data|vbscript):/i.test(trimmed)) return { kind: "block" }
+  // Any other scheme (https, mailto, vscode, tel, sms, git, ssh, …) routes
+  // to the external handler. Whether the scheme is actually surfaced to
+  // users is governed by the DOMPurify ALLOWED_URI_REGEXP allowlist, not
+  // here — which keeps schemes opt-in at sanitize time without forcing
+  // every new addition to also touch the click router.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return { kind: "external", url: trimmed }
   return { kind: "reveal", path: trimmed }
 }
 
