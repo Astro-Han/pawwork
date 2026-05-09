@@ -185,17 +185,27 @@
     margin: var(--space-2xl) 0;
   }
 
-  /* §9 Table */
+  /* §9 Table — inset frame
+     Anchor the table inside the markdown stream with a 1 px outer frame +
+     radius-sm so it reads as an embedded printed panel. The frame is the
+     primary visual anchor; the header keeps W3 lock's --bg-cream (the only
+     surface token whose contrast direction is correct in both themes).
+     Header bottom uses border-base for a clear head/body split; row
+     dividers use border-weak so they survive in dark mode without going
+     loud. No zebra, no hover (W3 lock §9 ban). */
   table {
     border-collapse: collapse;
     width: 100%;
     margin: 0 0 var(--space-md);
     font: var(--type-body);
+    border: 1px solid var(--border-weak);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
   }
   thead th {
     padding: var(--space-sm) var(--space-md);
     background: var(--bg-cream);
-    border-bottom: 1px solid var(--border-weak);
+    border-bottom: 1px solid var(--border-base);
     font: var(--type-h3);
     color: var(--fg-strong);
     text-align: left;
@@ -203,7 +213,7 @@
   }
   tbody td {
     padding: var(--space-sm) var(--space-md);
-    border-bottom: 1px solid var(--border-weaker);
+    border-bottom: 1px solid var(--border-weak);
     color: var(--fg-base);
     vertical-align: top;
   }

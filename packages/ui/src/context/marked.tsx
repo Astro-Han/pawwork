@@ -473,10 +473,15 @@ export const { use: useMarked, provider: MarkedProvider } = createSimpleContext(
         renderer: {
           link({ href, title, text }) {
             const titleAttr = title ? ` title="${title}"` : ""
-            if (href.startsWith("#")) {
-              return `<a href="${href}"${titleAttr}>${text}</a>`
+            // The desktop shell's document-level handler grabs every .external-link
+            // and routes it to shell.openExternal. Only mark true remote links so
+            // hash anchors and repo paths fall through to the markdown component's
+            // own click handler (which knows how to scroll / reveal in Finder).
+            const remote = /^(?:https?:\/\/|mailto:)/i.test(href)
+            if (remote) {
+              return `<a href="${href}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`
             }
-            return `<a href="${href}"${titleAttr} class="external-link" target="_blank" rel="noopener noreferrer">${text}</a>`
+            return `<a href="${href}"${titleAttr}>${text}</a>`
           },
         },
       },
