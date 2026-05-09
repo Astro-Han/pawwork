@@ -185,34 +185,39 @@
     margin: var(--space-2xl) 0;
   }
 
-  /* §9 Table — inset frame
-     Anchor the table inside the markdown stream with a 1 px outer frame +
-     radius-sm so it reads as an embedded printed panel. The frame is the
-     primary visual anchor; the header keeps W3 lock's --bg-cream (the only
-     surface token whose contrast direction is correct in both themes).
-     Header bottom uses border-base for a clear head/body split; row
-     dividers use border-weak so they survive in dark mode without going
-     loud. No zebra, no hover (W3 lock §9 ban). */
+  /* §9 Table — editorial typographic
+     Borderless body, transparent header, anchored by a single firm rule
+     under the head row. This matches the borderless typographic pattern
+     (cf. Codex/ChatGPT, NYT story tables) and keeps the table grounded in
+     the prose flow rather than floating as a card. Header bottom uses
+     border-base so the head/body split is unambiguous in both themes;
+     row dividers use border-weak so they remain visible in dark mode.
+     No zebra, no hover (W3 lock §9 ban). */
   table {
     border-collapse: collapse;
     width: 100%;
-    margin: 0 0 var(--space-md);
+    margin: var(--space-sm) 0 var(--space-md);
     font: var(--type-body);
-    border: 1px solid var(--border-weak);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
   }
   thead th {
-    padding: var(--space-sm) var(--space-md);
-    background: var(--bg-cream);
+    padding: var(--space-sm) var(--space-md) var(--space-md);
+    background: transparent;
     border-bottom: 1px solid var(--border-base);
     font: var(--type-h3);
     color: var(--fg-strong);
     text-align: left;
     vertical-align: top;
   }
+  thead th:first-child,
+  tbody td:first-child {
+    padding-left: 0;
+  }
+  thead th:last-child,
+  tbody td:last-child {
+    padding-right: 0;
+  }
   tbody td {
-    padding: var(--space-sm) var(--space-md);
+    padding: var(--space-md);
     border-bottom: 1px solid var(--border-weak);
     color: var(--fg-base);
     vertical-align: top;
