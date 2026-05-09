@@ -17,7 +17,8 @@ import { LLMTrace } from "../../src/session/llm-trace"
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
 
-async function removeSessionProjectDirectory(dir: string) {
+async function removeLoadedSessionProjectDirectory(dir: string) {
+  await Instance.disposeDirectory(dir)
   await fs.rm(dir, {
     recursive: true,
     force: true,
@@ -201,7 +202,7 @@ describe("Export.session", () => {
     })
 
     try {
-      await removeSessionProjectDirectory(sessionProject.path)
+      await removeLoadedSessionProjectDirectory(sessionProject.path)
       await Instance.provide({
         directory: currentProject.path,
         fn: async () => {
@@ -271,7 +272,7 @@ describe("Export.session", () => {
       })
 
       await Config.invalidate(true)
-      await removeSessionProjectDirectory(sessionProject.path)
+      await removeLoadedSessionProjectDirectory(sessionProject.path)
       await Instance.provide({
         directory: currentProject.path,
         fn: async () => {

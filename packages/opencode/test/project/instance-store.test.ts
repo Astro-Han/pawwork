@@ -95,6 +95,29 @@ describe("InstanceStore", () => {
     }),
   )
 
+  it.live("disposeDirectory disposes loaded entries without loading missing directories", () =>
+    Effect.gen(function* () {
+      const loaded = yield* tmpdirScoped()
+      const missing = yield* tmpdirScoped()
+      const store = yield* InstanceStore.Service
+      const disposed: string[] = []
+      const off = registerDisposer(async (directory) => {
+        disposed.push(directory)
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      yield* store.load({ directory: loaded })
+
+      bootstrapRun = Effect.sync(() => {
+        throw new Error("disposeDirectory must not bootstrap unloaded directories")
+      })
+      yield* store.disposeDirectory(missing)
+      yield* store.disposeDirectory(loaded)
+
+      expect(disposed).toEqual([loaded])
+    }),
+  )
+
   it.live("drops failed loads so the next attempt can boot again", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped()

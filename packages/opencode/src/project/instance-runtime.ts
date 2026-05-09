@@ -9,6 +9,9 @@ export const reloadInstance = (input: LoadInput) =>
 export const disposeInstance = (ctx: Parameters<InstanceStore.Interface["dispose"]>[0]) =>
   AppRuntime.runPromise(InstanceStore.Service.use((store) => store.dispose(ctx)))
 
+export const disposeDirectory = (directory: string) =>
+  AppRuntime.runPromise(InstanceStore.Service.use((store) => store.disposeDirectory(directory)))
+
 export const disposeAllInstances = () =>
   AppRuntime.runPromise(InstanceStore.Service.use((store) => store.disposeAll()))
 
