@@ -414,23 +414,13 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
-  ipcMain.handle("show-item-in-folder", async (_event: IpcMainInvokeEvent, target: string) => {
-    const absolute = path.isAbsolute(target) ? target : path.resolve(process.cwd(), target)
-    let exists = false
-    try {
-      await fs.stat(absolute)
-      exists = true
-    } catch {
-      exists = false
-    }
-    // eslint-disable-next-line no-console
-    console.log("[ipc/show-item-in-folder]", {
-      target,
-      cwd: process.cwd(),
-      absolute,
-      exists,
-    })
-    shell.showItemInFolder(absolute)
+  ipcMain.handle("show-item-in-folder", (_event: IpcMainInvokeEvent, target: string) => {
+    // shell.showItemInFolder needs an absolute path; relative resolves go
+    // through the renderer where the chat session knows its workspace cwd.
+    // process.cwd() in a packaged Electron main process is not the user's
+    // workspace (typically `/Users/<user>` on macOS), so absolutizing here
+    // would silently reveal the wrong file.
+    shell.showItemInFolder(target)
   })
 
   ipcMain.handle("stat-paths", async (_event: IpcMainInvokeEvent, paths: string[]) => {

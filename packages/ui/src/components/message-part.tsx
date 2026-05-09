@@ -230,6 +230,42 @@ function createPacedValue(getValue: () => string, live?: () => boolean) {
   return value
 }
 
+function isAbsoluteLikePath(p: string): boolean {
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)
+}
+
+function joinWorkspacePath(directory: string, relative: string): string {
+  const sep = directory.includes("\\") ? "\\" : "/"
+  const trimmed = directory.replace(/[\\/]+$/, "")
+  return `${trimmed}${sep}${relative}`
+}
+
+function MessageMarkdown(props: {
+  text: string
+  cacheKey?: string
+  streaming?: boolean
+  class?: string
+}) {
+  const data = useData()
+  const desktop =
+    typeof window !== "undefined"
+      ? (window as unknown as { api?: { showItemInFolder?: (path: string) => unknown } }).api
+      : undefined
+  return (
+    <Markdown
+      text={props.text}
+      cacheKey={props.cacheKey}
+      streaming={props.streaming ?? false}
+      class={props.class}
+      onLinkRevealPath={(p) => {
+        const directory = data.directory
+        const absolute = isAbsoluteLikePath(p) || !directory ? p : joinWorkspacePath(directory, p)
+        if (desktop?.showItemInFolder) void desktop.showItemInFolder(absolute)
+      }}
+    />
+  )
+}
+
 function PacedMarkdown(props: { text: string; cacheKey: string; streaming: boolean }) {
   const value = createPacedValue(
     () => props.text,
@@ -238,7 +274,7 @@ function PacedMarkdown(props: { text: string; cacheKey: string; streaming: boole
 
   return (
     <Show when={value()}>
-      <Markdown text={value()} cacheKey={props.cacheKey} streaming={props.streaming} />
+      <MessageMarkdown text={value()} cacheKey={props.cacheKey} streaming={props.streaming} />
     </Show>
   )
 }
@@ -1521,7 +1557,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
     <Show when={text()}>
       <div data-component="text-part">
         <div data-slot="text-part-body">
-          <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
+          <Show when={streaming()} fallback={<MessageMarkdown text={text()} cacheKey={part().id} streaming={false} />}>
             <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
           </Show>
         </div>
@@ -1563,7 +1599,7 @@ PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
   return (
     <Show when={text()}>
       <div data-component="reasoning-part">
-        <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
+        <Show when={streaming()} fallback={<MessageMarkdown text={text()} cacheKey={part().id} streaming={false} />}>
           <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
         </Show>
       </div>
@@ -1623,7 +1659,7 @@ ToolRegistry.register({
       >
         <Show when={props.output}>
           <div data-component="tool-output" data-scrollable>
-            <Markdown text={props.output!} />
+            <MessageMarkdown text={props.output!} />
           </div>
         </Show>
       </BasicTool>
@@ -1647,7 +1683,7 @@ ToolRegistry.register({
       >
         <Show when={props.output}>
           <div data-component="tool-output" data-scrollable>
-            <Markdown text={props.output!} />
+            <MessageMarkdown text={props.output!} />
           </div>
         </Show>
       </BasicTool>
@@ -1674,7 +1710,7 @@ ToolRegistry.register({
       >
         <Show when={props.output}>
           <div data-component="tool-output" data-scrollable>
-            <Markdown text={props.output!} />
+            <MessageMarkdown text={props.output!} />
           </div>
         </Show>
       </BasicTool>
