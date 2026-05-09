@@ -31,9 +31,12 @@ if (typeof window !== "undefined" && DOMPurify.isSupported) {
 const config = {
   USE_PROFILES: { html: true, mathMl: true },
   SANITIZE_NAMED_PROPS: true,
-  FORBID_TAGS: ["style"],
-  FORBID_CONTENTS: ["style", "script"],
+  FORBID_TAGS: ["script", "iframe", "style", "form", "input", "object", "embed"],
+  FORBID_CONTENTS: ["script", "iframe", "style"],
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|file):|\/|\.{1,2}\/|#|[^:]*$)/i,
 }
+
+export const sanitizeConfig = config
 
 const iconPaths = {
   copy: '<path d="M6.2513 6.24935V2.91602H17.0846V13.7493H13.7513M13.7513 6.24935V17.0827H2.91797V6.24935H13.7513Z" stroke="currentColor" stroke-linecap="round"/>',
@@ -44,6 +47,7 @@ function sanitize(html: string) {
   if (!DOMPurify.isSupported) return ""
   return DOMPurify.sanitize(html, config)
 }
+
 
 function escape(text: string) {
   return text
