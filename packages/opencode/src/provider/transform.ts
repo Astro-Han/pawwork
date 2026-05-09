@@ -655,7 +655,7 @@ function googleThinkingLevelEfforts(apiId: string) {
   if (id.includes("flash-image")) return ["minimal", "high"]
   if (id.includes("pro-image")) return ["high"]
   if (id.includes("flash")) return ["minimal", "low", "medium", "high"]
-  return ["low", "medium", "high"]
+  return ["low", "high"]
 }
 
 function googleThinkingBudgetMax(apiId: string) {

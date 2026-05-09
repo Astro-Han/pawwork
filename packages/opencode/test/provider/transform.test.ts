@@ -4441,6 +4441,20 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
+    test("gemini-3 pro models only expose low and high thinking levels", () => {
+      const model = createMockModel({
+        id: "google/gemini-3-pro-preview",
+        providerID: "google",
+        api: {
+          id: "gemini-3-pro-preview",
+          url: "https://generativelanguage.googleapis.com",
+          npm: "@ai-sdk/google",
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual(["low", "high"])
+    })
+
     test("gemini-3 pro image models only expose high thinking level", () => {
       const model = createMockModel({
         id: "google/gemini-3-pro-image-preview",
