@@ -13,44 +13,45 @@ import {
 import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { diffs as list } from "@/utils/diffs"
 import { same } from "@/utils/same"
+import { makeSessionScope, sameSessionScope, sessionScopeKey, type SessionScope } from "./session-scope"
 
 type LastGoodMessages =
   | {
       dataIdentity: string
-      sessionID: string
+      scope: SessionScope
       messages: ReturnType<typeof readSessionMessages>
     }
   | undefined
 
 export function readTimelineMessages(input: {
-  sessionID: string | undefined
+  scope: SessionScope | undefined
   dataIdentity?: string
   raw: unknown
   lastGood: LastGoodMessages
 }): { messages: ReturnType<typeof readSessionMessages>; lastGood: LastGoodMessages } {
-  if (!input.sessionID) {
+  if (!input.scope) {
     return { messages: emptyMessages, lastGood: undefined }
   }
 
   const dataIdentity =
     input.dataIdentity ??
-    (input.lastGood?.sessionID === input.sessionID ? input.lastGood.dataIdentity : input.sessionID)
+    (sameSessionScope(input.lastGood?.scope, input.scope) ? input.lastGood.dataIdentity : sessionScopeKey(input.scope))
 
   if (input.raw !== undefined) {
     const messages = readSessionMessages(input.raw)
-    return { messages, lastGood: { dataIdentity, sessionID: input.sessionID, messages } }
+    return { messages, lastGood: { dataIdentity, scope: input.scope, messages } }
   }
 
-  if (input.lastGood?.dataIdentity === dataIdentity && input.lastGood.sessionID === input.sessionID) {
+  if (input.lastGood?.dataIdentity === dataIdentity && sameSessionScope(input.lastGood.scope, input.scope)) {
     return { messages: input.lastGood.messages, lastGood: input.lastGood }
   }
 
   return { messages: emptyMessages, lastGood: input.lastGood }
 }
 
-export function timelineDataIdentity(input: { sessionID: string | undefined; created: number | undefined }) {
-  if (!input.sessionID || input.created === undefined) return
-  return `${input.sessionID}:${input.created}`
+export function timelineDataIdentity(input: { scope: SessionScope | undefined; created: number | undefined }) {
+  if (!input.scope || input.created === undefined) return
+  return `${sessionScopeKey(input.scope)}\n${input.created}`
 }
 
 export function timelineModelSyncKey(input: {
@@ -105,25 +106,29 @@ export function sessionStatusKnown(input: { statusState: SessionStatusState; sta
 }
 
 export function readTimelineMessagesFromCache(input: {
-  sessionID: string | undefined
+  scope: SessionScope | undefined
   sessionCreated: number | undefined
   raw: unknown
   lastGood: LastGoodMessages
 }) {
   return readTimelineMessages({
-    sessionID: input.sessionID,
-    dataIdentity: timelineDataIdentity({ sessionID: input.sessionID, created: input.sessionCreated }),
+    scope: input.scope,
+    dataIdentity: timelineDataIdentity({ scope: input.scope, created: input.sessionCreated }),
     raw: input.raw,
     lastGood: input.lastGood,
   })
 }
 
 export function createSessionTimelineData(input: {
+  serverKey: () => string | undefined
   directory: () => string
   routeSessionID: () => string | undefined
   sync: ReturnType<typeof useSync>
   local: ReturnType<typeof useLocal>
 }) {
+  const routeScope = createMemo(() =>
+    makeSessionScope({ serverKey: input.serverKey(), sessionID: input.routeSessionID() }),
+  )
   const routeInfo = createMemo(() => {
     const id = input.routeSessionID()
     return id ? input.sync.session.get(id) : undefined
@@ -143,9 +148,11 @@ export function createSessionTimelineData(input: {
 
   const sessionView = createSessionViewController({
     routeSessionID: input.routeSessionID,
+    routeScope,
     routeMessagesReady,
   })
   const sessionID = sessionView.visible.id
+  const sessionScope = sessionView.visible.scope
   const sessionKey = sessionView.visible.key
   const transitioning = sessionView.transitioning
   const sessionInfo = createMemo(() => {
@@ -218,7 +225,7 @@ export function createSessionTimelineData(input: {
     () => {
       const id = sessionID()
       const next = readTimelineMessagesFromCache({
-        sessionID: id,
+        scope: sessionScope(),
         sessionCreated: sessionInfo()?.time.created,
         raw: id ? input.sync.data.message[id] : undefined,
         lastGood: lastGoodMessages,
@@ -308,6 +315,7 @@ export function createSessionTimelineData(input: {
     routeSessionCount,
     routeHasSessionReview,
     routeMessagesReady,
+    sessionScope,
     sessionID,
     sessionKey,
     transitioning,

@@ -14,6 +14,7 @@ import { usePrompt } from "@/context/prompt"
 import { createSessionPerformanceDiagnostics, emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
+import { useServer } from "@/context/server"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
@@ -53,6 +54,7 @@ export default function Page() {
   const language = useLanguage()
   const sdk = useSDK()
   const settings = useSettings()
+  const server = useServer()
   const shellSurface = useShellSurface()
   const prompt = usePrompt()
   const comments = useComments()
@@ -91,6 +93,7 @@ export default function Page() {
   const centered = createMemo(() => isDesktop())
 
   const timeline = createSessionTimelineData({
+    serverKey: () => server.key,
     directory: () => params.dir ?? "",
     routeSessionID: () => params.id,
     sync,
