@@ -17,6 +17,15 @@ import { LLMTrace } from "../../src/session/llm-trace"
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
 
+async function removeSessionProjectDirectory(dir: string) {
+  await fs.rm(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: process.platform === "win32" ? 30 : 5,
+    retryDelay: 100,
+  })
+}
+
 describe("Export.session", () => {
   test("getRuntimeNamespace returns 'pawwork' or 'opencode'", () => {
     expect(["pawwork", "opencode"]).toContain(getRuntimeNamespace())
@@ -192,7 +201,7 @@ describe("Export.session", () => {
     })
 
     try {
-      await fs.rm(sessionProject.path, { recursive: true, force: true })
+      await removeSessionProjectDirectory(sessionProject.path)
       await Instance.provide({
         directory: currentProject.path,
         fn: async () => {
@@ -262,7 +271,7 @@ describe("Export.session", () => {
       })
 
       await Config.invalidate(true)
-      await fs.rm(sessionProject.path, { recursive: true, force: true })
+      await removeSessionProjectDirectory(sessionProject.path)
       await Instance.provide({
         directory: currentProject.path,
         fn: async () => {
