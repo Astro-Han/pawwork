@@ -14,6 +14,7 @@ async function runtime() {
 export const Instance = {
   async provide<R>(input: {
     directory: string
+    // Legacy per-call hook. Instance bootstrap is owned by InstanceStore.
     init?: () => Promise<any>
     worktree?: string
     project?: Project.Info
@@ -97,7 +98,13 @@ export const Instance = {
   state<S>(init: () => S, dispose?: (state: Awaited<S>) => Promise<void>): () => S {
     return State.create(() => Instance.directory, init, dispose)
   },
-  async reload(input: { directory: string; init?: () => Promise<any>; project?: Project.Info; worktree?: string }) {
+  async reload(input: {
+    directory: string
+    // Legacy per-call hook. Instance bootstrap is owned by InstanceStore.
+    init?: () => Promise<any>
+    project?: Project.Info
+    worktree?: string
+  }) {
     if (!!input.worktree !== !!input.project) {
       throw new Error("Instance.reload requires both worktree and project when overriding context")
     }

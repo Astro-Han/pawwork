@@ -11,7 +11,7 @@ import ignore from "ignore"
 import path from "path"
 import z from "zod"
 import { Global } from "../global"
-import { Instance } from "../project/instance"
+import { containsPath as containsPathInContext, type InstanceContext } from "../project/instance-context"
 import { Log } from "@opencode-ai/core/util/log"
 import { Protected } from "./protected"
 import { Ripgrep } from "./ripgrep"
@@ -356,8 +356,10 @@ export namespace File {
       )
 
       const scan = Effect.fn("File.scan")(function* () {
-        if (Instance.directory === path.parse(Instance.directory).root) return
-        const isGlobalHome = Instance.directory === Global.Path.home && Instance.project.id === "global"
+        const ctx = yield* InstanceState.context
+        const directory = ctx.directory
+        if (directory === path.parse(directory).root) return
+        const isGlobalHome = directory === Global.Path.home && ctx.project.id === "global"
         const next: Entry = { files: [], dirs: [] }
 
         if (isGlobalHome) {
@@ -366,14 +368,14 @@ export namespace File {
           const ignoreNested = new Set(["node_modules", "dist", "build", "target", "vendor"])
           const shouldIgnoreName = (name: string) => name.startsWith(".") || protectedNames.has(name)
           const shouldIgnoreNested = (name: string) => name.startsWith(".") || ignoreNested.has(name)
-          const top = yield* appFs.readDirectoryEntries(Instance.directory).pipe(Effect.orElseSucceed(() => []))
+          const top = yield* appFs.readDirectoryEntries(directory).pipe(Effect.orElseSucceed(() => []))
 
           for (const entry of top) {
             if (entry.type !== "directory") continue
             if (shouldIgnoreName(entry.name)) continue
             dirs.add(entry.name + "/")
 
-            const base = path.join(Instance.directory, entry.name)
+            const base = path.join(directory, entry.name)
             const children = yield* appFs.readDirectoryEntries(base).pipe(Effect.orElseSucceed(() => []))
             for (const child of children) {
               if (child.type !== "directory") continue
@@ -384,7 +386,7 @@ export namespace File {
 
           next.dirs = Array.from(dirs).toSorted()
         } else {
-          const files = yield* rg.files({ cwd: Instance.directory }).pipe(
+          const files = yield* rg.files({ cwd: directory }).pipe(
             Stream.runCollect,
             Effect.map((c) => [...c]),
           )
@@ -415,8 +417,8 @@ export namespace File {
         cachedScan = yield* Effect.cached(scan().pipe(Effect.catchCause(() => Effect.void)))
       })
 
-      const gitText = Effect.fnUntraced(function* (args: string[]) {
-        return (yield* git.run(args, { cwd: Instance.directory })).text()
+      const gitText = Effect.fnUntraced(function* (ctx: InstanceContext, args: string[]) {
+        return (yield* git.run(args, { cwd: ctx.directory })).text()
       })
 
       const init = Effect.fn("File.init")(function* () {
@@ -424,9 +426,10 @@ export namespace File {
       })
 
       const status = Effect.fn("File.status")(function* () {
-        if (Instance.project.vcs !== "git") return []
+        const ctx = yield* InstanceState.context
+        if (ctx.project.vcs !== "git") return []
 
-        const diffOutput = yield* gitText([
+        const diffOutput = yield* gitText(ctx, [
           "-c",
           "core.fsmonitor=false",
           "-c",
@@ -450,7 +453,7 @@ export namespace File {
           }
         }
 
-        const untrackedOutput = yield* gitText([
+        const untrackedOutput = yield* gitText(ctx, [
           "-c",
           "core.fsmonitor=false",
           "-c",
@@ -463,7 +466,7 @@ export namespace File {
         if (untrackedOutput.trim()) {
           for (const file of untrackedOutput.trim().split("\n")) {
             const content = yield* appFs
-              .readFileString(path.join(Instance.directory, file))
+              .readFileString(path.join(ctx.directory, file))
               .pipe(Effect.catch(() => Effect.succeed<string | undefined>(undefined)))
             if (content === undefined) continue
             changed.push({
@@ -475,7 +478,7 @@ export namespace File {
           }
         }
 
-        const deletedOutput = yield* gitText([
+        const deletedOutput = yield* gitText(ctx, [
           "-c",
           "core.fsmonitor=false",
           "-c",
@@ -498,19 +501,20 @@ export namespace File {
         }
 
         return changed.map((item) => {
-          const full = path.isAbsolute(item.path) ? item.path : path.join(Instance.directory, item.path)
+          const full = path.isAbsolute(item.path) ? item.path : path.join(ctx.directory, item.path)
           return {
             ...item,
-            path: path.relative(Instance.directory, full),
+            path: path.relative(ctx.directory, full),
           }
         })
       })
 
       const read: Interface["read"] = Effect.fn("File.read")(function* (file: string) {
         using _ = log.time("read", { file })
-        const full = path.join(Instance.directory, file)
+        const ctx = yield* InstanceState.context
+        const full = path.join(ctx.directory, file)
 
-        if (!Instance.containsPath(full)) throw new Error("Access denied: path escapes project directory")
+        if (!containsPathInContext(full, ctx)) throw new Error("Access denied: path escapes project directory")
 
         if (isImageByExtension(file)) {
           const exists = yield* appFs.existsSafe(full)
@@ -553,13 +557,13 @@ export namespace File {
           Effect.catch(() => Effect.succeed("")),
         )
 
-        if (Instance.project.vcs === "git") {
-          let diff = yield* gitText(["-c", "core.fsmonitor=false", "diff", "--", file])
+        if (ctx.project.vcs === "git") {
+          let diff = yield* gitText(ctx, ["-c", "core.fsmonitor=false", "diff", "--", file])
           if (!diff.trim()) {
-            diff = yield* gitText(["-c", "core.fsmonitor=false", "diff", "--staged", "--", file])
+            diff = yield* gitText(ctx, ["-c", "core.fsmonitor=false", "diff", "--staged", "--", file])
           }
           if (diff.trim()) {
-            const original = yield* git.show(Instance.directory, "HEAD", file)
+            const original = yield* git.show(ctx.directory, "HEAD", file)
             const patch = structuredPatch(file, file, original, content, "old", "new", {
               context: Infinity,
               ignoreWhitespace: true,
@@ -573,21 +577,22 @@ export namespace File {
       })
 
       const list = Effect.fn("File.list")(function* (dir?: string) {
+        const ctx = yield* InstanceState.context
         const exclude = [".git", ".DS_Store"]
         let ignored = (_: string) => false
-        if (Instance.project.vcs === "git") {
+        if (ctx.project.vcs === "git") {
           const ig = ignore()
-          const gitignore = path.join(Instance.project.worktree, ".gitignore")
+          const gitignore = path.join(ctx.project.worktree, ".gitignore")
           const gitignoreText = yield* appFs.readFileString(gitignore).pipe(Effect.catch(() => Effect.succeed("")))
           if (gitignoreText) ig.add(gitignoreText)
-          const ignoreFile = path.join(Instance.project.worktree, ".ignore")
+          const ignoreFile = path.join(ctx.project.worktree, ".ignore")
           const ignoreText = yield* appFs.readFileString(ignoreFile).pipe(Effect.catch(() => Effect.succeed("")))
           if (ignoreText) ig.add(ignoreText)
           ignored = ig.ignores.bind(ig)
         }
 
-        const resolved = dir ? path.join(Instance.directory, dir) : Instance.directory
-        if (!Instance.containsPath(resolved)) throw new Error("Access denied: path escapes project directory")
+        const resolved = dir ? path.join(ctx.directory, dir) : ctx.directory
+        if (!containsPathInContext(resolved, ctx)) throw new Error("Access denied: path escapes project directory")
 
         const entries = yield* appFs.readDirectoryEntries(resolved).pipe(Effect.orElseSucceed(() => []))
 
@@ -595,7 +600,7 @@ export namespace File {
         for (const entry of entries) {
           if (exclude.includes(entry.name)) continue
           const absolute = path.join(resolved, entry.name)
-          const file = path.relative(Instance.directory, absolute)
+          const file = path.relative(ctx.directory, absolute)
           const type = entry.type === "directory" ? "directory" : "file"
           nodes.push({
             name: entry.name,

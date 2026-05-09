@@ -1,13 +1,20 @@
 import { afterEach, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { Hono } from "hono"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { Bus } from "../../src/bus"
 import { bootstrap as cliBootstrap } from "../../src/cli/bootstrap"
+import { Command } from "../../src/command"
+import { AppRuntime } from "../../src/effect/app-runtime"
+import { InstanceRef } from "../../src/effect/instance-ref"
 import { InstanceRuntime } from "../../src/project/instance-runtime"
+import { Project } from "../../src/project/project"
 import { WithInstance } from "../../src/project/with-instance"
 import { InstanceMiddleware } from "../../src/server/routes/instance/middleware"
+import { MessageID, SessionID } from "../../src/session/schema"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
@@ -41,6 +48,15 @@ async function bootstrapFixture() {
       return marker
     },
   })
+}
+
+async function waitForInitialized(projectID: Project.Info["id"]) {
+  for (let i = 0; i < 20; i++) {
+    const project = Project.get(projectID)
+    if (project?.time.initialized) return
+    await Bun.sleep(10)
+  }
+  throw new Error("timed out waiting for project initialization marker")
 }
 
 test("legacy instance boundary runs InstanceBootstrap before callback", async () => {
@@ -78,4 +94,24 @@ test("InstanceRuntime.reloadInstance runs InstanceBootstrap", async () => {
   await InstanceRuntime.reloadInstance({ directory: tmp.path })
 
   expect(existsSync(tmp.extra)).toBe(true)
+})
+
+test("/init command event marks the bootstrapped project initialized", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const ctx = await InstanceRuntime.reloadInstance({ directory: tmp.path })
+
+  expect(Project.get(ctx.project.id)?.time.initialized).toBeUndefined()
+
+  await AppRuntime.runPromise(
+    Bus.Service.use((bus) =>
+      bus.publish(Command.Event.Executed, {
+        name: Command.Default.INIT,
+        sessionID: SessionID.descending(),
+        arguments: "",
+        messageID: MessageID.ascending(),
+      }),
+    ).pipe(Effect.provideService(InstanceRef, ctx)),
+  )
+
+  await waitForInitialized(ctx.project.id)
 })

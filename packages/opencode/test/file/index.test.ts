@@ -2,13 +2,44 @@ import { afterEach, describe, test, expect } from "bun:test"
 import { $ } from "bun"
 import path from "path"
 import fs from "fs/promises"
+import { Effect } from "effect"
 import { File } from "../../src/file"
+import { InstanceRef } from "../../src/effect/instance-ref"
 import { Instance } from "../../src/project/instance"
+import { Project } from "../../src/project/project"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 
 afterEach(async () => {
   await Instance.disposeAll()
+})
+
+test("File service init works with InstanceRef and no legacy ALS", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await fs.writeFile(path.join(dir, "visible.txt"), "hello", "utf-8")
+    },
+  })
+  const { project, sandbox } = await Project.fromDirectory(tmp.path)
+
+  await Effect.runPromise(
+    Effect.scoped(
+      File.Service.use((svc) =>
+        Effect.gen(function* () {
+          yield* svc.init()
+          const files = yield* svc.search({ query: "", type: "file" })
+          expect(files).toContain("visible.txt")
+        }),
+      ).pipe(
+        Effect.provide(File.defaultLayer),
+        Effect.provideService(InstanceRef, {
+          directory: tmp.path,
+          worktree: sandbox,
+          project,
+        }),
+      ),
+    ),
+  )
 })
 
 describe("file/index Filesystem patterns", () => {
