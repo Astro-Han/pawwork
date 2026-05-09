@@ -185,39 +185,35 @@
     margin: var(--space-2xl) 0;
   }
 
-  /* §9 Table — editorial typographic
-     Borderless body, transparent header, anchored by a single firm rule
-     under the head row. This matches the borderless typographic pattern
-     (cf. Codex/ChatGPT, NYT story tables) and keeps the table grounded in
-     the prose flow rather than floating as a card. Header bottom uses
-     border-base so the head/body split is unambiguous in both themes;
-     row dividers use border-weak so they remain visible in dark mode.
-     No zebra, no hover (W3 lock §9 ban). */
+  /* §9 Table — W3 lock §L43 with two minor deviations declared
+     Header keeps W3 lock's --bg-cream surface (the only surface token
+     whose contrast direction is correct in both themes). Two deltas vs
+     L43 to make the table readable at the densities chat actually
+     produces:
+       1. Header bottom uses --border-base (vs L43's --border-weaker)
+          so the head/body split survives in light mode where bg-cream
+          is only ~5% darker than bg-base.
+       2. Row dividers use --border-weak (vs L43's --border-weaker)
+          so the separator is visible in dark mode without going loud.
+     Padding follows the lock-table preview pattern (sm × md).
+     Per L43: no zebra, no hover. */
   table {
     border-collapse: collapse;
     width: 100%;
-    margin: var(--space-sm) 0 var(--space-md);
+    margin: 0 0 var(--space-md);
     font: var(--type-body);
   }
   thead th {
-    padding: var(--space-sm) var(--space-md) var(--space-md);
-    background: transparent;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-cream);
     border-bottom: 1px solid var(--border-base);
     font: var(--type-h3);
     color: var(--fg-strong);
     text-align: left;
     vertical-align: top;
   }
-  thead th:first-child,
-  tbody td:first-child {
-    padding-left: 0;
-  }
-  thead th:last-child,
-  tbody td:last-child {
-    padding-right: 0;
-  }
   tbody td {
-    padding: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
     border-bottom: 1px solid var(--border-weak);
     color: var(--fg-base);
     vertical-align: top;

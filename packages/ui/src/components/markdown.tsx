@@ -226,10 +226,7 @@ function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
     if (action.kind === "block") return
     if (action.kind === "anchor") {
       const id = action.url.slice(1)
-      if (!id || id.toLowerCase() === "top") {
-        root.scrollIntoView({ block: "start" })
-        return
-      }
+      if (!id) return
       const inner = root.querySelector(`#${CSS.escape(id)}`)
       if (inner instanceof HTMLElement) inner.scrollIntoView({ block: "start" })
       return
