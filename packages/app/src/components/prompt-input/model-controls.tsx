@@ -52,7 +52,7 @@ export function PromptModelControl(props: {
             />
           </Show>
           <span
-            class="truncate text-center max-w-[7rem] transition-[max-width] duration-200 ease-out font-normal"
+            class="truncate text-center min-w-[80px] max-w-[180px] transition-[max-width] duration-200 ease-out font-normal"
             classList={{ "@max-[28rem]/composer:max-w-0": !!props.model.current()?.provider?.id }}
           >
             {props.model.current()?.name ?? props.language.t("dialog.model.select.title")}
