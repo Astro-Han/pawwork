@@ -118,18 +118,14 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
         </Kobalte.Trigger>
         <Show when={supported()}>
           <Kobalte.Portal>
-            <Kobalte.Content
-              class="min-w-[140px] p-1 bg-surface-base z-50 outline-none rounded-[10px]"
-              style={{ "box-shadow": "var(--ring-base), var(--shadow-floating)" }}
-            >
+            <Kobalte.Content data-picker-content="" class="min-w-[140px] z-50 outline-none">
               <For each={options()}>
                 {(opt) => (
                   <button
                     type="button"
-                    class="w-full h-[30px] px-2 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong"
-                    classList={{
-                      "bg-row-active-overlay text-fg-strong font-medium": opt === current(),
-                    }}
+                    data-picker-item=""
+                    data-selected={opt === current() ? "" : undefined}
+                    class="w-full"
                     onClick={() => model.variant.set(opt === "default" ? undefined : opt)}
                   >
                     {translateVariant(language.t, opt)}
