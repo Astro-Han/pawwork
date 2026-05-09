@@ -4,9 +4,11 @@ import { dirname, join } from "node:path"
 
 const MAX_LOG_AGE_DAYS = 7
 const TAIL_LINES = 1000
+const CONSOLE_TRANSPORT_INITIALIZED = Symbol.for("pawwork.consoleTransportInitialized")
 
 export function initLogging() {
   log.transports.file.maxSize = 5 * 1024 * 1024
+  initConsoleTransport()
   cleanup()
   return log
 }
@@ -40,4 +42,26 @@ function cleanup() {
       continue
     }
   }
+}
+
+function initConsoleTransport() {
+  const transport = log.transports.console as typeof log.transports.console & {
+    [CONSOLE_TRANSPORT_INITIALIZED]?: boolean
+  }
+  if (transport[CONSOLE_TRANSPORT_INITIALIZED]) return
+  transport[CONSOLE_TRANSPORT_INITIALIZED] = true
+
+  const write = transport.writeFn.bind(transport)
+  transport.writeFn = (options) => {
+    try {
+      write(options)
+    } catch (err) {
+      if (!isBrokenPipe(err)) throw err
+      transport.level = false
+    }
+  }
+}
+
+function isBrokenPipe(err: unknown) {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "EPIPE"
 }

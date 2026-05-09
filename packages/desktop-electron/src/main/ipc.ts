@@ -170,10 +170,14 @@ export function registerIpcHandlers(deps: Deps) {
     return deps.setDesktopContext(context, win)
   })
   ipcMain.handle("store-get", (_event: IpcMainInvokeEvent, name: string, key: string) => {
-    const store = getStore(name)
-    const value = store.get(key)
-    if (value === undefined || value === null) return null
-    return typeof value === "string" ? value : JSON.stringify(value)
+    try {
+      const store = getStore(name)
+      const value = store.get(key)
+      if (value === undefined || value === null) return null
+      return typeof value === "string" ? value : JSON.stringify(value)
+    } catch {
+      return null
+    }
   })
   ipcMain.handle("store-set", (_event: IpcMainInvokeEvent, name: string, key: string, value: string) => {
     getStore(name).set(key, value)
