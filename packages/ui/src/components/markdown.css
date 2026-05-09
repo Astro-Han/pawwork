@@ -103,7 +103,6 @@
     border-radius: var(--radius-sm);
     color: var(--fg-strong);
     overflow-wrap: anywhere;
-    word-break: break-all;
   }
 
   /* §5 Lists */

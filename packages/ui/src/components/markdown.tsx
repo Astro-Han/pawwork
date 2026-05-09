@@ -225,13 +225,13 @@ function setupLinkClicks(root: HTMLDivElement, handlers: LinkActionHandlers) {
     event.preventDefault()
     if (action.kind === "block") return
     if (action.kind === "anchor") {
-      // Scroll within the markdown container instead of letting Electron's
-      // hash router consume the anchor change.
       const id = action.url.slice(1)
-      if (id) {
-        const inner = root.querySelector(`#${CSS.escape(id)}`)
-        if (inner instanceof HTMLElement) inner.scrollIntoView({ block: "start" })
+      if (!id || id.toLowerCase() === "top") {
+        root.scrollIntoView({ block: "start" })
+        return
       }
+      const inner = root.querySelector(`#${CSS.escape(id)}`)
+      if (inner instanceof HTMLElement) inner.scrollIntoView({ block: "start" })
       return
     }
     const desktop =
