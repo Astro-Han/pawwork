@@ -25,11 +25,13 @@ const promptAsyncCalls: Array<Record<string, unknown>> = []
 const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
 let commandsReady = true
+let promptAsyncFailure: Error | undefined
 const abortedSessions: string[] = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
+const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
 
-let params: { id?: string } = {}
+let params: { dir?: string; id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 
@@ -64,6 +66,7 @@ const clientFor = (directory: string) => {
       prompt: async () => ({ data: undefined }),
       promptAsync: async (input: Record<string, unknown>) => {
         promptAsyncCalls.push(input)
+        if (promptAsyncFailure) throw promptAsyncFailure
         return { data: undefined }
       },
       command: async (input: Record<string, unknown>) => {
@@ -134,7 +137,9 @@ beforeAll(async () => {
     usePrompt: () => ({
       current: () => promptValue,
       reset: () => undefined,
-      set: () => undefined,
+      set: (next: Prompt, cursor?: number, target?: { dir: string; id?: string }) => {
+        promptSetCalls.push({ prompt: next, cursor, target })
+      },
       context: {
         add: () => undefined,
         remove: () => undefined,
@@ -250,9 +255,11 @@ beforeEach(() => {
   commandCalls.length = 0
   commandDefinitions.length = 0
   commandsReady = true
+  promptAsyncFailure = undefined
   abortedSessions.length = 0
   globalTodoSets.length = 0
   childTodoSets.length = 0
+  promptSetCalls.length = 0
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
@@ -575,6 +582,36 @@ describe("prompt submit worktree selection", () => {
 
     expect(storedSessions["/repo/worktree-a"]).toEqual([{ id: "session-1", title: "New session 1" }])
     expect(optimisticSeeded).toEqual([true])
+  })
+
+  test("new worktree submit rollback targets final prompt route scope", async () => {
+    params = { dir: "/repo/main" }
+    selected = "/repo/worktree-a"
+    promptValue = [{ type: "text", content: "run tests", start: 0, end: 9 }]
+    promptAsyncFailure = new Error("send failed")
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)?.target).toEqual({ dir: "/repo/worktree-a", id: "session-1" })
   })
 
   test("sends locale with promptAsync requests", async () => {

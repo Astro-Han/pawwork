@@ -23,6 +23,7 @@ import { setCursorPosition } from "./editor-dom"
 import { buildHomeOverride } from "./home-override"
 import { formatServerError } from "@/utils/server-errors"
 import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
+import { promptScopeForSession } from "@/pages/session/prompt-route-scope"
 
 type PendingPrompt = {
   abort: AbortController
@@ -454,8 +455,15 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       input.setPopover(null)
     }
 
+    const promptScope = promptScopeForSession({
+      routeDir: params.dir,
+      routeDirectory: projectDirectory,
+      targetDirectory: sessionDirectory,
+      sessionID: session.id,
+    })
+
     const restoreInput = () => {
-      prompt.set(currentPrompt, input.promptLength(currentPrompt))
+      prompt.set(currentPrompt, input.promptLength(currentPrompt), promptScope)
       input.setMode(mode)
       input.setPopover(null)
       requestAnimationFrame(() => {
