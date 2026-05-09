@@ -175,12 +175,45 @@ function markCodeLinks(root: HTMLDivElement) {
   }
 }
 
+const taskListIcons = {
+  unchecked:
+    '<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor"/>',
+  checked:
+    '<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor"/><path d="M5 8.2 7.2 10.4 11 6.4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>',
+}
+
+function rewriteTaskLists(root: ParentNode) {
+  const inputs = Array.from(
+    root.querySelectorAll<HTMLInputElement>('li > input[type="checkbox"]'),
+  )
+  for (const input of inputs) {
+    const li = input.parentElement
+    if (!(li instanceof HTMLLIElement)) continue
+    const ul = li.parentElement
+    if (ul instanceof HTMLUListElement) ul.classList.add("task-list")
+    const checked = input.hasAttribute("checked")
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+    svg.setAttribute("viewBox", "0 0 16 16")
+    svg.setAttribute("aria-hidden", "true")
+    svg.setAttribute("data-state", checked ? "checked" : "unchecked")
+    svg.innerHTML = checked ? taskListIcons.checked : taskListIcons.unchecked
+    input.replaceWith(svg)
+    const next = svg.nextSibling
+    if (next && next.nodeType === Node.TEXT_NODE && /^\s+/.test(next.textContent ?? "")) {
+      next.textContent = (next.textContent ?? "").replace(/^\s+/, "")
+    }
+  }
+}
+
+export const rewriteTaskListsForTest = rewriteTaskLists
+
 function decorate(root: HTMLDivElement, labels: CopyLabels) {
   const blocks = Array.from(root.querySelectorAll("pre"))
   for (const block of blocks) {
     ensureCodeWrapper(block, labels)
   }
   markCodeLinks(root)
+  rewriteTaskLists(root)
 }
 
 function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {

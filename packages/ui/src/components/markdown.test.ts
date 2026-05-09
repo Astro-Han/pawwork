@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { sanitizeConfig } from "./markdown"
+import { rewriteTaskListsForTest, sanitizeConfig } from "./markdown"
 
 describe("DOMPurify whitelist config", () => {
   test("forbids unsafe tags", () => {
@@ -33,5 +33,30 @@ describe("DOMPurify whitelist config", () => {
     expect(re.test("javascript:alert(1)")).toBe(false)
     expect(re.test("data:text/html,foo")).toBe(false)
     expect(re.test("vbscript:msgbox")).toBe(false)
+  })
+})
+
+describe("task list svg rendering", () => {
+  test("replaces unchecked input with circle svg", () => {
+    document.body.innerHTML = '<ul><li><input type="checkbox" disabled> read</li></ul>'
+    const ul = document.querySelector("ul")!
+    rewriteTaskListsForTest(document.body)
+    expect(ul.classList.contains("task-list")).toBe(true)
+    expect(ul.querySelector("input")).toBeNull()
+    const svg = ul.querySelector("svg")
+    expect(svg).not.toBeNull()
+    expect(svg!.getAttribute("data-state")).toBe("unchecked")
+  })
+  test("replaces checked input with circle-check svg", () => {
+    document.body.innerHTML = '<ul><li><input type="checkbox" disabled checked> done</li></ul>'
+    rewriteTaskListsForTest(document.body)
+    const svg = document.querySelector('svg[data-state="checked"]')
+    expect(svg).not.toBeNull()
+    expect(svg!.querySelector("path")).not.toBeNull()
+  })
+  test("preserves label text after checkbox", () => {
+    document.body.innerHTML = '<ul><li><input type="checkbox" disabled> read the spec</li></ul>'
+    rewriteTaskListsForTest(document.body)
+    expect(document.body.textContent).toContain("read the spec")
   })
 })
