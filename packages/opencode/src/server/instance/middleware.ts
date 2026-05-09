@@ -8,7 +8,6 @@ import { Workspace } from "@/control-plane/workspace"
 import { ServerProxy } from "../proxy"
 import { Filesystem } from "@/util/filesystem"
 import { Instance } from "@/project/instance"
-import { InstanceBootstrap } from "@/project/bootstrap"
 import { Session } from "@/session"
 import { SessionID } from "@/session/schema"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
@@ -86,7 +85,6 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
 
       return Instance.provide({
         directory,
-        init: InstanceBootstrap,
         async fn() {
           return next()
         },
@@ -128,7 +126,6 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
         fn: () =>
           Instance.provide({
             directory: target.directory,
-            init: InstanceBootstrap,
             async fn() {
               return next()
             },

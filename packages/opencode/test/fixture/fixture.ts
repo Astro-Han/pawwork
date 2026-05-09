@@ -172,3 +172,7 @@ export function provideTmpdirServer<A, E, R>(
     })
   })
 }
+
+export async function disposeAllInstances() {
+  await Instance.disposeAll()
+}

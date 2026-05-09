@@ -5,7 +5,6 @@ import path from "path"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import type { WorkspaceID } from "@/control-plane/schema"
 import { Filesystem } from "@/util/filesystem"
-import { InstanceBootstrap } from "@/project/bootstrap"
 import { Instance } from "@/project/instance"
 
 export function InstanceMiddleware(workspaceID?: WorkspaceID): MiddlewareHandler {
@@ -33,7 +32,6 @@ export function InstanceMiddleware(workspaceID?: WorkspaceID): MiddlewareHandler
     const runInstance = () =>
       Instance.provide({
         directory,
-        init: InstanceBootstrap,
         fn: () => next(),
       })
 

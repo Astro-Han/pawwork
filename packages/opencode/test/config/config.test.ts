@@ -8,6 +8,7 @@ import { configEntryNameFromPath } from "../../src/config/entry-name"
 import { ConfigModelID } from "../../src/config/model-id"
 
 import { Instance } from "../../src/project/instance"
+import { Project } from "../../src/project/project"
 import { Auth } from "../../src/auth"
 import { Account } from "../../src/account"
 import { AccessToken, AccountID, OrgID } from "../../src/account/schema"
@@ -102,6 +103,12 @@ async function writeManagedSettings(settings: object, filename = "opencode.json"
 
 async function writeConfig(dir: string, config: object, name = "opencode.json") {
   await Filesystem.write(path.join(dir, name), JSON.stringify(config))
+}
+
+async function withRawInstance<R>(directory: string, fn: () => R): Promise<Awaited<R>> {
+  const resolved = Filesystem.resolve(directory)
+  const { project, sandbox } = await Project.fromDirectory(resolved)
+  return await Instance.restore({ directory: resolved, worktree: sandbox, project }, fn)
 }
 
 async function check(map: (dir: string) => string) {
@@ -838,13 +845,12 @@ test("validates config schema and throws on invalid fields", async () => {
       })
     },
   })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      // Strict schema should throw an error for invalid fields
-      await expect(load()).rejects.toThrow()
-    },
-  })
+  await expect(
+    Instance.provide({
+      directory: tmp.path,
+      fn: load,
+    }),
+  ).rejects.toThrow()
 })
 
 test("throws error for invalid JSON", async () => {
@@ -853,12 +859,12 @@ test("throws error for invalid JSON", async () => {
       await Filesystem.write(path.join(dir, "opencode.json"), "{ invalid json }")
     },
   })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      await expect(load()).rejects.toThrow()
-    },
-  })
+  await expect(
+    Instance.provide({
+      directory: tmp.path,
+      fn: load,
+    }),
+  ).rejects.toThrow()
 })
 
 test("handles agent configuration", async () => {
@@ -1565,13 +1571,10 @@ test("resolves scoped npm plugins in config", async () => {
     },
   })
 
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const config = await load()
-      const pluginEntries = config.plugin ?? []
-      expect(pluginEntries).toContain("@scope/plugin")
-    },
+  await withRawInstance(tmp.path, async () => {
+    const config = await load()
+    const pluginEntries = config.plugin ?? []
+    expect(pluginEntries).toContain("@scope/plugin")
   })
 })
 
@@ -1603,21 +1606,18 @@ test("merges plugin arrays from global and local configs", async () => {
     },
   })
 
-  await Instance.provide({
-    directory: path.join(tmp.path, "project"),
-    fn: async () => {
-      const config = await load()
-      const plugins = config.plugin ?? []
+  await withRawInstance(path.join(tmp.path, "project"), async () => {
+    const config = await load()
+    const plugins = config.plugin ?? []
 
-      // Should contain both global and local plugins
-      expect(plugins.some((p) => p.includes("global-plugin-1"))).toBe(true)
-      expect(plugins.some((p) => p.includes("global-plugin-2"))).toBe(true)
-      expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(true)
+    // Should contain both global and local plugins
+    expect(plugins.some((p) => p.includes("global-plugin-1"))).toBe(true)
+    expect(plugins.some((p) => p.includes("global-plugin-2"))).toBe(true)
+    expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(true)
 
-      // Should have all 3 plugins (not replaced, but merged)
-      const pluginNames = plugins.filter((p) => p.includes("global-plugin") || p.includes("local-plugin"))
-      expect(pluginNames.length).toBeGreaterThanOrEqual(3)
-    },
+    // Should have all 3 plugins (not replaced, but merged)
+    const pluginNames = plugins.filter((p) => p.includes("global-plugin") || p.includes("local-plugin"))
+    expect(pluginNames.length).toBeGreaterThanOrEqual(3)
   })
 })
 
@@ -1762,27 +1762,24 @@ test("deduplicates duplicate plugins from global and local configs", async () =>
     },
   })
 
-  await Instance.provide({
-    directory: path.join(tmp.path, "project"),
-    fn: async () => {
-      const config = await load()
-      const plugins = config.plugin ?? []
+  await withRawInstance(path.join(tmp.path, "project"), async () => {
+    const config = await load()
+    const plugins = config.plugin ?? []
 
-      // Should contain all unique plugins
-      expect(plugins.some((p) => p.includes("global-plugin-1"))).toBe(true)
-      expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(true)
-      expect(plugins.some((p) => p.includes("duplicate-plugin"))).toBe(true)
+    // Should contain all unique plugins
+    expect(plugins.some((p) => p.includes("global-plugin-1"))).toBe(true)
+    expect(plugins.some((p) => p.includes("local-plugin-1"))).toBe(true)
+    expect(plugins.some((p) => p.includes("duplicate-plugin"))).toBe(true)
 
-      // Should deduplicate the duplicate plugin
-      const duplicatePlugins = plugins.filter((p) => p.includes("duplicate-plugin"))
-      expect(duplicatePlugins.length).toBe(1)
+    // Should deduplicate the duplicate plugin
+    const duplicatePlugins = plugins.filter((p) => p.includes("duplicate-plugin"))
+    expect(duplicatePlugins.length).toBe(1)
 
-      // Should have exactly 3 unique plugins
-      const pluginNames = plugins.filter(
-        (p) => p.includes("global-plugin") || p.includes("local-plugin") || p.includes("duplicate-plugin"),
-      )
-      expect(pluginNames.length).toBe(3)
-    },
+    // Should have exactly 3 unique plugins
+    const pluginNames = plugins.filter(
+      (p) => p.includes("global-plugin") || p.includes("local-plugin") || p.includes("duplicate-plugin"),
+    )
+    expect(pluginNames.length).toBe(3)
   })
 })
 
@@ -1811,23 +1808,20 @@ test("keeps plugin origins aligned with merged plugin list", async () => {
     },
   })
 
-  await Instance.provide({
-    directory: path.join(tmp.path, "project"),
-    fn: async () => {
-      const cfg = await load()
-      const plugins = cfg.plugin ?? []
-      const origins = cfg.plugin_origins ?? []
-      const names = plugins.map((item) => ConfigPlugin.pluginSpecifier(item))
+  await withRawInstance(path.join(tmp.path, "project"), async () => {
+    const cfg = await load()
+    const plugins = cfg.plugin ?? []
+    const origins = cfg.plugin_origins ?? []
+    const names = plugins.map((item) => ConfigPlugin.pluginSpecifier(item))
 
-      expect(names).toContain("shared-plugin@2.0.0")
-      expect(names).not.toContain("shared-plugin@1.0.0")
-      expect(names).toContain("global-only@1.0.0")
-      expect(names).toContain("local-only@1.0.0")
+    expect(names).toContain("shared-plugin@2.0.0")
+    expect(names).not.toContain("shared-plugin@1.0.0")
+    expect(names).toContain("global-only@1.0.0")
+    expect(names).toContain("local-only@1.0.0")
 
-      expect(origins.map((item) => item.spec)).toEqual(plugins)
-      const hit = origins.find((item) => ConfigPlugin.pluginSpecifier(item.spec) === "shared-plugin@2.0.0")
-      expect(hit?.scope).toBe("local")
-    },
+    expect(origins.map((item) => item.spec)).toEqual(plugins)
+    const hit = origins.find((item) => ConfigPlugin.pluginSpecifier(item.spec) === "shared-plugin@2.0.0")
+    expect(hit?.scope).toBe("local")
   })
 })
 
@@ -2384,12 +2378,14 @@ test("rejects invalid MCP timeout values", async () => {
         )
       },
     })
-    await Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        await expect(load()).rejects.toThrow()
-      },
-    })
+    await expect(
+      Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await load()
+        },
+      }),
+    ).rejects.toThrow()
   }
 })
 
@@ -2410,12 +2406,14 @@ test("rejects empty local MCP command arrays", async () => {
       )
     },
   })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      await expect(load()).rejects.toThrow()
-    },
-  })
+  await expect(
+    Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await load()
+      },
+    }),
+  ).rejects.toThrow()
 })
 
 test("rejects unknown nested server keys", async () => {
@@ -2432,12 +2430,14 @@ test("rejects unknown nested server keys", async () => {
       )
     },
   })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      await expect(load()).rejects.toThrow()
-    },
-  })
+  await expect(
+    Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await load()
+      },
+    }),
+  ).rejects.toThrow()
 })
 
 test("local .opencode config can override MCP from project config", async () => {
@@ -2739,15 +2739,12 @@ describe("deduplicatePluginOrigins", () => {
       },
     })
 
-    await Instance.provide({
-      directory: path.join(tmp.path, "project"),
-      fn: async () => {
-        const config = await load()
-        const plugins = config.plugin ?? []
+    await withRawInstance(path.join(tmp.path, "project"), async () => {
+      const config = await load()
+      const plugins = config.plugin ?? []
 
-        expect(plugins.some((p) => ConfigPlugin.pluginSpecifier(p) === "my-plugin@1.0.0")).toBe(true)
-        expect(plugins.some((p) => ConfigPlugin.pluginSpecifier(p).startsWith("file://"))).toBe(true)
-      },
+      expect(plugins.some((p) => ConfigPlugin.pluginSpecifier(p) === "my-plugin@1.0.0")).toBe(true)
+      expect(plugins.some((p) => ConfigPlugin.pluginSpecifier(p).startsWith("file://"))).toBe(true)
     })
   })
 })
@@ -3026,14 +3023,11 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
           })
         },
       })
-      await Instance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          const config = await load()
-          expect(config.plugin?.map(ConfigPlugin.pluginSpecifier)).toContain(
-            pathToFileURL(path.join(tmp.path, "plugin.ts")).href,
-          )
-        },
+      await withRawInstance(tmp.path, async () => {
+        const config = await load()
+        expect(config.plugin?.map(ConfigPlugin.pluginSpecifier)).toContain(
+          pathToFileURL(path.join(tmp.path, "plugin.ts")).href,
+        )
       })
     } finally {
       if (originalEnv !== undefined) {

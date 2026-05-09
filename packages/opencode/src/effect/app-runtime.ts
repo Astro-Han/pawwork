@@ -51,6 +51,7 @@ import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
 import { ShareRuntime } from "@/share/runtime"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
+import { InstanceLayer } from "@/project/instance-layer"
 
 export const AppLayer = Layer.mergeAll(
   Observability.layer,
@@ -102,10 +103,11 @@ export const AppLayer = Layer.mergeAll(
   ShareNext.defaultLayer,
   SessionShare.defaultLayer,
   ShareRuntime.cloudShareGateDefaultLayer,
-)
+).pipe(Layer.provideMerge(InstanceLayer.layer))
 
 const rt = ManagedRuntime.make(AppLayer, { memoMap })
 type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">
+export type AppServices = ManagedRuntime.ManagedRuntime.Services<typeof rt>
 const wrap = (effect: Parameters<typeof rt.runSync>[0]) => attach(effect as never) as never
 
 export const AppRuntime: Runtime = {

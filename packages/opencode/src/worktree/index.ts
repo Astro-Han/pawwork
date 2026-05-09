@@ -1,7 +1,6 @@
 import z from "zod"
 import { NamedError } from "@opencode-ai/util/error"
 import { Instance } from "../project/instance"
-import { InstanceBootstrap } from "../project/bootstrap"
 import { Project } from "../project/project"
 import { Database, eq } from "../storage/db"
 import { ProjectTable } from "../project/project.sql"
@@ -416,7 +415,6 @@ export namespace Worktree {
         const booted = yield* Effect.promise(() =>
           Instance.provide({
             directory: info.directory,
-            init: InstanceBootstrap,
             fn: () => undefined,
           })
             .then(() => true)

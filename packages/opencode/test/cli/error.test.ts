@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { AccountTransportError } from "../../src/account/schema"
+import { CliError } from "../../src/cli/effect-cmd"
 import { FormatError } from "../../src/cli/error"
 
 describe("cli.error", () => {
@@ -30,5 +31,11 @@ describe("cli.error", () => {
     expect(formatted).toContain("Did you mean: gpt-5")
     expect(formatted).toContain("opencode models")
     expect(formatted).toContain("pawwork.json")
+  })
+
+  test("formats effectCmd CliError", () => {
+    const formatted = FormatError(new CliError({ message: "Provider not found: missing" }))
+
+    expect(formatted).toBe("Provider not found: missing")
   })
 })
