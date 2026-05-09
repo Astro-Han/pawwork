@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal } from "solid-js"
+import { createMemo, createSignal } from "solid-js"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { DOCK_MOTION } from "./motion"
@@ -13,19 +13,13 @@ import { DOCK_MOTION } from "./motion"
 // signal (whole-dock fade) on top of this base animation.
 export function useDockCollapse(collapsed: () => boolean) {
   const [height, setHeight] = createSignal(0)
-  let contentRef: HTMLDivElement | undefined
-
-  const setContentRef = (el: HTMLDivElement) => {
-    contentRef = el
-  }
-
-  createEffect(() => {
-    const el = contentRef
-    if (!el) return
-    const update = () => setHeight(el.getBoundingClientRect().height)
-    update()
-    createResizeObserver(el, update)
-  })
+  // contentRef is a signal so createResizeObserver reactively re-binds when
+  // the JSX ref callback assigns the element. Earlier code stored the ref
+  // in a plain variable inside a createEffect — it worked because the ref
+  // callback fires before effects, but it's fragile and doesn't track
+  // re-assignment.
+  const [contentRef, setContentRef] = createSignal<HTMLDivElement>()
+  createResizeObserver(contentRef, (rect) => setHeight(rect.height))
 
   const spring = useSpring(() => (collapsed() ? 1 : 0), DOCK_MOTION)
   const value = createMemo(() => Math.max(0, Math.min(1, spring())))

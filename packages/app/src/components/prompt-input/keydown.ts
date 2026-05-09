@@ -224,10 +224,6 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       if (event.repeat) return
-      if (stopping()) {
-        handleSubmit(event)
-        return
-      }
       handleSubmit(event)
     }
   }

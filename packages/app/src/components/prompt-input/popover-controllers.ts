@@ -115,7 +115,9 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
       }))
 
     const custom = sync.data.command.map((cmd) => ({
-      id: `custom.${cmd.name}`,
+      // Source is part of the id so workspace + user configs that share a
+      // command name don't collapse into one entry under useFilteredList.
+      id: `custom.${cmd.source}.${cmd.name}`,
       trigger: cmd.name,
       title: cmd.name,
       description: cmd.description,

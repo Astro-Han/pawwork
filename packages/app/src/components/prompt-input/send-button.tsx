@@ -7,7 +7,7 @@ export interface SendButtonProps {
   tabIndex?: number
   "aria-label": string
   onClick?: JSX.EventHandler<HTMLButtonElement, MouseEvent>
-  style?: JSX.CSSProperties | string
+  style?: JSX.CSSProperties
 }
 
 export const SendButton: Component<SendButtonProps> = (props) => {
@@ -21,7 +21,7 @@ export const SendButton: Component<SendButtonProps> = (props) => {
       aria-label={props["aria-label"]}
       onClick={props.onClick}
       style={{
-        ...(typeof props.style === "object" ? props.style : {}),
+        ...(props.style ?? {}),
         // Send button affordance is theme-locked: orange send / ink stop look
         // identical in light and dark so the user's muscle memory holds.
         // Theme-aware tokens would mirror across themes (bug: dark idle becomes

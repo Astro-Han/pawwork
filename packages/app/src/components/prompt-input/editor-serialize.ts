@@ -131,7 +131,10 @@ export function parseEditorToParts(editor: HTMLElement): Prompt {
     const isBlock =
       child.nodeType === Node.ELEMENT_NODE && ["DIV", "P"].includes((child as HTMLElement).tagName)
     visit(child)
-    if (isBlock && index < children.length - 1) {
+    // Skip the block separator if the block already contributed a trailing
+    // newline (e.g. an empty <div><br></div>): otherwise round-tripping a
+    // blank row inflates "foo\n\nbar" into "foo\n\n\nbar".
+    if (isBlock && index < children.length - 1 && !buffer.endsWith("\n")) {
       buffer += "\n"
     }
   })

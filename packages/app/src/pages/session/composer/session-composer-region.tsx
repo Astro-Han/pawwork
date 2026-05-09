@@ -153,9 +153,29 @@ export function SessionComposerRegion(props: {
                     />
                   )}
                 </Show>
-                <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none">
-                  {handoffPrompt() || language.t("prompt.loading")}
-                </DockSegment>
+                {/* Permission requests can arrive while prompt is still
+                  hydrating; render them here too so the user can approve or
+                  deny without waiting for prompt.ready(). */}
+                <Show
+                  when={props.state.permissionRequest()}
+                  keyed
+                  fallback={
+                    <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none">
+                      {handoffPrompt() || language.t("prompt.loading")}
+                    </DockSegment>
+                  }
+                >
+                  {(request) => (
+                    <SessionPermissionContent
+                      request={request}
+                      responding={props.state.permissionResponding()}
+                      onDecide={(response) => {
+                        props.onResponseSubmit()
+                        props.state.decide(response)
+                      }}
+                    />
+                  )}
+                </Show>
               </DockCard>
             }
           >
