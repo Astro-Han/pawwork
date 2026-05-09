@@ -403,6 +403,9 @@ export default function Page() {
   const resumeScroll = timelineInteraction.resumeScroll
   const scheduleScrollState = timelineInteraction.scheduleScrollState
   const scrollDock = timelineInteraction.scrollDock
+  const resumeScrollIfFollowing = () => {
+    if (scrollDock.scroll.bottom) resumeScroll()
+  }
   const setScrollRef = timelineInteraction.setScrollRef
 
   useSessionKeyboardFocus({
@@ -569,9 +572,9 @@ export default function Page() {
       onNewSessionWorktreeReset={newSessionWorktree.reset}
       onSubmit={() => {
         comments.clear()
-        resumeScroll()
+        resumeScrollIfFollowing()
       }}
-      onResponseSubmit={resumeScroll}
+      onResponseSubmit={resumeScrollIfFollowing}
       onModeChange={ctx?.onModeChange}
       selectedSkill={ctx?.selectedSkill}
       followup={

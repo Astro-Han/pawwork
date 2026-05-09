@@ -27,6 +27,12 @@ type TimelineMetrics = {
   distanceFromBottom: number
 }
 
+function directoryCompareKey(directory: string | undefined) {
+  if (!directory) return ""
+  const value = directory.replaceAll("\\", "/").replace(/\/+$/, "") || "/"
+  return value.startsWith("/private/var/") ? value.slice("/private".length) : value
+}
+
 async function installRendererDiagnosticsCapture(page: Page) {
   await page.addInitScript(() => {
     const win = window as typeof window & {
@@ -109,6 +115,21 @@ async function scrollTimelineToBottom(page: Page) {
   expect(found, "session timeline viewport should exist").toBe(true)
 }
 
+async function scrollTimelineToOffset(page: Page, top: number) {
+  const found = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector, top }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return false
+      viewport.scrollTop = top
+      viewport.dispatchEvent(new Event("scroll", { bubbles: true }))
+      return true
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector, top },
+  )
+  expect(found, "session timeline viewport should exist").toBe(true)
+}
+
 async function resetTimelineToTop(page: Page) {
   const found = await page.evaluate(
     ({ scrollViewportSelector, turnListSelector }) => {
@@ -128,9 +149,64 @@ async function sendVisiblePrompt(input: { page: Page; text: string }) {
   const prompt = input.page.locator(promptSelector)
   await expect(prompt).toBeVisible()
   await prompt.click()
-  await input.page.keyboard.insertText(input.text)
+  await prompt.fill("")
+  await prompt.fill(input.text)
   await expect.poll(async () => (await prompt.textContent())?.replace(/\u200B/g, "").trim()).toBe(input.text)
   await input.page.keyboard.press("Enter")
+}
+
+async function expandRenderedTimeline(page: Page, target: number) {
+  const viewport = page.locator(scrollViewportSelector).first()
+  await expect(viewport).toBeVisible()
+  await expect
+    .poll(
+      async () => {
+        const count = await page.locator(sessionMessageItemSelector).count()
+        if (count >= target) return count
+        await viewport.hover()
+        await page.mouse.wheel(0, -2400)
+        await page.waitForTimeout(100)
+        return page.locator(sessionMessageItemSelector).count()
+      },
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThanOrEqual(target)
+}
+
+async function readPromptSent(page: Page) {
+  return page.evaluate(() => {
+    const win = window as typeof window & {
+      __opencode_e2e?: {
+        prompt?: {
+          sent?: {
+            started?: number
+            count?: number
+            sessionID?: string
+            directory?: string
+          }
+        }
+      }
+    }
+    const sent = win.__opencode_e2e?.prompt?.sent
+    return {
+      started: sent?.started ?? 0,
+      count: sent?.count ?? 0,
+      sessionID: sent?.sessionID,
+      directory: sent?.directory,
+    }
+  })
+}
+
+async function waitSessionActiveDirectory(input: { sdk: Sdk; sessionID: string; directory: string }) {
+  await expect
+    .poll(
+      async () => {
+        const session = await input.sdk.session.get({ sessionID: input.sessionID }).then((res) => res.data)
+        return directoryCompareKey(session?.executionContext.activeDirectory)
+      },
+      { timeout: 45_000 },
+    )
+    .toBe(directoryCompareKey(input.directory))
 }
 
 function numberData(event: CapturedDiagnosticEvent, key: string) {
@@ -192,5 +268,98 @@ test("captures renderer diagnostics while guarding send scroll position", async 
     expect(
       events.some((event) => event.name === "session.scroll.sample" && event.data?.user_scrolled === false),
     ).toBe(true)
+  })
+})
+
+test("keeps long timeline stable across worktree exit follow-up", async ({ page, project, llm }) => {
+  test.setTimeout(180_000)
+
+  await installRendererDiagnosticsCapture(page)
+  await project.open()
+  const sdk = project.sdk
+
+  await withSession(sdk, `e2e long timeline worktree ${Date.now()}`, async (session) => {
+    project.trackSession(session.id)
+    await seedSessionTurns({ sdk, sessionID: session.id, count: 90 })
+
+    await project.gotoSession(session.id)
+    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(10, { timeout: 30_000 })
+    await expandRenderedTimeline(page, 80)
+    await scrollTimelineToOffset(page, 240)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).top).toBeGreaterThan(20)
+
+    const created = await sdk.worktree.create({ directory: project.directory }).then((res) => res.data)
+    if (!created?.directory) throw new Error("Failed to create worktree for long timeline diagnostics")
+    const worktreeDirectory = created.directory
+    project.trackDirectory(worktreeDirectory)
+
+    await llm.tool("enter-worktree", { path: worktreeDirectory })
+    await sendVisiblePrompt({ page, text: "enter diagnostics worktree" })
+    await waitSessionActiveDirectory({ sdk, sessionID: session.id, directory: worktreeDirectory })
+    await expect
+      .poll(async () => page.locator(sessionMessageItemSelector).count(), { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(80)
+
+    await llm.tool("exit-worktree", {})
+    await sendVisiblePrompt({ page, text: "exit diagnostics worktree" })
+    await waitSessionActiveDirectory({ sdk, sessionID: session.id, directory: project.directory })
+    await expect
+      .poll(async () => page.locator(sessionMessageItemSelector).count(), { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(80)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).top).toBeGreaterThan(20)
+
+    const followupCheckpoint = (await readRendererDiagnostics(page)).length
+    const followupText = `worktree exit follow-up ${Date.now()}`
+    await sendVisiblePrompt({ page, text: followupText })
+    await expect
+      .poll(async () => page.locator(sessionMessageItemSelector).count(), { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(80)
+
+    await expect
+      .poll(
+        async () => {
+          const messages = await sdk.session.messages({ sessionID: session.id, limit: 200 }).then((res) => res.data ?? [])
+          return {
+            count: messages.length,
+            hasFollowup: messages.some((message) =>
+              message.parts.some((part) => part.type === "text" && part.text.includes(followupText)),
+            ),
+          }
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual({ count: expect.any(Number), hasFollowup: true })
+
+    const messages = await sdk.session.messages({ sessionID: session.id, limit: 200 }).then((res) => res.data ?? [])
+    expect(messages.length).toBeGreaterThanOrEqual(91)
+
+    const sent = await readPromptSent(page)
+    expect(sent.sessionID).toBe(session.id)
+    expect(sent.directory).toBe(project.directory)
+
+    const events = await readRendererDiagnostics(page)
+    const sessionEvents = events.filter((event) => event.timeline_session_id === session.id)
+    expect(sessionEvents.filter((event) => event.name === "session.timeline.mount")).toHaveLength(1)
+    expect(sessionEvents.filter((event) => event.name === "session.timeline.unmount")).toHaveLength(0)
+    expect(sessionEvents.filter((event) => event.name === "session.identity.transition")).toHaveLength(0)
+
+    const followupEvents = events.slice(followupCheckpoint).filter((event) => event.timeline_session_id === session.id)
+    const followupVisibleCounts = followupEvents
+      .filter((event) => event.name === "session.timeline.visible")
+      .map((event) => numberData(event, "rendered_count") ?? 0)
+    if (followupVisibleCounts.length > 0) expect(Math.max(...followupVisibleCounts)).toBeGreaterThanOrEqual(80)
+
+    const followupScrollJumps = followupEvents.filter((event) => {
+      if (event.name !== "session.scroll.sample") return false
+      const top = numberData(event, "scroll_top")
+      const distance = numberData(event, "distance_from_bottom")
+      return top !== undefined && distance !== undefined && top < 20 && distance > 100
+    })
+    expect(followupScrollJumps).toEqual([])
+
+    const viewMessageCounts = events
+      .filter((event) => event.name === "session.view.state" && event.timeline_session_id === session.id)
+      .map((event) => numberData(event, "message_count") ?? 0)
+    expect(Math.max(...viewMessageCounts)).toBeGreaterThanOrEqual(91)
   })
 })
