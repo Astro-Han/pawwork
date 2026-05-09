@@ -1,14 +1,14 @@
-[data-component="markdown"] {
-  /* Reset & Base Typography */
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: break-word;
-  color: var(--fg-strong);
-  font-family: var(--font-family-sans);
-  font-size: var(--font-size-base); /* 13px */
-  line-height: 160%;
+/* Markdown body — W3 lock 2026-05-10
+   Source of truth: docs/design/preview/markdown-body.html
+   Standard: docs/design/STANDARDS.md#L43 */
 
-  /* Spacing for flow */
+[data-component="markdown"] {
+  min-width: 0;
+  max-width: 75ch;
+  overflow-wrap: break-word;
+  font: var(--type-body);
+  color: var(--fg-strong);
+
   > *:first-child {
     margin-top: 0;
   }
@@ -16,121 +16,270 @@
     margin-bottom: 0;
   }
 
-  /* Headings: Same size, distinguished by color and spacing */
+  /* §1 Headings · G mapping
+     All 4 tiers use --type-h3 (500 13/150);
+     hierarchy via fg color + margin only */
   h1,
-  h2,
-  h3,
-  h4,
+  h2 {
+    font: var(--type-h3);
+    color: var(--fg-strong);
+    margin: var(--space-2xl) 0 var(--space-xs);
+  }
+  h2 {
+    margin-top: var(--space-xl);
+  }
+  h3 {
+    font: var(--type-h3);
+    color: var(--fg-base);
+    margin: var(--space-lg) 0 var(--space-xs);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  h4 {
+    font: var(--type-h3);
+    color: var(--fg-weak);
+    margin: var(--space-md) 0 var(--space-xs);
+    text-transform: none;
+    letter-spacing: 0;
+  }
   h5,
   h6 {
-    font-size: var(--font-size-hierarchy);
-    color: var(--fg-strong);
-    font-weight: var(--font-weight-medium);
-    margin-top: 0px;
-    margin-bottom: 24px;
-    line-height: var(--line-height-large);
+    font: var(--type-h3);
+    color: var(--fg-weak);
+    margin: var(--space-md) 0 var(--space-xs);
   }
 
-  /* Emphasis & Strong: Neutral strong color */
+  /* §2 Paragraph + inline emphasis */
+  p {
+    margin: 0 0 var(--space-md);
+  }
+  p:last-child {
+    margin-bottom: 0;
+  }
   strong,
   b {
     color: var(--fg-strong);
     font-weight: var(--font-weight-medium);
   }
-
-  /* Paragraphs */
-  p {
-    margin-bottom: 12px;
+  em,
+  i {
+    font-style: italic;
+  }
+  del,
+  s {
+    text-decoration: line-through;
+    color: var(--fg-weak);
   }
 
-  /* Links */
+  /* §3 Links · ink-only quiet underline */
   a {
-    color: var(--brand-primary);
-    text-decoration: none;
-    font-weight: inherit;
-  }
-
-  a:hover {
+    color: inherit;
     text-decoration: underline;
-    text-underline-offset: 2px;
+    text-decoration-color: var(--fg-weak);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    transition: text-decoration-color var(--duration-fast) ease-out;
+    overflow-wrap: anywhere;
+  }
+  a:hover {
+    text-decoration-color: currentColor;
+  }
+  /* 偏离: focus halo border-radius 2px (DESIGN.md radii 6/10/14/9999).
+     理由: inline 链接焦点环紧贴文字行盒,4pt 网格不适用于 inline 焦点圆角;
+     2px 是 inline-link 行业惯例 (Stripe / Linear / GitHub 同向) */
+  a:focus-visible {
+    outline: none;
+    border-radius: 2px;
+    box-shadow:
+      0 0 0 1px var(--brand-primary),
+      0 0 0 3px rgba(255, 89, 16, 0.2);
   }
 
-  /* Lists */
+  /* §4 Inline code · 复用 DESIGN.md「Code & diff」 */
+  :not(pre) > code {
+    font: var(--type-mono-small);
+    background: var(--surface-sunken);
+    padding: 0 var(--space-xs);
+    border-radius: var(--radius-sm);
+    color: var(--fg-strong);
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+
+  /* §5 Lists */
   ul,
   ol {
-    margin-top: 8px;
-    margin-bottom: 12px;
-    margin-left: 0;
-    padding-left: 32px;
-    list-style-position: outside;
+    margin: 0 0 var(--space-md);
+    padding-left: 24px;
   }
-
-  ul {
-    list-style-type: disc;
+  ul ul,
+  ul ol,
+  ol ul,
+  ol ol {
+    margin: var(--space-xs) 0;
   }
-
-  ol {
-    list-style-type: decimal;
-    padding-left: 2.25rem;
-  }
-
   li {
-    margin-bottom: 8px;
+    margin: 0 0 var(--space-xs);
   }
-
-  li > p:first-child {
-    display: inline;
-    margin: 0;
+  li:last-child {
+    margin-bottom: 0;
   }
-
-  li > p + p {
-    display: block;
-    margin-top: 0.5rem;
+  li > p {
+    margin: 0 0 var(--space-xs);
   }
-
+  li > p:last-child {
+    margin-bottom: 0;
+  }
+  ul {
+    list-style: disc;
+  }
+  ol {
+    list-style: decimal;
+  }
   li::marker {
     color: var(--fg-weak);
   }
 
-  /* Nested lists spacing */
-  li > ul,
-  li > ol {
-    margin-top: 0.25rem;
-    margin-bottom: 0.25rem;
-    padding-left: 1rem; /* Minimal indent for nesting only */
+  /* §6 Task list · 16px circle / circle-check svg, read-only */
+  ul.task-list {
+    list-style: none;
+    padding-left: 0;
+  }
+  ul.task-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding-left: 0;
+    margin: 0 0 var(--space-xs);
+  }
+  /* 偏离: svg margin-top 2px (DESIGN.md 4pt 网格).
+     理由: 16px 图标对齐 13/160 文字基线的光学调整 ((20.8-16)/2 ≈ 2),
+     不属布局间距 */
+  ul.task-list li > svg {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    color: var(--fg-strong);
+    margin-top: 2px;
   }
 
-  li > ol {
-    padding-left: 1.75rem;
-  }
-
-  /* Blockquotes */
+  /* §7 Blockquote · cream + radius-sm, no left line (avoids BAN 1) */
   blockquote {
-    border-left: 2px solid var(--border-weak);
-    margin: 1.5rem 0;
-    padding-left: 0.5rem;
-    color: var(--fg-weak);
-    font-style: normal;
+    margin: 0 0 var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    background: var(--bg-cream);
+    border-radius: var(--radius-sm);
+    color: var(--fg-base);
+  }
+  blockquote > :first-child {
+    margin-top: 0;
+  }
+  blockquote > :last-child {
+    margin-bottom: 0;
   }
 
-  /* Horizontal Rule - Invisible spacing only */
+  /* §8 Horizontal rule */
   hr {
-    border: none;
-    height: 0;
-    margin: 40px 0;
+    border: 0;
+    border-top: 1px solid var(--border-weak);
+    margin: var(--space-2xl) 0;
   }
 
+  /* §9 Table */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0 0 var(--space-md);
+    font: var(--type-body);
+  }
+  thead th {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-cream);
+    border-bottom: 1px solid var(--border-weak);
+    font: var(--type-h3);
+    color: var(--fg-strong);
+    text-align: left;
+    vertical-align: top;
+  }
+  tbody td {
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--border-weaker);
+    color: var(--fg-base);
+    vertical-align: top;
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  th[data-numeric="true"],
+  td[data-numeric="true"] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* §10 Image · 1px frame + radius-md (DESIGN.md「User content frame」) */
+  img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--border-weak);
+    border-radius: var(--radius-md);
+    margin: var(--space-md) 0;
+    cursor: zoom-in;
+  }
+
+  /* §11 details / summary · chev + summary text, chev rotates 90deg on open */
+  details {
+    margin: 0 0 var(--space-md);
+  }
+  details > summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 0;
+    list-style: none;
+    font-weight: var(--font-weight-medium);
+    color: var(--fg-strong);
+    user-select: none;
+  }
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+  details > summary > svg.chev {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    color: var(--fg-weaker);
+    transition: transform var(--duration-base) ease-out;
+  }
+  details[open] > summary > svg.chev {
+    transform: rotate(90deg);
+  }
+  details > :not(summary) {
+    margin-left: 24px;
+  }
+
+  /* §12 Fence code · defers to DESIGN.md L36「Code & diff」.codeblock truth.
+     pre + .shiki rules retained for code-surfaces compatibility. */
+  pre {
+    margin: var(--space-md) 0;
+    overflow: auto;
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
   .shiki {
-    font-size: var(--font-size-x-small);
-    padding: 12px;
-    border-radius: 6px;
+    font: var(--type-mono-small);
+    padding: var(--space-md);
+    border-radius: var(--radius-sm);
     border: 0.5px solid var(--border-weak);
   }
 
+  /* Code copy-button overlay (fence shell affordance) */
   [data-component="markdown-code"] {
     position: relative;
   }
-
   [data-slot="markdown-copy-button"] {
     position: absolute;
     top: 4px;
@@ -146,7 +295,6 @@
       bottom: calc(100% + 4px);
       transform: translateX(-50%);
       z-index: 1000;
-
       max-width: 320px;
       border-radius: var(--radius-sm);
       background: var(--surface-raised);
@@ -154,113 +302,39 @@
       padding: 2px 8px;
       border: 1px solid var(--border-weak, rgba(0, 0, 0, 0.07));
       box-shadow: var(--shadow-floating);
-
       pointer-events: none;
       white-space: nowrap;
-
       font-family: var(--font-family-sans);
       font-size: var(--font-size-small);
       font-style: normal;
       font-weight: var(--font-weight-medium);
       line-height: var(--line-height-large);
       letter-spacing: var(--letter-spacing-normal);
-
       opacity: 0;
       transition: opacity 0.15s ease;
     }
   }
-
   [data-slot="markdown-copy-button"]:hover::after,
   [data-slot="markdown-copy-button"]:focus-visible::after {
     opacity: 1;
   }
-
   [data-slot="markdown-copy-button"][data-variant="secondary"] {
     box-shadow: none;
     border: 1px solid var(--border-weak);
   }
-
   [data-slot="markdown-copy-button"][data-variant="secondary"] [data-slot="icon-svg"] {
     color: var(--icon-base);
   }
-
   [data-component="markdown-code"]:hover [data-slot="markdown-copy-button"] {
     opacity: 1;
   }
-
   [data-slot="markdown-copy-button"] [data-slot="check-icon"] {
     display: none;
   }
-
   [data-slot="markdown-copy-button"][data-copied="true"] [data-slot="copy-icon"] {
     display: none;
   }
-
   [data-slot="markdown-copy-button"][data-copied="true"] [data-slot="check-icon"] {
     display: inline-flex;
   }
-
-  pre {
-    margin-top: 12px;
-    margin-bottom: 32px;
-    overflow: auto;
-
-    scrollbar-width: none;
-    &::-webkit-scrollbar {
-      display: none;
-    }
-  }
-
-  :not(pre) > code {
-    font-family: var(--font-family-mono);
-    font-feature-settings: var(--font-family-mono--font-feature-settings);
-    color: var(--syntax-string);
-    font-weight: var(--font-weight-medium);
-    font-size: var(--font-size-x-small);
-
-    /* padding: 2px 2px; */
-    /* margin: 0 1.5px; */
-    /* border-radius: 2px; */
-    /* background: var(--surface-base); */
-    /* box-shadow: 0 0 0 0.5px var(--border-weak); */
-  }
-
-  /* Tables */
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 24px 0;
-    font-size: var(--font-size-base);
-    display: block;
-    overflow-x: auto;
-  }
-
-  th,
-  td {
-    /* Minimal borders for structure, matching TUI "lines" roughly but keeping it web-clean */
-    border-bottom: 1px solid var(--border-weaker);
-    padding: 12px;
-    text-align: left;
-    vertical-align: top;
-  }
-
-  th {
-    color: var(--fg-strong);
-    font-weight: var(--font-weight-medium);
-    border-bottom: 1px solid var(--border-weak);
-  }
-
-  /* Images */
-  img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 4px;
-    margin: 1.5rem 0;
-    display: block;
-  }
-}
-
-[data-component="markdown"] a.external-link:hover > code {
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
