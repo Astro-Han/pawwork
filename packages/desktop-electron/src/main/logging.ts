@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 
 const MAX_LOG_AGE_DAYS = 7
 const TAIL_LINES = 1000
-const CONSOLE_TRANSPORT_INITIALIZED = Symbol("pawwork.consoleTransportInitialized")
+const CONSOLE_TRANSPORT_INITIALIZED = Symbol.for("pawwork.consoleTransportInitialized")
 
 export function initLogging() {
   log.transports.file.maxSize = 5 * 1024 * 1024

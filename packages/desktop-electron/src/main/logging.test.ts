@@ -110,4 +110,15 @@ describe("desktop logging", () => {
 
     expect(consoleTransport.wrapCount).toBe(1)
   })
+
+  test("does not wrap the console transport again across fresh module imports", async () => {
+    const consoleTransport = setupLog(() => undefined)
+    const first = await import(`./logging?logging-test=${crypto.randomUUID()}`)
+    const second = await import(`./logging?logging-test=${crypto.randomUUID()}`)
+
+    first.initLogging()
+    second.initLogging()
+
+    expect(consoleTransport.wrapCount).toBe(1)
+  })
 })
