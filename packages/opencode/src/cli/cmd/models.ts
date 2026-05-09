@@ -1,13 +1,13 @@
 import type { Argv } from "yargs"
-import { Instance } from "../../project/instance"
+import { Effect } from "effect"
 import { Provider } from "../../provider/provider"
 import { ProviderID } from "../../provider/schema"
 import { ModelsDev } from "../../provider/models"
-import { cmd } from "./cmd"
+import { effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import { EOL } from "os"
 
-export const ModelsCommand = cmd({
+export const ModelsCommand = effectCmd({
   command: "models [provider]",
   describe: "list all available models",
   builder: (yargs: Argv) => {
@@ -26,53 +26,46 @@ export const ModelsCommand = cmd({
         type: "boolean",
       })
   },
-  handler: async (args) => {
+  handler: Effect.fn("Cli.models")(function* (args) {
     if (args.refresh) {
-      await ModelsDev.refresh(true)
+      yield* Effect.promise(() => ModelsDev.refresh(true))
       UI.println(UI.Style.TEXT_SUCCESS_BOLD + "Models cache refreshed" + UI.Style.TEXT_NORMAL)
     }
 
-    await Instance.provide({
-      directory: process.cwd(),
-      async fn() {
-        const providers = await Provider.list()
+    const provider = yield* Provider.Service
+    const providers = yield* provider.list()
 
-        function printModels(providerID: ProviderID, verbose?: boolean) {
-          const provider = providers[providerID]
-          const sortedModels = Object.entries(provider.models).sort(([a], [b]) => a.localeCompare(b))
-          for (const [modelID, model] of sortedModels) {
-            process.stdout.write(`${providerID}/${modelID}`)
-            process.stdout.write(EOL)
-            if (verbose) {
-              process.stdout.write(JSON.stringify(model, null, 2))
-              process.stdout.write(EOL)
-            }
-          }
+    function printModels(providerID: ProviderID, verbose?: boolean) {
+      const provider = providers[providerID]
+      const sortedModels = Object.entries(provider.models).sort(([a], [b]) => a.localeCompare(b))
+      for (const [modelID, model] of sortedModels) {
+        process.stdout.write(`${providerID}/${modelID}`)
+        process.stdout.write(EOL)
+        if (verbose) {
+          process.stdout.write(JSON.stringify(model, null, 2))
+          process.stdout.write(EOL)
         }
+      }
+    }
 
-        if (args.provider) {
-          const provider = providers[ProviderID.make(args.provider)]
-          if (!provider) {
-            UI.error(`Provider not found: ${args.provider}`)
-            return
-          }
+    if (args.provider) {
+      const provider = providers[ProviderID.make(args.provider)]
+      if (!provider) return yield* fail(`Provider not found: ${args.provider}`)
 
-          printModels(ProviderID.make(args.provider), args.verbose)
-          return
-        }
+      printModels(ProviderID.make(args.provider), args.verbose)
+      return
+    }
 
-        const providerIDs = Object.keys(providers).sort((a, b) => {
-          const aIsOpencode = a.startsWith("opencode")
-          const bIsOpencode = b.startsWith("opencode")
-          if (aIsOpencode && !bIsOpencode) return -1
-          if (!aIsOpencode && bIsOpencode) return 1
-          return a.localeCompare(b)
-        })
-
-        for (const providerID of providerIDs) {
-          printModels(ProviderID.make(providerID), args.verbose)
-        }
-      },
+    const providerIDs = Object.keys(providers).sort((a, b) => {
+      const aIsOpencode = a.startsWith("opencode")
+      const bIsOpencode = b.startsWith("opencode")
+      if (aIsOpencode && !bIsOpencode) return -1
+      if (!aIsOpencode && bIsOpencode) return 1
+      return a.localeCompare(b)
     })
-  },
+
+    for (const providerID of providerIDs) {
+      printModels(ProviderID.make(providerID), args.verbose)
+    }
+  }),
 })
