@@ -2,13 +2,14 @@ import { createEffect, createMemo } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
-import { sendFollowupDraft } from "@/components/prompt-input/submit"
+import { followupCommandText, sendFollowupDraft } from "@/components/prompt-input/submit"
 import type { useGlobalSync } from "@/context/global-sync"
 import type { useSDK } from "@/context/sdk"
 import type { useSettings } from "@/context/settings"
 import type { useSync } from "@/context/sync"
 import { Identifier } from "@/utils/id"
 import { Persist, persisted } from "@/utils/persist"
+import { canSendFollowupDraft } from "./session-action-readiness"
 
 export type FollowupItem = FollowupDraft & { id: string }
 export type FollowupEdit = Pick<FollowupItem, "id" | "prompt" | "context">
@@ -60,6 +61,14 @@ export function shouldAutoSendFollowup(input: {
 export function followupDraftForDirectory(item: FollowupItem, directory: string): FollowupItem {
   if (item.sessionDirectory === directory) return item
   return { ...item, sessionDirectory: directory }
+}
+
+export function canSendFollowupItem(input: { item: FollowupDraft; actionReady: boolean; commandsReady: boolean }) {
+  return canSendFollowupDraft({
+    draft: { text: followupCommandText(input.item) },
+    submitReady: input.actionReady,
+    commandsReady: input.commandsReady,
+  })
 }
 
 export function createSessionFollowups(input: {
@@ -175,10 +184,18 @@ export function createSessionFollowups(input: {
   )
 
   const sendFollowup = (sessionID: string, id: string, opts?: { manual?: boolean }) => {
-    if (!input.actionReady()) return Promise.resolve()
     if (input.sync.session.get(sessionID)?.parentID) return Promise.resolve()
     const item = (followup.items[sessionID] ?? []).find((entry) => entry.id === id)
     if (!item) return Promise.resolve()
+    if (
+      !canSendFollowupItem({
+        item,
+        actionReady: input.actionReady(),
+        commandsReady: input.sync.data.command_ready,
+      })
+    ) {
+      return Promise.resolve()
+    }
     if (followupBusy(sessionID)) return Promise.resolve()
 
     return followupMutation.mutateAsync({ sessionID, id, manual: opts?.manual })
@@ -215,7 +232,14 @@ export function createSessionFollowups(input: {
       !shouldAutoSendFollowup({
         hasSession: !!sessionID,
         hasItem: !!item,
-        actionReady: input.actionReady(),
+        actionReady: !!(
+          item &&
+          canSendFollowupItem({
+            item,
+            actionReady: input.actionReady(),
+            commandsReady: input.sync.data.command_ready,
+          })
+        ),
         busy: input.busy(),
         failed: !!(sessionID && item && followup.failed[sessionID] === item.id),
         paused: !!(sessionID && followup.paused[sessionID]),

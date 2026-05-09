@@ -258,6 +258,7 @@ export async function bootstrapDirectory(input: {
   input.setStore("mcp", {})
   input.setStore("lsp_ready", false)
   input.setStore("lsp", [])
+  input.setStore("command_ready", false)
   input.setStore("session_status_state", "loading")
   input.setStore("session_status_ready", false)
   input.setStore("session_status", reconcile(statusBaseline))
@@ -354,7 +355,17 @@ export async function bootstrapDirectory(input: {
             if (next) input.vcsCache.setStore("value", next)
           }),
         ),
-      () => retry(() => input.sdk.command.list().then((x) => input.setStore("command", x.data ?? []))),
+      () =>
+        retry(() =>
+          input.sdk.command.list().then((x) => {
+            input.setStore("command", x.data ?? [])
+            input.setStore("command_ready", true)
+          }),
+        ).catch((err) => {
+          input.setStore("command", [])
+          input.setStore("command_ready", false)
+          throw err
+        }),
       () =>
         retry(() =>
           input.sdk.permission.list().then((x) => {

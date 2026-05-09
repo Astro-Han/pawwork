@@ -24,6 +24,7 @@ const syncedDirectories: string[] = []
 const promptAsyncCalls: Array<Record<string, unknown>> = []
 const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
+let commandsReady = true
 const abortedSessions: string[] = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
@@ -166,7 +167,7 @@ beforeAll(async () => {
 
   mock.module("@/context/sync", () => ({
     useSync: () => ({
-      data: { command: commandDefinitions },
+      data: { command: commandDefinitions, get command_ready() { return commandsReady } },
       session: {
         optimistic: {
           add: (value: {
@@ -248,6 +249,7 @@ beforeEach(() => {
   promptAsyncCalls.length = 0
   commandCalls.length = 0
   commandDefinitions.length = 0
+  commandsReady = true
   abortedSessions.length = 0
   globalTodoSets.length = 0
   childTodoSets.length = 0
@@ -325,6 +327,64 @@ describe("prompt submit worktree selection", () => {
     expect(submits).toEqual([])
     expect(abortedSessions).toEqual([])
     expect(promptAsyncCalls).toEqual([])
+  })
+
+  test("blocks normal slash submit until commands hydrate", async () => {
+    params = { id: "session-existing" }
+    commandsReady = false
+    commandDefinitions.push({ name: "summarize" })
+    promptValue = [{ type: "text", content: "/summarize this", start: 0, end: 15 }]
+    const submit = createPromptSubmit({
+      sessionID: () => "session-existing",
+      isNewSession: () => false,
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(commandCalls).toEqual([])
+    expect(promptAsyncCalls).toEqual([])
+  })
+
+  test("does not block shell absolute paths on command hydration", async () => {
+    params = { id: "session-existing" }
+    commandsReady = false
+    promptValue = [{ type: "text", content: "/bin/ls", start: 0, end: 7 }]
+    const submit = createPromptSubmit({
+      sessionID: () => "session-existing",
+      isNewSession: () => false,
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(sentShell).toEqual(["/repo/main"])
   })
 
   test("allows abort while submit readiness is blocked", async () => {
@@ -607,7 +667,7 @@ describe("prompt submit worktree selection", () => {
         child: () => [{}, () => undefined],
       } as any,
       sync: {
-        data: { command: [{ name: "summarize" }] },
+        data: { command: [{ name: "summarize" }], command_ready: true },
         session: {
           optimistic: {
             add: () => undefined,

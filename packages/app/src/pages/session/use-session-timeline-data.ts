@@ -1,8 +1,6 @@
 import { createEffect, createMemo, on } from "solid-js"
 import type { useLocal } from "@/context/local"
 import type { useSync } from "@/context/sync"
-import type { SessionStatus } from "@opencode-ai/sdk/v2/client"
-import type { SessionStatusState } from "@/context/global-sync/types"
 import { createSessionViewController } from "@/pages/session/session-view-controller"
 import {
   emptyMessages,
@@ -14,6 +12,23 @@ import { syncSessionModel } from "@/pages/session/session-model-helpers"
 import { diffs as list } from "@/utils/diffs"
 import { same } from "@/utils/same"
 import { makeSessionScope, sameSessionScope, sessionScopeKey, type SessionScope } from "./session-scope"
+import {
+  currentDirectoryProviderUsable,
+  currentSessionActionReady,
+  currentSessionCacheReady,
+  currentSessionSubmitReady,
+  currentWorkspaceSubmitReady,
+  sessionStatusKnown,
+} from "./session-action-readiness"
+
+export {
+  currentDirectoryProviderUsable,
+  currentSessionActionReady,
+  currentSessionCacheReady,
+  currentSessionSubmitReady,
+  currentWorkspaceSubmitReady,
+  sessionStatusKnown,
+} from "./session-action-readiness"
 
 type LastGoodMessages =
   | {
@@ -60,49 +75,6 @@ export function timelineModelSyncKey(input: {
   localReady: boolean
 }) {
   return `${input.directory}\n${input.messageID ?? ""}\n${input.localReady ? "ready" : "loading"}`
-}
-
-export function currentSessionCacheReady(input: {
-  sessionID: string | undefined
-  sessionInfo: unknown
-  rawMessages: unknown
-}) {
-  if (!input.sessionID) return true
-  return input.sessionInfo !== undefined && input.rawMessages !== undefined
-}
-
-export function currentSessionActionReady(input: {
-  sessionID: string | undefined
-  sessionInfo: unknown
-  rawMessages: unknown
-  statusReady: boolean
-}) {
-  if (!input.sessionID) return true
-  return currentSessionCacheReady(input) && input.statusReady
-}
-
-export function currentSessionSubmitReady(input: {
-  sessionID: string | undefined
-  sessionInfo: unknown
-  rawMessages: unknown
-  statusReady: boolean
-  localReady: boolean
-  providerUsable: boolean
-}) {
-  return currentSessionActionReady(input) && input.localReady && input.providerUsable
-}
-
-export function currentWorkspaceSubmitReady(input: { localReady: boolean; providerUsable: boolean }) {
-  return input.localReady && input.providerUsable
-}
-
-export function currentDirectoryProviderUsable(input: { providerReady: boolean; providerCount: number }) {
-  return input.providerReady || input.providerCount > 0
-}
-
-export function sessionStatusKnown(input: { statusState: SessionStatusState; status: SessionStatus | undefined }) {
-  if (input.statusState === "ready" || input.statusState === "error") return true
-  return input.status?.type === "busy" || input.status?.type === "retry"
 }
 
 export function readTimelineMessagesFromCache(input: {

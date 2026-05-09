@@ -22,6 +22,7 @@ import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { buildHomeOverride } from "./home-override"
 import { formatServerError } from "@/utils/server-errors"
+import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
 
 type PendingPrompt = {
   abort: AbortController
@@ -54,10 +55,14 @@ type FollowupSendInput = {
 
 const draftText = (prompt: Prompt) => prompt.map((part) => ("content" in part ? part.content : "")).join("")
 
+export function followupCommandText(draft: FollowupDraft) {
+  return draft.outgoingTextOverride ?? draftText(draft.prompt)
+}
+
 const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttachmentPart => part.type === "image")
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
-  const text = input.draft.outgoingTextOverride ?? draftText(input.draft.prompt)
+  const text = followupCommandText(input.draft)
   const images = draftImages(input.draft.prompt)
   const [, setStore] = input.globalSync.child(input.draft.sessionDirectory)
 
@@ -320,7 +325,16 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       if (input.working()) abort()
       return
     }
-    if (!actionReady()) return
+    if (
+      !canSubmitPrompt({
+        mode,
+        text,
+        submitReady: actionReady(),
+        commandsReady: sync.data.command_ready,
+      })
+    ) {
+      return
+    }
 
     const currentModel = local.model.current()
     const currentAgent = local.agent.current()

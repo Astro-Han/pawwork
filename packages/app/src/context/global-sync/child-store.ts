@@ -182,6 +182,7 @@ export function createChildStoreManager(input: {
             status: "loading" as const,
             agent: [],
             command: [],
+            command_ready: false,
             session: [],
             sessionTotal: 0,
             session_status: {},
