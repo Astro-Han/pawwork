@@ -32,8 +32,8 @@
     margin-bottom: 4px;
 
     > [data-component="icon-button"] {
-      width: 24px;
-      height: 24px;
+      width: 30px;
+      height: 30px;
       flex-shrink: 0;
       background-color: transparent;
       opacity: 0.5;

@@ -107,7 +107,7 @@ export function Titlebar() {
           >
             <Button
               variant="ghost"
-              class="group/sidebar-toggle titlebar-icon w-8 h-6 p-0 box-border"
+              class="group/sidebar-toggle titlebar-icon w-8 h-[30px] p-0 box-border"
               onClick={layout.sidebar.toggle}
               aria-label={language.t("command.sidebar.toggle")}
               aria-expanded={layout.sidebar.opened()}
@@ -125,7 +125,7 @@ export function Titlebar() {
               <Button
                 variant="ghost"
                 icon="new-session"
-                class="titlebar-icon w-8 h-6 p-0 box-border"
+                class="titlebar-icon w-8 h-[30px] p-0 box-border"
                 onClick={() => {
                   if (!params.dir) return
                   navigate(`/${params.dir}/session`)

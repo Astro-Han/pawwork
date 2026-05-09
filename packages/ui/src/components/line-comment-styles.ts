@@ -249,7 +249,7 @@ export const lineCommentStyles = `
   background: var(--surface-base);
   color: var(--fg-strong);
   border-radius: var(--radius-md);
-  height: 32px;
+  height: 30px;
   padding: 0 10px;
   font-family: var(--font-family-sans);
   font-size: var(--font-size-small);

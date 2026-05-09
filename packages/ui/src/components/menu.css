@@ -49,8 +49,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    /* Lock to the L30 menu / L35 sidebar 32 row family. */
-    min-height: 32px;
+    /* L30 menu item height; aligned with L25 button 28 after slice 10 unification. */
+    min-height: 30px;
     padding: 0 8px;
     border-radius: var(--radius-md);
     cursor: default;

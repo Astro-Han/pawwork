@@ -35,7 +35,7 @@ function FileCommentMenu(props: {
           icon="dot-grid"
           variant="ghost"
           size="small"
-          class="size-6 rounded-md"
+          class="rounded-md"
           aria-label={props.moreLabel}
         />
         <DropdownMenu.Portal>

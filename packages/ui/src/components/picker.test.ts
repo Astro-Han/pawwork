@@ -29,11 +29,11 @@ describe("picker.css: contract selectors are present", () => {
 })
 
 describe("picker.css: trigger contract", () => {
-  test("trigger height is 28px", () => {
+  test("trigger height is 30px", () => {
     const triggerIdx = css.indexOf("[data-picker-trigger] {")
     expect(triggerIdx).toBeGreaterThan(-1)
     const block = css.slice(triggerIdx, triggerIdx + 300)
-    expect(block).toContain("height: 28px")
+    expect(block).toContain("height: 30px")
   })
 
   test("trigger border-radius uses --radius-md", () => {
@@ -79,11 +79,11 @@ describe("picker.css: content contract", () => {
 })
 
 describe("picker.css: item contract", () => {
-  test("item height is 32px", () => {
+  test("item height is 30px", () => {
     const itemIdx = css.indexOf("[data-picker-item] {")
     expect(itemIdx).toBeGreaterThan(-1)
     const block = css.slice(itemIdx, itemIdx + 800)
-    expect(block).toContain("height: 32px")
+    expect(block).toContain("height: 30px")
   })
 
   test("item padding is 0 8px", () => {

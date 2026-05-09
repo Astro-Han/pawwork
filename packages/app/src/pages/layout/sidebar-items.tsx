@@ -168,7 +168,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       <div
         data-session-id={props.session.id}
         data-component="pawwork-session-row"
-        class="group/session relative w-full min-w-0 h-[32px] flex items-center rounded-sm cursor-default pr-[10px] transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
+        class="group/session relative w-full min-w-0 h-[30px] flex items-center rounded-sm cursor-default pr-[10px] transition-colors hover:bg-row-hover-overlay [&:has(:focus-visible)]:bg-row-hover-overlay has-[[data-expanded]]:bg-row-hover-overlay has-[.active]:bg-row-active-overlay has-[.active]:hover:bg-row-active-overlay"
         // Sub-session indentation: base padding is 10 (sidebar row spec); add 16 per nesting level.
         // The flat-row spec locks left-side affordances at 10; nested-row indentation is a deliberate
         // visual departure to express parent/child without re-introducing accent bars.
@@ -255,7 +255,7 @@ export const SessionSkeleton = (props: { count?: number }): JSX.Element => {
   return (
     <div class="flex flex-col gap-0.5">
       <For each={items}>
-        {() => <div class="h-8 w-full rounded-md bg-surface-raised opacity-60 animate-pulse" />}
+        {() => <div class="h-[30px] w-full rounded-md bg-surface-raised opacity-60 animate-pulse" />}
       </For>
     </div>
   )

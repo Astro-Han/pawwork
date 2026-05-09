@@ -108,7 +108,7 @@ export function SessionHeader() {
                       type="button"
                       variant="ghost"
                       size="small"
-                      class="group h-6 max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-fg-weak hover:text-fg-strong"
+                      class="group h-[26px] max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-fg-weak hover:text-fg-strong"
                       onClick={openProjectDirectory}
                       aria-label={
                         canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined
@@ -156,7 +156,7 @@ export function SessionHeader() {
               <Tooltip placement="bottom" value={language.t("session.panel.utility")}>
                 <Button
                   variant="ghost"
-                  class="titlebar-icon w-8 h-6 p-0 box-border"
+                  class="titlebar-icon w-8 h-[30px] p-0 box-border"
                   onClick={toggleRightPanel}
                   aria-label={language.t("session.panel.utility")}
                   aria-expanded={rightPanelOpen()}

@@ -1,8 +1,9 @@
 import type { Todo } from "@opencode-ai/sdk/v2"
 import { AnimatedNumber } from "@opencode-ai/ui/animated-number"
 import { Icon } from "@opencode-ai/ui/icon"
-import { DockTray } from "@opencode-ai/ui/dock-surface"
+import { DockSegment } from "@opencode-ai/ui/dock-card"
 import { IconButton } from "@opencode-ai/ui/icon-button"
+import { DockWidgetHeader } from "@/pages/session/composer/dock-widget-header"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
 import { TextStrikethrough } from "@opencode-ai/ui/text-strikethrough"
@@ -11,6 +12,7 @@ import { Index, Show, createEffect, createMemo, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { composerEnabled, composerProbe } from "@/testing/session-composer"
 import { useLanguage } from "@/context/language"
+import { DOCK_MOTION } from "@/pages/session/composer/motion"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 
 const currentToken = "\u0000current\u0000"
@@ -62,14 +64,17 @@ export function SessionTodoDock(props: {
   )
 
   const preview = createMemo(() => active()?.content ?? "")
-  const collapse = useSpring(() => (store.collapsed ? 1 : 0), { visualDuration: 0.3, bounce: 0 })
+  const collapse = useSpring(() => (store.collapsed ? 1 : 0), DOCK_MOTION)
   const dock = createMemo(() => Math.max(0, Math.min(1, props.dockProgress)))
   const shut = createMemo(() => 1 - dock())
   const value = createMemo(() => Math.max(0, Math.min(1, collapse())))
   const hide = createMemo(() => Math.max(value(), shut()))
   const off = createMemo(() => hide() > 0.98)
   const turn = createMemo(() => Math.max(0, Math.min(1, value())))
-  const full = createMemo(() => Math.max(78, store.height))
+  // Collapsed widget height is 36 per DESIGN.md L305: 30 chev centered → 3+3
+  // breathing. See DockWidgetHeader for the wrapper flex fix that makes that
+  // breathing actually symmetric.
+  const full = createMemo(() => Math.max(36, store.height))
   const e2e = composerEnabled()
   const probe = composerProbe(props.sessionID)
   let contentRef: HTMLDivElement | undefined
@@ -102,30 +107,43 @@ export function SessionTodoDock(props: {
   })
 
   return (
-    <DockTray
+    <DockSegment
       data-component="session-todo-dock"
       style={{
         "overflow-x": "visible",
         "overflow-y": "hidden",
-        "max-height": `${Math.max(78, full() - value() * (full() - 78))}px`,
+        // dock() drives the 0 → visible mount slide-in (fed by parent spring
+        // when props.state.dock() flips true). Inner factor is the collapse
+        // animation: 36 collapsed, full when expanded. Multiplied so both
+        // animations compose without double-clamping at min 36.
+        "max-height": `${dock() * Math.max(36, full() - value() * (full() - 36))}px`,
       }}
     >
       <div ref={contentRef}>
-        <div
+        <DockWidgetHeader
           data-action="session-todo-toggle"
-          class="pl-3 pr-2 py-2 flex items-center gap-2 overflow-visible"
-          role="button"
-          tabIndex={0}
-          onClick={toggle}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return
-            event.preventDefault()
-            toggle()
-          }}
+          onToggle={toggle}
+          chev={
+            <IconButton
+              data-action="session-todo-toggle-button"
+              data-collapsed={store.collapsed ? "true" : "false"}
+              icon="chevron-down"
+              style={{ transform: `rotate(${turn() * 180}deg)` }}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onClick={(event) => {
+                event.stopPropagation()
+                toggle()
+              }}
+              aria-label={store.collapsed ? props.expandLabel : props.collapseLabel}
+            />
+          }
         >
           <span
             data-slot="session-todo-progress"
-            class="text-13-regular text-fg-strong cursor-default inline-flex items-baseline shrink-0 overflow-visible"
+            class="text-13-regular text-fg-strong cursor-default inline-flex items-center shrink-0 overflow-visible leading-none"
             aria-label={label()}
             style={{
               "--tool-motion-odometer-ms": "600ms",
@@ -157,7 +175,7 @@ export function SessionTodoDock(props: {
             }}
           >
             <TextReveal
-              class="text-13-regular text-fg-base cursor-default"
+              class="text-13-regular text-fg-base cursor-default leading-none"
               text={store.collapsed ? preview() : undefined}
               duration={600}
               travel={25}
@@ -168,24 +186,7 @@ export function SessionTodoDock(props: {
               truncate
             />
           </div>
-          <div class="ml-auto">
-            <IconButton
-              data-action="session-todo-toggle-button"
-              data-collapsed={store.collapsed ? "true" : "false"}
-              icon="chevron-down"
-              style={{ transform: `rotate(${turn() * 180}deg)` }}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-              onClick={(event) => {
-                event.stopPropagation()
-                toggle()
-              }}
-              aria-label={store.collapsed ? props.expandLabel : props.collapseLabel}
-            />
-          </div>
-        </div>
+        </DockWidgetHeader>
 
         <div
           data-slot="session-todo-list"
@@ -201,23 +202,16 @@ export function SessionTodoDock(props: {
           <TodoList todos={props.todos} />
         </div>
       </div>
-    </DockTray>
+    </DockSegment>
   )
 }
 
 function TodoList(props: { todos: SessionTodoItem[] }) {
-  const [store, setStore] = createStore({
-    stuck: false,
-  })
-
   return (
     <div class="relative">
       <div
-        class="px-3 pb-11 flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar"
+        class="px-3 pb-2 flex flex-col gap-1.5 max-h-42 overflow-y-auto no-scrollbar"
         style={{ "overflow-anchor": "none" }}
-        onScroll={(e) => {
-          setStore("stuck", e.currentTarget.scrollTop > 0)
-        }}
       >
         <Index each={props.todos}>
           {(todo) => (
@@ -282,13 +276,6 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
           )}
         </Index>
       </div>
-      <div
-        class="pointer-events-none absolute top-0 left-0 right-0 h-4 transition-opacity duration-150"
-        style={{
-          background: "linear-gradient(to bottom, var(--bg-base), transparent)",
-          opacity: store.stuck ? 1 : 0,
-        }}
-      />
     </div>
   )
 }

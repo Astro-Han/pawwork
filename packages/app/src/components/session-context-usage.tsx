@@ -79,20 +79,18 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
         {(ctx) => (
           <>
             <div class="flex items-center gap-2">
-              <span class="text-fg-on-brand">{language.t("context.usage.title")}</span>
+              <span>{language.t("context.usage.title")}</span>
             </div>
             <div class="flex items-center gap-2">
-              <span class="text-fg-on-brand">{contextUsedText(ctx())}</span>
+              <span>{contextUsedText(ctx())}</span>
             </div>
-            <Show when={compactStatus()}>
-              {(status) => <div class="text-fg-on-brand">{status()}</div>}
-            </Show>
+            <Show when={compactStatus()}>{(status) => <div>{status()}</div>}</Show>
           </>
         )}
       </Show>
       <div class="flex items-center gap-2">
-        <span class="text-fg-on-brand">{cost()}</span>
-        <span class="text-fg-on-brand">{language.t("context.usage.cost")}</span>
+        <span>{cost()}</span>
+        <span>{language.t("context.usage.cost")}</span>
       </div>
     </div>
   )
@@ -106,7 +104,7 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
             <Button
               type="button"
               variant="ghost"
-              class="size-7 shrink-0 p-0 rounded-xl!"
+              class="size-[30px] shrink-0 p-0 rounded-full"
               onClick={openContext}
               aria-label={language.t("context.usage.view")}
             >

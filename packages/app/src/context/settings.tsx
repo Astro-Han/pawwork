@@ -103,7 +103,7 @@ const defaultSettings: Settings = {
   general: {
     autoSave: true,
     releaseNotes: true,
-    followup: "steer",
+    followup: "queue",
     showFileTree: false,
     showNavigation: false,
     showSearch: false,
@@ -175,9 +175,16 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       )
     })
 
+    // PawWork wants followup to always queue: submit during a busy session
+    // enters the followup dock; "send now" steers mid-stream; otherwise
+    // auto-send when the current turn ends. The "steer" mode (immediate
+    // submit during busy with no queue UI) is upstream-only and not
+    // surfaced by any PawWork settings UI, so any stored "steer" is a
+    // migration artifact from before this flip.
     createEffect(() => {
-      if (store.general?.followup !== "queue") return
-      setStore("general", "followup", "steer")
+      if (!ready()) return
+      if (store.general?.followup !== "steer") return
+      setStore("general", "followup", "queue")
     })
 
     // Mirror lspEnabled into the Electron main process. Fires on store
@@ -223,12 +230,9 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setReleaseNotes(value: boolean) {
           setStore("general", "releaseNotes", value)
         },
-        followup: withFallback(
-          () => (store.general?.followup === "queue" ? "steer" : store.general?.followup),
-          defaultSettings.general.followup,
-        ),
+        followup: withFallback(() => store.general?.followup, defaultSettings.general.followup),
         setFollowup(value: "queue" | "steer") {
-          setStore("general", "followup", value === "queue" ? "steer" : value)
+          setStore("general", "followup", value)
         },
         showFileTree: withFallback(() => store.general?.showFileTree, defaultSettings.general.showFileTree),
         setShowFileTree(value: boolean) {

@@ -19,7 +19,7 @@ export function FileSearchBar(props: {
   return (
     <Portal>
       <div
-        class="fixed z-50 flex h-8 items-center gap-2 rounded-md border border-border-base bg-bg-base px-3 shadow-md"
+        class="fixed z-50 flex h-[30px] items-center gap-2 rounded-md border border-border-base bg-bg-base px-3 shadow-md"
         style={{
           top: `${props.pos().top}px`,
           right: `${props.pos().right}px`,
@@ -41,7 +41,7 @@ export function FileSearchBar(props: {
         <div class="flex items-center">
           <button
             type="button"
-            class="size-6 grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
+            class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
             disabled={props.count() === 0}
             aria-label={i18n.t("ui.fileSearch.previousMatch")}
             onClick={props.onPrev}
@@ -50,7 +50,7 @@ export function FileSearchBar(props: {
           </button>
           <button
             type="button"
-            class="size-6 grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
+            class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
             disabled={props.count() === 0}
             aria-label={i18n.t("ui.fileSearch.nextMatch")}
             onClick={props.onNext}
@@ -60,7 +60,7 @@ export function FileSearchBar(props: {
         </div>
         <button
           type="button"
-          class="size-6 grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong"
+          class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong"
           aria-label={i18n.t("ui.fileSearch.close")}
           onClick={props.onClose}
         >

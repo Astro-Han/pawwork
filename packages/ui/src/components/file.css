@@ -18,8 +18,8 @@
 
     [data-slot="diff-hunk-separator-line-number-icon"] {
       aspect-ratio: 1;
-      width: 24px;
-      height: 24px;
+      width: 26px;
+      height: 26px;
       color: var(--icon-strong);
     }
   }

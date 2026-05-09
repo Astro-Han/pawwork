@@ -42,7 +42,7 @@ export function PawworkWorktreeBadge(props: {
         type="button"
         variant="ghost"
         size="small"
-        class="group h-6 max-w-[280px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-fg-weak transition-colors hover:bg-surface-raised hover:text-fg-strong"
+        class="group h-[26px] max-w-[280px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-fg-weak transition-colors hover:bg-surface-raised hover:text-fg-strong"
         data-component="pawwork-worktree-badge"
         onClick={props.onClick}
         aria-label={props.ariaLabel}

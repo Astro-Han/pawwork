@@ -43,7 +43,7 @@
       width: 100%;
       position: relative;
 
-      height: 32px;
+      height: 30px;
       padding: 0 12px;
       border-radius: var(--radius-md);
       border: 1px solid var(--border-weak);
@@ -95,7 +95,7 @@
 
     textarea[data-slot="input-input"] {
       height: auto;
-      min-height: 32px;
+      min-height: 30px;
       padding: 8px 0;
       resize: none;
     }

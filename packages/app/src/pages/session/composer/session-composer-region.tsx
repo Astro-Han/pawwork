@@ -1,22 +1,22 @@
-import { Show, createEffect, createMemo, onCleanup } from "solid-js"
-import { createStore } from "solid-js/store"
+import { Show, createEffect, createMemo } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
+import { DockCard, DockSegment } from "@opencode-ai/ui/dock-card"
 import { PromptInput } from "@/components/prompt-input"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { useSync } from "@/context/sync"
 import { getSessionHandoff, setSessionHandoff } from "@/pages/session/handoff"
 import { useSessionKey } from "@/pages/session/session-layout"
-import { SessionPermissionDock } from "@/pages/session/composer/session-permission-dock"
+import { SessionPermissionContent } from "@/pages/session/composer/session-permission-dock"
 import { SessionQuestionDock } from "@/pages/session/composer/session-question-dock"
 import { SessionFollowupDock } from "@/pages/session/composer/session-followup-dock"
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import type { SessionComposerState } from "@/pages/session/composer/session-composer-state"
+import { DOCK_MOTION } from "@/pages/session/composer/motion"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
-import { createResizeObserver } from "@solid-primitives/resize-observer"
 
 export function SessionComposerRegion(props: {
   variant?: "session" | "home"
@@ -71,7 +71,7 @@ export function SessionComposerRegion(props: {
   const parentID = createMemo(() => info()?.parentID)
   const child = createMemo(() => !!parentID())
   const home = createMemo(() => props.variant === "home")
-  const showComposer = createMemo(() => !props.state.blocked() || child())
+  const showComposer = createMemo(() => !!props.state.permissionRequest() || !props.state.blocked() || child())
 
   const previewPrompt = () =>
     prompt
@@ -92,66 +92,22 @@ export function SessionComposerRegion(props: {
     setSessionHandoff(key, { prompt: previewPrompt() })
   })
 
-  const [store, setStore] = createStore({
-    ready: false,
-    height: 320,
-    body: undefined as HTMLDivElement | undefined,
-  })
-  let timer: number | undefined
-  let frame: number | undefined
-
-  const clear = () => {
-    if (timer !== undefined) {
-      window.clearTimeout(timer)
-      timer = undefined
-    }
-    if (frame !== undefined) {
-      cancelAnimationFrame(frame)
-      frame = undefined
-    }
-  }
-
-  createEffect(() => {
-    displaySessionKey()
-    const ready = props.ready
-    const delay = 140
-
-    clear()
-    setStore("ready", false)
-    if (!ready) return
-
-    frame = requestAnimationFrame(() => {
-      frame = undefined
-      timer = window.setTimeout(() => {
-        setStore("ready", true)
-        timer = undefined
-      }, delay)
-    })
-  })
-
-  onCleanup(clear)
-
-  const open = createMemo(() => store.ready && props.state.dock())
-  const progress = useSpring(() => (open() ? 1 : 0), { visualDuration: 0.3, bounce: 0 })
-  const value = createMemo(() => Math.max(0, Math.min(1, progress())))
-  const dock = createMemo(() => (store.ready && props.state.dock()) || value() > 0.001)
   const rolled = createMemo(() => (props.revert?.items.length ? props.revert : undefined))
-  const lift = createMemo(() => (rolled() ? 18 : 36 * value()))
-  const full = createMemo(() => Math.max(78, store.height))
+
+  // Animate the Todo dock from 0 → visible when todos first appear (and back
+  // out when the dock closes). Multiplied into max-height inside the segment
+  // for slide-in + fed as dockProgress for content fade. Without this the
+  // dock pops in the moment props.state.dock() flips true.
+  const dockOpen = createMemo(() => props.state.dock())
+  const dockSpring = useSpring(() => (dockOpen() ? 1 : 0), DOCK_MOTION)
+  const dockProgress = createMemo(() => Math.max(0, Math.min(1, dockSpring())))
+  const dockMounted = createMemo(() => dockOpen() || dockProgress() > 0.001)
 
   const openParent = () => {
     const id = parentID()
     if (!id) return
     navigate(`/${route.params.dir}/session/${id}`)
   }
-
-  createResizeObserver(
-    () => store.body,
-    () => {
-      const el = store.body
-      if (el) setStore("height", el.getBoundingClientRect().height)
-    },
-  )
 
   return (
     <div
@@ -171,8 +127,7 @@ export function SessionComposerRegion(props: {
           "w-full pointer-events-auto": true,
           "px-4 md:px-3": !home(),
           "px-3": home(),
-          "md:max-w-[720px] md:mx-auto 2xl:max-w-[920px]": props.centered && !home(),
-          "mx-auto max-w-[1200px]": home(),
+          "md:max-w-[720px] md:mx-auto 2xl:max-w-[920px]": props.centered || home(),
         }}
       >
         <Show when={props.state.questionRequest()} keyed>
@@ -183,92 +138,67 @@ export function SessionComposerRegion(props: {
           )}
         </Show>
 
-        <Show when={props.state.permissionRequest()} keyed>
-          {(request) => (
-            <div>
-              <SessionPermissionDock
-                request={request}
-                responding={props.state.permissionResponding()}
-                onDecide={(response) => {
-                  props.onResponseSubmit()
-                  props.state.decide(response)
-                }}
-              />
-            </div>
-          )}
-        </Show>
-
         <Show when={showComposer()}>
           <Show
             when={prompt.ready()}
             fallback={
-              <>
+              <DockCard>
                 <Show when={rolled()} keyed>
                   {(revert) => (
-                    <div class="pb-2">
-                      <SessionRevertDock
-                        items={revert.items}
-                        restoring={revert.restoring}
-                        disabled={revert.disabled}
-                        onRestore={revert.onRestore}
-                      />
-                    </div>
+                    <SessionRevertDock
+                      items={revert.items}
+                      restoring={revert.restoring}
+                      disabled={revert.disabled}
+                      onRestore={revert.onRestore}
+                    />
                   )}
                 </Show>
-                <div
-                  data-dock-surface="shell"
-                  class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none"
+                {/* Permission requests can arrive while prompt is still
+                  hydrating; render them here too so the user can approve or
+                  deny without waiting for prompt.ready(). */}
+                <Show
+                  when={props.state.permissionRequest()}
+                  keyed
+                  fallback={
+                    <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none">
+                      {handoffPrompt() || language.t("prompt.loading")}
+                    </DockSegment>
+                  }
                 >
-                  {handoffPrompt() || language.t("prompt.loading")}
-                </div>
-              </>
+                  {(request) => (
+                    <SessionPermissionContent
+                      request={request}
+                      responding={props.state.permissionResponding()}
+                      onDecide={(response) => {
+                        props.onResponseSubmit()
+                        props.state.decide(response)
+                      }}
+                    />
+                  )}
+                </Show>
+              </DockCard>
             }
           >
-            <Show when={dock()}>
-              <div
-                classList={{
-                  "overflow-hidden": true,
-                  "pointer-events-none": value() < 0.98,
-                }}
-                style={{
-                  "max-height": `${full() * value()}px`,
-                }}
-              >
-                <div ref={(el) => setStore("body", el)}>
-                  <SessionTodoDock
-                    sessionID={displaySessionID()}
-                    todos={props.state.todos()}
-                    collapseLabel={language.t("session.todo.collapse")}
-                    expandLabel={language.t("session.todo.expand")}
-                    dockProgress={value()}
-                  />
-                </div>
-              </div>
-            </Show>
-            <Show when={rolled()} keyed>
-              {(revert) => (
-                <div
-                  style={{
-                    "margin-top": `${-36 * value()}px`,
-                  }}
-                >
+            <DockCard>
+              <Show when={dockMounted()}>
+                <SessionTodoDock
+                  sessionID={displaySessionID()}
+                  todos={props.state.todos()}
+                  collapseLabel={language.t("session.todo.collapse")}
+                  expandLabel={language.t("session.todo.expand")}
+                  dockProgress={dockProgress()}
+                />
+              </Show>
+              <Show when={rolled()} keyed>
+                {(revert) => (
                   <SessionRevertDock
                     items={revert.items}
                     restoring={revert.restoring}
                     disabled={revert.disabled}
                     onRestore={revert.onRestore}
                   />
-                </div>
-              )}
-            </Show>
-            <div
-              classList={{
-                "relative z-10": true,
-              }}
-              style={{
-                "margin-top": `${-lift()}px`,
-              }}
-            >
+                )}
+              </Show>
               <Show when={props.followup?.items.length}>
                 <SessionFollowupDock
                   items={props.followup!.items}
@@ -278,47 +208,64 @@ export function SessionComposerRegion(props: {
                 />
               </Show>
               <Show
-                when={child()}
+                when={props.state.permissionRequest()}
+                keyed
                 fallback={
-                  <Show when={!props.state.blocked()}>
-                    <PromptInput
-                      ref={props.inputRef}
-                      homeMode={home()}
-                      sessionID={displaySessionID()}
-                      sessionIDControlled={!home()}
-                      newSessionWorktree={props.newSessionWorktree}
-                      onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
-                      edit={props.followup?.edit}
-                      onEditLoaded={props.followup?.onEditLoaded}
-                      shouldQueue={props.followup?.queue}
-                      onQueue={props.followup?.onQueue}
-                      onAbort={props.followup?.onAbort}
-                      onSubmit={props.onSubmit}
-                      onModeChange={props.onModeChange}
-                      actionReady={() => props.actionReady ?? true}
-                      abortReady={() => props.abortReady ?? props.actionReady ?? true}
-                      selectedSkill={props.selectedSkill}
-                    />
+                  <Show
+                    when={child()}
+                    fallback={
+                      <Show when={!props.state.blocked()}>
+                        <PromptInput
+                          ref={props.inputRef}
+                          homeMode={home()}
+                          sessionID={displaySessionID()}
+                          sessionIDControlled={!home()}
+                          newSessionWorktree={props.newSessionWorktree}
+                          onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
+                          edit={props.followup?.edit}
+                          onEditLoaded={props.followup?.onEditLoaded}
+                          shouldQueue={props.followup?.queue}
+                          onQueue={props.followup?.onQueue}
+                          onAbort={props.followup?.onAbort}
+                          onSubmit={props.onSubmit}
+                          onModeChange={props.onModeChange}
+                          actionReady={() => props.actionReady ?? true}
+                          abortReady={() => props.abortReady ?? props.actionReady ?? true}
+                          selectedSkill={props.selectedSkill}
+                        />
+                      </Show>
+                    }
+                  >
+                    <DockSegment
+                      ref={props.inputRef as (el: HTMLDivElement) => void}
+                      class="w-full p-3 text-16-regular text-fg-weak"
+                    >
+                      <span>{language.t("session.child.promptDisabled")} </span>
+                      <Show when={parentID()}>
+                        <button
+                          type="button"
+                          class="text-fg-base transition-colors hover:text-fg-strong"
+                          onClick={openParent}
+                        >
+                          {language.t("session.child.backToParent")}
+                        </button>
+                      </Show>
+                    </DockSegment>
                   </Show>
                 }
               >
-                <div
-                  ref={props.inputRef}
-                  class="w-full rounded-[12px] border border-border-weak bg-bg-base p-3 text-16-regular text-fg-weak"
-                >
-                  <span>{language.t("session.child.promptDisabled")} </span>
-                  <Show when={parentID()}>
-                    <button
-                      type="button"
-                      class="text-fg-base transition-colors hover:text-fg-strong"
-                      onClick={openParent}
-                    >
-                      {language.t("session.child.backToParent")}
-                    </button>
-                  </Show>
-                </div>
+                {(request) => (
+                  <SessionPermissionContent
+                    request={request}
+                    responding={props.state.permissionResponding()}
+                    onDecide={(response) => {
+                      props.onResponseSubmit()
+                      props.state.decide(response)
+                    }}
+                  />
+                )}
               </Show>
-            </div>
+            </DockCard>
           </Show>
         </Show>
       </div>

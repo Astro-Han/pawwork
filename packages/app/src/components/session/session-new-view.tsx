@@ -19,11 +19,11 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
 
   return (
     <div data-component="session-new-home" class="size-full overflow-y-auto">
-      <div class="mx-auto flex w-full max-w-200 flex-col items-center px-6 pt-[28vh] pb-10 text-center md:px-8">
+      <div class="mx-auto flex w-full flex-col items-center px-6 pt-[28vh] pb-10 text-center md:px-8">
         <h1 class="text-28-regular text-fg-strong">{language.t("session.new.title")}</h1>
 
         <Show when={props.composer}>
-          <div class="mt-12 flex w-full max-w-[720px] flex-col items-center">
+          <div class="mt-12 flex w-full max-w-[640px] flex-col items-center">
             {props.composer!({ onModeChange: setMode, selectedSkill })}
           </div>
         </Show>
@@ -38,7 +38,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
                   data-skill-card={card.name}
                   aria-pressed={isSelected()}
                   classList={{
-                    "inline-flex h-7 items-center gap-1.5 rounded-xl border px-3 text-13-regular transition-colors": true,
+                    "inline-flex h-[30px] items-center gap-1.5 rounded-xl border px-3 text-13-regular transition-colors": true,
                     "border-border-base bg-transparent text-fg-base hover:bg-surface-sunken":
                       !isSelected(),
                     "border-brand-primary bg-surface-interactive-base text-fg-strong":
