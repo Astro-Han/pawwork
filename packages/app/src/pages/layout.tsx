@@ -563,6 +563,12 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  const projectKeyForSession = (session: Session | GlobalSession) => {
+    const project = "project" in session ? session.project : undefined
+    if (project?.worktree) return workspaceKey(project.worktree)
+    return workspaceKey(session.directory)
+  }
+
   const projectLabelForSession = (session: Session | GlobalSession) => {
     const project = "project" in session ? session.project : undefined
     if (project?.name) return project.name
@@ -585,6 +591,7 @@ export default function Layout(props: ParentProps) {
   const pawworkSessions = createMemo(() => {
     const rows = buildPawworkSidebarSessionRows(pawworkSessionWindow().sessions, {
       slugForDirectory: base64Encode,
+      projectKeyForSession,
       projectLabelForSession,
       messagesForSession: (session) => {
         const [store] = globalSync.child(session.directory, { bootstrap: false, pin: false })
@@ -595,7 +602,9 @@ export default function Layout(props: ParentProps) {
         return store.part[messageID]
       },
     })
-    return sortPawworkSidebarSessions(rows.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
+    const hidden = store.pawworkProjectHidden
+    const filtered = rows.filter((row) => !hidden[row.projectKey])
+    return sortPawworkSidebarSessions(filtered.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
   })
 
   const mergePawworkWindowSessionMetadata = (
@@ -1103,6 +1112,36 @@ export default function Layout(props: ParentProps) {
     setStore("pawworkProjectCollapsed", reconcile(next))
   }
 
+  function hideProject(projectKey: string) {
+    const current = store.pawworkProjectHidden
+    if (current[projectKey]) return
+    setStore("pawworkProjectHidden", reconcile({ ...current, [projectKey]: true }))
+  }
+
+  function unhideProject(projectKey: string) {
+    const current = store.pawworkProjectHidden
+    if (!current[projectKey]) return
+    const next = { ...current }
+    delete next[projectKey]
+    setStore("pawworkProjectHidden", reconcile(next))
+  }
+
+  async function handleRenameProject(projectKey: string, next: string) {
+    const project = layout.projects.list().find((p) => workspaceKey(p.worktree) === projectKey)
+    if (project) {
+      await renameProject(project, next)
+    } else {
+      // Fallback: find a session with this directory and use its project info
+      const session = pawworkSessionWindow().sessions.find((s) => workspaceKey(s.directory) === projectKey)
+      if (session) {
+        const localProject = layout.projects.list().find((p) => workspaceKey(p.worktree) === workspaceKey(session.directory))
+        if (localProject) {
+          await renameProject(localProject, next)
+        }
+      }
+    }
+  }
+
   // Export hits the embedded sidecar via main-process IPC. When the user has
   // switched the active server to a remote target, the sidecar holds different
   // data than the UI; hide the action rather than ship a misleading export.
@@ -1515,10 +1554,22 @@ export default function Layout(props: ParentProps) {
   }
 
   function navigateToSession(session: Session | undefined) {
+    if (session?.directory) {
+      const key = workspaceKey(session.directory)
+      if (store.pawworkProjectHidden[key]) {
+        unhideProject(key)
+      }
+    }
     shellNavigation.openSession(session)
   }
 
   function openPawworkHome(directory?: string) {
+    if (directory) {
+      const key = workspaceKey(directory)
+      if (store.pawworkProjectHidden[key]) {
+        unhideProject(key)
+      }
+    }
     shellNavigation.openNewSession(directory)
   }
 
@@ -2163,6 +2214,8 @@ export default function Layout(props: ParentProps) {
       prefetchSession={prefetchSession}
       onOpenSession={navigateToSession}
       onRenameSession={renamePawworkSession}
+      onRenameProject={handleRenameProject}
+      onRemoveProject={hideProject}
       onTogglePinnedSession={togglePinnedSession}
       exportSessionAvailable={exportSessionAvailable}
       onExportSession={exportSession}

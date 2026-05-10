@@ -4,6 +4,7 @@ export type PawworkSessionItem = {
   id: string
   title: string
   directory: string
+  projectKey: string
   projectLabel: string
   created: number
 }
@@ -37,7 +38,7 @@ export function buildPawworkSessionSections(input: {
 
   const groups = new Map<string, PawworkSessionItem[]>()
   for (const item of unpinned.sort(comparePawworkSessionsByCreated)) {
-    const key = item.projectLabel || "other"
+    const key = item.projectKey || item.directory || "other"
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(item)
   }
@@ -45,7 +46,11 @@ export function buildPawworkSessionSections(input: {
   return {
     pinned,
     recent: [] as PawworkSessionItem[],
-    groups: [...groups.entries()].map(([label, items]) => ({ label, items })),
+    groups: [...groups.entries()].map(([key, items]) => ({
+      key,
+      label: items[0]?.projectLabel || key,
+      items,
+    })),
   }
 }
 

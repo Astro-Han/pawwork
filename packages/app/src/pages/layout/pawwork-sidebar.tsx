@@ -10,6 +10,7 @@ import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { DialogRenameSession } from "@/components/dialog-rename-session"
+import { DialogRemoveProject } from "@/components/dialog-remove-project"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
 import { SessionItem } from "./sidebar-items"
@@ -18,6 +19,7 @@ import "./sidebar.css"
 export type PawworkSidebarSession = {
   session: Session
   slug: string
+  projectKey: string
   projectLabel: string
   created: number
 }
@@ -37,6 +39,8 @@ export const PawworkSidebar = (props: {
   hrefForSession?: (session: Session) => string
   onOpenSession: (session: Session) => void
   onRenameSession: (session: Session, next: string) => Promise<void>
+  onRenameProject: (projectKey: string, next: string) => Promise<void>
+  onRemoveProject: (projectKey: string) => void
   onTogglePinnedSession: (sessionID: string) => void
   exportSessionAvailable: Accessor<boolean>
   onExportSession: (session: Session) => Promise<void>
@@ -64,6 +68,7 @@ export const PawworkSidebar = (props: {
         id: item.session.id,
         title: item.session.title ?? "",
         directory: item.session.directory,
+        projectKey: item.projectKey,
         projectLabel: item.projectLabel,
         created: item.created,
       })),
@@ -84,6 +89,7 @@ export const PawworkSidebar = (props: {
   )
   const groupedRows = createMemo(() =>
     sections().groups.map((group) => ({
+      key: group.key,
       label: group.label,
       items: group.items
         .map((item) => byID().get(item.id))
@@ -96,6 +102,24 @@ export const PawworkSidebar = (props: {
       <DialogRenameSession
         name={target.title ?? ""}
         onConfirm={(next) => props.onRenameSession(target, next)}
+      />
+    ))
+  }
+
+  const openRenameProjectDialog = (projectKey: string, currentLabel: string) => {
+    dialog.show(() => (
+      <DialogRenameSession
+        name={currentLabel}
+        onConfirm={(next) => props.onRenameProject(projectKey, next)}
+      />
+    ))
+  }
+
+  const openRemoveProjectDialog = (projectKey: string, projectLabel: string) => {
+    dialog.show(() => (
+      <DialogRemoveProject
+        name={projectLabel}
+        onConfirm={() => props.onRemoveProject(projectKey)}
       />
     ))
   }
@@ -377,30 +401,81 @@ export const PawworkSidebar = (props: {
               <Show when={props.sortMode() === "project"}>
                 <For each={groupedRows()}>
                   {(group, index) => {
-                    const collapsed = createMemo(() => !!props.collapsedProjects()[group.label])
+                    const collapsed = createMemo(() => !!props.collapsedProjects()[group.key])
+                    const projectMenuLabels = () => ({
+                      rename: language.t("project.rename"),
+                      remove: language.t("project.remove"),
+                    })
+                    const handleRename = () => openRenameProjectDialog(group.key, group.label)
+                    const handleRemove = () => openRemoveProjectDialog(group.key, group.label)
+
                     return (
                       <section class={`${index() > 0 ? "mt-0.5 " : ""}flex flex-col gap-0.5`}>
-                        <button
-                          type="button"
-                          data-component="pawwork-group-header"
-                          data-action="pawwork-group-toggle"
-                          data-collapsed={collapsed() ? "true" : undefined}
-                          aria-expanded={!collapsed()}
-                          onClick={() => props.onToggleProjectCollapsed(group.label)}
-                          class="group/group-header h-[30px] flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
-                        >
-                          <Icon name="folder" class="shrink-0 text-icon-weak" />
-                          <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
-                          <Icon
-                            name="chevron-down"
-                            class="shrink-0 text-icon-weak transition-[opacity,transform] duration-150"
-                            classList={{
-                              "-rotate-90 opacity-100": collapsed(),
-                              "opacity-0 group-hover/group-header:opacity-100 group-focus-visible/group-header:opacity-100":
-                                !collapsed(),
-                            }}
-                          />
-                        </button>
+                        <ContextMenu>
+                          <ContextMenu.Trigger as="div">
+                            <button
+                              type="button"
+                              data-component="pawwork-group-header"
+                              data-action="pawwork-group-toggle"
+                              data-collapsed={collapsed() ? "true" : undefined}
+                              aria-expanded={!collapsed()}
+                              onClick={() => props.onToggleProjectCollapsed(group.key)}
+                              class="group/group-header h-[30px] w-full flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
+                            >
+                              <Icon name="folder" class="shrink-0 text-icon-weak" />
+                              <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
+                              <div class="flex items-center gap-1">
+                                <DropdownMenu>
+                                  <DropdownMenu.Trigger
+                                    as={IconButton}
+                                    icon="dot-grid"
+                                    variant="ghost"
+                                    class="h-[22px] w-[22px] opacity-0 group-hover/group-header:opacity-100 group-focus-visible/group-header:opacity-100"
+                                    data-action="project-row-menu"
+                                    aria-label={language.t("common.moreOptions")}
+                                    onClick={(event: MouseEvent) => {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                    }}
+                                  />
+                                  <DropdownMenu.Portal>
+                                    <DropdownMenu.Content>
+                                      <DropdownMenu.Item onSelect={handleRename}>
+                                        <Icon name="edit" class="text-icon-weak" />
+                                        <DropdownMenu.ItemLabel>{projectMenuLabels().rename}</DropdownMenu.ItemLabel>
+                                      </DropdownMenu.Item>
+                                      <DropdownMenu.Item onSelect={handleRemove}>
+                                        <Icon name="hide" class="text-icon-weak" />
+                                        <DropdownMenu.ItemLabel>{projectMenuLabels().remove}</DropdownMenu.ItemLabel>
+                                      </DropdownMenu.Item>
+                                    </DropdownMenu.Content>
+                                  </DropdownMenu.Portal>
+                                </DropdownMenu>
+                                <Icon
+                                  name="chevron-down"
+                                  class="shrink-0 text-icon-weak transition-[opacity,transform] duration-150"
+                                  classList={{
+                                    "-rotate-90 opacity-100": collapsed(),
+                                    "opacity-0 group-hover/group-header:opacity-100 group-focus-visible/group-header:opacity-100":
+                                      !collapsed(),
+                                  }}
+                                />
+                              </div>
+                            </button>
+                          </ContextMenu.Trigger>
+                          <ContextMenu.Portal>
+                            <ContextMenu.Content>
+                              <ContextMenu.Item onSelect={handleRename}>
+                                <Icon name="edit" class="text-icon-weak" />
+                                <ContextMenu.ItemLabel>{projectMenuLabels().rename}</ContextMenu.ItemLabel>
+                              </ContextMenu.Item>
+                              <ContextMenu.Item onSelect={handleRemove}>
+                                <Icon name="hide" class="text-icon-weak" />
+                                <ContextMenu.ItemLabel>{projectMenuLabels().remove}</ContextMenu.ItemLabel>
+                              </ContextMenu.Item>
+                            </ContextMenu.Content>
+                          </ContextMenu.Portal>
+                        </ContextMenu>
                         {/* grid-template-rows trick: 0fr → 1fr animates height without
                           * touching layout-thrashing properties. Items stay mounted so
                           * focus / scroll position survive the toggle; inert on the
