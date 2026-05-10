@@ -15,7 +15,6 @@ describe("buildPawworkSidebarSessionRows", () => {
       {
         slugForDirectory: (directory) => `slug:${directory}`,
         projectKeyForSession: () => "pawwork",
-        projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
         messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 800 } }],
       },
@@ -36,7 +35,6 @@ describe("buildPawworkSidebarSessionRows", () => {
       ],
       {
         slugForDirectory: (directory) => `slug:${directory}`,
-        projectKeyForSession: () => "pawwork",
         projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
         messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 900 } }],
