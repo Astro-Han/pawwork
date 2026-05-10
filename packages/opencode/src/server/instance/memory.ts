@@ -6,12 +6,6 @@ import { MemoryService } from "@/memory/service"
 
 const MemoryRawInput = z.object({ content: z.string() }).meta({ ref: "MemoryRawInput" })
 const MemoryDisabledInput = z.object({ disabled: z.boolean() }).meta({ ref: "MemoryDisabledInput" })
-const MemoryProposalInput = z
-  .object({
-    text: z.string(),
-    scope: z.enum(["user", "project"]),
-  })
-  .meta({ ref: "MemoryProposalInput" })
 
 const MemoryState = z.any().meta({ ref: "MemoryState" })
 
@@ -31,17 +25,6 @@ export const MemoryRoutes = () =>
         },
       }),
       async (c) => c.json(await service().read()),
-    )
-    .get(
-      "/review-state",
-      describeRoute({
-        summary: "Get PawWork memory review availability",
-        operationId: "memory.reviewState",
-        responses: {
-          200: { description: "Memory review state", content: { "application/json": { schema: resolver(MemoryState) } } },
-        },
-      }),
-      async (c) => c.json(await service().readProfile()),
     )
     .patch(
       "/",
@@ -104,27 +87,5 @@ export const MemoryRoutes = () =>
       async (c) => {
         await service().deleteEntry(c.req.param("id"))
         return c.json(await service().read())
-      },
-    )
-    .post(
-      "/proposal/accept",
-      describeRoute({
-        summary: "Accept PawWork memory proposal",
-        operationId: "memory.acceptProposal",
-        responses: {
-          200: { description: "Memory state", content: { "application/json": { schema: resolver(MemoryState) } } },
-        },
-      }),
-      validator("json", MemoryProposalInput),
-      async (c) => {
-        try {
-          await service().appendAcceptedProposal(c.req.valid("json"))
-          return c.json(await service().read())
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error)
-          if (reason === "Memory is disabled") return c.json({ error: "memory_disabled", reason }, 409)
-          if (reason === "Memory is in safe mode") return c.json({ error: "memory_safe_mode", reason }, 409)
-          throw error
-        }
       },
     )

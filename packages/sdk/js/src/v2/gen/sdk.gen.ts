@@ -67,15 +67,12 @@ import type {
   McpLocalConfig,
   McpRemoteConfig,
   McpStatusResponses,
-  MemoryAcceptProposalResponses,
   MemoryDeleteEntryResponses,
   MemoryDisabledInput,
   MemoryDisabledResponses,
   MemoryGetResponses,
-  MemoryProposalInput,
   MemoryRawInput,
   MemoryResetResponses,
-  MemoryReviewStateResponses,
   MemoryUpdateErrors,
   MemoryUpdateResponses,
   OutputFormat,
@@ -3363,34 +3360,6 @@ export class Memory extends HeyApiClient {
   }
 
   /**
-   * Get PawWork memory review availability
-   */
-  public reviewState<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<MemoryReviewStateResponses, unknown, ThrowOnError>({
-      url: "/memory/review-state",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
    * Reset PawWork memory
    */
   public reset<ThrowOnError extends boolean = false>(
@@ -3480,41 +3449,6 @@ export class Memory extends HeyApiClient {
       url: "/memory/entry/{id}",
       ...options,
       ...params,
-    })
-  }
-
-  /**
-   * Accept PawWork memory proposal
-   */
-  public acceptProposal<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      memoryProposalInput?: MemoryProposalInput
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { key: "memoryProposalInput", map: "body" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<MemoryAcceptProposalResponses, unknown, ThrowOnError>({
-      url: "/memory/proposal/accept",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 }

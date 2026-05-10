@@ -2236,11 +2236,6 @@ export type MemoryDisabledInput = {
   disabled: boolean
 }
 
-export type MemoryProposalInput = {
-  text: string
-  scope: "user" | "project"
-}
-
 export type Symbol = {
   name: string
   kind: number
@@ -5355,25 +5350,6 @@ export type MemoryUpdateResponses = {
 
 export type MemoryUpdateResponse = MemoryUpdateResponses[keyof MemoryUpdateResponses]
 
-export type MemoryReviewStateData = {
-  body?: never
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/memory/review-state"
-}
-
-export type MemoryReviewStateResponses = {
-  /**
-   * Memory review state
-   */
-  200: MemoryState
-}
-
-export type MemoryReviewStateResponse = MemoryReviewStateResponses[keyof MemoryReviewStateResponses]
-
 export type MemoryResetData = {
   body?: never
   path?: never
@@ -5432,25 +5408,6 @@ export type MemoryDeleteEntryResponses = {
 }
 
 export type MemoryDeleteEntryResponse = MemoryDeleteEntryResponses[keyof MemoryDeleteEntryResponses]
-
-export type MemoryAcceptProposalData = {
-  body?: MemoryProposalInput
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/memory/proposal/accept"
-}
-
-export type MemoryAcceptProposalResponses = {
-  /**
-   * Memory state
-   */
-  200: MemoryState
-}
-
-export type MemoryAcceptProposalResponse = MemoryAcceptProposalResponses[keyof MemoryAcceptProposalResponses]
 
 export type FindTextData = {
   body?: never

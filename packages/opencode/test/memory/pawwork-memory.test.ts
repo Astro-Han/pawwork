@@ -3,7 +3,6 @@ import fs from "fs/promises"
 import path from "path"
 import { tmpdir } from "../fixture/fixture"
 import { MemoryFile } from "../../src/memory/memory"
-import { MemoryProposal } from "../../src/memory/proposal"
 import { MemoryService } from "../../src/memory/service"
 
 describe("PawWork memory parser", () => {
@@ -29,7 +28,7 @@ describe("PawWork memory parser", () => {
     expect(parsed.reason).toBe("sections_out_of_order")
   })
 
-  test("parses Archive entries with user and project scopes only", () => {
+  test("keeps Archive as freeform markdown", () => {
     const parsed = MemoryFile.parse(`
 # PawWork Memory
 
@@ -44,23 +43,23 @@ Project memory.
 `)
     expect(parsed.status).toBe("ok")
     if (parsed.status !== "ok") throw new Error("expected ok parse")
-    expect(parsed.entries).toHaveLength(1)
-    expect(parsed.entries[0]?.id).toBe("mem_abc")
-    expect(parsed.entries[0]?.scope).toBe("project")
+    expect(parsed.archive).toContain("scope:project")
+    expect(parsed.archive).toContain("Project memory.")
   })
 
-  test("round-trips project paths with spaces", () => {
-    const entry = MemoryFile.formatEntry({
-      id: "mem_space",
-      createdAt: "2026-05-10T18:00:00+09:00",
-      scope: "project",
-      appliesTo: "/repo/Paw Work",
-      text: "Project memory.",
-    })
-    const parsed = MemoryFile.parse(`# PawWork Memory\n\n## Profile\n\n## Archive\n\n${entry}`)
+  test("allows Archive entries without metadata", () => {
+    const parsed = MemoryFile.parse(`# PawWork Memory
+
+## Profile
+
+## Archive
+
+### 2026-05-10 Decision
+Use one global MEMORY.md file.
+`)
     expect(parsed.status).toBe("ok")
     if (parsed.status !== "ok") throw new Error("expected ok parse")
-    expect(parsed.entries[0]?.appliesTo).toBe("/repo/Paw Work")
+    expect(parsed.archive).toContain("Use one global MEMORY.md")
   })
 
   test("does not split Archive entries on markdown body headings", () => {
@@ -78,11 +77,11 @@ Still the same entry.
 `)
     expect(parsed.status).toBe("ok")
     if (parsed.status !== "ok") throw new Error("expected ok parse")
-    expect(parsed.entries).toHaveLength(1)
-    expect(parsed.entries[0]?.body).toContain("### Body heading")
+    expect(parsed.archive).toContain("### Body heading")
+    expect(parsed.archive).toContain("Still the same entry.")
   })
 
-  test("marks global scope invalid in v1", () => {
+  test("does not safe-mode on old or malformed Archive metadata", () => {
     const parsed = MemoryFile.parse(`
 # PawWork Memory
 
@@ -95,8 +94,7 @@ Bad entry.
 `)
     expect(parsed.status).toBe("ok")
     if (parsed.status !== "ok") throw new Error("expected ok parse")
-    expect(parsed.entries).toHaveLength(0)
-    expect(parsed.invalidEntries).toHaveLength(1)
+    expect(parsed.archive).toContain("scope:global")
   })
 
   test("parses Profile-only startup state without parsing Archive entries", () => {
@@ -135,39 +133,65 @@ describe("PawWork memory service", () => {
     expect(await fs.readFile(path.join(dir, "memory", "MEMORY.md"), "utf8")).toContain("## Profile")
   })
 
-  test("redacts high-risk tokens and defaults proposal to unselected", () => {
-    const proposal = MemoryProposal.fromText({ text: "Use token sk-test123456" })
-    expect(proposal.text).toContain("[REDACTED]")
-    expect(proposal.defaultSelected).toBe(false)
-    expect(proposal.warning).toContain("sensitive")
-  })
-
-  test("create append read delete smoke path", async () => {
+  test("create save read delete smoke path", async () => {
     await using tmp = await tmpdir()
     const dir = tmp.path
     const service = MemoryService.createForTest({ home: dir, workspacePath: "/repo/pawwork" })
     await service.read()
-    await service.appendAcceptedProposal({ text: "PawWork uses one MEMORY.md file.", scope: "project" })
-    const appended = await service.read()
-    expect(appended.content).toContain("scope:project")
-    const id = appended.content.match(/id:(mem_[a-z0-9]+)/)?.[1]
-    expect(id).toBeTruthy()
-    await service.deleteEntry(id!)
+    await service.saveRaw(`# PawWork Memory
+
+## Profile
+
+- PawWork uses one MEMORY.md file.
+
+## Archive
+
+### 2026-05-10 id:mem_manual
+Historical note.
+`)
+    const saved = await service.read()
+    expect(saved.content).toContain("mem_manual")
+    await service.deleteEntry("mem_manual")
     const deleted = await service.read()
-    expect(deleted.content).not.toContain(id!)
+    expect(deleted.content).not.toContain("mem_manual")
   })
 
-  test("serializes concurrent proposal appends", async () => {
+  test("deleteEntry ignores markdown body headings without memory ids", async () => {
+    await using tmp = await tmpdir()
+    const service = MemoryService.createForTest({ home: tmp.path, workspacePath: "/repo/pawwork" })
+    await service.saveRaw(`# PawWork Memory
+
+## Profile
+
+## Archive
+
+### 2026-05-10 id:mem_first
+First note.
+### Body heading
+Still first note.
+
+### 2026-05-11 id:mem_second
+Second note.
+`)
+    await service.deleteEntry("mem_first")
+    const state = await service.read()
+    expect(state.content).not.toContain("mem_first")
+    expect(state.content).not.toContain("Still first note.")
+    expect(state.content).toContain("mem_second")
+    expect(state.content).toContain("Second note.")
+  })
+
+  test("serializes concurrent raw saves", async () => {
     await using tmp = await tmpdir()
     const service = MemoryService.createForTest({ home: tmp.path, workspacePath: "/repo/pawwork" })
     await service.read()
     await Promise.all([
-      service.appendAcceptedProposal({ text: "First memory.", scope: "project" }),
-      service.appendAcceptedProposal({ text: "Second memory.", scope: "project" }),
+      service.saveRaw("# PawWork Memory\n\n## Profile\n\n- First memory.\n\n## Archive\n"),
+      service.saveRaw("# PawWork Memory\n\n## Profile\n\n- Second memory.\n\n## Archive\n"),
     ])
     const state = await service.read()
-    expect(state.content).toContain("First memory.")
-    expect(state.content).toContain("Second memory.")
+    expect(state.content).toContain("## Profile")
+    expect(["First memory.", "Second memory."].some((value) => state.content.includes(value))).toBe(true)
   })
 
   test("disabled runtime Profile read does not create or parse MEMORY.md", async () => {

@@ -1829,8 +1829,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const memoryProfile = Runtime.isPawWork()
               ? yield* Effect.promise(async () => {
                   const shellQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`
-                  const grepPattern = (value: string) => value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
-                  const workspaceMemoryKey = encodeURIComponent(session.directory)
                   const state = await MemoryService.create({ workspacePath: session.directory }).readProfile()
                   if (state.disabled || state.status !== "ok") return undefined
                   const profile = state.profile?.trim()
@@ -1842,11 +1840,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     "Long-form historical context lives in the Archive section of this file:",
                     state.path,
                     "",
-                    "When you need prior context, use Bash grep on that file. Keep results short and only use entries with scope:user or entries whose applies_to matches the encoded current workspace path.",
+                    "Only Profile is loaded automatically. Archive is not injected. When you need prior memory, use Bash grep/read on that file and keep results short.",
                     `Current workspace path: ${session.directory}`,
-                    `Encoded workspace path: ${workspaceMemoryKey}`,
-                    `Example: grep -A 5 -E ${shellQuote(`scope:user|applies_to:${grepPattern(workspaceMemoryKey)}`)} ${shellQuote(state.path)} | head -c 2000`,
+                    `Example: grep -n -i ${shellQuote("<keyword>")} ${shellQuote(state.path)} | head -20 | head -c 2000`,
                     "Do not inject more than 2000 characters of Archive memory into context.",
+                    "",
+                    "At reply/task closeout, if the user explicitly stated a stable long-lived preference, workflow, project convention, or durable fact worth future recall, update this MEMORY.md file with existing file editing tools.",
+                    "Only write stable explicit facts. Do not write temporary tasks, emotions, one-off decisions, guesses, or unconfirmed facts. If a new fact conflicts with an old memory, update the old memory instead of appending a contradiction.",
+                    "Record only what the user has stated explicitly. Do not extrapolate preferences from how the user phrases questions or what tasks they request. For example, do not turn \"the user asked me to change one PR line\" into \"the user prefers small PRs.\"",
+                    "Never write passwords, API keys, tokens, private keys, ID/passport/license numbers, credit card/bank/CVV data, private health records, home addresses, or private phone numbers.",
+                    "Keep Profile short because it is loaded at session start. Put longer history in Archive.",
+                    "If this is the first time you auto-write to memory and MEMORY.md was effectively empty or still only had the default template, mention it briefly and naturally in the normal reply, e.g. \"I'll remember this preference for future chats.\" After this first time, subsequent auto-writes are silent.",
+                    "Do not show toast, dialog, or inline UI feedback. If the user explicitly asks you to remember something, acknowledge naturally in the normal reply, e.g. \"Got it, I'll remember that.\"",
                     "</pawwork-memory>",
                   ].join("\n")
                 }).pipe(

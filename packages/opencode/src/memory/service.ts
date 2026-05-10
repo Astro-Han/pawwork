@@ -2,7 +2,6 @@ import fs from "fs/promises"
 import path from "path"
 import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { MemoryFile } from "./memory"
-import { MemoryProposal } from "./proposal"
 
 export namespace MemoryService {
   export type State = {
@@ -13,7 +12,6 @@ export namespace MemoryService {
     content: string
     profile?: string
     profileTooLarge?: boolean
-    invalidEntries?: MemoryFile.InvalidEntry[]
   }
 
   export type ProfileState = {
@@ -44,7 +42,6 @@ export namespace MemoryService {
     const home = input?.home ?? PawWorkHome.primary()
     const file = path.join(home, "memory", "MEMORY.md")
     const disabledFile = path.join(home, "memory", ".disabled")
-    const workspacePath = input?.workspacePath ?? process.cwd()
 
     async function ensure() {
       await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 })
@@ -77,7 +74,6 @@ export namespace MemoryService {
         content,
         profile: parsed.profile,
         profileTooLarge: parsed.profileTooLarge,
-        invalidEntries: parsed.invalidEntries,
       }
     }
 
@@ -125,11 +121,10 @@ export namespace MemoryService {
     async function deleteEntry(id: string) {
       await enqueueWrite(file, async () => {
         const state = await read()
-        const parsed = MemoryFile.parse(state.content)
-        if (parsed.status !== "ok") throw new Error("Memory is in safe mode")
+        if (state.status !== "ok") throw new Error("Memory is in safe mode")
         const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
         const next = state.content.replace(
-          new RegExp(`\\n?### \\d{4}-\\d{2}-\\d{2}T[^\\n]*\\bid:${escaped}(?:\\s|$)[\\s\\S]*?(?=\\n### \\d{4}-\\d{2}-\\d{2}T[^\\n]*\\bid:|$)`),
+          new RegExp(`\\n?### [^\\n]*\\bid:${escaped}(?:\\s|$)[\\s\\S]*?(?=\\n### [^\\n]*\\bid:|$)`),
           "",
         )
         if (next === state.content) throw new Error(`Memory entry not found: ${id}`)
@@ -145,23 +140,6 @@ export namespace MemoryService {
       })
     }
 
-    async function appendAcceptedProposal(input: { text: string; scope: MemoryFile.Scope }) {
-      return enqueueWrite(file, async () => {
-        const state = await read()
-        if (state.disabled) throw new Error("Memory is disabled")
-        const parsed = MemoryFile.parse(state.content)
-        if (parsed.status !== "ok") throw new Error("Memory is in safe mode")
-        const redacted = MemoryProposal.redact(input.text)
-        const entry = MemoryFile.formatEntry({
-          scope: input.scope,
-          appliesTo: input.scope === "project" ? workspacePath : undefined,
-          text: redacted.text,
-        })
-        await writeAtomic(`${state.content.trimEnd()}\n\n${entry}`)
-        return entry
-      })
-    }
-
     return {
       isDisabled,
       read,
@@ -170,7 +148,6 @@ export namespace MemoryService {
       resetToTemplate,
       deleteEntry,
       setDisabled,
-      appendAcceptedProposal,
     }
   }
 

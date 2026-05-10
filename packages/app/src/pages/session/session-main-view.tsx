@@ -1,7 +1,6 @@
 import { Match, Show, Switch, type ComponentProps, type JSX } from "solid-js"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { NewSessionView, SessionHeader } from "@/components/session"
-import { SessionMemoryReview } from "@/components/memory/session-memory-review"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import type { useLanguage } from "@/context/language"
 import type { createSizing } from "@/pages/session/helpers"
@@ -49,7 +48,6 @@ export function SessionMainView(props: {
   anchor: TimelineProps["anchor"]
   onRetryOpenSession: () => void
   onOpenNewSession: () => void
-  memoryReviewVisible: boolean
   composerSession: JSX.Element
   composerHome: (ctx: {
     onModeChange: (mode: "normal" | "shell") => void
@@ -178,7 +176,6 @@ export function SessionMainView(props: {
             </Switch>
           </div>
           <Show when={props.activeSessionID && !showSessionOpeningState()}>
-            <SessionMemoryReview sessionID={props.timelineSessionID} visible={props.memoryReviewVisible} />
             {props.composerSession}
           </Show>
         </div>
