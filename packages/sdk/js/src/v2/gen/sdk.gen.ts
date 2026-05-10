@@ -76,8 +76,6 @@ import type {
   MemoryProposalInput,
   MemoryRawInput,
   MemoryResetResponses,
-  MemorySearchInput,
-  MemorySearchResponses,
   MemoryUpdateErrors,
   MemoryUpdateResponses,
   OutputFormat,
@@ -3454,41 +3452,6 @@ export class Memory extends HeyApiClient {
       url: "/memory/entry/{id}",
       ...options,
       ...params,
-    })
-  }
-
-  /**
-   * Search PawWork memory
-   */
-  public search<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      memorySearchInput?: MemorySearchInput
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { key: "memorySearchInput", map: "body" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<MemorySearchResponses, unknown, ThrowOnError>({
-      url: "/memory/search",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 

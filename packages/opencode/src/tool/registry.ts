@@ -22,9 +22,7 @@ import { Plugin } from "../plugin"
 import { Provider } from "../provider/provider"
 import { ProviderID, type ModelID } from "../provider/schema"
 import { WebSearchTool } from "./websearch"
-import { MemorySearchTool } from "./memory-search"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { Runtime } from "@opencode-ai/core/runtime"
 import { Settings } from "@/settings"
 import { Log } from "@opencode-ai/core/util/log"
 import { LspTool } from "./lsp"
@@ -144,7 +142,6 @@ export namespace ToolRegistry {
       const skilltool = yield* SkillTool
       const enterWorktree = yield* EnterWorktreeTool
       const exitWorktree = yield* ExitWorktreeTool
-      const memorySearch = yield* MemorySearchTool
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("ToolRegistry.state")(function* (ctx) {
@@ -280,7 +277,6 @@ export namespace ToolRegistry {
             plan: Tool.init(plan),
             enterWorktree: Tool.init(enterWorktree),
             exitWorktree: Tool.init(exitWorktree),
-            memorySearch: Tool.init(memorySearch),
           })
 
           return {
@@ -302,7 +298,6 @@ export namespace ToolRegistry {
               ...(webSearchEnabled ? [tool.search] : []),
               tool.skill,
               tool.patch,
-              ...(Runtime.isPawWork() ? [tool.memorySearch] : []),
               ...(lspEnabled ? [tool.lsp] : []),
               ...(Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE && Flag.OPENCODE_CLIENT === "cli" ? [tool.plan] : []),
               tool.enterWorktree,

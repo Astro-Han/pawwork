@@ -2236,10 +2236,6 @@ export type MemoryDisabledInput = {
   disabled: boolean
 }
 
-export type MemorySearchInput = {
-  query: string
-}
-
 export type MemoryProposalInput = {
   text: string
   scope: "user" | "project"
@@ -5419,23 +5415,6 @@ export type MemoryDeleteEntryResponses = {
 }
 
 export type MemoryDeleteEntryResponse = MemoryDeleteEntryResponses[keyof MemoryDeleteEntryResponses]
-
-export type MemorySearchData = {
-  body?: MemorySearchInput
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/memory/search"
-}
-
-export type MemorySearchResponses = {
-  /**
-   * Search result
-   */
-  200: unknown
-}
 
 export type MemoryPreviewProposalData = {
   body?: MemoryProposalInput

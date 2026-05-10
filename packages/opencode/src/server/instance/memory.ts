@@ -7,7 +7,6 @@ import { MemoryService } from "@/memory/service"
 
 const MemoryRawInput = z.object({ content: z.string() }).meta({ ref: "MemoryRawInput" })
 const MemoryDisabledInput = z.object({ disabled: z.boolean() }).meta({ ref: "MemoryDisabledInput" })
-const MemorySearchInput = z.object({ query: z.string() }).meta({ ref: "MemorySearchInput" })
 const MemoryProposalInput = z
   .object({
     text: z.string(),
@@ -98,18 +97,6 @@ export const MemoryRoutes = () =>
         await service().deleteEntry(c.req.param("id"))
         return c.json(await service().read())
       },
-    )
-    .post(
-      "/search",
-      describeRoute({
-        summary: "Search PawWork memory",
-        operationId: "memory.search",
-        responses: {
-          200: { description: "Search result", content: { "application/json": { schema: resolver(z.any()) } } },
-        },
-      }),
-      validator("json", MemorySearchInput),
-      async (c) => c.json(await service().searchArchive(c.req.valid("json").query)),
     )
     .post(
       "/proposal/preview",

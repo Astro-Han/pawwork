@@ -80,24 +80,6 @@ describe("PawWork memory service", () => {
     expect(await fs.readFile(path.join(dir, "memory", "MEMORY.md"), "utf8")).toContain("## Profile")
   })
 
-  test("search returns user entries and current project entries only", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pawwork-memory-"))
-    const service = MemoryService.createForTest({ home: dir, workspacePath: "/repo/pawwork" })
-    await service.saveRaw(`${MemoryFile.defaultTemplate()}
-### 2026-05-10T18:00:00+09:00 id:mem_user scope:user tags:style
-Use Chinese.
-
-### 2026-05-10T18:01:00+09:00 id:mem_ok scope:project applies_to:/repo/pawwork tags:project
-PawWork uses Bun.
-
-### 2026-05-10T18:02:00+09:00 id:mem_other scope:project applies_to:/repo/other tags:project
-Other project detail.
-`)
-    const result = await service.searchArchive("project")
-    expect(result.text).toContain("mem_ok")
-    expect(result.text).not.toContain("mem_other")
-  })
-
   test("redacts high-risk tokens and defaults proposal to unselected", () => {
     const proposal = MemoryProposal.fromText({ text: "Use token sk-test123456" })
     expect(proposal.text).toContain("[REDACTED]")

@@ -16,12 +16,6 @@ export namespace MemoryService {
     invalidEntries?: MemoryFile.InvalidEntry[]
   }
 
-  export type SearchResult = {
-    disabled?: boolean
-    safeMode?: boolean
-    text: string
-  }
-
   export function create(input?: { home?: string; workspacePath?: string }) {
     const home = input?.home ?? PawWorkHome.primary()
     const file = path.join(home, "memory", "MEMORY.md")
@@ -101,19 +95,6 @@ export namespace MemoryService {
       else await fs.rm(disabledFile, { force: true })
     }
 
-    async function searchArchive(query: string): Promise<SearchResult> {
-      const state = await read()
-      if (state.disabled) return { disabled: true, text: "Memory disabled." }
-      const parsed = MemoryFile.parse(state.content)
-      if (parsed.status !== "ok") return { safeMode: true, text: "Memory safe mode." }
-      const q = query.toLowerCase()
-      const matches = parsed.entries
-        .filter((entry) => entry.scope === "user" || entry.appliesTo === workspacePath)
-        .filter((entry) => `${entry.heading}\n${entry.body}`.toLowerCase().includes(q))
-        .map((entry) => `${entry.heading}\n${entry.body}`)
-      return { text: matches.join("\n\n").slice(0, 2_000) }
-    }
-
     async function appendAcceptedProposal(input: { text: string; scope: MemoryFile.Scope; tags?: string[]; source?: string }) {
       const state = await read()
       if (state.disabled) throw new Error("Memory is disabled")
@@ -137,7 +118,6 @@ export namespace MemoryService {
       resetToTemplate,
       deleteEntry,
       setDisabled,
-      searchArchive,
       appendAcceptedProposal,
     }
   }
