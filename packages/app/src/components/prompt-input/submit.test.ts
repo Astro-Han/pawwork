@@ -136,7 +136,7 @@ beforeAll(async () => {
   mock.module("@/context/prompt", () => ({
     usePrompt: () => ({
       current: () => promptValue,
-      reset: () => undefined,
+      reset: (_target?: { dir: string; id?: string }) => undefined,
       set: (next: Prompt, cursor?: number, target?: { dir: string; id?: string }) => {
         promptSetCalls.push({ prompt: next, cursor, target })
       },

@@ -4,7 +4,7 @@ import type { SessionStatusState } from "@/context/global-sync/types"
 export type SubmitMode = "normal" | "shell"
 
 export function commandLikeText(text: string) {
-  return text.trimStart().startsWith("/")
+  return text.startsWith("/")
 }
 
 export function canSubmitPrompt(input: {

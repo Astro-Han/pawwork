@@ -13,6 +13,7 @@ let followupCommandText: typeof FollowupCommandText
 
 const slashDraft = { text: "/release now" }
 const normalDraft = { text: "continue" }
+const leadingWhitespaceSlashDraft = { text: " /release now" }
 
 const queuedDraft = (input: { prompt: FollowupDraft["prompt"]; outgoingTextOverride?: string }): FollowupDraft => ({
   sessionID: "ses_1",
@@ -37,6 +38,7 @@ describe("session action readiness", () => {
 
   test("direct slash submit waits for command hydration", () => {
     expect(canSubmitPrompt({ mode: "normal", text: "/release", submitReady: true, commandsReady: false })).toBe(false)
+    expect(canSubmitPrompt({ mode: "normal", text: " /release", submitReady: true, commandsReady: false })).toBe(true)
     expect(canSubmitPrompt({ mode: "normal", text: "normal prompt", submitReady: true, commandsReady: false })).toBe(
       true,
     )
@@ -52,6 +54,9 @@ describe("session action readiness", () => {
     expect(canSendFollowupDraft({ draft: slashDraft, submitReady: true, commandsReady: false })).toBe(false)
     expect(canSendFollowupDraft({ draft: slashDraft, submitReady: true, commandsReady: true })).toBe(true)
     expect(canSendFollowupDraft({ draft: normalDraft, submitReady: true, commandsReady: false })).toBe(true)
+    expect(canSendFollowupDraft({ draft: leadingWhitespaceSlashDraft, submitReady: true, commandsReady: false })).toBe(
+      true,
+    )
   })
 
   test("queued slash follow-up uses the same command text as sendFollowupDraft", () => {

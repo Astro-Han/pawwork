@@ -239,6 +239,15 @@ describe("session followups", () => {
     expect(canSendFollowupItem({ item, actionReady: true, commandsReady: false })).toBe(true)
   })
 
+  test("leading-whitespace slash follow-up can send while commands hydrate", () => {
+    const item = draft({
+      prompt: [{ type: "text", content: " /release now", start: 0, end: 13 }],
+      context: [],
+    })
+
+    expect(canSendFollowupItem({ item, actionReady: true, commandsReady: false })).toBe(true)
+  })
+
   test("queued send call-site waits for command hydration when slash draft has a leading image", async () => {
     const [syncData, setSyncData] = createStore({ command: [{ name: "release" }], command_ready: false })
     let followups!: ReturnType<typeof createSessionFollowups>
