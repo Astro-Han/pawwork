@@ -414,8 +414,13 @@ export function registerIpcHandlers(deps: Deps) {
     })
   })
 
-  ipcMain.handle("show-item-in-folder", (_event: IpcMainInvokeEvent, path: string) => {
-    shell.showItemInFolder(path)
+  ipcMain.handle("show-item-in-folder", (_event: IpcMainInvokeEvent, target: string) => {
+    // shell.showItemInFolder needs an absolute path; relative resolves go
+    // through the renderer where the chat session knows its workspace cwd.
+    // process.cwd() in a packaged Electron main process is not the user's
+    // workspace (typically `/Users/<user>` on macOS), so absolutizing here
+    // would silently reveal the wrong file.
+    shell.showItemInFolder(target)
   })
 
   ipcMain.handle("stat-paths", async (_event: IpcMainInvokeEvent, paths: string[]) => {
