@@ -97,12 +97,16 @@
 }
 
 [data-component="command-palette"] [data-slot="list-scroll"] {
-  padding: 8px 0 12px;
+  padding: 0 0 12px;
   gap: 4px;
 }
 
 [data-component="command-palette"] [data-slot="list-group"]:last-child {
   padding-bottom: 0;
+}
+
+[data-component="command-palette"] [data-slot="list-group"]:first-child [data-slot="list-header"] {
+  padding-top: 20px;
 }
 
 [data-component="command-palette"] [data-slot="list-header"] {
