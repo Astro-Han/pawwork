@@ -10,6 +10,7 @@ import { getRelativeTime } from "@/utils/time"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { DialogRenameSession } from "@/components/dialog-rename-session"
+import { DialogRenameProject } from "@/components/dialog-rename-project"
 import { DialogRemoveProject } from "@/components/dialog-remove-project"
 import { buildPawworkSessionSections, type PawworkSortMode } from "./pawwork-session-nav"
 import { buildSessionMenuActions, type SessionMenuAction } from "./session-menu-actions"
@@ -108,7 +109,7 @@ export const PawworkSidebar = (props: {
 
   const openRenameProjectDialog = (projectKey: string, currentLabel: string) => {
     dialog.show(() => (
-      <DialogRenameSession
+      <DialogRenameProject
         name={currentLabel}
         onConfirm={(next) => props.onRenameProject(projectKey, next)}
       />

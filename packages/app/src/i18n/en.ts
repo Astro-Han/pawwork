@@ -492,6 +492,8 @@ export const dict = {
   "toast.session.unshare.failed.description": "An error occurred while unsharing the session",
   "toast.session.rename.failed.title": "Failed to rename session",
   "toast.session.rename.failed.description": "Try again, or close the dialog to keep the current name.",
+  "toast.project.rename.failed.title": "Failed to rename project",
+  "toast.project.rename.failed.description": "Try again, or close the dialog to keep the current name.",
 
   "toast.session.listFailed.title": "Failed to load sessions for {{project}}",
   "toast.project.reloadFailed.title": "Failed to reload {{project}}",
