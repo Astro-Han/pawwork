@@ -171,6 +171,17 @@ export function createSessionTimelineInteraction(input: {
     activeMessage.markScrollGesture(target)
   }
 
+  const shouldCancelBottomFollowLockForIntent = (intent: TimelineScrollIntent) => {
+    if (intent.type === "scrollbar_drag_start" || intent.type === "target_message") return true
+    if (intent.type === "keyboard_scroll") {
+      return intent.key === "ArrowUp" || intent.key === "PageUp" || intent.key === "Home"
+    }
+    if (intent.type === "wheel_scroll" || intent.type === "touch_scroll") {
+      return intent.direction === "up" && !intent.nestedScrollable
+    }
+    return false
+  }
+
   const navigateMessageByOffset = (offset: number) => {
     scrollDock.cancelBottomFollowLock()
     activeMessage.navigateMessageByOffset(offset)
@@ -201,6 +212,7 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const onTimelineScrollIntent = (intent: TimelineScrollIntent): TimelineScrollControllerResult => {
+    if (shouldCancelBottomFollowLockForIntent(intent)) scrollDock.cancelBottomFollowLock()
     const result = scrollController.intent(intent)
     applyTimelineRecovery(result.recovery)
     return result
@@ -211,14 +223,20 @@ export function createSessionTimelineInteraction(input: {
     if (observation.type === "scroll_sample" && !observation.safePosition) {
       const viewport = scrollDock.scroller()
       if (viewport) {
+        const controllerState = scrollController.state()
+        const targetMessageID =
+          controllerState.lastSafePosition.kind === "target_message"
+            ? controllerState.lastSafePosition.messageID
+            : undefined
         next = {
           ...observation,
           safePosition: sampleTimelineSafePosition({
             viewport,
-            mode: scrollController.state().mode,
+            mode: controllerState.mode,
             renderedStart: historyWindow.turnStart(),
             renderedCount: historyWindow.renderedUserMessages().length,
             newestMessageID: input.visibleUserMessages().at(-1)?.id,
+            targetMessageID,
           }),
         }
       }

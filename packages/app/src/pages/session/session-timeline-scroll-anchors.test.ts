@@ -132,6 +132,31 @@ describe("session timeline scroll anchors", () => {
     })
   })
 
+  test("keeps target message as the sampled anchor while targeting", () => {
+    const { viewport } = makeViewport({
+      scrollTop: 260,
+      clientHeight: 400,
+      scrollHeight: 1200,
+    })
+    appendMessage(viewport, "msg_anchor", { top: 124, bottom: 240 })
+
+    expect(
+      sampleTimelineSafePosition({
+        viewport,
+        mode: "targeting_message",
+        renderedStart: 4,
+        renderedCount: 10,
+        newestMessageID: "msg_newest",
+        targetMessageID: "msg_target",
+      }),
+    ).toEqual({
+      kind: "target_message",
+      messageID: "msg_target",
+      align: "nearest",
+      loadPolicy: "load_until_visible",
+    })
+  })
+
   test("restores latest to bottom without sentinel", () => {
     const scroller = makeViewport({
       scrollTop: 120,

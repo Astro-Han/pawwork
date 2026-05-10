@@ -16,10 +16,11 @@ function messageElementByID(viewport: HTMLElement, messageID: string) {
 
 function firstVisibleMessage(viewport: HTMLElement) {
   const viewportRect = viewport.getBoundingClientRect()
-  return messageElements(viewport)
-    .map((el) => ({ el, rect: el.getBoundingClientRect() }))
-    .filter((item) => item.rect.bottom > viewportRect.top && item.rect.top < viewportRect.bottom)
-    .sort((a, b) => a.rect.top - b.rect.top)[0]
+  for (const el of messageElements(viewport)) {
+    const rect = el.getBoundingClientRect()
+    if (rect.bottom > viewportRect.top && rect.top < viewportRect.bottom) return { el, rect }
+  }
+  return undefined
 }
 
 export function collectTimelineScrollMetrics(viewport: HTMLElement): TimelineScrollMetrics {

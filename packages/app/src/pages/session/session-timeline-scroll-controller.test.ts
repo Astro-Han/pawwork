@@ -46,6 +46,13 @@ const readingAnchor: TimelineSafePosition = {
   renderedCount: 10,
 }
 
+const targetAnchor: TimelineSafePosition = {
+  kind: "target_message",
+  messageID: "msg_target",
+  align: "nearest",
+  loadPolicy: "load_until_visible",
+}
+
 function makeController() {
   const diagnostics: TimelineScrollDiagnosticEvent[] = []
   const controller = createSessionTimelineScrollController({
@@ -127,6 +134,88 @@ describe("session timeline scroll controller", () => {
     expect(scrollResult.recovery).toEqual({ type: "none" })
     expect(controller.state().mode).toBe("reading_history")
     expect(controller.state().lastSafePosition).toEqual(readingAnchor)
+  })
+
+  test("scrollbar drag after submit leaves latest protection before scroll samples", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "submit",
+      originMode: "following_latest",
+    })
+
+    const dragResult = controller.intent({
+      type: "scrollbar_drag_start",
+      source: "scroll_view",
+      metrics: bottomMetrics,
+    })
+    const scrollResult = controller.observe({
+      type: "scroll_sample",
+      metrics: topMetrics,
+      safePosition: readingAnchor,
+    })
+
+    expect(dragResult.reason).toBe("scrollbar_drag_started")
+    expect(scrollResult.accepted).toBe(true)
+    expect(scrollResult.recovery).toEqual({ type: "none" })
+    expect(controller.state().mode).toBe("reading_history")
+    expect(controller.state().latestProtected).toBe(false)
+    expect(controller.state().lastSafePosition).toEqual(readingAnchor)
+  })
+
+  test("scrollbar drag after submit does not restore latest on resize observations", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "submit",
+      originMode: "following_latest",
+    })
+    controller.intent({
+      type: "scrollbar_drag_start",
+      source: "scroll_view",
+      metrics: bottomMetrics,
+    })
+
+    const contentResult = controller.observe({
+      type: "content_resize",
+      metrics: topMetrics,
+    })
+    const dockResult = controller.observe({
+      type: "dock_resize",
+      dockKind: "composer",
+      previousDockHeight: 64,
+      nextDockHeight: 96,
+      metrics: topMetrics,
+    })
+
+    expect(contentResult.recovery).toEqual({ type: "none" })
+    expect(dockResult.recovery).toEqual({ type: "none" })
+    expect(controller.state().mode).toBe("reading_history")
+  })
+
+  test("scrollbar drag end at bottom rejoins latest after leaving submit protection", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "submit",
+      originMode: "following_latest",
+    })
+    controller.intent({
+      type: "scrollbar_drag_start",
+      source: "scroll_view",
+      metrics: bottomMetrics,
+    })
+
+    const result = controller.intent({
+      type: "scrollbar_drag_end",
+      source: "scroll_view",
+      metrics: bottomMetrics,
+    })
+
+    expect(result.reason).toBe("explicit_bottom_navigation")
+    expect(result.recovery).toEqual({ type: "restore_latest", reason: "explicit_bottom_navigation" })
+    expect(controller.state().mode).toBe("following_latest")
+    expect(controller.state().latestProtected).toBe(true)
   })
 
   test("strong upward wheel intent can leave latest", () => {
@@ -248,7 +337,58 @@ describe("session timeline scroll controller", () => {
     expect(controller.state().mode).toBe("targeting_message")
   })
 
-  test("owner detach cancels pending recovery", () => {
+  test("target message anchor is not overwritten by ordinary scroll samples", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "target_message",
+      messageID: "msg_target",
+      align: "nearest",
+    })
+    controller.observe({
+      type: "scroll_sample",
+      metrics: middleMetrics,
+      safePosition: readingAnchor,
+    })
+
+    const result = controller.observe({
+      type: "content_resize",
+      metrics: middleMetrics,
+    })
+
+    expect(controller.state().lastSafePosition).toEqual(targetAnchor)
+    expect(result).toEqual({
+      accepted: true,
+      recovery: {
+        type: "restore_anchor",
+        reason: "window_changed_preserve_target",
+        anchor: targetAnchor,
+      },
+      reason: "window_changed_preserve_target",
+    })
+  })
+
+  test("owner detached observation records normal detach reason", () => {
+    const { controller, diagnostics } = makeController()
+
+    const result = controller.observe({
+      type: "owner_detached",
+      sessionOwner: "ses_1",
+      viewportOwner: "viewport_1",
+    })
+
+    expect(result.accepted).toBe(true)
+    expect(result.reason).toBe("owner_detached")
+    expect(diagnostics.at(-1)).toMatchObject({
+      data: {
+        accepted: true,
+        reason: "owner_detached",
+        observation_type: "owner_detached",
+      },
+    })
+  })
+
+  test("owner detached observation rejects owner mismatch", () => {
     const { controller, diagnostics } = makeController()
 
     controller.intent({
@@ -256,7 +396,8 @@ describe("session timeline scroll controller", () => {
       originMode: "following_latest",
     })
 
-    const result = controller.detach({
+    const result = controller.observe({
+      type: "owner_detached",
       sessionOwner: "old_ses",
       viewportOwner: "old_viewport",
     })
@@ -268,6 +409,50 @@ describe("session timeline scroll controller", () => {
       data: {
         accepted: false,
         reason: "owner_mismatch_cancelled",
+        observation_type: "owner_detached",
+      },
+    })
+  })
+
+  test("matching owner detach records normal detach reason", () => {
+    const { controller, diagnostics } = makeController()
+
+    const result = controller.detach({
+      sessionOwner: "ses_1",
+      viewportOwner: "viewport_1",
+    })
+
+    expect(result.accepted).toBe(true)
+    expect(result.reason).toBe("owner_detached")
+    expect(diagnostics.at(-1)).toMatchObject({
+      data: {
+        accepted: true,
+        reason: "owner_detached",
+        observation_type: "owner_detached",
+      },
+    })
+  })
+
+  test("owner detach cancels pending recovery when owner matches", () => {
+    const { controller, diagnostics } = makeController()
+
+    controller.intent({
+      type: "submit",
+      originMode: "following_latest",
+    })
+
+    const result = controller.detach({
+      sessionOwner: "ses_1",
+      viewportOwner: "viewport_1",
+    })
+
+    expect(result.accepted).toBe(true)
+    expect(result.reason).toBe("owner_detached")
+    expect(controller.state().pendingRecovery).toEqual({ type: "none" })
+    expect(diagnostics.at(-1)).toMatchObject({
+      data: {
+        accepted: true,
+        reason: "owner_detached",
       },
     })
   })

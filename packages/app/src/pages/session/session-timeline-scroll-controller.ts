@@ -48,6 +48,7 @@ export type TimelineScrollReason =
   | "target_message_requested"
   | "target_load_exhausted_fallback"
   | "owner_mismatch_cancelled"
+  | "owner_detached"
   | "anchor_unrecoverable_fallback"
 
 export type TimelineRecovery =
@@ -300,6 +301,17 @@ function updateSafePosition(state: TimelineScrollControllerState, safePosition: 
   if (safePosition) state.lastSafePosition = safePosition
 }
 
+function updateObservedSafePosition(state: TimelineScrollControllerState, safePosition: TimelineSafePosition | undefined) {
+  if (
+    state.mode === "targeting_message" &&
+    state.lastSafePosition.kind === "target_message" &&
+    safePosition?.kind !== "target_message"
+  ) {
+    return
+  }
+  updateSafePosition(state, safePosition)
+}
+
 export function createSessionTimelineScrollController(
   options: SessionTimelineScrollControllerOptions,
 ): SessionTimelineScrollController {
@@ -427,6 +439,8 @@ export function createSessionTimelineScrollController(
       }
 
       if (intent.type === "scrollbar_drag_start") {
+        state.mode = "reading_history"
+        state.latestProtected = false
         return result({
           before,
           intent,
@@ -448,20 +462,24 @@ export function createSessionTimelineScrollController(
       const before = cloneState(state)
 
       if (observation.type === "owner_detached") {
-        state.pendingRecovery = noRecovery
-        state.latestProtected = false
+        const ownerMatches =
+          observation.sessionOwner === state.sessionOwner && observation.viewportOwner === state.viewportOwner
+        if (ownerMatches) {
+          state.pendingRecovery = noRecovery
+          state.latestProtected = false
+        }
         return result({
           before,
           observation,
-          accepted: true,
+          accepted: ownerMatches,
           recovery: noRecovery,
-          reason: "owner_mismatch_cancelled",
+          reason: ownerMatches ? "owner_detached" : "owner_mismatch_cancelled",
         })
       }
 
       if (observation.type === "scroll_sample") {
         if (observation.metrics.nearBottom) {
-          updateSafePosition(state, observation.safePosition ?? { kind: "latest" })
+          updateObservedSafePosition(state, observation.safePosition ?? { kind: "latest" })
           if (state.lastIntent && isExplicitBottomIntent(state.lastIntent)) {
             state.mode = "following_latest"
             state.latestProtected = true
@@ -491,7 +509,7 @@ export function createSessionTimelineScrollController(
           })
         }
 
-        updateSafePosition(state, observation.safePosition)
+        updateObservedSafePosition(state, observation.safePosition)
         return result({
           before,
           observation,
@@ -555,8 +573,11 @@ export function createSessionTimelineScrollController(
     },
     detach(owner) {
       const before = cloneState(state)
-      state.pendingRecovery = noRecovery
-      state.latestProtected = false
+      const ownerMatches = owner.sessionOwner === state.sessionOwner && owner.viewportOwner === state.viewportOwner
+      if (ownerMatches) {
+        state.pendingRecovery = noRecovery
+        state.latestProtected = false
+      }
       return result({
         before,
         observation: {
@@ -564,9 +585,9 @@ export function createSessionTimelineScrollController(
           sessionOwner: owner.sessionOwner,
           viewportOwner: owner.viewportOwner,
         },
-        accepted: owner.sessionOwner === state.sessionOwner && owner.viewportOwner === state.viewportOwner,
+        accepted: ownerMatches,
         recovery: noRecovery,
-        reason: "owner_mismatch_cancelled",
+        reason: ownerMatches ? "owner_detached" : "owner_mismatch_cancelled",
       })
     },
   }
