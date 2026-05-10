@@ -420,47 +420,44 @@ export const PawworkSidebar = (props: {
                               data-action="pawwork-group-toggle"
                               data-collapsed={collapsed() ? "true" : undefined}
                               aria-expanded={!collapsed()}
+                              title={group.key}
                               onClick={() => props.onToggleProjectCollapsed(group.key)}
                               class="group/group-header h-[30px] w-full flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
                             >
-                              <Icon name="folder" class="shrink-0 text-icon-weak" />
+                              <Icon
+                                name={collapsed() ? "folder" : "folder-open"}
+                                class="shrink-0 text-icon-weak"
+                              />
                               <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
-                              <div class="flex items-center gap-1">
-                                <DropdownMenu>
-                                  <DropdownMenu.Trigger
-                                    as={IconButton}
-                                    icon="dot-grid"
-                                    variant="ghost"
-                                    class="h-[22px] w-[22px] opacity-0 group-hover/group-header:opacity-100 group-focus-visible/group-header:opacity-100"
-                                    data-action="project-row-menu"
-                                    aria-label={language.t("common.moreOptions")}
-                                    onClick={(event: MouseEvent) => {
-                                      event.preventDefault()
-                                      event.stopPropagation()
-                                    }}
-                                  />
-                                  <DropdownMenu.Portal>
-                                    <DropdownMenu.Content>
-                                      <DropdownMenu.Item onSelect={handleRename}>
-                                        <Icon name="edit" class="text-icon-weak" />
-                                        <DropdownMenu.ItemLabel>{projectMenuLabels().rename}</DropdownMenu.ItemLabel>
-                                      </DropdownMenu.Item>
-                                      <DropdownMenu.Item onSelect={handleRemove}>
-                                        <Icon name="archive" class="text-icon-weak" />
-                                        <DropdownMenu.ItemLabel>{projectMenuLabels().remove}</DropdownMenu.ItemLabel>
-                                      </DropdownMenu.Item>
-                                    </DropdownMenu.Content>
-                                  </DropdownMenu.Portal>
-                                </DropdownMenu>
-                                <Icon
-                                  name="chevron-down"
-                                  class="shrink-0 text-icon-weak transition-[opacity,transform] duration-150"
-                                  classList={{
-                                    "-rotate-90 opacity-100": collapsed(),
-                                    "opacity-0 group-hover/group-header:opacity-100 group-focus-visible/group-header:opacity-100":
-                                      !collapsed(),
-                                  }}
-                                />
+                              <div class="pointer-events-none relative shrink-0 flex items-center justify-end h-[20px] min-w-[20px]">
+                                <div class="absolute inset-y-0 right-0 flex items-center justify-end opacity-0 pointer-events-none group-hover/group-header:opacity-100 group-hover/group-header:pointer-events-auto group-focus-visible/group-header:opacity-100 group-focus-visible/group-header:pointer-events-auto group-has-[[data-expanded]]/group-header:opacity-100 group-has-[[data-expanded]]/group-header:pointer-events-auto">
+                                  <DropdownMenu>
+                                    <DropdownMenu.Trigger
+                                      as={IconButton}
+                                      icon="dot-grid"
+                                      variant="ghost"
+                                      class="pointer-events-auto h-[26px] w-[26px]"
+                                      data-action="project-row-menu"
+                                      aria-label={language.t("common.moreOptions")}
+                                      onClick={(event: MouseEvent) => {
+                                        event.preventDefault()
+                                        event.stopPropagation()
+                                      }}
+                                    />
+                                    <DropdownMenu.Portal>
+                                      <DropdownMenu.Content>
+                                        <DropdownMenu.Item onSelect={handleRename}>
+                                          <Icon name="edit" class="text-icon-weak" />
+                                          <DropdownMenu.ItemLabel>{projectMenuLabels().rename}</DropdownMenu.ItemLabel>
+                                        </DropdownMenu.Item>
+                                        <DropdownMenu.Item onSelect={handleRemove}>
+                                          <Icon name="archive" class="text-icon-weak" />
+                                          <DropdownMenu.ItemLabel>{projectMenuLabels().remove}</DropdownMenu.ItemLabel>
+                                        </DropdownMenu.Item>
+                                      </DropdownMenu.Content>
+                                    </DropdownMenu.Portal>
+                                  </DropdownMenu>
+                                </div>
                               </div>
                             </button>
                           </ContextMenu.Trigger>
