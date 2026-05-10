@@ -358,7 +358,8 @@
   [data-slot="markdown-copy-button"][data-variant="secondary"] [data-slot="icon-svg"] {
     color: var(--icon-base);
   }
-  [data-component="markdown-code"]:hover [data-slot="markdown-copy-button"] {
+  [data-component="markdown-code"]:hover [data-slot="markdown-copy-button"],
+  [data-component="markdown-code"]:focus-within [data-slot="markdown-copy-button"] {
     opacity: 1;
   }
   [data-slot="markdown-copy-button"] [data-slot="check-icon"] {
