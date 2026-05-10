@@ -40,7 +40,7 @@ export namespace MemoryFile {
 
   const PROFILE_HEADING = "## Profile"
   const ARCHIVE_HEADING = "## Archive"
-  const PROFILE_SOFT_LIMIT = 2_000
+  export const PROFILE_CONTEXT_LIMIT = 2_000
 
   export function defaultTemplate() {
     return [
@@ -83,7 +83,7 @@ export namespace MemoryFile {
       archive,
       entries,
       invalidEntries,
-      profileTooLarge: profile.length > PROFILE_SOFT_LIMIT,
+      profileTooLarge: profile.length > PROFILE_CONTEXT_LIMIT,
     }
   }
 
