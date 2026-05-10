@@ -1,6 +1,5 @@
 import { Button } from "@opencode-ai/ui/button"
 import { Switch } from "@opencode-ai/ui/switch"
-import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
 import { createResource, createSignal, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
@@ -21,7 +20,6 @@ export function SettingsMemory(props: { directory?: string }) {
   const globalSDK = useGlobalSDK()
   const client = () => globalSDK.createClient({ directory: props.directory, throwOnError: true })
   const [draft, setDraft] = createSignal("")
-  const [deleteID, setDeleteID] = createSignal("")
   const [state, actions] = createResource(async () => {
     const result = await client().memory.get()
     const data = (result.data ?? {}) as MemoryState
@@ -46,15 +44,6 @@ export function SettingsMemory(props: { directory?: string }) {
 
   const toggle = async (enabled: boolean) => {
     await client().memory.disabled({ memoryDisabledInput: { disabled: !enabled } })
-    refresh()
-  }
-
-  const deleteEntry = async () => {
-    const id = deleteID().trim()
-    if (!id) return
-    await client().memory.deleteEntry({ id })
-    setDeleteID("")
-    showToast({ variant: "success", title: language.t("settings.memory.delete.done") })
     refresh()
   }
 
@@ -109,24 +98,6 @@ export function SettingsMemory(props: { directory?: string }) {
               {language.t("settings.memory.reset")}
             </Button>
           </div>
-        </section>
-
-        <section class="flex flex-wrap items-end gap-3 border-t border-border-weak py-3 sm:flex-nowrap">
-          <div class="min-w-0 flex-1">
-            <TextField
-              data-action="settings-memory-delete-id"
-              label={language.t("settings.memory.delete.title")}
-              type="text"
-              value={deleteID()}
-              onChange={setDeleteID}
-              placeholder="mem_..."
-              spellcheck={false}
-            />
-            <p class="pt-1 text-12-regular text-fg-weak">{language.t("settings.memory.delete.description")}</p>
-          </div>
-          <Button variant="danger" onClick={deleteEntry} disabled={!deleteID().trim()}>
-            {language.t("common.delete")}
-          </Button>
         </section>
       </SettingsList>
     </div>

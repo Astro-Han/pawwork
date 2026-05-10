@@ -32,7 +32,6 @@ describe("PawWork memory parser", () => {
   test("parses Archive entries with user and project scopes only", () => {
     const parsed = MemoryFile.parse(`
 # PawWork Memory
-<!-- pawwork-memory-version: 1 -->
 
 ## Profile
 
@@ -40,10 +39,8 @@ describe("PawWork memory parser", () => {
 
 ## Archive
 
-### 2026-05-10T18:00:00+09:00 id:mem_abc scope:project applies_to:/repo/pawwork tags:memory,v1
+### 2026-05-10T18:00:00+09:00 id:mem_abc scope:project applies_to:/repo/pawwork
 Project memory.
-
-Source: #PawWork:d1655393
 `)
     expect(parsed.status).toBe("ok")
     if (parsed.status !== "ok") throw new Error("expected ok parse")
@@ -55,13 +52,12 @@ Source: #PawWork:d1655393
   test("marks global scope invalid in v1", () => {
     const parsed = MemoryFile.parse(`
 # PawWork Memory
-<!-- pawwork-memory-version: 1 -->
 
 ## Profile
 
 ## Archive
 
-### 2026-05-10T18:00:00+09:00 id:mem_bad scope:global tags:bad
+### 2026-05-10T18:00:00+09:00 id:mem_bad scope:global
 Bad entry.
 `)
     expect(parsed.status).toBe("ok")
@@ -91,7 +87,7 @@ describe("PawWork memory service", () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pawwork-memory-"))
     const service = MemoryService.createForTest({ home: dir, workspacePath: "/repo/pawwork" })
     await service.read()
-    await service.appendAcceptedProposal({ text: "PawWork uses one MEMORY.md file.", scope: "project", tags: ["memory"] })
+    await service.appendAcceptedProposal({ text: "PawWork uses one MEMORY.md file.", scope: "project" })
     const appended = await service.read()
     expect(appended.content).toContain("scope:project")
     const id = appended.content.match(/id:(mem_[a-z0-9]+)/)?.[1]

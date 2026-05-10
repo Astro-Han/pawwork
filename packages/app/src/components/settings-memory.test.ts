@@ -15,7 +15,6 @@ describe("memory settings source contract", () => {
 
     expect(settings).toContain("settings-memory-raw")
     expect(settings).toContain("memory.disabled")
-    expect(settings).toContain("deleteEntry")
+    expect(settings).not.toContain("settings-memory-delete-id")
   })
 })
-

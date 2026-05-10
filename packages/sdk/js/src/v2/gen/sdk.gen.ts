@@ -72,7 +72,6 @@ import type {
   MemoryDisabledInput,
   MemoryDisabledResponses,
   MemoryGetResponses,
-  MemoryPreviewProposalResponses,
   MemoryProposalInput,
   MemoryRawInput,
   MemoryResetResponses,
@@ -3452,41 +3451,6 @@ export class Memory extends HeyApiClient {
       url: "/memory/entry/{id}",
       ...options,
       ...params,
-    })
-  }
-
-  /**
-   * Preview PawWork memory proposal
-   */
-  public previewProposal<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      memoryProposalInput?: MemoryProposalInput
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { key: "memoryProposalInput", map: "body" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<MemoryPreviewProposalResponses, unknown, ThrowOnError>({
-      url: "/memory/proposal/preview",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
     })
   }
 

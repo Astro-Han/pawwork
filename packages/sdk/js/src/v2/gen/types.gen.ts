@@ -2239,8 +2239,6 @@ export type MemoryDisabledInput = {
 export type MemoryProposalInput = {
   text: string
   scope: "user" | "project"
-  tags?: Array<string>
-  source?: string
 }
 
 export type Symbol = {
@@ -5415,23 +5413,6 @@ export type MemoryDeleteEntryResponses = {
 }
 
 export type MemoryDeleteEntryResponse = MemoryDeleteEntryResponses[keyof MemoryDeleteEntryResponses]
-
-export type MemoryPreviewProposalData = {
-  body?: MemoryProposalInput
-  path?: never
-  query?: {
-    directory?: string
-    workspace?: string
-  }
-  url: "/memory/proposal/preview"
-}
-
-export type MemoryPreviewProposalResponses = {
-  /**
-   * Preview
-   */
-  200: unknown
-}
 
 export type MemoryAcceptProposalData = {
   body?: MemoryProposalInput

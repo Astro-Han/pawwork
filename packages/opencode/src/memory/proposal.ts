@@ -13,7 +13,6 @@ export namespace MemoryProposal {
     id: string
     text: string
     scope: MemoryFile.Scope
-    tags: string[]
     defaultSelected: boolean
     warning?: string
   }
@@ -30,13 +29,12 @@ export namespace MemoryProposal {
     return { text, highRisk }
   }
 
-  export function fromText(input: { text: string; scope?: MemoryFile.Scope; tags?: string[] }): Proposal {
+  export function fromText(input: { text: string; scope?: MemoryFile.Scope }): Proposal {
     const redacted = redact(input.text)
     return {
       id: MemoryFile.makeID(),
       text: redacted.text,
       scope: input.scope ?? "project",
-      tags: input.tags ?? [],
       defaultSelected: !redacted.highRisk,
       warning: redacted.highRisk ? "Contains possible sensitive data." : undefined,
     }

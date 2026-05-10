@@ -20,7 +20,6 @@ test("@smoke memory settings exposes the raw MEMORY.md controls", async ({ page,
 
   const next = [
     "# PawWork Memory",
-    "<!-- pawwork-memory-version: 1 -->",
     "",
     "## Profile",
     "- e2e memory settings profile",

@@ -2,7 +2,6 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { Instance } from "@/project/instance"
-import { MemoryProposal } from "@/memory/proposal"
 import { MemoryService } from "@/memory/service"
 
 const MemoryRawInput = z.object({ content: z.string() }).meta({ ref: "MemoryRawInput" })
@@ -11,8 +10,6 @@ const MemoryProposalInput = z
   .object({
     text: z.string(),
     scope: z.enum(["user", "project"]),
-    tags: z.array(z.string()).default([]),
-    source: z.string().optional(),
   })
   .meta({ ref: "MemoryProposalInput" })
 
@@ -97,18 +94,6 @@ export const MemoryRoutes = () =>
         await service().deleteEntry(c.req.param("id"))
         return c.json(await service().read())
       },
-    )
-    .post(
-      "/proposal/preview",
-      describeRoute({
-        summary: "Preview PawWork memory proposal",
-        operationId: "memory.previewProposal",
-        responses: {
-          200: { description: "Preview", content: { "application/json": { schema: resolver(z.any()) } } },
-        },
-      }),
-      validator("json", MemoryProposalInput),
-      async (c) => c.json(MemoryProposal.fromText(c.req.valid("json"))),
     )
     .post(
       "/proposal/accept",

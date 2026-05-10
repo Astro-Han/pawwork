@@ -95,7 +95,7 @@ export namespace MemoryService {
       else await fs.rm(disabledFile, { force: true })
     }
 
-    async function appendAcceptedProposal(input: { text: string; scope: MemoryFile.Scope; tags?: string[]; source?: string }) {
+    async function appendAcceptedProposal(input: { text: string; scope: MemoryFile.Scope }) {
       const state = await read()
       if (state.disabled) throw new Error("Memory is disabled")
       const parsed = MemoryFile.parse(state.content)
@@ -104,9 +104,7 @@ export namespace MemoryService {
       const entry = MemoryFile.formatEntry({
         scope: input.scope,
         appliesTo: input.scope === "project" ? workspacePath : undefined,
-        tags: input.tags,
         text: redacted.text,
-        source: input.source,
       })
       await writeAtomic(`${state.content.trimEnd()}\n\n${entry}`)
       return entry

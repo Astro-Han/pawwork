@@ -14,10 +14,8 @@ export namespace MemoryFile {
     createdAt: string
     scope: Scope
     appliesTo?: string
-    tags: string[]
     heading: string
     body: string
-    source?: string
     raw: string
   }
 
@@ -45,7 +43,6 @@ export namespace MemoryFile {
   export function defaultTemplate() {
     return [
       "# PawWork Memory",
-      "<!-- pawwork-memory-version: 1 -->",
       "",
       PROFILE_HEADING,
       "",
@@ -92,16 +89,12 @@ export namespace MemoryFile {
     createdAt?: string
     scope: Scope
     appliesTo?: string
-    tags?: string[]
     text: string
-    source?: string
   }) {
     const id = input.id ?? makeID()
     const createdAt = input.createdAt ?? new Date().toISOString()
-    const tags = input.tags?.length ? input.tags.join(",") : "memory"
     const scope = input.scope === "project" ? `scope:project applies_to:${input.appliesTo ?? ""}` : "scope:user"
-    const source = input.source?.trim() ? `\n\nSource: ${input.source.trim()}` : ""
-    return `### ${createdAt} id:${id} ${scope} tags:${tags}\n${input.text.trim()}${source}\n`
+    return `### ${createdAt} id:${id} ${scope}\n${input.text.trim()}\n`
   }
 
   function nextLineIndex(input: string, start: number) {
@@ -132,7 +125,7 @@ export namespace MemoryFile {
       }
       seen.add(parsed.entry.id)
       const body = bodyLines.join("\n").trim()
-      entries.push({ ...parsed.entry, heading, body, source: parseSource(body), raw })
+      entries.push({ ...parsed.entry, heading, body, raw })
     }
 
     return { entries, invalidEntries }
@@ -140,7 +133,7 @@ export namespace MemoryFile {
 
   function parseHeading(
     heading: string,
-  ): { ok: true; entry: Omit<Entry, "body" | "source" | "raw"> } | { ok: false; reason: string } {
+  ): { ok: true; entry: Omit<Entry, "body" | "raw"> } | { ok: false; reason: string } {
     const rest = heading.slice(4).trim()
     const [createdAt, ...tokens] = rest.split(/\s+/)
     if (!createdAt || Number.isNaN(Date.parse(createdAt))) return { ok: false, reason: "invalid_timestamp" }
@@ -162,13 +155,8 @@ export namespace MemoryFile {
         createdAt,
         scope: meta.scope,
         appliesTo: meta.applies_to,
-        tags: meta.tags ? meta.tags.split(",").filter(Boolean) : [],
         heading,
       },
     }
-  }
-
-  function parseSource(body: string) {
-    return body.match(/^Source:\s*(.+)$/m)?.[1]?.trim()
   }
 }
