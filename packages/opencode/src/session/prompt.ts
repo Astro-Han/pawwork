@@ -1850,8 +1850,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     "Record only what the user has stated explicitly. Do not extrapolate preferences from how the user phrases questions or what tasks they request. For example, do not turn \"the user asked me to change one PR line\" into \"the user prefers small PRs.\"",
                     "Never write passwords, API keys, tokens, private keys, ID/passport/license numbers, credit card/bank/CVV data, private health records, home addresses, or private phone numbers.",
                     "Keep Profile short because it is loaded at session start. Put longer history in Archive.",
-                    "If this is the first time you auto-write to memory and MEMORY.md was effectively empty or still only had the default template, mention it briefly and naturally in the normal reply, e.g. \"我记下你说的 X 偏好\". After this first time, subsequent auto-writes are silent.",
-                    "Do not show toast, dialog, or inline UI feedback. If the user explicitly asks you to remember something, acknowledge naturally in the normal reply, e.g. \"已记下\" or \"Got it, I'll remember that.\"",
+                    "If this is the first time you auto-write to memory and MEMORY.md was effectively empty or still only had the default template, mention it briefly and naturally in the normal reply, e.g. \"I'll remember this preference for future chats.\" After this first time, subsequent auto-writes are silent.",
+                    "Do not show toast, dialog, or inline UI feedback. If the user explicitly asks you to remember something, acknowledge naturally in the normal reply, e.g. \"Got it, I'll remember that.\"",
                     "</pawwork-memory>",
                   ].join("\n")
                 }).pipe(
