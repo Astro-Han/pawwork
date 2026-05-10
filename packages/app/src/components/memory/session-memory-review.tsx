@@ -9,6 +9,8 @@ type MemoryState = {
   status?: "ok" | "safe_mode"
 }
 
+const errorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback)
+
 export function SessionMemoryReview(props: { sessionID?: string; visible: boolean }) {
   const language = useLanguage()
   const sdk = useSDK()
@@ -31,13 +33,28 @@ export function SessionMemoryReview(props: { sessionID?: string; visible: boolea
     try {
       const result = await sdk.client.memory.acceptProposal({ memoryProposalInput: { text, scope: "project" } })
       const state = (result.data ?? {}) as MemoryState
-      if (state.disabled || state.status === "safe_mode") return
+      if (state.disabled || state.status === "safe_mode") {
+        setDraft("")
+        setDismissed(true)
+        showToast({
+          variant: "subtle",
+          title: language.t("memory.review.blocked"),
+          description: language.t(state.disabled ? "memory.review.blockedDisabled" : "memory.review.blockedSafeMode"),
+        })
+        return
+      }
       setDraft("")
       setDismissed(true)
       showToast({
         variant: "success",
         title: language.t("memory.review.saved"),
         description: language.t("memory.review.savedDescription"),
+      })
+    } catch (error) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
       })
     } finally {
       setSaving(false)

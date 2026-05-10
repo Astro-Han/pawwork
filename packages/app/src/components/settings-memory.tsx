@@ -15,36 +15,72 @@ type MemoryState = {
   profileTooLarge?: boolean
 }
 
+const errorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback)
+
 export function SettingsMemory(props: { directory?: string }) {
   const language = useLanguage()
   const globalSDK = useGlobalSDK()
   const client = () => globalSDK.createClient({ directory: props.directory, throwOnError: true })
   const [draft, setDraft] = createSignal("")
   const [state, actions] = createResource(async () => {
-    const result = await client().memory.get()
-    const data = (result.data ?? {}) as MemoryState
-    setDraft(data.content ?? "")
-    return data
+    try {
+      const result = await client().memory.get()
+      const data = (result.data ?? {}) as MemoryState
+      setDraft(data.content ?? "")
+      return data
+    } catch (error) {
+      setDraft("")
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      })
+      throw error
+    }
   })
 
   const refresh = () => void actions.refetch()
 
   const save = async () => {
-    await client().memory.update({ memoryRawInput: { content: draft() } })
-    showToast({ variant: "success", title: language.t("settings.memory.saved") })
-    refresh()
+    try {
+      await client().memory.update({ memoryRawInput: { content: draft() } })
+      showToast({ variant: "success", title: language.t("settings.memory.saved") })
+      refresh()
+    } catch (error) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      })
+    }
   }
 
   const reset = async () => {
     if (!window.confirm(language.t("settings.memory.resetConfirm"))) return
-    await client().memory.reset()
-    showToast({ variant: "success", title: language.t("settings.memory.resetDone") })
-    refresh()
+    try {
+      await client().memory.reset()
+      showToast({ variant: "success", title: language.t("settings.memory.resetDone") })
+      refresh()
+    } catch (error) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      })
+    }
   }
 
   const toggle = async (enabled: boolean) => {
-    await client().memory.disabled({ memoryDisabledInput: { disabled: !enabled } })
-    refresh()
+    try {
+      await client().memory.disabled({ memoryDisabledInput: { disabled: !enabled } })
+      refresh()
+    } catch (error) {
+      showToast({
+        variant: "error",
+        title: language.t("common.requestFailed"),
+        description: errorMessage(error, language.t("common.requestFailed")),
+      })
+    }
   }
 
   return (

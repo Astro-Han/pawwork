@@ -16,6 +16,21 @@ export namespace MemoryService {
     invalidEntries?: MemoryFile.InvalidEntry[]
   }
 
+  const writeQueues = new Map<string, Promise<void>>()
+
+  async function enqueueWrite<T>(file: string, task: () => Promise<T>) {
+    const previous = writeQueues.get(file) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(task)
+    writeQueues.set(
+      file,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    )
+    return run
+  }
+
   export function create(input?: { home?: string; workspacePath?: string }) {
     const home = input?.home ?? PawWorkHome.primary()
     const file = path.join(home, "memory", "MEMORY.md")
@@ -69,45 +84,56 @@ export namespace MemoryService {
     async function saveRaw(next: string) {
       const parsed = MemoryFile.parse(next)
       if (parsed.status === "safe_mode") throw new Error(parsed.reason)
-      await writeAtomic(next)
+      await enqueueWrite(file, () => writeAtomic(next))
     }
 
     async function resetToTemplate() {
-      await ensure()
-      const previous = await fs.readFile(file, "utf8")
-      await fs.writeFile(`${file}.broken.bak`, previous, { mode: 0o600 })
-      await writeAtomic(MemoryFile.defaultTemplate())
+      await enqueueWrite(file, async () => {
+        await ensure()
+        const previous = await fs.readFile(file, "utf8")
+        await fs.writeFile(`${file}.broken.bak`, previous, { mode: 0o600 })
+        await writeAtomic(MemoryFile.defaultTemplate())
+      })
     }
 
     async function deleteEntry(id: string) {
-      const state = await read()
-      const parsed = MemoryFile.parse(state.content)
-      if (parsed.status !== "ok") throw new Error("Memory is in safe mode")
-      const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      const next = state.content.replace(new RegExp(`\\n?### [^\\n]* id:${escaped}(?:\\s|$)[\\s\\S]*?(?=\\n### |$)`), "")
-      if (next === state.content) throw new Error(`Memory entry not found: ${id}`)
-      await writeAtomic(next.trimEnd() + "\n")
+      await enqueueWrite(file, async () => {
+        const state = await read()
+        const parsed = MemoryFile.parse(state.content)
+        if (parsed.status !== "ok") throw new Error("Memory is in safe mode")
+        const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        const next = state.content.replace(
+          new RegExp(`\\n?### \\d{4}-\\d{2}-\\d{2}T[^\\n]*\\bid:${escaped}(?:\\s|$)[\\s\\S]*?(?=\\n### \\d{4}-\\d{2}-\\d{2}T[^\\n]*\\bid:|$)`),
+          "",
+        )
+        if (next === state.content) throw new Error(`Memory entry not found: ${id}`)
+        await writeAtomic(next.trimEnd() + "\n")
+      })
     }
 
     async function setDisabled(value: boolean) {
-      await fs.mkdir(path.dirname(disabledFile), { recursive: true, mode: 0o700 })
-      if (value) await fs.writeFile(disabledFile, "disabled\n", { mode: 0o600 })
-      else await fs.rm(disabledFile, { force: true })
+      await enqueueWrite(file, async () => {
+        await fs.mkdir(path.dirname(disabledFile), { recursive: true, mode: 0o700 })
+        if (value) await fs.writeFile(disabledFile, "disabled\n", { mode: 0o600 })
+        else await fs.rm(disabledFile, { force: true })
+      })
     }
 
     async function appendAcceptedProposal(input: { text: string; scope: MemoryFile.Scope }) {
-      const state = await read()
-      if (state.disabled) throw new Error("Memory is disabled")
-      const parsed = MemoryFile.parse(state.content)
-      if (parsed.status !== "ok") throw new Error("Memory is in safe mode")
-      const redacted = MemoryProposal.redact(input.text)
-      const entry = MemoryFile.formatEntry({
-        scope: input.scope,
-        appliesTo: input.scope === "project" ? workspacePath : undefined,
-        text: redacted.text,
+      return enqueueWrite(file, async () => {
+        const state = await read()
+        if (state.disabled) throw new Error("Memory is disabled")
+        const parsed = MemoryFile.parse(state.content)
+        if (parsed.status !== "ok") throw new Error("Memory is in safe mode")
+        const redacted = MemoryProposal.redact(input.text)
+        const entry = MemoryFile.formatEntry({
+          scope: input.scope,
+          appliesTo: input.scope === "project" ? workspacePath : undefined,
+          text: redacted.text,
+        })
+        await writeAtomic(`${state.content.trimEnd()}\n\n${entry}`)
+        return entry
       })
-      await writeAtomic(`${state.content.trimEnd()}\n\n${entry}`)
-      return entry
     }
 
     return {

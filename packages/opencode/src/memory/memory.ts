@@ -93,7 +93,7 @@ export namespace MemoryFile {
   }) {
     const id = input.id ?? makeID()
     const createdAt = input.createdAt ?? new Date().toISOString()
-    const scope = input.scope === "project" ? `scope:project applies_to:${input.appliesTo ?? ""}` : "scope:user"
+    const scope = input.scope === "project" ? `scope:project applies_to:${encodeURIComponent(input.appliesTo ?? "")}` : "scope:user"
     return `### ${createdAt} id:${id} ${scope}\n${input.text.trim()}\n`
   }
 
@@ -103,8 +103,10 @@ export namespace MemoryFile {
   }
 
   function parseEntries(archive: string): { entries: Entry[]; invalidEntries: InvalidEntry[] } {
-    const chunks = archive
-      .split(/\n(?=### )/)
+    const headingPattern = /^### \d{4}-\d{2}-\d{2}T[^\n]*\bid:[^\s]+[^\n]*$/gm
+    const headings = [...archive.matchAll(headingPattern)]
+    const chunks = headings
+      .map((match, index) => archive.slice(match.index!, headings[index + 1]?.index ?? archive.length))
       .map((chunk) => chunk.trim())
       .filter(Boolean)
     const seen = new Set<string>()
@@ -148,13 +150,23 @@ export namespace MemoryFile {
     if (meta.scope !== "user" && meta.scope !== "project") return { ok: false, reason: "invalid_scope" }
     if (meta.scope === "project" && !meta.applies_to) return { ok: false, reason: "missing_applies_to" }
 
+    const appliesTo = meta.applies_to
+      ? (() => {
+          try {
+            return decodeURIComponent(meta.applies_to)
+          } catch {
+            return meta.applies_to
+          }
+        })()
+      : undefined
+
     return {
       ok: true,
       entry: {
         id,
         createdAt,
         scope: meta.scope,
-        appliesTo: meta.applies_to,
+        appliesTo,
         heading,
       },
     }

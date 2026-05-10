@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
-import os from "os"
 import path from "path"
+import { tmpdir } from "../fixture/fixture"
 import { MemoryFile } from "../../src/memory/memory"
 import { MemoryProposal } from "../../src/memory/proposal"
 import { MemoryService } from "../../src/memory/service"
@@ -49,6 +49,39 @@ Project memory.
     expect(parsed.entries[0]?.scope).toBe("project")
   })
 
+  test("round-trips project paths with spaces", () => {
+    const entry = MemoryFile.formatEntry({
+      id: "mem_space",
+      createdAt: "2026-05-10T18:00:00+09:00",
+      scope: "project",
+      appliesTo: "/repo/Paw Work",
+      text: "Project memory.",
+    })
+    const parsed = MemoryFile.parse(`# PawWork Memory\n\n## Profile\n\n## Archive\n\n${entry}`)
+    expect(parsed.status).toBe("ok")
+    if (parsed.status !== "ok") throw new Error("expected ok parse")
+    expect(parsed.entries[0]?.appliesTo).toBe("/repo/Paw Work")
+  })
+
+  test("does not split Archive entries on markdown body headings", () => {
+    const parsed = MemoryFile.parse(`
+# PawWork Memory
+
+## Profile
+
+## Archive
+
+### 2026-05-10T18:00:00+09:00 id:mem_markdown scope:user
+Remember this:
+### Body heading
+Still the same entry.
+`)
+    expect(parsed.status).toBe("ok")
+    if (parsed.status !== "ok") throw new Error("expected ok parse")
+    expect(parsed.entries).toHaveLength(1)
+    expect(parsed.entries[0]?.body).toContain("### Body heading")
+  })
+
   test("marks global scope invalid in v1", () => {
     const parsed = MemoryFile.parse(`
 # PawWork Memory
@@ -69,7 +102,8 @@ Bad entry.
 
 describe("PawWork memory service", () => {
   test("creates default MEMORY.md under PawWork home", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pawwork-memory-"))
+    await using tmp = await tmpdir()
+    const dir = tmp.path
     const service = MemoryService.createForTest({ home: dir, workspacePath: "/repo/pawwork" })
     const state = await service.read()
     expect(state.status).toBe("ok")
@@ -84,7 +118,8 @@ describe("PawWork memory service", () => {
   })
 
   test("create append read delete smoke path", async () => {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pawwork-memory-"))
+    await using tmp = await tmpdir()
+    const dir = tmp.path
     const service = MemoryService.createForTest({ home: dir, workspacePath: "/repo/pawwork" })
     await service.read()
     await service.appendAcceptedProposal({ text: "PawWork uses one MEMORY.md file.", scope: "project" })
@@ -95,5 +130,18 @@ describe("PawWork memory service", () => {
     await service.deleteEntry(id!)
     const deleted = await service.read()
     expect(deleted.content).not.toContain(id!)
+  })
+
+  test("serializes concurrent proposal appends", async () => {
+    await using tmp = await tmpdir()
+    const service = MemoryService.createForTest({ home: tmp.path, workspacePath: "/repo/pawwork" })
+    await service.read()
+    await Promise.all([
+      service.appendAcceptedProposal({ text: "First memory.", scope: "project" }),
+      service.appendAcceptedProposal({ text: "Second memory.", scope: "project" }),
+    ])
+    const state = await service.read()
+    expect(state.content).toContain("First memory.")
+    expect(state.content).toContain("Second memory.")
   })
 })
