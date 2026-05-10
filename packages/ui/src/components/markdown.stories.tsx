@@ -13,7 +13,7 @@ W3 lock 2026-05-10 (see docs/design/preview/markdown-body.html · STANDARDS.md#L
 - **W3.Headings** — H1-H4 G mapping (all 13px sans, hierarchy via fg color + margin)
 - **W3.LinksInkOnly** — quiet underline, hover currentColor, focus brand ring
 - **W3.TaskList** — 16px circle / circle-check svg, read-only
-- **W3.Blockquote** — cream bg + radius-sm, no left line (avoids BAN 1)
+- **W3.Blockquote** — 2px border-weak left rule + fg-weak text (Markdown 行业惯例,非 BAN 1 彩条)
 - **W3.Table** — \`th data-numeric="true"\` for tabular-nums + right align
 - **W3.Details** — chev rotates 90deg on open
 - **W3.Math** — inline + block KaTeX
@@ -57,9 +57,9 @@ const fixtures = {
     "- [ ] 开 PR",
   ].join("\n"),
   blockquote: [
-    "> 引用语段以 cream 底 + radius-sm 表达, 不加左竖线 (避 BAN 1)。",
+    "> 引用语段用 2px border-weak 左竖线 + fg-weak 字色, 无背景。",
     ">",
-    "> 嵌套也保持单一底色。",
+    "> 中性灰左线是 Markdown 行业惯例 (GitHub / Tailwind prose / Notion / shadcn), 不属 BAN 1 彩条。",
     "",
     "正文继续。",
   ].join("\n"),
