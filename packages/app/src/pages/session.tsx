@@ -403,9 +403,7 @@ export default function Page() {
   const resumeScroll = timelineInteraction.resumeScroll
   const scheduleScrollState = timelineInteraction.scheduleScrollState
   const scrollDock = timelineInteraction.scrollDock
-  const resumeScrollIfFollowing = () => {
-    if (scrollDock.scroll.bottom) resumeScroll()
-  }
+  const submitLatest = timelineInteraction.submitLatest
   const setScrollRef = timelineInteraction.setScrollRef
 
   useSessionKeyboardFocus({
@@ -572,9 +570,9 @@ export default function Page() {
       onNewSessionWorktreeReset={newSessionWorktree.reset}
       onSubmit={() => {
         comments.clear()
-        resumeScrollIfFollowing()
+        submitLatest()
       }}
-      onResponseSubmit={resumeScrollIfFollowing}
+      onResponseSubmit={submitLatest}
       onModeChange={ctx?.onModeChange}
       selectedSkill={ctx?.selectedSkill}
       followup={
@@ -647,6 +645,8 @@ export default function Page() {
       markScrollGesture={timelineInteraction.markScrollGesture}
       hasScrollGesture={activeMessage.hasScrollGesture}
       markUserScroll={activeMessage.markUserScroll}
+      onTimelineScrollIntent={timelineInteraction.onTimelineScrollIntent}
+      onTimelineScrollObservation={timelineInteraction.onTimelineScrollObservation}
       historyWindow={historyWindow}
       centered={centered()}
       setContentRef={scrollDock.setContentRef}
@@ -655,6 +655,7 @@ export default function Page() {
       anchor={timelineInteraction.anchor}
       onRetryOpenSession={retryOpenRouteSession}
       onOpenNewSession={openNewRouteSession}
+      memoryReviewVisible={!!timelineSessionID() && !timelineRunning()}
       composerSession={renderComposerRegion("session")}
       composerHome={(ctx) => renderComposerRegion("home", ctx)}
       canReview={canReview}

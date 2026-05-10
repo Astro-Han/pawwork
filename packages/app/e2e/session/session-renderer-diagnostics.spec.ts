@@ -3,6 +3,8 @@ import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
 import {
   promptSelector,
+  scrollThumbSelector,
+  scrollViewSelector,
   scrollViewportSelector,
   sessionMessageItemSelector,
   sessionTurnListSelector,
@@ -145,6 +147,69 @@ async function resetTimelineToTop(page: Page) {
   expect(found, "session timeline viewport should exist").toBe(true)
 }
 
+async function markTimelinePointerGesture(page: Page) {
+  const found = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return false
+      viewport.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          pointerId: 1,
+        }),
+      )
+      return true
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(found, "session timeline viewport should exist").toBe(true)
+}
+
+async function timelineThumbBox(page: Page) {
+  return page.evaluate(
+    ({ scrollThumbSelector, scrollViewSelector, scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      const root = viewport?.closest(scrollViewSelector)
+      const thumb = root?.querySelector(scrollThumbSelector)
+      if (!(thumb instanceof HTMLElement)) return null
+      const rect = thumb.getBoundingClientRect()
+      return {
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      }
+    },
+    { scrollThumbSelector, scrollViewSelector, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+}
+
+async function holdTimelineThumbDragBy(page: Page, deltaY: number) {
+  const box = await timelineThumbBox(page)
+  expect(box, "session timeline thumb should exist").not.toBeNull()
+  const x = box!.x + box!.width / 2
+  const y = box!.y + Math.min(box!.height / 2, 12)
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x, y + deltaY, { steps: 8 })
+}
+
+async function dragTimelineThumbBy(page: Page, deltaY: number) {
+  await holdTimelineThumbDragBy(page, deltaY)
+  await page.mouse.up()
+}
+
+async function waitForTimelineFrame(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }),
+  )
+}
+
 async function sendVisiblePrompt(input: { page: Page; text: string }) {
   const prompt = input.page.locator(promptSelector)
   await expect(prompt).toBeVisible()
@@ -236,6 +301,7 @@ test("captures renderer diagnostics while guarding send scroll position", async 
     const promptText = `diagnostics guard ${Date.now()}`
     await sendVisiblePrompt({ page, text: promptText })
     await expect(page.locator(sessionMessageItemSelector).last()).toContainText(promptText, { timeout: 30_000 })
+    await markTimelinePointerGesture(page)
     await resetTimelineToTop(page)
     await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(80)
 
@@ -254,6 +320,14 @@ test("captures renderer diagnostics while guarding send scroll position", async 
 
     const events = await readRendererDiagnostics(page)
     expect(events.some((event) => event.name === "session.action.submit")).toBe(true)
+    expect(
+      events.some(
+        (event) =>
+          event.name === "session.timeline.scroll_controller" &&
+          event.data?.accepted === false &&
+          event.data?.reason === "submit_restore_latest_after_top_reset",
+      ),
+    ).toBe(true)
     expect(events.some((event) => event.name === "session.timeline.mount")).toBe(true)
     expect(events.some((event) => event.name === "session.timeline.visible")).toBe(true)
     expect(events.filter((event) => event.name === "session.timeline.mount")).toHaveLength(1)
@@ -267,6 +341,78 @@ test("captures renderer diagnostics while guarding send scroll position", async 
     expect(
       events.some((event) => event.name === "session.scroll.sample" && event.data?.user_scrolled === false),
     ).toBe(true)
+  })
+})
+
+test("honors scrollbar thumb drag after submit instead of restoring latest", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await installRendererDiagnosticsCapture(page)
+  await project.open()
+  const sdk = project.sdk
+
+  await withSession(sdk, `e2e scrollbar drag latest ${Date.now()}`, async (session) => {
+    project.trackSession(session.id)
+    await seedSessionTurns({ sdk, sessionID: session.id, count: 18 })
+
+    await project.gotoSession(session.id)
+    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(10, { timeout: 30_000 })
+    await scrollTimelineToBottom(page)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(40)
+
+    const promptText = `scrollbar drag guard ${Date.now()}`
+    await sendVisiblePrompt({ page, text: promptText })
+    await expect(page.locator(sessionMessageItemSelector).last()).toContainText(promptText, { timeout: 30_000 })
+
+    await holdTimelineThumbDragBy(page, -180)
+    try {
+      await resetTimelineToTop(page)
+      await expect
+        .poll(async () => {
+          const events = await readRendererDiagnostics(page)
+          return events.some(
+            (event) =>
+              event.name === "session.timeline.scroll_controller" &&
+              event.data?.observation_type === "scroll_sample" &&
+              event.data?.near_top === true,
+          )
+        })
+        .toBe(true)
+      await waitForTimelineFrame(page)
+      await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeGreaterThan(200)
+    } finally {
+      await page.mouse.up().catch(() => {})
+    }
+
+    const events = await readRendererDiagnostics(page)
+    const dragIndex = events.findIndex(
+      (event) =>
+        event.name === "session.timeline.scroll_controller" && event.data?.intent_type === "scrollbar_drag_start",
+    )
+    expect(dragIndex).toBeGreaterThanOrEqual(0)
+    expect(
+      events
+        .slice(dragIndex)
+        .some(
+          (event) =>
+            event.name === "session.timeline.scroll_controller" &&
+            event.data?.accepted === false &&
+            event.data?.reason === "submit_restore_latest_after_top_reset",
+        ),
+    ).toBe(false)
+    expect(
+      events
+        .slice(dragIndex)
+        .some(
+          (event) =>
+            event.name === "session.scroll.sample" &&
+            event.data?.user_scrolled === true &&
+            (numberData(event, "distance_from_bottom") ?? 0) > 200,
+        ),
+    ).toBe(true)
+
+    await dragTimelineThumbBy(page, 10_000)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(80)
   })
 })
 

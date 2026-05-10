@@ -1,6 +1,7 @@
 import { Match, Show, Switch, type ComponentProps, type JSX } from "solid-js"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { NewSessionView, SessionHeader } from "@/components/session"
+import { SessionMemoryReview } from "@/components/memory/session-memory-review"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import type { useLanguage } from "@/context/language"
 import type { createSizing } from "@/pages/session/helpers"
@@ -38,6 +39,8 @@ export function SessionMainView(props: {
   markScrollGesture: TimelineProps["onMarkScrollGesture"]
   hasScrollGesture: TimelineProps["hasScrollGesture"]
   markUserScroll: TimelineProps["onUserScroll"]
+  onTimelineScrollIntent: TimelineProps["onTimelineScrollIntent"]
+  onTimelineScrollObservation: TimelineProps["onTimelineScrollObservation"]
   historyWindow: ReturnType<typeof createSessionHistoryWindow>
   centered: boolean
   setContentRef: TimelineProps["setContentRef"]
@@ -46,6 +49,7 @@ export function SessionMainView(props: {
   anchor: TimelineProps["anchor"]
   onRetryOpenSession: () => void
   onOpenNewSession: () => void
+  memoryReviewVisible: boolean
   composerSession: JSX.Element
   composerHome: (ctx: {
     onModeChange: (mode: "normal" | "shell") => void
@@ -149,6 +153,8 @@ export function SessionMainView(props: {
                   onMarkScrollGesture={props.markScrollGesture}
                   hasScrollGesture={props.hasScrollGesture}
                   onUserScroll={props.markUserScroll}
+                  onTimelineScrollIntent={props.onTimelineScrollIntent}
+                  onTimelineScrollObservation={props.onTimelineScrollObservation}
                   onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
                   onAutoScrollInteraction={props.autoScroll.handleInteraction}
                   centered={props.centered}
@@ -171,7 +177,10 @@ export function SessionMainView(props: {
               </Match>
             </Switch>
           </div>
-          <Show when={props.activeSessionID && !showSessionOpeningState()}>{props.composerSession}</Show>
+          <Show when={props.activeSessionID && !showSessionOpeningState()}>
+            <SessionMemoryReview sessionID={props.timelineSessionID} visible={props.memoryReviewVisible} />
+            {props.composerSession}
+          </Show>
         </div>
 
         <SessionSidePanel
