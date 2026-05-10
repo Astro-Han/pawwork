@@ -83,6 +83,11 @@ import {
   pawworkSessionDirectories,
   sortPawworkSidebarSessions,
 } from "./layout/pawwork-session-source"
+import {
+  buildPawworkSessionSections,
+  findPawworkSessionNavigationTarget,
+  flattenPawworkSessionSections,
+} from "./layout/pawwork-session-nav"
 import { createShellNavigation } from "./layout/shell-navigation"
 import {
   buildPawworkSessionWindow,
@@ -598,6 +603,31 @@ export default function Layout(props: ParentProps) {
     return sortPawworkSidebarSessions(rows.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
   })
 
+  const pawworkSessionSections = createMemo(() =>
+    buildPawworkSessionSections({
+      sessions: pawworkSessions().map((item) => ({
+        id: item.session.id,
+        title: item.session.title ?? "",
+        directory: item.session.directory,
+        projectLabel: item.projectLabel,
+        created: item.created,
+      })),
+      pinnedIDs: store.pawworkPinnedSessions,
+      sortMode: store.pawworkSortMode,
+      currentSessionID: params.id,
+    }),
+  )
+
+  const pawworkSessionByID = createMemo(
+    () => new Map(pawworkSessions().map((item) => [item.session.id, item.session] as const)),
+  )
+
+  const pawworkNavigationSessions = createMemo(() =>
+    flattenPawworkSessionSections(pawworkSessionSections())
+      .map((entry) => pawworkSessionByID().get(entry.item.id))
+      .filter((session): session is Session => !!session),
+  )
+
   const mergePawworkWindowSessionMetadata = (
     session: Session | PawworkWindowSession,
     existing?: PawworkWindowSession,
@@ -975,7 +1005,7 @@ export default function Layout(props: ParentProps) {
   }
 
   createEffect(() => {
-    const sessions = currentSessions()
+    const sessions = pawworkNavigationSessions()
     if (sessions.length === 0) return
 
     const index = params.id ? sessions.findIndex((s) => s.id === params.id) : 0
@@ -990,23 +1020,22 @@ export default function Layout(props: ParentProps) {
   })
 
   function navigateSessionByOffset(offset: number) {
-    const sessions = currentSessions()
-    if (sessions.length === 0) return
+    const target = findPawworkSessionNavigationTarget({
+      sections: pawworkSessionSections(),
+      currentSessionID: params.id,
+      offset,
+    })
+    if (!target) return
 
-    const sessionIndex = params.id ? sessions.findIndex((s) => s.id === params.id) : -1
-
-    let targetIndex: number
-    if (sessionIndex === -1) {
-      targetIndex = offset > 0 ? 0 : sessions.length - 1
-    } else {
-      targetIndex = (sessionIndex + offset + sessions.length) % sessions.length
-    }
-
-    const session = sessions[targetIndex]
+    const session = pawworkSessionByID().get(target.item.id)
     if (!session) return
 
+    const sessions = pawworkNavigationSessions()
+    const targetIndex = sessions.findIndex((item) => item.id === session.id)
+
+    expandPawworkProjectGroup(target.groupLabel)
     prefetchSession(session, "high")
-    warm(sessions, targetIndex)
+    if (targetIndex !== -1) warm(sessions, targetIndex)
 
     navigateToSession(session)
   }
@@ -1034,27 +1063,25 @@ export default function Layout(props: ParentProps) {
   }
 
   function navigateSessionByUnseen(offset: number) {
-    const sessions = currentSessions()
-    if (sessions.length === 0) return
+    const target = findPawworkSessionNavigationTarget({
+      sections: pawworkSessionSections(),
+      currentSessionID: params.id,
+      offset,
+      include: (item) => notification.session.unseenCount(item.id) > 0,
+    })
+    if (!target) return
 
-    const hasUnseen = sessions.some((session) => notification.session.unseenCount(session.id) > 0)
-    if (!hasUnseen) return
+    const session = pawworkSessionByID().get(target.item.id)
+    if (!session) return
 
-    const activeIndex = params.id ? sessions.findIndex((s) => s.id === params.id) : -1
-    const start = activeIndex === -1 ? (offset > 0 ? -1 : 0) : activeIndex
+    const sessions = pawworkNavigationSessions()
+    const targetIndex = sessions.findIndex((item) => item.id === session.id)
 
-    for (let i = 1; i <= sessions.length; i++) {
-      const index = offset > 0 ? (start + i) % sessions.length : (start - i + sessions.length) % sessions.length
-      const session = sessions[index]
-      if (!session) continue
-      if (notification.session.unseenCount(session.id) === 0) continue
+    expandPawworkProjectGroup(target.groupLabel)
+    prefetchSession(session, "high")
+    if (targetIndex !== -1) warm(sessions, targetIndex)
 
-      prefetchSession(session, "high")
-      warm(sessions, index)
-
-      navigateToSession(session)
-      return
-    }
+    navigateToSession(session)
   }
 
   async function renamePawworkSession(session: Session, next: string) {
@@ -1100,6 +1127,15 @@ export default function Layout(props: ParentProps) {
     const next: Record<string, boolean> = { ...current }
     if (next[label]) delete next[label]
     else next[label] = true
+    setStore("pawworkProjectCollapsed", reconcile(next))
+  }
+
+  function expandPawworkProjectGroup(label: string | undefined) {
+    if (!label) return
+    if (!store.pawworkProjectCollapsed[label]) return
+
+    const next: Record<string, boolean> = { ...store.pawworkProjectCollapsed }
+    delete next[label]
     setStore("pawworkProjectCollapsed", reconcile(next))
   }
 
