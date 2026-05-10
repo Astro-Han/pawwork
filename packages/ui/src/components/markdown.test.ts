@@ -147,6 +147,10 @@ describe("link action routing", () => {
   test("absolute path → reveal", () => {
     expect(resolveLinkAction("/Users/u/p/foo.ts")).toEqual({ kind: "reveal", path: "/Users/u/p/foo.ts" })
   })
+  test("Windows drive-letter absolute path → reveal", () => {
+    expect(resolveLinkAction("C:\\repo\\file.ts")).toEqual({ kind: "reveal", path: "C:\\repo\\file.ts" })
+    expect(resolveLinkAction("D:/code/foo.ts")).toEqual({ kind: "reveal", path: "D:/code/foo.ts" })
+  })
   test("anchor-only stays default", () => {
     expect(resolveLinkAction("#section")).toEqual({ kind: "anchor", url: "#section" })
   })

@@ -204,6 +204,10 @@ export function resolveLinkAction(href: string): LinkAction {
   // Block dangerous schemes outright; sanitize already strips most of these
   // at the href level, but defense in depth keeps the routing predictable.
   if (/^(?:javascript|data|vbscript):/i.test(trimmed)) return { kind: "block" }
+  // Windows absolute paths (`C:\path` / `D:/path`) shape-match a generic
+  // single-letter scheme followed by `:`. Catch them before the generic
+  // scheme regex below so they reveal instead of routing to a browser.
+  if (/^[a-z]:[\\/]/i.test(trimmed)) return { kind: "reveal", path: trimmed }
   // Any other scheme (https, mailto, vscode, tel, sms, git, ssh, …) routes
   // to the external handler. Whether the scheme is actually surfaced to
   // users is governed by the DOMPurify ALLOWED_URI_REGEXP allowlist, not
