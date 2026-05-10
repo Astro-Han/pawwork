@@ -4,35 +4,6 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
-export type Project = {
-  id: string
-  worktree: string
-  vcs?: "git"
-  name?: string
-  icon?: {
-    url?: string
-    override?: string
-    color?: string
-  }
-  commands?: {
-    /**
-     * Startup script to run when creating a new workspace (worktree)
-     */
-    start?: string
-  }
-  time: {
-    created: number
-    updated: number
-    initialized?: number
-  }
-  sandboxes: Array<string>
-}
-
-export type EventProjectUpdated = {
-  type: "project.updated"
-  properties: Project
-}
-
 export type EventServerConnected = {
   type: "server.connected"
   properties: {
@@ -346,6 +317,35 @@ export type EventSessionError = {
   }
 }
 
+export type Project = {
+  id: string
+  worktree: string
+  vcs?: "git"
+  name?: string
+  icon?: {
+    url?: string
+    override?: string
+    color?: string
+  }
+  commands?: {
+    /**
+     * Startup script to run when creating a new workspace (worktree)
+     */
+    start?: string
+  }
+  time: {
+    created: number
+    updated: number
+    initialized?: number
+  }
+  sandboxes: Array<string>
+}
+
+export type EventProjectUpdated = {
+  type: "project.updated"
+  properties: Project
+}
+
 export type EventFileEdited = {
   type: "file.edited"
   properties: {
@@ -358,38 +358,6 @@ export type EventFileWatcherUpdated = {
   properties: {
     file: string
     event: "add" | "change" | "unlink"
-  }
-}
-
-export type EventVcsBranchUpdated = {
-  type: "vcs.branch.updated"
-  properties: {
-    branch?: string
-  }
-}
-
-export type EventMcpToolsChanged = {
-  type: "mcp.tools.changed"
-  properties: {
-    server: string
-  }
-}
-
-export type EventMcpBrowserOpenFailed = {
-  type: "mcp.browser.open.failed"
-  properties: {
-    mcpName: string
-    url: string
-  }
-}
-
-export type EventCommandExecuted = {
-  type: "command.executed"
-  properties: {
-    name: string
-    sessionID: string
-    arguments: string
-    messageID: string
   }
 }
 
@@ -465,6 +433,38 @@ export type EventWorktreeFailed = {
   type: "worktree.failed"
   properties: {
     message: string
+  }
+}
+
+export type EventMcpToolsChanged = {
+  type: "mcp.tools.changed"
+  properties: {
+    server: string
+  }
+}
+
+export type EventMcpBrowserOpenFailed = {
+  type: "mcp.browser.open.failed"
+  properties: {
+    mcpName: string
+    url: string
+  }
+}
+
+export type EventCommandExecuted = {
+  type: "command.executed"
+  properties: {
+    name: string
+    sessionID: string
+    arguments: string
+    messageID: string
+  }
+}
+
+export type EventVcsBranchUpdated = {
+  type: "vcs.branch.updated"
+  properties: {
+    branch?: string
   }
 }
 
@@ -1132,7 +1132,6 @@ export type EventSessionDeleted = {
 }
 
 export type Event =
-  | EventProjectUpdated
   | EventServerConnected
   | EventGlobalDisposed
   | EventServerInstanceDisposed
@@ -1151,18 +1150,19 @@ export type Event =
   | EventMessagePartDelta
   | EventSessionDiff
   | EventSessionError
+  | EventProjectUpdated
   | EventFileEdited
   | EventFileWatcherUpdated
-  | EventVcsBranchUpdated
-  | EventMcpToolsChanged
-  | EventMcpBrowserOpenFailed
-  | EventCommandExecuted
   | EventTodoUpdated
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
   | EventWorktreeReady
   | EventWorktreeFailed
+  | EventMcpToolsChanged
+  | EventMcpBrowserOpenFailed
+  | EventCommandExecuted
+  | EventVcsBranchUpdated
   | EventPtyCreated
   | EventPtyUpdated
   | EventPtyExited
@@ -2224,6 +2224,27 @@ export type ProviderAuthAuthorization = {
   url: string
   method: "auto" | "code"
   instructions: string
+}
+
+export type MemoryState = unknown
+
+export type MemoryRawInput = {
+  content: string
+}
+
+export type MemoryDisabledInput = {
+  disabled: boolean
+}
+
+export type MemorySearchInput = {
+  query: string
+}
+
+export type MemoryProposalInput = {
+  text: string
+  scope: "user" | "project"
+  tags?: Array<string>
+  source?: string
 }
 
 export type Symbol = {
@@ -5294,6 +5315,163 @@ export type ProviderOauthCallbackResponses = {
 }
 
 export type ProviderOauthCallbackResponse = ProviderOauthCallbackResponses[keyof ProviderOauthCallbackResponses]
+
+export type MemoryGetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory"
+}
+
+export type MemoryGetResponses = {
+  /**
+   * Memory state
+   */
+  200: MemoryState
+}
+
+export type MemoryGetResponse = MemoryGetResponses[keyof MemoryGetResponses]
+
+export type MemoryUpdateData = {
+  body?: MemoryRawInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory"
+}
+
+export type MemoryUpdateErrors = {
+  /**
+   * Invalid memory file
+   */
+  400: unknown
+}
+
+export type MemoryUpdateResponses = {
+  /**
+   * Memory state
+   */
+  200: MemoryState
+}
+
+export type MemoryUpdateResponse = MemoryUpdateResponses[keyof MemoryUpdateResponses]
+
+export type MemoryResetData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/reset"
+}
+
+export type MemoryResetResponses = {
+  /**
+   * Memory state
+   */
+  200: MemoryState
+}
+
+export type MemoryResetResponse = MemoryResetResponses[keyof MemoryResetResponses]
+
+export type MemoryDisabledData = {
+  body?: MemoryDisabledInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/disabled"
+}
+
+export type MemoryDisabledResponses = {
+  /**
+   * Memory state
+   */
+  200: MemoryState
+}
+
+export type MemoryDisabledResponse = MemoryDisabledResponses[keyof MemoryDisabledResponses]
+
+export type MemoryDeleteEntryData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/entry/{id}"
+}
+
+export type MemoryDeleteEntryResponses = {
+  /**
+   * Memory state
+   */
+  200: MemoryState
+}
+
+export type MemoryDeleteEntryResponse = MemoryDeleteEntryResponses[keyof MemoryDeleteEntryResponses]
+
+export type MemorySearchData = {
+  body?: MemorySearchInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/search"
+}
+
+export type MemorySearchResponses = {
+  /**
+   * Search result
+   */
+  200: unknown
+}
+
+export type MemoryPreviewProposalData = {
+  body?: MemoryProposalInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/proposal/preview"
+}
+
+export type MemoryPreviewProposalResponses = {
+  /**
+   * Preview
+   */
+  200: unknown
+}
+
+export type MemoryAcceptProposalData = {
+  body?: MemoryProposalInput
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/proposal/accept"
+}
+
+export type MemoryAcceptProposalResponses = {
+  /**
+   * Memory state
+   */
+  200: MemoryState
+}
+
+export type MemoryAcceptProposalResponse = MemoryAcceptProposalResponses[keyof MemoryAcceptProposalResponses]
 
 export type FindTextData = {
   body?: never
