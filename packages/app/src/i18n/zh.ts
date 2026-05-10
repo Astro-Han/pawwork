@@ -697,6 +697,7 @@ export const dict = {
   "common.rename": "重命名",
   "common.reset": "重置",
   "common.delete": "删除",
+  "common.remove": "移除",
   "common.close": "关闭",
   "common.edit": "编辑",
   "common.loadMore": "加载更多",
@@ -726,6 +727,11 @@ export const dict = {
   "sidebar.pawwork.sort.optionByTime": "按时间",
   "sidebar.pawwork.sort.optionByProject": "按项目",
   "sidebar.pawwork.searchHistory": "搜索历史会话",
+
+  "project.rename": "重命名项目",
+  "project.remove.title": "从侧边栏移除项目",
+  "project.remove.confirm": "从侧边栏移除「{{name}}」？",
+  "project.remove.description": "项目文件和会话仍会保留在磁盘上。重新打开该项目即可恢复显示。",
 
   "app.name.desktop": "爪印",
 

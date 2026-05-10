@@ -765,6 +765,7 @@ export const dict = {
   "common.rename": "Rename",
   "common.reset": "Reset",
   "common.delete": "Delete",
+  "common.remove": "Remove",
   "common.close": "Close",
   "common.edit": "Edit",
   "common.loadMore": "Load more",
@@ -814,6 +815,11 @@ export const dict = {
   "sidebar.pawwork.sort.optionByTime": "By time",
   "sidebar.pawwork.sort.optionByProject": "By project",
   "sidebar.pawwork.searchHistory": "Use Search for older sessions",
+
+  "project.rename": "Rename project",
+  "project.remove.title": "Remove project from sidebar",
+  "project.remove.confirm": "Remove \"{{name}}\" from sidebar?",
+  "project.remove.description": "Project files and sessions will remain on disk. Re-open this project to restore it to the sidebar.",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",

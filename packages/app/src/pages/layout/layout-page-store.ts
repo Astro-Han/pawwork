@@ -34,11 +34,21 @@ function projectCollapsed(value: unknown) {
   return out
 }
 
+function projectHidden(value: unknown) {
+  if (!record(value)) return {} as Record<string, boolean>
+  const out: Record<string, boolean> = {}
+  for (const [key, val] of Object.entries(value)) {
+    if (typeof key === "string" && key && val === true) out[key] = true
+  }
+  return out
+}
+
 function hasLayoutPageFields(value: Record<string, unknown>) {
   return (
     "pawworkPinnedSessions" in value ||
     "pawworkSortMode" in value ||
-    "pawworkProjectCollapsed" in value
+    "pawworkProjectCollapsed" in value ||
+    "pawworkProjectHidden" in value
   )
 }
 
@@ -54,6 +64,7 @@ export function createDefaultLayoutPageState() {
     pawworkPinnedSessions: [] as string[],
     pawworkSortMode: "time" as "time" | "project",
     pawworkProjectCollapsed: {} as Record<string, boolean>,
+    pawworkProjectHidden: {} as Record<string, boolean>,
   }
 }
 
@@ -70,6 +81,7 @@ export function migrateLayoutPageState(value: unknown) {
         pawworkPinnedSessions: pinnedSessions(decoded.pawworkPinnedSessions),
         pawworkSortMode: decoded.pawworkSortMode === "project" ? "project" : "time",
         pawworkProjectCollapsed: projectCollapsed(decoded.pawworkProjectCollapsed),
+        pawworkProjectHidden: projectHidden(decoded.pawworkProjectHidden),
       }
     }
     if (!hasLayoutPageFields(parsedPage)) return undefined
@@ -78,6 +90,7 @@ export function migrateLayoutPageState(value: unknown) {
       pawworkPinnedSessions: pinnedSessions(parsedPage.pawworkPinnedSessions),
       pawworkSortMode: parsedPage.pawworkSortMode === "project" ? "project" : "time",
       pawworkProjectCollapsed: projectCollapsed(parsedPage.pawworkProjectCollapsed),
+      pawworkProjectHidden: projectHidden(parsedPage.pawworkProjectHidden),
     }
   }
 
@@ -88,6 +101,7 @@ export function migrateLayoutPageState(value: unknown) {
     pawworkPinnedSessions: pinnedSessions(decoded.pawworkPinnedSessions),
     pawworkSortMode: decoded.pawworkSortMode === "project" ? "project" : "time",
     pawworkProjectCollapsed: projectCollapsed(decoded.pawworkProjectCollapsed),
+    pawworkProjectHidden: projectHidden(decoded.pawworkProjectHidden),
   }
 }
 
