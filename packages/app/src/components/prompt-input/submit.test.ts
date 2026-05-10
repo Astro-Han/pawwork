@@ -24,11 +24,14 @@ const syncedDirectories: string[] = []
 const promptAsyncCalls: Array<Record<string, unknown>> = []
 const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
+let commandsReady = true
+let promptAsyncFailure: Error | undefined
 const abortedSessions: string[] = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
+const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
 
-let params: { id?: string } = {}
+let params: { dir?: string; id?: string } = {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 
@@ -63,6 +66,7 @@ const clientFor = (directory: string) => {
       prompt: async () => ({ data: undefined }),
       promptAsync: async (input: Record<string, unknown>) => {
         promptAsyncCalls.push(input)
+        if (promptAsyncFailure) throw promptAsyncFailure
         return { data: undefined }
       },
       command: async (input: Record<string, unknown>) => {
@@ -132,8 +136,10 @@ beforeAll(async () => {
   mock.module("@/context/prompt", () => ({
     usePrompt: () => ({
       current: () => promptValue,
-      reset: () => undefined,
-      set: () => undefined,
+      reset: (_target?: { dir: string; id?: string }) => undefined,
+      set: (next: Prompt, cursor?: number, target?: { dir: string; id?: string }) => {
+        promptSetCalls.push({ prompt: next, cursor, target })
+      },
       context: {
         add: () => undefined,
         remove: () => undefined,
@@ -166,7 +172,7 @@ beforeAll(async () => {
 
   mock.module("@/context/sync", () => ({
     useSync: () => ({
-      data: { command: commandDefinitions },
+      data: { command: commandDefinitions, get command_ready() { return commandsReady } },
       session: {
         optimistic: {
           add: (value: {
@@ -248,9 +254,12 @@ beforeEach(() => {
   promptAsyncCalls.length = 0
   commandCalls.length = 0
   commandDefinitions.length = 0
+  commandsReady = true
+  promptAsyncFailure = undefined
   abortedSessions.length = 0
   globalTodoSets.length = 0
   childTodoSets.length = 0
+  promptSetCalls.length = 0
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
@@ -325,6 +334,64 @@ describe("prompt submit worktree selection", () => {
     expect(submits).toEqual([])
     expect(abortedSessions).toEqual([])
     expect(promptAsyncCalls).toEqual([])
+  })
+
+  test("blocks normal slash submit until commands hydrate", async () => {
+    params = { id: "session-existing" }
+    commandsReady = false
+    commandDefinitions.push({ name: "summarize" })
+    promptValue = [{ type: "text", content: "/summarize this", start: 0, end: 15 }]
+    const submit = createPromptSubmit({
+      sessionID: () => "session-existing",
+      isNewSession: () => false,
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(commandCalls).toEqual([])
+    expect(promptAsyncCalls).toEqual([])
+  })
+
+  test("does not block shell absolute paths on command hydration", async () => {
+    params = { id: "session-existing" }
+    commandsReady = false
+    promptValue = [{ type: "text", content: "/bin/ls", start: 0, end: 7 }]
+    const submit = createPromptSubmit({
+      sessionID: () => "session-existing",
+      isNewSession: () => false,
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "shell",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    expect(sentShell).toEqual(["/repo/main"])
   })
 
   test("allows abort while submit readiness is blocked", async () => {
@@ -517,6 +584,36 @@ describe("prompt submit worktree selection", () => {
     expect(optimisticSeeded).toEqual([true])
   })
 
+  test("new worktree submit rollback targets final prompt route scope", async () => {
+    params = { dir: "/repo/main" }
+    selected = "/repo/worktree-a"
+    promptValue = [{ type: "text", content: "run tests", start: 0, end: 9 }]
+    promptAsyncFailure = new Error("send failed")
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      newSessionWorktree: () => selected,
+      onNewSessionWorktreeReset: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptSetCalls.length > 0)
+
+    expect(promptSetCalls.at(-1)?.target).toEqual({ dir: "/repo/worktree-a", id: "session-1" })
+  })
+
   test("sends locale with promptAsync requests", async () => {
     params = { id: "session-existing" }
     currentIntl = "pt-BR"
@@ -607,7 +704,7 @@ describe("prompt submit worktree selection", () => {
         child: () => [{}, () => undefined],
       } as any,
       sync: {
-        data: { command: [{ name: "summarize" }] },
+        data: { command: [{ name: "summarize" }], command_ready: true },
         session: {
           optimistic: {
             add: () => undefined,

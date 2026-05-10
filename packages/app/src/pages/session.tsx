@@ -14,12 +14,15 @@ import { usePrompt } from "@/context/prompt"
 import { createSessionPerformanceDiagnostics, emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
+import { useServer } from "@/context/server"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState } from "@/pages/session/composer"
+import { createExecutionScopeTracker, type ExecutionScope } from "@/pages/session/execution-scope"
 import { createSizing } from "@/pages/session/helpers"
+import { promptScopeForSession } from "@/pages/session/prompt-route-scope"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
@@ -53,13 +56,14 @@ export default function Page() {
   const language = useLanguage()
   const sdk = useSDK()
   const settings = useSettings()
+  const server = useServer()
   const shellSurface = useShellSurface()
   const prompt = usePrompt()
   const comments = useComments()
   const terminal = useTerminal()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
-  const { params, sessionKey, tabs, view } = useSessionLayout()
+  const { params, tabs, view } = useSessionLayout()
 
   useSessionDesktopContext({
     context: () =>
@@ -91,6 +95,7 @@ export default function Page() {
   const centered = createMemo(() => isDesktop())
 
   const timeline = createSessionTimelineData({
+    serverKey: () => server.key,
     directory: () => params.dir ?? "",
     routeSessionID: () => params.id,
     sync,
@@ -298,9 +303,16 @@ export default function Page() {
       ? desktopSidePanelOpen() && view().sidePanel.tab() === "review" && activeTab() === "review"
       : mobileChanges(),
   )
+  const executionScopeTracker = createExecutionScopeTracker()
+  const currentExecutionScope = (): ExecutionScope =>
+    executionScopeTracker({
+      serverKey: server.key,
+      directory: sdk.directory,
+    })
   const reviewState = createSessionReviewState({
     directory: () => sdk.directory,
-    sessionKey,
+    executionScope: currentExecutionScope,
+    sessionKey: timelineSessionKey,
     sessionID: timelineSessionID,
     sync,
     sdk,
@@ -363,7 +375,7 @@ export default function Page() {
     reviewState,
     routeSessionID: () => params.id,
     sdk,
-    sessionKey,
+    sessionKey: timelineSessionKey,
     sync,
     timelineDiffs,
     turnDiffs,
@@ -391,6 +403,9 @@ export default function Page() {
   const resumeScroll = timelineInteraction.resumeScroll
   const scheduleScrollState = timelineInteraction.scheduleScrollState
   const scrollDock = timelineInteraction.scrollDock
+  const resumeScrollIfFollowing = () => {
+    if (scrollDock.scroll.bottom) resumeScroll()
+  }
   const setScrollRef = timelineInteraction.setScrollRef
 
   useSessionKeyboardFocus({
@@ -474,6 +489,7 @@ export default function Page() {
     directory: () => sdk.directory,
     client: () => sdk.client,
     sessionID: timelineSessionID,
+    sessionScope: timeline.sessionScope,
     actionReady: submitReady,
     isChildSession: timelineIsChildSession,
     busy,
@@ -496,15 +512,20 @@ export default function Page() {
     snapshot: () => {
       const directory = sdk.directory
       const handle = sync.retainDirectory(directory)
+      const scope = currentExecutionScope()
       return {
+        scope,
+        currentScope: currentExecutionScope,
         client: sdk.createClient({ directory, throwOnError: true }),
         store: handle.store,
         setStore: handle.setStore,
         prompt: prompt.current().slice(),
-        promptScope: {
-          dir: params.dir ?? directory,
-          id: timelineSessionID(),
-        },
+        promptScope: promptScopeForSession({
+          routeDir: params.dir,
+          routeDirectory: directory,
+          targetDirectory: directory,
+          sessionID: timelineSessionID(),
+        }),
         release: handle.release,
         directory,
       }
@@ -551,9 +572,9 @@ export default function Page() {
       onNewSessionWorktreeReset={newSessionWorktree.reset}
       onSubmit={() => {
         comments.clear()
-        resumeScroll()
+        resumeScrollIfFollowing()
       }}
-      onResponseSubmit={resumeScroll}
+      onResponseSubmit={resumeScrollIfFollowing}
       onModeChange={ctx?.onModeChange}
       selectedSkill={ctx?.selectedSkill}
       followup={
@@ -565,14 +586,10 @@ export default function Page() {
               edit: followups.editingFollowup(),
               onQueue: followups.queueFollowup,
               onAbort: () => {
-                const id = timelineSessionID()
-                if (!id) return
-                followups.pause(id)
+                followups.pause()
               },
               onSend: (id) => {
-                const sessionID = timelineSessionID()
-                if (!sessionID) return
-                void followups.sendFollowup(sessionID, id, { manual: true })
+                void followups.sendFollowup(id, { manual: true })
               },
               onEdit: followups.editFollowup,
               onEditLoaded: followups.clearFollowupEdit,

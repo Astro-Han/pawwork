@@ -1,6 +1,6 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { describe, expect, test } from "bun:test"
-import { nextRestoreTarget, revertRequestPayload, rolledRevertItems } from "./use-session-revert"
+import { nextRestoreTarget, revertRequestPayload, revertSnapshotIsCurrent, rolledRevertItems } from "./use-session-revert"
 
 const message = (id: string) => ({ id, role: "user" }) as UserMessage
 
@@ -42,5 +42,23 @@ describe("session revert", () => {
     expect("store" in payload).toBe(false)
     expect("client" in payload).toBe(false)
     expect("release" in payload).toBe(false)
+  })
+
+  test("rejects stale revert snapshots from an older execution epoch", () => {
+    const oldScope = { serverKey: "sidecar", directory: "/repo", epoch: 1 }
+    const newScope = { serverKey: "sidecar", directory: "/repo", epoch: 3 }
+
+    expect(
+      revertSnapshotIsCurrent({
+        scope: oldScope,
+        currentScope: () => newScope,
+      }),
+    ).toBe(false)
+    expect(
+      revertSnapshotIsCurrent({
+        scope: newScope,
+        currentScope: () => newScope,
+      }),
+    ).toBe(true)
   })
 })

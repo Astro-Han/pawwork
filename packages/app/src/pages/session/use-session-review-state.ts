@@ -14,28 +14,29 @@ import {
   type VcsReviewMode,
 } from "@/pages/session/review-change-mode"
 import { diffs as list } from "@/utils/diffs"
+import { sameExecutionScope, shouldApplyExecutionResult, vcsTaskKey, type ExecutionScope } from "./execution-scope"
 
 type SessionReviewDiff = SnapshotFileDiff | VcsFileDiff
 
 export function deriveReviewArtifactFiles(input: {
-  directory: string
+  currentScope: ExecutionScope
   sessionID: string | undefined
-  history: { directory?: string; sessionID: string; artifacts: SessionArtifactFile[] } | undefined
+  history: { scope: ExecutionScope; sessionID: string; artifacts: SessionArtifactFile[] } | undefined
   turnDiffs?: Array<{ file: string; status?: string }>
 }) {
   const history = input.history
   if (
     history &&
     history.sessionID === input.sessionID &&
-    (history.directory === undefined || history.directory === input.directory) &&
+    shouldApplyExecutionResult({ requested: history.scope, current: input.currentScope }) &&
     history.artifacts.length > 0
   ) {
-    return deriveArtifactFiles(input.directory, history.artifacts)
+    return deriveArtifactFiles(input.currentScope.directory, history.artifacts)
   }
 
   const turnDiffs = input.turnDiffs ?? []
   return deriveArtifactFiles(
-    input.directory,
+    input.currentScope.directory,
     turnDiffs.flatMap((diff) => {
       if (diff.status !== "added" && diff.status !== "modified") return []
       return [{ file: diff.file, kind: diff.status as "added" | "modified" }]
@@ -43,21 +44,9 @@ export function deriveReviewArtifactFiles(input: {
   )
 }
 
-export function shouldApplyVcsDiffResult(input: {
-  requestedDirectory: string
-  currentDirectory: string
-  requestedRun: number
-  currentRun: number | undefined
-}) {
-  return input.requestedDirectory === input.currentDirectory && input.requestedRun === input.currentRun
-}
-
-export function vcsTaskKey(directory: string, mode: VcsReviewMode) {
-  return `${directory}\n${mode}`
-}
-
 export function createSessionReviewState(input: {
   directory: () => string
+  executionScope: () => ExecutionScope
   sessionKey: () => string
   sessionID: () => string | undefined
   sync: ReturnType<typeof useSync>
@@ -69,6 +58,7 @@ export function createSessionReviewState(input: {
   const [vcs, setVcs] = createStore<{
     diff: Record<VcsReviewMode, SessionReviewDiff[]>
     ready: Record<VcsReviewMode, boolean>
+    scope: Record<VcsReviewMode, ExecutionScope | undefined>
   }>({
     diff: {
       unstaged: [],
@@ -80,76 +70,73 @@ export function createSessionReviewState(input: {
       staged: false,
       branch: false,
     },
+    scope: {
+      unstaged: undefined,
+      staged: undefined,
+      branch: undefined,
+    },
   })
 
   const vcsTask = new Map<string, Promise<void>>()
   const vcsRun = new Map<string, number>()
 
-  const bumpVcs = (directory: string, mode: VcsReviewMode) => {
-    const key = vcsTaskKey(directory, mode)
+  const bumpVcs = (scope: ExecutionScope, mode: VcsReviewMode) => {
+    const key = vcsTaskKey(scope, mode)
     const next = (vcsRun.get(key) ?? 0) + 1
     vcsRun.set(key, next)
     return next
   }
 
   const resetVcs = (mode?: VcsReviewMode) => {
-    const directory = input.directory()
+    const scope = input.executionScope()
     const modes = mode ? [mode] : (["unstaged", "staged", "branch"] as const)
     modes.forEach((item) => {
-      const key = vcsTaskKey(directory, item)
-      bumpVcs(directory, item)
+      const key = vcsTaskKey(scope, item)
+      bumpVcs(scope, item)
       vcsTask.delete(key)
       setVcs("diff", item, [])
       setVcs("ready", item, false)
+      setVcs("scope", item, undefined)
     })
   }
 
   const loadVcs = (mode: VcsReviewMode, force = false) => {
     if (input.sync.project?.vcs !== "git") return Promise.resolve()
-    if (!force && vcs.ready[mode]) return Promise.resolve()
-    const directory = input.directory()
-    const key = vcsTaskKey(directory, mode)
+    const requestedScope = input.executionScope()
+    if (!force && vcs.ready[mode] && sameExecutionScope(vcs.scope[mode], requestedScope)) return Promise.resolve()
+    const key = vcsTaskKey(requestedScope, mode)
 
     if (force) {
-      if (vcsTask.has(key)) bumpVcs(directory, mode)
+      if (vcsTask.has(key)) bumpVcs(requestedScope, mode)
       vcsTask.delete(key)
       setVcs("ready", mode, false)
+      setVcs("scope", mode, undefined)
+    } else if (!sameExecutionScope(vcs.scope[mode], requestedScope)) {
+      setVcs("diff", mode, [])
+      setVcs("ready", mode, false)
+      setVcs("scope", mode, undefined)
     }
 
     const current = vcsTask.get(key)
     if (current) return current
-    const run = bumpVcs(directory, mode)
-    const client = input.sdk.createClient({ directory, throwOnError: true })
+    const run = bumpVcs(requestedScope, mode)
+    const client = input.sdk.createClient({ directory: requestedScope.directory, throwOnError: true })
 
     const task = client.vcs
       .diff({ mode })
       .then((result) => {
-        if (
-          !shouldApplyVcsDiffResult({
-            requestedDirectory: directory,
-            currentDirectory: input.directory(),
-            requestedRun: run,
-            currentRun: vcsRun.get(key),
-          })
-        ) {
-          return
-        }
+        if (!shouldApplyExecutionResult({ requested: requestedScope, current: input.executionScope() })) return
+        if (vcsRun.get(key) !== run) return
         setVcs("diff", mode, list(result.data))
+        setVcs("scope", mode, requestedScope)
         setVcs("ready", mode, true)
       })
       .catch((error: unknown) => {
-        if (
-          !shouldApplyVcsDiffResult({
-            requestedDirectory: directory,
-            currentDirectory: input.directory(),
-            requestedRun: run,
-            currentRun: vcsRun.get(key),
-          })
-        ) {
-          return
-        }
+        if (!shouldApplyExecutionResult({ requested: requestedScope, current: input.executionScope() })) return
+        if (vcsRun.get(key) !== run) return
         console.debug("[session-review] failed to load vcs diff", { mode, error })
         setVcs("diff", mode, [])
+        setVcs("scope", mode, requestedScope)
         setVcs("ready", mode, true)
       })
       .finally(() => {
@@ -179,26 +166,33 @@ export function createSessionReviewState(input: {
   const hasReview = createMemo(() => reviewCount() > 0)
   const reviewReady = createMemo(() => {
     const value = changes()
-    return isVcsReviewMode(value) ? vcs.ready[value] : true
+    return isVcsReviewMode(value) ? vcs.ready[value] && sameExecutionScope(vcs.scope[value], input.executionScope()) : true
   })
 
   const [artifactHistory, { refetch: refetchArtifactHistory }] = createResource(
     () => {
       const sessionID = input.sessionID()
       if (!sessionID) return
-      return { directory: input.directory(), sessionID }
+      const scope = input.executionScope()
+      return { scope, sessionID }
     },
-    async ({ directory, sessionID }) => ({
-      directory,
+    async ({ scope, sessionID }) => ({
+      scope,
       sessionID,
       artifacts: await input.sdk
-        .createClient({ directory, throwOnError: true })
+        .createClient({ directory: scope.directory, throwOnError: true })
         .session
         .artifacts({ sessionID })
         .then((res) => res.data ?? [])
         .catch(() => []),
     }),
-    { initialValue: { directory: "", sessionID: "", artifacts: [] as SessionArtifactFile[] } },
+    {
+      initialValue: {
+        scope: { serverKey: "", directory: "", epoch: -1 },
+        sessionID: "",
+        artifacts: [] as SessionArtifactFile[],
+      },
+    },
   )
   let artifactHistoryFrame: number | undefined
   let artifactHistoryPending = false
@@ -217,7 +211,7 @@ export function createSessionReviewState(input: {
   })
   const artifactFiles = createMemo(() =>
     deriveReviewArtifactFiles({
-      directory: input.directory(),
+      currentScope: input.executionScope(),
       sessionID: input.sessionID(),
       history: artifactHistory.latest,
       turnDiffs: input.turnDiffs(),

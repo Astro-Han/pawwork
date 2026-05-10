@@ -63,6 +63,7 @@ const baseState = (input: Partial<State> = {}) =>
     status: "complete",
     agent: [],
     command: [],
+    command_ready: true,
     project: "",
     projectMeta: undefined,
     icon: undefined,

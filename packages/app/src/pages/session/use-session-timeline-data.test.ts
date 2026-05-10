@@ -9,8 +9,10 @@ import {
   readTimelineMessages,
   readTimelineMessagesFromCache,
   sessionStatusKnown,
+  timelineDataIdentity,
   timelineModelSyncKey,
 } from "./use-session-timeline-data"
+import { sessionScopeKey } from "./session-scope"
 
 const userMessage = (id: string, sessionID = "ses_target"): Message =>
   ({
@@ -20,17 +22,21 @@ const userMessage = (id: string, sessionID = "ses_target"): Message =>
     time: { created: 1 },
   }) as Message
 
+const sessionScope = (sessionID = "ses_target", serverKey = "sidecar") => ({ serverKey, sessionID })
+const messages120 = Array.from({ length: 120 }, (_, index) => userMessage(`msg_${index}`))
+
 describe("readTimelineMessages", () => {
   test("keeps last-good messages for the same session when the current store briefly loses its cache", () => {
     const loaded = [userMessage("msg_1"), userMessage("msg_2")]
+    const scope = sessionScope()
     const ready = readTimelineMessages({
-      sessionID: "ses_target",
+      scope,
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessages({
-      sessionID: "ses_target",
+      scope,
       raw: undefined,
       lastGood: ready.lastGood,
     })
@@ -41,14 +47,15 @@ describe("readTimelineMessages", () => {
 
   test("keeps a long session window during a same-session cache miss", () => {
     const loaded = Array.from({ length: 80 }, (_, index) => userMessage(`msg_${index}`))
+    const scope = sessionScope()
     const ready = readTimelineMessages({
-      sessionID: "ses_target",
+      scope,
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessages({
-      sessionID: "ses_target",
+      scope,
       raw: undefined,
       lastGood: ready.lastGood,
     })
@@ -59,14 +66,16 @@ describe("readTimelineMessages", () => {
 
   test("does not reuse last-good messages after switching to another session", () => {
     const loaded = [userMessage("msg_1", "ses_source")]
+    const sourceScope = sessionScope("ses_source")
+    const targetScope = sessionScope("ses_target")
     const ready = readTimelineMessages({
-      sessionID: "ses_source",
+      scope: sourceScope,
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessages({
-      sessionID: "ses_target",
+      scope: targetScope,
       raw: undefined,
       lastGood: ready.lastGood,
     })
@@ -77,16 +86,18 @@ describe("readTimelineMessages", () => {
 
   test("does not reuse last-good messages after the same session id gets a different identity scope", () => {
     const loaded = [userMessage("msg_1")]
+    const localScope = sessionScope("ses_target", "server-a")
+    const remoteScope = sessionScope("ses_target", "server-b")
     const ready = readTimelineMessages({
-      sessionID: "ses_target",
-      dataIdentity: "server-a:ses_target",
+      scope: localScope,
+      dataIdentity: timelineDataIdentity({ scope: localScope, created: 1 }),
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessages({
-      sessionID: "ses_target",
-      dataIdentity: "server-b:ses_target",
+      scope: remoteScope,
+      dataIdentity: timelineDataIdentity({ scope: remoteScope, created: 1 }),
       raw: undefined,
       lastGood: ready.lastGood,
     })
@@ -97,15 +108,16 @@ describe("readTimelineMessages", () => {
 
   test("keeps last-good messages when the same session cache misses before session info reloads", () => {
     const loaded = [userMessage("msg_1"), userMessage("msg_2")]
+    const scope = sessionScope()
     const ready = readTimelineMessages({
-      sessionID: "ses_target",
-      dataIdentity: "ses_target:123",
+      scope,
+      dataIdentity: timelineDataIdentity({ scope, created: 123 }),
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessages({
-      sessionID: "ses_target",
+      scope,
       dataIdentity: undefined,
       raw: undefined,
       lastGood: ready.lastGood,
@@ -118,13 +130,13 @@ describe("readTimelineMessages", () => {
   test("clears last-good messages when there is no active session", () => {
     const loaded = [userMessage("msg_1", "ses_source")]
     const ready = readTimelineMessages({
-      sessionID: "ses_source",
+      scope: sessionScope("ses_source"),
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessages({
-      sessionID: undefined,
+      scope: undefined,
       raw: undefined,
       lastGood: ready.lastGood,
     })
@@ -134,14 +146,15 @@ describe("readTimelineMessages", () => {
   })
 
   test("treats an empty raw message array as authoritative loaded data", () => {
+    const scope = sessionScope()
     const ready = readTimelineMessages({
-      sessionID: "ses_target",
+      scope,
       raw: [userMessage("msg_1"), userMessage("msg_2")],
       lastGood: undefined,
     })
 
     const empty = readTimelineMessages({
-      sessionID: "ses_target",
+      scope,
       raw: [],
       lastGood: ready.lastGood,
     })
@@ -149,20 +162,62 @@ describe("readTimelineMessages", () => {
     expect(empty.messages).toEqual([])
     expect(empty.lastGood?.messages).toEqual([])
   })
+
+  test("last-good timeline cache does not cross server scopes with same session id", () => {
+    const localScope = sessionScope("ses_same", "sidecar")
+    const remoteScope = sessionScope("ses_same", "https://remote.example")
+
+    const first = readTimelineMessages({
+      scope: localScope,
+      dataIdentity: timelineDataIdentity({ scope: localScope, created: 1 }),
+      raw: messages120,
+      lastGood: undefined,
+    })
+
+    const second = readTimelineMessages({
+      scope: remoteScope,
+      dataIdentity: timelineDataIdentity({ scope: remoteScope, created: 1 }),
+      raw: undefined,
+      lastGood: first.lastGood,
+    })
+
+    expect(sessionScopeKey(localScope)).not.toBe(sessionScopeKey(remoteScope))
+    expect(second.messages).toEqual([])
+  })
+
+  test("last-good timeline cache keeps long same-scoped timeline during transient cache miss", () => {
+    const scope = sessionScope("ses_long")
+    const first = readTimelineMessages({
+      scope,
+      dataIdentity: timelineDataIdentity({ scope, created: 1 }),
+      raw: messages120,
+      lastGood: undefined,
+    })
+
+    const second = readTimelineMessages({
+      scope,
+      dataIdentity: timelineDataIdentity({ scope, created: 1 }),
+      raw: undefined,
+      lastGood: first.lastGood,
+    })
+
+    expect(second.messages.length).toBe(120)
+  })
 })
 
 describe("readTimelineMessagesFromCache", () => {
   test("keeps messages when directory switch makes session info and message cache briefly unavailable", () => {
     const loaded = [userMessage("msg_1"), userMessage("msg_2")]
+    const scope = sessionScope()
     const ready = readTimelineMessagesFromCache({
-      sessionID: "ses_target",
+      scope,
       sessionCreated: 123,
       raw: loaded,
       lastGood: undefined,
     })
 
     const missing = readTimelineMessagesFromCache({
-      sessionID: "ses_target",
+      scope,
       sessionCreated: undefined,
       raw: undefined,
       lastGood: ready.lastGood,

@@ -11,6 +11,7 @@ function createState(): State {
     status: "loading",
     agent: [],
     command: [],
+    command_ready: false,
     project: "",
     projectMeta: undefined,
     icon: undefined,
@@ -50,10 +51,12 @@ function createVcsCache(): VcsCache {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
     resolve = done
+    reject = fail
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 async function waitFor(check: () => boolean, timeoutMs = 300) {
@@ -366,6 +369,129 @@ describe("bootstrapDirectory", () => {
     expect(store.provider).toEqual(providers)
 
     permission.resolve({ data: [] })
+  })
+
+  test("resets command readiness until command list hydrates", async () => {
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    setStore("command_ready", true)
+    const command = deferred<{ data: State["command"] }>()
+    let commandStarted = false
+
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: {
+        list: async () => {
+          commandStarted = true
+          return command.promise
+        },
+      },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      blocker: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    await bootstrapDirectory({
+      directory,
+      sdk,
+      store,
+      setStore,
+      vcsCache: createVcsCache(),
+      loadSessions: () => undefined,
+      translate: (key) => key,
+      global: {
+        config: {} as Config,
+        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        project: [] as Project[],
+        provider: { all: [], connected: [], default: {} },
+      },
+      queryClient,
+    })
+
+    await waitFor(() => commandStarted)
+    expect(store.command_ready).toBe(false)
+
+    const commands = [{ name: "release" }] as State["command"]
+    command.resolve({ data: commands })
+    await waitFor(() => store.command_ready)
+
+    expect(store.command).toEqual(commands)
+  })
+
+  test("keeps command readiness false and clears commands when command list fails", async () => {
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    setStore("command", [{ name: "stale" }] as State["command"])
+    setStore("command_ready", true)
+    const command = deferred<{ data: State["command"] }>()
+    let commandStarted = false
+
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async () => ({ data: undefined }),
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: {
+        list: async () => {
+          commandStarted = true
+          return command.promise
+        },
+      },
+      permission: { list: async () => ({ data: [] }) },
+      question: { list: async () => ({ data: [] }) },
+      blocker: { list: async () => ({ data: [] }) },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    await bootstrapDirectory({
+      directory,
+      sdk,
+      store,
+      setStore,
+      vcsCache: createVcsCache(),
+      loadSessions: () => undefined,
+      translate: (key) => key,
+      global: {
+        config: {} as Config,
+        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        project: [] as Project[],
+        provider: { all: [], connected: [], default: {} },
+      },
+      queryClient,
+    })
+
+    await waitFor(() => commandStarted)
+    expect(store.command_ready).toBe(false)
+
+    const originalError = console.error
+    console.error = () => undefined
+    try {
+      command.reject(new Error("command list failed"))
+      await waitFor(() => store.command.length === 0)
+    } finally {
+      console.error = originalError
+    }
+
+    expect(store.command_ready).toBe(false)
+    expect(store.command).toEqual([])
   })
 
   test("latest provider refresh writes store when an older refresh resolves later", async () => {

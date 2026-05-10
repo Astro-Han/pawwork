@@ -5,10 +5,13 @@ import type { Prompt, usePrompt } from "@/context/prompt"
 import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
 import { readSessionMessages, readUserMessages } from "@/pages/session/session-messages"
+import { shouldApplyExecutionResult, type ExecutionScope } from "./execution-scope"
 
 type SyncSetter = ReturnType<typeof useSync>["set"]
 type SyncStore = ReturnType<typeof useSync>["data"]
 type RevertSnapshot = {
+  scope: ExecutionScope
+  currentScope: () => ExecutionScope | undefined
   directory: string
   client: ReturnType<typeof useSDK>["client"]
   store: SyncStore
@@ -22,6 +25,15 @@ type RevertSnapshot = {
 }
 
 const findSession = (store: SyncStore, sessionID: string) => store.session.find((item) => item.id === sessionID)
+
+export function revertSnapshotIsCurrent(input: Pick<RevertSnapshot, "scope" | "currentScope">) {
+  return shouldApplyExecutionResult({ requested: input.scope, current: input.currentScope() })
+}
+
+const applyIfCurrent = (snapshot: RevertSnapshot, run: () => void) => {
+  if (!revertSnapshotIsCurrent(snapshot)) return
+  run()
+}
 
 export function revertRequestPayload(input: { sessionID: string; messageID: string }) {
   return {
@@ -79,12 +91,14 @@ export function createSessionRevert(input: {
           .halt(snapshot, request.sessionID)
           .then(() => snapshot.client.session.revert(revertRequestPayload(request), { throwOnError: true }))
           .then((result) => {
-            if (result.data) input.merge(snapshot.setStore, result.data)
+            if (result.data) applyIfCurrent(snapshot, () => input.merge(snapshot.setStore, result.data!))
           })
           .catch((err) => {
-            batch(() => {
-              input.roll(snapshot.setStore, request.sessionID, last)
-              input.prompt.set(prev, undefined, snapshot.promptScope)
+            applyIfCurrent(snapshot, () => {
+              batch(() => {
+                input.roll(snapshot.setStore, request.sessionID, last)
+                input.prompt.set(prev, undefined, snapshot.promptScope)
+              })
             })
             input.fail(err)
           })
@@ -128,12 +142,14 @@ export function createSessionRevert(input: {
 
         await task
           .then((result) => {
-            if (result.data) input.merge(snapshot.setStore, result.data)
+            if (result.data) applyIfCurrent(snapshot, () => input.merge(snapshot.setStore, result.data!))
           })
           .catch((err) => {
-            batch(() => {
-              input.roll(snapshot.setStore, request.sessionID, last)
-              input.prompt.set(prev, undefined, snapshot.promptScope)
+            applyIfCurrent(snapshot, () => {
+              batch(() => {
+                input.roll(snapshot.setStore, request.sessionID, last)
+                input.prompt.set(prev, undefined, snapshot.promptScope)
+              })
             })
             input.fail(err)
           })

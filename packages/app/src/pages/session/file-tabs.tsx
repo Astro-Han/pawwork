@@ -177,7 +177,7 @@ export function FileTabContent(props: { tab: string }) {
   const language = useLanguage()
   const prompt = usePrompt()
   const fileComponent = useFileComponent()
-  const { sessionKey, tabs, view } = useSessionLayout()
+  const { layoutRouteKey, tabs, view } = useSessionLayout()
   const activeFileTab = createSessionTabs({
     tabs,
     pathFromTab: file.pathFromTab,
@@ -204,7 +204,7 @@ export function FileTabContent(props: { tab: string }) {
     const p = path()
     if (!p) return null
     if (file.ready()) return (file.selectedLines(p) as SelectedLineRange | undefined) ?? null
-    return (getSessionHandoff(sessionKey())?.files[p] as SelectedLineRange | undefined) ?? null
+    return (getSessionHandoff(layoutRouteKey())?.files[p] as SelectedLineRange | undefined) ?? null
   })
   const scrollSync = createScrollSync({
     tab: () => props.tab,

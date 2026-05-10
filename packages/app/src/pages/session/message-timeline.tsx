@@ -27,7 +27,7 @@ import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
-import { useSessionKey } from "@/pages/session/session-layout"
+import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useServer } from "@/context/server"
@@ -285,7 +285,7 @@ export function MessageTimeline(props: {
   const dialog = useDialog()
   const language = useLanguage()
   const shellSurface = useShellSurface()
-  const { params } = useSessionKey()
+  const { params } = useSessionRouteKey()
   const platform = usePlatform()
   const server = useServer()
   onCleanup(() => {

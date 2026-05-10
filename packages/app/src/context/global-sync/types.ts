@@ -47,6 +47,7 @@ export type State = {
   status: "loading" | "partial" | "complete"
   agent: Agent[]
   command: Command[]
+  command_ready: boolean
   project: string
   projectMeta: ProjectMeta | undefined
   icon: string | undefined

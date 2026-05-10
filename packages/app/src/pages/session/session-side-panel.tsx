@@ -107,7 +107,7 @@ export function SessionSidePanel(props: {
   const language = useLanguage()
   const command = useCommand()
   const dialog = useDialog()
-  const { sessionKey, tabs, view } = useSessionLayout()
+  const { layoutRouteKey, tabs, view } = useSessionLayout()
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
 
@@ -241,7 +241,7 @@ export function SessionSidePanel(props: {
   createEffect(() => {
     if (!file.ready()) return
 
-    setSessionHandoff(sessionKey(), {
+    setSessionHandoff(layoutRouteKey(), {
       files: tabs()
         .all()
         .reduce<Record<string, SelectedLineRange | null>>((acc, tab) => {

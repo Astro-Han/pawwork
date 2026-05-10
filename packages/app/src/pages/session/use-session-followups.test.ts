@@ -1,14 +1,29 @@
-import { beforeAll, describe, expect, mock, test } from "bun:test"
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
+import { createRoot, createSignal } from "solid-js"
+import { createStore } from "solid-js/store"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 import type {
+  canSendFollowupItem as CanSendFollowupItem,
+  createSessionFollowups as CreateSessionFollowups,
+  followupDraftMatchesScope as FollowupDraftMatchesScope,
   followupDraftForDirectory as DraftForDirectory,
   followupPreviewText as PreviewText,
+  followupStoreKey as FollowupStoreKey,
+  scopedFollowupDraft as ScopedFollowupDraft,
   shouldAutoSendFollowup as ShouldAutoSend,
 } from "./use-session-followups"
 
 let followupPreviewText: typeof PreviewText
 let shouldAutoSendFollowup: typeof ShouldAutoSend
 let followupDraftForDirectory: typeof DraftForDirectory
+let canSendFollowupItem: typeof CanSendFollowupItem
+let createSessionFollowups: typeof CreateSessionFollowups
+let followupStoreKey: typeof FollowupStoreKey
+let scopedFollowupDraft: typeof ScopedFollowupDraft
+let followupDraftMatchesScope: typeof FollowupDraftMatchesScope
+const sendFollowupCalls: unknown[] = []
+let sendFollowupDraftImpl: (input: unknown) => Promise<boolean>
 
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
   sessionID: "ses_1",
@@ -31,14 +46,61 @@ beforeAll(async () => {
   mock.module("@/context/platform", () => ({
     usePlatform: () => ({ platform: "web" }),
   }))
+  mock.module("@/utils/persist", () => ({
+    Persist: {
+      global: () => ({}),
+    },
+    persisted: (_target: unknown, store: unknown) => store,
+  }))
+  mock.module("@/utils/id", () => ({
+    Identifier: {
+      ascending: (prefix: string) => `${prefix}_queued`,
+    },
+  }))
+  mock.module("@/components/prompt-input/submit", () => ({
+    followupCommandText: (item: FollowupDraft) =>
+      item.outgoingTextOverride ?? item.prompt.map((part) => ("content" in part ? part.content : "")).join(""),
+    sendFollowupDraft: (input: unknown) => sendFollowupDraftImpl(input),
+  }))
 
   const mod = await import("./use-session-followups")
   followupPreviewText = mod.followupPreviewText
   shouldAutoSendFollowup = mod.shouldAutoSendFollowup
   followupDraftForDirectory = mod.followupDraftForDirectory
+  canSendFollowupItem = mod.canSendFollowupItem
+  createSessionFollowups = mod.createSessionFollowups
+  followupStoreKey = mod.followupStoreKey
+  scopedFollowupDraft = mod.scopedFollowupDraft
+  followupDraftMatchesScope = mod.followupDraftMatchesScope
 })
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+async function waitFor(check: () => boolean, timeoutMs = 300) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (check()) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error("timed out waiting for condition")
+}
+
 describe("session followups", () => {
+  beforeEach(() => {
+    sendFollowupCalls.length = 0
+    sendFollowupDraftImpl = async (input: unknown) => {
+      sendFollowupCalls.push(input)
+      return true
+    }
+    localStorage.clear()
+  })
+
   test("uses first non-empty text line as dock preview", () => {
     expect(
       followupPreviewText({
@@ -129,6 +191,219 @@ describe("session followups", () => {
     expect(shouldAutoSendFollowup({ ...switchingDirectory, actionReady: true })).toBe(true)
   })
 
+  test("followup store key includes server and session", () => {
+    expect(followupStoreKey({ serverKey: "sidecar", sessionID: "ses_same" })).not.toBe(
+      followupStoreKey({ serverKey: "remote", sessionID: "ses_same" }),
+    )
+  })
+
+  test("unscoped v2 followup item is rejected", () => {
+    const item = {
+      id: "msg_1",
+      sessionID: "ses_same",
+      sessionDirectory: "/repo",
+      prompt: [{ type: "text" as const, content: "next", start: 0, end: 4 }],
+      context: [],
+      agent: "build",
+      model: { providerID: "anthropic", modelID: "claude" },
+      locale: "en-US",
+    }
+
+    expect(followupDraftMatchesScope(item as { sourceScope?: never }, { serverKey: "sidecar", sessionID: "ses_same" })).toBe(
+      false,
+    )
+  })
+
+  test("scoped followup validates exact source scope", () => {
+    const item = scopedFollowupDraft(
+      {
+        id: "msg_1",
+        sessionID: "ses_same",
+        sessionDirectory: "/repo",
+        prompt: [{ type: "text" as const, content: "next", start: 0, end: 4 }],
+        context: [],
+        agent: "build",
+        model: { providerID: "anthropic", modelID: "claude" },
+        locale: "en-US",
+      },
+      { serverKey: "sidecar", sessionID: "ses_same" },
+    )
+
+    expect(followupDraftMatchesScope(item, { serverKey: "sidecar", sessionID: "ses_same" })).toBe(true)
+    expect(followupDraftMatchesScope(item, { serverKey: "remote", sessionID: "ses_same" })).toBe(false)
+  })
+
+  test("queued slash follow-up with leading image waits for command hydration", () => {
+    const item = draft({
+      prompt: [
+        { type: "image", id: "img_1", filename: "screen.png", mime: "image/png", dataUrl: "data:image/png;base64,AA==" },
+        { type: "text", content: "/release now", start: 0, end: 12 },
+      ],
+      context: [],
+    })
+
+    expect(canSendFollowupItem({ item, actionReady: true, commandsReady: false })).toBe(false)
+    expect(canSendFollowupItem({ item, actionReady: true, commandsReady: true })).toBe(true)
+  })
+
+  test("normal queued follow-up with leading image can send while commands hydrate", () => {
+    const item = draft({
+      prompt: [
+        { type: "image", id: "img_1", filename: "screen.png", mime: "image/png", dataUrl: "data:image/png;base64,AA==" },
+        { type: "text", content: "continue", start: 0, end: 8 },
+      ],
+      context: [],
+    })
+
+    expect(canSendFollowupItem({ item, actionReady: true, commandsReady: false })).toBe(true)
+  })
+
+  test("leading-whitespace slash follow-up can send while commands hydrate", () => {
+    const item = draft({
+      prompt: [{ type: "text", content: " /release now", start: 0, end: 13 }],
+      context: [],
+    })
+
+    expect(canSendFollowupItem({ item, actionReady: true, commandsReady: false })).toBe(true)
+  })
+
+  test("queued send call-site waits for command hydration when slash draft has a leading image", async () => {
+    const [syncData, setSyncData] = createStore({ command: [{ name: "release" }], command_ready: false })
+    let followups!: ReturnType<typeof createSessionFollowups>
+    let disposeRoot!: VoidFunction
+
+    disposeRoot = createRoot((dispose) => {
+      const queryClient = new QueryClient()
+      QueryClientProvider({
+        client: queryClient,
+        children: () => {
+          followups = createSessionFollowups({
+            directory: () => "/repo",
+            client: () => ({}) as never,
+            sessionID: () => "ses_send",
+            sessionScope: () => ({ serverKey: "sidecar", sessionID: "ses_send" }),
+            actionReady: () => true,
+            isChildSession: () => false,
+            busy: () => false,
+            blocked: () => false,
+            settings: {
+              general: {
+                followup: () => "queue",
+              },
+            } as never,
+            sync: {
+              data: syncData,
+              session: { get: () => ({ id: "ses_send" }) },
+            } as never,
+            globalSync: {} as never,
+            fail: () => undefined,
+            resumeScroll: () => undefined,
+            attachmentLabel: () => "Attachment",
+          })
+          return null
+        },
+      } as never)
+      return dispose
+    })
+
+    try {
+      followups.queueFollowup({
+        sessionID: "ses_send",
+        sessionDirectory: "/repo",
+        prompt: [
+          {
+            type: "image",
+            id: "img_1",
+            filename: "screen.png",
+            mime: "image/png",
+            dataUrl: "data:image/png;base64,AA==",
+          },
+          { type: "text", content: "/release now", start: 0, end: 12 },
+        ],
+        context: [],
+        agent: "agent",
+        model: { providerID: "provider", modelID: "model" },
+      })
+      await followups.sendFollowup("message_queued", { manual: true })
+      expect(sendFollowupCalls).toHaveLength(0)
+
+      setSyncData("command_ready", true)
+      await followups.sendFollowup("message_queued", { manual: true })
+      expect(sendFollowupCalls).toHaveLength(1)
+    } finally {
+      disposeRoot()
+    }
+  })
+
+  test("blocks duplicate follow-up sends while a scoped key is pending", async () => {
+    const [syncData] = createStore({ command: [{ name: "release" }], command_ready: true })
+    const pending = deferred<boolean>()
+    sendFollowupDraftImpl = async (input: unknown) => {
+      sendFollowupCalls.push(input)
+      return pending.promise
+    }
+
+    let followups!: ReturnType<typeof createSessionFollowups>
+    let disposeRoot!: VoidFunction
+
+    disposeRoot = createRoot((dispose) => {
+      const queryClient = new QueryClient()
+      const [sessionID] = createSignal("ses_a")
+      const [sessionScope] = createSignal({ serverKey: "sidecar", sessionID: "ses_a" })
+      QueryClientProvider({
+        client: queryClient,
+        children: () => {
+          followups = createSessionFollowups({
+            directory: () => "/repo",
+            client: () => ({}) as never,
+            sessionID,
+            sessionScope,
+            actionReady: () => true,
+            isChildSession: () => false,
+            busy: () => true,
+            blocked: () => false,
+            settings: {
+              general: {
+                followup: () => "queue",
+              },
+            } as never,
+            sync: {
+              data: syncData,
+              session: { get: () => ({ id: sessionID() }) },
+            } as never,
+            globalSync: {} as never,
+            fail: () => undefined,
+            resumeScroll: () => undefined,
+            attachmentLabel: () => "Attachment",
+          })
+          return null
+        },
+      } as never)
+      return dispose
+    })
+
+    try {
+      followups.queueFollowup({
+        sessionID: "ses_a",
+        sessionDirectory: "/repo",
+        prompt: [{ type: "text", content: "continue a", start: 0, end: 10 }],
+        context: [],
+        agent: "agent",
+        model: { providerID: "provider", modelID: "model" },
+      })
+      const sendA = followups.sendFollowup("message_queued", { manual: true })
+      await waitFor(() => sendFollowupCalls.length === 1)
+
+      await followups.sendFollowup("message_queued", { manual: true })
+      expect(sendFollowupCalls).toHaveLength(1)
+
+      pending.resolve(true)
+      await sendA
+    } finally {
+      disposeRoot()
+    }
+  })
+
   test("rebases a queued followup to the current execution directory before send", () => {
     const prompt = [
       { type: "text", content: "check @src/app.ts", start: 0, end: 17 },
@@ -144,13 +419,16 @@ describe("session followups", () => {
         commentOrigin: "review",
       },
     ] as FollowupDraft["context"]
-    const item = {
-      id: "msg_1",
-      ...draft({
-        prompt,
-        context,
-      }),
-    }
+    const item = scopedFollowupDraft(
+      {
+        id: "msg_1",
+        ...draft({
+          prompt,
+          context,
+        }),
+      },
+      { serverKey: "sidecar", sessionID: "ses_1" },
+    )
 
     const next = followupDraftForDirectory(item, "/repo")
     expect(next).toBe(item)
