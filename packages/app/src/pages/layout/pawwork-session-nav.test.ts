@@ -12,6 +12,7 @@ const sessions: PawworkSessionItem[] = [
     id: "beta",
     title: "Release notes",
     directory: "/repo",
+    projectKey: "pawwork",
     projectLabel: "pawwork",
     created: 200,
   },
@@ -19,6 +20,7 @@ const sessions: PawworkSessionItem[] = [
     id: "gamma",
     title: "OpenCLI comparison",
     directory: "/repo",
+    projectKey: "research",
     projectLabel: "research",
     created: 100,
   },
@@ -26,6 +28,7 @@ const sessions: PawworkSessionItem[] = [
     id: "alpha",
     title: "Q2 narrative",
     directory: "/repo",
+    projectKey: "pawwork",
     projectLabel: "pawwork",
     created: 300,
   },
@@ -107,6 +110,7 @@ describe("flattenPawworkSessionSections", () => {
     const result = flattenPawworkSessionSections(sections)
 
     expect(result.map((entry) => entry.item.id)).toEqual(["alpha", "beta", "gamma"])
+    expect(result.map((entry) => entry.groupKey)).toEqual(["pawwork", "pawwork", "research"])
     expect(result.map((entry) => entry.groupLabel)).toEqual(["pawwork", "pawwork", "research"])
   })
 })
@@ -150,6 +154,7 @@ describe("findPawworkSessionNavigationTarget", () => {
     })
 
     expect(result?.item.id).toBe("gamma")
+    expect(result?.groupKey).toBe("research")
     expect(result?.groupLabel).toBe("research")
   })
 

@@ -568,12 +568,21 @@ export default function Layout(props: ParentProps) {
     }
   }
 
+  const projectKeyForSession = (session: Session | GlobalSession) => {
+    const project = "project" in session ? session.project : undefined
+    if (project?.worktree) return workspaceKey(project.worktree)
+    return workspaceKey(session.directory)
+  }
+
   const projectLabelForSession = (session: Session | GlobalSession) => {
     const project = "project" in session ? session.project : undefined
-    if (project?.name) return project.name
-    if (project?.worktree) return getFilename(project.worktree)
+    if (project?.worktree) {
+      const localProject = layout.projects.list().find((item) => workspaceKey(item.worktree) === workspaceKey(project.worktree))
+      if (localProject) return displayName(localProject)
+    }
     const localProject = layout.projects.list().find((item) => workspaceKey(item.worktree) === workspaceKey(session.directory))
     if (localProject) return displayName(localProject)
+    if (project?.name) return project.name
     return getFilename(session.directory)
   }
 
@@ -590,6 +599,7 @@ export default function Layout(props: ParentProps) {
   const pawworkSessions = createMemo(() => {
     const rows = buildPawworkSidebarSessionRows(pawworkSessionWindow().sessions, {
       slugForDirectory: base64Encode,
+      projectKeyForSession,
       projectLabelForSession,
       messagesForSession: (session) => {
         const [store] = globalSync.child(session.directory, { bootstrap: false, pin: false })
@@ -600,7 +610,9 @@ export default function Layout(props: ParentProps) {
         return store.part[messageID]
       },
     })
-    return sortPawworkSidebarSessions(rows.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
+    const hidden = store.pawworkProjectHidden
+    const filtered = rows.filter((row) => !hidden[row.projectKey])
+    return sortPawworkSidebarSessions(filtered.map((item) => ({ ...item, id: item.session.id }))).map(({ id: _, ...item }) => item)
   })
 
   const pawworkSessionSections = createMemo(() =>
@@ -609,6 +621,7 @@ export default function Layout(props: ParentProps) {
         id: item.session.id,
         title: item.session.title ?? "",
         directory: item.session.directory,
+        projectKey: item.projectKey,
         projectLabel: item.projectLabel,
         created: item.created,
       })),
@@ -1033,7 +1046,7 @@ export default function Layout(props: ParentProps) {
     const sessions = pawworkNavigationSessions()
     const targetIndex = sessions.findIndex((item) => item.id === session.id)
 
-    expandPawworkProjectGroup(target.groupLabel)
+    expandPawworkProjectGroup(target.groupKey)
     prefetchSession(session, "high")
     if (targetIndex !== -1) warm(sessions, targetIndex)
 
@@ -1077,7 +1090,7 @@ export default function Layout(props: ParentProps) {
     const sessions = pawworkNavigationSessions()
     const targetIndex = sessions.findIndex((item) => item.id === session.id)
 
-    expandPawworkProjectGroup(target.groupLabel)
+    expandPawworkProjectGroup(target.groupKey)
     prefetchSession(session, "high")
     if (targetIndex !== -1) warm(sessions, targetIndex)
 
@@ -1128,6 +1141,51 @@ export default function Layout(props: ParentProps) {
     if (next[label]) delete next[label]
     else next[label] = true
     setStore("pawworkProjectCollapsed", reconcile(next))
+  }
+
+  function hideProject(projectKey: string) {
+    if (store.pawworkProjectHidden[projectKey]) return
+    setStore("pawworkProjectHidden", projectKey, true)
+    showToast({
+      title: language.t("project.remove.toast.title"),
+      description: language.t("project.remove.toast.description"),
+      actions: [
+        {
+          label: language.t("common.undo"),
+          onClick: () => unhideProject(projectKey),
+        },
+      ],
+    })
+  }
+
+  function unhideProject(projectKey: string) {
+    if (!store.pawworkProjectHidden[projectKey]) return
+    setStore(
+      "pawworkProjectHidden",
+      produce((draft) => {
+        delete draft[projectKey]
+      }),
+    )
+  }
+
+  async function handleRenameProject(projectKey: string, next: string) {
+    const projects = layout.projects.list()
+    const project =
+      projects.find((p) => workspaceKey(p.worktree) === projectKey) ||
+      projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === projectKey))
+    if (project) {
+      await renameProject(project, next)
+      return
+    }
+
+    const session = pawworkSessionWindow().sessions.find((s) => workspaceKey(s.directory) === projectKey)
+    if (!session) return
+
+    const sessionKey = workspaceKey(session.directory)
+    const localProject =
+      projects.find((p) => workspaceKey(p.worktree) === sessionKey) ||
+      projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === sessionKey))
+    if (localProject) await renameProject(localProject, next)
   }
 
   function expandPawworkProjectGroup(label: string | undefined) {
@@ -1534,6 +1592,10 @@ export default function Layout(props: ParentProps) {
   }
 
   function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
+    const key = workspaceKey(root)
+    if (store.pawworkProjectHidden[key]) {
+      unhideProject(key)
+    }
     notification.session.markViewed(id)
     const expanded = untrack(() => store.workspaceExpanded[directory])
     if (expanded === false) {
@@ -1551,10 +1613,22 @@ export default function Layout(props: ParentProps) {
   }
 
   function navigateToSession(session: Session | undefined) {
+    if (session) {
+      const key = projectKeyForSession(session)
+      if (store.pawworkProjectHidden[key]) {
+        unhideProject(key)
+      }
+    }
     shellNavigation.openSession(session)
   }
 
   function openPawworkHome(directory?: string) {
+    if (directory) {
+      const key = workspaceKey(projectRoot(directory))
+      if (store.pawworkProjectHidden[key]) {
+        unhideProject(key)
+      }
+    }
     shellNavigation.openNewSession(directory)
   }
 
@@ -2199,6 +2273,8 @@ export default function Layout(props: ParentProps) {
       prefetchSession={prefetchSession}
       onOpenSession={navigateToSession}
       onRenameSession={renamePawworkSession}
+      onRenameProject={handleRenameProject}
+      onRemoveProject={hideProject}
       onTogglePinnedSession={togglePinnedSession}
       exportSessionAvailable={exportSessionAvailable}
       onExportSession={exportSession}
