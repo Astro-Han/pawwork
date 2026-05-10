@@ -655,6 +655,7 @@ export default function Page() {
       anchor={timelineInteraction.anchor}
       onRetryOpenSession={retryOpenRouteSession}
       onOpenNewSession={openNewRouteSession}
+      memoryReviewVisible={!!timelineSessionID() && !timelineRunning()}
       composerSession={renderComposerRegion("session")}
       composerHome={(ctx) => renderComposerRegion("home", ctx)}
       canReview={canReview}
