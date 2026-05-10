@@ -156,6 +156,31 @@ Historical note.
     expect(deleted.content).not.toContain("mem_manual")
   })
 
+  test("deleteEntry ignores markdown body headings without memory ids", async () => {
+    await using tmp = await tmpdir()
+    const service = MemoryService.createForTest({ home: tmp.path, workspacePath: "/repo/pawwork" })
+    await service.saveRaw(`# PawWork Memory
+
+## Profile
+
+## Archive
+
+### 2026-05-10 id:mem_first
+First note.
+### Body heading
+Still first note.
+
+### 2026-05-11 id:mem_second
+Second note.
+`)
+    await service.deleteEntry("mem_first")
+    const state = await service.read()
+    expect(state.content).not.toContain("mem_first")
+    expect(state.content).not.toContain("Still first note.")
+    expect(state.content).toContain("mem_second")
+    expect(state.content).toContain("Second note.")
+  })
+
   test("serializes concurrent raw saves", async () => {
     await using tmp = await tmpdir()
     const service = MemoryService.createForTest({ home: tmp.path, workspacePath: "/repo/pawwork" })

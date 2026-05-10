@@ -124,7 +124,7 @@ export namespace MemoryService {
         if (state.status !== "ok") throw new Error("Memory is in safe mode")
         const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
         const next = state.content.replace(
-          new RegExp(`\\n?### [^\\n]*\\bid:${escaped}(?:\\s|$)[\\s\\S]*?(?=\\n### |$)`),
+          new RegExp(`\\n?### [^\\n]*\\bid:${escaped}(?:\\s|$)[\\s\\S]*?(?=\\n### [^\\n]*\\bid:|$)`),
           "",
         )
         if (next === state.content) throw new Error(`Memory entry not found: ${id}`)

@@ -1842,7 +1842,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     "",
                     "Only Profile is loaded automatically. Archive is not injected. When you need prior memory, use Bash grep/read on that file and keep results short.",
                     `Current workspace path: ${session.directory}`,
-                    `Example: grep -n -i ${shellQuote("<keyword>")} ${shellQuote(state.path)} | head -20`,
+                    `Example: grep -n -i ${shellQuote("<keyword>")} ${shellQuote(state.path)} | head -20 | head -c 2000`,
                     "Do not inject more than 2000 characters of Archive memory into context.",
                     "",
                     "At reply/task closeout, if the user explicitly stated a stable long-lived preference, workflow, project convention, or durable fact worth future recall, update this MEMORY.md file with existing file editing tools.",
@@ -1851,7 +1851,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     "Never write passwords, API keys, tokens, private keys, ID/passport/license numbers, credit card/bank/CVV data, private health records, home addresses, or private phone numbers.",
                     "Keep Profile short because it is loaded at session start. Put longer history in Archive.",
                     "If this is the first time you auto-write to memory and MEMORY.md was effectively empty or still only had the default template, mention it briefly and naturally in the normal reply, e.g. \"我记下你说的 X 偏好\". After this first time, subsequent auto-writes are silent.",
-                    "Do not show toast, dialog, or inline UI feedback. If the user explicitly asks you to remember something, acknowledge naturally in the normal reply, e.g. \"已记下\".",
+                    "Do not show toast, dialog, or inline UI feedback. If the user explicitly asks you to remember something, acknowledge naturally in the normal reply, e.g. \"已记下\" or \"Got it, I'll remember that.\"",
                     "</pawwork-memory>",
                   ].join("\n")
                 }).pipe(
