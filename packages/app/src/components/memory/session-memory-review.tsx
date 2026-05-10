@@ -3,6 +3,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { createEffect, createResource, createSignal, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
+import { memoryStateVersion } from "./memory-state-sync"
 
 type MemoryState = {
   disabled?: boolean
@@ -30,7 +31,7 @@ export function SessionMemoryReview(props: { sessionID?: string; visible: boolea
   const [dismissed, setDismissed] = createSignal(false)
   const [saving, setSaving] = createSignal(false)
   const [reviewState] = createResource(
-    () => (props.visible && props.sessionID ? props.sessionID : undefined),
+    () => (props.visible && props.sessionID ? { sessionID: props.sessionID, version: memoryStateVersion() } : undefined),
     async () => {
       const result = await sdk.client.memory.reviewState()
       return (result.data ?? {}) as MemoryState

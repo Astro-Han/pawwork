@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { openSettings, withSession } from "../actions"
+import { closeSettingsPanel, openSettings, withSession } from "../actions"
 
 test("@smoke memory settings exposes the raw MEMORY.md controls", async ({ page, project }) => {
   await project.open()
@@ -89,4 +89,25 @@ test("disabled memory hides the idle session review surface", async ({ page, pro
   } finally {
     await project.sdk.memory.disabled({ memoryDisabledInput: { disabled: false } })
   }
+})
+
+test("turning memory off hides an already visible session review surface", async ({ page, project }) => {
+  await project.open()
+  await project.sdk.memory.reset()
+  await project.sdk.memory.disabled({ memoryDisabledInput: { disabled: false } })
+
+  await withSession(project.sdk, "memory review toggle e2e", async (session) => {
+    project.trackSession(session.id)
+    await project.gotoSession(session.id)
+
+    const review = page.locator('[data-component="session-memory-review"]')
+    await expect(review).toBeVisible()
+
+    const settings = await openSettings(page)
+    await settings.getByRole("tab", { name: "Memory" }).click()
+    await settings.locator('[data-slot="switch-control"]').click()
+    await closeSettingsPanel(page, settings)
+
+    await expect(review).toBeHidden()
+  })
 })

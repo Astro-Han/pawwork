@@ -4,6 +4,7 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { createResource, createSignal, Show } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
+import { notifyMemoryStateChanged } from "./memory/memory-state-sync"
 import { SettingsList } from "./settings-list"
 
 type MemoryState = {
@@ -73,6 +74,7 @@ export function SettingsMemory(props: { directory?: string }) {
   const toggle = async (enabled: boolean) => {
     try {
       await client().memory.disabled({ memoryDisabledInput: { disabled: !enabled } })
+      notifyMemoryStateChanged()
       refresh()
     } catch (error) {
       showToast({
