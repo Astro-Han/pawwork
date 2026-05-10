@@ -43,6 +43,11 @@ describe("DOMPurify whitelist config", () => {
     expect(re.test("data:text/html,foo")).toBe(false)
     expect(re.test("vbscript:msgbox")).toBe(false)
   })
+  test("URI regex rejects protocol-relative // (defense-in-depth with click router)", () => {
+    const re = sanitizeConfig.ALLOWED_URI_REGEXP
+    expect(re.test("//evil.com/x")).toBe(false)
+    expect(sanitizeForTest('<a href="//evil.com/x">x</a>')).not.toContain("href")
+  })
 })
 
 describe("task list svg rendering", () => {

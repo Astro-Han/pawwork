@@ -45,7 +45,7 @@ const config = {
   SANITIZE_NAMED_PROPS: true,
   FORBID_TAGS: ["script", "iframe", "style", "form", "object", "embed"],
   FORBID_CONTENTS: ["script", "iframe", "style"],
-  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|file):|\/|\.{1,2}\/|#|[^:]*$)/i,
+  ALLOWED_URI_REGEXP: /^(?!\/\/)(?:(?:https?|mailto|file):|\/|\.{1,2}\/|#|[^:]*$)/i,
 }
 
 export const sanitizeConfig = config
