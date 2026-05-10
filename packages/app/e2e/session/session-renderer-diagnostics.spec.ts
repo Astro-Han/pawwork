@@ -398,6 +398,16 @@ test("honors scrollbar thumb drag after submit instead of restoring latest", asy
             event.data?.reason === "submit_restore_latest_after_top_reset",
         ),
     ).toBe(false)
+    expect(
+      events
+        .slice(dragIndex)
+        .some(
+          (event) =>
+            event.name === "session.scroll.sample" &&
+            event.data?.user_scrolled === true &&
+            (numberData(event, "distance_from_bottom") ?? 0) > 200,
+        ),
+    ).toBe(true)
 
     await dragTimelineThumbBy(page, 10_000)
     await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(80)

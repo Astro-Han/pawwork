@@ -273,6 +273,24 @@ describe("session timeline scroll controller", () => {
     expect(controller.state().lastSafePosition).toEqual({ kind: "latest" })
   })
 
+  test("layout observations while following latest use a layout-preservation reason", () => {
+    const { controller } = makeController()
+
+    const result = controller.observe({
+      type: "content_resize",
+      metrics: bottomMetrics,
+    })
+
+    expect(result).toEqual({
+      accepted: true,
+      recovery: {
+        type: "restore_latest",
+        reason: "follow_latest_preserved",
+      },
+      reason: "follow_latest_preserved",
+    })
+  })
+
   test("reading anchor is restored for after-layout resize observations", () => {
     const { controller } = makeController()
 

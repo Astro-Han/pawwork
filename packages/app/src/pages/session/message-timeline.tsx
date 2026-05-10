@@ -185,6 +185,11 @@ const scrollViewIntentToTimelineIntent = (intent: ScrollViewScrollIntent): Timel
   }
 }
 
+const shouldMarkLegacyScrollIntent = (intent: ScrollViewScrollIntent) => {
+  if (intent.type === "keyboard_scroll") return true
+  return intent.type === "scrollbar_drag_start"
+}
+
 type StageConfig = {
   init: number
   batch: number
@@ -312,6 +317,7 @@ export function MessageTimeline(props: {
 }) {
   let touchGesture: number | undefined
   let scrollSampleFrame: number | undefined
+  let viewportRef: HTMLDivElement | undefined
   let mounted = true
   let pendingScrollSample:
     | {
@@ -948,8 +954,12 @@ export function MessageTimeline(props: {
           </button>
         </div>
         <ScrollView
-          viewportRef={props.setScrollRef}
+          viewportRef={(el) => {
+            viewportRef = el
+            props.setScrollRef(el)
+          }}
           onScrollIntent={(intent) => {
+            if (shouldMarkLegacyScrollIntent(intent)) props.onMarkScrollGesture(viewportRef)
             props.onTimelineScrollIntent(scrollViewIntentToTimelineIntent(intent))
           }}
           onWheel={(e) => {

@@ -36,6 +36,7 @@ export type TimelineScrollReason =
   | "submit_restore_latest_after_top_reset"
   | "explicit_top_navigation"
   | "explicit_bottom_navigation"
+  | "follow_latest_preserved"
   | "strong_upward_navigation"
   | "strong_downward_navigation"
   | "weak_scroll_observed"
@@ -558,8 +559,8 @@ export function createSessionTimelineScrollController(
           before,
           observation,
           accepted: true,
-          recovery: { type: "restore_latest", reason: "explicit_bottom_navigation" },
-          reason: "explicit_bottom_navigation",
+          recovery: { type: "restore_latest", reason: "follow_latest_preserved" },
+          reason: "follow_latest_preserved",
         })
       }
 
