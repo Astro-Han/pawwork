@@ -19,6 +19,7 @@ import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/
 import { collectTimelineScrollMetrics } from "@/pages/session/session-timeline-scroll-anchors"
 import {
   classifyTimelineScrollGesture,
+  type TimelineScrollControllerResult,
   type TimelineScrollIntent,
   type TimelineScrollMetrics,
   type TimelineScrollObservation,
@@ -299,7 +300,7 @@ export function MessageTimeline(props: {
   onTurnBackfillScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
   onTimelineScrollIntent: (intent: TimelineScrollIntent) => void
-  onTimelineScrollObservation: (observation: TimelineScrollObservation) => void
+  onTimelineScrollObservation: (observation: TimelineScrollObservation) => TimelineScrollControllerResult
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
   turnStart: number
@@ -1011,12 +1012,11 @@ export function MessageTimeline(props: {
             props.onMarkScrollGesture(e.currentTarget)
           }}
           onScroll={(e) => {
-            props.onScheduleScrollState(e.currentTarget)
-            props.onTurnBackfillScroll()
             const el = e.currentTarget
-            props.onTimelineScrollObservation({
+            const metrics = collectTimelineScrollMetrics(el)
+            const controllerResult = props.onTimelineScrollObservation({
               type: "scroll_sample",
-              metrics: collectTimelineScrollMetrics(el),
+              metrics,
             })
             const max = Math.max(0, el.scrollHeight - el.clientHeight)
             pendingScrollSample = {
@@ -1043,6 +1043,9 @@ export function MessageTimeline(props: {
                 }).catch(() => {})
               })
             }
+            if (!controllerResult.accepted) return
+            props.onScheduleScrollState(e.currentTarget)
+            props.onTurnBackfillScroll()
             if (!props.hasScrollGesture()) return
             props.onUserScroll()
             props.onAutoScrollHandleScroll()
