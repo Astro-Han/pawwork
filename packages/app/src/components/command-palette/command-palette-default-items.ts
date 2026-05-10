@@ -25,7 +25,7 @@ const SUGGESTED_PREFIX = "suggested."
 
 const DEFAULT_GROUPS: readonly CommandPaletteDefaultGroup[] = [
   { id: "suggested", commandIDs: ["session.new", "project.open", "file.open", "settings.open"] },
-  { id: "navigation", commandIDs: ["session.previous", "session.next", "history.back", "history.forward", "input.focus"] },
+  { id: "navigation", commandIDs: ["session.previous", "session.next", "input.focus"] },
   { id: "panels", commandIDs: ["sidebar.toggle", "panel.toggle", "terminal.toggle", "review.toggle", "fileTree.toggle"] },
   { id: "configure", commandIDs: ["model.choose", "mcp.toggle", "permissions.autoaccept"] },
 ]

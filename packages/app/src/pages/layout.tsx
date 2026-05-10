@@ -1263,18 +1263,6 @@ export default function Layout(props: ParentProps) {
         onSelect: () => layout.sidebar.toggle(),
       },
       {
-        id: "history.back",
-        title: language.t("command.history.back"),
-        category: language.t("command.category.view"),
-        onSelect: () => platform.back(),
-      },
-      {
-        id: "history.forward",
-        title: language.t("command.history.forward"),
-        category: language.t("command.category.view"),
-        onSelect: () => platform.forward(),
-      },
-      {
         id: "project.open",
         title: language.t("command.project.open"),
         category: language.t("command.category.project"),

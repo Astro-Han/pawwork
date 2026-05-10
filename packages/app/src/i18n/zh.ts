@@ -26,8 +26,6 @@ export const dict = {
   "theme.scheme.dark": "深色",
 
   "command.sidebar.toggle": "切换侧边栏",
-  "command.history.back": "返回",
-  "command.history.forward": "前进",
 
   "command.project.open": "打开项目",
 
