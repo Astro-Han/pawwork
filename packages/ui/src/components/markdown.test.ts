@@ -85,6 +85,32 @@ describe("task list svg rendering", () => {
     expect(li.querySelector("input")).toBeNull()
     expect(li.querySelector("svg")).not.toBeNull()
   })
+  test("groups label + nested blocks into a single flex sibling of the icon", () => {
+    document.body.innerHTML =
+      '<ul><li><input type="checkbox" disabled> parent<ul><li>nested</li></ul></li></ul>'
+    const li = document.querySelector("li")!
+    rewriteTaskListsForTest(document.body)
+    // li direct children must be exactly [svg, label-wrapper]; otherwise
+    // nested <ul> would render to the right of the icon as a flex sibling.
+    const direct = Array.from(li.children)
+    expect(direct).toHaveLength(2)
+    expect(direct[0]!.tagName.toLowerCase()).toBe("svg")
+    expect(direct[1]!.getAttribute("data-slot")).toBe("task-label")
+    // Nested ul moved into the label wrapper, not orphaned at li level.
+    expect(direct[1]!.querySelector("ul")).not.toBeNull()
+    expect(direct[1]!.textContent).toContain("parent")
+    expect(direct[1]!.textContent).toContain("nested")
+  })
+  test("strips leading whitespace from loose-list paragraph first text", () => {
+    document.body.innerHTML =
+      '<ul><li><p><input type="checkbox" disabled> loose label</p></li></ul>'
+    rewriteTaskListsForTest(document.body)
+    const label = document.querySelector('[data-slot="task-label"]')!
+    // Inside loose list, the leading text lives in the first <p>'s firstChild.
+    const p = label.querySelector("p")!
+    expect(p.firstChild?.textContent?.startsWith(" ")).toBe(false)
+    expect(p.textContent).toBe("loose label")
+  })
   test("sanitize-then-decorate keeps GFM checkbox alive", () => {
     const cleaned = sanitizeForTest(
       '<ul><li><input disabled="" type="checkbox"> task</li></ul>',

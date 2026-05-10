@@ -163,6 +163,10 @@
     color: var(--fg-strong);
     margin-top: 2px;
   }
+  li.task-item > [data-slot="task-label"] {
+    flex: 1 1 0;
+    min-width: 0;
+  }
   /* If marked wraps loose-list content in <p>, the paragraph just inherits
      normal margin handling. */
 
