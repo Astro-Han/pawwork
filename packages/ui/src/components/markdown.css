@@ -239,7 +239,9 @@
 
   /* §10 Image · 1px frame + radius-md (DESIGN.md「User content frame」)
      margin matches other block elements (mt:0 / mb:12) so heading-below
-     gradient (h mb 8 → img) stays at 8, not pushed to 12 by symmetric mt. */
+     gradient (h mb 8 → img) stays at 8, not pushed to 12 by symmetric mt.
+     cursor: zoom-in only when the host wires onImageClick (data-image-click)
+     so the cursor doesn't promise interactivity that has no handler. */
   img {
     max-width: 100%;
     height: auto;
@@ -247,6 +249,8 @@
     border: 1px solid var(--border-weak);
     border-radius: var(--radius-md);
     margin: 0 0 var(--space-md);
+  }
+  &[data-image-click] img {
     cursor: zoom-in;
   }
 

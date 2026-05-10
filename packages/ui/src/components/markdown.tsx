@@ -586,6 +586,7 @@ export function Markdown(
   return (
     <div
       data-component="markdown"
+      data-image-click={local.onImageClick ? "" : undefined}
       classList={{
         ...local.classList,
         [local.class ?? ""]: !!local.class,
