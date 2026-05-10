@@ -39,6 +39,8 @@ export function SessionMainView(props: {
   markScrollGesture: TimelineProps["onMarkScrollGesture"]
   hasScrollGesture: TimelineProps["hasScrollGesture"]
   markUserScroll: TimelineProps["onUserScroll"]
+  onTimelineScrollIntent: TimelineProps["onTimelineScrollIntent"]
+  onTimelineScrollObservation: TimelineProps["onTimelineScrollObservation"]
   historyWindow: ReturnType<typeof createSessionHistoryWindow>
   centered: boolean
   setContentRef: TimelineProps["setContentRef"]
@@ -151,6 +153,8 @@ export function SessionMainView(props: {
                   onMarkScrollGesture={props.markScrollGesture}
                   hasScrollGesture={props.hasScrollGesture}
                   onUserScroll={props.markUserScroll}
+                  onTimelineScrollIntent={props.onTimelineScrollIntent}
+                  onTimelineScrollObservation={props.onTimelineScrollObservation}
                   onTurnBackfillScroll={props.historyWindow.onScrollerScroll}
                   onAutoScrollInteraction={props.autoScroll.handleInteraction}
                   centered={props.centered}

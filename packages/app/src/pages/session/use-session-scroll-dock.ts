@@ -83,8 +83,13 @@ export function createSessionScrollDock(input: {
   clearActiveMessage: () => void
   fill: () => void
   onDockHeightChange?: (event: {
+    dockKind: "composer" | "question" | "permission" | "todo" | "followup" | "revert" | "prompt"
     composerHeight: number
     previousComposerHeight: number
+    scrollTop?: number
+    distanceFromBottom?: number
+  }) => void
+  onContentResize?: (event: {
     scrollTop?: number
     distanceFromBottom?: number
   }) => void
@@ -203,6 +208,12 @@ export function createSessionScrollDock(input: {
     if (el && scroller) scheduleScrollState(scroller)
     if (!el) return
     contentObserver = new ResizeObserver(() => {
+      input.onContentResize?.({
+        scrollTop: scroller?.scrollTop,
+        distanceFromBottom: scroller
+          ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+          : undefined,
+      })
       if (scroller) scheduleScrollState(scroller)
       input.fill()
       restoreBottomIfLocked()
@@ -212,6 +223,7 @@ export function createSessionScrollDock(input: {
 
   const updateDockHeight = (next: number) => {
     const previousDockHeight = dockHeight
+    const dockKind = promptDockKind()
     const scrollTop = scroller?.scrollTop
     const distanceFromBottom = scroller
       ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
@@ -229,6 +241,7 @@ export function createSessionScrollDock(input: {
     if (dockHeight !== previousDockHeight) {
       try {
         input.onDockHeightChange?.({
+          dockKind,
           composerHeight: dockHeight,
           previousComposerHeight: previousDockHeight,
           scrollTop,
@@ -241,6 +254,21 @@ export function createSessionScrollDock(input: {
   }
 
   const measurePromptDockHeight = () => Math.ceil(promptDock?.getBoundingClientRect().height ?? 0)
+  const promptDockKind = () => {
+    const value = promptDock?.dataset.dockKind
+    if (
+      value === "composer" ||
+      value === "question" ||
+      value === "permission" ||
+      value === "todo" ||
+      value === "followup" ||
+      value === "revert" ||
+      value === "prompt"
+    ) {
+      return value
+    }
+    return "composer"
+  }
 
   const setPromptDockRef = (el: HTMLDivElement | undefined) => {
     promptDockObserver?.disconnect()
