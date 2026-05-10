@@ -492,6 +492,8 @@ export const dict = {
   "toast.session.unshare.failed.description": "An error occurred while unsharing the session",
   "toast.session.rename.failed.title": "Failed to rename session",
   "toast.session.rename.failed.description": "Try again, or close the dialog to keep the current name.",
+  "toast.project.rename.failed.title": "Failed to rename project",
+  "toast.project.rename.failed.description": "Try again, or close the dialog to keep the current name.",
 
   "toast.session.listFailed.title": "Failed to load sessions for {{project}}",
   "toast.project.reloadFailed.title": "Failed to reload {{project}}",
@@ -765,6 +767,8 @@ export const dict = {
   "common.rename": "Rename",
   "common.reset": "Reset",
   "common.delete": "Delete",
+  "common.remove": "Remove",
+  "common.undo": "Undo",
   "common.close": "Close",
   "common.edit": "Edit",
   "common.loadMore": "Load more",
@@ -814,6 +818,14 @@ export const dict = {
   "sidebar.pawwork.sort.optionByTime": "By time",
   "sidebar.pawwork.sort.optionByProject": "By project",
   "sidebar.pawwork.searchHistory": "Use Search for older sessions",
+
+  "project.rename": "Rename project",
+  "project.remove": "Remove from sidebar",
+  "project.remove.title": "Remove project from sidebar",
+  "project.remove.confirm": "Remove \"{{name}}\" from sidebar?",
+  "project.remove.description": "Project files and sessions will remain on disk. Re-open this project to restore it to the sidebar.",
+  "project.remove.toast.title": "Project removed from sidebar",
+  "project.remove.toast.description": "You can restore it by re-opening the project.",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",

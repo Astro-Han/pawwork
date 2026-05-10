@@ -125,6 +125,7 @@ export function buildPawworkSidebarSessionRows<T extends SidebarRowSessionLike>(
   sessions: T[],
   input: {
     slugForDirectory: (directory: string) => string
+    projectKeyForSession: (session: T) => string
     projectLabelForSession: (session: T) => string
     messagesForSession?: (session: T) => MessageTimeLike[] | undefined
     partsForMessage?: (session: T, messageID: string) => PartTimeLike[] | undefined
@@ -133,6 +134,7 @@ export function buildPawworkSidebarSessionRows<T extends SidebarRowSessionLike>(
   return sessions.map((session) => ({
     session,
     slug: input.slugForDirectory(session.directory),
+    projectKey: input.projectKeyForSession(session),
     projectLabel: input.projectLabelForSession(session),
     created: pawworkSidebarSessionTime(
       session,

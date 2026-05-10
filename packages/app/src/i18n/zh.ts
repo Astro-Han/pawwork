@@ -482,6 +482,8 @@ export const dict = {
   "toast.session.unshare.failed.description": "取消分享会话时发生错误",
   "toast.session.rename.failed.title": "重命名失败",
   "toast.session.rename.failed.description": "请重试，或关闭对话框保持当前名称。",
+  "toast.project.rename.failed.title": "重命名项目失败",
+  "toast.project.rename.failed.description": "请重试，或关闭对话框保持当前名称。",
   "toast.session.listFailed.title": "无法加载 {{project}} 的会话",
   "toast.update.title": "有可用更新",
   "toast.update.description": "爪印有新版本 ({{version}}) 可安装。",
@@ -697,6 +699,8 @@ export const dict = {
   "common.rename": "重命名",
   "common.reset": "重置",
   "common.delete": "删除",
+  "common.remove": "移除",
+  "common.undo": "撤销",
   "common.close": "关闭",
   "common.edit": "编辑",
   "common.loadMore": "加载更多",
@@ -726,6 +730,14 @@ export const dict = {
   "sidebar.pawwork.sort.optionByTime": "按时间",
   "sidebar.pawwork.sort.optionByProject": "按项目",
   "sidebar.pawwork.searchHistory": "搜索历史会话",
+
+  "project.rename": "重命名项目",
+  "project.remove": "从侧边栏移除",
+  "project.remove.title": "从侧边栏移除项目",
+  "project.remove.confirm": "从侧边栏移除「{{name}}」？",
+  "project.remove.description": "项目文件和会话仍会保留在磁盘上。重新打开该项目即可恢复显示。",
+  "project.remove.toast.title": "项目已从侧边栏移除",
+  "project.remove.toast.description": "重新打开该项目可恢复显示。",
 
   "app.name.desktop": "爪印",
 
