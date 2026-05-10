@@ -14,6 +14,8 @@ describe("buildPawworkSidebarSessionRows", () => {
       ],
       {
         slugForDirectory: (directory) => `slug:${directory}`,
+        projectKeyForSession: () => "pawwork",
+        projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
         messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 800 } }],
       },
@@ -34,6 +36,8 @@ describe("buildPawworkSidebarSessionRows", () => {
       ],
       {
         slugForDirectory: (directory) => `slug:${directory}`,
+        projectKeyForSession: () => "pawwork",
+        projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
         messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 900 } }],
       },
@@ -54,6 +58,7 @@ describe("buildPawworkSidebarSessionRows", () => {
       ],
       {
         slugForDirectory: (directory) => `slug:${directory}`,
+        projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
         messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 900 } }],
         partsForMessage: (_session, messageID) =>
@@ -76,6 +81,7 @@ describe("buildPawworkSidebarSessionRows", () => {
       ],
       {
         slugForDirectory: (directory) => `slug:${directory}`,
+        projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
         messagesForSession: () => [{ id: "msg_1", role: "user", time: { created: 900 } }],
         partsForMessage: (_session, messageID) =>
@@ -97,6 +103,7 @@ describe("buildPawworkSidebarSessionRows", () => {
       ],
       {
         slugForDirectory: (directory) => `slug:${directory}`,
+        projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
         messagesForSession: () => [
           { id: "msg_1", role: "assistant", time: { created: 950 } },
@@ -113,6 +120,7 @@ describe("buildPawworkSidebarSessionRows", () => {
           time: { created: 100, updated: 900 },
         },
         slug: "slug:/repo",
+        projectKey: "pawwork",
         projectLabel: "PawWork",
         created: 800,
       },
@@ -130,6 +138,7 @@ describe("buildPawworkSidebarSessionRows", () => {
       ],
       {
         slugForDirectory: (directory) => `slug:${directory}`,
+        projectKeyForSession: () => "pawwork",
         projectLabelForSession: () => "PawWork",
       },
     )

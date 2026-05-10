@@ -32,7 +32,7 @@ export function buildPawworkSessionSections(input: {
     return {
       pinned,
       recent: unpinned.sort(comparePawworkSessionsByCreated),
-      groups: [] as { label: string; items: PawworkSessionItem[] }[],
+      groups: [] as { key: string; label: string; items: PawworkSessionItem[] }[],
     }
   }
 

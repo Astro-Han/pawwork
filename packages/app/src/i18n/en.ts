@@ -766,6 +766,7 @@ export const dict = {
   "common.reset": "Reset",
   "common.delete": "Delete",
   "common.remove": "Remove",
+  "common.undo": "Undo",
   "common.close": "Close",
   "common.edit": "Edit",
   "common.loadMore": "Load more",
@@ -820,6 +821,8 @@ export const dict = {
   "project.remove.title": "Remove project from sidebar",
   "project.remove.confirm": "Remove \"{{name}}\" from sidebar?",
   "project.remove.description": "Project files and sessions will remain on disk. Re-open this project to restore it to the sidebar.",
+  "project.remove.toast.title": "Project removed from sidebar",
+  "project.remove.toast.description": "You can restore it by re-opening the project.",
 
   "debugBar.ariaLabel": "Development performance diagnostics",
   "debugBar.na": "n/a",

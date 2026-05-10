@@ -445,7 +445,7 @@ export const PawworkSidebar = (props: {
                                         <DropdownMenu.ItemLabel>{projectMenuLabels().rename}</DropdownMenu.ItemLabel>
                                       </DropdownMenu.Item>
                                       <DropdownMenu.Item onSelect={handleRemove}>
-                                        <Icon name="hide" class="text-icon-weak" />
+                                        <Icon name="archive" class="text-icon-weak" />
                                         <DropdownMenu.ItemLabel>{projectMenuLabels().remove}</DropdownMenu.ItemLabel>
                                       </DropdownMenu.Item>
                                     </DropdownMenu.Content>
@@ -470,7 +470,7 @@ export const PawworkSidebar = (props: {
                                 <ContextMenu.ItemLabel>{projectMenuLabels().rename}</ContextMenu.ItemLabel>
                               </ContextMenu.Item>
                               <ContextMenu.Item onSelect={handleRemove}>
-                                <Icon name="hide" class="text-icon-weak" />
+                                <Icon name="archive" class="text-icon-weak" />
                                 <ContextMenu.ItemLabel>{projectMenuLabels().remove}</ContextMenu.ItemLabel>
                               </ContextMenu.Item>
                             </ContextMenu.Content>

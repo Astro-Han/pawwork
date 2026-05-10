@@ -698,6 +698,7 @@ export const dict = {
   "common.reset": "重置",
   "common.delete": "删除",
   "common.remove": "移除",
+  "common.undo": "撤销",
   "common.close": "关闭",
   "common.edit": "编辑",
   "common.loadMore": "加载更多",
@@ -732,6 +733,11 @@ export const dict = {
   "project.remove.title": "从侧边栏移除项目",
   "project.remove.confirm": "从侧边栏移除「{{name}}」？",
   "project.remove.description": "项目文件和会话仍会保留在磁盘上。重新打开该项目即可恢复显示。",
+  "project.remove.toast.title": "项目已从侧边栏移除",
+  "project.remove.toast.description": "重新打开该项目可恢复显示。",</thinking>
+
+<function=edit>
+<parameter=filePath>/Users/yuhan/workspace/dev/pawwork-502-sidebar-project-actions/packages/app/src/i18n/zh.ts
 
   "app.name.desktop": "爪印",
 

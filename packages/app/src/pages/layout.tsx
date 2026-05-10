@@ -1116,6 +1116,16 @@ export default function Layout(props: ParentProps) {
     const current = store.pawworkProjectHidden
     if (current[projectKey]) return
     setStore("pawworkProjectHidden", reconcile({ ...current, [projectKey]: true }))
+    showToast({
+      title: language.t("project.remove.toast.title"),
+      description: language.t("project.remove.toast.description"),
+      actions: [
+        {
+          label: language.t("common.undo"),
+          onClick: () => unhideProject(projectKey),
+        },
+      ],
+    })
   }
 
   function unhideProject(projectKey: string) {
@@ -1554,8 +1564,8 @@ export default function Layout(props: ParentProps) {
   }
 
   function navigateToSession(session: Session | undefined) {
-    if (session?.directory) {
-      const key = workspaceKey(session.directory)
+    if (session) {
+      const key = projectKeyForSession(session)
       if (store.pawworkProjectHidden[key]) {
         unhideProject(key)
       }
