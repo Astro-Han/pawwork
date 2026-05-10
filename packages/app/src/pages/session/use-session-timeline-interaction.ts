@@ -36,17 +36,6 @@ export function createSessionTimelineInteraction(input: {
   let activeMessage!: ReturnType<typeof createSessionActiveMessage>
   let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
   let recoveryFrame: number | undefined
-  let scrollController = createSessionTimelineScrollController({
-    sessionOwner: input.sessionKey(),
-    viewportOwner: `timeline:${input.sessionKey()}`,
-    routeSessionID: input.routeSessionID(),
-    visibleSessionID: input.sessionID(),
-    timelineSessionID: input.sessionID(),
-    emitDiagnostic: (event) => {
-      void emitRendererDiagnostic(event).catch(() => {})
-    },
-  })
-
   const createScrollController = () =>
     createSessionTimelineScrollController({
       sessionOwner: input.sessionKey(),
@@ -58,11 +47,19 @@ export function createSessionTimelineInteraction(input: {
         void emitRendererDiagnostic(event).catch(() => {})
       },
     })
+  let scrollController = createScrollController()
+
+  const cancelRecoveryFrame = () => {
+    if (recoveryFrame === undefined) return
+    cancelAnimationFrame(recoveryFrame)
+    recoveryFrame = undefined
+  }
 
   createEffect(
     on(
       () => [input.sessionKey(), input.sessionID()] as const,
       () => {
+        cancelRecoveryFrame()
         const previous = scrollController.state()
         scrollController.detach({
           sessionOwner: previous.sessionOwner,
@@ -74,13 +71,14 @@ export function createSessionTimelineInteraction(input: {
     ),
   )
 
-  const cancelRecoveryFrame = () => {
-    if (recoveryFrame === undefined) return
-    cancelAnimationFrame(recoveryFrame)
-    recoveryFrame = undefined
-  }
-
-  onCleanup(cancelRecoveryFrame)
+  onCleanup(() => {
+    cancelRecoveryFrame()
+    const owner = scrollController.state()
+    scrollController.detach({
+      sessionOwner: owner.sessionOwner,
+      viewportOwner: owner.viewportOwner,
+    })
+  })
 
   let scrollDock!: ReturnType<typeof createSessionScrollDock>
   scrollDock = createSessionScrollDock({

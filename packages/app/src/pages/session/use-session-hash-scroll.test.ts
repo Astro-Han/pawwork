@@ -43,4 +43,14 @@ describe("useSessionHashScroll", () => {
     expect(sessionSource).toContain("markScrollGesture: timelineInteraction.markScrollGesture")
     expect(sessionSource).toContain("navigateMessageByOffset: timelineInteraction.navigateMessageByOffset")
   })
+
+  test("hash navigation emits once for already rendered messages", async () => {
+    const source = await Bun.file(new URL("./use-session-hash-scroll.ts", import.meta.url)).text()
+
+    expect(source).toContain(`if (msg) {
+        scrollToMessage(msg, behavior)
+        return
+      }
+      input.onMessageNavigation?.(messageId)`)
+  })
 })

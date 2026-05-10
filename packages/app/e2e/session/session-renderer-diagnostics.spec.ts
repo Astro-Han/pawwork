@@ -3,6 +3,8 @@ import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
 import {
   promptSelector,
+  scrollThumbSelector,
+  scrollViewSelector,
   scrollViewportSelector,
   sessionMessageItemSelector,
   sessionTurnListSelector,
@@ -166,11 +168,11 @@ async function markTimelinePointerGesture(page: Page) {
 
 async function timelineThumbBox(page: Page) {
   return page.evaluate(
-    ({ scrollViewportSelector, turnListSelector }) => {
+    ({ scrollThumbSelector, scrollViewSelector, scrollViewportSelector, turnListSelector }) => {
       const list = document.querySelector(turnListSelector)
       const viewport = list?.closest(scrollViewportSelector)
-      const root = viewport?.closest(".scroll-view")
-      const thumb = root?.querySelector(".scroll-view__thumb")
+      const root = viewport?.closest(scrollViewSelector)
+      const thumb = root?.querySelector(scrollThumbSelector)
       if (!(thumb instanceof HTMLElement)) return null
       const rect = thumb.getBoundingClientRect()
       return {
@@ -180,7 +182,7 @@ async function timelineThumbBox(page: Page) {
         height: rect.height,
       }
     },
-    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+    { scrollThumbSelector, scrollViewSelector, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
   )
 }
 

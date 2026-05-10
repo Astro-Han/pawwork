@@ -124,13 +124,13 @@ export const useSessionHashScroll = (input: {
 
     const messageId = messageIdFromHash(hash)
     if (messageId) {
-      input.onMessageNavigation?.(messageId)
       input.autoScroll.pause()
       const msg = messageById().get(messageId)
       if (msg) {
         scrollToMessage(msg, behavior)
         return
       }
+      input.onMessageNavigation?.(messageId)
       return
     }
 

@@ -236,6 +236,7 @@ export function ScrollView(props: ScrollViewProps) {
   return (
     <div
       ref={rootRef}
+      data-component="scroll-view"
       class={`scroll-view ${local.class || ""}`}
       style={local.style}
       onPointerEnter={() => setState("isHovered", true)}
@@ -275,6 +276,7 @@ export function ScrollView(props: ScrollViewProps) {
           ref={thumbRef}
           onPointerDown={onThumbPointerDown}
           class="scroll-view__thumb"
+          data-component="scroll-thumb"
           data-visible={isHovered() || isDragging()}
           data-dragging={isDragging()}
           style={{

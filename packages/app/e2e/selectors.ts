@@ -7,7 +7,9 @@ export const sessionComposerColumnSelector = '[data-component="session-composer-
 export const sessionTimelineColumnSelector = '[data-component="session-timeline-column"]'
 export const sessionTurnListSelector = '[data-slot="session-turn-list"]'
 export const sessionMessageItemSelector = "[data-message-id]"
+export const scrollViewSelector = '[data-component="scroll-view"]'
 export const scrollViewportSelector = '[data-component="scroll-viewport"]'
+export const scrollThumbSelector = '[data-component="scroll-thumb"]'
 export const questionDockSelector = '[data-component="dock-prompt"][data-kind="question"]'
 export const permissionDockSelector = '[data-component="dock-prompt"][data-kind="permission"]'
 export const sessionTodoToggleButtonSelector = '[data-action="session-todo-toggle-button"]'
