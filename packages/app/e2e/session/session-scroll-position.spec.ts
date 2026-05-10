@@ -399,9 +399,8 @@ test("keeps the latest turn in view when sending from an old message hash", asyn
     await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeGreaterThan(100)
 
     const token = `scroll_latest_${Date.now()}`
-    const beforeCount = await page.locator(sessionMessageItemSelector).count()
     await sendVisiblePrompt({ page, text: `reply with ${token}` })
-    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(beforeCount + 1, { timeout: 30_000 })
+    await expect(page.locator(sessionMessageItemSelector).last()).toContainText(token, { timeout: 30_000 })
 
     await expect.poll(() => page.url()).not.toContain("#message-")
     await expect
