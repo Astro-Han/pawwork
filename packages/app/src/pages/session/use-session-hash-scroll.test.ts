@@ -36,8 +36,8 @@ describe("useSessionHashScroll", () => {
     const sessionSource = await Bun.file(new URL("../session.tsx", import.meta.url)).text()
 
     expect(hashSource).toContain("onMessageNavigation")
-    expect(hashSource).toContain("input.onMessageNavigation?.()")
-    expect(timelineSource).toContain("onMessageNavigation: scrollDock.cancelBottomFollowLock")
+    expect(hashSource).toContain("input.onMessageNavigation?.(message.id)")
+    expect(timelineSource).toContain("type: \"target_message\"")
     expect(timelineSource).toContain("const navigateMessageByOffset")
     expect(timelineSource).toContain("scrollDock.cancelBottomFollowLock()")
     expect(sessionSource).toContain("markScrollGesture: timelineInteraction.markScrollGesture")

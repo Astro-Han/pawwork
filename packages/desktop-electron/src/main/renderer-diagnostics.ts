@@ -173,7 +173,13 @@ const eventDataFields = {
     "visible_first_message_id",
     "visible_last_message_id",
   ],
-  "session.layout.composer_dock": ["composer_height", "previous_composer_height", "scroll_top", "distance_from_bottom"],
+  "session.layout.composer_dock": [
+    "dock_kind",
+    "composer_height",
+    "previous_composer_height",
+    "scroll_top",
+    "distance_from_bottom",
+  ],
   "session.data.refresh": ["phase", "message_count", "part_count", "duration_ms", "cache_present"],
   "renderer.perf.sample": [
     "fps",

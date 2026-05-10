@@ -1,7 +1,11 @@
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { createEffect, on, onCleanup } from "solid-js"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
-import { restoreTimelineSafePosition } from "@/pages/session/session-timeline-scroll-anchors"
+import {
+  collectTimelineScrollMetrics,
+  restoreTimelineSafePosition,
+  sampleTimelineSafePosition,
+} from "@/pages/session/session-timeline-scroll-anchors"
 import { createSessionActiveMessage } from "@/pages/session/use-session-active-message"
 import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
@@ -78,17 +82,37 @@ export function createSessionTimelineInteraction(input: {
 
   onCleanup(cancelRecoveryFrame)
 
-  const scrollDock = createSessionScrollDock({
+  let scrollDock!: ReturnType<typeof createSessionScrollDock>
+  scrollDock = createSessionScrollDock({
     clearMessageHash: () => clearMessageHash(),
     clearActiveMessage: () => activeMessage?.clearActiveMessage(),
     fill: () => historyBackfill?.fill(),
+    onContentResize: () => {
+      const viewport = scrollDock.scroller()
+      if (!viewport) return
+      onTimelineScrollObservation({
+        type: "content_resize",
+        metrics: collectTimelineScrollMetrics(viewport),
+      })
+    },
     onDockHeightChange: (event) => {
+      const viewport = scrollDock.scroller()
+      if (viewport) {
+        onTimelineScrollObservation({
+          type: "dock_resize",
+          dockKind: event.dockKind,
+          previousDockHeight: event.previousComposerHeight,
+          nextDockHeight: event.composerHeight,
+          metrics: collectTimelineScrollMetrics(viewport),
+        })
+      }
       void emitRendererDiagnostic({
         name: "session.layout.composer_dock",
         route_session_id: input.routeSessionID(),
         visible_session_id: input.sessionID(),
         timeline_session_id: input.sessionID(),
         data: {
+          dock_kind: event.dockKind,
           composer_height: event.composerHeight,
           previous_composer_height: event.previousComposerHeight,
           scroll_top: event.scrollTop,
@@ -183,7 +207,23 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const onTimelineScrollObservation = (observation: TimelineScrollObservation): TimelineScrollControllerResult => {
-    const result = scrollController.observe(observation)
+    let next = observation
+    if (observation.type === "scroll_sample" && !observation.safePosition) {
+      const viewport = scrollDock.scroller()
+      if (viewport) {
+        next = {
+          ...observation,
+          safePosition: sampleTimelineSafePosition({
+            viewport,
+            mode: scrollController.state().mode,
+            renderedStart: historyWindow.turnStart(),
+            renderedCount: historyWindow.renderedUserMessages().length,
+            newestMessageID: input.visibleUserMessages().at(-1)?.id,
+          }),
+        }
+      }
+    }
+    const result = scrollController.observe(next)
     applyTimelineRecovery(result.recovery)
     return result
   }
@@ -226,7 +266,14 @@ export function createSessionTimelineInteraction(input: {
     anchor,
     scheduleScrollState: scrollDock.scheduleScrollState,
     consumePendingMessage: input.consumePendingMessage,
-    onMessageNavigation: scrollDock.cancelBottomFollowLock,
+    onMessageNavigation: (messageID) => {
+      scrollDock.cancelBottomFollowLock()
+      onTimelineScrollIntent({
+        type: "target_message",
+        messageID,
+        align: "nearest",
+      })
+    },
     onMessageHashCleared: () => historyWindow.clearHashTarget(),
   })
   clearMessageHash = hashScroll.clearMessageHash

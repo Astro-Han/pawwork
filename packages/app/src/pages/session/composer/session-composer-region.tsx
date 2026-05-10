@@ -102,6 +102,15 @@ export function SessionComposerRegion(props: {
   const dockSpring = useSpring(() => (dockOpen() ? 1 : 0), DOCK_MOTION)
   const dockProgress = createMemo(() => Math.max(0, Math.min(1, dockSpring())))
   const dockMounted = createMemo(() => dockOpen() || dockProgress() > 0.001)
+  const dockKind = createMemo(() => {
+    if (props.state.questionRequest()) return "question"
+    if (props.state.permissionRequest()) return "permission"
+    if (dockMounted()) return "todo"
+    if (rolled()) return "revert"
+    if (props.followup?.items.length) return "followup"
+    if (showComposer()) return "prompt"
+    return "composer"
+  })
 
   const openParent = () => {
     const id = parentID()
@@ -114,6 +123,7 @@ export function SessionComposerRegion(props: {
       ref={props.setPromptDockRef}
       data-component="session-prompt-dock"
       data-variant={home() ? "home" : "session"}
+      data-dock-kind={dockKind()}
       classList={{
         "w-full flex flex-col justify-center items-center pointer-events-none": true,
         "absolute inset-x-0 bottom-0 pb-6": !home(),

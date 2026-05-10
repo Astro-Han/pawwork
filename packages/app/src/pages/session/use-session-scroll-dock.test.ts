@@ -241,6 +241,7 @@ describe("session scroll dock", () => {
         const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
         const promptDock = makeMeasuredDiv(120)
         const events: Array<{
+          dockKind: "composer" | "question" | "permission" | "todo" | "followup" | "revert" | "prompt"
           composerHeight: number
           previousComposerHeight: number
           scrollTop?: number
@@ -270,12 +271,14 @@ describe("session scroll dock", () => {
           expect(document.documentElement.style.getPropertyValue("--composer-dock-height")).toBe("220px")
           expect(events).toEqual([
             {
+              dockKind: "composer",
               composerHeight: 120,
               previousComposerHeight: 0,
               scrollTop: 600,
               distanceFromBottom: 0,
             },
             {
+              dockKind: "composer",
               composerHeight: 220,
               previousComposerHeight: 120,
               scrollTop: 600,

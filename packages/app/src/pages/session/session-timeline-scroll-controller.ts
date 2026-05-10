@@ -503,7 +503,11 @@ export function createSessionTimelineScrollController(
 
       if (state.mode === "reading_history" && state.lastSafePosition.kind === "reading") {
         const reason =
-          observation.type === "content_resize" ? "content_resize_preserve_reading" : "reading_anchor_preserved"
+          observation.type === "content_resize"
+            ? "content_resize_preserve_reading"
+            : observation.type === "dock_resize"
+              ? "dock_resize_preserve_anchor"
+              : "reading_anchor_preserved"
         return result({
           before,
           observation,
