@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
   buildPawworkSessionSections,
+  findPawworkSessionNavigationTarget,
+  flattenPawworkSessionSections,
   movePawworkSession,
   type PawworkSessionItem,
 } from "./pawwork-session-nav"
@@ -81,6 +83,128 @@ describe("buildPawworkSessionSections", () => {
       "zeta",
       "middle",
     ])
+  })
+})
+
+describe("flattenPawworkSessionSections", () => {
+  test("returns pinned sessions before time-sorted recent sessions", () => {
+    const sections = buildPawworkSessionSections({
+      sessions,
+      pinnedIDs: ["beta"],
+      sortMode: "time",
+    })
+
+    const result = flattenPawworkSessionSections(sections)
+
+    expect(result.map((entry) => entry.item.id)).toEqual(["beta", "alpha", "gamma"])
+    expect(result.map((entry) => entry.groupLabel)).toEqual([undefined, undefined, undefined])
+  })
+
+  test("keeps project group entries in sidebar group order", () => {
+    const sections = buildPawworkSessionSections({
+      sessions,
+      pinnedIDs: [],
+      sortMode: "project",
+    })
+
+    const result = flattenPawworkSessionSections(sections)
+
+    expect(result.map((entry) => entry.item.id)).toEqual(["alpha", "beta", "gamma"])
+    expect(result.map((entry) => entry.groupKey)).toEqual(["pawwork", "pawwork", "research"])
+    expect(result.map((entry) => entry.groupLabel)).toEqual(["pawwork", "pawwork", "research"])
+  })
+})
+
+describe("findPawworkSessionNavigationTarget", () => {
+  test("wraps previous and next through sidebar order", () => {
+    const sections = buildPawworkSessionSections({
+      sessions,
+      pinnedIDs: ["beta"],
+      sortMode: "time",
+    })
+
+    expect(
+      findPawworkSessionNavigationTarget({
+        sections,
+        currentSessionID: "beta",
+        offset: 1,
+      })?.item.id,
+    ).toBe("alpha")
+
+    expect(
+      findPawworkSessionNavigationTarget({
+        sections,
+        currentSessionID: "beta",
+        offset: -1,
+      })?.item.id,
+    ).toBe("gamma")
+  })
+
+  test("returns the project group label for grouped targets", () => {
+    const sections = buildPawworkSessionSections({
+      sessions,
+      pinnedIDs: [],
+      sortMode: "project",
+    })
+
+    const result = findPawworkSessionNavigationTarget({
+      sections,
+      currentSessionID: "beta",
+      offset: 1,
+    })
+
+    expect(result?.item.id).toBe("gamma")
+    expect(result?.groupKey).toBe("research")
+    expect(result?.groupLabel).toBe("research")
+  })
+
+  test("anchors unread navigation on the full sidebar order", () => {
+    const sections = buildPawworkSessionSections({
+      sessions,
+      pinnedIDs: [],
+      sortMode: "time",
+    })
+
+    const next = findPawworkSessionNavigationTarget({
+      sections,
+      currentSessionID: "beta",
+      offset: 1,
+      include: (item) => item.id !== "beta",
+    })
+
+    const previous = findPawworkSessionNavigationTarget({
+      sections,
+      currentSessionID: "beta",
+      offset: -1,
+      include: (item) => item.id !== "beta",
+    })
+
+    expect(next?.item.id).toBe("gamma")
+    expect(previous?.item.id).toBe("alpha")
+  })
+
+  test("uses first or last eligible session when the current session is not in the eligible list", () => {
+    const sections = buildPawworkSessionSections({
+      sessions,
+      pinnedIDs: [],
+      sortMode: "time",
+    })
+
+    expect(
+      findPawworkSessionNavigationTarget({
+        sections,
+        currentSessionID: "missing",
+        offset: 1,
+      })?.item.id,
+    ).toBe("alpha")
+
+    expect(
+      findPawworkSessionNavigationTarget({
+        sections,
+        currentSessionID: "missing",
+        offset: -1,
+      })?.item.id,
+    ).toBe("gamma")
   })
 })
 

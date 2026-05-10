@@ -216,9 +216,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       )
   }
 
-  const openFile = () => {
+  const openFile = (source?: "palette" | "keybind" | "slash") => {
     void import("@/components/dialog-select-file").then((x) => {
-      dialog.show(() => <x.DialogSelectFile onOpenFile={showAllFiles} />)
+      dialog.show(() => <x.DialogSelectFile mode={source === "slash" ? "files" : undefined} onOpenFile={showAllFiles} />)
     })
   }
 
