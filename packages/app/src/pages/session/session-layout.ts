@@ -4,6 +4,7 @@ import { useLayout } from "@/context/layout"
 import { createStableLayoutMemo } from "./stable-layout-memo"
 
 export function sessionRouteLayoutKey(params: { dir: string | undefined; id: string | undefined }) {
+  if (!params.dir) return ""
   return `${params.dir}${params.id ? "/" + params.id : ""}`
 }
 

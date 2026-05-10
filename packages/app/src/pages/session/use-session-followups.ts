@@ -1,4 +1,4 @@
-import { createEffect, createMemo } from "solid-js"
+import { createEffect, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useMutation } from "@tanstack/solid-query"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
@@ -144,41 +144,58 @@ export function createSessionFollowups(input: {
     manual?: boolean
   }
 
+  const [pendingFollowups, setPendingFollowups] = createSignal<Record<string, string | undefined>>({})
+  const markFollowupPending = (key: string, id: string) => {
+    setPendingFollowups((current) => ({ ...current, [key]: id }))
+  }
+  const clearFollowupPending = (key: string, id: string) => {
+    setPendingFollowups((current) => {
+      if (current[key] !== id) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
+
   const followupMutation = useMutation(() => ({
     mutationFn: async (params: SendFollowupVariables) => {
-      const item = (followup.items[params.key] ?? []).find((entry) => entry.id === params.id)
-      if (!item || item.sessionID !== params.sessionID || !followupDraftMatchesScope(item, input.sessionScope())) return
+      markFollowupPending(params.key, params.id)
+      try {
+        const item = (followup.items[params.key] ?? []).find((entry) => entry.id === params.id)
+        if (!item || item.sessionID !== params.sessionID || !followupDraftMatchesScope(item, input.sessionScope())) return
 
-      if (params.manual) setFollowup("paused", params.key, undefined)
-      setFollowup("failed", params.key, undefined)
+        if (params.manual) setFollowup("paused", params.key, undefined)
+        setFollowup("failed", params.key, undefined)
 
-      const directory = input.directory()
-      const draft = followupDraftForDirectory(item, directory)
-      const ok = await sendFollowupDraft({
-        client: input.client(),
-        sync: input.sync,
-        globalSync: input.globalSync,
-        draft,
-        optimisticBusy: draft.sessionDirectory === directory,
-      }).catch((err) => {
-        setFollowup("failed", params.key, params.id)
-        input.fail(err)
-        return false
-      })
-      if (!ok) return
+        const directory = input.directory()
+        const draft = followupDraftForDirectory(item, directory)
+        const ok = await sendFollowupDraft({
+          client: input.client(),
+          sync: input.sync,
+          globalSync: input.globalSync,
+          draft,
+          optimisticBusy: draft.sessionDirectory === directory,
+        }).catch((err) => {
+          setFollowup("failed", params.key, params.id)
+          input.fail(err)
+          return false
+        })
+        if (!ok) return
 
-      setFollowup("items", params.key, (items) => (items ?? []).filter((entry) => entry.id !== params.id))
-      if (params.manual) input.resumeScroll()
+        setFollowup("items", params.key, (items) => (items ?? []).filter((entry) => entry.id !== params.id))
+        if (params.manual) input.resumeScroll()
+      } finally {
+        clearFollowupPending(params.key, params.id)
+      }
     },
   }))
 
-  const followupBusy = (key: string | undefined) =>
-    !!key && followupMutation.isPending && followupMutation.variables?.key === key
+  const followupBusy = (key: string | undefined) => !!key && pendingFollowups()[key] !== undefined
 
   const sendingFollowup = createMemo(() => {
     const key = activeFollowupKey()
-    if (!followupBusy(key)) return
-    return followupMutation.variables?.id
+    if (!key || !followupBusy(key)) return
+    return pendingFollowups()[key]
   })
 
   const queueEnabled = createMemo(() => {

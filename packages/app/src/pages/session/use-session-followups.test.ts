@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
-import { createRoot } from "solid-js"
+import { createRoot, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 import type {
@@ -23,6 +23,7 @@ let followupStoreKey: typeof FollowupStoreKey
 let scopedFollowupDraft: typeof ScopedFollowupDraft
 let followupDraftMatchesScope: typeof FollowupDraftMatchesScope
 const sendFollowupCalls: unknown[] = []
+let sendFollowupDraftImpl: (input: unknown) => Promise<boolean>
 
 const draft = (input: Pick<FollowupDraft, "prompt" | "context">): FollowupDraft => ({
   sessionID: "ses_1",
@@ -59,10 +60,7 @@ beforeAll(async () => {
   mock.module("@/components/prompt-input/submit", () => ({
     followupCommandText: (item: FollowupDraft) =>
       item.outgoingTextOverride ?? item.prompt.map((part) => ("content" in part ? part.content : "")).join(""),
-    sendFollowupDraft: async (input: unknown) => {
-      sendFollowupCalls.push(input)
-      return true
-    },
+    sendFollowupDraft: (input: unknown) => sendFollowupDraftImpl(input),
   }))
 
   const mod = await import("./use-session-followups")
@@ -76,9 +74,30 @@ beforeAll(async () => {
   followupDraftMatchesScope = mod.followupDraftMatchesScope
 })
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+async function waitFor(check: () => boolean, timeoutMs = 300) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (check()) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error("timed out waiting for condition")
+}
+
 describe("session followups", () => {
   beforeEach(() => {
     sendFollowupCalls.length = 0
+    sendFollowupDraftImpl = async (input: unknown) => {
+      sendFollowupCalls.push(input)
+      return true
+    }
     localStorage.clear()
   })
 
@@ -311,6 +330,75 @@ describe("session followups", () => {
       setSyncData("command_ready", true)
       await followups.sendFollowup("message_queued", { manual: true })
       expect(sendFollowupCalls).toHaveLength(1)
+    } finally {
+      disposeRoot()
+    }
+  })
+
+  test("blocks duplicate follow-up sends while a scoped key is pending", async () => {
+    const [syncData] = createStore({ command: [{ name: "release" }], command_ready: true })
+    const pending = deferred<boolean>()
+    sendFollowupDraftImpl = async (input: unknown) => {
+      sendFollowupCalls.push(input)
+      return pending.promise
+    }
+
+    let followups!: ReturnType<typeof createSessionFollowups>
+    let disposeRoot!: VoidFunction
+
+    disposeRoot = createRoot((dispose) => {
+      const queryClient = new QueryClient()
+      const [sessionID] = createSignal("ses_a")
+      const [sessionScope] = createSignal({ serverKey: "sidecar", sessionID: "ses_a" })
+      QueryClientProvider({
+        client: queryClient,
+        children: () => {
+          followups = createSessionFollowups({
+            directory: () => "/repo",
+            client: () => ({}) as never,
+            sessionID,
+            sessionScope,
+            actionReady: () => true,
+            isChildSession: () => false,
+            busy: () => true,
+            blocked: () => false,
+            settings: {
+              general: {
+                followup: () => "queue",
+              },
+            } as never,
+            sync: {
+              data: syncData,
+              session: { get: () => ({ id: sessionID() }) },
+            } as never,
+            globalSync: {} as never,
+            fail: () => undefined,
+            resumeScroll: () => undefined,
+            attachmentLabel: () => "Attachment",
+          })
+          return null
+        },
+      } as never)
+      return dispose
+    })
+
+    try {
+      followups.queueFollowup({
+        sessionID: "ses_a",
+        sessionDirectory: "/repo",
+        prompt: [{ type: "text", content: "continue a", start: 0, end: 10 }],
+        context: [],
+        agent: "agent",
+        model: { providerID: "provider", modelID: "model" },
+      })
+      const sendA = followups.sendFollowup("message_queued", { manual: true })
+      await waitFor(() => sendFollowupCalls.length === 1)
+
+      await followups.sendFollowup("message_queued", { manual: true })
+      expect(sendFollowupCalls).toHaveLength(1)
+
+      pending.resolve(true)
+      await sendA
     } finally {
       disposeRoot()
     }

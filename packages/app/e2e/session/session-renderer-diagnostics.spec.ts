@@ -165,7 +165,6 @@ async function expandRenderedTimeline(page: Page, target: number) {
         if (count >= target) return count
         await viewport.hover()
         await page.mouse.wheel(0, -2400)
-        await page.waitForTimeout(100)
         return page.locator(sessionMessageItemSelector).count()
       },
       { timeout: 30_000 },
@@ -309,6 +308,7 @@ test("keeps long timeline stable across worktree exit follow-up", async ({ page,
     await expect.poll(async () => (await expectTimelineMetrics(page)).top).toBeGreaterThan(20)
 
     const followupCheckpoint = (await readRendererDiagnostics(page)).length
+    const sentBeforeFollowup = await readPromptSent(page)
     const followupText = `worktree exit follow-up ${Date.now()}`
     await sendVisiblePrompt({ page, text: followupText })
     await expect
@@ -334,6 +334,7 @@ test("keeps long timeline stable across worktree exit follow-up", async ({ page,
     expect(messages.length).toBeGreaterThanOrEqual(91)
 
     const sent = await readPromptSent(page)
+    expect(sent.count).toBeGreaterThan(sentBeforeFollowup.count)
     expect(sent.sessionID).toBe(session.id)
     expect(sent.directory).toBe(project.directory)
 
