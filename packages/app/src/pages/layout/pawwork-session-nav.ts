@@ -49,6 +49,49 @@ export function buildPawworkSessionSections(input: {
   }
 }
 
+export type PawworkSessionSections = ReturnType<typeof buildPawworkSessionSections>
+
+export type PawworkSessionNavigationEntry = {
+  item: PawworkSessionItem
+  groupLabel?: string
+}
+
+export function flattenPawworkSessionSections(sections: PawworkSessionSections): PawworkSessionNavigationEntry[] {
+  return [
+    ...sections.pinned.map((item) => ({ item })),
+    ...sections.recent.map((item) => ({ item })),
+    ...sections.groups.flatMap((group) => group.items.map((item) => ({ item, groupLabel: group.label }))),
+  ]
+}
+
+export function findPawworkSessionNavigationTarget(input: {
+  sections: PawworkSessionSections
+  currentSessionID?: string
+  offset: number
+  include?: (item: PawworkSessionItem) => boolean
+}) {
+  const ordered = flattenPawworkSessionSections(input.sections)
+  if (ordered.length === 0) return undefined
+
+  if (input.include && !ordered.some((entry) => input.include?.(entry.item))) return undefined
+
+  const currentIndex = input.currentSessionID
+    ? ordered.findIndex((entry) => entry.item.id === input.currentSessionID)
+    : -1
+  const start = currentIndex === -1 ? (input.offset > 0 ? -1 : 0) : currentIndex
+
+  for (let step = 1; step <= ordered.length; step++) {
+    const index =
+      input.offset > 0 ? (start + step) % ordered.length : (start - step + ordered.length) % ordered.length
+    const candidate = ordered[index]
+    if (!candidate) continue
+    if (input.include && !input.include(candidate.item)) continue
+    return candidate
+  }
+
+  return undefined
+}
+
 export function movePawworkSession(input: {
   pinnedIDs: string[]
   visibleUnpinnedIDs: string[]
