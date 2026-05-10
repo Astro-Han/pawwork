@@ -94,6 +94,14 @@ export namespace PawWorkHome {
     return fileCandidates("AGENTS.md")
   }
 
+  export function memoryDir() {
+    return path.join(primary(), "memory")
+  }
+
+  export function memoryFile() {
+    return path.join(memoryDir(), "MEMORY.md")
+  }
+
   export function configFilesIn(dir: string) {
     return [path.join(dir, "pawwork.json"), path.join(dir, "pawwork.jsonc")]
   }

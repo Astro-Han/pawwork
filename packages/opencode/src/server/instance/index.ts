@@ -25,6 +25,7 @@ import { ConfigRoutes } from "./config"
 import { ExperimentalRoutes } from "./experimental"
 import { ProviderRoutes } from "./provider"
 import { EventRoutes } from "./event"
+import { MemoryRoutes } from "./memory"
 import { WorkspaceRouterMiddleware } from "./middleware"
 import { AppRuntime } from "@/effect/app-runtime"
 
@@ -40,6 +41,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono =>
     .route("/question", QuestionRoutes())
     .route("/blocker", BlockerRoutes())
     .route("/provider", ProviderRoutes())
+    .route("/memory", MemoryRoutes())
     .route("/", FileRoutes())
     .route("/", EventRoutes())
     .route("/mcp", McpRoutes())

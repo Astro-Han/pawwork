@@ -16,6 +16,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/prompt/first-message-reply.spec.ts:@smoke first replied message in a new session renders without page errors",
   "packages/app/e2e/prompt/prompt.spec.ts:@smoke can send a prompt and receive a reply",
   "packages/app/e2e/release-notes/release-notes-toast.spec.ts:@smoke shows subtle toast when stored version is older than current",
+  "packages/app/e2e/settings/settings-memory.spec.ts:@smoke memory settings exposes the raw MEMORY.md controls",
   "packages/app/e2e/settings/settings.spec.ts:@smoke PawWork settings opens as a full-pane surface, not a dialog",
   "packages/app/e2e/settings/settings.spec.ts:@smoke new installs start with the PawWork theme",
   "packages/app/e2e/settings/settings.spec.ts:@smoke settings dialog opens, switches tabs, closes",

@@ -15,14 +15,16 @@ function focusablesIn(root: HTMLElement): HTMLElement[] {
 }
 import { SettingsGeneral } from "./settings-general"
 import { SettingsKeybinds } from "./settings-keybinds"
+import { SettingsMemory } from "./settings-memory"
 import { SettingsModels } from "./settings-models"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsWorktrees } from "./settings-worktrees"
 
-export type SettingsPageTab = "general" | "shortcuts" | "providers" | "models" | "worktrees"
+export type SettingsPageTab = "general" | "shortcuts" | "providers" | "models" | "worktrees" | "memory"
 
 export const SettingsPage: Component<{
   active: SettingsPageTab
+  directory?: string
   onSelect: (value: SettingsPageTab) => void
   onClose: () => void
 }> = (props) => {
@@ -92,7 +94,8 @@ export const SettingsPage: Component<{
             value !== "shortcuts" &&
             value !== "providers" &&
             value !== "models" &&
-            value !== "worktrees"
+            value !== "worktrees" &&
+            value !== "memory"
           )
             return
           props.onSelect(value)
@@ -127,6 +130,10 @@ export const SettingsPage: Component<{
                     <Tabs.Trigger value="shortcuts">
                       <Icon name="keyboard" />
                       {language.t("settings.tab.shortcuts")}
+                    </Tabs.Trigger>
+                    <Tabs.Trigger value="memory">
+                      <Icon name="archive" />
+                      {language.t("settings.tab.memory")}
                     </Tabs.Trigger>
                   </div>
                 </div>
@@ -165,6 +172,11 @@ export const SettingsPage: Component<{
         <Tabs.Content value="shortcuts" class="no-scrollbar">
           <div class="mx-auto w-full max-w-[760px]">
             <SettingsKeybinds />
+          </div>
+        </Tabs.Content>
+        <Tabs.Content value="memory" class="no-scrollbar">
+          <div class="mx-auto w-full max-w-[760px]">
+            <SettingsMemory directory={props.directory} />
           </div>
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">
