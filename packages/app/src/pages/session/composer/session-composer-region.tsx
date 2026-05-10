@@ -189,93 +189,92 @@ export function SessionComposerRegion(props: {
               </DockCard>
             }
           >
-            <DockCard>
-              <Show when={dockMounted()}>
-                <SessionTodoDock
-                  sessionID={displaySessionID()}
-                  todos={props.state.todos()}
-                  collapseLabel={language.t("session.todo.collapse")}
-                  expandLabel={language.t("session.todo.expand")}
-                  dockProgress={dockProgress()}
-                />
-              </Show>
-              <Show when={rolled()} keyed>
-                {(revert) => (
-                  <SessionRevertDock
-                    items={revert.items}
-                    restoring={revert.restoring}
-                    disabled={revert.disabled}
-                    onRestore={revert.onRestore}
+            <div class="relative z-30">
+              <DockCard class="overflow-visible!">
+                <Show when={dockMounted()}>
+                  <SessionTodoDock
+                    sessionID={displaySessionID()}
+                    todos={props.state.todos()}
+                    collapseLabel={language.t("session.todo.collapse")}
+                    expandLabel={language.t("session.todo.expand")}
+                    dockProgress={dockProgress()}
                   />
-                )}
-              </Show>
-              <Show when={props.followup?.items.length}>
-                <SessionFollowupDock
-                  items={props.followup!.items}
-                  sending={props.followup!.sending}
-                  onSend={props.followup!.onSend}
-                  onEdit={props.followup!.onEdit}
-                />
-              </Show>
-              <Show
-                when={props.state.permissionRequest()}
-                keyed
-                fallback={
-                  <Show
-                    when={child()}
-                    fallback={
-                      <Show when={!props.state.blocked()}>
-                        <PromptInput
-                          ref={props.inputRef}
-                          homeMode={home()}
-                          sessionID={displaySessionID()}
-                          sessionIDControlled={!home()}
-                          newSessionWorktree={props.newSessionWorktree}
-                          onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
-                          edit={props.followup?.edit}
-                          onEditLoaded={props.followup?.onEditLoaded}
-                          shouldQueue={props.followup?.queue}
-                          onQueue={props.followup?.onQueue}
-                          onAbort={props.followup?.onAbort}
-                          onSubmit={props.onSubmit}
-                          onModeChange={props.onModeChange}
-                          actionReady={() => props.actionReady ?? true}
-                          abortReady={() => props.abortReady ?? props.actionReady ?? true}
-                          selectedSkill={props.selectedSkill}
-                        />
-                      </Show>
-                    }
-                  >
-                    <DockSegment
-                      ref={props.inputRef as (el: HTMLDivElement) => void}
-                      class="w-full p-3 text-16-regular text-fg-weak"
+                </Show>
+                <Show when={rolled()} keyed>
+                  {(revert) => (
+                    <SessionRevertDock
+                      items={revert.items}
+                      restoring={revert.restoring}
+                      disabled={revert.disabled}
+                      onRestore={revert.onRestore}
+                    />
+                  )}
+                </Show>
+                <Show when={props.followup?.items.length}>
+                  <SessionFollowupDock
+                    items={props.followup!.items}
+                    sending={props.followup!.sending}
+                    onSend={props.followup!.onSend}
+                    onEdit={props.followup!.onEdit}
+                  />
+                </Show>
+                <Show
+                  when={props.state.permissionRequest()}
+                  keyed
+                  fallback={
+                    <Show
+                      when={child()}
+                      fallback={
+                        <Show when={!props.state.blocked()}>
+                          <PromptInput
+                            ref={props.inputRef}
+                            homeMode={home()}
+                            sessionID={displaySessionID()}
+                            sessionIDControlled={!home()}
+                            newSessionWorktree={props.newSessionWorktree}
+                            onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
+                            edit={props.followup?.edit}
+                            onEditLoaded={props.followup?.onEditLoaded}
+                            shouldQueue={props.followup?.queue}
+                            onQueue={props.followup?.onQueue}
+                            onAbort={props.followup?.onAbort}
+                            onSubmit={props.onSubmit}
+                            onModeChange={props.onModeChange}
+                            actionReady={() => props.actionReady ?? true}
+                            abortReady={() => props.abortReady ?? props.actionReady ?? true}
+                            selectedSkill={props.selectedSkill}
+                          />
+                        </Show>
+                      }
                     >
-                      <span>{language.t("session.child.promptDisabled")} </span>
-                      <Show when={parentID()}>
-                        <button
-                          type="button"
-                          class="text-fg-base transition-colors hover:text-fg-strong"
-                          onClick={openParent}
-                        >
-                          {language.t("session.child.backToParent")}
-                        </button>
-                      </Show>
-                    </DockSegment>
-                  </Show>
-                }
-              >
-                {(request) => (
-                  <SessionPermissionContent
-                    request={request}
-                    responding={props.state.permissionResponding()}
-                    onDecide={(response) => {
-                      props.onResponseSubmit()
-                      props.state.decide(response)
-                    }}
-                  />
-                )}
-              </Show>
-            </DockCard>
+                      <DockSegment ref={props.inputRef} class="w-full p-3 text-16-regular text-fg-weak">
+                        <span>{language.t("session.child.promptDisabled")} </span>
+                        <Show when={parentID()}>
+                          <button
+                            type="button"
+                            class="text-fg-base transition-colors hover:text-fg-strong"
+                            onClick={openParent}
+                          >
+                            {language.t("session.child.backToParent")}
+                          </button>
+                        </Show>
+                      </DockSegment>
+                    </Show>
+                  }
+                >
+                  {(request) => (
+                    <SessionPermissionContent
+                      request={request}
+                      responding={props.state.permissionResponding()}
+                      onDecide={(response) => {
+                        props.onResponseSubmit()
+                        props.state.decide(response)
+                      }}
+                    />
+                  )}
+                </Show>
+              </DockCard>
+            </div>
           </Show>
         </Show>
       </div>
