@@ -145,6 +145,25 @@ async function resetTimelineToTop(page: Page) {
   expect(found, "session timeline viewport should exist").toBe(true)
 }
 
+async function markTimelinePointerGesture(page: Page) {
+  const found = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return false
+      viewport.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          pointerId: 1,
+        }),
+      )
+      return true
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(found, "session timeline viewport should exist").toBe(true)
+}
+
 async function sendVisiblePrompt(input: { page: Page; text: string }) {
   const prompt = input.page.locator(promptSelector)
   await expect(prompt).toBeVisible()
@@ -236,6 +255,7 @@ test("captures renderer diagnostics while guarding send scroll position", async 
     const promptText = `diagnostics guard ${Date.now()}`
     await sendVisiblePrompt({ page, text: promptText })
     await expect(page.locator(sessionMessageItemSelector).last()).toContainText(promptText, { timeout: 30_000 })
+    await markTimelinePointerGesture(page)
     await resetTimelineToTop(page)
     await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(80)
 
@@ -254,6 +274,14 @@ test("captures renderer diagnostics while guarding send scroll position", async 
 
     const events = await readRendererDiagnostics(page)
     expect(events.some((event) => event.name === "session.action.submit")).toBe(true)
+    expect(
+      events.some(
+        (event) =>
+          event.name === "session.timeline.scroll_controller" &&
+          event.data?.accepted === false &&
+          event.data?.reason === "submit_restore_latest_after_top_reset",
+      ),
+    ).toBe(true)
     expect(events.some((event) => event.name === "session.timeline.mount")).toBe(true)
     expect(events.some((event) => event.name === "session.timeline.visible")).toBe(true)
     expect(events.filter((event) => event.name === "session.timeline.mount")).toHaveLength(1)

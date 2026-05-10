@@ -1018,6 +1018,7 @@ export function MessageTimeline(props: {
               type: "scroll_sample",
               metrics,
             })
+            if (!controllerResult.accepted) return
             const max = Math.max(0, el.scrollHeight - el.clientHeight)
             pendingScrollSample = {
               scroll_top: el.scrollTop,
@@ -1043,7 +1044,6 @@ export function MessageTimeline(props: {
                 }).catch(() => {})
               })
             }
-            if (!controllerResult.accepted) return
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
             if (!props.hasScrollGesture()) return
