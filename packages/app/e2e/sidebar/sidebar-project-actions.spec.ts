@@ -122,7 +122,53 @@ test("project group can be removed from sidebar", async ({ page, sdk, gotoSessio
   })
 })
 
-// Note: hidden state persistence and restore are covered by unit tests in
-// layout-page-store.test.ts and by code review of navigateToSession/openPawworkHome.
-// E2E testing of restore after navigation/reload is flaky due to session list
-// loading timing in the test environment.
+test("hidden project restores on direct navigation", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  await withSession(sdk, `restore nav ${stamp}`, async (a) => {
+    await withSession(sdk, `restore nav b ${stamp}`, async () => {
+      await gotoSession(a.id)
+      await openSidebar(page)
+
+      const sidebar = page.locator(pawworkSidebarSelector).first()
+
+      // Switch to project sort
+      await sidebar.locator('[data-action="pawwork-sort-trigger"]').click()
+      await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
+
+      // Count initial groups
+      const groups = sidebar.locator('[data-action="pawwork-group-toggle"]')
+      const initialCount = await groups.count()
+      expect(initialCount).toBeGreaterThan(0)
+
+      // Remove the project
+      const menuTrigger = sidebar.locator('[data-action="project-row-menu"]').first()
+      await menuTrigger.click()
+
+      const menu = page.locator(dropdownMenuContentSelector).first()
+      await clickMenuItem(menu, /Remove from sidebar/)
+
+      const dialog = page.locator('[data-component="dialog"]').filter({ hasText: /Remove project from sidebar/ }).first()
+      await expect(dialog).toBeVisible()
+      await dialog.locator('button').filter({ hasText: /Remove/ }).first().click()
+
+      // Group should be hidden
+      const countAfterRemove = await groups.count()
+      expect(countAfterRemove).toBeLessThan(initialCount)
+
+      // Navigate directly to session via URL (triggers syncSessionRoute → unhideProject)
+      await gotoSession(a.id)
+
+      // Wait for sidebar to load content
+      await expect(sidebar.locator('[data-session-id]')).not.toHaveCount(0, { timeout: 5000 })
+      await openSidebar(page)
+
+      // Switch to project sort again
+      await sidebar.locator('[data-action="pawwork-sort-trigger"]').click()
+      await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
+
+      // Group should be back
+      const groupsAfter = sidebar.locator('[data-action="pawwork-group-toggle"]')
+      await expect.poll(async () => await groupsAfter.count()).toBeGreaterThan(countAfterRemove)
+    })
+  })
+})

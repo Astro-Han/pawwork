@@ -571,14 +571,14 @@ export default function Layout(props: ParentProps) {
 
   const projectLabelForSession = (session: Session | GlobalSession) => {
     const project = "project" in session ? session.project : undefined
-    if (project?.name) return project.name
+    // Prefer local ProjectMeta displayName over potentially stale session.project.name
     if (project?.worktree) {
       const localProject = layout.projects.list().find((item) => workspaceKey(item.worktree) === workspaceKey(project.worktree))
       if (localProject) return displayName(localProject)
-      return getFilename(project.worktree)
     }
     const localProject = layout.projects.list().find((item) => workspaceKey(item.worktree) === workspaceKey(session.directory))
     if (localProject) return displayName(localProject)
+    if (project?.name) return project.name
     return getFilename(session.directory)
   }
 
@@ -1551,6 +1551,10 @@ export default function Layout(props: ParentProps) {
   }
 
   function syncSessionRoute(directory: string, id: string, root = activeProjectRoot(directory)) {
+    const key = workspaceKey(root)
+    if (store.pawworkProjectHidden[key]) {
+      unhideProject(key)
+    }
     notification.session.markViewed(id)
     const expanded = untrack(() => store.workspaceExpanded[directory])
     if (expanded === false) {
