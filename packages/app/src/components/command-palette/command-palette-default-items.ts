@@ -32,7 +32,7 @@ const DEFAULT_GROUPS: readonly CommandPaletteDefaultGroup[] = [
 
 function commandEntry(option: CommandOption, category: string): CommandPaletteEntry {
   return {
-    id: option.id,
+    id: "command:" + option.id,
     type: "command",
     title: option.title,
     description: option.description,

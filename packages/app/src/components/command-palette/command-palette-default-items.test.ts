@@ -45,7 +45,7 @@ describe("buildCommandPaletteDefaultGroups", () => {
     })
 
     expect(groups.map((group) => group.label)).toEqual(["Suggested", "Navigation", "Panels", "Configure"])
-    expect(groups.flatMap((group) => group.items.map((item) => item.id))).toEqual([
+    expect(groups.flatMap((group) => group.items.map((item) => item.option?.id))).toEqual([
       "session.new",
       "project.open",
       "file.open",
@@ -83,9 +83,9 @@ describe("buildCommandPaletteDefaultGroups", () => {
         id: "suggested",
         label: "Suggested",
         items: [
-          expect.objectContaining({ id: "session.new" }),
-          expect.objectContaining({ id: "file.open" }),
-          expect.objectContaining({ id: "settings.open" }),
+          expect.objectContaining({ option: expect.objectContaining({ id: "session.new" }) }),
+          expect.objectContaining({ option: expect.objectContaining({ id: "file.open" }) }),
+          expect.objectContaining({ option: expect.objectContaining({ id: "settings.open" }) }),
         ],
       },
     ])
@@ -111,6 +111,6 @@ describe("buildCommandPaletteDefaultGroups", () => {
       labels,
     })
 
-    expect(groups.flatMap((group) => group.items.map((item) => item.id))).toEqual(["session.new", "file.open"])
+    expect(groups.flatMap((group) => group.items.map((item) => item.option?.id))).toEqual(["session.new", "file.open"])
   })
 })
