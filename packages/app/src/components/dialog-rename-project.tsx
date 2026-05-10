@@ -22,7 +22,8 @@ export function DialogRenameProject(props: {
     try {
       await props.onConfirm(next)
       dialog.close()
-    } catch {
+    } catch (error) {
+      console.error("Failed to rename project:", error)
       showToast({
         title: language.t("toast.project.rename.failed.title"),
         description: language.t("toast.project.rename.failed.description"),
