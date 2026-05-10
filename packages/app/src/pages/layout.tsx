@@ -1117,9 +1117,8 @@ export default function Layout(props: ParentProps) {
   }
 
   function hideProject(projectKey: string) {
-    const current = store.pawworkProjectHidden
-    if (current[projectKey]) return
-    setStore("pawworkProjectHidden", reconcile({ ...current, [projectKey]: true }))
+    if (store.pawworkProjectHidden[projectKey]) return
+    setStore("pawworkProjectHidden", projectKey, true)
     showToast({
       title: language.t("project.remove.toast.title"),
       description: language.t("project.remove.toast.description"),
@@ -1133,11 +1132,13 @@ export default function Layout(props: ParentProps) {
   }
 
   function unhideProject(projectKey: string) {
-    const current = store.pawworkProjectHidden
-    if (!current[projectKey]) return
-    const next = { ...current }
-    delete next[projectKey]
-    setStore("pawworkProjectHidden", reconcile(next))
+    if (!store.pawworkProjectHidden[projectKey]) return
+    setStore(
+      "pawworkProjectHidden",
+      produce((draft) => {
+        delete draft[projectKey]
+      }),
+    )
   }
 
   async function handleRenameProject(projectKey: string, next: string) {
