@@ -1141,14 +1141,19 @@ export default function Layout(props: ParentProps) {
   }
 
   async function handleRenameProject(projectKey: string, next: string) {
-    const project = layout.projects.list().find((p) => workspaceKey(p.worktree) === projectKey)
+    const projects = layout.projects.list()
+    const project =
+      projects.find((p) => workspaceKey(p.worktree) === projectKey) ||
+      projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === projectKey))
     if (project) {
       await renameProject(project, next)
     } else {
       // Fallback: find a session with this directory and use its project info
       const session = pawworkSessionWindow().sessions.find((s) => workspaceKey(s.directory) === projectKey)
       if (session) {
-        const localProject = layout.projects.list().find((p) => workspaceKey(p.worktree) === workspaceKey(session.directory))
+        const localProject =
+          projects.find((p) => workspaceKey(p.worktree) === workspaceKey(session.directory)) ||
+          projects.find((p) => p.sandboxes?.some((s) => workspaceKey(s) === workspaceKey(session.directory)))
         if (localProject) {
           await renameProject(localProject, next)
         }
