@@ -128,6 +128,10 @@ export const dict = {
   "palette.empty": "未找到结果",
   "palette.group.commands": "命令",
   "palette.group.files": "文件",
+  "palette.group.suggested": "建议",
+  "palette.group.navigation": "导航",
+  "palette.group.panels": "面板",
+  "palette.group.configure": "配置",
 
   "dialog.provider.search.placeholder": "搜索提供商",
   "dialog.provider.empty": "未找到提供商",

@@ -103,6 +103,10 @@ export const dict = {
   "palette.empty": "No results found",
   "palette.group.commands": "Commands",
   "palette.group.files": "Files",
+  "palette.group.suggested": "Suggested",
+  "palette.group.navigation": "Navigation",
+  "palette.group.panels": "Panels",
+  "palette.group.configure": "Configure",
 
   "dialog.provider.search.placeholder": "Search providers",
   "dialog.provider.empty": "No providers found",
