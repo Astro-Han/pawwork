@@ -153,6 +153,65 @@ describe("renderer diagnostics sanitizer", () => {
       model: "deepseek.v4",
     })
   })
+
+  test("accepts typed session timeline scroll controller diagnostics", () => {
+    const event = sanitizeRendererDiagnosticEvent(
+      {
+        name: "session.timeline.scroll_controller",
+        route_session_id: "ses_route",
+        visible_session_id: "ses_visible",
+        timeline_session_id: "ses_timeline",
+        data: {
+          mode_before: "following_latest",
+          mode_after: "following_latest",
+          intent_type: "submit",
+          intent_source: "scroll_view",
+          observation_type: "scroll_sample",
+          accepted: false,
+          recovery: true,
+          reason: "submit_restore_latest_after_top_reset",
+          anchor_kind: "latest",
+          anchor_message_id: "msg_latest",
+          submit_origin_mode: "following_latest",
+          near_top: true,
+          near_bottom: false,
+          near_anchor: false,
+          session_owner: "ses_owner",
+          viewport_owner: "viewport_owner",
+          coalesced_count: 2,
+          raw_prompt: "do not keep me",
+        },
+      },
+      { appLaunchID: "launch_1", now: () => new Date("2026-05-02T10:30:12.123Z"), windowID: 1 },
+    )
+
+    expect(event).toMatchObject({
+      "event.name": "session.timeline.scroll_controller",
+      route_session_id: "ses_route",
+      visible_session_id: "ses_visible",
+      timeline_session_id: "ses_timeline",
+      data: {
+        mode_before: "following_latest",
+        mode_after: "following_latest",
+        intent_type: "submit",
+        intent_source: "scroll_view",
+        observation_type: "scroll_sample",
+        accepted: false,
+        recovery: true,
+        reason: "submit_restore_latest_after_top_reset",
+        anchor_kind: "latest",
+        anchor_message_id: "msg_latest",
+        submit_origin_mode: "following_latest",
+        near_top: true,
+        near_bottom: false,
+        near_anchor: false,
+        session_owner: "ses_owner",
+        viewport_owner: "viewport_owner",
+        coalesced_count: 2,
+      },
+    })
+    expect(JSON.stringify(event)).not.toContain("do not keep me")
+  })
 })
 
 describe("renderer diagnostics recorder", () => {

@@ -10,12 +10,19 @@ import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Dialog } from "@opencode-ai/ui/dialog"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
-import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { ScrollView, type ScrollViewScrollIntent } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Binary } from "@opencode-ai/util/binary"
 import { getFilename } from "@opencode-ai/util/path"
 import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
+import { collectTimelineScrollMetrics } from "@/pages/session/session-timeline-scroll-anchors"
+import {
+  classifyTimelineScrollGesture,
+  type TimelineScrollIntent,
+  type TimelineScrollMetrics,
+  type TimelineScrollObservation,
+} from "@/pages/session/session-timeline-scroll-controller"
 import { taskDescription } from "@/pages/session/task-description"
 import {
   turnFetchSignature,
@@ -118,26 +125,62 @@ const boundaryTarget = (root: HTMLElement, target: EventTarget | null) => {
   return nested
 }
 
+const boundaryGesture = (input: {
+  root: HTMLDivElement
+  target: EventTarget | null
+  delta: number
+}) => {
+  const target = boundaryTarget(input.root, input.target)
+  if (target === input.root) return { nestedScrollable: false, atNestedBoundary: true }
+  return {
+    nestedScrollable: true,
+    atNestedBoundary: shouldMarkBoundaryGesture({
+      delta: input.delta,
+      scrollTop: target.scrollTop,
+      scrollHeight: target.scrollHeight,
+      clientHeight: target.clientHeight,
+    }),
+  }
+}
+
 const markBoundaryGesture = (input: {
   root: HTMLDivElement
   target: EventTarget | null
   delta: number
   onMarkScrollGesture: (target?: EventTarget | null) => void
 }) => {
-  const target = boundaryTarget(input.root, input.target)
-  if (target === input.root) {
+  const boundary = boundaryGesture(input)
+  if (!boundary.nestedScrollable || boundary.atNestedBoundary) {
     input.onMarkScrollGesture(input.root)
-    return
   }
-  if (
-    shouldMarkBoundaryGesture({
-      delta: input.delta,
-      scrollTop: target.scrollTop,
-      scrollHeight: target.scrollHeight,
-      clientHeight: target.clientHeight,
-    })
-  ) {
-    input.onMarkScrollGesture(input.root)
+}
+
+const scrollViewMetricsToTimelineMetrics = (metrics: {
+  scrollTop: number
+  scrollHeight: number
+  clientHeight: number
+}): TimelineScrollMetrics => {
+  const max = Math.max(0, metrics.scrollHeight - metrics.clientHeight)
+  const distanceFromBottom = Math.max(0, max - metrics.scrollTop)
+  return {
+    scrollTop: metrics.scrollTop,
+    scrollHeight: metrics.scrollHeight,
+    clientHeight: metrics.clientHeight,
+    distanceFromTop: metrics.scrollTop,
+    distanceFromBottom,
+    nearTop: metrics.scrollTop <= 12,
+    nearBottom: distanceFromBottom <= 2,
+  }
+}
+
+const scrollViewIntentToTimelineIntent = (intent: ScrollViewScrollIntent): TimelineScrollIntent => {
+  if (intent.type === "keyboard_scroll") {
+    return { type: "keyboard_scroll", key: intent.key, source: "scroll_view" }
+  }
+  return {
+    type: intent.type,
+    source: "scroll_view",
+    metrics: scrollViewMetricsToTimelineMetrics(intent.metrics),
   }
 }
 
@@ -255,6 +298,8 @@ export function MessageTimeline(props: {
   onUserScroll: () => void
   onTurnBackfillScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
+  onTimelineScrollIntent: (intent: TimelineScrollIntent) => void
+  onTimelineScrollObservation: (observation: TimelineScrollObservation) => void
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
   turnStart: number
@@ -903,6 +948,9 @@ export function MessageTimeline(props: {
         </div>
         <ScrollView
           viewportRef={props.setScrollRef}
+          onScrollIntent={(intent) => {
+            props.onTimelineScrollIntent(scrollViewIntentToTimelineIntent(intent))
+          }}
           onWheel={(e) => {
             const root = e.currentTarget
             const delta = normalizeWheelDelta({
@@ -911,6 +959,18 @@ export function MessageTimeline(props: {
               rootHeight: root.clientHeight,
             })
             if (!delta) return
+            const boundary = boundaryGesture({ root, target: e.target, delta })
+            const gesture = classifyTimelineScrollGesture({
+              deltaY: delta,
+              viewportHeight: root.clientHeight,
+              nestedScrollable: boundary.nestedScrollable,
+              atNestedBoundary: boundary.atNestedBoundary,
+            })
+            props.onTimelineScrollIntent({
+              type: "wheel_scroll",
+              source: "timeline",
+              ...gesture,
+            })
             markBoundaryGesture({ root, target: e.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
           }}
           onTouchStart={(e) => {
@@ -926,6 +986,18 @@ export function MessageTimeline(props: {
             if (!delta) return
 
             const root = e.currentTarget
+            const boundary = boundaryGesture({ root, target: e.target, delta })
+            const gesture = classifyTimelineScrollGesture({
+              deltaY: delta,
+              viewportHeight: root.clientHeight,
+              nestedScrollable: boundary.nestedScrollable,
+              atNestedBoundary: boundary.atNestedBoundary,
+            })
+            props.onTimelineScrollIntent({
+              type: "touch_scroll",
+              source: "timeline",
+              ...gesture,
+            })
             markBoundaryGesture({ root, target: e.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
           }}
           onTouchEnd={() => {
@@ -942,6 +1014,10 @@ export function MessageTimeline(props: {
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
             const el = e.currentTarget
+            props.onTimelineScrollObservation({
+              type: "scroll_sample",
+              metrics: collectTimelineScrollMetrics(el),
+            })
             const max = Math.max(0, el.scrollHeight - el.clientHeight)
             pendingScrollSample = {
               scroll_top: el.scrollTop,

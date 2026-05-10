@@ -647,6 +647,8 @@ export default function Page() {
       markScrollGesture={timelineInteraction.markScrollGesture}
       hasScrollGesture={activeMessage.hasScrollGesture}
       markUserScroll={activeMessage.markUserScroll}
+      onTimelineScrollIntent={timelineInteraction.onTimelineScrollIntent}
+      onTimelineScrollObservation={timelineInteraction.onTimelineScrollObservation}
       historyWindow={historyWindow}
       centered={centered()}
       setContentRef={scrollDock.setContentRef}

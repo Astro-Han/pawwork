@@ -6,6 +6,11 @@ import { useSessionHashScroll } from "@/pages/session/use-session-hash-scroll"
 import { createSessionHistoryBackfill } from "@/pages/session/use-session-history-backfill"
 import { createSessionHistoryWindow } from "@/pages/session/use-session-history-window"
 import { createSessionScrollDock } from "@/pages/session/use-session-scroll-dock"
+import {
+  createSessionTimelineScrollController,
+  type TimelineScrollIntent,
+  type TimelineScrollObservation,
+} from "@/pages/session/session-timeline-scroll-controller"
 
 export function createSessionTimelineInteraction(input: {
   routeSessionID: () => string | undefined
@@ -23,6 +28,43 @@ export function createSessionTimelineInteraction(input: {
   let clearMessageHash = () => {}
   let activeMessage!: ReturnType<typeof createSessionActiveMessage>
   let historyBackfill: ReturnType<typeof createSessionHistoryBackfill> | undefined
+  let scrollController = createSessionTimelineScrollController({
+    sessionOwner: input.sessionKey(),
+    viewportOwner: `timeline:${input.sessionKey()}`,
+    routeSessionID: input.routeSessionID(),
+    visibleSessionID: input.sessionID(),
+    timelineSessionID: input.sessionID(),
+    emitDiagnostic: (event) => {
+      void emitRendererDiagnostic(event).catch(() => {})
+    },
+  })
+
+  const createScrollController = () =>
+    createSessionTimelineScrollController({
+      sessionOwner: input.sessionKey(),
+      viewportOwner: `timeline:${input.sessionKey()}`,
+      routeSessionID: input.routeSessionID(),
+      visibleSessionID: input.sessionID(),
+      timelineSessionID: input.sessionID(),
+      emitDiagnostic: (event) => {
+        void emitRendererDiagnostic(event).catch(() => {})
+      },
+    })
+
+  createEffect(
+    on(
+      () => [input.sessionKey(), input.sessionID()] as const,
+      () => {
+        const previous = scrollController.state()
+        scrollController.detach({
+          sessionOwner: previous.sessionOwner,
+          viewportOwner: previous.viewportOwner,
+        })
+        scrollController = createScrollController()
+      },
+      { defer: true },
+    ),
+  )
 
   const scrollDock = createSessionScrollDock({
     clearMessageHash: () => clearMessageHash(),
@@ -97,6 +139,14 @@ export function createSessionTimelineInteraction(input: {
     activeMessage.navigateMessageByOffset(offset)
   }
 
+  const onTimelineScrollIntent = (intent: TimelineScrollIntent) => {
+    scrollController.intent(intent)
+  }
+
+  const onTimelineScrollObservation = (observation: TimelineScrollObservation) => {
+    scrollController.observe(observation)
+  }
+
   createEffect(
     on(
       () => [input.sessionID(), input.visibleUserMessages().at(-1)?.id, historyWindow.turnStart()] as const,
@@ -143,5 +193,7 @@ export function createSessionTimelineInteraction(input: {
     setScrollRef: scrollDock.setScrollRef,
     markScrollGesture,
     navigateMessageByOffset,
+    onTimelineScrollIntent,
+    onTimelineScrollObservation,
   }
 }
