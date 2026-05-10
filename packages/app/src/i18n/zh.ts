@@ -734,10 +734,7 @@ export const dict = {
   "project.remove.confirm": "从侧边栏移除「{{name}}」？",
   "project.remove.description": "项目文件和会话仍会保留在磁盘上。重新打开该项目即可恢复显示。",
   "project.remove.toast.title": "项目已从侧边栏移除",
-  "project.remove.toast.description": "重新打开该项目可恢复显示。",</thinking>
-
-<function=edit>
-<parameter=filePath>/Users/yuhan/workspace/dev/pawwork-502-sidebar-project-actions/packages/app/src/i18n/zh.ts
+  "project.remove.toast.description": "重新打开该项目可恢复显示。",
 
   "app.name.desktop": "爪印",
 
