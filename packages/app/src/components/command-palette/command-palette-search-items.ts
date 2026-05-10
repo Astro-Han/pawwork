@@ -163,18 +163,11 @@ export function createCommandPaletteSessionEntries(props: {
 
   const sessions = (text: string) => {
     const query = text.trim()
-    if (!query) {
-      state.token += 1
-      state.cacheKey = undefined
-      state.inflight = undefined
-      state.cached = undefined
-      return [] as CommandPaletteEntry[]
-    }
+    if (!query) return [] as CommandPaletteEntry[]
 
     const dirs = props.workspaces()
     if (dirs.length === 0) return [] as CommandPaletteEntry[]
     const cacheKey = JSON.stringify({
-      query,
       dirs,
       pinned: props.pinnedIDs(),
     })
@@ -184,7 +177,6 @@ export function createCommandPaletteSessionEntries(props: {
 
     const current = ++state.token
     state.cacheKey = cacheKey
-    const pinned = new Set(props.pinnedIDs())
 
     state.inflight = Promise.all(
       dirs.map((directory) => {
@@ -227,12 +219,6 @@ export function createCommandPaletteSessionEntries(props: {
             if (seen.has(key)) return false
             seen.add(key)
             return true
-          })
-          .sort((a, b) => {
-            const aPinned = pinned.has(a.id)
-            const bPinned = pinned.has(b.id)
-            if (aPinned !== bPinned) return aPinned ? -1 : 1
-            return (b.updated ?? 0) - (a.updated ?? 0) || a.title.localeCompare(b.title)
           })
           .map((item) => createCommandPaletteSessionEntry(item, category))
         state.cached = next
