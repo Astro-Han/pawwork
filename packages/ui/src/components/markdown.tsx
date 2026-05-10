@@ -543,12 +543,12 @@ export function Markdown(
       }))
     if (!linkCleanup) {
       linkCleanup = setupLinkClicks(container, {
-        openExternal: local.onLinkOpenExternal,
-        revealPath: local.onLinkRevealPath,
+        openExternal: (url) => local.onLinkOpenExternal?.(url),
+        revealPath: (path) => local.onLinkRevealPath?.(path),
       })
     }
     if (local.onImageClick && !imageCleanup) {
-      imageCleanup = setupImageClicks(container, local.onImageClick)
+      imageCleanup = setupImageClicks(container, (src) => local.onImageClick?.(src))
     }
   })
 
