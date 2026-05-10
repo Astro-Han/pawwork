@@ -231,13 +231,22 @@ function createPacedValue(getValue: () => string, live?: () => boolean) {
 }
 
 function isAbsoluteLikePath(p: string): boolean {
-  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)
+  return (
+    p.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(p) ||
+    // Windows UNC roots: \\server\share\file.txt
+    p.startsWith("\\\\")
+  )
 }
 
 function joinWorkspacePath(directory: string, relative: string): string {
   const sep = directory.includes("\\") ? "\\" : "/"
   const trimmed = directory.replace(/[\\/]+$/, "")
-  return `${trimmed}${sep}${relative}`
+  // Drop a leading `./` (or `.\`) so the joined path doesn't end up as
+  // `/dir/./foo.ts`. `..` segments stay verbatim — both POSIX and
+  // Win32 shell.showItemInFolder resolve them at the OS layer.
+  const cleaned = relative.replace(/^\.[/\\]/, "")
+  return `${trimmed}${sep}${cleaned}`
 }
 
 function MessageMarkdown(props: {
