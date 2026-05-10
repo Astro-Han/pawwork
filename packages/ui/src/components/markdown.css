@@ -69,10 +69,9 @@
   }
 
   /* §3 Links · ink-only quiet underline.
-     Hover combines three underline-only signals (color + thickness + offset)
-     to clear NN/g's high-contrast bar without touching text color — brand
-     orange stays reserved for selected/active/running per DESIGN.md L120,
-     and inline reflow is avoided by mutating only underline properties. */
+     Hover 不动 offset（避免下划线下沉跳跃），不动 text color（DESIGN.md L120
+     brand 保留给选中/激活/运行）— 仅 underline 自身二维加重,落 NN/g
+     「color + shape」高对比度档。 */
   a {
     color: inherit;
     text-decoration: underline;
@@ -81,14 +80,12 @@
     text-underline-offset: 3px;
     transition:
       text-decoration-color var(--duration-fast) ease-out,
-      text-decoration-thickness var(--duration-fast) ease-out,
-      text-underline-offset var(--duration-fast) ease-out;
+      text-decoration-thickness var(--duration-fast) ease-out;
     overflow-wrap: anywhere;
   }
   a:hover {
     text-decoration-color: var(--fg-strong);
     text-decoration-thickness: 2px;
-    text-underline-offset: 4px;
   }
   /* 偏离: focus halo border-radius 2px (DESIGN.md radii 6/10/14/9999).
      理由: inline 链接焦点环紧贴文字行盒,4pt 网格不适用于 inline 焦点圆角;
