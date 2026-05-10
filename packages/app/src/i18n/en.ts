@@ -818,6 +818,7 @@ export const dict = {
   "sidebar.pawwork.searchHistory": "Use Search for older sessions",
 
   "project.rename": "Rename project",
+  "project.remove": "Remove from sidebar",
   "project.remove.title": "Remove project from sidebar",
   "project.remove.confirm": "Remove \"{{name}}\" from sidebar?",
   "project.remove.description": "Project files and sessions will remain on disk. Re-open this project to restore it to the sidebar.",

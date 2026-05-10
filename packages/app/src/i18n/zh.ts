@@ -730,6 +730,7 @@ export const dict = {
   "sidebar.pawwork.searchHistory": "搜索历史会话",
 
   "project.rename": "重命名项目",
+  "project.remove": "从侧边栏移除",
   "project.remove.title": "从侧边栏移除项目",
   "project.remove.confirm": "从侧边栏移除「{{name}}」？",
   "project.remove.description": "项目文件和会话仍会保留在磁盘上。重新打开该项目即可恢复显示。",

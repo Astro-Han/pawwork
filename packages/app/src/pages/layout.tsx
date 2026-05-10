@@ -1575,7 +1575,7 @@ export default function Layout(props: ParentProps) {
 
   function openPawworkHome(directory?: string) {
     if (directory) {
-      const key = workspaceKey(directory)
+      const key = workspaceKey(projectRoot(directory))
       if (store.pawworkProjectHidden[key]) {
         unhideProject(key)
       }
