@@ -24,6 +24,7 @@ export type SettingsPageTab = "general" | "shortcuts" | "providers" | "models" |
 
 export const SettingsPage: Component<{
   active: SettingsPageTab
+  directory?: string
   onSelect: (value: SettingsPageTab) => void
   onClose: () => void
 }> = (props) => {
@@ -175,7 +176,7 @@ export const SettingsPage: Component<{
         </Tabs.Content>
         <Tabs.Content value="memory" class="no-scrollbar">
           <div class="mx-auto w-full max-w-[760px]">
-            <SettingsMemory />
+            <SettingsMemory directory={props.directory} />
           </div>
         </Tabs.Content>
         <Tabs.Content value="providers" class="no-scrollbar">

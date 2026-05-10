@@ -2295,7 +2295,12 @@ export default function Layout(props: ParentProps) {
                     </div>
                     <Show when={settingsOpen()}>
                       <div class="absolute inset-0 z-40">
-                        <SettingsPage active={settingsTab()} onSelect={setSettingsTab} onClose={closeSettings} />
+                        <SettingsPage
+                          active={settingsTab()}
+                          directory={currentProject()?.worktree ?? currentDir()}
+                          onSelect={setSettingsTab}
+                          onClose={closeSettings}
+                        />
                       </div>
                     </Show>
                   </div>

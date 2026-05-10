@@ -3,8 +3,8 @@ import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { showToast } from "@opencode-ai/ui/toast"
 import { createResource, createSignal, Show } from "solid-js"
+import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
-import { useSDK } from "@/context/sdk"
 import { SettingsList } from "./settings-list"
 
 type MemoryState = {
@@ -16,13 +16,14 @@ type MemoryState = {
   profileTooLarge?: boolean
 }
 
-export function SettingsMemory() {
+export function SettingsMemory(props: { directory?: string }) {
   const language = useLanguage()
-  const sdk = useSDK()
+  const globalSDK = useGlobalSDK()
+  const client = () => globalSDK.createClient({ directory: props.directory, throwOnError: true })
   const [draft, setDraft] = createSignal("")
   const [deleteID, setDeleteID] = createSignal("")
   const [state, actions] = createResource(async () => {
-    const result = await sdk.client.memory.get()
+    const result = await client().memory.get()
     const data = (result.data ?? {}) as MemoryState
     setDraft(data.content ?? "")
     return data
@@ -31,27 +32,27 @@ export function SettingsMemory() {
   const refresh = () => void actions.refetch()
 
   const save = async () => {
-    await sdk.client.memory.update({ memoryRawInput: { content: draft() } })
+    await client().memory.update({ memoryRawInput: { content: draft() } })
     showToast({ variant: "success", title: language.t("settings.memory.saved") })
     refresh()
   }
 
   const reset = async () => {
     if (!window.confirm(language.t("settings.memory.resetConfirm"))) return
-    await sdk.client.memory.reset()
+    await client().memory.reset()
     showToast({ variant: "success", title: language.t("settings.memory.resetDone") })
     refresh()
   }
 
   const toggle = async (enabled: boolean) => {
-    await sdk.client.memory.disabled({ memoryDisabledInput: { disabled: !enabled } })
+    await client().memory.disabled({ memoryDisabledInput: { disabled: !enabled } })
     refresh()
   }
 
   const deleteEntry = async () => {
     const id = deleteID().trim()
     if (!id) return
-    await sdk.client.memory.deleteEntry({ id })
+    await client().memory.deleteEntry({ id })
     setDeleteID("")
     showToast({ variant: "success", title: language.t("settings.memory.delete.done") })
     refresh()
