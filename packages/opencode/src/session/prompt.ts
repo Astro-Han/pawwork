@@ -1831,7 +1831,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   const shellQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`
                   const grepPattern = (value: string) => value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")
                   const workspaceMemoryKey = encodeURIComponent(session.directory)
-                  const state = await MemoryService.create({ workspacePath: session.directory }).read()
+                  const state = await MemoryService.create({ workspacePath: session.directory }).readProfile()
                   if (state.disabled || state.status !== "ok") return undefined
                   const profile = state.profile?.trim()
                   return [

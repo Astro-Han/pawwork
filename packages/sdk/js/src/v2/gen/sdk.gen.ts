@@ -75,6 +75,7 @@ import type {
   MemoryProposalInput,
   MemoryRawInput,
   MemoryResetResponses,
+  MemoryReviewStateResponses,
   MemoryUpdateErrors,
   MemoryUpdateResponses,
   OutputFormat,
@@ -3358,6 +3359,34 @@ export class Memory extends HeyApiClient {
         ...options?.headers,
         ...params.headers,
       },
+    })
+  }
+
+  /**
+   * Get PawWork memory review availability
+   */
+  public reviewState<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<MemoryReviewStateResponses, unknown, ThrowOnError>({
+      url: "/memory/review-state",
+      ...options,
+      ...params,
     })
   }
 

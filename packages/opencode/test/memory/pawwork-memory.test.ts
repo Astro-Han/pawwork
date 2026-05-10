@@ -98,6 +98,31 @@ Bad entry.
     expect(parsed.entries).toHaveLength(0)
     expect(parsed.invalidEntries).toHaveLength(1)
   })
+
+  test("parses Profile-only startup state without parsing Archive entries", () => {
+    const parsed = MemoryFile.parseProfileOnly(`
+# PawWork Memory
+
+## Profile
+
+- Preferred language: Chinese.
+
+## Archive
+
+### not a valid memory entry
+This malformed Archive entry should not affect startup.
+`)
+    expect(parsed.status).toBe("ok")
+    if (parsed.status !== "ok") throw new Error("expected ok parse")
+    expect(parsed.profile).toContain("Preferred language")
+  })
+
+  test("Profile-only startup still enforces the top-level section contract", () => {
+    const parsed = MemoryFile.parseProfileOnly("# PawWork Memory\n\n## Archive\n\n## Profile\n")
+    expect(parsed.status).toBe("safe_mode")
+    if (parsed.status !== "safe_mode") throw new Error("expected safe mode")
+    expect(parsed.reason).toBe("sections_out_of_order")
+  })
 })
 
 describe("PawWork memory service", () => {
@@ -143,5 +168,40 @@ describe("PawWork memory service", () => {
     const state = await service.read()
     expect(state.content).toContain("First memory.")
     expect(state.content).toContain("Second memory.")
+  })
+
+  test("disabled runtime Profile read does not create or parse MEMORY.md", async () => {
+    await using tmp = await tmpdir()
+    const memoryDir = path.join(tmp.path, "memory")
+    await fs.mkdir(memoryDir, { recursive: true })
+    await fs.writeFile(path.join(memoryDir, ".disabled"), "disabled\n")
+
+    const service = MemoryService.createForTest({ home: tmp.path, workspacePath: "/repo/pawwork" })
+    const state = await service.readProfile()
+
+    expect(state.disabled).toBe(true)
+    expect(state.status).toBe("ok")
+    await expect(fs.access(path.join(memoryDir, "MEMORY.md"))).rejects.toThrow()
+  })
+
+  test("runtime Profile read ignores malformed Archive entries", async () => {
+    await using tmp = await tmpdir()
+    const service = MemoryService.createForTest({ home: tmp.path, workspacePath: "/repo/pawwork" })
+    await service.saveRaw(`
+# PawWork Memory
+
+## Profile
+
+- Runtime profile survives malformed Archive.
+
+## Archive
+
+### invalid archive heading
+This entry is not parseable by full Archive parsing.
+`)
+
+    const state = await service.readProfile()
+    expect(state.status).toBe("ok")
+    expect(state.profile).toContain("Runtime profile survives")
   })
 })

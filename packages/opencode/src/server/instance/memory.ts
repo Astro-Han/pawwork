@@ -32,6 +32,17 @@ export const MemoryRoutes = () =>
       }),
       async (c) => c.json(await service().read()),
     )
+    .get(
+      "/review-state",
+      describeRoute({
+        summary: "Get PawWork memory review availability",
+        operationId: "memory.reviewState",
+        responses: {
+          200: { description: "Memory review state", content: { "application/json": { schema: resolver(MemoryState) } } },
+        },
+      }),
+      async (c) => c.json(await service().readProfile()),
+    )
     .patch(
       "/",
       describeRoute({
@@ -106,7 +117,14 @@ export const MemoryRoutes = () =>
       }),
       validator("json", MemoryProposalInput),
       async (c) => {
-        await service().appendAcceptedProposal(c.req.valid("json"))
-        return c.json(await service().read())
+        try {
+          await service().appendAcceptedProposal(c.req.valid("json"))
+          return c.json(await service().read())
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          if (reason === "Memory is disabled") return c.json({ error: "memory_disabled", reason }, 409)
+          if (reason === "Memory is in safe mode") return c.json({ error: "memory_safe_mode", reason }, 409)
+          throw error
+        }
       },
     )

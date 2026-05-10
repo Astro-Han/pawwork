@@ -16,6 +16,15 @@ export namespace MemoryService {
     invalidEntries?: MemoryFile.InvalidEntry[]
   }
 
+  export type ProfileState = {
+    path: string
+    disabled: boolean
+    status: "ok" | "safe_mode"
+    reason?: MemoryFile.SafeModeReason
+    profile?: string
+    profileTooLarge?: boolean
+  }
+
   const writeQueues = new Map<string, Promise<void>>()
 
   async function enqueueWrite<T>(file: string, task: () => Promise<T>) {
@@ -69,6 +78,23 @@ export namespace MemoryService {
         profile: parsed.profile,
         profileTooLarge: parsed.profileTooLarge,
         invalidEntries: parsed.invalidEntries,
+      }
+    }
+
+    async function readProfile(): Promise<ProfileState> {
+      const disabled = await isDisabled()
+      if (disabled) return { path: file, disabled, status: "ok" }
+
+      await ensure()
+      const content = await fs.readFile(file, "utf8")
+      const parsed = MemoryFile.parseProfileOnly(content)
+      if (parsed.status === "safe_mode") return { path: file, disabled, status: "safe_mode", reason: parsed.reason }
+      return {
+        path: file,
+        disabled,
+        status: "ok",
+        profile: parsed.profile,
+        profileTooLarge: parsed.profileTooLarge,
       }
     }
 
@@ -137,7 +163,9 @@ export namespace MemoryService {
     }
 
     return {
+      isDisabled,
       read,
+      readProfile,
       saveRaw,
       resetToTemplate,
       deleteEntry,

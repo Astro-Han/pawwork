@@ -42,6 +42,7 @@ test("@smoke memory settings exposes the raw MEMORY.md controls", async ({ page,
 test("idle session shows memory review and saves redacted entries", async ({ page, project }) => {
   await project.open()
   await project.sdk.memory.reset()
+  await project.sdk.memory.disabled({ memoryDisabledInput: { disabled: false } })
 
   await withSession(project.sdk, "memory review e2e", async (session) => {
     project.trackSession(session.id)
@@ -65,4 +66,27 @@ test("idle session shows memory review and saves redacted entries", async ({ pag
     const state = await project.sdk.memory.get().then((response) => response.data as { content?: string })
     expect(state.content ?? "").not.toContain("sk-test-secret")
   })
+})
+
+test("disabled memory hides the idle session review surface", async ({ page, project }) => {
+  await project.open()
+  await project.sdk.memory.reset()
+  await project.sdk.memory.disabled({ memoryDisabledInput: { disabled: true } })
+  try {
+    await project.sdk.memory.acceptProposal({ memoryProposalInput: { text: "Should not be saved.", scope: "project" } })
+    throw new Error("expected disabled memory proposal to be blocked")
+  } catch (error) {
+    expect((error as { error?: string }).error).toBe("memory_disabled")
+  }
+
+  try {
+    await withSession(project.sdk, "disabled memory review e2e", async (session) => {
+      project.trackSession(session.id)
+      await project.gotoSession(session.id)
+
+      await expect(page.locator('[data-component="session-memory-review"]')).toBeHidden()
+    })
+  } finally {
+    await project.sdk.memory.disabled({ memoryDisabledInput: { disabled: false } })
+  }
 })

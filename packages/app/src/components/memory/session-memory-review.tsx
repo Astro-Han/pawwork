@@ -1,6 +1,6 @@
 import { Button } from "@opencode-ai/ui/button"
 import { showToast } from "@opencode-ai/ui/toast"
-import { createEffect, createSignal, Show } from "solid-js"
+import { createEffect, createResource, createSignal, Show } from "solid-js"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
@@ -9,7 +9,19 @@ type MemoryState = {
   status?: "ok" | "safe_mode"
 }
 
+type MemoryError = {
+  error?: string
+  reason?: string
+}
+
 const errorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback)
+
+const memoryError = (value: unknown): MemoryError | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  if ("error" in value || "reason" in value) return value as MemoryError
+  if ("data" in value) return memoryError((value as { data?: unknown }).data)
+  return undefined
+}
 
 export function SessionMemoryReview(props: { sessionID?: string; visible: boolean }) {
   const language = useLanguage()
@@ -17,8 +29,15 @@ export function SessionMemoryReview(props: { sessionID?: string; visible: boolea
   const [draft, setDraft] = createSignal("")
   const [dismissed, setDismissed] = createSignal(false)
   const [saving, setSaving] = createSignal(false)
+  const [reviewState] = createResource(
+    () => (props.visible && props.sessionID ? props.sessionID : undefined),
+    async () => {
+      const result = await sdk.client.memory.reviewState()
+      return (result.data ?? {}) as MemoryState
+    },
+  )
 
-  const show = () => props.visible && !dismissed()
+  const show = () => props.visible && !dismissed() && reviewState.latest?.disabled === false && reviewState.latest?.status === "ok"
 
   createEffect(() => {
     props.sessionID
@@ -32,6 +51,17 @@ export function SessionMemoryReview(props: { sessionID?: string; visible: boolea
     setSaving(true)
     try {
       const result = await sdk.client.memory.acceptProposal({ memoryProposalInput: { text, scope: "project" } })
+      const blocked = memoryError(result.error)
+      if (blocked?.error === "memory_disabled" || blocked?.error === "memory_safe_mode") {
+        setDraft("")
+        setDismissed(true)
+        showToast({
+          variant: "subtle",
+          title: language.t("memory.review.blocked"),
+          description: language.t(blocked.error === "memory_disabled" ? "memory.review.blockedDisabled" : "memory.review.blockedSafeMode"),
+        })
+        return
+      }
       const state = (result.data ?? {}) as MemoryState
       if (state.disabled || state.status === "safe_mode") {
         setDraft("")
@@ -51,6 +81,17 @@ export function SessionMemoryReview(props: { sessionID?: string; visible: boolea
         description: language.t("memory.review.savedDescription"),
       })
     } catch (error) {
+      const blocked = memoryError(error)
+      if (blocked?.error === "memory_disabled" || blocked?.error === "memory_safe_mode") {
+        setDraft("")
+        setDismissed(true)
+        showToast({
+          variant: "subtle",
+          title: language.t("memory.review.blocked"),
+          description: language.t(blocked.error === "memory_disabled" ? "memory.review.blockedDisabled" : "memory.review.blockedSafeMode"),
+        })
+        return
+      }
       showToast({
         variant: "error",
         title: language.t("common.requestFailed"),

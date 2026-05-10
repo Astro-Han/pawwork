@@ -5355,6 +5355,25 @@ export type MemoryUpdateResponses = {
 
 export type MemoryUpdateResponse = MemoryUpdateResponses[keyof MemoryUpdateResponses]
 
+export type MemoryReviewStateData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/memory/review-state"
+}
+
+export type MemoryReviewStateResponses = {
+  /**
+   * Memory review state
+   */
+  200: MemoryState
+}
+
+export type MemoryReviewStateResponse = MemoryReviewStateResponses[keyof MemoryReviewStateResponses]
+
 export type MemoryResetData = {
   body?: never
   path?: never
