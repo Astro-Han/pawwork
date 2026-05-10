@@ -38,8 +38,8 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
         ref={(el) => {
           if (props.popover === "slash") props.setSlashPopoverRef(el)
         }}
-        class="absolute inset-x-0 -top-2 -translate-y-full origin-bottom-left max-h-80 min-h-10
-                 overflow-auto no-scrollbar flex flex-col p-2 rounded-[12px]
+        class="absolute inset-x-0 -top-2 -translate-y-full z-50 origin-bottom-left max-h-80 min-h-10
+                 pointer-events-auto overflow-auto no-scrollbar flex flex-col p-2 rounded-[12px]
                  bg-surface-raised shadow-[var(--shadow-lg-border-base)]"
         onMouseDown={(e) => e.preventDefault()}
       >
@@ -60,7 +60,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                   return (
                     <button
                       class="w-full flex items-center gap-x-2 rounded-md px-2 py-0.5"
-                      classList={{ "bg-surface-raised": props.atActive === key }}
+                      classList={{ "[background:var(--row-hover-overlay)]": props.atActive === key }}
                       onClick={() => props.onAtSelect(item)}
                       onMouseEnter={() => props.setAtActive(key)}
                     >
@@ -88,7 +88,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                     data-slash-id={cmd.id}
                     classList={{
                       "w-full flex items-center justify-between gap-4 rounded-md px-2 py-1": true,
-                      "bg-surface-raised": props.slashActive === cmd.id,
+                      "[background:var(--row-hover-overlay)]": props.slashActive === cmd.id,
                     }}
                     onClick={() => props.onSlashSelect(cmd)}
                     onMouseEnter={() => props.setSlashActive(cmd.id)}
