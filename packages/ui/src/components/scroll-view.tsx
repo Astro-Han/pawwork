@@ -6,7 +6,24 @@ import { useI18n } from "../context/i18n"
 export interface ScrollViewProps extends ComponentProps<"div"> {
   viewportRef?: (el: HTMLDivElement) => void
   orientation?: "vertical" | "horizontal" // currently only vertical is fully implemented for thumb
+  onScrollIntent?: (intent: ScrollViewScrollIntent) => void
 }
+
+export type ScrollViewKeyboardScrollKey = "ArrowUp" | "ArrowDown" | "PageUp" | "PageDown" | "Home" | "End"
+
+export type ScrollViewScrollIntent =
+  | {
+      type: "keyboard_scroll"
+      key: ScrollViewKeyboardScrollKey
+    }
+  | {
+      type: "scrollbar_drag_start" | "scrollbar_drag_end"
+      metrics: {
+        scrollTop: number
+        scrollHeight: number
+        clientHeight: number
+      }
+    }
 
 export const scrollKey = (event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">) => {
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
@@ -27,6 +44,33 @@ export const scrollKey = (event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey
   }
 }
 
+export const scrollViewKeyboardIntent = (
+  event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
+): ScrollViewScrollIntent | undefined => {
+  const next = scrollKey(event)
+  if (!next) return
+  switch (next) {
+    case "page-down":
+      return { type: "keyboard_scroll", key: "PageDown" }
+    case "page-up":
+      return { type: "keyboard_scroll", key: "PageUp" }
+    case "home":
+      return { type: "keyboard_scroll", key: "Home" }
+    case "end":
+      return { type: "keyboard_scroll", key: "End" }
+    case "up":
+      return { type: "keyboard_scroll", key: "ArrowUp" }
+    case "down":
+      return { type: "keyboard_scroll", key: "ArrowDown" }
+  }
+}
+
+export const scrollViewMetrics = (viewport: HTMLElement) => ({
+  scrollTop: viewport.scrollTop,
+  scrollHeight: viewport.scrollHeight,
+  clientHeight: viewport.clientHeight,
+})
+
 export function ScrollView(props: ScrollViewProps) {
   const i18n = useI18n()
   const merged = mergeProps({ orientation: "vertical" }, props)
@@ -43,6 +87,7 @@ export function ScrollView(props: ScrollViewProps) {
       "onPointerDown",
       "onClick",
       "onKeyDown",
+      "onScrollIntent",
     ],
   )
 
@@ -109,6 +154,7 @@ export function ScrollView(props: ScrollViewProps) {
   const onThumbPointerDown = (e: PointerEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    events.onScrollIntent?.({ type: "scrollbar_drag_start", metrics: scrollViewMetrics(viewportRef) })
     setState("isDragging", true)
     startY = e.clientY
     startScrollTop = viewportRef.scrollTop
@@ -127,15 +173,18 @@ export function ScrollView(props: ScrollViewProps) {
       }
     }
 
-    const onPointerUp = (e: PointerEvent) => {
+    const finishDrag = (e: PointerEvent) => {
       setState("isDragging", false)
       thumbRef.releasePointerCapture(e.pointerId)
       thumbRef.removeEventListener("pointermove", onPointerMove)
-      thumbRef.removeEventListener("pointerup", onPointerUp)
+      thumbRef.removeEventListener("pointerup", finishDrag)
+      thumbRef.removeEventListener("pointercancel", finishDrag)
+      events.onScrollIntent?.({ type: "scrollbar_drag_end", metrics: scrollViewMetrics(viewportRef) })
     }
 
     thumbRef.addEventListener("pointermove", onPointerMove)
-    thumbRef.addEventListener("pointerup", onPointerUp)
+    thumbRef.addEventListener("pointerup", finishDrag)
+    thumbRef.addEventListener("pointercancel", finishDrag)
   }
 
   // Keybinds implementation
@@ -150,6 +199,8 @@ export function ScrollView(props: ScrollViewProps) {
 
     const next = scrollKey(e)
     if (!next) return
+    const intent = scrollViewKeyboardIntent(e)
+    if (intent) events.onScrollIntent?.(intent)
 
     const scrollAmount = viewportRef.clientHeight * 0.8
     const lineAmount = 40

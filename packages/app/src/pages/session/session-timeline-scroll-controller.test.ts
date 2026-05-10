@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  classifyTimelineScrollGesture,
   createSessionTimelineScrollController,
   createTimelineScrollControllerDiagnostic,
   type TimelineScrollDiagnosticEvent,
@@ -301,6 +302,66 @@ describe("session timeline scroll controller", () => {
         session_owner: "ses_1",
         viewport_owner: "viewport_1",
       },
+    })
+  })
+})
+
+describe("classifyTimelineScrollGesture", () => {
+  test("classifies weak trackpad movement without leaving nested scroll context", () => {
+    expect(
+      classifyTimelineScrollGesture({
+        deltaY: -24,
+        viewportHeight: 800,
+        nestedScrollable: false,
+        atNestedBoundary: false,
+      }),
+    ).toEqual({
+      direction: "up",
+      strength: "weak",
+      nestedScrollable: false,
+    })
+  })
+
+  test("classifies strong upward movement by viewport-aware threshold", () => {
+    expect(
+      classifyTimelineScrollGesture({
+        deltaY: -240,
+        viewportHeight: 800,
+        nestedScrollable: false,
+        atNestedBoundary: false,
+      }),
+    ).toEqual({
+      direction: "up",
+      strength: "strong",
+      nestedScrollable: false,
+    })
+  })
+
+  test("keeps nested scroll gestures out of main timeline intent until the nested boundary is reached", () => {
+    expect(
+      classifyTimelineScrollGesture({
+        deltaY: 240,
+        viewportHeight: 800,
+        nestedScrollable: true,
+        atNestedBoundary: false,
+      }),
+    ).toEqual({
+      direction: "down",
+      strength: "strong",
+      nestedScrollable: true,
+    })
+
+    expect(
+      classifyTimelineScrollGesture({
+        deltaY: 240,
+        viewportHeight: 800,
+        nestedScrollable: true,
+        atNestedBoundary: true,
+      }),
+    ).toEqual({
+      direction: "down",
+      strength: "strong",
+      nestedScrollable: false,
     })
   })
 })

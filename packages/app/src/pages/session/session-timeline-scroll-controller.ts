@@ -181,6 +181,30 @@ export type SessionTimelineScrollController = {
   detach: (owner: { sessionOwner: string; viewportOwner: string }) => TimelineScrollControllerResult
 }
 
+export type TimelineGestureClassification = {
+  direction: "up" | "down"
+  strength: "weak" | "strong"
+  nestedScrollable: boolean
+}
+
+const STRONG_GESTURE_MIN_PX = 160
+const STRONG_GESTURE_VIEWPORT_RATIO = 0.25
+
+export function classifyTimelineScrollGesture(input: {
+  deltaY: number
+  viewportHeight: number
+  nestedScrollable: boolean
+  atNestedBoundary: boolean
+}): TimelineGestureClassification {
+  const threshold = Math.max(STRONG_GESTURE_MIN_PX, input.viewportHeight * STRONG_GESTURE_VIEWPORT_RATIO)
+  const nestedScrollable = input.nestedScrollable && !input.atNestedBoundary
+  return {
+    direction: input.deltaY < 0 ? "up" : "down",
+    strength: Math.abs(input.deltaY) >= threshold ? "strong" : "weak",
+    nestedScrollable,
+  }
+}
+
 const noRecovery: TimelineRecovery = { type: "none" }
 
 function cloneState(state: TimelineScrollControllerState): TimelineScrollControllerState {
