@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures"
-import { openSidebar } from "../actions"
-import { pawworkSidebarSelector } from "../selectors"
+import { cleanupSession, cleanupTestProject, createTestProject, defocus, openSidebar, waitSession } from "../actions"
+import { pawworkSidebarSelector, promptSelector } from "../selectors"
 
 test("users can pin, rename, and regroup sessions in the PawWork sidebar", async ({ page, sdk, gotoSession }) => {
   const stamp = Date.now()
@@ -37,4 +37,82 @@ test("users can pin, rename, and regroup sessions in the PawWork sidebar", async
   await sidebar.locator('[data-action="pawwork-sort-trigger"]').click()
   await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
   await expect(sidebar.locator('[data-component="pawwork-group-header"]')).toHaveCount(1)
+})
+
+test("previous and next session follow time order across PawWork projects", async ({ page, backend, project }) => {
+  const stamp = Date.now()
+  const other = await createTestProject({ serverUrl: backend.url })
+  const otherSdk = backend.sdk(other)
+  let targetID = ""
+  let sourceID = ""
+
+  await page.addInitScript(() => {
+    localStorage.setItem("pawwork.global.dat:layout.page", JSON.stringify({ pawworkSortMode: "time" }))
+  })
+
+  try {
+    const target = await otherSdk.session.create({ title: `e2e nav target ${stamp}` }).then((r) => r.data)
+    if (!target?.id) throw new Error("Target session create did not return an id")
+    targetID = target.id
+
+    await project.open({
+      extra: [other],
+      beforeGoto: async ({ sdk }) => {
+        const source = await sdk.session.create({ title: `e2e nav source ${stamp}` }).then((r) => r.data)
+        if (!source?.id) throw new Error("Source session create did not return an id")
+        sourceID = source.id
+        project.trackSession(source.id)
+      },
+    })
+    project.trackDirectory(other)
+    project.trackSession(targetID, other)
+
+    await project.gotoSession(sourceID)
+    await openSidebar(page)
+
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    await expect(sidebar.locator(`[data-session-id="${sourceID}"]`)).toBeVisible()
+    await expect(sidebar.locator(`[data-session-id="${targetID}"]`)).toBeVisible()
+
+    await defocus(page)
+    await page.keyboard.press("Alt+ArrowDown")
+
+    await waitSession(page, { directory: other, sessionID: targetID, serverUrl: backend.url })
+    await expect(page.locator(promptSelector)).toBeVisible()
+  } finally {
+    if (targetID) await cleanupSession({ sdk: otherSdk, sessionID: targetID })
+    await cleanupTestProject(other)
+  }
+})
+
+test("next session expands a collapsed project group before navigating", async ({ page, backend, directory, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const target = await sdk.session.create({ title: `e2e collapsed target ${stamp}` }).then((r) => r.data)
+  const source = await sdk.session.create({ title: `e2e collapsed source ${stamp}` }).then((r) => r.data)
+
+  if (!target?.id || !source?.id) throw new Error("missing session ids")
+
+  try {
+    await gotoSession(source.id)
+    await openSidebar(page)
+
+    const sidebar = page.locator(pawworkSidebarSelector).first()
+    await sidebar.locator('[data-action="pawwork-sort-trigger"]').click()
+    await page.locator('[data-action="pawwork-sort-option"][data-value="project"]').click()
+
+    const header = sidebar.locator('[data-action="pawwork-group-toggle"]').first()
+    const content = sidebar.locator('[data-component="pawwork-group-content"]').first()
+    await expect(header).toBeVisible()
+    await header.click()
+    await expect(content).toHaveAttribute("data-collapsed", "true")
+
+    await defocus(page)
+    await page.keyboard.press("Alt+ArrowDown")
+
+    await waitSession(page, { directory, sessionID: target.id, serverUrl: backend.url })
+    await expect(content).not.toHaveAttribute("data-collapsed", "true")
+  } finally {
+    await cleanupSession({ sdk, sessionID: source.id })
+    await cleanupSession({ sdk, sessionID: target.id })
+  }
 })
