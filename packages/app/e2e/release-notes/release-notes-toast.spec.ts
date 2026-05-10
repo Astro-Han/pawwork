@@ -6,7 +6,7 @@ const LANGUAGE_KEY = "pawwork.global.dat:language"
 
 const SINGLE_RELEASE_PAYLOAD = [
   {
-    tag_name: "v2026.5.7",
+    tag_name: "v2026.5.11",
     body: [
       "## App Update Notice",
       "",
@@ -65,13 +65,13 @@ test.describe("release notes toast", () => {
     })
 
     await page.addInitScript((key) => {
-      localStorage.setItem(key, JSON.stringify({ version: "2026.5.6" }))
+      localStorage.setItem(key, JSON.stringify({ version: "2026.5.10" }))
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("Important refresh for this release.")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• Added subtle toast variant")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• Replaced release notes dialog")
@@ -89,7 +89,7 @@ test.describe("release notes toast", () => {
     })
 
     await page.addInitScript((key) => {
-      localStorage.setItem(key, JSON.stringify({ version: "2026.5.6" }))
+      localStorage.setItem(key, JSON.stringify({ version: "2026.5.10" }))
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
@@ -105,7 +105,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.7")
+      .toBe("2026.5.11")
   })
 
   test("clicking the action opens the release URL and marks the current version as seen", async ({
@@ -121,7 +121,7 @@ test.describe("release notes toast", () => {
     })
 
     await page.addInitScript((key) => {
-      localStorage.setItem(key, JSON.stringify({ version: "2026.5.6" }))
+      localStorage.setItem(key, JSON.stringify({ version: "2026.5.10" }))
       // Capture window.open calls so we can assert the action opened the
       // expected release URL. platform.openLink in the web shell calls
       // window.open(url, "_blank"); stubbing it avoids opening a real popup.
@@ -144,7 +144,7 @@ test.describe("release notes toast", () => {
       .poll(() =>
         page.evaluate(() => (window as unknown as { __OPENED_LINKS: string[] }).__OPENED_LINKS),
       )
-      .toContain("https://github.com/Astro-Han/pawwork/releases/tag/v2026.5.7")
+      .toContain("https://github.com/Astro-Han/pawwork/releases/tag/v2026.5.11")
 
     await expect
       .poll(() =>
@@ -153,7 +153,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.7")
+      .toBe("2026.5.11")
   })
 
   test("pressing Escape marks the current version as seen", async ({ page, gotoSession }) => {
@@ -166,7 +166,7 @@ test.describe("release notes toast", () => {
     })
 
     await page.addInitScript((key) => {
-      localStorage.setItem(key, JSON.stringify({ version: "2026.5.6" }))
+      localStorage.setItem(key, JSON.stringify({ version: "2026.5.10" }))
     }, HIGHLIGHTS_KEY)
 
     await gotoSession()
@@ -188,7 +188,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.7")
+      .toBe("2026.5.11")
   })
 
   test("releaseNotes=false suppresses the toast", async ({ page, gotoSession }) => {
@@ -202,7 +202,7 @@ test.describe("release notes toast", () => {
 
     await page.addInitScript(
       ([highlightsKey, settingsStorageKey]) => {
-        localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.6" }))
+        localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.10" }))
         const existing = localStorage.getItem(settingsStorageKey)
         const parsed = existing ? JSON.parse(existing) : {}
         parsed.general = { ...(parsed.general ?? {}), releaseNotes: false }
@@ -224,7 +224,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.7")
+      .toBe("2026.5.11")
     await expect(page.locator(TOAST_SELECTOR)).toHaveCount(0)
   })
 
