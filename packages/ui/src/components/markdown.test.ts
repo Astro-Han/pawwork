@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { resolveLinkAction, rewriteTaskListsForTest, sanitizeConfig, sanitizeForTest } from "./markdown"
+import {
+  forceOpenAllDetails,
+  preserveDetailsOpenState,
+  resolveLinkAction,
+  rewriteTaskListsForTest,
+  sanitizeConfig,
+  sanitizeForTest,
+} from "./markdown"
 
 describe("DOMPurify whitelist config", () => {
   test("forbids unsafe tags", () => {
@@ -138,5 +145,52 @@ describe("link action routing", () => {
   })
   test("trims surrounding whitespace", () => {
     expect(resolveLinkAction("  https://x.com  ")).toEqual({ kind: "external", url: "https://x.com" })
+  })
+})
+
+describe("forceOpenAllDetails (streaming UX)", () => {
+  test("opens all details elements", () => {
+    document.body.innerHTML =
+      "<details><summary>A</summary>x</details><details><summary>B</summary>y</details>"
+    forceOpenAllDetails(document.body)
+    const all = document.querySelectorAll("details")
+    expect(all[0]!.hasAttribute("open")).toBe(true)
+    expect(all[1]!.hasAttribute("open")).toBe(true)
+  })
+  test("idempotent on already-open details", () => {
+    document.body.innerHTML = "<details open><summary>A</summary>x</details>"
+    forceOpenAllDetails(document.body)
+    expect(document.querySelector("details")!.hasAttribute("open")).toBe(true)
+  })
+  test("opens nested details too", () => {
+    document.body.innerHTML =
+      "<details><summary>outer</summary><details><summary>inner</summary>x</details></details>"
+    forceOpenAllDetails(document.body)
+    const all = document.querySelectorAll("details")
+    expect(all[0]!.hasAttribute("open")).toBe(true)
+    expect(all[1]!.hasAttribute("open")).toBe(true)
+  })
+})
+
+describe("preserveDetailsOpenState (user collapse survives re-render)", () => {
+  test("propagates open from fromEl to toEl", () => {
+    const fromEl = document.createElement("details")
+    fromEl.setAttribute("open", "")
+    const toEl = document.createElement("details")
+    preserveDetailsOpenState(fromEl, toEl)
+    expect(toEl.hasAttribute("open")).toBe(true)
+  })
+  test("clears open on toEl when fromEl is collapsed by user", () => {
+    const fromEl = document.createElement("details")
+    const toEl = document.createElement("details")
+    toEl.setAttribute("open", "") // force-open default
+    preserveDetailsOpenState(fromEl, toEl)
+    expect(toEl.hasAttribute("open")).toBe(false)
+  })
+  test("ignores non-details pairs", () => {
+    const fromEl = document.createElement("div")
+    const toEl = document.createElement("details")
+    preserveDetailsOpenState(fromEl, toEl)
+    expect(toEl.hasAttribute("open")).toBe(false)
   })
 })

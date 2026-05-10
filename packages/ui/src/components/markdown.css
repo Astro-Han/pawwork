@@ -4,7 +4,7 @@
 
 [data-component="markdown"] {
   min-width: 0;
-  max-width: 75ch;
+  max-width: 100%;
   overflow-wrap: break-word;
   font: var(--type-body);
   color: var(--fg-strong);
@@ -17,36 +17,33 @@
   }
 
   /* §1 Headings · G mapping
-     All 4 tiers use --type-h3 (500 13/150);
-     hierarchy via fg color + margin only */
+     All tiers share font + margin; hierarchy comes from fg color only.
+     Spacing follows the 8/12/16 semantic gradient: section-break (16
+     above) > paragraph rhythm (12) > heading-to-content (8 below).
+     Every value is on the 4pt grid; the gradient itself encodes
+     "stick < breathe < break". */
   h1,
-  h2 {
-    font: var(--type-h3);
-    color: var(--fg-strong);
-    margin: var(--space-2xl) 0 var(--space-xs);
-  }
-  h2 {
-    margin-top: var(--space-xl);
-  }
-  h3 {
-    font: var(--type-h3);
-    color: var(--fg-base);
-    margin: var(--space-lg) 0 var(--space-xs);
-    text-transform: none;
-    letter-spacing: 0;
-  }
-  h4 {
-    font: var(--type-h3);
-    color: var(--fg-weak);
-    margin: var(--space-md) 0 var(--space-xs);
-    text-transform: none;
-    letter-spacing: 0;
-  }
+  h2,
+  h3,
+  h4,
   h5,
   h6 {
     font: var(--type-h3);
+    margin: var(--space-lg) 0 var(--space-sm);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  h1,
+  h2 {
+    color: var(--fg-strong);
+  }
+  h3 {
+    color: var(--fg-base);
+  }
+  h4,
+  h5,
+  h6 {
     color: var(--fg-weak);
-    margin: var(--space-md) 0 var(--space-xs);
   }
 
   /* §2 Paragraph + inline emphasis */
@@ -163,13 +160,17 @@
   /* If marked wraps loose-list content in <p>, the paragraph just inherits
      normal margin handling. */
 
-  /* §7 Blockquote · cream + radius-sm, no left line (avoids BAN 1) */
+  /* §7 Blockquote · 2px border-weak left rule + fg-weak text only.
+     Industry-aligned (GitHub / Tailwind prose / Notion / shadcn — none
+     of them use a background). 2px matches shadcn's tightest end of the
+     industry band (2-4px). The neutral-grey rule is a documented
+     Markdown convention, not the coloured-stripe pattern impeccable
+     BAN 1 forbids. Reasoned 2026-05-10. */
   blockquote {
     margin: 0 0 var(--space-md);
-    padding: var(--space-md) var(--space-lg);
-    background: var(--bg-cream);
-    border-radius: var(--radius-sm);
-    color: var(--fg-base);
+    padding: 0 var(--space-lg);
+    border-left: 2px solid var(--border-weak);
+    color: var(--fg-weak);
   }
   blockquote > :first-child {
     margin-top: 0;
@@ -178,25 +179,23 @@
     margin-bottom: 0;
   }
 
-  /* §8 Horizontal rule */
+  /* §8 Horizontal rule · matches paragraph rhythm (12), not section
+     break (16). hr is a structural marker, not a heading; sits in the
+     paragraph-flow tier, doesn't steal visual weight. */
   hr {
     border: 0;
     border-top: 1px solid var(--border-weak);
-    margin: var(--space-2xl) 0;
+    margin: var(--space-md) 0;
   }
 
-  /* §9 Table — W3 lock §L43 with two minor deviations declared
-     Header keeps W3 lock's --bg-cream surface (the only surface token
-     whose contrast direction is correct in both themes). Two deltas vs
-     L43 to make the table readable at the densities chat actually
-     produces:
-       1. Header bottom uses --border-base (vs L43's --border-weaker)
-          so the head/body split survives in light mode where bg-cream
-          is only ~5% darker than bg-base.
-       2. Row dividers use --border-weak (vs L43's --border-weaker)
-          so the separator is visible in dark mode without going loud.
-     Padding follows the lock-table preview pattern (sm × md).
-     Per L43: no zebra, no hover. */
+  /* §9 Table — chat-density flat header (industry-aligned with GitHub /
+     Tailwind prose / shadcn / Linear / Stripe). Two signals: type-h3
+     (font-weight 500) + 1px border-base bottom. No fill — cream surface
+     was visually noisy at our 3-4% delta and didn't match the chat
+     surface; deep-research 2026-05-10 confirmed flat-header is the
+     dominant chat / content-table pattern, with WCAG 1.4.3 satisfied
+     by text contrast alone. Row dividers use --border-weak for
+     visibility in both themes. No zebra, no hover. */
   table {
     border-collapse: collapse;
     width: 100%;
@@ -205,7 +204,6 @@
   }
   thead th {
     padding: var(--space-sm) var(--space-md);
-    background: var(--bg-cream);
     border-bottom: 1px solid var(--border-base);
     font: var(--type-h3);
     color: var(--fg-strong);
@@ -229,14 +227,16 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* §10 Image · 1px frame + radius-md (DESIGN.md「User content frame」) */
+  /* §10 Image · 1px frame + radius-md (DESIGN.md「User content frame」)
+     margin matches other block elements (mt:0 / mb:12) so heading-below
+     gradient (h mb 8 → img) stays at 8, not pushed to 12 by symmetric mt. */
   img {
     max-width: 100%;
     height: auto;
     display: block;
     border: 1px solid var(--border-weak);
     border-radius: var(--radius-md);
-    margin: var(--space-md) 0;
+    margin: 0 0 var(--space-md);
     cursor: zoom-in;
   }
 
@@ -271,11 +271,25 @@
   details > :not(summary) {
     margin-left: 24px;
   }
+  /* summary is the heading of details — first content sits 8px below
+     (summary's padding-bottom), not pushed by its own margin-top. */
+  details > summary + * {
+    margin-top: 0;
+  }
 
-  /* §12 Fence code · defers to DESIGN.md L36「Code & diff」.codeblock truth.
-     pre + .shiki rules retained for code-surfaces compatibility. */
+  /* §12 KaTeX block math · normalized to other block elements (mt:0 / mb:12).
+     Without this, KaTeX default `.katex-display { margin: 1em 0 }` collapses
+     against heading mb 8 → 16 (breaks the 8/12/16 rhythm). */
+  .katex-display {
+    margin: 0 0 var(--space-md);
+  }
+
+  /* §13 Fence code · defers to DESIGN.md L36「Code & diff」.codeblock truth.
+     pre + .shiki rules retained for code-surfaces compatibility.
+     margin matches other block elements (mt:0 / mb:12) so heading-below
+     gradient (h mb 8 → pre) stays at 8, not pushed to 12 by symmetric mt. */
   pre {
-    margin: var(--space-md) 0;
+    margin: 0 0 var(--space-md);
     overflow: auto;
     scrollbar-width: none;
     &::-webkit-scrollbar {
@@ -311,7 +325,7 @@
       max-width: 320px;
       border-radius: var(--radius-sm);
       background: var(--surface-raised);
-      color: var(--fg-on-brand);
+      color: var(--fg-strong);
       padding: 2px 8px;
       border: 1px solid var(--border-weak, rgba(0, 0, 0, 0.07));
       box-shadow: var(--shadow-floating);
