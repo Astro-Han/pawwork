@@ -28,6 +28,7 @@ import { SessionBlocker } from "./blocker"
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 export const SILENT_STREAM_TIMEOUT_MS = Duration.toMillis(Duration.minutes(10))
+export const CONNECT_STREAM_TIMEOUT_MS = Duration.toMillis(Duration.seconds(30))
 type Result = Awaited<ReturnType<typeof streamText>>
 
 export type StreamInput = {
@@ -42,6 +43,7 @@ export type StreamInput = {
   small?: boolean
   tools: Record<string, Tool>
   retries?: number
+  connectTimeoutMs?: number
   streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
   trace?: Pick<LLMTrace.Recorder, "request">
@@ -427,18 +429,51 @@ const live: Layer.Layer<
       Stream.scoped(
         Stream.unwrap(
           Effect.gen(function* () {
-            const timeoutMsInput = input.streamTimeoutMs
-            const timeoutMs =
-              typeof timeoutMsInput === "number" && Number.isFinite(timeoutMsInput) && timeoutMsInput > 0
-                ? timeoutMsInput
+            const connectTimeoutMsInput = input.connectTimeoutMs
+            const connectTimeoutMs =
+              typeof connectTimeoutMsInput === "number" &&
+              Number.isFinite(connectTimeoutMsInput) &&
+              connectTimeoutMsInput > 0
+                ? connectTimeoutMsInput
+                : CONNECT_STREAM_TIMEOUT_MS
+            const streamTimeoutMsInput = input.streamTimeoutMs
+            const streamTimeoutMs =
+              typeof streamTimeoutMsInput === "number" &&
+              Number.isFinite(streamTimeoutMsInput) &&
+              streamTimeoutMsInput > 0
+                ? streamTimeoutMsInput
                 : SILENT_STREAM_TIMEOUT_MS
             const ctx = yield* Effect.context<never>()
             const request = yield* Effect.acquireRelease(
               Effect.sync(() => {
                 const ctrl = new AbortController()
                 let disposed = false
+                let providerProgressed = false
                 let sequence = 0
                 let timeout: Timer | undefined
+                let timeoutError: Error | undefined
+                let rejectTimeout: ((error: Error) => void) | undefined
+                const timeoutFailure = new Promise<never>((_, reject) => {
+                  rejectTimeout = reject
+                })
+                // Keep the timeout rejection observed even if no iterator.next() is racing yet.
+                void timeoutFailure.catch(() => {})
+                const currentTimeoutMs = () => (providerProgressed ? streamTimeoutMs : connectTimeoutMs)
+                const failConnectTimeout = () => {
+                  if (timeoutError) return
+                  timeoutError = new Error(
+                    `LLM stream connection timed out after ${connectTimeoutMs}ms without provider progress`,
+                  )
+                  rejectTimeout?.(timeoutError)
+                  ctrl.abort()
+                }
+                const timeoutStream = () => {
+                  if (providerProgressed) {
+                    ctrl.abort()
+                    return
+                  }
+                  failConnectTimeout()
+                }
                 const arm = () => {
                   const current = ++sequence
                   timeout = setTimeout(() => {
@@ -451,17 +486,23 @@ const live: Layer.Layer<
                           arm()
                           return
                         }
-                        ctrl.abort()
+                        timeoutStream()
                       })
                       .catch(() => {
-                        if (!disposed && current === sequence) ctrl.abort()
+                        if (!disposed && current === sequence) timeoutStream()
                       })
-                  }, timeoutMs)
+                  }, currentTimeoutMs())
                 }
                 arm()
                 return {
                   ctrl,
-                  resetTimeout() {
+                  timeoutFailure,
+                  timeoutError() {
+                    return timeoutError
+                  },
+                  resetTimeout(event: Event) {
+                    if (!providerProgressed && !isProviderProgressEvent(event)) return
+                    providerProgressed = true
                     if (timeout) clearTimeout(timeout)
                     arm()
                   },
@@ -479,9 +520,9 @@ const live: Layer.Layer<
 
             // This is a silent-stream timeout: it limits how long we wait for
             // the next provider event, not the total model runtime.
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e)))).pipe(
-              Stream.tap(() => Effect.sync(() => request.resetTimeout())),
-            )
+            return Stream.fromAsyncIterable(failOnTimeout(result.fullStream, request), (e) =>
+              e instanceof Error ? e : new Error(String(e)),
+            ).pipe(Stream.tap((event) => Effect.sync(() => request.resetTimeout(event))))
           }),
         ),
       )
@@ -489,6 +530,59 @@ const live: Layer.Layer<
     return Service.of({ stream })
   }),
 )
+
+function isProviderProgressEvent(event: Event) {
+  switch (event.type) {
+    case "text-start":
+    case "text-delta":
+    case "reasoning-start":
+    case "reasoning-delta":
+    case "tool-input-start":
+    case "tool-input-delta":
+    case "tool-call":
+    case "tool-result":
+    case "tool-error":
+      return true
+    default:
+      return false
+  }
+}
+
+function failOnTimeout<T>(
+  iterable: AsyncIterable<T>,
+  request: {
+    timeoutFailure: Promise<never>
+    timeoutError: () => Error | undefined
+  },
+): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]() {
+      const iterator = iterable[Symbol.asyncIterator]()
+      return {
+        async next() {
+          const timeoutError = request.timeoutError()
+          if (timeoutError) throw timeoutError
+          const nextPromise = iterator.next()
+          void nextPromise.catch(() => {})
+          const next = await Promise.race([nextPromise, request.timeoutFailure])
+          const nextTimeoutError = request.timeoutError()
+          if (nextTimeoutError) throw nextTimeoutError
+          return next
+        },
+        async return(value?: unknown) {
+          // The abort signal is the cleanup path; return() is protocol cleanup and
+          // may never resolve for a hung provider iterator.
+          void iterator.return?.().catch(() => {})
+          return { done: true, value: value as T }
+        },
+        async throw(error?: unknown) {
+          if (iterator.throw) return iterator.throw(error)
+          throw error
+        },
+      }
+    },
+  }
+}
 
 export const layer = live.pipe(Layer.provide(Permission.defaultLayer))
 

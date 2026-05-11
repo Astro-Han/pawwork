@@ -237,6 +237,57 @@ function waitSilentStreamingRequest(pathname: string) {
   }
 }
 
+function waitProgressThenSilentStreamingRequest(pathname: string) {
+  const request = deferred<Capture>()
+  const requestAborted = deferred<void>()
+  const responseCanceled = deferred<void>()
+  const encoder = new TextEncoder()
+
+  state.queue.push({
+    path: pathname,
+    resolve: request.resolve,
+    response(req: Request) {
+      req.signal.addEventListener("abort", () => requestAborted.resolve(), { once: true })
+
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  `data: ${JSON.stringify({
+                    id: "chatcmpl-progress-then-silent",
+                    object: "chat.completion.chunk",
+                    choices: [{ delta: { role: "assistant" } }],
+                  })}`,
+                  `data: ${JSON.stringify({
+                    id: "chatcmpl-progress-then-silent",
+                    object: "chat.completion.chunk",
+                    choices: [{ delta: { content: "Hello" } }],
+                  })}`,
+                ].join("\n\n") + "\n\n",
+              ),
+            )
+          },
+          cancel() {
+            responseCanceled.resolve()
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      )
+    },
+  })
+
+  return {
+    request: request.promise,
+    requestAborted: requestAborted.promise,
+    responseCanceled: responseCanceled.promise,
+  }
+}
+
 beforeAll(() => {
   state.server = Bun.serve({
     port: 0,
@@ -521,7 +572,7 @@ describe("session.llm.stream", () => {
     const modelID = "qwen-plus"
     const fixture = await loadFixture(providerID, modelID)
     const model = fixture.model
-    const pending = waitSilentStreamingRequest("/chat/completions")
+    const pending = waitProgressThenSilentStreamingRequest("/chat/completions")
 
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -573,6 +624,7 @@ describe("session.llm.stream", () => {
               system: ["You are a helpful assistant."],
               messages: [{ role: "user", content: "Hello" }],
               tools: {},
+              connectTimeoutMs: 1_000,
               streamTimeoutMs: 20,
             })
             .pipe(Stream.runDrain),
@@ -582,6 +634,80 @@ describe("session.llm.stream", () => {
         await Promise.race([pending.requestAborted, timeout(500)]).catch(() => undefined)
         await pending.request
         expect(Exit.isFailure(exit)).toBe(false)
+      },
+    })
+  })
+
+  test("connect timeout produces stream failure not success drain", async () => {
+    const server = state.server
+    if (!server) throw new Error("Server not initialized")
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+    const pending = waitSilentStreamingRequest("/chat/completions")
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-connect-timeout-failure")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+        const user = {
+          id: MessageID.make("user-connect-timeout-failure"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+        } satisfies MessageV2.User
+
+        const exit = await llm.runPromiseExit((svc) =>
+          svc
+            .stream({
+              user,
+              sessionID,
+              model: resolved,
+              agent,
+              system: ["You are a helpful assistant."],
+              messages: [{ role: "user", content: "Hello" }],
+              tools: {},
+              connectTimeoutMs: 20,
+              streamTimeoutMs: 1_000,
+            })
+            .pipe(Stream.runDrain),
+        )
+
+        await Promise.race([pending.responseCanceled, timeout(500)])
+        await Promise.race([pending.requestAborted, timeout(500)]).catch(() => undefined)
+        await pending.request
+        expect(Exit.isFailure(exit)).toBe(true)
       },
     })
   })
