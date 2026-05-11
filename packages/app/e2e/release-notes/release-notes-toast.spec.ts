@@ -20,18 +20,18 @@ const SINGLE_RELEASE_PAYLOAD = [
 
 const MULTI_VERSION_PAYLOAD = [
   {
-    tag_name: "v2026.5.7",
+    tag_name: "v2026.5.11",
     body: "## App Update Notice\n\n- Newest highlight A\n- Newest highlight B\n",
   },
   {
-    tag_name: "v2026.5.6",
+    tag_name: "v2026.5.10",
     body: "## App Update Notice\n\n- Older highlight C\n",
   },
 ]
 
 const LOCALIZED_PAYLOAD = [
   {
-    tag_name: "v2026.5.7",
+    tag_name: "v2026.5.11",
     body: [
       "## App Update Notice",
       "",
@@ -244,11 +244,11 @@ test.describe("release notes toast", () => {
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     const description = page.locator(TOAST_DESCRIPTION_SELECTOR)
     await expect(description).toContainText("• Newest highlight A")
     await expect(description).toContainText("• Newest highlight B")
-    await expect(description).toContainText("v2026.5.6")
+    await expect(description).toContainText("v2026.5.10")
     await expect(description).toContainText("• Older highlight C")
   })
 
@@ -259,23 +259,23 @@ test.describe("release notes toast", () => {
         contentType: "application/json",
         body: JSON.stringify([
           {
-            tag_name: "v2026.5.7",
+            tag_name: "v2026.5.11",
             body: "## App Update Notice\n\n- English fallback bullet\n",
           },
         ]),
       })
     })
 
-    await page.addInitScript((highlightsKey) => {
+    await page.addInitScript(([highlightsKey, languageKey]) => {
       localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.6" }))
-      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
-    }, HIGHLIGHTS_KEY)
+      localStorage.setItem(languageKey, JSON.stringify({ locale: "zh" }))
+    }, [HIGHLIGHTS_KEY, LANGUAGE_KEY])
 
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
     // Title and action must follow the parsed body's locale (en) — never mix with zh UI locale.
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• English fallback bullet")
   })
@@ -289,15 +289,15 @@ test.describe("release notes toast", () => {
       })
     })
 
-    await page.addInitScript((highlightsKey) => {
+    await page.addInitScript(([highlightsKey, languageKey]) => {
       localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.6" }))
-      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
-    }, HIGHLIGHTS_KEY)
+      localStorage.setItem(languageKey, JSON.stringify({ locale: "zh" }))
+    }, [HIGHLIGHTS_KEY, LANGUAGE_KEY])
 
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("已更新到 v2026.5.7")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("已更新到 v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("查看完整发布说明 →")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 A")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 B")
@@ -313,12 +313,12 @@ test.describe("release notes toast", () => {
         contentType: "application/json",
         body: JSON.stringify([
           {
-            tag_name: "v2026.5.7",
+            tag_name: "v2026.5.11",
             // newest release: zh-only notice, no English App Update Notice
             body: ["## 中文版本", "", "### 主要更新", "", "- 仅中文要点"].join("\n"),
           },
           {
-            tag_name: "v2026.5.6",
+            tag_name: "v2026.5.10",
             // older skipped release: en-only notice, no 中文版本
             body: "## App Update Notice\n\n- older en-only bullet\n",
           },
@@ -326,25 +326,25 @@ test.describe("release notes toast", () => {
       })
     })
 
-    await page.addInitScript((highlightsKey) => {
-      localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.5" }))
-      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
-    }, HIGHLIGHTS_KEY)
+    await page.addInitScript(([highlightsKey, languageKey]) => {
+      localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.9" }))
+      localStorage.setItem(languageKey, JSON.stringify({ locale: "zh" }))
+    }, [HIGHLIGHTS_KEY, LANGUAGE_KEY])
 
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    // First-pass zh resolves to mixed (v2026.5.7 zh + v2026.5.6 en fallback),
+    // First-pass zh resolves to mixed (v2026.5.11 zh + v2026.5.10 en fallback),
     // so we re-resolve the whole window in English. The English window does
-    // not contain v2026.5.7 (no App Update Notice there), but the title and
+    // not contain v2026.5.11 (no App Update Notice there), but the title and
     // link must still anchor on the app's current version, not summaries[0].
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
-    // Description's first segment must carry the v2026.5.6 tag, otherwise
+    // Description's first segment must carry the v2026.5.10 tag, otherwise
     // the older release's bullet would read as if it described the current
-    // version (the title says v2026.5.7 but summaries[0] here is v2026.5.6
-    // because the English fallback dropped v2026.5.7).
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("v2026.5.6")
+    // version (the title says v2026.5.11 but summaries[0] here is v2026.5.10
+    // because the English fallback dropped v2026.5.11).
+    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("v2026.5.10")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• older en-only bullet")
   })
 
@@ -358,7 +358,7 @@ test.describe("release notes toast", () => {
         contentType: "application/json",
         body: JSON.stringify([
           {
-            tag_name: "v2026.5.7",
+            tag_name: "v2026.5.11",
             body: [
               "## App Update Notice",
               "",
@@ -372,17 +372,17 @@ test.describe("release notes toast", () => {
             ].join("\n"),
           },
           {
-            tag_name: "v2026.5.6",
+            tag_name: "v2026.5.10",
             body: "## App Update Notice\n\n- older en only\n",
           },
         ]),
       })
     })
 
-    await page.addInitScript((highlightsKey) => {
-      localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.5" }))
-      localStorage.setItem(LANGUAGE_KEY, JSON.stringify({ locale: "zh" }))
-    }, HIGHLIGHTS_KEY)
+    await page.addInitScript(([highlightsKey, languageKey]) => {
+      localStorage.setItem(highlightsKey, JSON.stringify({ version: "2026.5.9" }))
+      localStorage.setItem(languageKey, JSON.stringify({ locale: "zh" }))
+    }, [HIGHLIGHTS_KEY, LANGUAGE_KEY])
 
     await gotoSession()
 
@@ -390,7 +390,7 @@ test.describe("release notes toast", () => {
     // The newest release has a zh section but the older skipped release does
     // not. Spec #486 forbids mixing languages, so the entire toast — title,
     // action, and every segment — must be English.
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.7")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• newest en bullet")
     await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• older en only")
