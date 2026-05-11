@@ -1033,6 +1033,71 @@ it.live("session.processor effect tests record aborted errors and idle state", (
   ),
 )
 
+it.live("connect timeout writes assistant info.error and flips session_status idle", () =>
+  provideTmpdirServer(
+    ({ dir, llm }) =>
+      Effect.gen(function* () {
+        const seen = defer<void>()
+        const { processors, session, provider } = yield* boot()
+        const bus = yield* Bus.Service
+        const sts = yield* SessionStatus.Service
+
+        yield* llm.hang
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "bad model")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const errs: string[] = []
+        const off = yield* bus.subscribeCallback(Session.Event.Error, (evt) => {
+          if (evt.properties.sessionID !== chat.id) return
+          if (!evt.properties.error) return
+          errs.push(evt.properties.error.name)
+          seen.resolve()
+        })
+        const handle = yield* processors.create({
+          assistantMessage: msg,
+          sessionID: chat.id,
+          model: mdl,
+        })
+
+        const result = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: chat.id,
+            role: "user",
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies MessageV2.User,
+          sessionID: chat.id,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user", content: "bad model" }],
+          tools: {},
+          connectTimeoutMs: 20,
+          streamTimeoutMs: 1_000,
+        })
+
+        yield* Effect.promise(() => seen.promise)
+        const stored = MessageV2.get({ sessionID: chat.id, messageID: msg.id })
+        const state = yield* sts.get(chat.id)
+        off()
+
+        expect(result).toBe("stop")
+        expect(handle.message.error).toBeTruthy()
+        expect(stored.info.role).toBe("assistant")
+        if (stored.info.role === "assistant") {
+          expect(stored.info.error).toBeTruthy()
+        }
+        expect(state).toMatchObject({ type: "idle" })
+        expect(errs.length).toBeGreaterThan(0)
+      }),
+    { git: true, config: (url) => providerCfg(url) },
+  ),
+)
+
 it.live("session.processor effect tests mark interruptions aborted without manual abort", () =>
   provideTmpdirServer(
     ({ dir, llm }) =>
