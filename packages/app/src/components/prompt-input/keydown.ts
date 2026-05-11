@@ -34,7 +34,7 @@ export interface PromptKeydownDeps {
   navigateHistory: (direction: "up" | "down") => boolean
   // submit / mode / file pick
   pick: () => void
-  abort: () => void
+  abort: (source?: "stopButton" | "emptyEnter" | "ctrlG" | "escape", mode?: "soft" | "hard") => void
   handleSubmit: (event: KeyboardEvent) => void
 }
 
@@ -130,7 +130,7 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
       }
 
       if (working()) {
-        abort()
+        abort("escape", "hard")
         event.preventDefault()
         event.stopPropagation()
         return
@@ -196,7 +196,7 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
         return
       }
       if (working()) {
-        abort()
+        abort("ctrlG")
         event.preventDefault()
       }
       return

@@ -2983,6 +2983,17 @@
             }
           },
           {
+            "in": "query",
+            "name": "mode",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "soft",
+                "hard"
+              ]
+            }
+          },
+          {
             "in": "path",
             "name": "sessionID",
             "schema": {

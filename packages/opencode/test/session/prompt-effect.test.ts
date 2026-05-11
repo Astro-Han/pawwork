@@ -1263,6 +1263,89 @@ it.live(
 )
 
 it.live(
+  "soft cancel preserves a pending question and continues after reply",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const questions = yield* Question.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Question" })
+
+        yield* llm.tool("question", {
+          questions: [
+            {
+              question: "Export as Word or PDF?",
+              header: "Format",
+              options: [
+                { label: "Word", description: "docx" },
+                { label: "PDF", description: "pdf" },
+              ],
+            },
+          ],
+        })
+        yield* user(chat.id, "export")
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        const pending = yield* Effect.gen(function* () {
+          for (let attempt = 0; attempt < 100; attempt++) {
+            const list = yield* questions.list()
+            if (list.length > 0) return list[0]!
+            yield* Effect.sleep("10 millis")
+          }
+          throw new Error("timed out waiting for pending question")
+        })
+
+        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft" })
+        expect(cancelled).toBe(false)
+        expect(yield* questions.list()).toHaveLength(1)
+
+        yield* questions.reply({ requestID: pending.id, answers: [["Word"]] })
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+        expect(yield* questions.list()).toHaveLength(0)
+
+        const messages = yield* MessageV2.filterCompactedEffect(chat.id)
+        const assistant = messages.find((item) => item.info.role === "assistant")
+        const tool = assistant?.parts.find((part): part is MessageV2.ToolPart => part.type === "tool")
+        expect(tool?.state.status).toBe("completed")
+        if (tool?.state.status === "completed") {
+          expect(tool.state.metadata?.answers).toEqual([["Word"]])
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+  5_000,
+)
+
+it.live(
+  "soft cancel without a pending question still interrupts the running loop",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "No question" })
+        yield* llm.hang
+        yield* user(chat.id, "hello")
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft" })
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+        if (Exit.isSuccess(exit) && exit.value.info.role === "assistant") {
+          expect(exit.value.info.error?.name).toBe("MessageAbortedError")
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+  3_000,
+)
+
+it.live(
   "cancel finalizes subtask tool state",
   () =>
     provideTmpdirInstance(
