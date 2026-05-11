@@ -54,6 +54,7 @@ import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
 import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
+import { SessionBlocker } from "./blocker"
 import { EffectBridge } from "@/effect"
 import { attachWith, makeRuntime } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
@@ -226,7 +227,7 @@ function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
 }
 
 export interface Interface {
-  readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
+  readonly cancel: (sessionID: SessionID, options?: { mode?: "soft" | "hard" }) => Effect.Effect<boolean>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
   readonly loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts>
@@ -258,6 +259,7 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
+    const blockers = yield* SessionBlocker.Service
     const revert = yield* SessionRevert.Service
     const summary = yield* SessionSummary.Service
     const sys = yield* SystemPrompt.Service
@@ -272,7 +274,7 @@ export const layer = Layer.effect(
     const interruptedSessions = new Set<SessionID>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
-        cancel: (sessionID: SessionID) => cancel(sessionID),
+        cancel: (sessionID: SessionID) => cancel(sessionID).pipe(Effect.asVoid),
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input),
         // Self-cleaning read: each subagent dispatch reads `wasInterrupted` exactly once after
@@ -286,9 +288,18 @@ export const layer = Layer.effect(
       } satisfies AgentPromptOps
     })
 
-    const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID) {
-      yield* elog.info("cancel", { sessionID })
+    const cancel = Effect.fn("SessionPrompt.cancel")(function* (
+      sessionID: SessionID,
+      options?: { mode?: "soft" | "hard" },
+    ) {
+      const mode = options?.mode ?? "hard"
+      yield* elog.info("cancel", { sessionID, mode })
+      if (mode === "soft" && (yield* blockers.hasAwaitingQuestion(sessionID))) {
+        yield* elog.info("cancel ignored", { sessionID, mode, reason: "awaiting_question" })
+        return false
+      }
       yield* state.cancel(sessionID)
+      return true
     })
 
     const resolvePromptParts = Effect.fn("SessionPrompt.resolvePromptParts")(function* (template: string) {
@@ -2090,6 +2101,7 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
+    Layer.provide(SessionBlocker.defaultLayer),
     Layer.provide(
       Layer.mergeAll(
         Agent.defaultLayer,
@@ -2177,8 +2189,8 @@ export async function resolvePromptParts(template: string) {
   return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
 }
 
-export async function cancel(sessionID: SessionID) {
-  return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID)))
+export async function cancel(sessionID: SessionID, options?: { mode?: "soft" | "hard" }) {
+  return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
 }
 
 export const LoopInput = z.object({

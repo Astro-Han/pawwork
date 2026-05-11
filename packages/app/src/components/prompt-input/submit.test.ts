@@ -26,7 +26,7 @@ const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
 let commandsReady = true
 let promptAsyncFailure: Error | undefined
-const abortedSessions: string[] = []
+const abortedSessions: Array<{ sessionID: string; mode?: string }> = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
@@ -75,9 +75,9 @@ const clientFor = (directory: string) => {
         commandCalls.push(input)
         return { data: undefined }
       },
-      abort: async (input: { sessionID: string }) => {
-        abortedSessions.push(input.sessionID)
-        return { data: undefined }
+      abort: async (input: { sessionID: string; mode?: string }) => {
+        abortedSessions.push({ sessionID: input.sessionID, mode: input.mode })
+        return { data: true }
       },
     },
     worktree: {
@@ -291,7 +291,8 @@ describe("prompt submit worktree selection", () => {
       working: () => true,
       editor: () => undefined,
       queueScroll: () => undefined,
-      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      promptLength: (value) =>
+        value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
       addToHistory: () => undefined,
       resetHistoryNavigation: () => undefined,
       setMode: () => undefined,
@@ -302,7 +303,7 @@ describe("prompt submit worktree selection", () => {
     await submit.abort()
 
     expect(aborts).toEqual(["called"])
-    expect(abortedSessions).toEqual(["session-visible"])
+    expect(abortedSessions).toEqual([{ sessionID: "session-visible", mode: "soft" }])
     expect(globalTodoSets).toEqual([])
     expect(childTodoSets).toEqual([])
   })
@@ -430,7 +431,7 @@ describe("prompt submit worktree selection", () => {
     await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
 
     expect(aborts).toEqual(["called"])
-    expect(abortedSessions).toEqual(["session-visible"])
+    expect(abortedSessions).toEqual([{ sessionID: "session-visible", mode: "soft" }])
     expect(submits).toEqual([])
     expect(promptAsyncCalls).toEqual([])
   })
@@ -750,8 +751,7 @@ describe("prompt submit worktree selection", () => {
       working: () => false,
       editor: () => undefined,
       queueScroll: () => undefined,
-      promptLength: (value) =>
-        value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
       addToHistory: () => undefined,
       resetHistoryNavigation: () => undefined,
       setMode: () => undefined,

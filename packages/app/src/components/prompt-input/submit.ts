@@ -31,6 +31,8 @@ type PendingPrompt = {
 }
 
 const pending = new Map<string, PendingPrompt>()
+type AbortMode = "soft" | "hard"
+type AbortSource = "stopButton" | "emptyEnter" | "ctrlG" | "escape"
 
 export type FollowupDraft = {
   sessionID: string
@@ -245,7 +247,26 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     return language.t("common.requestFailed")
   }
 
-  const abort = async () => {
+  const emitAbortDiagnostic = (input: {
+    sessionID: string
+    source: AbortSource
+    mode: AbortMode
+    result: "aborted" | "ignored_awaiting_question"
+  }) => {
+    void emitRendererDiagnostic({
+      name: "session.action.abort",
+      route_session_id: input.sessionID,
+      visible_session_id: input.sessionID,
+      timeline_session_id: input.sessionID,
+      data: {
+        source: input.source,
+        mode: input.mode,
+        result: input.result,
+      },
+    }).catch(() => undefined)
+  }
+
+  const abort = async (source: AbortSource = "stopButton", mode: AbortMode = "soft") => {
     if (!abortReady()) return Promise.resolve()
 
     const activeSessionID = sessionID()
@@ -258,11 +279,21 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       queued.abort.abort()
       queued.cleanup()
       pending.delete(activeSessionID)
+      emitAbortDiagnostic({ sessionID: activeSessionID, source, mode, result: "aborted" })
       return Promise.resolve()
     }
     return sdk.client.session
       .abort({
         sessionID: activeSessionID,
+        mode,
+      })
+      .then((result) => {
+        emitAbortDiagnostic({
+          sessionID: activeSessionID,
+          source,
+          mode,
+          result: result.data === false ? "ignored_awaiting_question" : "aborted",
+        })
       })
       .catch(() => {})
   }
@@ -317,13 +348,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     const creatingNewSession = isNewSession()
     const homeSkill = creatingNewSession && mode === "normal" ? input.selectedSkill?.() : undefined
 
-    if (
-      text.trim().length === 0 &&
-      images.length === 0 &&
-      input.commentCount() === 0 &&
-      !homeSkill
-    ) {
-      if (input.working()) abort()
+    if (text.trim().length === 0 && images.length === 0 && input.commentCount() === 0 && !homeSkill) {
+      if (input.working()) abort(event instanceof KeyboardEvent ? "emptyEnter" : "stopButton")
       return
     }
     if (

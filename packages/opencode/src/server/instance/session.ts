@@ -35,6 +35,7 @@ import { File } from "@/file"
 import { LSP } from "@/lsp"
 
 const log = Log.create({ service: "server" })
+const AbortMode = z.enum(["soft", "hard"])
 
 function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
   return Effect.gen(function* () {
@@ -442,9 +443,17 @@ export const SessionRoutes = lazy(() =>
           sessionID: SessionID.zod,
         }),
       ),
+      validator(
+        "query",
+        z.object({
+          mode: AbortMode.optional(),
+        }),
+      ),
       async (c) => {
-        await SessionPrompt.cancel(c.req.valid("param").sessionID)
-        return c.json(true)
+        const aborted = await SessionPrompt.cancel(c.req.valid("param").sessionID, {
+          mode: c.req.valid("query").mode ?? "hard",
+        })
+        return c.json(aborted)
       },
     )
     .post(

@@ -122,21 +122,44 @@ export default function Page() {
   const submitReady = timeline.actionReady
   const workspaceSubmitReady = timeline.workspaceSubmitReady
   const timelineIsChildSession = timeline.isChildSession
-  const haltAbort = (sessionID: string) =>
+  const emitAbortDiagnostic = (
+    sessionID: string,
+    source: "revert" | "autoHeal",
+    result: "aborted" | "ignored_awaiting_question",
+  ) => {
+    emitDiagnostics({
+      name: "session.action.abort",
+      route_session_id: params.id,
+      visible_session_id: timelineSessionID(),
+      timeline_session_id: timelineSessionID(),
+      data: {
+        source,
+        mode: "hard",
+        result,
+      },
+    })
+  }
+  const haltAbort = (sessionID: string, source: "revert" | "autoHeal" = "autoHeal") =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
-      ? sdk.client.session.abort({ sessionID })
+      ? sdk.client.session.abort({ sessionID, mode: "hard" }).then((result) => {
+          emitAbortDiagnostic(sessionID, source, result.data === false ? "ignored_awaiting_question" : "aborted")
+          return result
+        })
       : Promise.resolve()
   const haltWithSnapshot = (
     snapshot: ReturnType<typeof sync.retainDirectory> & { client: typeof sdk.client },
     sessionID: string,
   ) =>
     isSessionRunning(snapshot.store.session_status[sessionID], snapshot.store.message[sessionID])
-      ? snapshot.client.session.abort({ sessionID })
+      ? snapshot.client.session.abort({ sessionID, mode: "hard" }).then((result) => {
+          emitAbortDiagnostic(sessionID, "revert", result.data === false ? "ignored_awaiting_question" : "aborted")
+          return result
+        })
       : Promise.resolve()
   // sessionRevert chains halt with .then(), so its existing outer .catch
   // already handles abort failures. The auto-heal clock wants to see the
   // error so it can structured-warn — pass haltAbort directly there.
-  const halt = (sessionID: string) => haltAbort(sessionID).catch(() => {})
+  const halt = (sessionID: string) => haltAbort(sessionID, "autoHeal").catch(() => {})
   const composer = createSessionComposerState({
     sessionID: timelineSessionID,
     fallbackSessionID: () => params.id,
