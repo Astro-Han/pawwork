@@ -33,6 +33,7 @@ const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: s
 const promptResetCalls: Array<{ target?: { dir: string; id?: string } }> = []
 
 let params: { dir?: string; id?: string } = {}
+let navigateImpl = (_path: string): void => {}
 let selected = "/repo/worktree-a"
 let variant: string | undefined
 
@@ -89,7 +90,7 @@ beforeAll(async () => {
   const rootClient = clientFor("/repo/main")
 
   mock.module("@solidjs/router", () => ({
-    useNavigate: () => () => undefined,
+    useNavigate: () => (path: string) => navigateImpl(path),
     useParams: () => params,
   }))
 
@@ -265,6 +266,7 @@ beforeEach(() => {
   promptSetCalls.length = 0
   promptResetCalls.length = 0
   params = {}
+  navigateImpl = (_path: string): void => {}
   sentShell.length = 0
   syncedDirectories.length = 0
   selected = "/repo/worktree-a"
@@ -733,6 +735,11 @@ describe("prompt submit worktree selection", () => {
   test("clears prompt source scope on successful new-session submit", async () => {
     params = { dir: "/repo/main" }
     promptValue = [{ type: "text", content: "hello", start: 0, end: 5 }]
+    // Simulate navigate() changing params.id to the new session id, just as SolidJS router does
+    navigateImpl = (path: string) => {
+      const match = path.match(/\/session\/([^/]+)/)
+      if (match) params.id = match[1]
+    }
 
     const submit = createPromptSubmit({
       info: () => undefined,
@@ -755,8 +762,9 @@ describe("prompt submit worktree selection", () => {
     await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
     await waitForCall(() => promptResetCalls.length > 0)
 
-    // clearInput must reset the SOURCE scope (home page: dir=/repo/main, no session id)
-    // not the FINAL scope (new session route after navigate changes params.id)
+    // After navigate(), params.id is now "session-1", but clearInput must reset the
+    // SOURCE scope (home page: dir=/repo/main, no session id) not the final session scope
+    expect(params.id).toBe("session-1") // confirm navigate ran and updated params
     expect(promptResetCalls.at(-1)?.target?.dir).toBe("/repo/main")
     expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
   })
