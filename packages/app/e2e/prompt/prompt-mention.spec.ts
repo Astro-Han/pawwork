@@ -1,13 +1,20 @@
 import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
+import { mkdir, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 
-test("@mention inserts file pill token", async ({ page, gotoSession }) => {
-  await gotoSession()
+test("@mention inserts file pill token", async ({ page, project }) => {
+  await project.open({
+    setup: async (directory) => {
+      await mkdir(join(directory, "src"), { recursive: true })
+      await writeFile(join(directory, "src", "mention-target.md"), "hello")
+    },
+  })
 
   await page.locator(promptSelector).click()
   const sep = process.platform === "win32" ? "\\" : "/"
-  const file = ["packages", "app", "package.json"].join(sep)
-  const filePattern = /packages[\\/]+app[\\/]+\s*package\.json/
+  const file = ["src", "mention-target.md"].join(sep)
+  const filePattern = /src[\\/]+\s*mention-target\.md/
 
   await page.keyboard.type(`@${file}`)
 
