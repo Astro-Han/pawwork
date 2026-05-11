@@ -25,6 +25,87 @@ export type PawworkSidebarSession = {
   created: number
 }
 
+function ProjectGroupHeader(props: {
+  projectKey: string
+  label: string
+  collapsed: boolean
+  onToggle: () => void
+  onRename: () => void
+  onRemove: () => void
+}) {
+  const language = useLanguage()
+  const projectMenuLabels = () => ({
+    rename: language.t("project.rename"),
+    remove: language.t("project.remove"),
+  })
+
+  return (
+    <ContextMenu>
+      <ContextMenu.Trigger as="div">
+        <div
+          data-component="pawwork-group-header"
+          data-collapsed={props.collapsed ? "true" : undefined}
+          title={props.projectKey}
+          class="group/group-header h-[30px] w-full flex items-center rounded-sm text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus-within:bg-row-hover-overlay"
+        >
+          <button
+            type="button"
+            data-action="pawwork-group-toggle"
+            data-collapsed={props.collapsed ? "true" : undefined}
+            aria-expanded={!props.collapsed}
+            onClick={props.onToggle}
+            class="min-w-0 h-full flex-1 flex items-center gap-2 px-2.5 text-left focus:outline-none"
+          >
+            <Icon
+              name={props.collapsed ? "folder" : "folder-open"}
+              class="shrink-0 text-icon-weak"
+            />
+            <span class="min-w-0 flex-1 truncate">{props.label}</span>
+          </button>
+          <div class="pointer-events-none relative shrink-0 flex items-center justify-end h-[20px] min-w-[30px] pr-1">
+            <div class="absolute inset-y-0 right-1 flex items-center justify-end opacity-0 pointer-events-none group-hover/group-header:opacity-100 group-hover/group-header:pointer-events-auto group-focus-within/group-header:opacity-100 group-focus-within/group-header:pointer-events-auto group-has-[[data-expanded]]/group-header:opacity-100 group-has-[[data-expanded]]/group-header:pointer-events-auto">
+              <DropdownMenu>
+                <DropdownMenu.Trigger
+                  as={IconButton}
+                  icon="dot-grid"
+                  variant="ghost"
+                  class="pointer-events-auto h-[26px] w-[26px]"
+                  data-action="project-row-menu"
+                  aria-label={language.t("common.moreOptions")}
+                />
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content>
+                    <DropdownMenu.Item onSelect={props.onRename}>
+                      <Icon name="edit" class="text-icon-weak" />
+                      <DropdownMenu.ItemLabel>{projectMenuLabels().rename}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item onSelect={props.onRemove}>
+                      <Icon name="archive" class="text-icon-weak" />
+                      <DropdownMenu.ItemLabel>{projectMenuLabels().remove}</DropdownMenu.ItemLabel>
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu>
+            </div>
+          </div>
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content>
+          <ContextMenu.Item onSelect={props.onRename}>
+            <Icon name="edit" class="text-icon-weak" />
+            <ContextMenu.ItemLabel>{projectMenuLabels().rename}</ContextMenu.ItemLabel>
+          </ContextMenu.Item>
+          <ContextMenu.Item onSelect={props.onRemove}>
+            <Icon name="archive" class="text-icon-weak" />
+            <ContextMenu.ItemLabel>{projectMenuLabels().remove}</ContextMenu.ItemLabel>
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu>
+  )
+}
+
 export const PawworkSidebar = (props: {
   scope?: "main" | "peek"
   sessions: Accessor<PawworkSidebarSession[]>
@@ -403,77 +484,19 @@ export const PawworkSidebar = (props: {
                 <For each={groupedRows()}>
                   {(group, index) => {
                     const collapsed = createMemo(() => !!props.collapsedProjects()[group.key])
-                    const projectMenuLabels = () => ({
-                      rename: language.t("project.rename"),
-                      remove: language.t("project.remove"),
-                    })
                     const handleRename = () => openRenameProjectDialog(group.key, group.label)
                     const handleRemove = () => openRemoveProjectDialog(group.key, group.label)
 
                     return (
                       <section class={`${index() > 0 ? "mt-0.5 " : ""}flex flex-col gap-0.5`}>
-                        <ContextMenu>
-                          <ContextMenu.Trigger as="div">
-                            <button
-                              type="button"
-                              data-component="pawwork-group-header"
-                              data-action="pawwork-group-toggle"
-                              data-collapsed={collapsed() ? "true" : undefined}
-                              aria-expanded={!collapsed()}
-                              title={group.key}
-                              onClick={() => props.onToggleProjectCollapsed(group.key)}
-                              class="group/group-header h-[30px] w-full flex items-center gap-2 rounded-sm px-2.5 text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus:outline-none focus-visible:bg-row-hover-overlay"
-                            >
-                              <Icon
-                                name={collapsed() ? "folder" : "folder-open"}
-                                class="shrink-0 text-icon-weak"
-                              />
-                              <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
-                              <div class="pointer-events-none relative shrink-0 flex items-center justify-end h-[20px] min-w-[20px]">
-                                <div class="absolute inset-y-0 right-0 flex items-center justify-end opacity-0 pointer-events-none group-hover/group-header:opacity-100 group-hover/group-header:pointer-events-auto group-focus-visible/group-header:opacity-100 group-focus-visible/group-header:pointer-events-auto group-has-[[data-expanded]]/group-header:opacity-100 group-has-[[data-expanded]]/group-header:pointer-events-auto">
-                                  <DropdownMenu>
-                                    <DropdownMenu.Trigger
-                                      as={IconButton}
-                                      icon="dot-grid"
-                                      variant="ghost"
-                                      class="pointer-events-auto h-[26px] w-[26px]"
-                                      data-action="project-row-menu"
-                                      aria-label={language.t("common.moreOptions")}
-                                      onClick={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                      }}
-                                    />
-                                    <DropdownMenu.Portal>
-                                      <DropdownMenu.Content>
-                                        <DropdownMenu.Item onSelect={handleRename}>
-                                          <Icon name="edit" class="text-icon-weak" />
-                                          <DropdownMenu.ItemLabel>{projectMenuLabels().rename}</DropdownMenu.ItemLabel>
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Item onSelect={handleRemove}>
-                                          <Icon name="archive" class="text-icon-weak" />
-                                          <DropdownMenu.ItemLabel>{projectMenuLabels().remove}</DropdownMenu.ItemLabel>
-                                        </DropdownMenu.Item>
-                                      </DropdownMenu.Content>
-                                    </DropdownMenu.Portal>
-                                  </DropdownMenu>
-                                </div>
-                              </div>
-                            </button>
-                          </ContextMenu.Trigger>
-                          <ContextMenu.Portal>
-                            <ContextMenu.Content>
-                              <ContextMenu.Item onSelect={handleRename}>
-                                <Icon name="edit" class="text-icon-weak" />
-                                <ContextMenu.ItemLabel>{projectMenuLabels().rename}</ContextMenu.ItemLabel>
-                              </ContextMenu.Item>
-                              <ContextMenu.Item onSelect={handleRemove}>
-                                <Icon name="archive" class="text-icon-weak" />
-                                <ContextMenu.ItemLabel>{projectMenuLabels().remove}</ContextMenu.ItemLabel>
-                              </ContextMenu.Item>
-                            </ContextMenu.Content>
-                          </ContextMenu.Portal>
-                        </ContextMenu>
+                        <ProjectGroupHeader
+                          projectKey={group.key}
+                          label={group.label}
+                          collapsed={collapsed()}
+                          onToggle={() => props.onToggleProjectCollapsed(group.key)}
+                          onRename={handleRename}
+                          onRemove={handleRemove}
+                        />
                         {/* grid-template-rows trick: 0fr → 1fr animates height without
                           * touching layout-thrashing properties. Items stay mounted so
                           * focus / scroll position survive the toggle; inert on the
