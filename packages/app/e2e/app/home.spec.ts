@@ -2,18 +2,47 @@ import { test, expect } from "../fixtures"
 import { openSidebar } from "../actions"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
-test("@smoke root route renders seeded home entrypoints", async ({ page }) => {
+test("@smoke root route renders the no-project empty state", async ({ page, backend }) => {
+  await page.route(`${backend.url}/path**`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ home: "", state: "", config: "", worktree: "", directory: "" }),
+    }),
+  )
+  await page.route(`${backend.url}/project**`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([]),
+    }),
+  )
+  await page.addInitScript((url) => {
+    localStorage.setItem(
+      "pawwork.global.dat:server",
+      JSON.stringify({ list: [url], projects: {}, lastProject: {} }),
+    )
+    localStorage.setItem("pawwork.settings.dat:defaultServerUrl", url)
+    localStorage.setItem("pawwork.global.dat:globalSync.project", JSON.stringify({ value: [] }))
+  }, backend.url)
+
   await page.goto("/")
 
   const home = page.locator('[data-component="session-new-home"]')
+  const main = page.getByRole("main")
+  const emptyTitle = page.getByText(/No recent projects|没有最近项目/)
+  const emptyDescription = page.getByText(/Get started by opening a local project|通过打开本地项目开始使用/)
+  const openProject = main.getByRole("button", { name: /Open project|打开项目/ })
 
-  await expect(home).toBeVisible()
-  await expect(page.getByRole("heading", { name: "What do you want to do?" })).toBeVisible()
-  await expect(home.locator(sessionComposerDockSelector)).toHaveCount(1)
+  await expect(home).toHaveCount(0)
+  await expect(emptyTitle).toBeVisible()
+  await expect(emptyDescription).toBeVisible()
+  await expect(openProject).toBeVisible()
+  await expect(page.locator(sessionComposerDockSelector)).toHaveCount(0)
+
   await openSidebar(page)
-  await expect(page.getByRole("button", { name: "New session" })).toBeVisible()
-  await expect(page.getByText("No recent projects")).toHaveCount(0)
-  await expect(page.getByText("Get started by opening a local project")).toHaveCount(0)
+  await expect(page.getByText(/No projects open|还没有打开项目/)).toBeVisible()
+  await expect(page.getByText(/Open a project to start using the session-first sidebar\.|打开一个项目后，即可使用以会话为中心的侧边栏。/)).toBeVisible()
+  await openProject.click()
+  await expect(page.getByRole("dialog", { name: /Open project|打开项目/ })).toBeVisible()
 })
 
 test("@smoke home renders the hero composer and starter cards", async ({ page, project }) => {
