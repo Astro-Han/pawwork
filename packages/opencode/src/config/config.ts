@@ -13,7 +13,6 @@ import { PawWorkHome } from "@opencode-ai/core/pawwork-home"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { applyEdits, modify } from "jsonc-parser"
-import { migrateDefaultAgent, stripDefaultAgent } from "./migrate-default-agent"
 import { Instance, type InstanceContext } from "../project/instance"
 import { constants, existsSync, statSync } from "fs"
 import { GlobalBus } from "@/bus/global"
@@ -111,6 +110,9 @@ function mergeConfigConcatArrays(target: Info, source: Info): Info {
 function normalizeLoadedConfig(data: unknown, source: string) {
   if (!isRecord(data)) return data
   const copy = { ...data }
+  // Legacy compat for v0.2.13-era configs: ignore removed default_agent before strict schema decode.
+  // Keep this as a narrow read-time shim only; do not write the file back.
+  delete copy["default_agent"]
   const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
   if (!hadLegacy) return copy
   delete copy.theme
@@ -204,10 +206,6 @@ export const Info = Schema.Struct({
   }),
   small_model: Schema.optional(ConfigModelID).annotate({
     description: "Small model to use for tasks like title generation in the format of provider/model",
-  }),
-  default_agent: Schema.optional(Schema.String).annotate({
-    description:
-      "Default agent to use when none is specified. Must be a primary agent. Falls back to 'build' if not set or if the specified agent is invalid.",
   }),
   username: Schema.optional(Schema.String).annotate({
     description: "Custom username to display in conversations instead of system username",
@@ -531,7 +529,7 @@ function missingConfigPatch(lowPriority: unknown, highPriority: unknown): Record
 }
 
 function writable(info: Info) {
-  const { default_agent: _defaultAgent, plugin_origins: _plugin_origins, ...next } = info
+  const { plugin_origins: _plugin_origins, ...next } = info
   return next
 }
 
@@ -656,9 +654,8 @@ function rewriteSeedConfig(value: Record<string, unknown>, sourceFile: string): 
 }
 
 function seedConfigValueFromSource(text: string, sourceFile: string) {
-  const stripped = stripDefaultAgent(text).text
-  const parsed = ConfigParse.jsonc(stripped, sourceFile)
-  if (!isRecord(parsed)) return stripped
+  const parsed = ConfigParse.jsonc(text, sourceFile)
+  if (!isRecord(parsed)) return text
   return rewriteSeedConfig(normalizeWritableConfig(parsed, sourceFile), sourceFile)
 }
 
@@ -762,15 +759,9 @@ const rawLayer = Layer.effect(
       for (const filepath of globalFiles) {
         const dir = path.dirname(filepath)
         const allowWrite = !Runtime.isPawWork() || PawWorkHome.isPrimary(dir)
-        // Strip deprecated default_agent before parsing (issue #239).
-        // When sanitizedText is present we use it directly to avoid a redundant
-        // disk read AND to ensure runtime never sees a stale value even if the
-        // on-disk rewrite failed.
-        const migrated = allowWrite ? yield* Effect.promise(() => migrateDefaultAgent(filepath)) : undefined
-        const text = migrated?.sanitizedText ?? (yield* readConfigFile(filepath))
+        const text = yield* readConfigFile(filepath)
         if (!text) continue
-        const sanitizedText = allowWrite ? text : stripDefaultAgent(text).text
-        result = pipe(result, mergeDeep(yield* loadConfig(sanitizedText, { path: filepath, allowWrite })))
+        result = pipe(result, mergeDeep(yield* loadConfig(text, { path: filepath, allowWrite })))
       }
 
       const legacy = path.join(Global.Path.config, "config")
