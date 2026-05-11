@@ -39,6 +39,43 @@ test("users can pin, rename, and regroup sessions in the PawWork sidebar", async
   await expect(sidebar.locator('[data-component="pawwork-group-header"]')).toHaveCount(1)
 })
 
+test("users can delete a session from the PawWork sidebar", async ({ page, sdk, gotoSession }) => {
+  const stamp = Date.now()
+  const session = await sdk.session.create({ title: `e2e sidebar delete ${stamp}` }).then((r) => r.data)
+
+  if (!session?.id) throw new Error("missing session id")
+
+  await gotoSession(session.id)
+  await openSidebar(page)
+
+  const sidebar = page.locator(pawworkSidebarSelector).first()
+  const row = sidebar.locator(`[data-session-id="${session.id}"]`).first()
+  await expect(row).toBeVisible()
+
+  await row.hover()
+  await row.locator('[data-action="session-row-menu"]').click()
+  await page.getByRole("menuitem", { name: /^delete$/i }).click()
+
+  const dialog = page.locator('[data-component="dialog"]')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole("button", { name: /^delete$/i }).click()
+
+  await expect
+    .poll(
+      async () => {
+        const data = await sdk.session
+          .get({ sessionID: session.id })
+          .then((r) => r.data)
+          .catch(() => undefined)
+        return data?.id
+      },
+      { timeout: 30_000 },
+    )
+    .toBeUndefined()
+
+  await expect(sidebar.locator(`[data-session-id="${session.id}"]`)).toHaveCount(0)
+})
+
 test("previous and next session follow time order across PawWork projects", async ({ page, backend, project }) => {
   const stamp = Date.now()
   const other = await createTestProject({ serverUrl: backend.url })

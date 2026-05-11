@@ -562,35 +562,6 @@ export async function hoverSessionItem(page: Page, sessionID: string) {
   return sessionEl
 }
 
-export async function openSessionMoreMenu(page: Page, sessionID: string) {
-  await expect(page).toHaveURL(new RegExp(`/session/${sessionID}(?:[/?#]|$)`))
-
-  const scroller = page.locator(".scroll-view__viewport").first()
-  await expect(scroller).toBeVisible()
-  await expect(scroller.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 30_000 })
-
-  const menu = page
-    .locator(dropdownMenuContentSelector)
-    .filter({ has: page.getByRole("menuitem", { name: /rename/i }) })
-    .filter({ has: page.getByRole("menuitem", { name: /archive/i }) })
-    .filter({ has: page.getByRole("menuitem", { name: /delete/i }) })
-    .first()
-
-  const opened = await menu
-    .isVisible()
-    .then((x) => x)
-    .catch(() => false)
-
-  if (opened) return menu
-
-  const menuTrigger = scroller.getByRole("button", { name: /more options/i }).first()
-  await expect(menuTrigger).toBeVisible()
-  await menuTrigger.click()
-
-  await expect(menu).toBeVisible()
-  return menu
-}
-
 export async function clickMenuItem(menu: Locator, itemName: string | RegExp, options?: { force?: boolean }) {
   const item = menu.getByRole("menuitem").filter({ hasText: itemName }).first()
   await expect(item).toBeVisible()
@@ -604,34 +575,6 @@ export async function confirmDialog(page: Page, buttonName: string | RegExp) {
   const button = dialog.getByRole("button").filter({ hasText: buttonName }).first()
   await expect(button).toBeVisible()
   await button.click()
-}
-
-export async function openSharePopover(page: Page) {
-  const scroller = page.locator(".scroll-view__viewport").first()
-  await expect(scroller).toBeVisible()
-  await expect(scroller.getByRole("heading", { level: 1 }).first()).toBeVisible({ timeout: 30_000 })
-
-  const menuTrigger = scroller.getByRole("button", { name: /more options/i }).first()
-  await expect(menuTrigger).toBeVisible({ timeout: 30_000 })
-
-  const popoverBody = page
-    .locator('[data-component="popover-content"]')
-    .filter({ has: page.getByRole("button", { name: /^(Publish|Unpublish)$/ }) })
-    .first()
-
-  const opened = await popoverBody
-    .isVisible()
-    .then((x) => x)
-    .catch(() => false)
-
-  if (!opened) {
-    const menu = page.locator(dropdownMenuContentSelector).first()
-    await menuTrigger.click()
-    await clickMenuItem(menu, /share/i)
-    await expect(menu).toHaveCount(0)
-    await expect(popoverBody).toBeVisible({ timeout: 30_000 })
-  }
-  return { rightSection: scroller, popoverBody }
 }
 
 export async function clickListItem(
