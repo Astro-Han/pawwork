@@ -256,6 +256,48 @@ export function loadReleaseHighlights(
   return summaries
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
+// Convert the plain-text description produced by buildToastDescription into
+// minimal HTML for the toast-markdown slot. Only bullet lists and paragraphs
+// are needed — the GitHub release format does not use other block elements.
+function buildToastMarkdownHtml(text: string): string {
+  const lines = text.split("\n")
+  const result: string[] = []
+  const bulletBuffer: string[] = []
+
+  const flushBullets = () => {
+    if (bulletBuffer.length > 0) {
+      result.push(`<ul>${bulletBuffer.map((b) => `<li>${b}</li>`).join("")}</ul>`)
+      bulletBuffer.length = 0
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed === "") {
+      flushBullets()
+      continue
+    }
+    if (/^[•\-*+] /.test(trimmed)) {
+      bulletBuffer.push(escapeHtml(trimmed.replace(/^[•\-*+] /, "").trim()))
+    } else {
+      flushBullets()
+      result.push(`<p>${escapeHtml(trimmed)}</p>`)
+    }
+  }
+  flushBullets()
+
+  return result.join("")
+}
+
 function buildToastDescription(summaries: ReleaseSummary[], currentTag: string) {
   // First segment omits its tag only when it matches the toast title's
   // version. When summaries[0] is an older release (e.g. zh-locale fallback
@@ -347,7 +389,7 @@ export const { use: useHighlights, provider: HighlightsProvider } = createSimple
 
             showToast({
               title: copy.title(currentTag),
-              description: buildToastDescription(summaries, currentTag),
+              markdownHtml: buildToastMarkdownHtml(buildToastDescription(summaries, currentTag)),
               icon: "bullet-list",
               variant: "subtle",
               persistent: true,

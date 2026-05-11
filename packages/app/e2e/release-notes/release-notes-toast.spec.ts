@@ -50,6 +50,7 @@ const LOCALIZED_PAYLOAD = [
 const TOAST_SELECTOR = '[data-component="toast"][data-variant="subtle"]'
 const TOAST_TITLE_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-title"]`
 const TOAST_DESCRIPTION_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-description"]`
+const TOAST_MARKDOWN_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-markdown"]`
 const TOAST_ACTION_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-action"]`
 const TOAST_CLOSE_BUTTON_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-close-button"]`
 const TOAST_ICON_SELECTOR = `${TOAST_SELECTOR} [data-slot="toast-icon"]`
@@ -72,9 +73,9 @@ test.describe("release notes toast", () => {
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
     await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("Important refresh for this release.")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• Added subtle toast variant")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• Replaced release notes dialog")
+    // Content is now rendered as HTML in the toast-markdown slot
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("Important refresh for this release.")
+    await expect(page.locator(`${TOAST_MARKDOWN_SELECTOR} li`)).toContainText(["Added subtle toast variant", "Replaced release notes dialog"])
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
     await expect(page.locator(TOAST_ICON_SELECTOR)).toBeVisible()
   })
@@ -245,11 +246,17 @@ test.describe("release notes toast", () => {
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
     await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
-    const description = page.locator(TOAST_DESCRIPTION_SELECTOR)
-    await expect(description).toContainText("• Newest highlight A")
-    await expect(description).toContainText("• Newest highlight B")
-    await expect(description).toContainText("v2026.5.10")
-    await expect(description).toContainText("• Older highlight C")
+    const markdown = page.locator(TOAST_MARKDOWN_SELECTOR)
+    await expect(markdown).toContainText("Newest highlight A")
+    await expect(markdown).toContainText("Newest highlight B")
+    await expect(markdown).toContainText("v2026.5.10")
+    await expect(markdown).toContainText("Older highlight C")
+    // All bullets must be rendered as <li> elements — both newest and multi-version older
+    await expect(page.locator(`${TOAST_MARKDOWN_SELECTOR} li`)).toContainText([
+      "Newest highlight A",
+      "Newest highlight B",
+      "Older highlight C",
+    ])
   })
 
   test("falls back to English when zh release section is missing", async ({ page, gotoSession }) => {
@@ -277,7 +284,7 @@ test.describe("release notes toast", () => {
     // Title and action must follow the parsed body's locale (en) — never mix with zh UI locale.
     await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• English fallback bullet")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("English fallback bullet")
   })
 
   test("uses zh title and action when zh release section is present", async ({ page, gotoSession }) => {
@@ -299,8 +306,8 @@ test.describe("release notes toast", () => {
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
     await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("已更新到 v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("查看完整发布说明 →")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 A")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• 中文要点 B")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("中文要点 A")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("中文要点 B")
   })
 
   test("title and link anchor on the app's current version even when its release lacks a notice in the resolved locale", async ({
@@ -340,12 +347,12 @@ test.describe("release notes toast", () => {
     // link must still anchor on the app's current version, not summaries[0].
     await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
-    // Description's first segment must carry the v2026.5.10 tag, otherwise
+    // Markdown slot's first segment must carry the v2026.5.10 tag, otherwise
     // the older release's bullet would read as if it described the current
     // version (the title says v2026.5.11 but summaries[0] here is v2026.5.10
     // because the English fallback dropped v2026.5.11).
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("v2026.5.10")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• older en-only bullet")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("v2026.5.10")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("older en-only bullet")
   })
 
   test("falls back to English across the whole window when an older skipped release has no zh section", async ({
@@ -392,8 +399,8 @@ test.describe("release notes toast", () => {
     // action, and every segment — must be English.
     await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.11")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• newest en bullet")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).toContainText("• older en only")
-    await expect(page.locator(TOAST_DESCRIPTION_SELECTOR)).not.toContainText("中文")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("newest en bullet")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("older en only")
+    await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).not.toContainText("中文")
   })
 })
