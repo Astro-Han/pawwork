@@ -1201,7 +1201,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  5_000,
+  slowIOTimeout,
 )
 
 // Cancel semantics
