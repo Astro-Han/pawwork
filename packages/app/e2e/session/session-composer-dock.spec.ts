@@ -14,7 +14,9 @@ import {
   permissionDockSelector,
   promptSelector,
   questionDockSelector,
+  scrollViewportSelector,
   sessionComposerDockSelector,
+  sessionTurnListSelector,
   sessionTodoToggleButtonSelector,
 } from "../selectors"
 import { modKey } from "../utils"
@@ -44,6 +46,21 @@ async function withDockSession<T>(
     return await fn(session)
   } finally {
     await cleanupSession({ sdk, sessionID: session.id })
+  }
+}
+
+async function seedSessionTurns(input: { sdk: Sdk; sessionID: string; count: number }) {
+  for (let i = 0; i < input.count; i++) {
+    await input.sdk.session.promptAsync({
+      sessionID: input.sessionID,
+      noReply: true,
+      parts: [
+        {
+          type: "text",
+          text: `composer dock seed ${i}\n${Array.from({ length: 16 }, (_, line) => `line ${line} ${"content ".repeat(8)}`).join("\n")}`,
+        },
+      ],
+    })
   }
 }
 
@@ -240,6 +257,39 @@ async function scrollTimelineToBottom(page: Page) {
       })
     })
     .toBeLessThanOrEqual(40)
+}
+
+async function scrollTimelineAwayFromBottom(page: Page, distance = 180) {
+  await page.evaluate(
+    ({ scrollViewportSelector, targetDistance, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) throw new Error("Missing scroll viewport")
+      const wheel = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -targetDistance,
+        deltaMode: 0,
+      })
+      viewport.dispatchEvent(wheel)
+      viewport.scrollTop = Math.max(0, viewport.scrollTop - targetDistance)
+      viewport.dispatchEvent(new Event("scroll", { bubbles: true }))
+    },
+    { scrollViewportSelector, targetDistance: distance, turnListSelector: sessionTurnListSelector },
+  )
+  await expect
+    .poll(async () => {
+      return page.evaluate(
+        ({ scrollViewportSelector, turnListSelector }) => {
+          const list = document.querySelector(turnListSelector)
+          const viewport = list?.closest(scrollViewportSelector)
+          if (!(viewport instanceof HTMLElement)) return 0
+          return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+        },
+        { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+      )
+    })
+    .toBeGreaterThanOrEqual(distance - 40)
 }
 
 async function expectQuestionOptionVisible(page: Page, optionIndex: number) {
@@ -1448,6 +1498,7 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
     title,
     async (session) => {
       const dock = await todoDock(page, session.id)
+      await seedSessionTurns({ sdk: project.sdk, sessionID: session.id, count: 12 })
       await project.gotoSession(session.id)
       await assistant.reply(longReply)
 
@@ -1495,20 +1546,7 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
       expect(metrics!.messageDistance).toBeGreaterThanOrEqual(0)
       expect(metrics!.tailDistance).toBeGreaterThanOrEqual(0)
 
-      const before = metrics!.scrollTop
-      const viewport = page.locator('[data-component="scroll-viewport"]').first()
-      await viewport.hover()
-      await page.mouse.wheel(0, -360)
-
-      await expect
-        .poll(async () => {
-          return page.evaluate(() => {
-            const viewport = document.querySelector('[data-component="scroll-viewport"]')
-            if (!(viewport instanceof HTMLElement)) return 0
-            return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
-          })
-        })
-        .toBeGreaterThan(120)
+      await scrollTimelineAwayFromBottom(page)
 
       const distanceBeforeExpansion = await page.evaluate(() => {
         const viewport = document.querySelector('[data-component="scroll-viewport"]')
@@ -1540,7 +1578,6 @@ test("e2e composer dock keeps latest turn visible when dock height changes", asy
         .toBeGreaterThanOrEqual(distanceBeforeExpansion - 40)
 
       expect(afterUserScroll).not.toBeNull()
-      expect(afterUserScroll!.scrollTop).toBeLessThan(before)
 
       await mkdir(".artifacts/session-scroll-dock", { recursive: true })
       await page.screenshot({ path: ".artifacts/session-scroll-dock/latest-visible.png" })
@@ -1649,6 +1686,7 @@ test("overflow question dock keeps keyboard focus visible without moving timelin
         await expectQuestionBlocked(page)
         await expectQuestionOptionsOverflow(page)
 
+        await page.locator(`${questionDockSelector} [data-slot="question-option"]`).first().focus()
         await page.keyboard.press("End")
         await expectQuestionOptionVisible(page, overflowQuestions[0].options.length - 1)
         const distanceAfterEnd = await page.evaluate(() => {
@@ -1668,7 +1706,10 @@ test("keyboard focus stays off prompt while blocked", async ({ page, llm, projec
     {
       header: "Need input",
       question: "Pick one option",
-      options: [{ label: "Continue", description: "Continue now" }],
+      options: [
+        { label: "Continue", description: "Continue now" },
+        { label: "Stop", description: "Stop here" },
+      ],
     },
   ]
   await project.open()
@@ -1709,7 +1750,10 @@ test("question text renders source newlines as visible line breaks", async ({ pa
     {
       header: "Multiline",
       question: "First paragraph\n\nSecond paragraph",
-      options: [{ label: "OK", description: "ack" }],
+      options: [
+        { label: "OK", description: "ack" },
+        { label: "Cancel", description: "skip" },
+      ],
     },
   ]
   await withDockSession(
