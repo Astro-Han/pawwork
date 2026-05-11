@@ -549,7 +549,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           removeLabel={language.t("prompt.attachment.remove")}
         />
         <div
-          class="relative"
+          class="relative overflow-hidden rounded-b-[var(--radius-lg)]"
           onMouseDown={(e) => {
             const target = e.target
             if (!(target instanceof HTMLElement)) return
