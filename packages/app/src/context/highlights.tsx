@@ -268,21 +268,33 @@ function escapeHtml(text: string): string {
 // minimal HTML for the toast-markdown slot. Only bullet lists and paragraphs
 // are needed — the GitHub release format does not use other block elements.
 function buildToastMarkdownHtml(text: string): string {
-  const sections = text.split("\n\n")
-  return sections
-    .map((section) => {
-      const lines = section.split("\n")
-      const isList = lines.every((line) => /^[•\-*+] /.test(line.trim()) || line.trim() === "")
-      if (isList) {
-        const items = lines
-          .filter((line) => /^[•\-*+] /.test(line.trim()))
-          .map((line) => `<li>${escapeHtml(line.replace(/^[•\-*+] /, "").trim())}</li>`)
-          .join("")
-        return `<ul>${items}</ul>`
-      }
-      return `<p>${escapeHtml(section)}</p>`
-    })
-    .join("")
+  const lines = text.split("\n")
+  const result: string[] = []
+  const bulletBuffer: string[] = []
+
+  const flushBullets = () => {
+    if (bulletBuffer.length > 0) {
+      result.push(`<ul>${bulletBuffer.map((b) => `<li>${b}</li>`).join("")}</ul>`)
+      bulletBuffer.length = 0
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed === "") {
+      flushBullets()
+      continue
+    }
+    if (/^[•\-*+] /.test(trimmed)) {
+      bulletBuffer.push(escapeHtml(trimmed.replace(/^[•\-*+] /, "").trim()))
+    } else {
+      flushBullets()
+      result.push(`<p>${escapeHtml(trimmed)}</p>`)
+    }
+  }
+  flushBullets()
+
+  return result.join("")
 }
 
 function buildToastDescription(summaries: ReleaseSummary[], currentTag: string) {
