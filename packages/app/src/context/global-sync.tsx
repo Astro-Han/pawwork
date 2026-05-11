@@ -471,6 +471,7 @@ function createGlobalSync() {
     },
     child: children.child,
     peek: children.peek,
+    peekExisting: children.peekExisting,
     retainDirectory,
     bootstrap,
     updateConfig,
