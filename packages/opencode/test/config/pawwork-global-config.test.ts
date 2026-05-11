@@ -499,7 +499,7 @@ describe("PawWork global config isolation", () => {
     }
   })
 
-  test("legacy fallback JSON config is read without schema or default_agent writeback", async () => {
+  test("legacy fallback JSON config is read without deprecated agent writeback", async () => {
     await using home = await tmpdir()
     await using platformLegacy = await tmpdir()
     await using project = await tmpdir({ git: true })
@@ -518,7 +518,7 @@ describe("PawWork global config isolation", () => {
         fn: async () => {
           const config = await load()
           expect(config.model).toBe("legacy/model")
-          expect(config.default_agent).toBeUndefined()
+          expect("default_agent" in config).toBeFalse()
           expect(await Bun.file(legacy).text()).toBe(original)
         },
       })
@@ -527,7 +527,7 @@ describe("PawWork global config isolation", () => {
     }
   })
 
-  test("PAWWORK_CONFIG_DIR fallback config is read without schema or default_agent writeback", async () => {
+  test("PAWWORK_CONFIG_DIR fallback config is read without deprecated agent writeback", async () => {
     await using primary = await tmpdir()
     await using fallback = await tmpdir()
     await using project = await tmpdir({ git: true })
@@ -543,7 +543,7 @@ describe("PawWork global config isolation", () => {
       fn: async () => {
         const config = await load()
         expect(config.model).toBe("fallback/model")
-        expect(config.default_agent).toBeUndefined()
+        expect("default_agent" in config).toBeFalse()
         expect(await Bun.file(configFile).text()).toBe(original)
       },
     })
@@ -601,7 +601,7 @@ describe("PawWork global config isolation", () => {
           await Config.seedGlobalConfig()
           const saved = JSON.parse(await Bun.file(path.join(home.path, ".pawwork", "pawwork.json")).text())
           expect(saved.username).toBe("legacy-user")
-          expect(saved.default_agent).toBeUndefined()
+          expect("default_agent" in saved).toBeFalse()
           expect(await Bun.file(legacy).text()).toBe(original)
         },
       })

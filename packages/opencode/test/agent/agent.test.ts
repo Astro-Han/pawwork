@@ -373,36 +373,6 @@ test("multiple custom agents can be defined", async () => {
   })
 })
 
-test("Agent.list keeps the default agent first and sorts the rest by name", async () => {
-  await using tmp = await tmpdir({
-    config: {
-      default_agent: "my_primary",
-      agent: {
-        my_primary: {
-          description: "Custom primary",
-          mode: "primary",
-        },
-        zebra: {
-          description: "Zebra",
-          mode: "subagent",
-        },
-        alpha: {
-          description: "Alpha",
-          mode: "subagent",
-        },
-      },
-    },
-  })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const names = (await Agent.list()).map((a) => a.name)
-      expect(names[0]).toBe("my_primary")
-      expect(names.slice(1)).toEqual(names.slice(1).toSorted((a, b) => a.localeCompare(b)))
-    },
-  })
-})
-
 test("Agent.get returns undefined for non-existent agent", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
@@ -617,80 +587,12 @@ test("opencode tmp directory is allowed for external_directory", async () => {
   })
 })
 
-test("defaultAgent returns build when no default_agent config", async () => {
+test("defaultAgent returns build by default", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
       const agent = await Agent.defaultAgent()
-      expect(agent).toBe("build")
-    },
-  })
-})
-
-test("defaultAgent respects default_agent config set to custom agent with mode all", async () => {
-  await using tmp = await tmpdir({
-    config: {
-      default_agent: "my_custom",
-      agent: {
-        my_custom: {
-          description: "My custom agent",
-        },
-      },
-    },
-  })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const agent = await Agent.defaultAgent()
-      expect(agent).toBe("my_custom")
-    },
-  })
-})
-
-test("defaultAgent falls back to build when default_agent points to subagent", async () => {
-  await using tmp = await tmpdir({
-    config: {
-      default_agent: "explore",
-    },
-  })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const agent = await Agent.defaultAgent()
-      // gentle fallback per issue #239 — invalid default_agent silently degrades
-      expect(agent).toBe("build")
-    },
-  })
-})
-
-test("defaultAgent falls back to build when default_agent points to hidden agent", async () => {
-  await using tmp = await tmpdir({
-    config: {
-      default_agent: "compaction",
-    },
-  })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const agent = await Agent.defaultAgent()
-      expect(agent).toBe("build")
-    },
-  })
-})
-
-test("defaultAgent falls back to build when default_agent points to non-existent agent", async () => {
-  await using tmp = await tmpdir({
-    config: {
-      default_agent: "does_not_exist",
-    },
-  })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const agent = await Agent.defaultAgent()
-      // covers the post-#239 case where a project/managed config still references
-      // a now-removed agent like "plan"
       expect(agent).toBe("build")
     },
   })

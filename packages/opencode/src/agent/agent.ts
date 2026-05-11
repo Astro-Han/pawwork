@@ -271,29 +271,19 @@ export namespace Agent {
           })
 
           const list = Effect.fnUntraced(function* () {
-            const cfg = yield* config.get()
+            yield* Effect.void
             return pipe(
               agents,
               values(),
               sortBy(
-                [(x) => (cfg.default_agent ? x.name === cfg.default_agent : x.name === "build"), "desc"],
+                [(x) => x.name === "build", "desc"],
                 [(x) => x.name, "asc"],
               ),
             )
           })
 
           const defaultAgent = Effect.fnUntraced(function* () {
-            const c = yield* config.get()
-            if (c.default_agent) {
-              // Gentle fallback (issue #239): if the configured default_agent is missing,
-              // a subagent, or hidden, ignore it and fall through. This covers configs
-              // outside the loadGlobal migration path (project, env, managed) that may
-              // still reference an agent removed by an upgrade (e.g. "plan").
-              const agent = agents[c.default_agent]
-              if (agent && agent.mode !== "subagent" && agent.hidden !== true) {
-                return agent.name
-              }
-            }
+            yield* Effect.void
             const visible = Object.values(agents).find((a) => a.mode !== "subagent" && a.hidden !== true)
             if (!visible) throw new Error("no primary visible agent found")
             return visible.name
