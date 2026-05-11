@@ -602,12 +602,12 @@ export default function Layout(props: ParentProps) {
       projectKeyForSession,
       projectLabelForSession,
       messagesForSession: (session) => {
-        const [store] = globalSync.child(session.directory, { bootstrap: false, pin: false })
-        return store.message[session.id]
+        const tuple = globalSync.peekExisting(session.directory)
+        return tuple?.[0].message[session.id]
       },
       partsForMessage: (session, messageID) => {
-        const [store] = globalSync.child(session.directory, { bootstrap: false, pin: false })
-        return store.part[messageID]
+        const tuple = globalSync.peekExisting(session.directory)
+        return tuple?.[0].part[messageID]
       },
     })
     const hidden = store.pawworkProjectHidden

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { buildPawworkSidebarSessionRows } from "./pawwork-session-source"
 
@@ -142,5 +143,14 @@ describe("buildPawworkSidebarSessionRows", () => {
     )
 
     expect(result[0].created).toBe(300)
+  })
+
+  test("layout sidebar timestamp cache reads do not create child stores", () => {
+    const source = readFileSync(new URL("../layout.tsx", import.meta.url), "utf8")
+
+    expect(source).not.toContain("globalSync.child(session.directory, { bootstrap: false, pin: false })")
+    expect(source).toContain("const tuple = globalSync.peekExisting(session.directory)")
+    expect(source).toContain("return tuple?.[0].message[session.id]")
+    expect(source).toContain("return tuple?.[0].part[messageID]")
   })
 })

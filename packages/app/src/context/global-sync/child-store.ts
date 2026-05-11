@@ -11,6 +11,7 @@ import {
   DIR_IDLE_TTL_MS,
   MAX_DIR_STORES,
   type ChildOptions,
+  type ChildStoreTuple,
   type DirState,
   type IconCache,
   type MetaCache,
@@ -29,7 +30,7 @@ export function createChildStoreManager(input: {
   onDispose: (directory: string) => void
   translate: (key: string, vars?: Record<string, string | number>) => string
 }) {
-  const children: Record<string, [Store<State>, SetStoreFunction<State>]> = {}
+  const children: Record<string, ChildStoreTuple> = {}
   const vcsCache = new Map<string, VcsCache>()
   const metaCache = new Map<string, MetaCache>()
   const iconCache = new Map<string, IconCache>()
@@ -257,6 +258,11 @@ export function createChildStoreManager(input: {
     return childStore
   }
 
+  function peekExisting(directory: string): ChildStoreTuple | undefined {
+    validateChildStoreDirectory(directory)
+    return children[directory]
+  }
+
   function projectMeta(directory: string, patch: ProjectMeta) {
     const [store, setStore] = ensureChild(directory)
     const cached = metaCache.get(directory)
@@ -288,6 +294,7 @@ export function createChildStoreManager(input: {
     ensureChild,
     child,
     peek,
+    peekExisting,
     projectMeta,
     projectIcon,
     mark,

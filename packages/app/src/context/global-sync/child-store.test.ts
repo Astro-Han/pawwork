@@ -8,7 +8,10 @@ import { ChildStoreError, type ChildStorePersistedFactory } from "./child-store-
 
 const child = () => createStore({} as State)
 
-function createManager(persist?: ChildStorePersistedFactory) {
+function createManager(
+  persist?: ChildStorePersistedFactory,
+  overrides?: Partial<Parameters<typeof createChildStoreManager>[0]>,
+) {
   const owner = createRoot((dispose) => {
     const current = getOwner()
     dispose()
@@ -27,6 +30,7 @@ function createManager(persist?: ChildStorePersistedFactory) {
       if (key === "error.childStore.persistedCacheCreateFailed") return "Failed to create persisted cache"
       return key
     },
+    ...overrides,
   })
 }
 
@@ -70,6 +74,35 @@ describe("createChildStoreManager", () => {
     const manager = createManager()
 
     expect(() => manager.child(undefined as unknown as string)).toThrow("Invalid workspace directory for child store")
+  })
+
+  test("peekExisting returns undefined without creating child caches", () => {
+    const bootstrapCalls: string[] = []
+    const manager = createManager(undefined, {
+      onBootstrap(directory) {
+        bootstrapCalls.push(directory)
+      },
+    })
+
+    expect(manager.peekExisting("/tmp/missing")).toBeUndefined()
+    expect(Object.keys(manager.children)).toHaveLength(0)
+    expect(manager.vcsCache.size).toBe(0)
+    expect(manager.metaCache.size).toBe(0)
+    expect(manager.iconCache.size).toBe(0)
+    expect(bootstrapCalls).toEqual([])
+  })
+
+  test("peekExisting returns an existing child store without changing creation semantics", () => {
+    const manager = createManager((_target, store) => [
+      store[0],
+      store[1],
+      null,
+      Object.assign(() => true, { promise: undefined }),
+    ])
+    const directory = "/tmp/project"
+    const tuple = manager.child(directory, { bootstrap: false, pin: false })
+
+    expect(manager.peekExisting(directory)).toBe(tuple)
   })
 
   test("preserves persisted setup cause and workspace target context", () => {

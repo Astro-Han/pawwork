@@ -93,6 +93,8 @@ export type State = {
   }
 }
 
+export type ChildStoreTuple = [Store<State>, SetStoreFunction<State>]
+
 export type VcsCache = {
   store: Store<{ value: VcsInfo | undefined }>
   setStore: SetStoreFunction<{ value: VcsInfo | undefined }>
