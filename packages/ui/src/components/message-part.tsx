@@ -1388,6 +1388,10 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
 
   const input = () => part().state?.input ?? emptyInput
   const partMetadata = () => toolStateMetadata(part().state)
+  // Hide synthetic stop tool parts while keeping metadata available for exported diagnostics.
+  const hideSyntheticStop = createMemo(
+    () => partMetadata().diagnostics?.loop?.loopAction === "stop",
+  )
   const taskId = createMemo(() => {
     if (part().tool !== "task" && part().tool !== "agent") return // agent-rename:legacy-render
     const value = partMetadata().sessionId
@@ -1407,7 +1411,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
 
   return (
-    <Show when={!hideQuestion()}>
+    <Show when={!hideQuestion() && !hideSyntheticStop()}>
       <div data-component="tool-part-wrapper">
         <Switch>
           <Match when={part().state.status === "error" && toolStateError(part().state)}>

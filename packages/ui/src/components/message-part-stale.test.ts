@@ -51,6 +51,19 @@ test("partMetadata is a fresh accessor over part().state, not a setup-time snaps
   expect(source).not.toMatch(/const partMetadata\s*=\s*createMemo\(\)/)
 })
 
+test("synthetic stop tool parts are hidden through reactive metadata", () => {
+  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+
+  expect(source).toContain("const hideSyntheticStop = createMemo(")
+  expect(source).toMatch(/partMetadata\(\)\.diagnostics\?\.loop\?\.loopAction\s*===\s*"stop"/)
+})
+
+test("tool part wrapper suppresses both pending questions and synthetic stop tools", () => {
+  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+
+  expect(source).toContain("<Show when={!hideQuestion() && !hideSyntheticStop()}>")
+})
+
 // Ensure the metadata extractor itself respects the shape variations the
 // live message stream actually emits — including the case where the part
 // initially has no metadata key and gains one on the next update.
