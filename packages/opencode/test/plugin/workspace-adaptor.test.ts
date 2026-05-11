@@ -49,7 +49,7 @@ async function waitFor(fn: () => boolean, timeout = 5_000) {
   throw new Error("timed out waiting for workspace status")
 }
 
-async function waitForCounter(file: string, min: number) {
+async function waitForCounter(file: string, min: number, timeout = 5_000) {
   const read = async () => {
     const text = await Bun.file(file)
       .text()
@@ -61,15 +61,19 @@ async function waitForCounter(file: string, min: number) {
     if (!Number.isFinite(value)) throw new Error(`invalid retry counter value: ${text}`)
     return value
   }
-  const end = Date.now() + 5_000
+  const end = Date.now() + timeout
   let value = 0
   while (Date.now() < end) {
     value = await read()
     if (value > min) return value
     await wait(50)
   }
-  throw new Error(`timed out waiting for counter ${file} to exceed ${min}; last value=${value}`)
+  value = await read()
+  if (value > min) return value
+  throw new Error(`timed out after ${timeout}ms waiting for counter ${file} to exceed ${min}; last value=${value}`)
 }
+
+const workspaceSyncRetryTimeout = process.platform === "win32" ? 20_000 : 5_000
 
 async function pluginProject() {
   return tmpdir({
@@ -518,11 +522,11 @@ describe("plugin.workspace", () => {
     await Instance.disposeAll()
 
     await Workspace.get(workspace.id)
-    const first = await waitForCounter(tmp.extra.counter, 0)
+    const first = await waitForCounter(tmp.extra.counter, 0, workspaceSyncRetryTimeout)
     expect(first).toBeGreaterThan(0)
 
     await Workspace.get(workspace.id)
-    const second = await waitForCounter(tmp.extra.counter, first)
+    const second = await waitForCounter(tmp.extra.counter, first, workspaceSyncRetryTimeout)
     expect(second).toBeGreaterThan(first)
 
     const status = Workspace.status().find((item) => item.workspaceID === workspace.id)
