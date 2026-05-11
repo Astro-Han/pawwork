@@ -60,6 +60,7 @@ export const sidebarNavMobileSelector = '[data-component="sidebar-nav-mobile"]'
 export const popoverBodySelector = '[data-slot="popover-body"]'
 
 export const dropdownMenuContentSelector = '[data-component="dropdown-menu-content"]'
+export const contextMenuContentSelector = '[data-component="context-menu-content"]'
 
 export const inlineInputSelector = '[data-component="input"][data-variant="inline"]'
 
