@@ -23,7 +23,7 @@ import { setCursorPosition } from "./editor-dom"
 import { buildHomeOverride } from "./home-override"
 import { formatServerError } from "@/utils/server-errors"
 import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
-import { promptScopeForSession } from "@/pages/session/prompt-route-scope"
+import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/prompt-route-scope"
 
 type PendingPrompt = {
   abort: AbortController
@@ -355,6 +355,11 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     promptProbe.start()
 
     const projectDirectory = sdk.directory
+    // Capture the source scope before any await so navigate() cannot change params.id under us
+    const sourcePromptScope: PromptRouteScope = {
+      dir: params.dir ?? base64Encode(projectDirectory),
+      id: params.id,
+    }
     const shouldAutoAccept = creatingNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
@@ -450,7 +455,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     const clearInput = () => {
-      prompt.reset()
+      prompt.reset(sourcePromptScope)
       input.setMode("normal")
       input.setPopover(null)
     }
