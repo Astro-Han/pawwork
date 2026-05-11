@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures"
 import { openSidebar, withSession, clickMenuItem } from "../actions"
-import { pawworkSidebarSelector, dropdownMenuContentSelector } from "../selectors"
+import { pawworkSidebarSelector, contextMenuContentSelector, dropdownMenuContentSelector } from "../selectors"
 import type { TestInfo } from "@playwright/test"
 
 async function capture(page: any, testInfo: TestInfo, name: string) {
@@ -37,13 +37,27 @@ test("project group can be renamed from sidebar", async ({ page, sdk, gotoSessio
       // Screenshot: project menu opened
       await capture(page, testInfo, `02-project-menu-${stamp}`)
 
-      // Click rename
       const menu = page.locator(dropdownMenuContentSelector).first()
+      await expect(menu).toBeVisible()
+      await expect(menu).toContainText("Rename project")
+      await expect(menu).not.toContainText("project.rename")
+      await page.keyboard.press("Escape")
+
+      await header.click({ button: "right" })
+      const contextMenu = page.locator(contextMenuContentSelector).first()
+      await expect(contextMenu).toBeVisible()
+      await expect(contextMenu).toContainText("Rename project")
+      await expect(contextMenu).not.toContainText("project.rename")
+      await page.keyboard.press("Escape")
+
+      await menuTrigger.click()
+      await expect(menu).toBeVisible()
       await clickMenuItem(menu, /Rename project/)
 
       // Dialog should appear
       const dialog = page.locator('[data-component="dialog"]').filter({ hasText: /Rename project/ }).first()
       await expect(dialog).toBeVisible()
+      await expect(dialog).not.toContainText("project.rename")
 
       // Screenshot: rename dialog
       await capture(page, testInfo, `03-rename-dialog-${stamp}`)
@@ -96,10 +110,10 @@ test("project group can be removed from sidebar", async ({ page, sdk, gotoSessio
 
       // Click remove
       const menu = page.locator(dropdownMenuContentSelector).first()
-      await clickMenuItem(menu, /Remove from sidebar/)
+      await clickMenuItem(menu, /Remove project/)
 
       // Confirm dialog should appear
-      const dialog = page.locator('[data-component="dialog"]').filter({ hasText: /Remove project from sidebar/ }).first()
+      const dialog = page.locator('[data-component="dialog"]').filter({ hasText: /Remove project/ }).first()
       await expect(dialog).toBeVisible()
 
       // Screenshot: remove confirm dialog
@@ -145,9 +159,9 @@ test("hidden project restores on direct navigation", async ({ page, sdk, gotoSes
       await menuTrigger.click()
 
       const menu = page.locator(dropdownMenuContentSelector).first()
-      await clickMenuItem(menu, /Remove from sidebar/)
+      await clickMenuItem(menu, /Remove project/)
 
-      const dialog = page.locator('[data-component="dialog"]').filter({ hasText: /Remove project from sidebar/ }).first()
+      const dialog = page.locator('[data-component="dialog"]').filter({ hasText: /Remove project/ }).first()
       await expect(dialog).toBeVisible()
       await dialog.locator('button').filter({ hasText: /Remove/ }).first().click()
 
