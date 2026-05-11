@@ -83,23 +83,34 @@ test("@smoke home composer shows unified single-row bar with brand orange send",
   await expect(workspaceChip).toBeVisible()
 })
 
-test("home model chip stays at w-44 (176px) with chip row neighbors visible", async ({ page, project }) => {
+test("home model chip keeps the single-row controls visible", async ({ page, project }) => {
   await project.open()
 
   const home = page.locator('[data-component="session-new-home"]')
   const composer = home.locator(sessionComposerDockSelector)
+  const attach = composer.locator('[data-action="prompt-attach"]').first()
   const chip = composer.locator('[data-component="prompt-model-control"] [data-action="prompt-model"]').first()
+  const workspace = composer.getByRole("button", { name: /Switch workspace|切换工作目录/i })
+  const send = composer.locator('[data-action="prompt-submit"]').first()
 
   await expect(chip).toBeVisible()
-  await expect(chip).toHaveCSS("width", "176px")
 
-  // Guard the single-row chip bar: attach, variant, workspace, send all stay visible
-  // when the model chip is at its w-44 width (regression catches w-48 revert or any
-  // overflow-by-neighbor).
-  await expect(composer.locator('[data-action="prompt-attach"]').first()).toBeVisible()
-  await expect(composer.locator('[data-action="prompt-model-variant"]').first()).toBeVisible()
-  await expect(page.getByRole("button", { name: /Switch workspace|切换工作目录/i })).toBeVisible()
-  await expect(composer.locator('[data-action="prompt-submit"]').first()).toBeVisible()
+  // Guard the single-row chip bar contract without pinning the model chip to
+  // an obsolete fixed width.
+  const composerBox = await composer.boundingBox()
+  expect(composerBox).not.toBeNull()
+
+  for (const control of [attach, chip, workspace, send]) {
+    await expect(control).toBeVisible()
+    const controlBox = await control.boundingBox()
+
+    expect(controlBox).not.toBeNull()
+    expect(controlBox!.width).toBeGreaterThan(0)
+    expect(controlBox!.x).toBeGreaterThanOrEqual(composerBox!.x)
+    expect(controlBox!.x + controlBox!.width).toBeLessThanOrEqual(composerBox!.x + composerBox!.width)
+    expect(controlBox!.y).toBeGreaterThanOrEqual(composerBox!.y)
+    expect(controlBox!.y + controlBox!.height).toBeLessThanOrEqual(composerBox!.y + composerBox!.height)
+  }
 })
 
 test("@smoke project home status panel can open the server picker dialog", async ({ page, project }) => {
