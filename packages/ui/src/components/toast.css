@@ -220,15 +220,6 @@
     p {
       margin: 4px 0;
     }
-
-    strong {
-      font-weight: var(--font-weight-medium);
-    }
-
-    h3, h4 {
-      font-weight: var(--font-weight-medium);
-      margin: 8px 0 4px;
-    }
   }
 }
 

@@ -262,6 +262,7 @@ function escapeHtml(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
 }
 
 // Convert the plain-text description produced by buildToastDescription into
