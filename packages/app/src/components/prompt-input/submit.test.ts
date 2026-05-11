@@ -30,6 +30,7 @@ const abortedSessions: string[] = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
+const promptResetCalls: Array<{ target?: { dir: string; id?: string } }> = []
 
 let params: { dir?: string; id?: string } = {}
 let selected = "/repo/worktree-a"
@@ -136,7 +137,9 @@ beforeAll(async () => {
   mock.module("@/context/prompt", () => ({
     usePrompt: () => ({
       current: () => promptValue,
-      reset: (_target?: { dir: string; id?: string }) => undefined,
+      reset: (target?: { dir: string; id?: string }) => {
+        promptResetCalls.push({ target })
+      },
       set: (next: Prompt, cursor?: number, target?: { dir: string; id?: string }) => {
         promptSetCalls.push({ prompt: next, cursor, target })
       },
@@ -260,6 +263,7 @@ beforeEach(() => {
   globalTodoSets.length = 0
   childTodoSets.length = 0
   promptSetCalls.length = 0
+  promptResetCalls.length = 0
   params = {}
   sentShell.length = 0
   syncedDirectories.length = 0
@@ -724,5 +728,36 @@ describe("prompt submit worktree selection", () => {
     })
 
     expect(commandCalls.at(-1)?.locale).toBe("zh-Hans")
+  })
+
+  test("clears prompt source scope on successful new-session submit", async () => {
+    params = { dir: "/repo/main" }
+    promptValue = [{ type: "text", content: "hello", start: 0, end: 5 }]
+
+    const submit = createPromptSubmit({
+      info: () => undefined,
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) =>
+        value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => promptResetCalls.length > 0)
+
+    // clearInput must reset the SOURCE scope (home page: dir=/repo/main, no session id)
+    // not the FINAL scope (new session route after navigate changes params.id)
+    expect(promptResetCalls.at(-1)?.target?.dir).toBe("/repo/main")
+    expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
   })
 })
