@@ -3,6 +3,7 @@ import type { ToastRootProps, ToastCloseButtonProps, ToastTitleProps, ToastDescr
 import type { ComponentProps, JSX } from "solid-js"
 import { onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
+import DOMPurify from "dompurify"
 import { useI18n } from "../context/i18n"
 import { Icon, type IconProps } from "./icon"
 import { IconButton } from "./icon-button"
@@ -108,6 +109,7 @@ export interface ToastAction {
 export interface ToastOptions {
   title?: string
   description?: string
+  markdownHtml?: string // pre-converted HTML string for markdown content; sanitized at render time
   icon?: IconProps["name"]
   variant?: ToastVariant
   duration?: number
@@ -167,6 +169,11 @@ export function showToast(options: ToastOptions | string) {
           </Show>
           <Show when={opts.description}>
             <Toast.Description>{opts.description}</Toast.Description>
+          </Show>
+          <Show when={opts.markdownHtml}>
+            {/* innerHTML is safe: content produced by escapeHtml() in highlights.tsx;
+                DOMPurify here provides a second-layer defense */}
+            <div data-slot="toast-markdown" innerHTML={DOMPurify.sanitize(opts.markdownHtml!)} />
           </Show>
           <Show when={opts.actions?.length}>
             <Toast.Actions>
