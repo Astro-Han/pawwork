@@ -111,7 +111,7 @@ export function SettingsMemory(props: { directory?: string }) {
         </Show>
 
         <Show when={state.latest?.profileTooLarge}>
-          <section class="rounded border border-border bg-bg-panel p-3 text-13-regular text-fg-weak">
+          <section class="rounded border border-border bg-surface-base p-3 text-13-regular text-fg-weak">
             {language.t("settings.memory.profileTooLarge")}
           </section>
         </Show>
