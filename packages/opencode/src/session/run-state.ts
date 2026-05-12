@@ -9,15 +9,14 @@ import { SessionStatus } from "./status"
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
   readonly cancel: (sessionID: SessionID, meta?: InterruptMeta) => Effect.Effect<void>
-  readonly interruptMeta: (sessionID: SessionID) => Effect.Effect<InterruptMeta | undefined>
   readonly ensureRunning: (
     sessionID: SessionID,
-    onInterrupt: Effect.Effect<MessageV2.WithParts>,
+    onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     work: Effect.Effect<MessageV2.WithParts>,
   ) => Effect.Effect<MessageV2.WithParts>
   readonly startShell: (
     sessionID: SessionID,
-    onInterrupt: Effect.Effect<MessageV2.WithParts>,
+    onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     work: Effect.Effect<MessageV2.WithParts>,
     ready?: Deferred.Deferred<void>,
   ) => Effect.Effect<MessageV2.WithParts>
@@ -49,7 +48,7 @@ export const layer = Layer.effect(
 
     const runner = Effect.fn("SessionRunState.runner")(function* (
       sessionID: SessionID,
-      onInterrupt: Effect.Effect<MessageV2.WithParts>,
+      onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     ) {
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
@@ -85,14 +84,9 @@ export const layer = Layer.effect(
       yield* existing.cancelWith(meta)
     })
 
-    const interruptMeta = Effect.fn("SessionRunState.interruptMeta")(function* (sessionID: SessionID) {
-      const data = yield* InstanceState.get(state)
-      return data.runners.get(sessionID)?.interruptMeta()
-    })
-
     const ensureRunning = Effect.fn("SessionRunState.ensureRunning")(function* (
       sessionID: SessionID,
-      onInterrupt: Effect.Effect<MessageV2.WithParts>,
+      onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
       work: Effect.Effect<MessageV2.WithParts>,
     ) {
       return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work)
@@ -100,14 +94,14 @@ export const layer = Layer.effect(
 
     const startShell = Effect.fn("SessionRunState.startShell")(function* (
       sessionID: SessionID,
-      onInterrupt: Effect.Effect<MessageV2.WithParts>,
+      onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
       work: Effect.Effect<MessageV2.WithParts>,
       ready?: Deferred.Deferred<void>,
     ) {
       return yield* (yield* runner(sessionID, onInterrupt)).startShell(work, { ready })
     })
 
-    return Service.of({ assertNotBusy, cancel, interruptMeta, ensureRunning, startShell })
+    return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })
   }),
 )
 

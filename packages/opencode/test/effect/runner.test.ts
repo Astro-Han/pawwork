@@ -142,7 +142,7 @@ describe("Runner", () => {
     "cancel with onInterrupt resolves callers gracefully",
     Effect.gen(function* () {
       const s = yield* Scope.Scope
-      const runner = Runner.make<string>(s, { onInterrupt: Effect.succeed("fallback") })
+      const runner = Runner.make<string>(s, { onInterrupt: () => Effect.succeed("fallback") })
       const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("never"))).pipe(Effect.forkChild)
       yield* Effect.sleep("10 millis")
 
@@ -158,7 +158,7 @@ describe("Runner", () => {
     "cancel with queued callers resolves all",
     Effect.gen(function* () {
       const s = yield* Scope.Scope
-      const runner = Runner.make<string>(s, { onInterrupt: Effect.succeed("fallback") })
+      const runner = Runner.make<string>(s, { onInterrupt: () => Effect.succeed("fallback") })
 
       const a = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("x"))).pipe(Effect.forkChild)
       yield* Effect.sleep("10 millis")
@@ -172,6 +172,33 @@ describe("Runner", () => {
       expect(Exit.isSuccess(exitB)).toBe(true)
       if (Exit.isSuccess(exitA)) expect(exitA.value).toBe("fallback")
       if (Exit.isSuccess(exitB)) expect(exitB.value).toBe("fallback")
+    }),
+  )
+
+  it.live(
+    "cancel binds interrupt metadata to the interrupted run",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const release = yield* Deferred.make<void>()
+      const runner = Runner.make<string>(s, {
+        onInterrupt: (meta) => Effect.succeed(meta?.reason ?? "missing"),
+      })
+      const work = Effect.never.pipe(
+        Effect.onInterrupt(() => Deferred.await(release)),
+        Effect.as("never"),
+      )
+
+      const fiber = yield* runner.ensureRunning(work).pipe(Effect.forkChild)
+      yield* Effect.sleep("10 millis")
+
+      yield* runner.cancelWith({ source: "first", reason: "first" }).pipe(Effect.forkChild)
+      yield* Effect.sleep("10 millis")
+      yield* runner.cancelWith({ source: "second", reason: "second" })
+      yield* Deferred.succeed(release, undefined)
+
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isSuccess(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) expect(exit.value).toBe("first")
     }),
   )
 
@@ -338,7 +365,7 @@ describe("Runner", () => {
     "cancel does not mask shell defects",
     Effect.gen(function* () {
       const s = yield* Scope.Scope
-      const runner = Runner.make<string>(s, { onInterrupt: Effect.succeed("interrupted") })
+      const runner = Runner.make<string>(s, { onInterrupt: () => Effect.succeed("interrupted") })
 
       const sh = yield* runner
         .startShell(Effect.never.pipe(Effect.ensuring(Effect.die("boom")), Effect.as("ignored")))
@@ -354,7 +381,7 @@ describe("Runner", () => {
     "cancel does not mask shell typed failures",
     Effect.gen(function* () {
       const s = yield* Scope.Scope
-      const runner = Runner.make<string, string>(s, { onInterrupt: Effect.succeed("interrupted") })
+      const runner = Runner.make<string, string>(s, { onInterrupt: () => Effect.succeed("interrupted") })
 
       const sh = yield* runner
         .startShell(Effect.never.pipe(Effect.onInterrupt(() => Effect.fail("boom")), Effect.as("ignored")))

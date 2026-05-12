@@ -1989,10 +1989,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>) {
-      const onInterrupt = Effect.gen(function* () {
+      const onInterrupt = (meta?: { source?: string; reason?: string; mode?: "soft" | "hard"; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
+        Effect.gen(function* () {
         interruptedSessions.add(input.sessionID)
         const assistant = yield* lastAssistant(input.sessionID)
-        const meta = yield* state.interruptMeta(input.sessionID)
         if (assistant.info.role === "assistant") {
           const error = assistant.info.error
           const errorMessage =
@@ -2028,7 +2028,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const ready = yield* Deferred.make<void>()
         return yield* state.startShell(
           input.sessionID,
-          shellCancelledAssistant(input.sessionID),
+          () => shellCancelledAssistant(input.sessionID),
           shellImpl(input, ready),
           ready,
         )
