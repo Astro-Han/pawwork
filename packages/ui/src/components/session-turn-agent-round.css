@@ -1,0 +1,140 @@
+/*
+ * Slice 11b.1 agent round.
+ *
+ * Layout: flat on `--bg-base`, no turn-frame, no container. Working-time
+ * header sits above the body, system event tail sits at the round's
+ * bottom, agent toolbar floats below the round on hover. DESIGN.md
+ * L463-L469 and W1 preview `.mf-agent-*` lock-stamp.
+ */
+
+[data-component="session-turn-agent-round"] {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  width: 100%;
+  /* Vertical rhythm per DESIGN.md L451:
+   *   user bubble → agent prose gap 24px  (owned by parent stack)
+   *   working-time header → prose 8px
+   *   prose ↔ trow row 12px
+   *   adjacent trow rows 8px (TrowBlock owns)
+   *   prose ↔ system event 12px
+   *   round → next user message 24px (owned by parent stack)
+   */
+  gap: 8px;
+}
+
+/* Working-time header — single caption, always visible, fg-weak. */
+[data-component="session-turn-agent-round"] [data-slot="agent-working-time"] {
+  font: var(--type-caption);
+  color: var(--fg-weak);
+  line-height: 1.4;
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-body"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px; /* prose ↔ trow rhythm */
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-prose"] {
+  color: var(--fg-strong);
+  font: var(--type-body);
+}
+
+/* Reasoning summaries — italic + muted, distinct from prose so users
+ * can scan past them. DESIGN.md L482 specs `--fg-secondary`, but that
+ * token is not yet in theme.css; `--fg-weak` is the closest current
+ * substitute and matches the spec's "muted" intent. Switching to the
+ * dedicated token is a one-line change when theme.css ships it. */
+[data-component="session-turn-agent-round"] [data-slot="agent-reasoning"] {
+  font: var(--type-body);
+  font-style: italic;
+  color: var(--fg-weak);
+  line-height: 1.5;
+}
+
+/* Toolbar — hover-only, always-mounted, opacity-driven. The full
+ * `.is-running` suppression (visibility hidden + pointer-events none
+ * + aria-hidden) keeps Tab from reaching inert buttons mid-stream. */
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar"] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  font: var(--type-caption);
+  color: var(--fg-weak);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) ease-out;
+}
+
+[data-component="session-turn-agent-round"]:hover [data-slot="agent-toolbar"],
+[data-component="session-turn-agent-round"]:focus-within [data-slot="agent-toolbar"],
+[data-component="session-turn-agent-round"][data-hover] [data-slot="agent-toolbar"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Running suppression — full kill, not opacity-only. visibility:hidden
+ * removes the buttons from the focus order; pointer-events:none defends
+ * against stray mouse clicks. aria-hidden is set in the JSX. */
+[data-component="session-turn-agent-round"][data-running] [data-slot="agent-toolbar"] {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-meta"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-time"] {
+  font: var(--type-caption);
+  color: var(--fg-weak);
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-actions"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-action"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--icon-base);
+  cursor: default;
+  padding: 0;
+  transition: background-color var(--duration-fast);
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-action"]:hover:not(:disabled) {
+  background-color: var(--hover-overlay, rgba(0, 0, 0, 0.06));
+  color: var(--icon-strong);
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-action"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--brand-primary), 0 0 0 3px rgba(255, 89, 16, 0.2);
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-action"]:disabled,
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-action"][aria-disabled="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-toolbar-action"] [data-icon] {
+  width: 16px;
+  height: 16px;
+}
