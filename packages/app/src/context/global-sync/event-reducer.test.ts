@@ -704,6 +704,45 @@ describe("applyDirectoryEvent", () => {
     expect(store.blocker[sessionID]).toEqual([])
   })
 
+  test("question.replied before blocker.upserted prevents stale blocker from reopening", () => {
+    const blockerTerminals = createBlockerTerminalCache({ now: () => 1000 })
+    const [store, setStore] = createStore(baseState())
+    const sessionID = "ses_1"
+
+    applyDirectoryEvent({
+      event: { type: "question.replied", properties: { sessionID, requestID: "q1" } },
+      directory: "/repo",
+      store,
+      setStore,
+      push() {},
+      loadLsp() {},
+      blockerTerminals,
+    })
+
+    applyDirectoryEvent({
+      event: {
+        type: "session.blocker.upserted",
+        properties: {
+          kind: "question",
+          status: "awaiting_user",
+          sessionID,
+          requestID: "q1",
+          request: questionRequest("q1", sessionID),
+          armedAt: 1,
+          updatedAt: 1,
+        },
+      },
+      directory: "/repo",
+      store,
+      setStore,
+      push() {},
+      loadLsp() {},
+      blockerTerminals,
+    })
+
+    expect(store.blocker[sessionID]).toBeUndefined()
+  })
+
   test("permission.replied before permission.asked prevents stale ask from reopening", () => {
     const blockerTerminals = createBlockerTerminalCache({ now: () => 1000 })
     const [store, setStore] = createStore(baseState())

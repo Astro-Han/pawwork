@@ -34,6 +34,7 @@ export type E2EWindow = Window & {
       stop: () => void
       start: () => void
       cursor: () => string | undefined
+      setCursorForTest: (value: string | undefined) => void
     }
   }
 }

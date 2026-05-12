@@ -195,6 +195,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
           void start()
         },
         cursor: replayCursor.current,
+        setCursorForTest: replayCursor.setCursorForTest,
       }
     }
 

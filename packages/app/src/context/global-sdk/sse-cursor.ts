@@ -5,6 +5,9 @@ export function createSseCursor() {
     current() {
       return value
     },
+    setCursorForTest(next: string | undefined) {
+      value = next || undefined
+    },
     update(id: string | undefined) {
       if (!id) return
       // SSE ids come from the server replay layer; keep this helper transport-only.

@@ -127,6 +127,15 @@ function globalEventStream(page: Page) {
         }
         win.__opencode_e2e?.globalEventStream?.start()
       }),
+    setCursorForTest: (value: string | undefined) =>
+      page.evaluate((value) => {
+        const win = window as Window & {
+          __opencode_e2e?: { globalEventStream?: { setCursorForTest: (value: string | undefined) => void } }
+        }
+        const hook = win.__opencode_e2e?.globalEventStream?.setCursorForTest
+        if (!hook) throw new Error("Missing e2e global event stream cursor override hook")
+        hook(value)
+      }, value),
   }
 }
 
@@ -617,6 +626,36 @@ test("question dock recovers after missed question.asked via SSE replay", async 
   )
 })
 
+test("question dock recovers after invalid replay cursor forces fallback refresh", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock question invalid cursor fallback",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+        await expect(page.locator(promptSelector)).toBeVisible()
+
+        const stream = globalEventStream(page)
+
+        await expect.poll(stream.cursor, { timeout: 10_000 }).toMatch(/:/)
+        await stream.stop()
+        await e2eAskQuestion(project, { sessionID: session.id, questions: defaultQuestions })
+        await waitForQuestionSeed(project, session.id)
+
+        await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 750 })
+        await stream.setCursorForTest("bad:999")
+        await expect.poll(stream.cursor, { timeout: 5_000 }).toBe("bad:999")
+        await stream.start()
+
+        await expectQuestionBlocked(page)
+        await expect(page.locator(questionDockSelector)).toHaveCount(1)
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("question dock renders from backend blocker when question sync is missing", async ({ page, project }) => {
   await project.open()
   await withDockSession(
@@ -659,6 +698,30 @@ test("stale question.asked does not reopen after question reply", async ({ page,
         await expectQuestionOpen(page)
 
         await e2ePublishQuestionAsked(project, request)
+        await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 1_000 })
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("stale session.blocker.upserted does not reopen after question reply", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock stale blocker question",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+
+        await e2eAskQuestion(project, { sessionID: session.id, questions: defaultQuestions })
+        const request = await waitForQuestionSeed(project, session.id)
+
+        await expectQuestionBlocked(page)
+        await project.sdk.question.reply({ requestID: request.id, questionReply: { answers: [["Continue"]] } })
+        await expectQuestionOpen(page)
+
+        await e2ePublishQuestionBlocker(project, request)
         await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 1_000 })
       })
     },
