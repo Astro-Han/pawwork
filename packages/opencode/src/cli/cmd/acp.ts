@@ -7,6 +7,7 @@ import { Server } from "@/server/server"
 import { ServerAuth } from "@/server/auth"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
+import { AppRuntime } from "@/effect/app-runtime"
 
 const log = Log.create({ service: "acp-command" })
 
@@ -23,7 +24,7 @@ export const AcpCommand = cmd({
   handler: async (args) => {
     process.env.OPENCODE_CLIENT = "acp"
     await bootstrap(process.cwd(), async () => {
-      const opts = await resolveNetworkOptions(args)
+      const opts = await AppRuntime.runPromise(resolveNetworkOptions(args))
       const server = await Server.listen(opts)
 
       const sdk = createOpencodeClient({

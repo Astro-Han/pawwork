@@ -35,7 +35,11 @@ function run(target) {
     }
 
     if (signal) {
-      process.kill(process.pid, signal)
+      try {
+        process.kill(process.pid, signal)
+      } catch {
+        process.exit(1)
+      }
       return
     }
 
