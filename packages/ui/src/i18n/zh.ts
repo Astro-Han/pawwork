@@ -69,11 +69,6 @@ export const dict = {
   "ui.sessionTurn.turnChanges.skippedNotice": "{{count}} 个文件因外部改动被跳过",
   "ui.sessionTurn.turnChanges.confirmListMore": "还有 {{count}} 个",
 
-  "ui.sessionTurnV2.workingTime": "正在运行 {{seconds}} 秒",
-  "ui.sessionTurnV2.trow.running": "正在运行 {{count}} 条命令",
-  "ui.sessionTurnV2.trow.completed": "已运行 {{count}} 条命令",
-  "ui.sessionTurnV2.trow.withFailed": "已运行 {{count}} 条命令，{{failed}} 条失败",
-
   "ui.sessionTurn.retry.retrying": "重试中",
   "ui.sessionTurn.retry.inSeconds": "{{seconds}} 秒后",
   "ui.sessionTurn.retry.attempt": "第 {{attempt}} 次",
