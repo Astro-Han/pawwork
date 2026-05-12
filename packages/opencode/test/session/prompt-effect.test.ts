@@ -1270,7 +1270,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  slowIOTimeout,
 )
 
 it.live(
@@ -1554,7 +1554,7 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
+  slowIOTimeout,
 )
 
 it.live(
