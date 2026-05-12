@@ -254,7 +254,7 @@ describe("bootstrapDirectory", () => {
         queryClient,
       })
 
-      await waitFor(() => store.provider_ready)
+      await waitFor(() => store.session_status_state === "error")
 
       expect(store.session_status_state).toBe("error")
       expect(store.session_status_ready).toBe(false)
