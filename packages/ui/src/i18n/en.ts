@@ -87,6 +87,13 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.status.gatheringThoughts": "Gathering thoughts",
   "ui.sessionTurn.status.consideringNextSteps": "Considering next steps",
 
+  "ui.sessionTurn.workingTime": "Worked for {{seconds}}s",
+  "ui.sessionTurn.trow.summary.running": "Running {{count}} commands",
+  "ui.sessionTurn.trow.summary.completed": "Ran {{count}} commands",
+  "ui.sessionTurn.trow.summary.withFailed": "Ran {{count}} commands, {{failed}} failed",
+  "ui.sessionTurn.trow.failed": "Failed",
+  "ui.sessionTurn.bubble.fork": "Fork from this turn",
+
   "ui.messagePart.diagnostic.error": "Error",
   "ui.messagePart.title.edit": "Edit",
   "ui.messagePart.title.write": "Write",

@@ -90,6 +90,13 @@ export const dict = {
   "ui.sessionTurn.status.gatheringThoughts": "正在整理思路",
   "ui.sessionTurn.status.consideringNextSteps": "正在考虑下一步",
 
+  "ui.sessionTurn.workingTime": "已工作 {{seconds}}s",
+  "ui.sessionTurn.trow.summary.running": "正在运行 {{count}} 条命令",
+  "ui.sessionTurn.trow.summary.completed": "已运行 {{count}} 条命令",
+  "ui.sessionTurn.trow.summary.withFailed": "已运行 {{count}} 条命令，{{failed}} 条失败",
+  "ui.sessionTurn.trow.failed": "失败",
+  "ui.sessionTurn.bubble.fork": "从本轮分叉",
+
   "ui.messagePart.questions.dismissed": "问题已忽略",
   "ui.messagePart.questions.interrupted": "这个问题已取消，尚未收到回答。如需继续，请在下方重新说明。",
   "ui.messagePart.compaction": "会话已压缩",
