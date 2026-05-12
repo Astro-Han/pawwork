@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect"
 import path from "path"
 import fs from "fs/promises"
 import { pathToFileURL } from "url"
@@ -74,6 +74,8 @@ function defer<T>() {
   })
   return { promise, resolve }
 }
+
+type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
 function withSh<A, E, R>(fx: () => Effect.Effect<A, E, R>) {
   return withShell("/bin/sh", fx)
@@ -391,7 +393,7 @@ it.live("loop calls LLM and returns assistant message", () =>
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
-      yield* prompt.prompt({
+      const userMsg = yield* prompt.prompt({
         sessionID: chat.id,
         agent: "build",
         noReply: true,
@@ -1263,6 +1265,49 @@ it.live(
 )
 
 it.live(
+  "cancel before current assistant scaffold does not attach abort diagnostics to the previous assistant",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const { prompt, sessions, chat } = yield* boot({ title: "Pinned" })
+        const seeded = yield* seed(chat.id)
+        const nextUser = yield* user(chat.id, "more")
+
+        const started = defer<void>()
+        const release = defer<void>()
+        const mutableSessions = sessions as Mutable<typeof sessions>
+        const originalUpdateMessage = sessions.updateMessage
+        mutableSessions.updateMessage = (info) => {
+          if (info.role === "assistant" && info.parentID === nextUser.id) {
+            return Effect.gen(function* () {
+              started.resolve()
+              yield* Effect.promise(() => release.promise)
+              return yield* originalUpdateMessage(info)
+            })
+          }
+          return originalUpdateMessage(info)
+        }
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSessions.updateMessage = originalUpdateMessage)))
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* Effect.promise(() => started.promise)
+        yield* prompt.cancel(chat.id)
+        release.resolve()
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const previous = yield* sessions.findMessage(chat.id, (message) => message.info.id === seeded.assistant.id)
+        expect(Option.isSome(previous)).toBe(true)
+        if (Option.isSome(previous) && previous.value.info.role === "assistant") {
+          expect(previous.value.info.diagnostics?.abort).toBeUndefined()
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+  3_000,
+)
+
+it.live(
   "soft cancel preserves a pending question and continues after reply",
   () =>
     provideTmpdirServer(
@@ -1338,6 +1383,14 @@ it.live(
         expect(Exit.isSuccess(exit)).toBe(true)
         if (Exit.isSuccess(exit) && exit.value.info.role === "assistant") {
           expect(exit.value.info.error?.name).toBe("MessageAbortedError")
+          expect(exit.value.info.diagnostics?.abort).toMatchObject({
+            source: "session.prompt.cancel",
+            reason: "soft_cancel",
+            mode: "soft",
+            propagation_point: "session.prompt.loop.onInterrupt",
+            error_name: "MessageAbortedError",
+            via_ctx_abort: false,
+          })
         }
       }),
       { git: true, config: providerCfg },

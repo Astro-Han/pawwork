@@ -510,6 +510,30 @@ export const Assistant = Base.extend({
   diagnostics: z
     .object({
       llm_trace: LLMTrace.Summary.optional(),
+      abort: z
+        .object({
+          source: z.string().optional(),
+          reason: z.string().optional(),
+          mode: z.enum(["soft", "hard"]).optional(),
+          propagation_point: z.string().optional(),
+          error_name: z.string().optional(),
+          error_message: z.string().optional(),
+          via_ctx_abort: z.boolean().optional(),
+          recorded_at: z.number().optional(),
+        })
+        .optional(),
+      title_generation: z
+        .object({
+          source: z.string().optional(),
+          parent_message_id: MessageID.zod.optional(),
+          started_at: z.number(),
+          completed_at: z.number().optional(),
+          success: z.boolean(),
+          applied: z.boolean().optional(),
+          error_name: z.string().optional(),
+          error_message: z.string().optional(),
+        })
+        .optional(),
     })
     .optional(),
 }).meta({

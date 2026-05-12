@@ -10,7 +10,7 @@ import { Effect } from "effect"
 import { Runtime } from "@opencode-ai/core/runtime"
 import { Global } from "@opencode-ai/core/global"
 import { Session } from "."
-import type { SessionID } from "./schema"
+import type { MessageID, SessionID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import type { Snapshot as SnapshotMod } from "../snapshot"
 import { Installation } from "../installation"
@@ -154,6 +154,31 @@ export namespace Export {
       }
       llm_trace_schema_version?: typeof LLMTrace.SCHEMA_VERSION
       llm_traces?: LLMTrace.Summary[]
+      aborts?: Array<{
+        session_id: SessionID
+        message_id: MessageID
+        parent_id?: MessageID
+        source?: string
+        reason?: string
+        mode?: "soft" | "hard"
+        propagation_point?: string
+        error_name?: string
+        error_message?: string
+        via_ctx_abort?: boolean
+        recorded_at?: number
+      }>
+      title_generations?: Array<{
+        session_id: SessionID
+        message_id: MessageID
+        parent_id?: MessageID
+        source?: string
+        started_at: number
+        completed_at?: number
+        success: boolean
+        applied?: boolean
+        error_name?: string
+        error_message?: string
+      }>
     }
     session: Tree
   }
@@ -179,6 +204,31 @@ export namespace Export {
     }
     llm_trace_schema_version?: typeof LLMTrace.SCHEMA_VERSION
     llm_traces?: LLMTrace.Summary[]
+    aborts?: Array<{
+      session_id: SessionID
+      message_id: MessageID
+      parent_id?: MessageID
+      source?: string
+      reason?: string
+      mode?: "soft" | "hard"
+      propagation_point?: string
+      error_name?: string
+      error_message?: string
+      via_ctx_abort?: boolean
+      recorded_at?: number
+    }>
+    title_generations?: Array<{
+      session_id: SessionID
+      message_id: MessageID
+      parent_id?: MessageID
+      source?: string
+      started_at: number
+      completed_at?: number
+      success: boolean
+      applied?: boolean
+      error_name?: string
+      error_message?: string
+    }>
   } {
     let lastAt = -Infinity
     let last:
@@ -238,11 +288,15 @@ export namespace Export {
     }
     walk(node)
     const llm_traces = collectLLMTraces(node)
+    const aborts = collectAbortDiagnostics(node)
+    const title_generations = collectTitleGenerations(node)
     return {
       ...(last ? { loop: { last } } : {}),
       ...(llm_traces.length
         ? { llm_trace_schema_version: LLMTrace.SCHEMA_VERSION, llm_traces }
         : {}),
+      ...(aborts.length ? { aborts } : {}),
+      ...(title_generations.length ? { title_generations } : {}),
     }
   }
 
@@ -253,6 +307,65 @@ export namespace Export {
         if (message.info.role !== "assistant") continue
         const trace = message.info.diagnostics?.llm_trace
         if (trace) traces.push(trace)
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return traces.sort((a, b) => {
+      if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
+      return a.message_id.localeCompare(b.message_id)
+    })
+  }
+
+  function collectAbortDiagnostics(node: Tree) {
+    const aborts: NonNullable<Snapshot["diagnostics"]["aborts"]> = []
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        if (message.info.role !== "assistant") continue
+        const abort = message.info.diagnostics?.abort
+        if (!abort) continue
+        aborts.push({
+          session_id: message.info.sessionID,
+          message_id: message.info.id,
+          parent_id: message.info.parentID,
+          source: abort.source,
+          reason: abort.reason,
+          mode: abort.mode,
+          propagation_point: abort.propagation_point,
+          error_name: abort.error_name,
+          error_message: abort.error_message,
+          via_ctx_abort: abort.via_ctx_abort,
+          recorded_at: abort.recorded_at,
+        })
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return aborts.sort((a, b) => {
+      if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
+      return a.message_id.localeCompare(b.message_id)
+    })
+  }
+
+  function collectTitleGenerations(node: Tree) {
+    const traces: NonNullable<Snapshot["diagnostics"]["title_generations"]> = []
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        if (message.info.role !== "assistant") continue
+        const trace = message.info.diagnostics?.title_generation
+        if (!trace) continue
+        traces.push({
+          session_id: message.info.sessionID,
+          message_id: message.info.id,
+          parent_id: message.info.parentID,
+          source: trace.source,
+          started_at: trace.started_at,
+          completed_at: trace.completed_at,
+          success: trace.success,
+          applied: trace.applied,
+          error_name: trace.error_name,
+          error_message: trace.error_message,
+        })
       }
       for (const child of t.children ?? []) walk(child)
     }
@@ -850,16 +963,33 @@ export namespace Export {
 
   function sanitizeDiagnostics(diagnostics: Snapshot["diagnostics"]): Snapshot["diagnostics"] {
     const last = diagnostics.loop?.last
-    if (!last) return diagnostics
     return {
       ...diagnostics,
-      loop: {
-        ...diagnostics.loop,
-        last: {
-          ...last,
-          attemptedInput: dataValue("loop-attempted-input", last.parentID, last.attemptedInput),
-        },
-      },
+      ...(last
+        ? {
+            loop: {
+              ...diagnostics.loop,
+              last: {
+                ...last,
+                attemptedInput: dataValue("loop-attempted-input", last.parentID, last.attemptedInput),
+              },
+            },
+          }
+        : {}),
+      aborts: diagnostics.aborts?.map((abort, index) => ({
+        ...abort,
+        error_message:
+          abort.error_message === undefined
+            ? undefined
+            : redact("abort-error-message", String(index), abort.error_message),
+      })),
+      title_generations: diagnostics.title_generations?.map((trace, index) => ({
+        ...trace,
+        error_message:
+          trace.error_message === undefined
+            ? undefined
+            : redact("title-generation-error-message", String(index), trace.error_message),
+      })),
     }
   }
 

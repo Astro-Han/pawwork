@@ -904,7 +904,11 @@ export const layer: Layer.Layer<
         }
         ctx.toolcalls = {}
         ctx.assistantMessage.time.completed = Date.now()
+        const persistedAssistant = (yield* session.messages({ sessionID: ctx.sessionID })).find(
+          (message) => message.info.role === "assistant" && message.info.id === ctx.assistantMessage.id,
+        )
         ctx.assistantMessage.diagnostics = {
+          ...(persistedAssistant?.info.role === "assistant" ? persistedAssistant.info.diagnostics : {}),
           ...(ctx.assistantMessage.diagnostics ?? {}),
           llm_trace: ctx.trace.finalize({
             completedAt: ctx.assistantMessage.time.completed,

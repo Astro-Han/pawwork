@@ -1,5 +1,5 @@
 import { InstanceState } from "@/effect/instance-state"
-import { Runner } from "@/effect/runner"
+import { Runner, type InterruptMeta } from "@/effect/runner"
 import { Deferred, Effect, Layer, Scope, Context } from "effect"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
@@ -8,15 +8,15 @@ import { SessionStatus } from "./status"
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
-  readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
+  readonly cancel: (sessionID: SessionID, meta?: InterruptMeta) => Effect.Effect<void>
   readonly ensureRunning: (
     sessionID: SessionID,
-    onInterrupt: Effect.Effect<MessageV2.WithParts>,
+    onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     work: Effect.Effect<MessageV2.WithParts>,
   ) => Effect.Effect<MessageV2.WithParts>
   readonly startShell: (
     sessionID: SessionID,
-    onInterrupt: Effect.Effect<MessageV2.WithParts>,
+    onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     work: Effect.Effect<MessageV2.WithParts>,
     ready?: Deferred.Deferred<void>,
   ) => Effect.Effect<MessageV2.WithParts>
@@ -48,7 +48,7 @@ export const layer = Layer.effect(
 
     const runner = Effect.fn("SessionRunState.runner")(function* (
       sessionID: SessionID,
-      onInterrupt: Effect.Effect<MessageV2.WithParts>,
+      onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
     ) {
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
@@ -74,19 +74,19 @@ export const layer = Layer.effect(
       if (existing?.busy) throw new Session.BusyError(sessionID)
     })
 
-    const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID) {
+    const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID, meta?: InterruptMeta) {
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (!existing || !existing.busy) {
         yield* status.set(sessionID, { type: "idle" })
         return
       }
-      yield* existing.cancel
+      yield* existing.cancelWith(meta)
     })
 
     const ensureRunning = Effect.fn("SessionRunState.ensureRunning")(function* (
       sessionID: SessionID,
-      onInterrupt: Effect.Effect<MessageV2.WithParts>,
+      onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
       work: Effect.Effect<MessageV2.WithParts>,
     ) {
       return yield* (yield* runner(sessionID, onInterrupt)).ensureRunning(work)
@@ -94,7 +94,7 @@ export const layer = Layer.effect(
 
     const startShell = Effect.fn("SessionRunState.startShell")(function* (
       sessionID: SessionID,
-      onInterrupt: Effect.Effect<MessageV2.WithParts>,
+      onInterrupt: (meta?: InterruptMeta) => Effect.Effect<MessageV2.WithParts>,
       work: Effect.Effect<MessageV2.WithParts>,
       ready?: Deferred.Deferred<void>,
     ) {
