@@ -45,7 +45,11 @@
  * can scan past them. DESIGN.md L482 specs `--fg-secondary`, but that
  * token is not yet in theme.css; `--fg-weak` is the closest current
  * substitute and matches the spec's "muted" intent. Switching to the
- * dedicated token is a one-line change when theme.css ships it. */
+ * dedicated token is a one-line change when theme.css ships it.
+ *
+ * TODO(Phase 5 sibling slice): replace `--fg-weak` below with
+ * `--fg-secondary` once the token is registered in theme.css. Tracked
+ * alongside slice 11b.1 PR #589 Risk Notes. */
 [data-component="session-turn-agent-round"] [data-slot="agent-reasoning"] {
   font: var(--type-body);
   font-style: italic;

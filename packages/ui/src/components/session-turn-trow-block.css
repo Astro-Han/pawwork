@@ -54,6 +54,11 @@
   line-height: 1.4;
 }
 
+/* TODO(Phase 5 sibling slice): the W1 visual lock specs `--icon-chev`
+ * for the trow chevron, but that token is not yet registered in
+ * theme.css. `--icon-base` is the closest current substitute. Replace
+ * with `--icon-chev` once the token is registered. Tracked alongside
+ * slice 11b.1 PR #589 Risk Notes. */
 [data-component="session-turn-trow-block"] [data-slot="trow-summary-chev"] {
   display: inline-flex;
   align-items: center;
