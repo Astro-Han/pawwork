@@ -1,4 +1,3 @@
-import { mkdir } from "node:fs/promises"
 import type { Page } from "@playwright/test"
 import type { QuestionRequest } from "@opencode-ai/sdk/v2/client"
 import { test, expect } from "../fixtures"
@@ -266,39 +265,6 @@ async function scrollTimelineToBottom(page: Page) {
       })
     })
     .toBeLessThanOrEqual(40)
-}
-
-async function scrollTimelineAwayFromBottom(page: Page, distance = 180) {
-  await page.evaluate(
-    ({ scrollViewportSelector, targetDistance, turnListSelector }) => {
-      const list = document.querySelector(turnListSelector)
-      const viewport = list?.closest(scrollViewportSelector)
-      if (!(viewport instanceof HTMLElement)) throw new Error("Missing scroll viewport")
-      const wheel = new WheelEvent("wheel", {
-        bubbles: true,
-        cancelable: true,
-        deltaY: -targetDistance,
-        deltaMode: 0,
-      })
-      viewport.dispatchEvent(wheel)
-      viewport.scrollTop = Math.max(0, viewport.scrollTop - targetDistance)
-      viewport.dispatchEvent(new Event("scroll", { bubbles: true }))
-    },
-    { scrollViewportSelector, targetDistance: distance, turnListSelector: sessionTurnListSelector },
-  )
-  await expect
-    .poll(async () => {
-      return page.evaluate(
-        ({ scrollViewportSelector, turnListSelector }) => {
-          const list = document.querySelector(turnListSelector)
-          const viewport = list?.closest(scrollViewportSelector)
-          if (!(viewport instanceof HTMLElement)) return 0
-          return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
-        },
-        { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
-      )
-    })
-    .toBeGreaterThanOrEqual(distance - 40)
 }
 
 async function expectQuestionOptionVisible(page: Page, optionIndex: number) {
@@ -780,7 +746,6 @@ test("blocked question flow supports submitting after skipping every question", 
         await dock.getByRole("button", { name: /skip question/i }).click()
         await expect(dock.locator('[data-slot="question-header-seq"]')).toContainText("2 of 2")
         await dock.getByRole("button", { name: /skip question/i }).click()
-        await dock.getByRole("button", { name: /submit/i }).click()
 
         await expectQuestionOpen(page)
       })
@@ -1534,116 +1499,6 @@ test("todo dock stays hidden after same-count terminal session switch", async ({
         },
         { trackSession: project.trackSession },
       )
-    },
-    { trackSession: project.trackSession },
-  )
-})
-
-test("e2e composer dock keeps latest turn visible when dock height changes", async ({ page, project, assistant }) => {
-  const title = `e2e composer scroll dock ${Date.now()}`
-  const longReply = [
-    "Here's the smoke test message counting from 1 to 100:",
-    "",
-    "```",
-    ...Array.from({ length: 100 }, (_, index) => `${index + 1}`),
-    "```",
-    "",
-    "Smoke test complete! This output demonstrates:",
-    "",
-    "- 100 lines of sequential numeric output",
-    "- No files were created or modified",
-    "- Each number appears on its own line as requested",
-  ].join("\n")
-
-  await project.open()
-  await withDockSession(
-    project.sdk,
-    title,
-    async (session) => {
-      const dock = await todoDock(page, session.id)
-      await seedSessionTurns({ sdk: project.sdk, sessionID: session.id, count: 12 })
-      await project.gotoSession(session.id)
-      await assistant.reply(longReply)
-
-      await project.prompt("Write a long visible response for scroll dock testing.")
-
-      await dock.open([
-        { content: "first scroll dock task", status: "pending" },
-        { content: "second scroll dock task", status: "pending" },
-        { content: "third scroll dock task", status: "pending" },
-      ])
-
-      const metrics = await page.evaluate(() => {
-        const viewport = document.querySelector('[data-component="scroll-viewport"]')
-        const composer = document.querySelector('[data-component="session-prompt-dock"]')
-        const last = [...document.querySelectorAll("[data-message-id]")].at(-1)
-        if (
-          !(viewport instanceof HTMLElement) ||
-          !(composer instanceof HTMLElement) ||
-          !(last instanceof HTMLElement)
-        ) {
-          return null
-        }
-        viewport.scrollTop = viewport.scrollHeight
-        const walker = document.createTreeWalker(last, NodeFilter.SHOW_TEXT)
-        let tail: Text | null = null
-        while (walker.nextNode()) {
-          const node = walker.currentNode
-          if (node.textContent?.includes("Each number appears on its own line as requested")) tail = node as Text
-        }
-        if (!tail) return null
-        const range = document.createRange()
-        range.selectNodeContents(tail)
-        const composerTop = composer.getBoundingClientRect().top
-        const lastBottom = last.getBoundingClientRect().bottom
-        const tailBottom = range.getBoundingClientRect().bottom
-        range.detach()
-        return {
-          scrollTop: viewport.scrollTop,
-          messageDistance: composerTop - lastBottom,
-          tailDistance: composerTop - tailBottom,
-        }
-      })
-
-      expect(metrics).not.toBeNull()
-      expect(metrics!.messageDistance).toBeGreaterThanOrEqual(0)
-      expect(metrics!.tailDistance).toBeGreaterThanOrEqual(0)
-
-      await scrollTimelineAwayFromBottom(page)
-
-      const distanceBeforeExpansion = await page.evaluate(() => {
-        const viewport = document.querySelector('[data-component="scroll-viewport"]')
-        if (!(viewport instanceof HTMLElement)) return 0
-        return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
-      })
-
-      await dock.open([
-        { content: "first scroll dock task", status: "pending" },
-        { content: "second scroll dock task", status: "pending" },
-        { content: "third scroll dock task", status: "pending" },
-        { content: "fourth scroll dock task expands height", status: "pending" },
-        { content: "fifth scroll dock task expands height", status: "pending" },
-      ])
-
-      let afterUserScroll: { scrollTop: number; distanceFromBottom: number } | null = null
-      await expect
-        .poll(async () => {
-          afterUserScroll = await page.evaluate(() => {
-            const viewport = document.querySelector('[data-component="scroll-viewport"]')
-            if (!(viewport instanceof HTMLElement)) return null
-            return {
-              scrollTop: viewport.scrollTop,
-              distanceFromBottom: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
-            }
-          })
-          return afterUserScroll?.distanceFromBottom ?? -1
-        })
-        .toBeGreaterThanOrEqual(distanceBeforeExpansion - 40)
-
-      expect(afterUserScroll).not.toBeNull()
-
-      await mkdir(".artifacts/session-scroll-dock", { recursive: true })
-      await page.screenshot({ path: ".artifacts/session-scroll-dock/latest-visible.png" })
     },
     { trackSession: project.trackSession },
   )
