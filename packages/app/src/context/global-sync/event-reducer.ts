@@ -399,6 +399,9 @@ export function applyDirectoryEvent(input: {
     }
     case "session.blocker.upserted": {
       const blocker = event.properties as State["blocker"][string][number]
+      if (blocker.kind === "question" && input.blockerTerminals?.has("question", input.directory, blocker.sessionID, blocker.requestID)) {
+        break
+      }
       const blockers = input.store.blocker[blocker.sessionID]
       if (!blockers) {
         input.setStore("blocker", blocker.sessionID, [blocker])
