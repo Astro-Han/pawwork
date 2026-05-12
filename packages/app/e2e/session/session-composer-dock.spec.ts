@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import type { QuestionRequest } from "@opencode-ai/sdk/v2/client"
+import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2/client"
 import { test, expect } from "../fixtures"
 import {
   composerEvent,
@@ -150,6 +150,24 @@ async function e2eAskQuestion(
   expect(response.status).toBe(204)
 }
 
+async function e2eAskPermission(
+  project: ProjectQuestionSeed,
+  input: {
+    sessionID: string
+    permission: string
+    patterns: string[]
+    metadata?: Record<string, unknown>
+    always?: string[]
+  },
+) {
+  const response = await fetch(`${project.url}/permission/__e2e/ask?directory=${encodeURIComponent(project.directory)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  expect(response.status).toBe(204)
+}
+
 async function e2ePublishQuestionAsked(project: ProjectQuestionSeed, request: QuestionRequest) {
   const response = await fetch(
     `${project.url}/question/__e2e/publish-asked?directory=${encodeURIComponent(project.directory)}`,
@@ -189,6 +207,30 @@ async function waitForQuestionSeed(project: ProjectQuestionSeed, sessionID: stri
     )
     .toBe(true)
   if (!current) throw new Error("Question seed was not visible after polling")
+  return current
+}
+
+async function waitForPermissionSeed(
+  project: ProjectQuestionSeed,
+  input: { sessionID: string; permission: string; pattern: string },
+) {
+  let current: PermissionRequest | undefined
+  await expect
+    .poll(
+      async () => {
+        const permissions = await project.sdk.permission.list().then((response) => response.data ?? [])
+        current = permissions.find(
+          (permission) =>
+            permission.sessionID === input.sessionID &&
+            permission.permission === input.permission &&
+            permission.patterns.includes(input.pattern),
+        )
+        return !!current
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true)
+  if (!current) throw new Error("Permission seed was not visible after polling")
   return current
 }
 
@@ -616,6 +658,42 @@ test("question dock recovers after invalid replay cursor forces fallback refresh
 
         await expectQuestionBlocked(page)
         await expect(page.locator(questionDockSelector)).toHaveCount(1)
+      })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("permission dock recovers after invalid replay cursor forces fallback refresh", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock permission invalid cursor fallback",
+    async (session) => {
+      await withDockSeed(project.sdk, session.id, async () => {
+        await project.gotoSession(session.id)
+        await expect(page.locator(promptSelector)).toBeVisible()
+
+        const stream = globalEventStream(page)
+        const pattern = "/tmp/opencode-e2e-perm-replay-fallback"
+
+        await expect.poll(stream.cursor, { timeout: 10_000 }).toMatch(/:/)
+        await stream.stop()
+        await e2eAskPermission(project, {
+          sessionID: session.id,
+          permission: "bash",
+          patterns: [pattern],
+          metadata: { description: "Need permission for replay fallback" },
+        })
+        await waitForPermissionSeed(project, { sessionID: session.id, permission: "bash", pattern })
+
+        await expect(page.locator(permissionDockSelector)).toHaveCount(0, { timeout: 750 })
+        await stream.setCursorForTest("bad:999")
+        await expect.poll(stream.cursor, { timeout: 5_000 }).toBe("bad:999")
+        await stream.start()
+
+        await expectPermissionBlocked(page)
+        await expect(page.locator(permissionDockSelector)).toHaveCount(1)
       })
     },
     { trackSession: project.trackSession },
