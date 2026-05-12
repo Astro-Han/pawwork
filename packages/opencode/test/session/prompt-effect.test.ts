@@ -75,6 +75,8 @@ function defer<T>() {
   return { promise, resolve }
 }
 
+type Mutable<T> = { -readonly [K in keyof T]: T[K] }
+
 function withSh<A, E, R>(fx: () => Effect.Effect<A, E, R>) {
   return withShell("/bin/sh", fx)
 }
@@ -1273,8 +1275,9 @@ it.live(
 
         const started = defer<void>()
         const release = defer<void>()
+        const mutableSessions = sessions as Mutable<typeof sessions>
         const originalUpdateMessage = sessions.updateMessage
-        sessions.updateMessage = ((info) => {
+        mutableSessions.updateMessage = (info) => {
           if (info.role === "assistant" && info.parentID === nextUser.id) {
             return Effect.gen(function* () {
               started.resolve()
@@ -1283,8 +1286,8 @@ it.live(
             })
           }
           return originalUpdateMessage(info)
-        }) as typeof sessions.updateMessage
-        yield* Effect.addFinalizer(() => Effect.sync(() => void (sessions.updateMessage = originalUpdateMessage)))
+        }
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (mutableSessions.updateMessage = originalUpdateMessage)))
 
         const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
         yield* Effect.promise(() => started.promise)
