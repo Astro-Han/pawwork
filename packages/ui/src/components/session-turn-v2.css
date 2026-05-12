@@ -1,0 +1,21 @@
+/*
+ * Slice 11b.1 hybrid shell.
+ *
+ * Vertical rhythm per DESIGN.md L451:
+ *   user bubble → agent prose gap 24px (this stack owns)
+ *   round → next user message 24px (the parent timeline owns; this shell
+ *   is one turn, so only the inter-turn gap appears here)
+ *
+ * Background is `--bg-base` (no turn-frame, no container). The leaf
+ * components own their own foreground rendering — this shell only owns
+ * the vertical rhythm between user bubble and agent round.
+ */
+
+[data-component="session-turn-v2"] {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  width: 100%;
+  gap: 24px;
+  background: var(--bg-base);
+}

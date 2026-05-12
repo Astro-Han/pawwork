@@ -66,6 +66,11 @@ export const dict: Record<string, string> = {
   "ui.sessionTurn.turnChanges.skippedNotice": "{{count}} file(s) skipped due to changes outside this turn",
   "ui.sessionTurn.turnChanges.confirmListMore": "+{{count}} more",
 
+  "ui.sessionTurnV2.workingTime": "Working — {{seconds}}s",
+  "ui.sessionTurnV2.trow.running": "Running {{count}} commands",
+  "ui.sessionTurnV2.trow.completed": "Ran {{count}} commands",
+  "ui.sessionTurnV2.trow.withFailed": "Ran {{count}} commands, {{failed}} failed",
+
   "ui.sessionTurn.retry.retrying": "retrying",
   "ui.sessionTurn.retry.inSeconds": "in {{seconds}}s",
   "ui.sessionTurn.retry.attempt": "attempt #{{attempt}}",
