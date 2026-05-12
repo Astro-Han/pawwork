@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import { spyOn } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import fs from "node:fs"
+import nodefs from "node:fs/promises"
 import os from "os"
 import path from "path"
 import { existsSync } from "node:fs"
@@ -408,6 +410,57 @@ describe("tool.bash expected_outputs", () => {
         expect(result.metadata.exit).toBe(0)
         expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
         expect(TurnChange.finalize(turn)).toBeUndefined()
+      },
+    })
+  })
+
+  test("does not record false positives when the before state is indeterminate", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const target = path.join(dir, "restricted.txt")
+        await fs.promises.writeFile(target, "secret\n", "utf-8")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "restricted.txt")
+        const originalReadFile = nodefs.readFile
+        const readSpy = spyOn(nodefs as any, "readFile").mockImplementationOnce(async (...args: any[]) => {
+          const filepath = typeof args[0] === "string" ? args[0] : String(args[0])
+          if (filepath === target) {
+            const err = Object.assign(new Error("denied"), { code: "EACCES" })
+            throw err
+          }
+          return await (originalReadFile as any)(...args)
+        })
+        try {
+          const result = await Effect.runPromise(
+            bash.execute(
+              {
+                command: `rm ${quote(target.replaceAll("\\", "/"))}`,
+                expected_outputs: [target],
+                description: "Delete unreadable file",
+              },
+              { ...ctx, ...turn },
+            ),
+          )
+
+          expect(result.metadata.exit).toBe(0)
+          expect(
+            (
+              result.metadata as {
+                artifacts?: Array<{ path: string; exists: boolean; changed: boolean; comparable?: boolean; errorCode?: string }>
+              }
+            ).artifacts,
+          ).toEqual([{ path: target, exists: false, changed: false, comparable: false, errorCode: "EACCES" }])
+          expect(TurnChange.finalize(turn)).toBeUndefined()
+        } finally {
+          readSpy.mockRestore()
+        }
       },
     })
   })

@@ -283,6 +283,13 @@ function sameState(before: FileState, after: FileState) {
   )
 }
 
+type TrackedOutputState = {
+  state: FileState
+  comparable: boolean
+  kind: "missing" | "file" | "directory" | "error"
+  errorCode?: string
+}
+
 const parse = Effect.fn("BashTool.parse")(function* (command: string, ps: boolean) {
   const tree = yield* Effect.promise(() => parser().then((p) => (ps ? p.ps : p.bash).parse(command)))
   if (!tree) throw new Error("Failed to parse command")
@@ -478,38 +485,62 @@ export const BashTool = Tool.define(
       Effect.promise(async () => {
           try {
             const stat = await nodefs.stat(file)
-            if (stat.isDirectory()) return { exists: true, restorable: false, hash: "directory", binary: true } satisfies FileState
+            if (stat.isDirectory()) {
+              return {
+                state: { exists: true, restorable: false, hash: "directory", binary: true } satisfies FileState,
+                comparable: true,
+                kind: "directory",
+              } satisfies TrackedOutputState
+            }
             if (stat.size > TRACKED_OUTPUT_LIMIT) {
               return {
-                exists: true,
-                restorable: false,
-                hash: `large:${stat.size}:${stat.mtimeMs}`,
-                large: true,
-              } satisfies FileState
+                state: {
+                  exists: true,
+                  restorable: false,
+                  hash: `large:${stat.size}:${stat.mtimeMs}`,
+                  large: true,
+                } satisfies FileState,
+                comparable: true,
+                kind: "file",
+              } satisfies TrackedOutputState
             }
             const buffer = await nodefs.readFile(file)
             if (buffer.includes(0)) {
               return {
-                exists: true,
-                restorable: false,
-                hash: binaryHash(buffer),
-                binary: true,
-              } satisfies FileState
+                state: {
+                  exists: true,
+                  restorable: false,
+                  hash: binaryHash(buffer),
+                  binary: true,
+                } satisfies FileState,
+                comparable: true,
+                kind: "file",
+              } satisfies TrackedOutputState
             }
             const current = Bom.split(buffer.toString("utf-8"))
             return {
-              exists: true,
-              content: current.text,
-              bom: current.bom,
-              hash: textHash(current.text, current.bom),
-            } satisfies FileState
+              state: {
+                exists: true,
+                content: current.text,
+                bom: current.bom,
+                hash: textHash(current.text, current.bom),
+              } satisfies FileState,
+              comparable: true,
+              kind: "file",
+            } satisfies TrackedOutputState
           } catch (err) {
-            if ((err as NodeJS.ErrnoException).code === "ENOENT") return { exists: false } satisfies FileState
+            const code = (err as NodeJS.ErrnoException).code
+            if (code === "ENOENT") return { state: { exists: false } satisfies FileState, comparable: true, kind: "missing" } satisfies TrackedOutputState
             return {
-              exists: true,
-              restorable: false,
-              hash: `error:${(err as NodeJS.ErrnoException).code ?? "unknown"}`,
-            } satisfies FileState
+              state: {
+                exists: true,
+                restorable: false,
+                hash: `error:${code ?? "unknown"}`,
+              } satisfies FileState,
+              comparable: false,
+              kind: "error",
+              ...(code ? { errorCode: code } : {}),
+            } satisfies TrackedOutputState
           }
         }).pipe(Effect.orDie),
     )
@@ -737,7 +768,7 @@ export const BashTool = Tool.define(
                 }),
               ).pipe(
                 Effect.map((items) => {
-                  const deduped = new Map<string, { path: string; before: FileState }>()
+                  const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
                   for (const item of items) {
                     if (deduped.has(item.normalized)) continue
                     deduped.set(item.normalized, { path: item.path, before: item.before })
@@ -764,22 +795,31 @@ export const BashTool = Tool.define(
               const artifacts = yield* Effect.forEach(trackedOutputs, (tracked) =>
                 Effect.gen(function* () {
                   const after = yield* readTrackedState(tracked.path)
-                  const changed = !sameState(tracked.before, after)
+                  const changed = tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
                   if (changed) {
                     yield* turnChange.recordWrite({
                       sessionID: ctx.sessionID,
                       messageID: ctx.messageID,
                       path: tracked.path,
-                      before: tracked.before,
-                      after,
+                      before: tracked.before.state,
+                      after: after.state,
                     })
                   }
                   return {
                     path: tracked.path,
-                    exists: after.exists,
+                    exists: after.state.exists,
                     changed,
-                    ...(after.binary ? { binary: true } : {}),
-                    ...(after.large ? { large: true } : {}),
+                    ...(after.kind === "directory" ? { directory: true } : {}),
+                    ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
+                    ...(after.state.large ? { large: true } : {}),
+                    ...(!tracked.before.comparable || !after.comparable
+                      ? {
+                          comparable: false,
+                          errorCode:
+                            ("errorCode" in tracked.before ? tracked.before.errorCode : undefined) ??
+                            ("errorCode" in after ? after.errorCode : undefined),
+                        }
+                      : {}),
                   }
                 }),
               )
