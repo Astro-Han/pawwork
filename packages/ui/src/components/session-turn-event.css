@@ -1,0 +1,15 @@
+/*
+ * Slice 11b.1 system event — single left-aligned line at caption /
+ * fg-weak, hugging the timeline column flush with agent prose
+ * (DESIGN.md L475). No padding, no icon, no background, no border,
+ * no prefix glyph: the muted colour + left-alignment + the parent's
+ * 12-px neighbour gap is the system-level signal.
+ */
+
+[data-component="session-turn-event"] {
+  font: var(--type-caption);
+  color: var(--fg-weak);
+  text-align: left;
+  /* The event sits flush with the agent prose column. No padding,
+   * no margin: the surrounding stack owns the rhythm. */
+}
