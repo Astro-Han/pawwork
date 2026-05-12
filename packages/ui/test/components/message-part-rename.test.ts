@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { buildToolInfo, enterWorktreeSubtitle, exitWorktreeSubtitle } from "../../src/components/tool-info"
 import type { UiI18n } from "../../src/context/i18n"
+import { normalizeShellOutput } from "../../src/util/shell-output"
 
 const baseFields = {
   id: "part-1",
@@ -54,5 +55,11 @@ describe("worktree tool subtitles", () => {
     expect(exitWorktreeSubtitle({ activeDirectory: "/repo/pawwork", previousSlug: "feature-a" }, templateI18n)).toBe(
       'ui.tool.worktree.exit.fromWorktree:{"previous":"feature-a","project":"pawwork"}',
     )
+  })
+})
+
+describe("shell output normalization", () => {
+  test("strips ansi and normalizes carriage returns to newlines", () => {
+    expect(normalizeShellOutput("\u001b[32mline1\r\nline2\rline3\u001b[0m")).toBe("line1\nline2\nline3")
   })
 })
