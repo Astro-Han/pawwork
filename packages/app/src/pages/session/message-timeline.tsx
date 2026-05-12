@@ -1,6 +1,6 @@
 import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX } from "solid-js"
-import { Icon } from "@opencode-ai/ui/icon"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import { JumpToBottom } from "@opencode-ai/ui/session-turn-jump"
 import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { Binary } from "@opencode-ai/util/binary"
 import { normalizeWheelDelta } from "@/pages/session/message-gesture"
@@ -267,22 +267,18 @@ export function MessageTimeline(props: {
     >
       <div class="relative w-full h-full min-w-0">
         <div
-          class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-[opacity,transform] duration-200 ease-out"
+          class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-[opacity,transform] duration-200 ease-out [&_[data-component=session-turn-jump]]:pointer-events-auto"
           classList={{
             "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-            "opacity-0 translate-y-2 scale-95 pointer-events-none":
+            "opacity-0 translate-y-2 scale-95":
               !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
           }}
         >
-          <button
-            type="button"
-            class="pointer-events-auto size-8 rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-surface-raised hover:border-border-weak hover:[--icon-base:var(--icon-base)]"
-            style={{ "box-shadow": "var(--shadow-floating)" }}
+          <JumpToBottom
+            visible={props.scroll.overflow && props.scroll.jump && !staging.isStaging()}
             onClick={props.onResumeScroll}
-            aria-label={language.t("session.messages.jumpToLatest")}
-          >
-            <Icon name="chevron-down" />
-          </button>
+            label={language.t("session.messages.jumpToLatest")}
+          />
         </div>
         <ScrollView
           viewportRef={(el) => {
