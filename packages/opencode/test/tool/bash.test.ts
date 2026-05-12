@@ -314,6 +314,103 @@ describe("tool.bash expected_outputs", () => {
       },
     })
   })
+
+  test("records declared outputs even when command exits non-zero after writing", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "partial.docx")
+        const script = path.join(tmp.path, "write-then-fail.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,0,9]))\nprocess.exit(1)\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              expected_outputs: [target],
+              description: "Write then fail",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(1)
+        const display = TurnChange.finalize(turn)
+        expect(display?.files[0]).toMatchObject({
+          path: "partial.docx",
+          status: "added",
+          binary: true,
+          expandable: false,
+        })
+      },
+    })
+  })
+
+  test("does not record unchanged declared paths", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.writeFile(path.join(dir, "stable.txt"), "stable\n", "utf-8")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "stable.txt")
+        await Effect.runPromise(
+          bash.execute(
+            {
+              command: "echo noop",
+              expected_outputs: [target],
+              description: "Leave file unchanged",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+      },
+    })
+  })
+
+  test("preserves legacy behavior when expected_outputs is omitted", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "undeclared.txt")
+        const script = path.join(tmp.path, "write-plain.cjs")
+        await fs.promises.writeFile(script, "require('node:fs').writeFileSync(process.argv[2], 'hello\\n')\n", "utf-8")
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Write without declaration",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+      },
+    })
+  })
 })
 
 describe("tool.bash permissions", () => {
