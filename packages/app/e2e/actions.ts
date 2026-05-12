@@ -387,7 +387,10 @@ export async function openSettings(page: Page) {
 }
 
 export async function createTestProject(input?: { serverUrl?: string }) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-e2e-project-"))
+  // Keep e2e temp projects under the same prefix that app bootstrap already
+  // filters from global project state, so repeat runs cannot re-surface stale
+  // test metadata as visible PawWork projects.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-test-e2e-project-"))
   const id = `e2e-${path.basename(root)}`
 
   await fs.writeFile(path.join(root, "README.md"), `# e2e\n\n${id}\n`)
