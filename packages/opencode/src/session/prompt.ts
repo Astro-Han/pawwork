@@ -98,13 +98,8 @@ export function reconcileTitleGenerationStateAfterCompletion(input: {
   abortRecordedAt?: number
   completedAt?: number
 }): TitleGenerationState | undefined {
-  if (
-    input.state === "in_flight" &&
-    typeof input.abortRecordedAt === "number" &&
-    typeof input.completedAt === "number" &&
-    input.completedAt > input.abortRecordedAt
-  ) {
-    return "completed_after_abort"
+  if (input.state === "in_flight" && typeof input.abortRecordedAt === "number" && typeof input.completedAt === "number") {
+    return input.completedAt <= input.abortRecordedAt ? "completed_before_abort" : "completed_after_abort"
   }
   return input.state
 }

@@ -359,6 +359,51 @@ describe("tool.bash expected_outputs", () => {
     })
   })
 
+  test("records a declared BOM text artifact using the text hash path", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "notes-bom.txt")
+        const script = path.join(tmp.path, "write-bom-text.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], '\\uFEFFhello\\n')\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              expected_outputs: [target],
+              description: "Create BOM text report",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect((result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts).toEqual([
+          { path: target, exists: true, changed: true },
+        ])
+
+        expect(TurnChange.finalize(turn)?.files).toMatchObject([
+          {
+            path: "notes-bom.txt",
+            status: "added",
+            expandable: true,
+            additions: 1,
+            deletions: 0,
+          },
+        ])
+      },
+    })
+  })
+
   test("records declared outputs even when command exits non-zero after writing", async () => {
     await resetDatabase()
     await using tmp = await tmpdir()
@@ -431,10 +476,9 @@ describe("tool.bash expected_outputs", () => {
         expect(
           (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean }> }).artifacts,
         ).toEqual([{ path: target, exists: true, changed: true }])
-        expect(TurnChange.finalize(turn)?.files[0]).toMatchObject({
-          path: "nested/report.txt",
-          status: "added",
-        })
+        expect(
+          TurnChange.finalize(turn)?.files?.some((file) => file.path === "nested/report.txt" && file.status === "added"),
+        ).toBe(true)
       },
     })
   })

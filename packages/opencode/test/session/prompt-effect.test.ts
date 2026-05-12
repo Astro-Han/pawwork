@@ -140,6 +140,13 @@ describe("title generation diagnostics helpers", () => {
     ).toBe("completed_after_abort")
     expect(
       reconcileTitleGenerationStateAfterCompletion({
+        state: "in_flight",
+        abortRecordedAt: 10,
+        completedAt: 10,
+      }),
+    ).toBe("completed_before_abort")
+    expect(
+      reconcileTitleGenerationStateAfterCompletion({
         state: "completed_before_abort",
         abortRecordedAt: 10,
         completedAt: 9,
