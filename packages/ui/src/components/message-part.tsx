@@ -141,7 +141,11 @@ import type {
 } from "./message-part-types"
 export type { MessageProps, SessionAction, UserActions, MessagePartProps, PartComponent }
 
-export const PART_MAPPING: Record<string, PartComponent | undefined> = {}
+// Slice 11b.1: the part / tool registries live in `./message-part-registry`.
+// Re-export here so existing callers (session-turn.tsx, stories, tests)
+// keep working until they migrate to import from the dedicated file.
+import { PART_MAPPING, Part, registerPartComponent, registerTool, getTool, ToolRegistry } from "./message-part-registry"
+export { PART_MAPPING, Part, registerPartComponent, registerTool, getTool, ToolRegistry }
 
 const TEXT_RENDER_PACE_MS = 24
 const TEXT_RENDER_SNAP = /[\s.,!?;:)\]]/
@@ -863,10 +867,6 @@ function ExaOutput(props: { output?: string }) {
   )
 }
 
-export function registerPartComponent(type: string, component: PartComponent) {
-  PART_MAPPING[type] = component
-}
-
 export function Message(props: MessageProps) {
   return (
     <>
@@ -1271,50 +1271,11 @@ function HighlightedText(props: { text: string; references: FilePart[] }) {
   return <For each={segments()}>{(segment) => <span data-highlight={segment.type}>{segment.text}</span>}</For>
 }
 
-export function Part(props: MessagePartProps) {
-  const component = createMemo(() => PART_MAPPING[props.part.type])
-  return (
-    <Show when={component()}>
-      <Dynamic
-        component={component()}
-        part={props.part}
-        message={props.message}
-        hideDetails={props.hideDetails}
-        defaultOpen={props.defaultOpen}
-        showAssistantCopyPartID={props.showAssistantCopyPartID}
-        turnDurationMs={props.turnDurationMs}
-      />
-    </Show>
-  )
-}
-
 // Slice 11b.1: types live in `./message-part-types.ts`; re-export for
 // back-compat. The next slice should retire the re-export once consumers
 // are migrated to the dedicated types file.
 import type { ToolProps, ToolComponent } from "./message-part-types"
 export type { ToolProps, ToolComponent }
-
-const state: Record<
-  string,
-  {
-    name: string
-    render?: ToolComponent
-  }
-> = {}
-
-export function registerTool(input: { name: string; render?: ToolComponent }) {
-  state[input.name] = input
-  return input
-}
-
-export function getTool(name: string) {
-  return state[name]?.render
-}
-
-export const ToolRegistry = {
-  register: registerTool,
-  render: getTool,
-}
 
 function ToolFileAccordion(props: { path: string; actions?: JSX.Element; children: JSX.Element }) {
   const value = createMemo(() => props.path || "tool-file")
