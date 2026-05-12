@@ -13,7 +13,6 @@ import {
   type JSX,
 } from "solid-js"
 import { createStore } from "solid-js/store"
-import stripAnsi from "strip-ansi"
 import { Dynamic } from "solid-js/web"
 import {
   AssistantMessage,
@@ -55,6 +54,7 @@ import { patchFiles } from "./apply-patch-file"
 import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
+import { normalizeShellOutput } from "../util/shell-output"
 
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
@@ -1925,7 +1925,7 @@ ToolRegistry.register({
     const sawPending = pending()
     const text = createMemo(() => {
       const cmd = props.input.command ?? props.metadata.command ?? ""
-      const out = stripAnsi(props.output || props.metadata.output || "")
+      const out = normalizeShellOutput(props.output || props.metadata.output || "")
       return `$ ${cmd}${out ? "\n\n" + out : ""}`
     })
     const [copied, setCopied] = createSignal(false)
