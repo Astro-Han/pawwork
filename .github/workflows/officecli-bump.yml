@@ -1,0 +1,231 @@
+name: officecli-bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Validate the bump path without opening a pull request"
+        required: false
+        type: boolean
+        default: true
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  officecli-bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # Load-bearing: `bun install` runs `trustedDependencies`
+      # postinstalls from the root package.json (electron, node-pty,
+      # esbuild, tree-sitter at time of writing), which call `node`
+      # explicitly. Do not drop without first patching those scripts.
+      # Source of truth: grep `trustedDependencies` in package.json. (#70)
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
+        with:
+          node-version: "24"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Resolve OfficeCLI versions
+        id: versions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          release_json="$(mktemp)"
+          gh api repos/iOfficeAI/OfficeCLI/releases/latest > "$release_json"
+
+          latest_version="$(jq -r '.tag_name' "$release_json")"
+          release_url="$(jq -r '.html_url' "$release_json")"
+          current_version="$(node -p "require('./packages/desktop-electron/bundled-tools.json').officecli.version")"
+
+          {
+            echo "latest_version=$latest_version"
+            echo "release_url=$release_url"
+            echo "current_version=$current_version"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Pinned OfficeCLI: $current_version"
+          echo "Latest OfficeCLI: $latest_version"
+          echo "Upstream release: $release_url"
+
+      - name: Exit when already up to date
+        if: ${{ steps.versions.outputs.current_version == steps.versions.outputs.latest_version }}
+        run: echo "Bundled OfficeCLI is already at ${{ steps.versions.outputs.current_version }}."
+
+      - name: Bump manifest and verify all bundled assets
+        if: ${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version }}
+        id: verify
+        shell: bash
+        env:
+          LATEST_VERSION: ${{ steps.versions.outputs.latest_version }}
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("node:fs")
+          const file = "packages/desktop-electron/bundled-tools.json"
+          const manifest = JSON.parse(fs.readFileSync(file, "utf8"))
+          manifest.officecli.version = process.env.LATEST_VERSION
+          fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`)
+          NODE
+
+          verified_targets=()
+          for target in "darwin arm64" "darwin x64" "win32 x64" "win32 arm64"; do
+            read -r platform arch <<<"$target"
+            echo "Verifying OfficeCLI asset for $platform-$arch"
+            bun packages/desktop-electron/scripts/prepare-officecli.ts --platform "$platform" --arch "$arch"
+            verified_targets+=("$platform-$arch")
+          done
+
+          {
+            echo "verified_targets<<EOF"
+            printf '%s\n' "${verified_targets[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create bump pull request
+        if: ${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          LATEST_VERSION: ${{ steps.versions.outputs.latest_version }}
+          RELEASE_URL: ${{ steps.versions.outputs.release_url }}
+          VERIFIED_TARGETS: ${{ steps.verify.outputs.verified_targets }}
+        run: |
+          set -euo pipefail
+
+          dry_run=false
+          if [ "${INPUT_DRY_RUN:-}" = "true" ]; then
+            dry_run=true
+          fi
+
+          branch="ci/officecli-bump-${LATEST_VERSION}"
+          title="chore: bump bundled OfficeCLI to ${LATEST_VERSION}"
+
+          if [ "$dry_run" = false ] && [ "$GITHUB_REF_NAME" != "dev" ]; then
+            echo "Non-dry bump runs must start from dev, got $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+          if existing_pr="$(gh pr list --state open --base dev --head "$branch" --json url --jq '.[0].url // empty')"; then
+            if [ -n "$existing_pr" ]; then
+              echo "Open bump PR already exists: $existing_pr"
+              echo "Skipping duplicate OfficeCLI bump."
+              exit 0
+            fi
+          fi
+
+          echo "Verified targets:"
+          while IFS= read -r target; do
+            [ -n "$target" ] && printf ' - %s\n' "$target"
+          done <<< "$VERIFIED_TARGETS"
+
+          if [ "$dry_run" = true ]; then
+            echo "Dry run requested; skipping branch push and PR creation."
+            {
+              echo "### OfficeCLI bump dry run"
+              echo
+              echo "- Current pinned version: \`${{ steps.versions.outputs.current_version }}\`"
+              echo "- Latest upstream version: \`${LATEST_VERSION}\`"
+              echo "- Upstream release: ${RELEASE_URL}"
+              echo "- Verified targets:"
+              while IFS= read -r target; do
+                [ -n "$target" ] && echo "  - \`${target}\`"
+              done <<< "$VERIFIED_TARGETS"
+              echo "- Result: would open \`${title}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh auth setup-git
+          git switch -c "$branch"
+          git add packages/desktop-electron/bundled-tools.json
+          git commit -m "$title"
+          git push --set-upstream origin "$branch"
+
+          body_file="$(mktemp)"
+          cat > "$body_file" <<EOF
+          ## Summary
+
+          Bump the bundled OfficeCLI version in \`packages/desktop-electron/bundled-tools.json\` from \`${{ steps.versions.outputs.current_version }}\` to \`${LATEST_VERSION}\`.
+
+          ## Why
+
+          Upstream OfficeCLI published a newer release, so this workflow verified the pinned bundle against the latest release assets and opened a reviewable bump PR. The release workflow still consumes the pinned repo version only after a maintainer reviews and merges this change.
+
+          ## Related Issue
+
+          Closes #330.
+
+          ## Human Review Status
+
+          Pending. A human should make the final merge decision after reviewing the final diff and verification evidence.
+
+          ## Review Focus
+
+          - Confirm the new pinned version matches the intended upstream release.
+          - Confirm the bundled manifest is the only repo change.
+          - Confirm the verification summary covers all four bundled desktop assets.
+
+          ## Risk Notes
+
+          - No product code or release workflow behavior changed.
+          - This PR only updates the pinned OfficeCLI version after SHA256 verification passes for the four bundled desktop assets.
+          - Asset naming or checksum drift upstream will fail this workflow red instead of opening a partial PR.
+
+          ## How To Verify
+
+          \`\`\`text
+          Upstream release: ${RELEASE_URL}
+          Verified targets:
+          $(while IFS= read -r target; do [ -n "$target" ] && printf -- "- %s\n" "$target"; done <<< "$VERIFIED_TARGETS")
+          Validation command: bun packages/desktop-electron/scripts/prepare-officecli.ts --platform <target-platform> --arch <target-arch>
+          \`\`\`
+
+          ## Screenshots or Recordings
+
+          Not needed. This is a CI automation PR with no visible UI change.
+
+          ## Checklist
+
+          - [x] Human review status is stated above as pending, approved, or not required
+          - [x] I linked the related issue, or stated why there is no issue
+          - [x] This PR has type, primary area, and priority labels, or I requested maintainer labeling
+          - [x] I described the review focus and any meaningful risks
+          - [x] I listed the relevant verification steps and the key result for each
+          - [x] I did not introduce unrelated refactors, dependencies, generated files, or file changes beyond the stated scope
+          - [x] I manually checked visible UI or copy changes when needed, with screenshots or recordings
+          - [x] I considered macOS and Windows impact for platform, packaging, updater, signing, paths, shell, or permissions changes
+          - [x] I called out docs, release notes, dependencies, permissions, credentials, deletion behavior, generated content, or local file changes when relevant
+          - [x] I reviewed the final diff for unrelated changes and suspicious dependency changes
+          - [x] I am targeting \`dev\`, and my PR title and commit messages use Conventional Commits in English
+          EOF
+
+          gh pr create \
+            --base dev \
+            --head "$branch" \
+            --title "$title" \
+            --label enhancement \
+            --label ci \
+            --label upstream \
+            --body-file "$body_file"
