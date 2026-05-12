@@ -1,0 +1,44 @@
+/*
+ * Slice 11b.1 floating jump-to-bottom button.
+ *
+ * Positioning (translate-x -50%, left 50%, bottom over the composer
+ * dock) lives in the message-timeline.tsx parent — the button is
+ * portal-friendly and only owns its own shape. DESIGN.md L477.
+ */
+
+[data-component="session-turn-jump"] {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-weaker);
+  box-shadow: var(--shadow-floating);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--icon-strong);
+  cursor: default;
+  padding: 0;
+  transition: background-color var(--duration-fast);
+}
+
+[data-component="session-turn-jump"]:hover {
+  background-color: var(--hover-overlay, rgba(0, 0, 0, 0.04));
+}
+
+[data-component="session-turn-jump"]:active {
+  background-color: var(--surface-interactive-base);
+}
+
+[data-component="session-turn-jump"]:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--shadow-floating),
+    0 0 0 1px var(--brand-primary),
+    0 0 0 3px rgba(255, 89, 16, 0.2);
+}
+
+[data-component="session-turn-jump"] [data-icon] {
+  width: 16px;
+  height: 16px;
+}
