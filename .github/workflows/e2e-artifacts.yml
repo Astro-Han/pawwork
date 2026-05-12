@@ -171,3 +171,32 @@ jobs:
             packages/app/e2e/junit-linux.xml
             packages/app/e2e/playwright-report
             packages/app/e2e/test-results
+
+  # `e2e-artifacts / check`. Aggregator job for branch protection ruleset.
+  # Currently additive-only; not yet required. Phase 2 will switch the
+  # ruleset to require this check instead of the leaf e2e-artifacts job.
+  check:
+    if: always()
+    needs:
+      - changes
+      - e2e-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate e2e-artifacts result
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          E2E_RESULT: ${{ needs.e2e-artifacts.result }}
+        run: |
+          set -euo pipefail
+
+          if [ "$DOCS_ONLY" = "true" ]; then
+            echo "Docs-only change, e2e-artifacts skipped."
+            exit 0
+          fi
+
+          if [ "$E2E_RESULT" != "success" ]; then
+            echo "e2e-artifacts=$E2E_RESULT"
+            exit 1
+          fi
+
+          echo "e2e-artifacts=$E2E_RESULT"
