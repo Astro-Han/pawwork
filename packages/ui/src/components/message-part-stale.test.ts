@@ -2,9 +2,15 @@ import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 
 test("assistant part renderers capture item values before passing them to Part", () => {
+  // Slice 11b.1 split: `latestDefined` now lives in
+  // `./message-part-render-groups.ts` (legacy grouping helpers). The
+  // assistant dispatcher in `message-part.tsx` still imports + uses it,
+  // and the "no item() inside Show" invariants stay anchored there.
+  const renderGroups = readFileSync(new URL("./message-part-render-groups.ts", import.meta.url), "utf8")
   const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
 
-  expect(source).toContain("function latestDefined")
+  expect(renderGroups).toContain("export function latestDefined")
+  expect(source).toContain("latestDefined")
   expect(source).not.toContain("<Show when={item()} keyed>")
   expect(source).not.toMatch(/part=\{item\(\)!?\}/)
   expect(source).not.toMatch(/defaultOpen=\{partDefaultOpen\(item\(\)!?/)
