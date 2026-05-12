@@ -4,7 +4,8 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useLocation, useSearchParams } from "@solidjs/router"
+import { useLocation, useNavigate, useSearchParams } from "@solidjs/router"
+import { base64Encode } from "@opencode-ai/util/encode"
 import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { useComments } from "@/context/comments"
 import { useGlobalSync } from "@/context/global-sync"
@@ -66,6 +67,7 @@ export default function Page() {
   const comments = useComments()
   const terminal = useTerminal()
   const location = useLocation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams<{ prompt?: string }>()
   const { params, tabs, view } = useSessionLayout()
 
@@ -562,7 +564,42 @@ export default function Page() {
     roll,
   })
 
-  const actions = { revert: sessionRevert.revert }
+  // Slice 11b.1 §6.14: agent-toolbar [Fork] forks the current round from the
+  // user message that started it. The W1 path skips the DialogFork picker —
+  // the message id is implicit from the bubble that owns the toolbar. We
+  // reuse the same SDK call + prompt warm-up + navigation as DialogFork so a
+  // future consolidation can extract this into a shared helper without
+  // breaking the public action signature.
+  const [forking, setForking] = createSignal(false)
+  const forkRound = async (input: { sessionID: string; messageID: string }) => {
+    if (forking()) return
+    setForking(true)
+    try {
+      const parts = sync.data.part[input.messageID] ?? []
+      const restored = extractPromptFromParts(parts, {
+        directory: sdk.directory,
+        attachmentName: language.t("common.attachment"),
+      })
+      const dir = base64Encode(sdk.directory)
+      const forked = await sdk.client.session.fork({
+        sessionID: input.sessionID,
+        messageID: input.messageID,
+      })
+      if (!forked.data) {
+        showToast({ title: language.t("common.requestFailed") })
+        return
+      }
+      prompt.set(restored, undefined, { dir, id: forked.data.id })
+      navigate(`/${dir}/session/${forked.data.id}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast({ title: language.t("common.requestFailed"), description: message })
+    } finally {
+      setForking(false)
+    }
+  }
+
+  const actions = { revert: sessionRevert.revert, fork: forkRound }
 
   createEffect(
     on(
