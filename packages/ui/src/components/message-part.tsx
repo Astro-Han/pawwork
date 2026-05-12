@@ -128,31 +128,18 @@ function DiagnosticsDisplay(props: { diagnostics: Diagnostic[] }): JSX.Element {
   )
 }
 
-export interface MessageProps {
-  message: MessageType
-  parts: PartType[]
-  actions?: UserActions
-  showAssistantCopyPartID?: string | null
-  showReasoningSummaries?: boolean
-}
-
-export type SessionAction = (input: { sessionID: string; messageID: string }) => Promise<void> | void
-
-export type UserActions = {
-  fork?: SessionAction
-  revert?: SessionAction
-}
-
-export interface MessagePartProps {
-  part: PartType
-  message: MessageType
-  hideDetails?: boolean
-  defaultOpen?: boolean
-  showAssistantCopyPartID?: string | null
-  turnDurationMs?: number
-}
-
-export type PartComponent = Component<MessagePartProps>
+// Slice 11b.1: types extracted to `./message-part-types.ts`. Re-exported
+// here for back-compat with existing imports (`session-turn.tsx`,
+// storybook fixtures, …) until the public contract is migrated to
+// import the dedicated types file directly.
+import type {
+  MessageProps,
+  SessionAction,
+  UserActions,
+  MessagePartProps,
+  PartComponent,
+} from "./message-part-types"
+export type { MessageProps, SessionAction, UserActions, MessagePartProps, PartComponent }
 
 export const PART_MAPPING: Record<string, PartComponent | undefined> = {}
 
@@ -1301,19 +1288,11 @@ export function Part(props: MessagePartProps) {
   )
 }
 
-export interface ToolProps {
-  input: Record<string, any>
-  metadata: Record<string, any>
-  tool: string
-  output?: string
-  status?: string
-  hideDetails?: boolean
-  defaultOpen?: boolean
-  forceOpen?: boolean
-  locked?: boolean
-}
-
-export type ToolComponent = Component<ToolProps>
+// Slice 11b.1: types live in `./message-part-types.ts`; re-export for
+// back-compat. The next slice should retire the re-export once consumers
+// are migrated to the dedicated types file.
+import type { ToolProps, ToolComponent } from "./message-part-types"
+export type { ToolProps, ToolComponent }
 
 const state: Record<
   string,
