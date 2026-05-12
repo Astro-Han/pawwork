@@ -132,7 +132,9 @@ function globalEventStream(page: Page) {
         const win = window as Window & {
           __opencode_e2e?: { globalEventStream?: { setCursorForTest: (value: string | undefined) => void } }
         }
-        win.__opencode_e2e?.globalEventStream?.setCursorForTest(value)
+        const hook = win.__opencode_e2e?.globalEventStream?.setCursorForTest
+        if (!hook) throw new Error("Missing e2e global event stream cursor override hook")
+        hook(value)
       }, value),
   }
 }
@@ -643,6 +645,7 @@ test("question dock recovers after invalid replay cursor forces fallback refresh
 
         await expect(page.locator(questionDockSelector)).toHaveCount(0, { timeout: 750 })
         await stream.setCursorForTest("bad:999")
+        await expect.poll(stream.cursor, { timeout: 5_000 }).toBe("bad:999")
         await stream.start()
 
         await expectQuestionBlocked(page)
