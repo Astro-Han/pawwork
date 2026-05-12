@@ -38,6 +38,14 @@ test("normalizePath folds extended-length UNC paths on Windows", () => {
   })
 })
 
+test("normalizePathPattern preserves UNC glob roots on Windows", () => {
+  withWin32Platform(() => {
+    expect(AppFileSystem.normalizePathPattern("\\\\?\\UNC\\server\\share\\dir\\*")).toBe(
+      "\\\\server\\share\\dir\\*",
+    )
+  })
+})
+
 test("normalizeWindowsPath resolves non-existing rooted-driveless paths from an explicit base drive", () => {
   expect(AppFileSystem.normalizeWindowsPath("\\future\\file.txt", { base: "D:\\project\\work" })).toBe(
     "D:\\future\\file.txt",
@@ -65,6 +73,51 @@ test("normalizeWindowsPath de-duplicates caller-supplied drive roots before ambi
       exists: (candidate) => candidate.toLowerCase() === "c:\\shared\\file.txt",
     }),
   ).toBe("C:\\shared\\file.txt")
+})
+
+test("normalizeWindowsPath caches rooted-driveless matches until the cached path disappears", () => {
+  withWin32Platform(() => {
+    AppFileSystem.resetWindowsRootedVariantCacheForTest()
+    const cache = new Map<string, string>()
+    const live = new Map<string, boolean>([
+      ["C:\\shared\\file.txt", false],
+      ["D:\\shared\\file.txt", true],
+    ])
+    let probes = 0
+    const exists = (candidate: string) => {
+      probes += 1
+      return live.get(candidate) ?? false
+    }
+
+    const first = AppFileSystem.normalizeWindowsPath("\\shared\\file.txt", {
+      cache,
+      exists,
+      driveRoots: ["C:\\", "D:\\"],
+    })
+    const probesAfterFirst = probes
+    const second = AppFileSystem.normalizeWindowsPath("\\shared\\file.txt", {
+      cache,
+      exists,
+      driveRoots: ["C:\\", "D:\\"],
+    })
+
+    expect(first).toBe("D:\\shared\\file.txt")
+    expect(second).toBe("D:\\shared\\file.txt")
+    expect(probesAfterFirst).toBe(2)
+    expect(probes - probesAfterFirst).toBe(1)
+
+    live.set("D:\\shared\\file.txt", false)
+    live.set("E:\\shared\\file.txt", true)
+
+    const refreshed = AppFileSystem.normalizeWindowsPath("\\shared\\file.txt", {
+      cache,
+      exists,
+      driveRoots: ["C:\\", "D:\\", "E:\\"],
+    })
+
+    expect(refreshed).toBe("E:\\shared\\file.txt")
+    expect(probes - probesAfterFirst).toBe(5)
+  })
 })
 
 test.skipIf(process.platform !== "win32")(
