@@ -5,7 +5,7 @@
   /* PawWork motion primitives · STANDARDS L22 */
   --animate-pw-spin:    pw-spin 700ms linear infinite;
   --animate-pw-rail:    pw-rail 1400ms linear infinite;
-  --animate-pw-shimmer: pw-shimmer 1200ms linear infinite;
+  --animate-pw-shimmer: pw-shimmer 1800ms linear infinite;
 }
 
 @keyframes pulse-opacity {

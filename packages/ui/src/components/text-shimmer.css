@@ -1,6 +1,6 @@
 [data-component="text-shimmer"] {
   --text-shimmer-step: 45ms;
-  --text-shimmer-duration: 1200ms;
+  --text-shimmer-duration: 1800ms;
   --text-shimmer-swap: 220ms;
   --text-shimmer-index: 0;
   --text-shimmer-angle: 90deg;
