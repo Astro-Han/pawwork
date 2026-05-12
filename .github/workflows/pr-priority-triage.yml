@@ -1,0 +1,70 @@
+name: pr-priority-triage
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [dev]
+
+concurrency:
+  group: pr-priority-triage-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  pr-priority-triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const path = require("node:path")
+            const { pathToFileURL } = require("node:url")
+            const triage = await import(
+              pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github/scripts/pr-priority-triage.js")).href,
+            )
+            const { buildPriorityReview, TRIAGE_MARKER } = triage
+            const pull_number = Number(process.env.PR_NUMBER)
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            })
+            const paths = files.map((file) => file.filename)
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            })
+
+            if (reviews.some((review) => typeof review.body === "string" && review.body.includes(TRIAGE_MARKER))) {
+              core.info("Priority recommendation comment already exists; skipping.")
+              return
+            }
+
+            const review = buildPriorityReview(paths)
+            await github.rest.pulls.createReview({
+              owner,
+              repo,
+              pull_number,
+              event: "COMMENT",
+              body: review.body,
+            })
+
+            core.info(`Posted priority recommendation: ${review.priority}`)
