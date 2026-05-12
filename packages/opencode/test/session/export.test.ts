@@ -688,6 +688,93 @@ describe("Export.session", () => {
       },
     })
   })
+
+  test("collects abort and title generation diagnostics from assistant messages", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "diag summary" })
+        const userID = MessageID.make("msg_diag_user")
+        const assistantID = MessageID.make("msg_diag_assistant")
+        try {
+          await SessionNs.updateMessage({
+            id: userID,
+            sessionID: root.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+          } as MessageV2.User)
+          await SessionNs.updateMessage({
+            id: assistantID,
+            role: "assistant",
+            sessionID: root.id,
+            mode: "build",
+            agent: "build",
+            path: { cwd: projectRoot, root: projectRoot },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "test-model",
+            providerID: "test",
+            parentID: userID,
+            time: { created: 10, completed: 20 },
+            finish: "error",
+            diagnostics: {
+              abort: {
+                source: "session.prompt.cancel",
+                reason: "hard_cancel",
+                mode: "hard",
+                propagation_point: "session.prompt.loop.onInterrupt",
+                error_name: "MessageAbortedError",
+                error_message: "Aborted",
+                via_ctx_abort: false,
+                recorded_at: 21,
+              },
+              title_generation: {
+                source: "ensureTitle",
+                parent_message_id: userID,
+                started_at: 11,
+                completed_at: 19,
+                success: true,
+                applied: true,
+              },
+            },
+          } as MessageV2.Assistant)
+
+          const result = await AppRuntime.runPromise(Export.session(root.id))
+          expect(result.diagnostics.aborts).toEqual([
+            {
+              session_id: root.id,
+              message_id: assistantID,
+              parent_id: userID,
+              source: "session.prompt.cancel",
+              reason: "hard_cancel",
+              mode: "hard",
+              propagation_point: "session.prompt.loop.onInterrupt",
+              error_name: "MessageAbortedError",
+              error_message: "Aborted",
+              via_ctx_abort: false,
+              recorded_at: 21,
+            },
+          ])
+          expect(result.diagnostics.title_generations).toEqual([
+            {
+              session_id: root.id,
+              message_id: assistantID,
+              parent_id: userID,
+              source: "ensureTitle",
+              started_at: 11,
+              completed_at: 19,
+              success: true,
+              applied: true,
+            },
+          ])
+        } finally {
+          await SessionNs.remove(root.id)
+        }
+      },
+    })
+  })
 })
 
 describe("Export.redactPart sensitive tool metadata", () => {

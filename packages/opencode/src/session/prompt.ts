@@ -298,7 +298,12 @@ export const layer = Layer.effect(
         yield* elog.info("cancel ignored", { sessionID, mode, reason: "awaiting_question" })
         return false
       }
-      yield* state.cancel(sessionID)
+      yield* state.cancel(sessionID, {
+        source: "session.prompt.cancel",
+        reason: mode === "soft" ? "soft_cancel" : "hard_cancel",
+        mode,
+        viaCtxAbort: false,
+      })
       return true
     })
 
@@ -355,6 +360,40 @@ export const layer = Layer.effect(
       const firstUser = context[idx]
       if (!firstUser || firstUser.info.role !== "user") return
       const firstInfo = firstUser.info
+      const startedAt = Date.now()
+
+      const recordTitleTrace = Effect.fn("SessionPrompt.recordTitleTrace")(function* (trace: {
+        completedAt?: number
+        success: boolean
+        applied?: boolean
+        errorName?: string
+        errorMessage?: string
+      }) {
+        let assistant: MessageV2.WithParts | undefined
+        for (let attempt = 0; attempt < 50; attempt++) {
+          const messages = yield* sessions.messages({ sessionID: input.session.id })
+          assistant = messages.find((message) => message.info.role === "assistant" && message.info.parentID === firstInfo.id)
+          if (assistant) break
+          yield* Effect.sleep("10 millis")
+        }
+        if (!assistant || assistant.info.role !== "assistant") return
+        yield* sessions.updateMessage({
+          ...assistant.info,
+          diagnostics: {
+            ...(assistant.info.diagnostics ?? {}),
+            title_generation: {
+              source: "ensureTitle",
+              parent_message_id: firstInfo.id,
+              started_at: startedAt,
+              completed_at: trace.completedAt,
+              success: trace.success,
+              applied: trace.applied,
+              error_name: trace.errorName,
+              error_message: trace.errorMessage,
+            },
+          },
+        })
+      })
 
       const subtasks = firstUser.parts.filter((p): p is MessageV2.SubtaskPart => p.type === "subtask")
       const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
@@ -368,7 +407,7 @@ export const layer = Layer.effect(
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
         : yield* MessageV2.toModelMessagesEffect(context, mdl)
-      const text = yield* llm
+      const titleExit = yield* llm
         .stream({
           agent: ag,
           user: firstInfo,
@@ -384,18 +423,35 @@ export const layer = Layer.effect(
           Stream.filter((e): e is Extract<LLM.Event, { type: "text-delta" }> => e.type === "text-delta"),
           Stream.map((e) => e.text),
           Stream.mkString,
-          Effect.orDie,
+          Effect.exit,
         )
+      const completedAt = Date.now()
+      if (titleExit._tag === "Failure") {
+        const error = Cause.squash(titleExit.cause)
+        yield* elog.error("failed to generate title", { error })
+        yield* recordTitleTrace({
+          completedAt,
+          success: false,
+          errorName: error instanceof Error ? error.name : undefined,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }).pipe(Effect.catchCause(() => Effect.void))
+        return
+      }
+      const text = titleExit.value
       const cleaned = text
         .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
         .split("\n")
         .map((line) => line.trim())
         .find((line) => line.length > 0)
-      if (!cleaned) return
+      if (!cleaned) {
+        yield* recordTitleTrace({ completedAt, success: true, applied: false }).pipe(Effect.catchCause(() => Effect.void))
+        return
+      }
       const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
       yield* sessions
         .setTitle({ sessionID: input.session.id, title: t })
         .pipe(Effect.catchCause((cause) => elog.error("failed to generate title", { error: Cause.squash(cause) })))
+      yield* recordTitleTrace({ completedAt, success: true, applied: true }).pipe(Effect.catchCause(() => Effect.void))
     })
 
     const insertReminders = Effect.fn("SessionPrompt.insertReminders")(function* (input: {
@@ -1935,7 +1991,34 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     )(function* (input: z.infer<typeof LoopInput>) {
       const onInterrupt = Effect.gen(function* () {
         interruptedSessions.add(input.sessionID)
-        return yield* lastAssistant(input.sessionID)
+        const assistant = yield* lastAssistant(input.sessionID)
+        const meta = yield* state.interruptMeta(input.sessionID)
+        if (assistant.info.role === "assistant") {
+          const error = assistant.info.error
+          const errorMessage =
+            error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
+              ? String(error.data.message)
+              : undefined
+          yield* sessions.updateMessage({
+            ...assistant.info,
+            diagnostics: {
+              ...(assistant.info.diagnostics ?? {}),
+              abort: {
+                ...(assistant.info.diagnostics?.abort ?? {}),
+                source: meta?.source,
+                reason: meta?.reason,
+                mode: meta?.mode,
+                propagation_point: meta?.propagationPoint ?? "session.prompt.loop.onInterrupt",
+                error_name: error?.name,
+                error_message: errorMessage,
+                via_ctx_abort: meta?.viaCtxAbort,
+                recorded_at: meta?.recordedAt ?? Date.now(),
+              },
+            },
+          })
+          return yield* lastAssistant(input.sessionID)
+        }
+        return assistant
       })
       return yield* state.ensureRunning(input.sessionID, onInterrupt, runLoop(input.sessionID))
     })

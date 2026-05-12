@@ -1,5 +1,5 @@
 import { InstanceState } from "@/effect/instance-state"
-import { Runner } from "@/effect/runner"
+import { Runner, type InterruptMeta } from "@/effect/runner"
 import { Deferred, Effect, Layer, Scope, Context } from "effect"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
@@ -8,7 +8,8 @@ import { SessionStatus } from "./status"
 
 export interface Interface {
   readonly assertNotBusy: (sessionID: SessionID) => Effect.Effect<void>
-  readonly cancel: (sessionID: SessionID) => Effect.Effect<void>
+  readonly cancel: (sessionID: SessionID, meta?: InterruptMeta) => Effect.Effect<void>
+  readonly interruptMeta: (sessionID: SessionID) => Effect.Effect<InterruptMeta | undefined>
   readonly ensureRunning: (
     sessionID: SessionID,
     onInterrupt: Effect.Effect<MessageV2.WithParts>,
@@ -74,14 +75,19 @@ export const layer = Layer.effect(
       if (existing?.busy) throw new Session.BusyError(sessionID)
     })
 
-    const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID) {
+    const cancel = Effect.fn("SessionRunState.cancel")(function* (sessionID: SessionID, meta?: InterruptMeta) {
       const data = yield* InstanceState.get(state)
       const existing = data.runners.get(sessionID)
       if (!existing || !existing.busy) {
         yield* status.set(sessionID, { type: "idle" })
         return
       }
-      yield* existing.cancel
+      yield* existing.cancelWith(meta)
+    })
+
+    const interruptMeta = Effect.fn("SessionRunState.interruptMeta")(function* (sessionID: SessionID) {
+      const data = yield* InstanceState.get(state)
+      return data.runners.get(sessionID)?.interruptMeta()
     })
 
     const ensureRunning = Effect.fn("SessionRunState.ensureRunning")(function* (
@@ -101,7 +107,7 @@ export const layer = Layer.effect(
       return yield* (yield* runner(sessionID, onInterrupt)).startShell(work, { ready })
     })
 
-    return Service.of({ assertNotBusy, cancel, ensureRunning, startShell })
+    return Service.of({ assertNotBusy, cancel, interruptMeta, ensureRunning, startShell })
   }),
 )
 

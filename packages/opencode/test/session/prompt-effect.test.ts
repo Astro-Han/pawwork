@@ -391,7 +391,7 @@ it.live("loop calls LLM and returns assistant message", () =>
         title: "Pinned",
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
-      yield* prompt.prompt({
+      const userMsg = yield* prompt.prompt({
         sessionID: chat.id,
         agent: "build",
         noReply: true,
@@ -1338,6 +1338,14 @@ it.live(
         expect(Exit.isSuccess(exit)).toBe(true)
         if (Exit.isSuccess(exit) && exit.value.info.role === "assistant") {
           expect(exit.value.info.error?.name).toBe("MessageAbortedError")
+          expect(exit.value.info.diagnostics?.abort).toMatchObject({
+            source: "session.prompt.cancel",
+            reason: "soft_cancel",
+            mode: "soft",
+            propagation_point: "session.prompt.loop.onInterrupt",
+            error_name: "MessageAbortedError",
+            via_ctx_abort: false,
+          })
         }
       }),
       { git: true, config: providerCfg },
