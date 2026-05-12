@@ -94,6 +94,13 @@
   --fg-weak:     #8c817a;
   --fg-weaker:   #b6ada7;
   --fg-on-brand: #ffffff;
+  /* Secondary ink — slice 11b.1 W1 lock (reasoning summaries, DESIGN.md
+   * L482). Today mirrors --fg-weak exactly; carved out as a separate
+   * token so a future rebalance can shift secondary independent of weak
+   * without rewriting every callsite. theme-parity.test.ts requires the
+   * raw value mirrored in pawwork.json, so the hex is repeated rather
+   * than expressed as var(--fg-weak). */
+  --fg-secondary: #8c817a;
 
   /* ────────── Light border · STANDARDS L12 (3 tiers) ────────── */
   --border-base:    rgba(0, 0, 0, 0.162);
@@ -105,6 +112,11 @@
   --icon-strong:   #1a1613;
   --icon-weak:     #b6ada7;
   --icon-disabled: #c7c7c7;
+  /* Chev icon — slice 11b.1 W1 lock spec for trow-block chev. Today
+   * mirrors --icon-base exactly; carved out so a future rebalance can
+   * dim the chev without affecting other icons. Raw hex repeated for
+   * theme-parity.test.ts. */
+  --icon-chev:     #8c817a;
 
   /* ────────── Semantic · STANDARDS L13 (3 tiers, info NOT allocated) ────────── */
   --success:      #2d9d5a;
@@ -293,6 +305,7 @@
   --fg-base:   #c5beb4;
   --fg-weak:   #8a8278;
   --fg-weaker: #6b645c;
+  --fg-secondary: #8a8278;
 
   /* Dark border · STANDARDS L12 (3 tiers); recalibrated for surface-raised context */
   --border-base:   rgba(255, 255, 255, 0.12);
@@ -303,6 +316,7 @@
   --icon-base:   #8a8278;
   --icon-strong: #f3ede4;
   --icon-weak:   #6b645c;
+  --icon-chev:   #8a8278;
 
   /* Brand hover lifted in dark for legibility on warm coffee surface */
   --brand-primary-hover: #ff7a3a;
@@ -439,6 +453,7 @@
     --fg-base:   #c5beb4;
     --fg-weak:   #8a8278;
     --fg-weaker: #6b645c;
+    --fg-secondary: #8a8278;
 
     --border-base:   rgba(255, 255, 255, 0.12);
     --border-weak:   #36322e;
@@ -447,6 +462,7 @@
     --icon-base:   #8a8278;
     --icon-strong: #f3ede4;
     --icon-weak:   #6b645c;
+    --icon-chev:   #8a8278;
 
     --brand-primary-hover: #ff7a3a;
 
