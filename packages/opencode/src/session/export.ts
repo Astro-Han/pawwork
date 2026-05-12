@@ -161,6 +161,7 @@ export namespace Export {
         source?: string
         reason?: string
         mode?: "soft" | "hard"
+        title_generation_state?: "not_started" | "in_flight" | "completed_before_abort" | "completed_after_abort"
         propagation_point?: string
         error_name?: string
         error_message?: string
@@ -211,6 +212,7 @@ export namespace Export {
       source?: string
       reason?: string
       mode?: "soft" | "hard"
+      title_generation_state?: "not_started" | "in_flight" | "completed_before_abort" | "completed_after_abort"
       propagation_point?: string
       error_name?: string
       error_message?: string
@@ -331,6 +333,7 @@ export namespace Export {
           source: abort.source,
           reason: abort.reason,
           mode: abort.mode,
+          title_generation_state: abort.title_generation_state,
           propagation_point: abort.propagation_point,
           error_name: abort.error_name,
           error_message: abort.error_message,

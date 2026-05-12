@@ -12,7 +12,7 @@ import { useLayout } from "@/context/layout"
 import { useLocal } from "@/context/local"
 import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
-import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
+import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { promptProbe } from "@/testing/prompt"
@@ -248,22 +248,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   }
 
   const emitAbortDiagnostic = (input: {
-    sessionID: string
+    routeSessionID?: string
+    visibleSessionID?: string
+    timelineSessionID?: string
     source: AbortSource
     mode: AbortMode
     result: "aborted" | "ignored_awaiting_question"
   }) => {
-    void emitRendererDiagnostic({
-      name: "session.action.abort",
-      route_session_id: input.sessionID,
-      visible_session_id: input.sessionID,
-      timeline_session_id: input.sessionID,
-      data: {
-        source: input.source,
-        mode: input.mode,
-        result: input.result,
-      },
-    }).catch(() => undefined)
+    void emitRendererDiagnostic(sessionAbortDiagnosticEvent(input)).catch(() => undefined)
   }
 
   const abort = async (source: AbortSource = "stopButton", mode: AbortMode = "soft") => {
@@ -279,7 +271,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       queued.abort.abort()
       queued.cleanup()
       pending.delete(activeSessionID)
-      emitAbortDiagnostic({ sessionID: activeSessionID, source, mode, result: "aborted" })
+      emitAbortDiagnostic({
+        routeSessionID: activeSessionID,
+        visibleSessionID: activeSessionID,
+        timelineSessionID: activeSessionID,
+        source,
+        mode,
+        result: "aborted",
+      })
       return Promise.resolve()
     }
     return sdk.client.session
@@ -289,7 +288,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       })
       .then((result) => {
         emitAbortDiagnostic({
-          sessionID: activeSessionID,
+          routeSessionID: activeSessionID,
+          visibleSessionID: activeSessionID,
+          timelineSessionID: activeSessionID,
           source,
           mode,
           result: result.data === false ? "ignored_awaiting_question" : "aborted",

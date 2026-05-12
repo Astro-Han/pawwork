@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
-import { expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect"
 import path from "path"
 import fs from "fs/promises"
@@ -27,7 +27,11 @@ import { SessionBlocker } from "../../src/session/blocker"
 import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
-import { SessionPrompt } from "../../src/session/prompt"
+import {
+  reconcileTitleGenerationStateAfterCompletion,
+  SessionPrompt,
+  titleGenerationStateAtAbort,
+} from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
 import { SubagentRun } from "../../src/session/subagent-run"
@@ -117,6 +121,32 @@ function errorTool(parts: MessageV2.Part[]) {
   expect(part?.state.status).toBe("error")
   return part?.state.status === "error" ? (part as ErrorToolPart) : undefined
 }
+
+describe("title generation diagnostics helpers", () => {
+  test("maps abort-time title generation states", () => {
+    expect(titleGenerationStateAtAbort(undefined, 10)).toBe("not_started")
+    expect(titleGenerationStateAtAbort({ startedAt: 1 }, 10)).toBe("in_flight")
+    expect(titleGenerationStateAtAbort({ startedAt: 1, completedAt: 15 }, 10)).toBe("in_flight")
+    expect(titleGenerationStateAtAbort({ startedAt: 1, completedAt: 9 }, 10)).toBe("completed_before_abort")
+  })
+
+  test("upgrades in-flight abort state after title completes", () => {
+    expect(
+      reconcileTitleGenerationStateAfterCompletion({
+        state: "in_flight",
+        abortRecordedAt: 10,
+        completedAt: 15,
+      }),
+    ).toBe("completed_after_abort")
+    expect(
+      reconcileTitleGenerationStateAfterCompletion({
+        state: "completed_before_abort",
+        abortRecordedAt: 10,
+        completedAt: 9,
+      }),
+    ).toBe("completed_before_abort")
+  })
+})
 
 const mcp = Layer.succeed(
   MCP.Service,

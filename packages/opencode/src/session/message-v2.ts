@@ -515,6 +515,9 @@ export const Assistant = Base.extend({
           source: z.string().optional(),
           reason: z.string().optional(),
           mode: z.enum(["soft", "hard"]).optional(),
+          title_generation_state: z
+            .enum(["not_started", "in_flight", "completed_before_abort", "completed_after_abort"])
+            .optional(),
           propagation_point: z.string().optional(),
           error_name: z.string().optional(),
           error_message: z.string().optional(),
