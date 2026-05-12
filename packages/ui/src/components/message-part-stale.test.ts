@@ -2,12 +2,13 @@ import { expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 
 test("assistant part renderers capture item values before passing them to Part", () => {
-  // Slice 11b.1 split: `latestDefined` now lives in
-  // `./message-part-render-groups.ts` (legacy grouping helpers). The
-  // assistant dispatcher in `message-part.tsx` still imports + uses it,
-  // and the "no item() inside Show" invariants stay anchored there.
+  // Slice 11b.1 split: `latestDefined` lives in
+  // `./message-part-render-groups.ts`; the assistant dispatcher that
+  // consumes it now lives in `./assistant-message-display.tsx`. The
+  // "no item() inside Show" invariants follow the dispatcher to its new
+  // home.
   const renderGroups = readFileSync(new URL("./message-part-render-groups.ts", import.meta.url), "utf8")
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readFileSync(new URL("./assistant-message-display.tsx", import.meta.url), "utf8")
 
   expect(renderGroups).toContain("export function latestDefined")
   expect(source).toContain("latestDefined")
@@ -18,7 +19,9 @@ test("assistant part renderers capture item values before passing them to Part",
 })
 
 test("tool file accordions account for tool content gap in sticky offset", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  // Slice 11b.1 split: `ToolFileAccordion` lives in
+  // `./message-part-tool-display.tsx`.
+  const source = readFileSync(new URL("./message-part-tool-display.tsx", import.meta.url), "utf8")
 
   expect(source).toContain('style={{ "--sticky-accordion-offset": "calc(32px + var(--tool-content-gap))" }}')
   expect(source).not.toContain('style={{ "--sticky-accordion-offset": "40px" }}')
@@ -28,7 +31,9 @@ test("tool file accordions account for tool content gap in sticky offset", () =>
 // (written by processor cleanup) so the check stays decoupled from the exact
 // backend error string. See #419.
 test("question tool error renders interrupted variant via metadata.interrupted", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  // Slice 11b.1 split: the tool dispatcher (PART_MAPPING["tool"]) lives
+  // in `./message-part-tool-display.tsx`.
+  const source = readFileSync(new URL("./message-part-tool-display.tsx", import.meta.url), "utf8")
 
   expect(source).toContain('part().tool === "question" && partMetadata()?.interrupted === true')
   expect(source).toContain('"ui.messagePart.questions.interrupted"')
@@ -49,7 +54,7 @@ test("interrupted i18n key exists in zh and en", () => {
 // a one-shot snapshot at component setup. Lock the accessor pattern so a
 // future "let me memo this once" refactor can't silently break live updates.
 test("partMetadata is a fresh accessor over part().state, not a setup-time snapshot", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readFileSync(new URL("./message-part-tool-display.tsx", import.meta.url), "utf8")
 
   // Defined as () => …, not const partMetadata = props.part.metadata
   expect(source).toContain("const partMetadata = () => toolStateMetadata(part().state)")
@@ -58,14 +63,14 @@ test("partMetadata is a fresh accessor over part().state, not a setup-time snaps
 })
 
 test("synthetic stop tool parts are hidden through reactive metadata", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readFileSync(new URL("./message-part-tool-display.tsx", import.meta.url), "utf8")
 
   expect(source).toContain("const hideSyntheticStop = createMemo(")
   expect(source).toMatch(/partMetadata\(\)\.diagnostics\?\.loop\?\.loopAction\s*===\s*"stop"/)
 })
 
 test("tool part wrapper suppresses both pending questions and synthetic stop tools", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readFileSync(new URL("./message-part-tool-display.tsx", import.meta.url), "utf8")
 
   expect(source).toContain("<Show when={!hideQuestion() && !hideSyntheticStop()}>")
 })
@@ -74,9 +79,9 @@ test("tool part wrapper suppresses both pending questions and synthetic stop too
 // live message stream actually emits — including the case where the part
 // initially has no metadata key and gains one on the next update.
 test("toolStateMetadata extracts interrupted flag across part state shapes", () => {
-  // Inline reimplementation that mirrors the helper in message-part.tsx
-  // (kept private there). Drift between the two will trip the structural
-  // test above before it reaches users.
+  // Inline reimplementation that mirrors the helper in
+  // ./message-part-tool-info.ts. Drift between the two will trip the
+  // structural tests above before it reaches users.
   function toolStateMetadata(state: unknown): Record<string, any> {
     if (!state || typeof state !== "object" || !("metadata" in state)) return {}
     const metadata = (state as { metadata: unknown }).metadata
