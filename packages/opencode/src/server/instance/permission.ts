@@ -3,11 +3,53 @@ import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { SessionID } from "@/session/schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { Env } from "@/env"
+import { AppRuntime } from "@/effect/app-runtime"
+import { Log } from "@opencode-ai/core/util/log"
+
+const log = Log.create({ service: "server" })
+const e2ePermissionRoutesEnabled = () =>
+  Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 export const PermissionRoutes = lazy(() =>
   new Hono()
+    .post(
+      "/__e2e/ask",
+      validator(
+        "json",
+        z.object({
+          sessionID: SessionID.zod,
+          permission: z.string().min(1),
+          patterns: z.array(z.string()).min(1),
+          metadata: z.record(z.string(), z.any()).optional(),
+          always: z.array(z.string()).optional(),
+        }),
+      ),
+      async (c) => {
+        if (!e2ePermissionRoutesEnabled()) return c.notFound()
+
+        const json = c.req.valid("json")
+        void AppRuntime.runPromise(
+          Permission.Service.use((svc) =>
+            svc.ask({
+              sessionID: json.sessionID,
+              permission: json.permission,
+              patterns: json.patterns,
+              metadata: json.metadata ?? {},
+              always: json.always ?? json.patterns,
+              ruleset: [{ permission: json.permission, pattern: "*", action: "ask" }],
+            }),
+          ),
+        ).catch((error) => {
+          log.error("e2e permission seed failed", { sessionID: json.sessionID, error })
+        })
+
+        return c.body(null, 204)
+      },
+    )
     .post(
       "/:requestID/reply",
       describeRoute({
