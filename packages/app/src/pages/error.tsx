@@ -172,11 +172,6 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
                 {language.t("error.page.action.restart")}
               </button>
             </Show>
-            <Show when={platform.checkUpdate}>
-              <span class="text-fg-weaker" aria-hidden="true">
-                ·
-              </span>
-            </Show>
             <button
               type="button"
               class="hover:text-fg-strong transition-colors disabled:opacity-50"
@@ -255,9 +250,6 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
                 {(version) => (
                   <>
                     <span>{language.t("error.page.version", { version: version() })}</span>
-                    <span class="text-fg-weaker" aria-hidden="true">
-                      ·
-                    </span>
                   </>
                 )}
               </Show>

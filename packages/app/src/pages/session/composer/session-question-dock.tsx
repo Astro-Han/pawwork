@@ -466,9 +466,6 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
         <>
           <div data-slot="question-header-title">
             <span data-slot="question-header-seq">{summary()}</span>
-            <span data-slot="question-header-separator" aria-hidden="true">
-              ·
-            </span>
             <span data-slot="question-header-mode">
               {multi() ? language.t("ui.question.multiHint") : language.t("ui.question.singleHint")}
             </span>

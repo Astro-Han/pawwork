@@ -59,8 +59,8 @@ export function PromptModelControl(props: {
           </span>
           <Show when={props.model.variant.current()}>
             {(v) => (
-              <span class="shrink-0 text-fg-weak font-normal">
-                · {translateVariant(props.language.t, v())}
+              <span class="ms-1.5 shrink-0 text-fg-weaker font-normal">
+                {translateVariant(props.language.t, v())}
               </span>
             )}
           </Show>
