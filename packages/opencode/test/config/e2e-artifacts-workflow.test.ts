@@ -11,8 +11,10 @@ describe("e2e artifacts workflow", () => {
     const parsed = parseWorkflow(workflowPath)
     const changes = parsed.jobs?.changes
     const job = parsed.jobs?.["e2e-artifacts"]
+    const checkJob = parsed.jobs?.check
     const changesSteps = changes?.steps ?? []
     const steps = job?.steps ?? []
+    const checkSteps = checkJob?.steps ?? []
     const changesCheckoutStep = changesSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const filterStep = changesSteps.find((step) => step.id === "filter")
     const checkoutStep = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
@@ -21,6 +23,7 @@ describe("e2e artifacts workflow", () => {
     const runStep = steps.find((step) => step.name === "Run e2e")
     const warnStep = steps.find((step) => step.name === "Warn on E2E failure")
     const uploadStep = steps.find((step) => step.name === "Upload e2e artifacts")
+    const validateStep = checkSteps.find((step) => step.name === "Validate e2e-artifacts result")
 
     expect(parsed.name).toBe("e2e-artifacts")
     expect(parsed.on?.pull_request).toEqual({ branches: ["dev"] })
@@ -39,7 +42,7 @@ describe("e2e artifacts workflow", () => {
       "group: e2e-artifacts-${{ github.event.pull_request.number || github.ref }}-${{ inputs.suite || 'pr-smoke' }}",
     )
     expect(parsed.permissions).toEqual({ contents: "read" })
-    expect(Object.keys(parsed.jobs ?? {}).sort()).toEqual(["changes", "e2e-artifacts"])
+    expect(Object.keys(parsed.jobs ?? {}).sort()).toEqual(["changes", "check", "e2e-artifacts"])
     expect(changes?.outputs).toEqual({ docs_only: "${{ steps.filter.outputs.docs_only }}" })
     expect(changesCheckoutStep?.with).toEqual({
       "fetch-depth": 0,
@@ -68,6 +71,14 @@ describe("e2e artifacts workflow", () => {
     expect(uploadStep?.with?.name).toBe("e2e-artifacts-linux-${{ github.run_attempt }}")
     expect(uploadStep?.with?.["if-no-files-found"]).toBe("ignore")
     expect(uploadStep?.with?.["retention-days"]).toBe(7)
+    // check aggregator job assertions
+    expect(checkJob?.if).toBe("always()")
+    expect(checkJob?.needs).toEqual(["changes", "e2e-artifacts"])
+    expect(checkJob?.["runs-on"]).toBe("ubuntu-latest")
+    expect(validateStep?.env?.DOCS_ONLY).toBe("${{ needs.changes.outputs.docs_only }}")
+    expect(validateStep?.env?.E2E_RESULT).toBe("${{ needs.e2e-artifacts.result }}")
+    expect(validateStep?.run).toContain("if [ \"$DOCS_ONLY\" = \"true\" ]")
+    expect(validateStep?.run).toContain("if [ \"$E2E_RESULT\" != \"success\" ]")
     expect(workflow).not.toContain("pull_request_target:")
     expect(workflow).not.toMatch(/\/Users\/[^/]+\//)
     expect(workflow).not.toMatch(/\/home\/[^/]+\//)
