@@ -1,14 +1,8 @@
-import { For, createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
-import { createStore, produce } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
-import { useMutation } from "@tanstack/solid-query"
+import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
-import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
-import { showToast } from "@opencode-ai/ui/toast"
 import { Binary } from "@opencode-ai/util/binary"
-import { messageAgentColor } from "@/utils/agent"
 import { normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { collectTimelineScrollMetrics } from "@/pages/session/session-timeline-scroll-anchors"
 import {
@@ -26,12 +20,8 @@ import { usePlatform } from "@/context/platform"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
-import { useSDK } from "@/context/sdk"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
-import { sessionTitle } from "@/utils/session-title"
-import { makeTimer } from "@solid-primitives/timer"
-import { webSearchRecoveryToast } from "./websearch-toasts"
 import { createTimelineStaging } from "@/pages/session/message-timeline-staging"
 import {
   boundaryGesture,
@@ -39,20 +29,13 @@ import {
   scrollViewIntentToTimelineIntent,
   shouldMarkLegacyScrollIntent,
 } from "@/pages/session/message-timeline-scroll"
-import { messageComments, MessageCommentList } from "@/pages/session/message-timeline-comments"
 import { LoadEarlierButton } from "@/pages/session/message-timeline-history-load"
 import {
   createTurnChangeFetcher,
   type TurnChangeDisplay,
 } from "@/pages/session/message-timeline-turn-changes"
-
-function isWebSearchToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
-  return part.type === "tool" && part.tool === "websearch"
-}
-
-function isPendingWebSearchToolPart(part: Part) {
-  return isWebSearchToolPart(part) && (part.state.status === "pending" || part.state.status === "running")
-}
+import { TimelineMessage } from "@/pages/session/message-timeline-row"
+import { createWebSearchToastWatcher } from "@/pages/session/message-timeline-websearch"
 
 const emptyMessages: MessageType[] = []
 const idle = { type: "idle" as const }
@@ -107,8 +90,6 @@ export function MessageTimeline(props: {
       }
     | undefined
 
-  const navigate = useNavigate()
-  const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
   const dialog = useDialog()
@@ -121,11 +102,6 @@ export function MessageTimeline(props: {
     mounted = false
     if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
   })
-  // Export hits the embedded sidecar via main-process IPC. When the user has switched the
-  // active server to a remote HTTP/SSH target, the sidecar holds different data than the UI;
-  // hide the action rather than ship a misleading export.
-  const exportAvailable = createMemo(() => !!platform.exportSession && server.current?.type === "sidecar")
-
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
   const visibleRange = createMemo(() => {
     const ids = rendered()
@@ -149,9 +125,6 @@ export function MessageTimeline(props: {
   const sessionKey = createMemo(() => props.sessionKey)
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
-  const webSearchToastSurfaced = new Set<string>()
-  const webSearchPartCursor = new Map<string, number>()
-  const webSearchPendingParts = new Map<string, Set<string>>()
   // Turn-change auto-prefetch + imperative undo/redo with conflict dialog
   // owned by ./message-timeline-turn-changes. Pass the server URL + auth
   // builder so the fetcher stays independent of the timeline's other
@@ -208,42 +181,12 @@ export function MessageTimeline(props: {
       },
     ),
   )
-  let webSearchToastSessionID: string | undefined
-
-  createEffect(() => {
-    const id = sessionID()
-    if (id !== webSearchToastSessionID) {
-      webSearchToastSessionID = id
-      webSearchToastSurfaced.clear()
-      webSearchPartCursor.clear()
-      webSearchPendingParts.clear()
-    }
-    for (const message of sessionMessages()) {
-      const parts = sync.data.part[message.id] ?? []
-      const start = webSearchPartCursor.get(message.id) ?? 0
-      const pending = webSearchPendingParts.get(message.id) ?? new Set<string>()
-      const candidates = [...parts.slice(start), ...parts.slice(0, start).filter((part) => pending.has(part.id))]
-      for (const part of candidates) {
-        if (isPendingWebSearchToolPart(part)) pending.add(part.id)
-        else pending.delete(part.id)
-        const toast = webSearchRecoveryToast(part, { surfaced: webSearchToastSurfaced })
-        if (!toast) continue
-        showToast({
-          title: language.t(toast.titleKey),
-          description: language.t(toast.descriptionKey),
-          variant: "error",
-          actions: [
-            {
-              label: language.t(toast.actionKey),
-              onClick: () => shellSurface.openSettings(),
-            },
-          ],
-        })
-      }
-      webSearchPartCursor.set(message.id, parts.length)
-      if (pending.size > 0) webSearchPendingParts.set(message.id, pending)
-      else webSearchPendingParts.delete(message.id)
-    }
+  createWebSearchToastWatcher({
+    sessionID,
+    sessionMessages,
+    partsByMessageID: (messageID) => sync.data.part[messageID],
+    language,
+    openSettings: () => shellSurface.openSettings(),
   })
   const pending = createMemo(() => {
     const messages = sessionMessages() ?? emptyMessages
@@ -257,22 +200,6 @@ export function MessageTimeline(props: {
     return sync.data.session_status[id] ?? idle
   })
   const working = createSessionRunning(sessionStatus, sessionMessages)
-  const tint = createMemo(() => messageAgentColor(sessionMessages(), sync.data.agent))
-
-  const [timeoutDone, setTimeoutDone] = createSignal(true)
-
-  const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
-    if (working()) return "showing"
-    if (prev === "showing" || !timeoutDone()) return "hiding"
-    return "hidden"
-  })
-
-  createEffect(() => {
-    if (workingStatus() !== "hiding") return
-
-    setTimeoutDone(false)
-    makeTimer(() => setTimeoutDone(true), 260, setTimeout)
-  })
 
   const activeMessageID = createMemo(() => {
     const parentID = working() ? pending()?.parentID : undefined
@@ -298,20 +225,12 @@ export function MessageTimeline(props: {
     if (!id) return
     return sync.session.get(id)
   })
-  const titleValue = createMemo(() => info()?.title)
-  const titleLabel = createMemo(() => sessionTitle(titleValue()))
   const parentID = createMemo(() => info()?.parentID)
-  const parent = createMemo(() => {
-    const id = parentID()
-    if (!id) return
-    return sync.session.get(id)
-  })
   const parentMessages = createMemo(() => {
     const id = parentID()
     if (!id) return emptyMessages
     return sync.data.message[id] ?? emptyMessages
   })
-  const parentTitle = createMemo(() => sessionTitle(parent()?.title) ?? language.t("command.session.new"))
   const childTaskDescription = createMemo(() => {
     const id = sessionID()
     if (!id) return
@@ -320,14 +239,6 @@ export function MessageTimeline(props: {
       .map((part) => taskDescription(part, id))
       .findLast((value): value is string => !!value)
   })
-  const childTitle = createMemo(() => {
-    if (!parentID()) return titleLabel() ?? ""
-    if (childTaskDescription()) return childTaskDescription()
-    const value = titleLabel()?.replace(/\s+\(@[^)]+ subagent\)$/, "")
-    if (value) return value
-    return language.t("command.session.new")
-  })
-  const showHeader = createMemo(() => !!(titleValue() || parentID()))
   // Match the initial window cap so session switches do not reveal the window in partial batches.
   const stageCfg = { init: 10, batch: 3 }
   const staging = createTimelineStaging({
@@ -336,98 +247,6 @@ export function MessageTimeline(props: {
     messages: () => props.renderedUserMessages,
     config: stageCfg,
   })
-
-  const [title, setTitle] = createStore({
-    draft: "",
-    editing: false,
-    menuOpen: false,
-    pendingRename: false,
-  })
-  let titleRef: HTMLInputElement | undefined
-
-  let more: HTMLButtonElement | undefined
-
-  const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
-  }
-
-  const titleMutation = useMutation(() => ({
-    mutationFn: (input: { id: string; title: string }) =>
-      sdk.client.session.update({ sessionID: input.id, title: input.title }),
-    onSuccess: (_, input) => {
-      sync.set(
-        produce((draft) => {
-          const index = draft.session.findIndex((s) => s.id === input.id)
-          if (index !== -1) draft.session[index].title = input.title
-        }),
-      )
-      setTitle("editing", false)
-    },
-    onError: (err) => {
-      showToast({
-        title: language.t("common.requestFailed"),
-        description: errorMessage(err),
-      })
-    },
-  }))
-
-  const onExport = async () => {
-    const id = sessionID()
-    if (!id || !platform.exportSession) return
-
-    // Build a slug-based default filename. Falls back to id suffix if slug is missing.
-    const slugSource = info()?.slug ?? id
-    // Allow Unicode letters/numbers (CJK titles work) but strip filesystem-hostile chars.
-    // If sanitization produces an empty/dash-only string, fall back to the id suffix.
-    const sanitized = slugSource.replace(/[\\/:*?"<>|]/g, "-").slice(0, 32)
-    const slug = /[\p{L}\p{N}]/u.test(sanitized) ? sanitized : id.slice(-8)
-    const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
-    const defaultName = `pawwork-session-${slug}-${stamp}.json`
-
-    let result: { ok: true; path: string } | { ok: false; error: string }
-    try {
-      result = await platform.exportSession(id, sdk.directory, defaultName, language.t("session.export.action.export"))
-    } catch (err) {
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: errorMessage(err),
-        variant: "error",
-      })
-      return
-    }
-    if (!result.ok) {
-      if (result.error === "cancelled") return
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: result.error,
-        variant: "error",
-      })
-      return
-    }
-    showToast({
-      title: language.t("session.export.success"),
-      description: result.path,
-    })
-  }
-
-  createEffect(
-    on(
-      sessionKey,
-      () =>
-        setTitle({
-          draft: "",
-          editing: false,
-          menuOpen: false,
-          pendingRename: false,
-        }),
-      { defer: true },
-    ),
-  )
 
   createEffect(
     on(
@@ -440,40 +259,6 @@ export function MessageTimeline(props: {
       { defer: true },
     ),
   )
-
-  const openTitleEditor = () => {
-    if (!sessionID() || parentID()) return
-    setTitle({ editing: true, draft: titleLabel() ?? "" })
-    requestAnimationFrame(() => {
-      titleRef?.focus()
-      titleRef?.select()
-    })
-  }
-
-  const closeTitleEditor = () => {
-    if (titleMutation.isPending) return
-    setTitle("editing", false)
-  }
-
-  const saveTitleEditor = () => {
-    const id = sessionID()
-    if (!id) return
-    if (titleMutation.isPending) return
-
-    const next = title.draft.trim()
-    if (!next || next === (titleLabel() ?? "")) {
-      setTitle("editing", false)
-      return
-    }
-
-    titleMutation.mutate({ id, title: next })
-  }
-
-  const navigateParent = () => {
-    const id = parentID()
-    if (!id) return
-    navigate(`/${params.dir}/session/${id}`)
-  }
 
   return (
     <Show
@@ -644,60 +429,32 @@ export function MessageTimeline(props: {
               <For each={rendered()}>
                 {(messageID) => {
                   const active = createMemo(() => activeMessageID() === messageID)
-                  const comments = createMemo(() => messageComments(sync.data.part[messageID] ?? []), [], {
-                    equals: (a, b) =>
-                      a.length === b.length &&
-                      a.every(
-                        (c, i) =>
-                          c.path === b[i].path &&
-                          c.comment === b[i].comment &&
-                          c.selection?.startLine === b[i].selection?.startLine &&
-                          c.selection?.endLine === b[i].selection?.endLine,
-                      ),
-                  })
-                  const commentCount = createMemo(() => comments().length)
                   return (
-                    <div
-                      id={props.anchor(messageID)}
-                      data-message-id={messageID}
-                      classList={{
-                        "min-w-0 w-full max-w-full": true,
-                        "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
+                    <TimelineMessage
+                      messageID={messageID}
+                      anchorID={props.anchor(messageID)}
+                      centered={props.centered}
+                      parts={sync.data.part[messageID]}
+                      active={active()}
+                      sessionID={sessionID() ?? ""}
+                      sessionMessages={sessionMessages()}
+                      actions={props.actions}
+                      status={active() ? sessionStatus() : undefined}
+                      showReasoningSummaries={settings.general.showReasoningSummaries()}
+                      shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
+                      editToolDefaultOpen={settings.general.editToolPartsExpanded()}
+                      turnChanges={turnChanges}
+                      turnChangeActions={{
+                        undo: (userMessageID, options) => turnChangeFetch(userMessageID, "undo", options),
+                        redo: (userMessageID, options) => turnChangeFetch(userMessageID, "redo", options),
+                        openFile: (path) => {
+                          void platform.openPath?.(path)
+                        },
+                        showInFolder: (path) => {
+                          void platform.showItemInFolder?.(path)
+                        },
                       }}
-                      style={{
-                        "content-visibility": active() ? undefined : "auto",
-                        "contain-intrinsic-size": active() ? undefined : "auto 500px",
-                      }}
-                    >
-                      <MessageCommentList comments={comments()} />
-                      <SessionTurn
-                        sessionID={sessionID() ?? ""}
-                        messageID={messageID}
-                        messages={sessionMessages()}
-                        actions={props.actions}
-                        active={active()}
-                        status={active() ? sessionStatus() : undefined}
-                        showReasoningSummaries={settings.general.showReasoningSummaries()}
-                        shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
-                        editToolDefaultOpen={settings.general.editToolPartsExpanded()}
-                        turnChanges={turnChanges}
-                        turnChangeActions={{
-                          undo: (userMessageID, options) => turnChangeFetch(userMessageID, "undo", options),
-                          redo: (userMessageID, options) => turnChangeFetch(userMessageID, "redo", options),
-                          openFile: (path) => {
-                            void platform.openPath?.(path)
-                          },
-                          showInFolder: (path) => {
-                            void platform.showItemInFolder?.(path)
-                          },
-                        }}
-                        classes={{
-                          root: "min-w-0 w-full relative",
-                          content: "flex flex-col justify-between !overflow-visible",
-                          container: "w-full px-4 md:px-5",
-                        }}
-                      />
-                    </div>
+                    />
                   )
                 }}
               </For>
