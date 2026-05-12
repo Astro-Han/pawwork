@@ -146,10 +146,15 @@ export const assertExternalDirectoryEffect = Effect.fn("Tool.assertExternalDirec
   if (Instance.containsPath(resolved, scope)) return full
 
   const kind = options?.kind ?? "file"
-  const dir = kind === "directory" ? resolved : path.dirname(resolved)
+  const dir =
+    kind === "directory"
+      ? resolved
+      : process.platform === "win32"
+      ? path.win32.dirname(resolved)
+      : path.dirname(resolved)
   const glob =
     process.platform === "win32"
-      ? AppFileSystem.normalizePathPattern(path.join(dir, "*"), { base: ins.directory })
+      ? AppFileSystem.normalizePathPattern(path.win32.join(dir, "*"), { base: ins.directory })
       : path.join(dir, "*").replaceAll("\\", "/")
 
   yield* ctx.ask({

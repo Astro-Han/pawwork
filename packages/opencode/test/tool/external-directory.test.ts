@@ -242,6 +242,27 @@ describe("tool.assertExternalDirectory", () => {
     })
   })
 
+  test("returns the canonical UNC target used for permission metadata", async () => {
+    await withWin32Platform(async () => {
+      const { requests, ctx } = makeCtx()
+
+      await Instance.provide({
+        directory: "D:\\project",
+        fn: async () => {
+          const target = await assertExternalDirectory(ctx, "\\\\?\\UNC\\server\\share\\outside\\file.txt")
+          expect(target).toBe("\\\\server\\share\\outside\\file.txt")
+        },
+      })
+
+      const req = requests.find((r) => r.permission === "external_directory")
+      expect(req).toBeDefined()
+      expect(req!.patterns).toEqual(["\\\\server\\share\\outside\\*"])
+      expect(req!.always).toEqual(["\\\\server\\share\\outside\\*"])
+      expect(req!.metadata.filepath).toBe("\\\\server\\share\\outside\\file.txt")
+      expect(req!.metadata.realpath).toBe("\\\\server\\share\\outside\\file.txt")
+    })
+  })
+
   test("resolves Windows junction traversal before dot-dot normalization", async () => {
     await withWin32Platform(async () => {
       const junction = "C:\\project\\tmp\\link"
@@ -277,6 +298,20 @@ describe("tool.assertExternalDirectory", () => {
       })
 
       expect(resolved).toBe(expected)
+    })
+  })
+
+  test("resolves extended UNC share paths without dropping the share root", async () => {
+    await withWin32Platform(async () => {
+      const resolved = resolveExternalPathForPermission("\\\\?\\UNC\\server\\share\\dir\\file.txt", "D:\\project", {
+        lstat: (_candidate) =>
+          ({
+            isSymbolicLink: () => false,
+          }) as ReturnType<typeof import("fs").lstatSync>,
+        realpath: (candidate) => candidate,
+      })
+
+      expect(resolved).toBe("\\\\server\\share\\dir\\file.txt")
     })
   })
 

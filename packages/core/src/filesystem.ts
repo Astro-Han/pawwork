@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { dirname, join, relative, resolve as pathResolve, win32 } from "path"
-import { existsSync, realpathSync } from "fs"
+import * as fs from "fs"
 import * as NFS from "fs/promises"
 import { lookup } from "mime-types"
 import { Context, Effect, FileSystem, Layer, Schema } from "effect"
@@ -190,7 +190,7 @@ export namespace AppFileSystem {
     if (process.platform !== "win32") return path
     const resolved = normalizeWindowsPath(path, options)
     try {
-      return realpathSync.native(resolved)
+      return fs.realpathSync.native(resolved)
     } catch {
       return resolved
     }
@@ -202,13 +202,13 @@ export namespace AppFileSystem {
     const match = path.match(/^(.*)[\\/]\*$/)
     if (!match) return normalizePath(path, options)
     const dir = /^[A-Za-z]:$/.test(match[1]) ? match[1] + "\\" : match[1]
-    return join(normalizePath(dir, options), "*")
+    return win32.join(normalizePath(dir, options), "*")
   }
 
   export function resolve(path: string, options?: WindowsPathOptions): string {
     const resolved = process.platform === "win32" ? normalizeWindowsPath(path, options) : pathResolve(path)
     try {
-      return normalizePath(realpathSync(resolved))
+      return normalizePath(fs.realpathSync(resolved))
     } catch (error: any) {
       if (error?.code === "ENOENT") return normalizePath(resolved)
       throw error
@@ -232,7 +232,11 @@ export namespace AppFileSystem {
     base?: string
     driveRoots?: string[]
     exists?: (path: string) => boolean
+    cache?: Map<string, string>
   }
+
+  const rootedWindowsVariantCache = new Map<string, string>()
+  let rootedWindowsVariantCacheEnv = ""
 
   // Rooted but driveless paths (e.g. "/users/runner/...") arrive when callers
   // strip the drive letter before handing the path back. path.resolve would
@@ -256,16 +260,52 @@ export namespace AppFileSystem {
 
   function resolveRootedWindowsVariant(p: string, options: WindowsPathOptions): string | undefined {
     if (!isRootedDriveless(p)) return
+    const useDefaultCache = !options.driveRoots && !options.exists
+    const cacheKey = rootedWindowsVariantCacheKey(p)
+    const cache = options.cache ?? (useDefaultCache ? rootedWindowsVariantCache : undefined)
+    if (useDefaultCache) {
+      refreshRootedWindowsVariantCache()
+    }
+    if (cache) {
+      const cached = cache.get(cacheKey)
+      if (cached && (options.exists ?? fs.existsSync)(cached)) return cached
+      if (cached) cache.delete(cacheKey)
+    }
     const suffix = p.replace(/^[\\/]+/, "").replaceAll("/", "\\")
     const matches: string[] = []
+    const exists = options.exists ?? fs.existsSync
     for (const root of uniqueWindowsDriveRoots(options.driveRoots ?? windowsDriveRoots())) {
       const candidate = win32.join(root, suffix)
-      if ((options.exists ?? existsSync)(candidate)) matches.push(candidate)
+      if (exists(candidate)) matches.push(candidate)
     }
     if (matches.length > 1) {
       throw new Error(`Ambiguous Windows path ${p}; use a drive-qualified path.`)
     }
-    return matches[0]
+    const match = matches[0]
+    if (cache && match) cache.set(cacheKey, match)
+    return match
+  }
+
+  function rootedWindowsVariantCacheKey(p: string): string {
+    return win32.normalize(p).toUpperCase()
+  }
+
+  function rootedWindowsVariantCacheEnvKey(): string {
+    const cwdRoot = uppercaseDriveRoot(win32.parse(process.cwd()).root || "")
+    const systemDrive = (process.env.SystemDrive || "").toUpperCase()
+    return `${cwdRoot}|${systemDrive}`
+  }
+
+  function refreshRootedWindowsVariantCache() {
+    const next = rootedWindowsVariantCacheEnvKey()
+    if (next === rootedWindowsVariantCacheEnv) return
+    rootedWindowsVariantCacheEnv = next
+    rootedWindowsVariantCache.clear()
+  }
+
+  export function resetWindowsRootedVariantCacheForTest() {
+    rootedWindowsVariantCacheEnv = ""
+    rootedWindowsVariantCache.clear()
   }
 
   function uniqueWindowsDriveRoots(roots: string[]): string[] {
