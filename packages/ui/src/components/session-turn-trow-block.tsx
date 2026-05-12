@@ -1,5 +1,7 @@
+import { For, Show, createMemo, createSignal, type JSX } from "solid-js"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
-import type { IconName } from "./icon"
+import { Icon, type IconName } from "./icon"
+import "./session-turn-trow-block.css"
 
 // ============================================================================
 // Pure reducer + tool-family icon map
@@ -60,15 +62,6 @@ export function toolFamilyIcon(tool: string): IconName {
 /**
  * Pure-derived state for a trow-block, computed from the immutable list of
  * `ToolPart`s that the {@link groupParts} grouping produced.
- *
- * - `count`: number of tools in the block.
- * - `running`: true when any part still has `state.status === "running"`.
- *   While `running`, the summary copy + shimmer signal a live operation.
- * - `failedCount`: tools with `state.status === "error"`. Used by §E14's
- *   grouped-failure summary copy.
- * - `leadingIcon`: family icon resolved from `parts[0].tool`. Empty input
- *   would never reach the reducer — `groupParts` never emits an empty
- *   trow-block — but defensive default returned for safety.
  */
 export type TrowBlockSummary = {
   count: number
@@ -109,23 +102,124 @@ export function trowSummaryI18nKey(summary: TrowBlockSummary): string {
 }
 
 // ============================================================================
-// Component (placeholder until Phase 2b fills the visual implementation)
+// Component
 // ============================================================================
-//
-// The render shell is intentionally minimal at this point — the reducer is
-// the testable contract and ships first so the draft PR opens with the pure
-// pieces ready for CodeRabbit. The W1 visual surface (chev rotation, expand
-// animation, leading icon, shimmer on running, sub-item list) is wired in
-// the Phase 2b commit.
+
+export interface TrowBlockLabels {
+  /** "正在运行 {count} 条命令" / "Running {count} commands" */
+  summaryRunning: (count: number) => string
+  /** "已运行 {count} 条命令" / "Ran {count} commands" */
+  summaryCompleted: (count: number) => string
+  /** "已运行 {count} 条命令，{failed} 条失败" / "Ran {count} commands, {failed} failed" */
+  summaryWithFailed: (count: number, failed: number) => string
+}
 
 export interface TrowBlockProps {
   parts: ToolPart[]
+  /** Default open state — DESIGN.md L468 locks default-collapsed (false). */
   defaultOpen?: boolean
   shellToolDefaultOpen?: boolean
   editToolDefaultOpen?: boolean
+  /** Caller-resolved summary labels. */
+  labels: TrowBlockLabels
+  /**
+   * Caller-provided per-tool renderer. The shell wires this to the existing
+   * `<Part>` / `<GenericTool>` / `<BasicTool>` paths from message-part.tsx so
+   * each individual tool keeps its current rich body. When `renderTool` is
+   * omitted, the block falls back to a minimal "name + status" row.
+   */
+  renderTool?: (part: ToolPart) => JSX.Element
 }
 
-export function TrowBlock(_props: TrowBlockProps) {
-  // Filled in Phase 2b — see slice 11b.1 design doc §3.1 / §3.6 / DESIGN.md L471.
-  return null
+/**
+ * Slice 11b.1 trow-block — one row that summarises a group of consecutive
+ * tool calls produced by `groupParts()`, with a native `<details>` body
+ * that lists each tool. DESIGN.md L412-L417 / L471, design doc §3.1 / §3.6.
+ *
+ * Default-collapsed (DESIGN.md L468). Summary copy switches between
+ * running / completed / failed based on the pure {@link reduceTrowBlock}
+ * derivation. The summary shimmer (slot exposes a `data-running` attribute
+ * the CSS can target) signals live state without an extra spinner.
+ *
+ * Per-tool rich rendering (file accordion, raw output, copy button on
+ * hover) is intentionally delegated to a caller-provided slot — the
+ * SessionTurn shell wires the existing message-part renderers in. This
+ * keeps slice 11b.1 from reimplementing 11a's tool body logic and keeps
+ * the component context-free for unit testing.
+ */
+export function TrowBlock(props: TrowBlockProps) {
+  const summary = createMemo(() => reduceTrowBlock(props.parts))
+  const [open, setOpen] = createSignal(props.defaultOpen ?? false)
+
+  const summaryText = createMemo(() => {
+    const s = summary()
+    if (s.running) return props.labels.summaryRunning(s.count)
+    if (s.failedCount > 0) return props.labels.summaryWithFailed(s.count, s.failedCount)
+    return props.labels.summaryCompleted(s.count)
+  })
+
+  // Suppress the chev (and the disclosure affordance) when no tool in the
+  // group has any per-row body worth expanding. We approximate this by
+  // checking that every part has either `state.output` (completed) or an
+  // `error` (errored) — pending / running tools alone do not earn a chev
+  // (matches W1 preview's "无中间输出的工具 summary 不渲染 chev" rule).
+  const hasExpandableBody = createMemo(() => {
+    return props.parts.some((part) => {
+      const state = part.state
+      if (state.status === "completed") return !!state.output
+      if (state.status === "error") return true
+      return false
+    })
+  })
+
+  return (
+    <div
+      data-component="session-turn-trow-block"
+      data-running={summary().running || undefined}
+      data-failed={summary().failedCount > 0 || undefined}
+    >
+      <details
+        open={open()}
+        onToggle={(event) => {
+          const el = event.currentTarget as HTMLDetailsElement
+          setOpen(el.open)
+        }}
+      >
+        <summary data-slot="trow-summary">
+          <span data-slot="trow-summary-icon">
+            <Icon name={summary().leadingIcon} />
+          </span>
+          <span data-slot="trow-summary-text">{summaryText()}</span>
+          <Show when={hasExpandableBody()}>
+            <span data-slot="trow-summary-chev" aria-hidden="true">
+              <Icon name="chevron-down" />
+            </span>
+          </Show>
+        </summary>
+        <div data-slot="trow-body">
+          <Show when={props.renderTool} fallback={defaultRenderTools(props.parts)}>
+            <For each={props.parts}>{(part) => <div data-slot="trow-item">{props.renderTool?.(part)}</div>}</For>
+          </Show>
+        </div>
+      </details>
+    </div>
+  )
+}
+
+/**
+ * Fallback per-tool renderer used when the caller does not provide one.
+ * Surfaces just the tool's name + status — enough for unit / story tests
+ * but not the production body (the shell wires the rich renderer).
+ */
+function defaultRenderTools(parts: readonly ToolPart[]): JSX.Element {
+  return (
+    <For each={parts}>
+      {(part) => (
+        <div data-slot="trow-item" data-status={part.state.status}>
+          <span data-slot="trow-item-name">{part.tool}</span>
+          <span data-slot="trow-item-status">{part.state.status}</span>
+        </div>
+      )}
+    </For>
+  )
 }

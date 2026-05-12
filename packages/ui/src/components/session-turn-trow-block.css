@@ -1,0 +1,118 @@
+/*
+ * Slice 11b.1 trow-block.
+ *
+ * Native `<details>` element drives expand / collapse — W1 lock. The
+ * height-transition under `:not(prefers-reduced-motion)` is owned by
+ * session-turn.css's `::details-content` rule (DESIGN.md L427 / preview
+ * top-of-file). This file only owns the trow-block's own layout.
+ */
+
+[data-component="session-turn-trow-block"] {
+  display: block;
+  width: 100%;
+}
+
+[data-component="session-turn-trow-block"] details {
+  width: 100%;
+}
+
+/* Summary row — leading icon (16px) + text + optional chev. The chev is
+ * absent for groups whose tools produced no expandable body. */
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+  list-style: none;
+  color: var(--fg-base);
+  font: var(--type-body);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"]::-webkit-details-marker,
+[data-component="session-turn-trow-block"] [data-slot="trow-summary"]::marker {
+  display: none;
+  content: "";
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-icon"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--icon-base);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-icon"] [data-icon] {
+  width: 16px;
+  height: 16px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-text"] {
+  font: var(--type-body);
+  color: var(--fg-base);
+  line-height: 1.4;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-chev"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--icon-base);
+  transition: transform var(--duration-base) ease-out;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-summary-chev"] [data-icon] {
+  width: 12px;
+  height: 12px;
+}
+
+[data-component="session-turn-trow-block"] details[open] [data-slot="trow-summary-chev"] {
+  transform: rotate(90deg);
+}
+
+/* Running state — summary shimmer hook. The actual pw-shimmer animation
+ * is wired by the caller (session-turn.css owns the `.pw-shimmer` class
+ * application against `[data-running]` after the Phase 2a rewrite); this
+ * file leaves the data attribute exposed so the shimmer can attach. */
+[data-component="session-turn-trow-block"][data-running] [data-slot="trow-summary-text"] {
+  /* Hook for shimmer; intentionally no animation rule here. */
+}
+
+/* Body — quiet log surface, hairline-bordered, transparent background.
+ * Per DESIGN.md L417 the body is "transparent background, 1px
+ * --border-weaker, radius-sm, mono-small, --fg-weak". Code blocks
+ * inside the body keep their own --bg-cream. */
+[data-component="session-turn-trow-block"] [data-slot="trow-body"] {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-weaker);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: var(--type-mono-small);
+  color: var(--fg-weak);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Fallback row (default `renderTool` path) — used when the caller does
+ * not provide a per-tool renderer. */
+[data-component="session-turn-trow-block"] [data-slot="trow-item"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-item-name"] {
+  color: var(--fg-base);
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-item-status"] {
+  color: var(--fg-weak);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}

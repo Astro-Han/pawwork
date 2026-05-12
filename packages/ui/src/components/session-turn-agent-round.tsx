@@ -13,7 +13,7 @@ import type { AssistantMessage, Part, ReasoningPart, TextPart, ToolPart } from "
 import { Icon } from "./icon"
 import { groupParts, type PartGroup } from "./message-part-group"
 import { SystemEvent } from "./session-turn-event"
-import { TrowBlock } from "./session-turn-trow-block"
+import { TrowBlock, type TrowBlockLabels } from "./session-turn-trow-block"
 import "./session-turn-agent-round.css"
 
 /**
@@ -78,6 +78,7 @@ export interface SessionTurnAgentRoundProps {
     fork: string
     interrupted: string
     workingTime: (seconds: number) => string
+    trow: TrowBlockLabels
   }
   /**
    * Caller-provided prose renderer. Lets the SessionTurn shell plug in
@@ -308,6 +309,7 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
                   parts={(group as Extract<PartGroup, { kind: "trow-block" }>).parts}
                   shellToolDefaultOpen={props.shellToolDefaultOpen}
                   editToolDefaultOpen={props.editToolDefaultOpen}
+                  labels={props.labels.trow}
                 />
               </Match>
             </Switch>
