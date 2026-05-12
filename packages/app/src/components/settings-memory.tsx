@@ -111,7 +111,7 @@ export function SettingsMemory(props: { directory?: string }) {
         </Show>
 
         <Show when={state.latest?.profileTooLarge}>
-          <section class="rounded border border-border bg-bg-panel p-3 text-13-regular text-fg-weak">
+          <section class="rounded border border-border bg-surface-base p-3 text-13-regular text-fg-weak">
             {language.t("settings.memory.profileTooLarge")}
           </section>
         </Show>
@@ -123,7 +123,7 @@ export function SettingsMemory(props: { directory?: string }) {
           </div>
           <textarea
             data-action="settings-memory-raw"
-            class="min-h-[360px] w-full rounded border border-border bg-bg-panel p-3 font-mono text-13-regular text-fg-strong"
+            class="min-h-[360px] w-full rounded-[var(--radius-md)] border border-border-weak bg-surface-base p-3 font-mono text-13-regular text-fg-strong"
             value={draft()}
             spellcheck={false}
             onInput={(event) => setDraft(event.currentTarget.value)}
