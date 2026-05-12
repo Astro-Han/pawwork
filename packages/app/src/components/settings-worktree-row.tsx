@@ -20,7 +20,7 @@ export function SettingsWorktreeRow(props: {
   const name = () => props.worktree.name || basename(props.worktree.directory)
   const branch = () => props.worktree.branch || ""
   const identity = () => branch() || name()
-  const rowTooltip = () => [language.t(sourceKey(props.worktree.source)), directory()].filter(Boolean).join(" · ")
+  const rowTooltip = () => [language.t(sourceKey(props.worktree.source)), directory()].filter(Boolean).join(" ")
 
   return (
     <li

@@ -919,7 +919,7 @@ export const dict = {
   "settings.general.row.lsp.description": "Detect type errors and symbol references when editing code",
   "settings.general.webSearch.title": "Web search",
   "settings.general.webSearch.description": "Let agents look up fresh information online when needed",
-  "settings.general.webSearch.chip.free": "Free · bundled",
+  "settings.general.webSearch.chip.free": "Free (bundled)",
   "settings.general.webSearch.chip.loading": "Checking",
   "settings.general.webSearch.chip.exhausted": "Free quota used",
   "settings.general.webSearch.chip.savedQuota": "Key quota used",
