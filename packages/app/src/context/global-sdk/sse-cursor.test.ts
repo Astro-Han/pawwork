@@ -27,4 +27,15 @@ describe("createSseCursor", () => {
     expect(headers).toBeInstanceOf(Headers)
     expect(headers?.get("Last-Event-ID")).toBe("boot:7")
   })
+
+  test("allows e2e tests to override the cursor", () => {
+    const cursor = createSseCursor()
+    cursor.update("boot:7")
+    cursor.setCursorForTest("bad:999")
+    expect(cursor.current()).toBe("bad:999")
+
+    cursor.setCursorForTest(undefined)
+    expect(cursor.current()).toBeUndefined()
+    expect(cursor.headers()).toBeUndefined()
+  })
 })
