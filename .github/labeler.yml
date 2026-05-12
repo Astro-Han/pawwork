@@ -1,0 +1,32 @@
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+
+platform:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/desktop-electron/**"
+
+app:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/app/**"
+
+ui:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/app/src/components/**"
+          - "packages/ui/**"
+          - "**/*.tsx"
+
+harness:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "packages/opencode/**"
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "**/*.md"
