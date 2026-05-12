@@ -1,0 +1,140 @@
+/*
+ * Slice 11b.1 user bubble. Mirrors `docs/design/preview/message-flow.html`
+ * `.mf-user-wrap` / `.mf-user` / `.mf-attach-row` / `.mf-bubble-toolbar`
+ * lock-stamp geometry (locked 2026-05-12).
+ *
+ * Selector convention: `data-slot` attributes for clean override surfaces,
+ * matching the rest of packages/ui (see button.css / icon-button.css /
+ * session-turn.css). The W1 `.mf-*` class names live only in the design
+ * preview document; production code uses the data-slot identifiers below.
+ */
+
+[data-component="session-turn-user-bubble"] {
+  display: flex;
+  flex-direction: column;
+  align-self: flex-end; /* right-align the whole wrap to the timeline column */
+  max-width: 75%;       /* DESIGN.md L453 — bubble content-hugs to ≤75% width */
+  align-items: flex-end;
+  gap: 8px;             /* spacing between attachment row, bubble, toolbar */
+}
+
+/* Attachment row — single line, horizontal scroll if it overflows the
+ * timeline column. Right-aligned to the bubble's column (the wrap
+ * already enforces flex-end alignment). */
+[data-component="session-turn-user-bubble"] [data-slot="bubble-attachment-row"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-end;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px; /* leave room for the scrollbar without overlapping chips */
+  flex-wrap: nowrap;
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-attachment-row"]::-webkit-scrollbar {
+  height: 4px;
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-attachment-row"]::-webkit-scrollbar-thumb {
+  background: var(--border-weak);
+  border-radius: 9999px;
+}
+
+/* Bubble shell — radius-lg, cream fill, padding 12/16, body type, fg-strong.
+ * align-self flex-end keeps the bubble right-aligned even when its text
+ * shrinks below the wrap's 75% cap. */
+[data-component="session-turn-user-bubble"] [data-slot="bubble"] {
+  align-self: flex-end;
+  background: var(--bg-cream);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  color: var(--fg-strong);
+  font: var(--type-body);
+  position: relative;
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-text"] {
+  white-space: pre-wrap;      /* preserve `\n\n` paragraph boundaries */
+  overflow-wrap: anywhere;
+  word-wrap: break-word;
+}
+
+/* Toolbar — always mounted, visibility opacity-driven, hover OR
+ * focus-within OR is-hover JS class reveals it. Pointer-events default
+ * `none` so invisible buttons cannot be clicked mid-transition. */
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar"] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px; /* inter-group gap between meta and actions */
+  font: var(--type-caption);
+  color: var(--fg-weak);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) ease-out;
+}
+
+[data-component="session-turn-user-bubble"]:hover [data-slot="bubble-toolbar"],
+[data-component="session-turn-user-bubble"]:focus-within [data-slot="bubble-toolbar"],
+[data-component="session-turn-user-bubble"][data-hover] [data-slot="bubble-toolbar"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-meta"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px; /* 8px gap inside meta — no `·` separator (titlebar parity) */
+  white-space: nowrap;
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-model"],
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-time"] {
+  font: var(--type-caption);
+  color: var(--fg-weak);
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-actions"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px; /* tighter intra-group gap on action buttons */
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-action"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--icon-base);
+  cursor: default;
+  padding: 0;
+  transition: background-color var(--duration-fast);
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-action"]:hover:not(:disabled) {
+  background-color: var(--hover-overlay, rgba(0, 0, 0, 0.06));
+  color: var(--icon-strong);
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-action"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--brand-primary), 0 0 0 3px rgba(255, 89, 16, 0.2);
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-action"]:disabled,
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-action"][aria-disabled="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+[data-component="session-turn-user-bubble"] [data-slot="bubble-toolbar-action"] [data-icon] {
+  width: 16px;
+  height: 16px;
+}
