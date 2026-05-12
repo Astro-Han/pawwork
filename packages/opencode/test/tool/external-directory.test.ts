@@ -315,6 +315,29 @@ describe("tool.assertExternalDirectory", () => {
     })
   })
 
+  test("treats unreachable UNC components as missing paths for permission metadata", async () => {
+    await withWin32Platform(async () => {
+      const unreachable = "\\\\server\\share\\outside"
+      const resolved = resolveExternalPathForPermission("\\\\?\\UNC\\server\\share\\outside\\file.txt", "D:\\project", {
+        lstat: (candidate) => {
+          if (candidate.toLowerCase() === unreachable.toLowerCase()) {
+            throw Object.assign(new Error("unknown"), {
+              code: "EUNKNOWN",
+              path: candidate,
+              syscall: "lstat",
+            })
+          }
+          return {
+            isSymbolicLink: () => false,
+          } as ReturnType<typeof import("fs").lstatSync>
+        },
+        realpath: (candidate) => candidate,
+      })
+
+      expect(resolved).toBe("\\\\server\\share\\outside\\file.txt")
+    })
+  })
+
   if (process.platform === "win32") {
     test("normalizes Windows path variants to one glob", async () => {
       const { requests, ctx } = makeCtx()

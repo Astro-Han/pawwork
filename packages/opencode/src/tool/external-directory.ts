@@ -55,7 +55,7 @@ function resolveWindowsForPermission(target: string, base: string, fs: Permissio
       if (!stat) throw Object.assign(new Error("missing"), { code: "ENOENT" })
       current = stat.isSymbolicLink() ? fs.realpath(candidate) : candidate
     } catch (error: any) {
-      if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") throw error
+      if (!isMissingPermissionPath(error, candidate)) throw error
       return AppFileSystem.normalizePath(path.win32.join(current, part, ...parts.slice(i + 1)), { base })
     }
   }
@@ -83,6 +83,13 @@ function windowsPermissionPath(target: string, base: string): string {
     if (root) return uppercaseDriveRoot(root.replace(/[\\/]+$/, "") + input)
   }
   return uppercaseDriveRoot(`${base.replace(/[\\/]+$/, "")}\\${input}`)
+}
+
+function isMissingPermissionPath(error: any, candidate: string): boolean {
+  if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return true
+  // Bun on Windows reports unreachable UNC components as EUNKNOWN; for permission metadata
+  // resolution they are equivalent to a not-yet-existing path under the UNC share.
+  return error?.code === "EUNKNOWN" && error?.syscall === "lstat" && /^\\\\/.test(candidate)
 }
 
 function stripWindowsExtendedPrefix(target: string): string {
