@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect"
 import path from "path"
 import fs from "fs/promises"
 import { pathToFileURL } from "url"
@@ -1255,6 +1255,48 @@ it.live(
           if (info.role === "assistant") {
             expect(info.error?.name).toBe("MessageAbortedError")
           }
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+  3_000,
+)
+
+it.live(
+  "cancel before current assistant scaffold does not attach abort diagnostics to the previous assistant",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* () {
+        const { prompt, sessions, chat } = yield* boot({ title: "Pinned" })
+        const seeded = yield* seed(chat.id)
+        const nextUser = yield* user(chat.id, "more")
+
+        const started = defer<void>()
+        const release = defer<void>()
+        const originalUpdateMessage = sessions.updateMessage
+        sessions.updateMessage = ((info) => {
+          if (info.role === "assistant" && info.parentID === nextUser.id) {
+            return Effect.gen(function* () {
+              started.resolve()
+              yield* Effect.promise(() => release.promise)
+              return yield* originalUpdateMessage(info)
+            })
+          }
+          return originalUpdateMessage(info)
+        }) as typeof sessions.updateMessage
+        yield* Effect.addFinalizer(() => Effect.sync(() => void (sessions.updateMessage = originalUpdateMessage)))
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* Effect.promise(() => started.promise)
+        yield* prompt.cancel(chat.id)
+        release.resolve()
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+
+        const previous = yield* sessions.findMessage(chat.id, (message) => message.info.id === seeded.assistant.id)
+        expect(Option.isSome(previous)).toBe(true)
+        if (Option.isSome(previous) && previous.value.info.role === "assistant") {
+          expect(previous.value.info.diagnostics?.abort).toBeUndefined()
         }
       }),
       { git: true, config: providerCfg },

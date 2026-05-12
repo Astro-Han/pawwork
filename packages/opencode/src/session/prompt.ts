@@ -1653,6 +1653,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       throw new Error("Impossible")
     })
 
+    const currentTurnTarget = Effect.fnUntraced(function* (sessionID: SessionID) {
+      const latestUser = yield* sessions.findMessage(sessionID, (message) => message.info.role === "user")
+      if (Option.isNone(latestUser)) return yield* lastAssistant(sessionID)
+
+      const currentAssistant = yield* sessions.findMessage(
+        sessionID,
+        (message) => message.info.role === "assistant" && message.info.parentID === latestUser.value.info.id,
+      )
+      if (Option.isSome(currentAssistant)) return currentAssistant.value
+      return latestUser.value
+    })
+
     const shellCancelledAssistant = Effect.fnUntraced(function* (sessionID: SessionID) {
       const message = yield* lastAssistant(sessionID)
       if (message.info.role !== "assistant") return message
@@ -1992,7 +2004,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       const onInterrupt = (meta?: { source?: string; reason?: string; mode?: "soft" | "hard"; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
         Effect.gen(function* () {
         interruptedSessions.add(input.sessionID)
-        const assistant = yield* lastAssistant(input.sessionID)
+        const assistant = yield* currentTurnTarget(input.sessionID)
         if (assistant.info.role === "assistant") {
           const error = assistant.info.error
           const errorMessage =
