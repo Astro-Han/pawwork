@@ -4,6 +4,7 @@ import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { execSync } from "node:child_process"
+import { DatabaseSync } from "node:sqlite"
 import { terminalAttr, type E2EWindow } from "../src/testing/terminal"
 import { createSdk, modKey, resolveDirectory, serverUrl } from "./utils"
 import {
@@ -405,11 +406,32 @@ export async function createTestProject(input?: { serverUrl?: string }) {
   return resolveDirectory(root, input?.serverUrl)
 }
 
-export async function cleanupTestProject(directory: string) {
+async function cleanupPersistedTestProject(directory: string, input?: { serverUrl?: string }) {
+  const baseUrl = input?.serverUrl ?? serverUrl
+  const paths = await createSdk(undefined, baseUrl)
+    .path.get()
+    .then((x) => x.data)
+    .catch(() => undefined)
+  const home = paths?.home
+  if (!home) return
+
+  const dbPath = path.resolve(home, "..", "share", "opencode", "opencode-local.db")
+  try {
+    const db = new DatabaseSync(dbPath)
+    try {
+      db.prepare("delete from project where worktree = ?").run(directory)
+    } finally {
+      db.close()
+    }
+  } catch {}
+}
+
+export async function cleanupTestProject(directory: string, input?: { serverUrl?: string }) {
   try {
     execSync("git fsmonitor--daemon stop", { cwd: directory, stdio: "ignore" })
   } catch {}
   await fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined)
+  await cleanupPersistedTestProject(directory, input)
 }
 
 export function slugFromUrl(url: string) {

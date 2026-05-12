@@ -503,8 +503,8 @@ function makeProject(
         cleanupSession({ sessionID, directory, serverUrl: backend.url }),
       ),
     )
-    await Promise.allSettled(Array.from(cur.dirs, (directory) => cleanupTestProject(directory)))
-    await cleanupTestProject(cur.directory)
+    await Promise.allSettled(Array.from(cur.dirs, (directory) => cleanupTestProject(directory, { serverUrl: backend.url })))
+    await cleanupTestProject(cur.directory, { serverUrl: backend.url })
     state = undefined
     setHealthPhase(page, "test")
   }
