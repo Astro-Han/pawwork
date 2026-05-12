@@ -6,27 +6,16 @@ import {
 } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
-import { useFileComponent } from "../context/file"
-
 import { Binary } from "@opencode-ai/core/util/binary"
-import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
-import { createEffect, createMemo, createSignal, For, on, onCleanup, ParentProps, Show } from "solid-js"
+import { createMemo, createSignal, onCleanup, ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import { Dynamic } from "solid-js/web"
-import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
+import { AssistantParts, Message, MessageDivider, type UserActions } from "./message-part"
 import { Card } from "./card"
-import { Accordion } from "./accordion"
-import { StickyAccordionHeader } from "./sticky-accordion-header"
-import { DiffChanges } from "./diff-changes"
-import { Icon } from "./icon"
-import { IconButton } from "./icon-button"
 import { TextShimmer } from "./text-shimmer"
-import { Tooltip } from "./tooltip"
 import { SessionRetry } from "./session-retry"
 import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
-import { normalize } from "./session-diff"
 import {
   hasTurnChangeActionHandler,
   hasVisibleTurnChanges,
@@ -34,123 +23,29 @@ import {
   type TurnChangeDisplay,
   type TurnChangeFile,
 } from "./session-turn-changes"
+import { TurnChangesList } from "./session-turn-changes-list"
+import { SessionTurnDiffsList } from "./session-turn-diffs-list"
+import { heading, list, partState, same, unwrap } from "./session-turn-helpers"
 
-function record(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-function unwrap(message: string) {
-  const text = message.replace(/^Error:\s*/, "").trim()
-
-  const parse = (value: string) => {
-    try {
-      return JSON.parse(value) as unknown
-    } catch {
-      return undefined
-    }
-  }
-
-  const read = (value: string) => {
-    const first = parse(value)
-    if (typeof first !== "string") return first
-    return parse(first.trim())
-  }
-
-  let json = read(text)
-
-  if (json === undefined) {
-    const start = text.indexOf("{")
-    const end = text.lastIndexOf("}")
-    if (start !== -1 && end > start) {
-      json = read(text.slice(start, end + 1))
-    }
-  }
-
-  if (!record(json)) return message
-
-  const err = record(json.error) ? json.error : undefined
-  if (err) {
-    const type = typeof err.type === "string" ? err.type : undefined
-    const msg = typeof err.message === "string" ? err.message : undefined
-    if (type && msg) return `${type}: ${msg}`
-    if (msg) return msg
-    if (type) return type
-    const code = typeof err.code === "string" ? err.code : undefined
-    if (code) return code
-  }
-
-  const msg = typeof json.message === "string" ? json.message : undefined
-  if (msg) return msg
-
-  const reason = typeof json.error === "string" ? json.error : undefined
-  if (reason) return reason
-
-  return message
-}
-
-function same<T>(a: readonly T[], b: readonly T[]) {
-  if (a === b) return true
-  if (a.length !== b.length) return false
-  return a.every((x, i) => x === b[i])
-}
-
-function list<T>(value: T[] | undefined | null, fallback: T[]) {
-  if (Array.isArray(value)) return value
-  return fallback
-}
-
-const hidden = new Set(["todowrite"])
-
-function partState(part: PartType, showReasoningSummaries: boolean) {
-  if (part.type === "tool") {
-    if (hidden.has(part.tool)) return
-    if (part.tool === "question" && (part.state.status === "pending" || part.state.status === "running")) return
-    return "visible" as const
-  }
-  if (part.type === "text") return part.text?.trim() ? ("visible" as const) : undefined
-  if (part.type === "reasoning") {
-    if (showReasoningSummaries && part.text?.trim()) return "visible" as const
-    return
-  }
-  if (PART_MAPPING[part.type]) return "visible" as const
-  return
-}
-
-function clean(value: string) {
-  return value
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_~]+/g, "")
-    .trim()
-}
-
-function heading(text: string) {
-  const markdown = text.replace(/\r\n?/g, "\n")
-
-  const html = markdown.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)
-  if (html?.[1]) {
-    const value = clean(html[1].replace(/<[^>]+>/g, " "))
-    if (value) return value
-  }
-
-  const atx = markdown.match(/^\s{0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/m)
-  if (atx?.[1]) {
-    const value = clean(atx[1])
-    if (value) return value
-  }
-
-  const setext = markdown.match(/^([^\n]+)\n(?:=+|-+)\s*$/m)
-  if (setext?.[1]) {
-    const value = clean(setext[1])
-    if (value) return value
-  }
-
-  const strong = markdown.match(/^\s*(?:\*\*|__)(.+?)(?:\*\*|__)\s*$/m)
-  if (strong?.[1]) {
-    const value = clean(strong[1])
-    if (value) return value
-  }
-}
+/**
+ * Slice 11b.1: session-turn shell rewritten per design doc §2a.
+ *
+ * Owns turn-level orchestration:
+ *   - resolves the active user message + its assistant follow-ups;
+ *   - dispatches to `<Message>` (user-side) and `<AssistantParts>`
+ *     (assistant-side) for the body content;
+ *   - drives the "thinking…" shimmer + interrupted divider + error
+ *     card states above/below the body;
+ *   - renders post-turn change UI: the timeline-fed `TurnChangesList`
+ *     when the host carries undo/redo metadata, otherwise the legacy
+ *     `SessionTurnDiffsList` accordion;
+ *   - hosts the auto-scroll controller so the bubble stays anchored
+ *     while the assistant streams.
+ *
+ * The leaf components live in sibling modules — turn-changes-list,
+ * diffs-list — and the pure helpers (markdown heading extraction,
+ * SDK error unwrapping, list utilities) sit in session-turn-helpers.
+ */
 
 export function SessionTurn(
   props: ParentProps<{
@@ -186,7 +81,6 @@ export function SessionTurn(
 ) {
   const data = useData()
   const i18n = useI18n()
-  const fileComponent = useFileComponent()
 
   const emptyMessages: MessageType[] = []
   const emptyParts: PartType[] = []
@@ -342,7 +236,8 @@ export function SessionTurn(
     const current = turnChange()
     const action = turnChangeAction(current)
     if (!action) return ""
-    const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
+    const base =
+      action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
     return confirmAction() === action
       ? action === "undo"
         ? i18n.t("ui.sessionTurn.turnChanges.undoConfirm")
@@ -504,233 +399,36 @@ export function SessionTurn(
                 </Show>
                 <SessionRetry status={status()} show={active()} />
                 <Show when={hasVisibleTurnChanges(turnChange()) && !working() && !turnInProgress()}>
-                  <div data-slot="session-turn-changes" data-component="session-turn-changes">
-                    <div data-slot="session-turn-changes-header">
-                      <div data-slot="session-turn-changes-summary">
-                        <span>
-                          {i18n.t(
-                            turnEdited() === 1
-                              ? "ui.sessionTurn.turnChanges.summary.one"
-                              : "ui.sessionTurn.turnChanges.summary.other",
-                            { count: turnEdited() },
-                          )}
-                        </span>
-                        <span data-slot="session-turn-changes-additions">+{turnAdditions()}</span>
-                        <span data-slot="session-turn-changes-deletions">-{turnDeletions()}</span>
-                        <Show when={turnChange()?.truncated && (turnChange()?.omittedCount ?? 0) > 0}>
-                          <span data-slot="session-turn-changes-omitted">
-                            {i18n.t("ui.sessionTurn.turnChanges.omitted", { count: turnChange()?.omittedCount ?? 0 })}
-                          </span>
-                        </Show>
-                        <Show when={isUndoneTurn()}>
-                          <span data-slot="session-turn-changes-undone">
-                            {i18n.t("ui.sessionTurn.turnChanges.undone")}
-                          </span>
-                        </Show>
-                      </div>
-                      <Show when={turnActionLabel() && hasTurnChangeActionHandler(turnChange(), props.turnChangeActions)}>
-                        <button
-                          type="button"
-                          data-slot="session-turn-changes-action"
-                          data-confirm={confirmAction() || undefined}
-                          onClick={mutateTurnChange}
-                          onMouseLeave={resetConfirm}
-                        >
-                          {turnActionLabel()}
-                        </button>
-                      </Show>
-                    </div>
-                    <div data-slot="session-turn-changes-list">
-                      <For each={turnFiles()}>
-                        {(file) => {
-                          const expanded = createMemo(() => turnExpanded().includes(file.path))
-                          const toggle = () => {
-                            if (!file.expandable) return
-                            setTurnExpanded((current) =>
-                              current.includes(file.path)
-                                ? current.filter((item) => item !== file.path)
-                                : [...current, file.path],
-                            )
-                          }
-                          const view = createMemo(() =>
-                            file.patch
-                              ? normalize({
-                                  file: file.path,
-                                  patch: file.patch,
-                                  additions: file.additions ?? 0,
-                                  deletions: file.deletions ?? 0,
-                                  status: file.status,
-                                })
-                              : undefined,
-                          )
-                          return (
-                            <div data-slot="session-turn-change-item" data-expanded={expanded() || undefined}>
-                              <div
-                                data-slot="session-turn-change-row"
-                                data-expandable={file.expandable || undefined}
-                                onClick={toggle}
-                              >
-                                <span data-slot="session-turn-change-chevron">
-                                  <Show when={file.expandable}>
-                                    <Icon name="chevron-down" />
-                                  </Show>
-                                </span>
-                                <span data-slot="session-turn-change-path">{file.path}</span>
-                                <span data-slot="session-turn-change-meta">
-                                  <Show
-                                    when={file.additions !== undefined || file.deletions !== undefined}
-                                    fallback={<span data-slot="session-turn-change-status">{turnStatusLabel(file.status)}</span>}
-                                  >
-                                    <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
-                                    <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
-                                  </Show>
-                                  <Show when={file.large && file.restoreAvailable === false}>
-                                    <span data-slot="session-turn-change-unrestorable">
-                                      {i18n.t("ui.sessionTurn.turnChanges.unrestorable")}
-                                    </span>
-                                  </Show>
-                                </span>
-                                <span data-slot="session-turn-change-actions" onClick={(event) => event.stopPropagation()}>
-                                  <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.openFile")} placement="top">
-                                    <IconButton
-                                      icon="open-file"
-                                      size="small"
-                                      variant="ghost"
-                                      aria-label={i18n.t("ui.sessionTurn.turnChanges.openFile")}
-                                      disabled={file.status === "deleted" || !file.openPath || !props.turnChangeActions?.openFile}
-                                      onClick={() => file.openPath && props.turnChangeActions?.openFile?.(file.openPath)}
-                                    />
-                                  </Tooltip>
-                                  <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.showInFolder")} placement="top">
-                                    <IconButton
-                                      icon="folder-add-left"
-                                      size="small"
-                                      variant="ghost"
-                                      aria-label={i18n.t("ui.sessionTurn.turnChanges.showInFolder")}
-                                      disabled={!file.openPath || !props.turnChangeActions?.showInFolder}
-                                      onClick={() =>
-                                        file.openPath &&
-                                        props.turnChangeActions?.showInFolder?.(
-                                          file.status === "deleted" ? getDirectory(file.openPath) : file.openPath,
-                                        )
-                                      }
-                                    />
-                                  </Tooltip>
-                                </span>
-                              </div>
-                              <Show when={expanded() && view()}>
-                                {(diff) => (
-                                  <div data-slot="session-turn-change-diff" data-scrollable>
-                                    <Dynamic component={fileComponent} mode="diff" fileDiff={diff().fileDiff} />
-                                  </div>
-                                )}
-                              </Show>
-                            </div>
-                          )
-                        }}
-                      </For>
-                    </div>
-                    <Show when={(turnChange()?.skippedCount ?? 0) > 0}>
-                      <div data-slot="session-turn-changes-skipped-notice">
-                        {i18n.t("ui.sessionTurn.turnChanges.skippedNotice", {
-                          count: turnChange()?.skippedCount ?? 0,
-                        })}
-                      </div>
-                    </Show>
-                  </div>
+                  <TurnChangesList
+                    change={turnChange()!}
+                    files={turnFiles()}
+                    edited={turnEdited()}
+                    additions={turnAdditions()}
+                    deletions={turnDeletions()}
+                    isUndone={isUndoneTurn()}
+                    expanded={turnExpanded()}
+                    setExpanded={setTurnExpanded}
+                    actionLabel={turnActionLabel()}
+                    confirmAction={confirmAction()}
+                    hasAction={hasTurnChangeActionHandler(turnChange(), props.turnChangeActions)}
+                    onAction={mutateTurnChange}
+                    onResetConfirm={resetConfirm}
+                    openFile={props.turnChangeActions?.openFile}
+                    showInFolder={props.turnChangeActions?.showInFolder}
+                    statusLabel={turnStatusLabel}
+                  />
                 </Show>
                 <Show when={props.turnChanges === undefined && turnEdited() === 0 && edited() > 0 && !working()}>
-                  <div
-                    data-slot="session-turn-diffs"
-                    data-component="session-turn-diffs-group"
-                    data-show-all={showAll() || undefined}
-                  >
-                    <div data-slot="session-turn-diffs-header">
-                      <span data-slot="session-turn-diffs-label">
-                        {edited()} {i18n.t("ui.sessionTurn.diffs.changed")}{" "}
-                        {i18n.t(edited() === 1 ? "ui.common.file.one" : "ui.common.file.other")}
-                      </span>
-                      <DiffChanges changes={diffs()} />
-                      <Show when={overflow() > 0}>
-                        <span data-slot="session-turn-diffs-toggle" onClick={toggleAll}>
-                          {showAll() ? i18n.t("ui.sessionTurn.diffs.showLess") : i18n.t("ui.sessionTurn.diffs.showAll")}
-                        </span>
-                      </Show>
-                    </div>
-                    <div data-component="session-turn-diffs-content">
-                      <Accordion
-                        multiple
-                        style={{ "--sticky-accordion-offset": "44px" }}
-                        value={expanded()}
-                        onChange={(value) => setState("expanded", Array.isArray(value) ? value : value ? [value] : [])}
-                      >
-                        <For each={visible()}>
-                          {(diff) => {
-                            const view = normalize(diff)
-                            const active = createMemo(() => expanded().includes(diff.file))
-                            const [shown, setShown] = createSignal(false)
-
-                            createEffect(
-                              on(
-                                active,
-                                (value) => {
-                                  if (!value) {
-                                    setShown(false)
-                                    return
-                                  }
-
-                                  requestAnimationFrame(() => {
-                                    if (!active()) return
-                                    setShown(true)
-                                  })
-                                },
-                                { defer: true },
-                              ),
-                            )
-
-                            return (
-                              <Accordion.Item value={diff.file}>
-                                <StickyAccordionHeader>
-                                  <Accordion.Trigger>
-                                    <div data-slot="session-turn-diff-trigger">
-                                      <span data-slot="session-turn-diff-path">
-                                        <Show when={diff.file.includes("/")}>
-                                          <span data-slot="session-turn-diff-directory">
-                                            {`\u202A${getDirectory(diff.file)}\u202C`}
-                                          </span>
-                                        </Show>
-                                        <span data-slot="session-turn-diff-filename">{getFilename(diff.file)}</span>
-                                      </span>
-                                      <div data-slot="session-turn-diff-meta">
-                                        <span data-slot="session-turn-diff-changes">
-                                          <DiffChanges changes={diff} />
-                                        </span>
-                                        <span data-slot="session-turn-diff-chevron">
-                                          <Icon name="chevron-down" />
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </Accordion.Trigger>
-                                </StickyAccordionHeader>
-                                <Accordion.Content>
-                                  <Show when={shown()}>
-                                    <div data-slot="session-turn-diff-view" data-scrollable>
-                                      <Dynamic component={fileComponent} mode="diff" fileDiff={view.fileDiff} />
-                                    </div>
-                                  </Show>
-                                </Accordion.Content>
-                              </Accordion.Item>
-                            )
-                          }}
-                        </For>
-                      </Accordion>
-                      <Show when={!showAll() && overflow() > 0}>
-                        <div data-slot="session-turn-diffs-more" onClick={toggleAll}>
-                          {i18n.t("ui.sessionTurn.diffs.more", { count: String(overflow()) })}
-                        </div>
-                      </Show>
-                    </div>
-                  </div>
+                  <SessionTurnDiffsList
+                    diffs={diffs()}
+                    visible={visible()}
+                    edited={edited()}
+                    overflow={overflow()}
+                    showAll={showAll()}
+                    toggleAll={toggleAll}
+                    expanded={expanded()}
+                    onExpandedChange={(value) => setState("expanded", value)}
+                  />
                 </Show>
                 <Show when={error()}>
                   <Card variant="error" class="error-card">
