@@ -6,7 +6,7 @@ const LANGUAGE_KEY = "pawwork.global.dat:language"
 
 const SINGLE_RELEASE_PAYLOAD = [
   {
-    tag_name: "v2026.5.12",
+    tag_name: "v2026.5.13",
     body: [
       "## App Update Notice",
       "",
@@ -20,7 +20,7 @@ const SINGLE_RELEASE_PAYLOAD = [
 
 const MULTI_VERSION_PAYLOAD = [
   {
-    tag_name: "v2026.5.12",
+    tag_name: "v2026.5.13",
     body: "## App Update Notice\n\n- Newest highlight A\n- Newest highlight B\n",
   },
   {
@@ -31,7 +31,7 @@ const MULTI_VERSION_PAYLOAD = [
 
 const LOCALIZED_PAYLOAD = [
   {
-    tag_name: "v2026.5.12",
+    tag_name: "v2026.5.13",
     body: [
       "## App Update Notice",
       "",
@@ -72,7 +72,7 @@ test.describe("release notes toast", () => {
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.12")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.13")
     // Content is now rendered as HTML in the toast-markdown slot
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("Important refresh for this release.")
     await expect(page.locator(`${TOAST_MARKDOWN_SELECTOR} li`)).toContainText(["Added subtle toast variant", "Replaced release notes dialog"])
@@ -106,7 +106,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.12")
+      .toBe("2026.5.13")
   })
 
   test("clicking the action opens the release URL and marks the current version as seen", async ({
@@ -145,7 +145,7 @@ test.describe("release notes toast", () => {
       .poll(() =>
         page.evaluate(() => (window as unknown as { __OPENED_LINKS: string[] }).__OPENED_LINKS),
       )
-      .toContain("https://github.com/Astro-Han/pawwork/releases/tag/v2026.5.12")
+      .toContain("https://github.com/Astro-Han/pawwork/releases/tag/v2026.5.13")
 
     await expect
       .poll(() =>
@@ -154,7 +154,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.12")
+      .toBe("2026.5.13")
   })
 
   test("pressing Escape marks the current version as seen", async ({ page, gotoSession }) => {
@@ -189,7 +189,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.12")
+      .toBe("2026.5.13")
   })
 
   test("releaseNotes=false suppresses the toast", async ({ page, gotoSession }) => {
@@ -225,7 +225,7 @@ test.describe("release notes toast", () => {
           return raw ? (JSON.parse(raw)?.version ?? null) : null
         }, HIGHLIGHTS_KEY),
       )
-      .toBe("2026.5.12")
+      .toBe("2026.5.13")
     await expect(page.locator(TOAST_SELECTOR)).toHaveCount(0)
   })
 
@@ -245,7 +245,7 @@ test.describe("release notes toast", () => {
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.12")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.13")
     const markdown = page.locator(TOAST_MARKDOWN_SELECTOR)
     await expect(markdown).toContainText("Newest highlight A")
     await expect(markdown).toContainText("Newest highlight B")
@@ -266,7 +266,7 @@ test.describe("release notes toast", () => {
         contentType: "application/json",
         body: JSON.stringify([
           {
-            tag_name: "v2026.5.12",
+            tag_name: "v2026.5.13",
             body: "## App Update Notice\n\n- English fallback bullet\n",
           },
         ]),
@@ -282,7 +282,7 @@ test.describe("release notes toast", () => {
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
     // Title and action must follow the parsed body's locale (en) — never mix with zh UI locale.
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.12")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.13")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("English fallback bullet")
   })
@@ -304,7 +304,7 @@ test.describe("release notes toast", () => {
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("已更新到 v2026.5.12")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("已更新到 v2026.5.13")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("查看完整发布说明 →")
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("中文要点 A")
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("中文要点 B")
@@ -320,7 +320,7 @@ test.describe("release notes toast", () => {
         contentType: "application/json",
         body: JSON.stringify([
           {
-            tag_name: "v2026.5.12",
+            tag_name: "v2026.5.13",
             // newest release: zh-only notice, no English App Update Notice
             body: ["## 中文版本", "", "### 主要更新", "", "- 仅中文要点"].join("\n"),
           },
@@ -341,16 +341,16 @@ test.describe("release notes toast", () => {
     await gotoSession()
 
     await expect(page.locator(TOAST_SELECTOR)).toBeVisible({ timeout: 10_000 })
-    // First-pass zh resolves to mixed (v2026.5.12 zh + v2026.5.10 en fallback),
+    // First-pass zh resolves to mixed (v2026.5.13 zh + v2026.5.10 en fallback),
     // so we re-resolve the whole window in English. The English window does
-    // not contain v2026.5.12 (no App Update Notice there), but the title and
+    // not contain v2026.5.13 (no App Update Notice there), but the title and
     // link must still anchor on the app's current version, not summaries[0].
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.12")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.13")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
     // Markdown slot's first segment must carry the v2026.5.10 tag, otherwise
     // the older release's bullet would read as if it described the current
-    // version (the title says v2026.5.12 but summaries[0] here is v2026.5.10
-    // because the English fallback dropped v2026.5.12).
+    // version (the title says v2026.5.13 but summaries[0] here is v2026.5.10
+    // because the English fallback dropped v2026.5.13).
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("v2026.5.10")
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("older en-only bullet")
   })
@@ -365,7 +365,7 @@ test.describe("release notes toast", () => {
         contentType: "application/json",
         body: JSON.stringify([
           {
-            tag_name: "v2026.5.12",
+            tag_name: "v2026.5.13",
             body: [
               "## App Update Notice",
               "",
@@ -397,7 +397,7 @@ test.describe("release notes toast", () => {
     // The newest release has a zh section but the older skipped release does
     // not. Spec #486 forbids mixing languages, so the entire toast — title,
     // action, and every segment — must be English.
-    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.12")
+    await expect(page.locator(TOAST_TITLE_SELECTOR)).toHaveText("Updated to v2026.5.13")
     await expect(page.locator(TOAST_ACTION_SELECTOR)).toHaveText("Full release notes →")
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("newest en bullet")
     await expect(page.locator(TOAST_MARKDOWN_SELECTOR)).toContainText("older en only")
