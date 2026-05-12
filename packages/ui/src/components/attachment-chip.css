@@ -1,0 +1,125 @@
+/*
+ * AttachmentChip — slice 11b.1.
+ *
+ * One spec across the product (DESIGN.md L444). The composer dock and the
+ * user-message bubble both render this primitive; the only difference is
+ * the close button, gated by `[data-removable]`.
+ *
+ * Geometry mirrors the W1 visual preview `.mf-attach` /  `.mf-attach-img`
+ * stamps in docs/design/preview/message-flow.html. Class names here use
+ * the data-component / data-slot convention so they match every other
+ * shared primitive in packages/ui.
+ */
+
+[data-component="attachment-chip"] {
+  flex-shrink: 0;
+  max-width: 280px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* File chip — height 64, gap 12, radius-md, 1px hairline, transparent bg
+ * so the chip blends with whichever surface owns the row (cream in
+ * the bubble, white in the composer dock). */
+[data-component="attachment-chip"][data-kind="file"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 64px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-weaker);
+  background: transparent;
+  line-height: 1.4;
+}
+
+[data-component="attachment-chip"][data-kind="file"] [data-slot="attachment-chip-icon"] {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--fg-base);
+}
+
+[data-component="attachment-chip"][data-kind="file"] [data-slot="attachment-chip-icon"] [data-icon] {
+  width: 32px;
+  height: 32px;
+}
+
+[data-component="attachment-chip"][data-kind="file"] [data-slot="attachment-chip-body"] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+  flex: 1;
+}
+
+[data-component="attachment-chip"][data-kind="file"] [data-slot="attachment-chip-name"] {
+  font: var(--type-body);
+  color: var(--fg-strong);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-component="attachment-chip"][data-kind="file"] [data-slot="attachment-chip-ext"] {
+  font: var(--type-caption);
+  color: var(--fg-weak);
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Image chip — square 64×64 thumbnail, same border + radius as file chip
+ * shell so the two read as one family. `object-fit: cover` keeps the
+ * thumbnail filling the box regardless of source aspect ratio. */
+[data-component="attachment-chip"][data-kind="image"] {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-weaker);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+[data-component="attachment-chip"][data-kind="image"] [data-slot="attachment-chip-image"] {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Remove button — 24 circle, fg-strong fill, bg-base glyph, floats at
+ * top right -6/-6. Only rendered when `[data-removable]` is present, so
+ * the bubble's archived chip never shows it (W1 L1088). */
+[data-component="attachment-chip"] [data-slot="attachment-chip-remove"] {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: var(--fg-strong);
+  color: var(--bg-base);
+  border: 0;
+  padding: 0;
+  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-component="attachment-chip"] [data-slot="attachment-chip-remove"] [data-icon] {
+  width: 14px;
+  height: 14px;
+}
+
+[data-component="attachment-chip"] [data-slot="attachment-chip-remove"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--brand-primary), 0 0 0 3px rgba(255, 89, 16, 0.2);
+}
