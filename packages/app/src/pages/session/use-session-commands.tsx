@@ -21,7 +21,7 @@ import { toggleDesktopTerminal } from "@/pages/session/terminal-shell-tab"
 import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
-import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
+import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -308,17 +308,16 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
       await sdk.client.session
         .abort({ sessionID, mode: "hard" })
         .then((result) => {
-          void emitRendererDiagnostic({
-            name: "session.action.abort",
-            route_session_id: sessionID,
-            visible_session_id: sessionID,
-            timeline_session_id: sessionID,
-            data: {
+          void emitRendererDiagnostic(
+            sessionAbortDiagnosticEvent({
+              routeSessionID: sessionID,
+              visibleSessionID: sessionID,
+              timelineSessionID: sessionID,
               source: "undo",
               mode: "hard",
               result: result.data === false ? "ignored_awaiting_question" : "aborted",
-            },
-          }).catch(() => undefined)
+            }),
+          ).catch(() => undefined)
         })
         .catch(() => {})
     }

@@ -37,6 +37,8 @@ export interface InterruptMeta {
   source?: string
   reason?: string
   mode?: "soft" | "hard"
+  // Reserved for future paths that originate from a tool or model ctx.abort signal instead of
+  // an explicit session.cancel call.
   viaCtxAbort?: boolean
   propagationPoint?: string
   recordedAt?: number

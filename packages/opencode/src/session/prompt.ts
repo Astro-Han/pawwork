@@ -77,6 +77,33 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
 
+export type TitleGenerationState = "not_started" | "in_flight" | "completed_before_abort" | "completed_after_abort"
+
+type TitleGenerationProgress = {
+  startedAt: number
+  completedAt?: number
+}
+
+export function titleGenerationStateAtAbort(
+  progress: TitleGenerationProgress | undefined,
+  abortRecordedAt: number,
+): TitleGenerationState {
+  if (!progress) return "not_started"
+  if (progress.completedAt === undefined || progress.completedAt > abortRecordedAt) return "in_flight"
+  return "completed_before_abort"
+}
+
+export function reconcileTitleGenerationStateAfterCompletion(input: {
+  state: TitleGenerationState | undefined
+  abortRecordedAt?: number
+  completedAt?: number
+}): TitleGenerationState | undefined {
+  if (input.state === "in_flight" && typeof input.abortRecordedAt === "number" && typeof input.completedAt === "number") {
+    return input.completedAt <= input.abortRecordedAt ? "completed_before_abort" : "completed_after_abort"
+  }
+  return input.state
+}
+
 // Single source of truth for product-name strings used in synthetic tool errors. If the brand
 // changes, only this constant + assistant-text Chinese summary need to change.
 const LOOP_GATE_BRAND = "PawWork"
@@ -272,6 +299,7 @@ export const layer = Layer.effect(
     // by AgentTool.execute via AgentPromptOps.wasInterrupted to deterministically distinguish
     // "child runner aborted" from "model returned naturally" without racing ctx.abort.aborted.
     const interruptedSessions = new Set<SessionID>()
+    const titleGenerationProgress = new Map<SessionID, TitleGenerationProgress>()
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID).pipe(Effect.asVoid),
@@ -369,6 +397,10 @@ export const layer = Layer.effect(
         errorName?: string
         errorMessage?: string
       }) {
+        titleGenerationProgress.set(input.session.id, {
+          startedAt,
+          completedAt: trace.completedAt,
+        })
         let assistant: MessageV2.WithParts | undefined
         for (let attempt = 0; attempt < 50; attempt++) {
           const messages = yield* sessions.messages({ sessionID: input.session.id })
@@ -376,11 +408,31 @@ export const layer = Layer.effect(
           if (assistant) break
           yield* Effect.sleep("10 millis")
         }
-        if (!assistant || assistant.info.role !== "assistant") return
+        if (!assistant || assistant.info.role !== "assistant") {
+          yield* elog.warn("title trace target assistant not found", {
+            sessionID: input.session.id,
+            parentMessageID: firstInfo.id,
+          })
+          return
+        }
+        const abort = assistant.info.diagnostics?.abort
+        const titleGenerationState = reconcileTitleGenerationStateAfterCompletion({
+          state: abort?.title_generation_state,
+          abortRecordedAt: abort?.recorded_at,
+          completedAt: trace.completedAt,
+        })
         yield* sessions.updateMessage({
           ...assistant.info,
           diagnostics: {
             ...(assistant.info.diagnostics ?? {}),
+            ...(abort
+              ? {
+                  abort: {
+                    ...abort,
+                    title_generation_state: titleGenerationState,
+                  },
+                }
+              : {}),
             title_generation: {
               source: "ensureTitle",
               parent_message_id: firstInfo.id,
@@ -407,6 +459,7 @@ export const layer = Layer.effect(
       const msgs = onlySubtasks
         ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
         : yield* MessageV2.toModelMessagesEffect(context, mdl)
+      titleGenerationProgress.set(input.session.id, { startedAt })
       const titleExit = yield* llm
         .stream({
           agent: ag,
@@ -448,9 +501,19 @@ export const layer = Layer.effect(
         return
       }
       const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
-      yield* sessions
-        .setTitle({ sessionID: input.session.id, title: t })
-        .pipe(Effect.catchCause((cause) => elog.error("failed to generate title", { error: Cause.squash(cause) })))
+      const setTitleExit = yield* sessions.setTitle({ sessionID: input.session.id, title: t }).pipe(Effect.exit)
+      if (Exit.isFailure(setTitleExit)) {
+        const error = Cause.squash(setTitleExit.cause)
+        yield* elog.error("failed to generate title", { error })
+        yield* recordTitleTrace({
+          completedAt,
+          success: true,
+          applied: false,
+          errorName: error instanceof Error ? error.name : undefined,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }).pipe(Effect.catchCause(() => Effect.void))
+        return
+      }
       yield* recordTitleTrace({ completedAt, success: true, applied: true }).pipe(Effect.catchCause(() => Effect.void))
     })
 
@@ -2003,35 +2066,40 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     )(function* (input: z.infer<typeof LoopInput>) {
       const onInterrupt = (meta?: { source?: string; reason?: string; mode?: "soft" | "hard"; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
         Effect.gen(function* () {
-        interruptedSessions.add(input.sessionID)
-        const assistant = yield* currentTurnTarget(input.sessionID)
-        if (assistant.info.role === "assistant") {
-          const error = assistant.info.error
-          const errorMessage =
-            error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
-              ? String(error.data.message)
-              : undefined
-          yield* sessions.updateMessage({
-            ...assistant.info,
-            diagnostics: {
-              ...(assistant.info.diagnostics ?? {}),
-              abort: {
-                ...(assistant.info.diagnostics?.abort ?? {}),
-                source: meta?.source,
-                reason: meta?.reason,
-                mode: meta?.mode,
-                propagation_point: meta?.propagationPoint ?? "session.prompt.loop.onInterrupt",
-                error_name: error?.name,
-                error_message: errorMessage,
-                via_ctx_abort: meta?.viaCtxAbort,
-                recorded_at: meta?.recordedAt ?? Date.now(),
+          interruptedSessions.add(input.sessionID)
+          const assistant = yield* currentTurnTarget(input.sessionID)
+          if (assistant.info.role === "assistant") {
+            const error = assistant.info.error
+            const errorMessage =
+              error && "data" in error && error.data && typeof error.data === "object" && "message" in error.data
+                ? String(error.data.message)
+                : undefined
+            const recordedAt = meta?.recordedAt ?? Date.now()
+            yield* sessions.updateMessage({
+              ...assistant.info,
+              diagnostics: {
+                ...(assistant.info.diagnostics ?? {}),
+                abort: {
+                  ...(assistant.info.diagnostics?.abort ?? {}),
+                  source: meta?.source,
+                  reason: meta?.reason,
+                  mode: meta?.mode,
+                  title_generation_state: titleGenerationStateAtAbort(
+                    titleGenerationProgress.get(input.sessionID),
+                    recordedAt,
+                  ),
+                  propagation_point: meta?.propagationPoint ?? "session.prompt.loop.onInterrupt",
+                  error_name: error?.name,
+                  error_message: errorMessage,
+                  via_ctx_abort: meta?.viaCtxAbort,
+                  recorded_at: recordedAt,
+                },
               },
-            },
-          })
-          return yield* lastAssistant(input.sessionID)
-        }
-        return assistant
-      })
+            })
+            return yield* lastAssistant(input.sessionID)
+          }
+          return assistant
+        })
       return yield* state.ensureRunning(input.sessionID, onInterrupt, runLoop(input.sessionID))
     })
 

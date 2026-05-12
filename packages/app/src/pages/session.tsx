@@ -11,7 +11,11 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
-import { createSessionPerformanceDiagnostics, emitRendererDiagnostic } from "@/context/renderer-diagnostics"
+import {
+  createSessionPerformanceDiagnostics,
+  emitRendererDiagnostic,
+  sessionAbortDiagnosticEvent,
+} from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useServer } from "@/context/server"
@@ -127,17 +131,16 @@ export default function Page() {
     source: "revert" | "autoHeal",
     result: "aborted" | "ignored_awaiting_question",
   ) => {
-    emitDiagnostics({
-      name: "session.action.abort",
-      route_session_id: params.id,
-      visible_session_id: timelineSessionID(),
-      timeline_session_id: timelineSessionID(),
-      data: {
+    emitDiagnostics(
+      sessionAbortDiagnosticEvent({
+        routeSessionID: params.id,
+        visibleSessionID: timelineSessionID(),
+        timelineSessionID: timelineSessionID(),
         source,
         mode: "hard",
         result,
-      },
-    })
+      }),
+    )
   }
   const haltAbort = (sessionID: string, source: "revert" | "autoHeal" = "autoHeal") =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])

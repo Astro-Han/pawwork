@@ -205,6 +205,27 @@ export async function emitRendererDiagnostic(event: RendererDiagnosticInput) {
   }
 }
 
+export function sessionAbortDiagnosticEvent(input: {
+  routeSessionID?: string
+  visibleSessionID?: string
+  timelineSessionID?: string
+  source: string
+  mode: "soft" | "hard"
+  result: "aborted" | "ignored_awaiting_question"
+}): RendererDiagnosticInput {
+  return {
+    name: "session.action.abort",
+    route_session_id: input.routeSessionID,
+    visible_session_id: input.visibleSessionID,
+    timeline_session_id: input.timelineSessionID,
+    data: {
+      source: input.source,
+      mode: input.mode,
+      result: input.result,
+    },
+  }
+}
+
 export function createSessionPerformanceDiagnostics(input: {
   routeSessionID: Accessor<string | undefined>
   visibleSessionID: Accessor<string | undefined>
