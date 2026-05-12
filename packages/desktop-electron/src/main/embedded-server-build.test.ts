@@ -2,8 +2,11 @@ import { expect, test } from "bun:test"
 import fs from "node:fs"
 import path from "node:path"
 import { withEmbeddedServerArtifactLock } from "../../../opencode/test/shared/embedded-server-artifact-lock"
+import { tmpdir } from "../../../opencode/test/fixture/fixture"
+import { expectModelsSnapshotUnchanged, writeCurrentModelsFixture } from "../../../opencode/test/server/models-snapshot-fixture"
 
 const root = path.join(import.meta.dir, "../..")
+const opencodeRoot = path.resolve(root, "../opencode")
 const runtimeDir = path.resolve(root, "../opencode/dist/node")
 const outDir = path.join(root, "out")
 const outChunksDir = path.join(outDir, "main", "chunks")
@@ -14,13 +17,19 @@ const requiredWasmMatchers = [
   (file: string) => /^tree-sitter-powershell-.+\.wasm$/.test(file),
 ]
 
-function run(cmd: string[]) {
+function run(
+  cmd: string[],
+  options?: {
+    cwd?: string
+    env?: NodeJS.ProcessEnv
+  },
+) {
   const result = Bun.spawnSync({
     cmd,
-    cwd: root,
+    cwd: options?.cwd ?? root,
     stdout: "pipe",
     stderr: "pipe",
-    env: process.env,
+    env: { ...process.env, ...options?.env },
   })
 
   if (result.exitCode !== 0) {
@@ -36,10 +45,16 @@ function run(cmd: string[]) {
 
 test("electron-vite build copies required embedded server wasm sidecars into out/main/chunks", () => {
   return withEmbeddedServerArtifactLock(async () => {
+    await using tmp = await tmpdir()
+    const modelsFixture = writeCurrentModelsFixture(opencodeRoot, tmp.path)
+
     fs.rmSync(runtimeDir, { recursive: true, force: true })
     fs.rmSync(outDir, { recursive: true, force: true })
 
-    run([process.execPath, "./scripts/prepare-embedded-server.ts"])
+    run([process.execPath, "run", "build:embedded-server"], {
+      cwd: opencodeRoot,
+      env: { MODELS_DEV_API_JSON: modelsFixture.fixture },
+    })
     run([electronViteBin, "build"])
 
     const files = fs.readdirSync(outChunksDir)
@@ -47,5 +62,7 @@ test("electron-vite build copies required embedded server wasm sidecars into out
     for (const matches of requiredWasmMatchers) {
       expect(files.some((file) => matches(file))).toBe(true)
     }
+
+    expectModelsSnapshotUnchanged(modelsFixture)
   })
 }, 120_000)
