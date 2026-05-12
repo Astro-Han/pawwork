@@ -963,16 +963,33 @@ export namespace Export {
 
   function sanitizeDiagnostics(diagnostics: Snapshot["diagnostics"]): Snapshot["diagnostics"] {
     const last = diagnostics.loop?.last
-    if (!last) return diagnostics
     return {
       ...diagnostics,
-      loop: {
-        ...diagnostics.loop,
-        last: {
-          ...last,
-          attemptedInput: dataValue("loop-attempted-input", last.parentID, last.attemptedInput),
-        },
-      },
+      ...(last
+        ? {
+            loop: {
+              ...diagnostics.loop,
+              last: {
+                ...last,
+                attemptedInput: dataValue("loop-attempted-input", last.parentID, last.attemptedInput),
+              },
+            },
+          }
+        : {}),
+      aborts: diagnostics.aborts?.map((abort, index) => ({
+        ...abort,
+        error_message:
+          abort.error_message === undefined
+            ? undefined
+            : redact("abort-error-message", String(index), abort.error_message),
+      })),
+      title_generations: diagnostics.title_generations?.map((trace, index) => ({
+        ...trace,
+        error_message:
+          trace.error_message === undefined
+            ? undefined
+            : redact("title-generation-error-message", String(index), trace.error_message),
+      })),
     }
   }
 

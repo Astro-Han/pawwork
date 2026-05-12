@@ -1385,6 +1385,57 @@ describe("redactPart", () => {
     })
   })
 
+  test("sanitizeSnapshot redacts abort and title generation error messages", () => {
+    const fakeSnapshot: Export.Snapshot = {
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 0,
+      root_session_id: SessionID.make("ses_diag"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: "darwin",
+        os_version: "0",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 0, message_count: 0, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: {
+        aborts: [
+          {
+            session_id: SessionID.make("ses_diag"),
+            message_id: MessageID.make("msg_abort"),
+            error_message: "failed to read /Users/secret/.env",
+          },
+        ],
+        title_generations: [
+          {
+            session_id: SessionID.make("ses_diag"),
+            message_id: MessageID.make("msg_title"),
+            started_at: 1,
+            success: false,
+            error_message: "provider rejected /Users/secret/.env",
+          },
+        ],
+      },
+      session: {
+        info: { id: SessionID.make("ses_diag"), title: "t", directory: "/dir" } as never,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [],
+        children: [],
+      },
+    }
+
+    const sanitized = Export.sanitizeSnapshot(fakeSnapshot)
+    expect(sanitized.diagnostics.aborts?.[0]?.error_message).toBe("[redacted:abort-error-message:0]")
+    expect(sanitized.diagnostics.title_generations?.[0]?.error_message).toBe(
+      "[redacted:title-generation-error-message:0]",
+    )
+  })
+
   test("redacts data: url inside completed tool attachments", () => {
     const ctx = { count: { omitted: 0 } }
     const part: MessageV2.ToolPart = {
