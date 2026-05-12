@@ -197,9 +197,21 @@ export function TrowBlock(props: TrowBlockProps) {
           </Show>
         </summary>
         <div data-slot="trow-body">
-          <Show when={props.renderTool} fallback={defaultRenderTools(props.parts)}>
-            <For each={props.parts}>{(part) => <div data-slot="trow-item">{props.renderTool?.(part)}</div>}</For>
-          </Show>
+          {/*
+           * `<For>` is the outer reactive primitive so the body stays in
+           * sync with `props.parts` while the round is streaming. Earlier
+           * iterations of this file wrapped the fallback path in a
+           * `<Show fallback={defaultRenderTools(props.parts)}>` form,
+           * which captured the parts array at creation time and would
+           * not pick up new tool calls landing mid-stream.
+           */}
+          <For each={props.parts}>
+            {(part) => (
+              <Show when={props.renderTool} fallback={renderDefaultToolItem(part)}>
+                <div data-slot="trow-item">{props.renderTool?.(part)}</div>
+              </Show>
+            )}
+          </For>
         </div>
       </details>
     </div>
@@ -207,19 +219,16 @@ export function TrowBlock(props: TrowBlockProps) {
 }
 
 /**
- * Fallback per-tool renderer used when the caller does not provide one.
- * Surfaces just the tool's name + status — enough for unit / story tests
- * but not the production body (the shell wires the rich renderer).
+ * Fallback per-tool renderer used when the caller does not provide a
+ * richer `renderTool` slot. Surfaces just the tool's name + status —
+ * enough for unit / story tests but not the production body (the shell
+ * wires the rich renderer).
  */
-function defaultRenderTools(parts: readonly ToolPart[]): JSX.Element {
+function renderDefaultToolItem(part: ToolPart): JSX.Element {
   return (
-    <For each={parts}>
-      {(part) => (
-        <div data-slot="trow-item" data-status={part.state.status}>
-          <span data-slot="trow-item-name">{part.tool}</span>
-          <span data-slot="trow-item-status">{part.state.status}</span>
-        </div>
-      )}
-    </For>
+    <div data-slot="trow-item" data-status={part.state.status}>
+      <span data-slot="trow-item-name">{part.tool}</span>
+      <span data-slot="trow-item-status">{part.state.status}</span>
+    </div>
   )
 }
