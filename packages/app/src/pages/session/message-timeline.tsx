@@ -1,38 +1,24 @@
-import { For, createEffect, createMemo, on, onCleanup, onMount, Show, Index, type JSX, createSignal } from "solid-js"
+import { For, createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
-import { Button } from "@opencode-ai/ui/button"
-import { FileIcon } from "@opencode-ai/ui/file-icon"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Dialog } from "@opencode-ai/ui/dialog"
-import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
-import { ScrollView, type ScrollViewScrollIntent } from "@opencode-ai/ui/scroll-view"
-import type { AssistantMessage, Message as MessageType, Part, TextPart, UserMessage } from "@opencode-ai/sdk/v2"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
+import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
 import { Binary } from "@opencode-ai/util/binary"
-import { getFilename } from "@opencode-ai/util/path"
-import { shouldMarkBoundaryGesture, normalizeWheelDelta } from "@/pages/session/message-gesture"
+import { messageAgentColor } from "@/utils/agent"
+import { normalizeWheelDelta } from "@/pages/session/message-gesture"
 import { collectTimelineScrollMetrics } from "@/pages/session/session-timeline-scroll-anchors"
 import {
   classifyTimelineScrollGesture,
   type TimelineScrollControllerResult,
   type TimelineScrollIntent,
-  type TimelineScrollMetrics,
   type TimelineScrollObservation,
 } from "@/pages/session/session-timeline-scroll-controller"
 import { taskDescription } from "@/pages/session/task-description"
-import {
-  turnFetchSignature,
-  turnFetchTargets,
-  type TurnFetchAssistantLite,
-  type TurnFetchInput,
-} from "@/pages/session/turn-change-fetch"
 import { createSessionRunning } from "@/pages/session/session-running-state"
-import { SessionContextUsage } from "@/components/session-context-usage"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useSessionRouteKey } from "@/pages/session/session-layout"
@@ -43,20 +29,22 @@ import { useSettings } from "@/context/settings"
 import { useSDK } from "@/context/sdk"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
-import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
-import { parseCommentNote, readCommentMetadata } from "@/utils/comment-note"
 import { makeTimer } from "@solid-primitives/timer"
 import { webSearchRecoveryToast } from "./websearch-toasts"
-
-type MessageComment = {
-  path: string
-  comment: string
-  selection?: {
-    startLine: number
-    endLine: number
-  }
-}
+import { createTimelineStaging } from "@/pages/session/message-timeline-staging"
+import {
+  boundaryGesture,
+  markBoundaryGesture,
+  scrollViewIntentToTimelineIntent,
+  shouldMarkLegacyScrollIntent,
+} from "@/pages/session/message-timeline-scroll"
+import { messageComments, MessageCommentList } from "@/pages/session/message-timeline-comments"
+import { LoadEarlierButton } from "@/pages/session/message-timeline-history-load"
+import {
+  createTurnChangeFetcher,
+  type TurnChangeDisplay,
+} from "@/pages/session/message-timeline-turn-changes"
 
 function isWebSearchToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
   return part.type === "tool" && part.tool === "websearch"
@@ -73,219 +61,8 @@ type UserActions = {
   revert?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
 }
 
-type TurnChangeDisplay = {
-  sessionID: string
-  turnID: string
-  messageID: string
-  undoAvailable: boolean
-  redoAvailable: boolean
-  truncated?: boolean
-  omittedCount?: number
-  skippedCount?: number
-  files: Array<{
-    path: string
-    openPath?: string
-    status: "added" | "modified" | "deleted"
-    additions?: number
-    deletions?: number
-    patch?: string
-    sensitive?: boolean
-    binary?: boolean
-    large?: boolean
-    restoreAvailable?: boolean
-    expandable: boolean
-  }>
-}
-
-const messageComments = (parts: Part[]): MessageComment[] =>
-  parts.flatMap((part) => {
-    if (part.type !== "text" || !(part as TextPart).synthetic) return []
-    const next = readCommentMetadata(part.metadata) ?? parseCommentNote(part.text)
-    if (!next) return []
-    return [
-      {
-        path: next.path,
-        comment: next.comment,
-        selection: next.selection
-          ? {
-              startLine: next.selection.startLine,
-              endLine: next.selection.endLine,
-            }
-          : undefined,
-      },
-    ]
-  })
-
 export { taskDescription }
-
-const boundaryTarget = (root: HTMLElement, target: EventTarget | null) => {
-  const current = target instanceof Element ? target : undefined
-  const nested = current?.closest("[data-scrollable]")
-  if (!nested || nested === root) return root
-  if (!(nested instanceof HTMLElement)) return root
-  return nested
-}
-
-const boundaryGesture = (input: {
-  root: HTMLDivElement
-  target: EventTarget | null
-  delta: number
-}) => {
-  const target = boundaryTarget(input.root, input.target)
-  if (target === input.root) return { nestedScrollable: false, atNestedBoundary: true }
-  return {
-    nestedScrollable: true,
-    atNestedBoundary: shouldMarkBoundaryGesture({
-      delta: input.delta,
-      scrollTop: target.scrollTop,
-      scrollHeight: target.scrollHeight,
-      clientHeight: target.clientHeight,
-    }),
-  }
-}
-
-const markBoundaryGesture = (input: {
-  root: HTMLDivElement
-  target: EventTarget | null
-  delta: number
-  onMarkScrollGesture: (target?: EventTarget | null) => void
-}) => {
-  const boundary = boundaryGesture(input)
-  if (!boundary.nestedScrollable || boundary.atNestedBoundary) {
-    input.onMarkScrollGesture(input.root)
-  }
-}
-
-const scrollViewMetricsToTimelineMetrics = (metrics: {
-  scrollTop: number
-  scrollHeight: number
-  clientHeight: number
-}): TimelineScrollMetrics => {
-  const max = Math.max(0, metrics.scrollHeight - metrics.clientHeight)
-  const distanceFromBottom = Math.max(0, max - metrics.scrollTop)
-  return {
-    scrollTop: metrics.scrollTop,
-    scrollHeight: metrics.scrollHeight,
-    clientHeight: metrics.clientHeight,
-    distanceFromTop: metrics.scrollTop,
-    distanceFromBottom,
-    nearTop: metrics.scrollTop <= 12,
-    nearBottom: distanceFromBottom <= 2,
-  }
-}
-
-const scrollViewIntentToTimelineIntent = (intent: ScrollViewScrollIntent): TimelineScrollIntent => {
-  if (intent.type === "keyboard_scroll") {
-    return { type: "keyboard_scroll", key: intent.key, source: "scroll_view" }
-  }
-  return {
-    type: intent.type,
-    source: "scroll_view",
-    metrics: scrollViewMetricsToTimelineMetrics(intent.metrics),
-  }
-}
-
-const shouldMarkLegacyScrollIntent = (intent: ScrollViewScrollIntent) => {
-  if (intent.type === "keyboard_scroll") return true
-  return intent.type === "scrollbar_drag_start"
-}
-
-type StageConfig = {
-  init: number
-  batch: number
-}
-
-type TimelineStageInput = {
-  sessionKey: () => string
-  turnStart: () => number
-  messages: () => UserMessage[]
-  config: StageConfig
-}
-
-/**
- * Defer-mounts small timeline windows so revealing older turns does not
- * block first paint with a large DOM mount.
- *
- * Once staging completes for a session it never re-stages — backfill and
- * new messages render immediately.
- */
-function createTimelineStaging(input: TimelineStageInput) {
-  const [state, setState] = createStore({
-    activeSession: "",
-    completedSession: "",
-    count: 0,
-  })
-
-  const stagedCount = createMemo(() => {
-    const total = input.messages().length
-    if (input.turnStart() <= 0) return total
-    if (state.completedSession === input.sessionKey()) return total
-    const init = Math.min(total, input.config.init)
-    if (state.count <= init) return init
-    if (state.count >= total) return total
-    return state.count
-  })
-
-  const stagedUserMessages = createMemo(() => {
-    const list = input.messages()
-    const count = stagedCount()
-    if (count >= list.length) return list
-    return list.slice(Math.max(0, list.length - count))
-  })
-
-  let frame: number | undefined
-  const cancel = () => {
-    if (frame === undefined) return
-    cancelAnimationFrame(frame)
-    frame = undefined
-  }
-
-  createEffect(
-    on(
-      () => [input.sessionKey(), input.turnStart() > 0, input.messages().length] as const,
-      ([sessionKey, isWindowed, total]) => {
-        cancel()
-        const shouldStage =
-          isWindowed &&
-          total > input.config.init &&
-          state.completedSession !== sessionKey &&
-          state.activeSession !== sessionKey
-        if (!shouldStage) {
-          setState({ activeSession: "", count: total })
-          return
-        }
-
-        let count = Math.min(total, input.config.init)
-        setState({ activeSession: sessionKey, count })
-
-        const step = () => {
-          if (input.sessionKey() !== sessionKey) {
-            frame = undefined
-            return
-          }
-          const currentTotal = input.messages().length
-          count = Math.min(currentTotal, count + input.config.batch)
-          setState("count", count)
-          if (count >= currentTotal) {
-            setState({ completedSession: sessionKey, activeSession: "" })
-            frame = undefined
-            return
-          }
-          frame = requestAnimationFrame(step)
-        }
-        frame = requestAnimationFrame(step)
-      },
-    ),
-  )
-
-  const isStaging = createMemo(() => {
-    const key = input.sessionKey()
-    return state.activeSession === key && state.completedSession !== key
-  })
-
-  onCleanup(cancel)
-  return { messages: stagedUserMessages, isStaging }
-}
+export type { TurnChangeDisplay }
 
 export function MessageTimeline(props: {
   sessionID: string
@@ -375,25 +152,10 @@ export function MessageTimeline(props: {
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
-  const [turnChanges, setTurnChanges] = createStore<Record<string, TurnChangeDisplay | null>>({})
-  const fetchedTurnChanges = new Set<string>()
-  const turnChangeRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  const cancelTurnChangeRetries = () => {
-    for (const timer of turnChangeRetryTimers.values()) clearTimeout(timer)
-    turnChangeRetryTimers.clear()
-  }
-  onCleanup(cancelTurnChangeRetries)
-  createEffect(
-    on(
-      sessionID,
-      () => {
-        cancelTurnChangeRetries()
-        fetchedTurnChanges.clear()
-      },
-      { defer: true },
-    ),
-  )
-
+  // Turn-change auto-prefetch + imperative undo/redo with conflict dialog
+  // owned by ./message-timeline-turn-changes. Pass the server URL + auth
+  // builder so the fetcher stays independent of the timeline's other
+  // dependencies (sync / settings / etc.).
   const authHeaders = () => {
     const current = server.current
     if (!current?.http.password) return {} as Record<string, string>
@@ -401,232 +163,16 @@ export function MessageTimeline(props: {
       Authorization: `Basic ${btoa(`${current.http.username ?? "opencode"}:${current.http.password}`)}`,
     }
   }
-
-  const blockedDescription = (body: any) => {
-    const base =
-      body?.reason === "conflict"
-        ? language.t("session.turnChange.blocked.conflict")
-        : body?.reason === "unsupported_size"
-          ? language.t("session.turnChange.blocked.unsupportedSize")
-          : body?.reason === "permission_denied"
-            ? language.t("session.turnChange.blocked.permissionDenied")
-            : body?.reason === "rollback_failed"
-              ? language.t("session.turnChange.blocked.rollbackFailed")
-              : language.t("session.turnChange.blocked.generic")
-    const files = Array.isArray(body?.files)
-      ? body.files.filter((file: any) => typeof file?.path === "string").map((file: any) => file.path as string)
-      : []
-    if (!files.length) return base
-    const visible = files.slice(0, 3).join(", ")
-    const rest = files.length > 3 ? language.t("session.turnChange.blocked.more", { count: files.length - 3 }) : ""
-    return `${base} ${language.t("session.turnChange.blocked.files", { files: `${visible}${rest}` })}`
-  }
-
-  const turnChangeFetch = async (
-    userMessageID: string,
-    action?: "undo" | "redo",
-    options?: { force?: boolean },
-  ): Promise<TurnChangeDisplay | undefined> => {
-    const current = server.current
-    const id = sessionID()
-    if (!current || !id) return
-    const url = `${current.http.url}/session/${id}/turn/${userMessageID}/changes${action ? `/${action}` : ""}`
-    let res: Response
-    try {
-      res = await fetch(url, {
-        method: action ? "POST" : "GET",
-        headers: {
-          ...authHeaders(),
-          ...(action ? { "Content-Type": "application/json" } : {}),
-        },
-        ...(action ? { body: JSON.stringify({ force: !!options?.force }) } : {}),
-      })
-    } catch (err) {
-      if (action) {
-        showToast({
-          title:
-            action === "undo"
-              ? language.t("session.turnChange.undoBlocked")
-              : language.t("session.turnChange.redoBlocked"),
-          description: language.t("session.turnChange.blocked.generic"),
-          variant: "error",
-        })
-      }
-      return turnChanges[userMessageID] ?? undefined
-    }
-    if (!res.ok) {
-      if (action) {
-        showToast({
-          title:
-            action === "undo"
-              ? language.t("session.turnChange.undoBlocked")
-              : language.t("session.turnChange.redoBlocked"),
-          description: language.t("session.turnChange.blocked.generic"),
-          variant: "error",
-        })
-      }
-      return turnChanges[userMessageID] ?? undefined
-    }
-    let body: any
-    try {
-      body = await res.json()
-    } catch {
-      if (action) {
-        showToast({
-          title:
-            action === "undo"
-              ? language.t("session.turnChange.undoBlocked")
-              : language.t("session.turnChange.redoBlocked"),
-          description: language.t("session.turnChange.blocked.generic"),
-          variant: "error",
-        })
-      }
-      return turnChanges[userMessageID] ?? undefined
-    }
-    if (!action) {
-      setTurnChanges(userMessageID, body ?? null)
-      return body ?? undefined
-    }
-    if (body?.status === "applied") {
-      const rawDisplay: TurnChangeDisplay | null = body.display ?? null
-      let display: TurnChangeDisplay | null = rawDisplay
-      if (rawDisplay && Array.isArray(body.skipped) && body.skipped.length) {
-        const skippedCount = body.skipped.reduce(
-          (sum: number, item: any) => sum + (Array.isArray(item?.files) ? item.files.length : 0),
-          0,
-        )
-        if (skippedCount > 0) display = { ...rawDisplay, skippedCount }
-      }
-      setTurnChanges(userMessageID, display)
-      return display ?? undefined
-    }
-    if (action && body?.status === "blocked" && body.reason === "conflict" && !options?.force) {
-      const conflictPaths = Array.isArray(body.files)
-        ? (body.files as Array<{ path?: unknown }>)
-            .map((file) => (typeof file?.path === "string" ? file.path : ""))
-            .filter((path) => path.length > 0)
-        : []
-      return await new Promise<TurnChangeDisplay | undefined>((resolve) => {
-        let settled = false
-        const finish = (value: TurnChangeDisplay | undefined) => {
-          if (settled) return
-          settled = true
-          resolve(value)
-        }
-        dialog.show(
-          () => (
-            <Dialog
-              title={language.t("ui.sessionTurn.turnChanges.confirmTitle")}
-              description={language.t("ui.sessionTurn.turnChanges.confirmDescription")}
-              size="normal"
-              fit
-            >
-              <div class="flex flex-col gap-4 px-5 pb-5 pt-2">
-                <Show when={conflictPaths.length > 0}>
-                  <div class="flex flex-col rounded-md border border-border-base bg-surface-base max-h-44 overflow-auto">
-                    <For each={conflictPaths.slice(0, 6)}>
-                      {(item) => (
-                        <div
-                          class="px-3 py-1.5 text-13-regular text-fg-strong font-mono truncate"
-                          title={item}
-                        >
-                          {item}
-                        </div>
-                      )}
-                    </For>
-                    <Show when={conflictPaths.length > 6}>
-                      <div class="px-3 py-1.5 text-12-regular text-fg-weak border-t border-border-base">
-                        {language.t("ui.sessionTurn.turnChanges.confirmListMore", {
-                          count: conflictPaths.length - 6,
-                        })}
-                      </div>
-                    </Show>
-                  </div>
-                </Show>
-                <div class="flex justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      dialog.close()
-                      finish(undefined)
-                    }}
-                  >
-                    {language.t("ui.sessionTurn.turnChanges.confirmCancel")}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={async () => {
-                      dialog.close()
-                      const next = await turnChangeFetch(userMessageID, action, { force: true })
-                      finish(next)
-                    }}
-                  >
-                    {language.t("ui.sessionTurn.turnChanges.confirmApply")}
-                  </Button>
-                </div>
-              </div>
-            </Dialog>
-          ),
-          () => finish(undefined),
-        )
-      })
-    }
-    showToast({
-      title:
-        action === "undo"
-          ? language.t("session.turnChange.undoBlocked")
-          : language.t("session.turnChange.redoBlocked"),
-      description: blockedDescription(body),
-      variant: "error",
-    })
-    return turnChanges[userMessageID] ?? undefined
-  }
-
-  const turnFetchInput = (): TurnFetchInput | null => {
-    const id = sessionID()
-    if (!id) return null
-    const assistants: TurnFetchAssistantLite[] = []
-    for (const message of sessionMessages()) {
-      if (message.role !== "assistant") continue
-      assistants.push({
-        id: message.id,
-        parentID: message.parentID,
-        completed: message.time.completed,
-      })
-    }
-    return { sessionID: id, assistants }
-  }
-
-  createEffect(
-    on(
-      () => {
-        const input = turnFetchInput()
-        return input ? turnFetchSignature(input) : ""
-      },
-      () => {
-        const input = turnFetchInput()
-        if (!input) return
-        for (const target of turnFetchTargets(input)) {
-          if (fetchedTurnChanges.has(target.key)) continue
-          fetchedTurnChanges.add(target.key)
-          void turnChangeFetch(target.userMessageID)
-            .then((display) => {
-              if (display) return
-              if (turnChangeRetryTimers.has(target.key)) return
-              const timer = setTimeout(() => {
-                turnChangeRetryTimers.delete(target.key)
-                void turnChangeFetch(target.userMessageID).catch(() => undefined)
-              }, 500)
-              turnChangeRetryTimers.set(target.key, timer)
-            })
-            .catch(() => {
-              fetchedTurnChanges.delete(target.key)
-              setTurnChanges(target.userMessageID, null)
-            })
-        }
-      },
-    ),
-  )
+  const turnChangeFetcher = createTurnChangeFetcher({
+    sessionID,
+    sessionMessages,
+    language,
+    dialog,
+    authHeaders,
+    httpUrl: () => server.current?.http.url,
+  })
+  const turnChanges = turnChangeFetcher.turnChanges
+  const turnChangeFetch = turnChangeFetcher.fetch
 
   onMount(() => {
     void emitRendererDiagnostic({
@@ -1088,21 +634,13 @@ export function MessageTimeline(props: {
                 "mt-0": !props.centered,
               }}
             >
-              <Show when={props.turnStart > 0 || props.historyMore}>
-                <div class="w-full flex justify-center">
-                  <Button
-                    variant="ghost"
-                    size="large"
-                    class="text-13-medium opacity-50"
-                    disabled={props.historyLoading}
-                    onClick={props.onLoadEarlier}
-                  >
-                    {props.historyLoading
-                      ? language.t("session.messages.loadingEarlier")
-                      : language.t("session.messages.loadEarlier")}
-                  </Button>
-                </div>
-              </Show>
+              <LoadEarlierButton
+                show={props.turnStart > 0 || props.historyMore}
+                loading={props.historyLoading}
+                loadingLabel={language.t("session.messages.loadingEarlier")}
+                loadLabel={language.t("session.messages.loadEarlier")}
+                onLoadEarlier={props.onLoadEarlier}
+              />
               <For each={rendered()}>
                 {(messageID) => {
                   const active = createMemo(() => activeMessageID() === messageID)
@@ -1131,46 +669,7 @@ export function MessageTimeline(props: {
                         "contain-intrinsic-size": active() ? undefined : "auto 500px",
                       }}
                     >
-                      <Show when={commentCount() > 0}>
-                        <div class="w-full px-4 md:px-5 pb-2">
-                          <div class="ml-auto max-w-[82%] overflow-x-auto no-scrollbar">
-                            <div class="flex w-max min-w-full justify-end gap-2">
-                              <Index each={comments()}>
-                                {(commentAccessor: () => MessageComment) => {
-                                  const comment = createMemo(() => commentAccessor())
-                                  return (
-                                    <Show when={comment()}>
-                                      {(c) => (
-                                        <div class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak bg-bg-base px-2.5 py-2">
-                                          <div class="flex items-center gap-1.5 min-w-0 text-13-medium text-fg-strong">
-                                            <FileIcon
-                                              node={{ path: c().path, type: "file" }}
-                                              class="size-3.5 shrink-0"
-                                            />
-                                            <span class="truncate">{getFilename(c().path)}</span>
-                                            <Show when={c().selection}>
-                                              {(selection) => (
-                                                <span class="shrink-0 text-fg-weak">
-                                                  {selection().startLine === selection().endLine
-                                                    ? `:${selection().startLine}`
-                                                    : `:${selection().startLine}-${selection().endLine}`}
-                                                </span>
-                                              )}
-                                            </Show>
-                                          </div>
-                                          <div class="pt-1 text-13-regular text-fg-strong whitespace-pre-wrap break-words">
-                                            {c().comment}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </Show>
-                                  )
-                                }}
-                              </Index>
-                            </div>
-                          </div>
-                        </div>
-                      </Show>
+                      <MessageCommentList comments={comments()} />
                       <SessionTurn
                         sessionID={sessionID() ?? ""}
                         messageID={messageID}
