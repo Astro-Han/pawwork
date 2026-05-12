@@ -9,7 +9,7 @@ import { useData } from "../context"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { createMemo, createSignal, onCleanup, ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import { AssistantParts, Message, MessageDivider, type UserActions } from "./message-part"
+import { MessageDivider, type UserActions } from "./message-part"
 import { Card } from "./card"
 import { TextShimmer } from "./text-shimmer"
 import { SessionRetry } from "./session-retry"
@@ -26,25 +26,39 @@ import {
 import { TurnChangesList } from "./session-turn-changes-list"
 import { SessionTurnDiffsList } from "./session-turn-diffs-list"
 import { heading, list, partState, same, unwrap } from "./session-turn-helpers"
+import { SessionTurnUserBubble } from "./session-turn-user-bubble"
+import { SessionTurnAgentRound } from "./session-turn-agent-round"
+import { createSessionTurnLeafBridges } from "./session-turn-leaf-bridges"
 
 /**
- * Slice 11b.1: session-turn shell rewritten per design doc §2a.
+ * Slice 11b.1: session-turn shell rewritten per design doc §2a / §3.
  *
- * Owns turn-level orchestration:
- *   - resolves the active user message + its assistant follow-ups;
- *   - dispatches to `<Message>` (user-side) and `<AssistantParts>`
- *     (assistant-side) for the body content;
- *   - drives the "thinking…" shimmer + interrupted divider + error
- *     card states above/below the body;
- *   - renders post-turn change UI: the timeline-fed `TurnChangesList`
- *     when the host carries undo/redo metadata, otherwise the legacy
- *     `SessionTurnDiffsList` accordion;
- *   - hosts the auto-scroll controller so the bubble stays anchored
- *     while the assistant streams.
+ * Phase 2b wired the W1 leaf components into the main user path:
+ *   - `<SessionTurnUserBubble>` replaces the legacy user-side `<Message>`
+ *     dispatcher. The cream bubble + radius-lg + attachment row + hover
+ *     toolbar (DESIGN.md L453-L462) is now the default visual.
+ *   - `<SessionTurnAgentRound>` replaces `<AssistantParts>` for the
+ *     assistant side. It owns the flat agent surface + working-time
+ *     header + trow-grouped tool runs + `<SystemEvent>` placement +
+ *     hover-only toolbar with [Copy] [Fork] (DESIGN.md L463-L469).
+ *   - The shell still owns turn-level orchestration that crosses both
+ *     sides: error card, thinking shimmer, retry banner, turn-changes
+ *     accordion, auto-scroll anchoring, and the compaction divider.
  *
- * The leaf components live in sibling modules — turn-changes-list,
- * diffs-list — and the pure helpers (markdown heading extraction,
- * SDK error unwrapping, list utilities) sit in session-turn-helpers.
+ * `renderProse` and `renderTool` are caller-injected slots so the W1
+ * leaf stays context-free; the shell wires them to `PacedMarkdown`
+ * (paced streaming markdown) and the existing `<Part>` dispatcher
+ * respectively, so per-tool rich bodies (file accordion, raw output,
+ * copy buttons) keep working through the trow-block.
+ *
+ * Sibling modules:
+ *   - `session-turn-user-bubble.tsx`   user-side W1 leaf
+ *   - `session-turn-agent-round.tsx`   assistant-side W1 leaf
+ *   - `session-turn-trow-block.tsx`    tool grouping (used by agent-round)
+ *   - `session-turn-event.tsx`         system-event caption
+ *   - `session-turn-changes-list.tsx`  post-turn changes accordion
+ *   - `session-turn-diffs-list.tsx`    legacy diffs accordion fallback
+ *   - `session-turn-helpers.ts`        pure helpers (heading, unwrap, …)
  */
 
 export function SessionTurn(
@@ -346,6 +360,33 @@ export function SessionTurn(
     overflowAnchor: "dynamic",
   })
 
+  // W1 leaf bridges (Phase 2b). The bridge factory adapts the shell's
+  // reactive graph to the context-free W1 leaves — `SessionTurnUserBubble`,
+  // `SessionTurnAgentRound`, `TrowBlock` — by resolving the model
+  // display name, the `partsByMessage` map for the agent-round's grouping
+  // walk, the partID → owner-message lookup the trow `renderTool` slot
+  // needs, the round's "latest" flag for the working-time tick, the
+  // i18n label bundles, and the `actions.revert / actions.fork` adapters.
+  // Lives in a sibling module so this shell stays at ≤500 lines per
+  // AGENTS.md.
+  const leaf = createSessionTurnLeafBridges({
+    message,
+    allMessages: () => allMessages() ?? emptyMessages,
+    assistantMessages,
+    assistantCopyPartID,
+    turnDurationMs,
+    working,
+    actions: props.actions,
+    shellToolDefaultOpen: props.shellToolDefaultOpen,
+    editToolDefaultOpen: props.editToolDefaultOpen,
+  })
+
+  // Compaction divider stays — W1 doesn't redesign it. The interrupted
+  // divider is dropped here because `<SessionTurnAgentRound>` renders
+  // `<SystemEvent kind="interrupted">` inline at the round-end per
+  // design doc §3.5.
+  const compactionDivider = createMemo(() => (compaction() ? i18n.t("ui.messagePart.compaction") : ""))
+
   return (
     <div data-component="session-turn" class={props.classes?.root}>
       <div
@@ -364,21 +405,31 @@ export function SessionTurn(
                 class={props.classes?.container}
               >
                 <div data-slot="session-turn-message-content" aria-live="off">
-                  <Message message={message} parts={parts()} actions={props.actions} />
+                  <SessionTurnUserBubble
+                    message={message}
+                    parts={parts()}
+                    modelName={leaf.userModelName()}
+                    locale={i18n.locale()}
+                    labels={leaf.userBubbleLabels()}
+                    actions={leaf.userBubbleActions()}
+                  />
                 </div>
-                <Show when={divider()}>
+                <Show when={compactionDivider()}>
                   <div data-slot="session-turn-compaction">
-                    <MessageDivider label={divider()} />
+                    <MessageDivider label={compactionDivider()} />
                   </div>
                 </Show>
                 <Show when={assistantMessages().length > 0}>
                   <div data-slot="session-turn-assistant-content" aria-hidden={working()}>
-                    <AssistantParts
-                      messages={assistantMessages()}
-                      showAssistantCopyPartID={assistantCopyPartID()}
-                      turnDurationMs={turnDurationMs()}
-                      working={working()}
-                      showReasoningSummaries={showReasoningSummaries()}
+                    <SessionTurnAgentRound
+                      assistantMessages={assistantMessages()}
+                      partsByMessage={leaf.partsByMessage()}
+                      isLatestRound={leaf.isLatestRound()}
+                      locale={i18n.locale()}
+                      labels={leaf.agentRoundLabels()}
+                      renderProse={leaf.renderProse}
+                      renderTool={leaf.renderTool}
+                      actions={leaf.agentRoundActions()}
                       shellToolDefaultOpen={props.shellToolDefaultOpen}
                       editToolDefaultOpen={props.editToolDefaultOpen}
                     />

@@ -100,6 +100,13 @@ export interface SessionTurnAgentRoundProps {
    */
   shellToolDefaultOpen?: boolean
   editToolDefaultOpen?: boolean
+  /**
+   * Caller-provided per-tool renderer threaded into every `<TrowBlock>`.
+   * The shell wires this to the existing `<Part>` registry so each tool
+   * keeps its rich body (file accordion / raw output / copy button)
+   * without this leaf needing to import the message-part graph.
+   */
+  renderTool?: (part: ToolPart) => JSX.Element
 }
 
 // ============================================================================
@@ -310,6 +317,7 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
                   shellToolDefaultOpen={props.shellToolDefaultOpen}
                   editToolDefaultOpen={props.editToolDefaultOpen}
                   labels={props.labels.trow}
+                  renderTool={props.renderTool}
                 />
               </Match>
             </Switch>
