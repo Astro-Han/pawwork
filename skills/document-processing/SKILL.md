@@ -48,6 +48,7 @@ Execution rules:
 - Prefer edits that preserve the original structure over destructive conversions.
 - If a conversion risks losing formulas, layout, comments, or branding, explain the tradeoff before finalizing.
 - Save the output in the current workspace unless the user gave a different path.
+- When a third-party CLI writes a known output file through the `bash` tool, declare that file path (absolute or relative to `workdir`) in `expected_outputs` so PawWork can register it in turn-change.
 
 ## Step 3: Verify
 

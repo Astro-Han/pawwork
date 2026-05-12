@@ -1,8 +1,10 @@
 import { Schema } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
+import nodefs from "node:fs/promises"
 import * as Tool from "./tool"
 import path from "path"
+import crypto from "crypto"
 import DESCRIPTION from "./bash.txt"
 import { Log } from "../util"
 import { Instance, type InstanceContext } from "../project/instance"
@@ -23,11 +25,14 @@ import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { withoutInternalServerAuthEnv } from "@/util/env"
 import { Global } from "@opencode-ai/core/global"
-import { resolveExternalPathForPermission } from "./external-directory"
+import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from "./external-directory"
 import { InstanceState } from "@/effect/instance-state"
+import * as Bom from "@/util/bom"
+import { TurnChange, type FileState } from "@/session/turn-change"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
+const TRACKED_OUTPUT_LIMIT = 20 * 1024 * 1024
 const PS = new Set(["powershell", "pwsh"])
 const CWD = new Set(["cd", "push-location", "set-location"])
 const FILES = new Set([
@@ -61,6 +66,12 @@ export const Parameters = Schema.Struct({
   workdir: Schema.optional(Schema.String).annotate({
     description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
   }),
+  expected_outputs: Schema.optional(
+    Schema.Array(Schema.String).annotate({
+      description:
+        "Optional absolute or workdir-relative file paths that this command is expected to create or modify. The runtime will verify these paths after execution and register any real file changes in turn-change.",
+    }),
+  ),
   description: Schema.String.annotate({
     description:
       "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
@@ -253,6 +264,32 @@ function tail(text: string, maxLines: number, maxBytes: number) {
   }
 }
 
+function textHash(content: string, bom?: boolean) {
+  return "sha256:" + crypto.createHash("sha256").update(`${bom ? "bom:1" : "bom:0"}\0${content}`).digest("hex")
+}
+
+function binaryHash(buffer: Buffer) {
+  return "sha256-bin:" + crypto.createHash("sha256").update(buffer).digest("hex")
+}
+
+function sameState(before: FileState, after: FileState) {
+  if (!before.exists && !after.exists) return true
+  return (
+    before.exists === after.exists &&
+    before.hash === after.hash &&
+    before.bom === after.bom &&
+    before.large === after.large &&
+    before.binary === after.binary
+  )
+}
+
+type TrackedOutputState = {
+  state: FileState
+  comparable: boolean
+  kind: "missing" | "file" | "directory" | "error"
+  errorCode?: string
+}
+
 const parse = Effect.fn("BashTool.parse")(function* (command: string, ps: boolean) {
   const tree = yield* Effect.promise(() => parser().then((p) => (ps ? p.ps : p.bash).parse(command)))
   if (!tree) throw new Error("Failed to parse command")
@@ -333,9 +370,10 @@ export const BashTool = Tool.define(
   "bash",
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner
-    const fs = yield* AppFileSystem.Service
+    const afs = yield* AppFileSystem.Service
     const trunc = yield* Truncate.Service
     const plugin = yield* Plugin.Service
+    const turnChange = yield* TurnChange.Service
 
     const cygpath = Effect.fn("BashTool.cygpath")(function* (shell: string, text: string) {
       const lines = yield* spawner
@@ -410,7 +448,7 @@ export const BashTool = Tool.define(
             if (!resolved) continue
             const permissionPath = resolveExternalPathForPermission(resolved, cwd)
             if (Instance.containsPath(permissionPath, instance)) continue
-            const dir = (yield* fs.isDir(permissionPath)) ? permissionPath : path.dirname(permissionPath)
+            const dir = (yield* afs.isDir(permissionPath)) ? permissionPath : path.dirname(permissionPath)
             scan.dirs.add(dir)
           }
         }
@@ -442,6 +480,70 @@ export const BashTool = Tool.define(
         PATH: bundledToolsDir ? `${bundledToolsDir}${path.delimiter}${currentPath}` : currentPath,
       })
     })
+
+    const readTrackedState = Effect.fn("BashTool.readTrackedState")((file: string) =>
+      Effect.promise(async () => {
+          try {
+            const stat = await nodefs.stat(file)
+            if (stat.isDirectory()) {
+              return {
+                state: { exists: true, restorable: false, hash: "directory", binary: true } satisfies FileState,
+                comparable: true,
+                kind: "directory",
+              } satisfies TrackedOutputState
+            }
+            if (stat.size > TRACKED_OUTPUT_LIMIT) {
+              return {
+                state: {
+                  exists: true,
+                  restorable: false,
+                  hash: `large:${stat.size}:${stat.mtimeMs}`,
+                  large: true,
+                } satisfies FileState,
+                comparable: true,
+                kind: "file",
+              } satisfies TrackedOutputState
+            }
+            const buffer = await nodefs.readFile(file)
+            if (buffer.includes(0)) {
+              return {
+                state: {
+                  exists: true,
+                  restorable: false,
+                  hash: binaryHash(buffer),
+                  binary: true,
+                } satisfies FileState,
+                comparable: true,
+                kind: "file",
+              } satisfies TrackedOutputState
+            }
+            const current = Bom.split(buffer.toString("utf-8"))
+            return {
+              state: {
+                exists: true,
+                content: current.text,
+                bom: current.bom,
+                hash: textHash(current.text, current.bom),
+              } satisfies FileState,
+              comparable: true,
+              kind: "file",
+            } satisfies TrackedOutputState
+          } catch (err) {
+            const code = (err as NodeJS.ErrnoException).code
+            if (code === "ENOENT") return { state: { exists: false } satisfies FileState, comparable: true, kind: "missing" } satisfies TrackedOutputState
+            return {
+              state: {
+                exists: true,
+                restorable: false,
+                hash: `error:${code ?? "unknown"}`,
+              } satisfies FileState,
+              comparable: false,
+              kind: "error",
+              ...(code ? { errorCode: code } : {}),
+            } satisfies TrackedOutputState
+          }
+        }).pipe(Effect.orDie),
+    )
 
     const run = Effect.fn("BashTool.run")(function* (
       input: {
@@ -653,7 +755,29 @@ export const BashTool = Tool.define(
                 }),
               )
 
-              return yield* run(
+              const trackedOutputs = yield* Effect.forEach(params.expected_outputs ?? [], (rawPath) =>
+                Effect.gen(function* () {
+                  const resolved = yield* resolveExecutionPath(rawPath, cwd, shell)
+                  const normalized = AppFileSystem.normalizePath(resolved)
+                  const filepath = (yield* assertExternalDirectoryEffect(ctx, normalized, { kind: "file" })) ?? normalized
+                  return {
+                    normalized: AppFileSystem.normalizePath(filepath),
+                    path: filepath,
+                    before: yield* readTrackedState(filepath),
+                  }
+                }),
+              ).pipe(
+                Effect.map((items) => {
+                  const deduped = new Map<string, { path: string; before: TrackedOutputState }>()
+                  for (const item of items) {
+                    if (deduped.has(item.normalized)) continue
+                    deduped.set(item.normalized, { path: item.path, before: item.before })
+                  }
+                  return Array.from(deduped.values())
+                }),
+              )
+
+              const result = yield* run(
                 {
                   shell,
                   name,
@@ -665,6 +789,48 @@ export const BashTool = Tool.define(
                 },
                 ctx,
               )
+
+              if (!trackedOutputs.length) return result
+
+              const artifacts = yield* Effect.forEach(trackedOutputs, (tracked) =>
+                Effect.gen(function* () {
+                  const after = yield* readTrackedState(tracked.path)
+                  const changed = tracked.before.comparable && after.comparable && !sameState(tracked.before.state, after.state)
+                  if (changed) {
+                    yield* turnChange.recordWrite({
+                      sessionID: ctx.sessionID,
+                      messageID: ctx.messageID,
+                      path: tracked.path,
+                      before: tracked.before.state,
+                      after: after.state,
+                    })
+                  }
+                  return {
+                    path: tracked.path,
+                    exists: after.state.exists,
+                    changed,
+                    ...(after.kind === "directory" ? { directory: true } : {}),
+                    ...(after.state.binary && after.kind !== "directory" ? { binary: true } : {}),
+                    ...(after.state.large ? { large: true } : {}),
+                    ...(!tracked.before.comparable || !after.comparable
+                      ? {
+                          comparable: false,
+                          errorCode:
+                            ("errorCode" in tracked.before ? tracked.before.errorCode : undefined) ??
+                            ("errorCode" in after ? after.errorCode : undefined),
+                        }
+                      : {}),
+                  }
+                }),
+              )
+
+              return {
+                ...result,
+                metadata: {
+                  ...result.metadata,
+                  artifacts,
+                },
+              }
             }),
         }
       })

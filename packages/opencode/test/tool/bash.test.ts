@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import { spyOn } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import fs from "node:fs"
+import nodefs from "node:fs/promises"
 import os from "os"
 import path from "path"
 import { existsSync } from "node:fs"
@@ -18,6 +20,11 @@ import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Plugin } from "../../src/plugin"
 import { Global } from "@opencode-ai/core/global"
+import { TurnChange } from "../../src/session/turn-change"
+import { Session as SessionNs } from "../../src/session"
+import { MessageV2 } from "../../src/session/message-v2"
+import { ModelID, ProviderID } from "../../src/provider/schema"
+import { resetDatabase } from "../fixture/db"
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(
@@ -26,6 +33,7 @@ const runtime = ManagedRuntime.make(
     Plugin.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
+    TurnChange.defaultLayer,
   ),
 )
 
@@ -42,6 +50,26 @@ const ctx = {
   messages: [],
   metadata: () => Effect.void,
   ask: () => Effect.void,
+}
+
+async function createTurn() {
+  const session = await SessionNs.create({ title: "bash external artifact" })
+  const messageID = MessageID.make(`msg_bash_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`)
+  await SessionNs.updateMessage({
+    id: messageID,
+    sessionID: session.id,
+    role: "assistant",
+    parentID: MessageID.make("msg_user"),
+    time: { created: Date.now() },
+    modelID: ModelID.make("test"),
+    providerID: ProviderID.make("test"),
+    mode: "",
+    agent: "build",
+    path: { cwd: "/", root: "/" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  } as unknown as MessageV2.Info)
+  return { sessionID: session.id, messageID }
 }
 
 Shell.acceptable.reset()
@@ -236,6 +264,205 @@ describe("tool.bash", () => {
       if (previousCustom === undefined) delete process.env.PAWWORK_E2E_CUSTOM_ENV
       else process.env.PAWWORK_E2E_CUSTOM_ENV = previousCustom
     }
+  })
+})
+
+describe("tool.bash expected_outputs", () => {
+  test("records a declared binary artifact in turn-change", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "report.docx")
+        const script = path.join(tmp.path, "write-docx.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,0,1,2,3]))\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              expected_outputs: [target],
+              description: "Create binary report",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect(
+          (result.metadata as { artifacts?: Array<{ path: string; exists: boolean; changed: boolean; binary?: boolean }> })
+            .artifacts,
+        ).toEqual([
+          { path: target, exists: true, changed: true, binary: true },
+        ])
+
+        const display = TurnChange.finalize(turn)
+        expect(display?.files).toEqual([
+          {
+            path: "report.docx",
+            status: "added",
+            binary: true,
+            restoreAvailable: false,
+            expandable: false,
+          },
+        ])
+      },
+    })
+  })
+
+  test("records declared outputs even when command exits non-zero after writing", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "partial.docx")
+        const script = path.join(tmp.path, "write-then-fail.cjs")
+        await fs.promises.writeFile(
+          script,
+          "require('node:fs').writeFileSync(process.argv[2], Buffer.from([80,75,3,4,0,9]))\nprocess.exit(1)\n",
+          "utf-8",
+        )
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              expected_outputs: [target],
+              description: "Write then fail",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(1)
+        const display = TurnChange.finalize(turn)
+        expect(display?.files[0]).toMatchObject({
+          path: "partial.docx",
+          status: "added",
+          binary: true,
+          expandable: false,
+        })
+      },
+    })
+  })
+
+  test("does not record unchanged declared paths", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await fs.promises.writeFile(path.join(dir, "stable.txt"), "stable\n", "utf-8")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "stable.txt")
+        await Effect.runPromise(
+          bash.execute(
+            {
+              command: "echo noop",
+              expected_outputs: [target],
+              description: "Leave file unchanged",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+      },
+    })
+  })
+
+  test("preserves legacy behavior when expected_outputs is omitted", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir()
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "undeclared.txt")
+        const script = path.join(tmp.path, "write-plain.cjs")
+        await fs.promises.writeFile(script, "require('node:fs').writeFileSync(process.argv[2], 'hello\\n')\n", "utf-8")
+        const command = `${PS.has(sh()) ? "& " : ""}${bin} ${quote(script.replaceAll("\\", "/"))} ${quote(target.replaceAll("\\", "/"))}`
+        const result = await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Write without declaration",
+            },
+            { ...ctx, ...turn },
+          ),
+        )
+
+        expect(result.metadata.exit).toBe(0)
+        expect((result.metadata as { artifacts?: unknown[] }).artifacts).toBeUndefined()
+        expect(TurnChange.finalize(turn)).toBeUndefined()
+      },
+    })
+  })
+
+  test("does not record false positives when the before state is indeterminate", async () => {
+    await resetDatabase()
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const target = path.join(dir, "restricted.txt")
+        await fs.promises.writeFile(target, "secret\n", "utf-8")
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const turn = await createTurn()
+        const target = path.join(tmp.path, "restricted.txt")
+        const originalReadFile = nodefs.readFile
+        const readSpy = spyOn(nodefs as any, "readFile").mockImplementationOnce(async (...args: any[]) => {
+          const filepath = typeof args[0] === "string" ? args[0] : String(args[0])
+          if (filepath === target) {
+            const err = Object.assign(new Error("denied"), { code: "EACCES" })
+            throw err
+          }
+          return await (originalReadFile as any)(...args)
+        })
+        try {
+          const result = await Effect.runPromise(
+            bash.execute(
+              {
+                command: `rm ${quote(target.replaceAll("\\", "/"))}`,
+                expected_outputs: [target],
+                description: "Delete unreadable file",
+              },
+              { ...ctx, ...turn },
+            ),
+          )
+
+          expect(result.metadata.exit).toBe(0)
+          expect(
+            (
+              result.metadata as {
+                artifacts?: Array<{ path: string; exists: boolean; changed: boolean; comparable?: boolean; errorCode?: string }>
+              }
+            ).artifacts,
+          ).toEqual([{ path: target, exists: false, changed: false, comparable: false, errorCode: "EACCES" }])
+          expect(TurnChange.finalize(turn)).toBeUndefined()
+        } finally {
+          readSpy.mockRestore()
+        }
+      },
+    })
   })
 })
 
