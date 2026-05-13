@@ -4,11 +4,12 @@ on:
   pull_request:
     paths:
       - ".github/workflows/perf-probe-baseline.yml"
+      - "packages/app/src/**"
+      - "packages/ui/src/**"
       - "packages/app/e2e/perf/**"
       - "packages/app/e2e/fixtures.ts"
       - "packages/app/package.json"
       - "packages/app/script/compare-perf.ts"
-      - "packages/app/script/e2e-local.ts"
       - "packages/app/src/testing/perf-metrics*"
   workflow_dispatch:
 
