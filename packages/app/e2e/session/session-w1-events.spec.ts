@@ -18,7 +18,7 @@ const AGENT_PROSE = `${AGENT_ROUND} [data-slot="agent-prose"]`
 const SYSTEM_EVENT = '[data-component="session-turn-event"]'
 const SYSTEM_EVENT_INTERRUPTED = `${SYSTEM_EVENT}[data-kind="interrupted"]`
 
-test("E2 — attachment row sits above the bubble for file / image parts", async ({ page, llm, project }) => {
+test("@smoke E2 — attachment row sits above the bubble for file / image parts", async ({ page, llm, project }) => {
   test.setTimeout(120_000)
   await project.open()
   const sdk = project.sdk
@@ -52,7 +52,7 @@ test("E2 — attachment row sits above the bubble for file / image parts", async
   await expect(page.locator(BUBBLE_ATTACHMENT_CHIP).first()).toBeVisible({ timeout: 30_000 })
 })
 
-test("E5 — Ctrl+C interrupt renders the muted system-event caption", async ({ page, llm, project }) => {
+test("@smoke E5 — Ctrl+C interrupt renders the muted system-event caption", async ({ page, llm, project }) => {
   test.setTimeout(120_000)
   await project.open()
 

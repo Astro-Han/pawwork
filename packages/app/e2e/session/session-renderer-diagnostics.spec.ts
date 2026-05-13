@@ -344,7 +344,7 @@ test("captures renderer diagnostics while guarding send scroll position", async 
   })
 })
 
-test("honors scrollbar thumb drag after submit instead of restoring latest", async ({ page, project }) => {
+test("@smoke honors scrollbar thumb drag after submit instead of restoring latest", async ({ page, project }) => {
   test.setTimeout(120_000)
 
   await installRendererDiagnosticsCapture(page)

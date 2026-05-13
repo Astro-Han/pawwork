@@ -23,7 +23,7 @@ const AGENT_PROSE = `${AGENT_ROUND} [data-slot="agent-prose"]`
 const AGENT_COPY = `${AGENT_ROUND} [data-action="copy"]`
 const AGENT_FORK = `${AGENT_ROUND} [data-action="fork"]`
 
-test("E1 — user message + agent stream mounts W1 leaves on the default path", async ({ page, llm, project }) => {
+test("@smoke E1 — user message + agent stream mounts W1 leaves on the default path", async ({ page, llm, project }) => {
   test.setTimeout(120_000)
   await project.open()
 
@@ -49,7 +49,7 @@ test("E1 — user message + agent stream mounts W1 leaves on the default path", 
   expect(tick).toMatch(/\d+s/)
 })
 
-test("E9 — bubble [Copy] writes the user text to the clipboard", async ({ page, llm, project, browserName }) => {
+test("@smoke E9 — bubble [Copy] writes the user text to the clipboard", async ({ page, llm, project, browserName }) => {
   test.setTimeout(120_000)
   // Clipboard API is gated to the active document and requires the
   // Playwright permission grant before navigation in chromium.
@@ -68,7 +68,7 @@ test("E9 — bubble [Copy] writes the user text to the clipboard", async ({ page
   expect(value).toContain("E9 copy this user text")
 })
 
-test("E10 — agent toolbar [Copy] writes the concatenated prose to the clipboard", async ({
+test("@smoke E10 — agent toolbar [Copy] writes the concatenated prose to the clipboard", async ({
   page,
   llm,
   project,
@@ -113,7 +113,7 @@ test("E10 — agent toolbar [Copy] writes the concatenated prose to the clipboar
   expect(value).toContain("Agent prose paragraph one")
 })
 
-test("E7 — bubble [Reset] adopts the legacy revert path (revertDock, no dialog)", async ({
+test("@smoke E7 — bubble [Reset] adopts the legacy revert path (revertDock, no dialog)", async ({
   page,
   llm,
   project,
@@ -134,7 +134,7 @@ test("E7 — bubble [Reset] adopts the legacy revert path (revertDock, no dialog
   await expect(page.locator(BUBBLE_TEXT)).toHaveCount(0, { timeout: 30_000 })
 })
 
-test("E8 — agent toolbar [Fork] is mounted next to [Copy] for the W1 surface", async ({
+test("@smoke E8 — agent toolbar [Fork] is mounted next to [Copy] for the W1 surface", async ({
   page,
   llm,
   project,

@@ -18,7 +18,7 @@ const TROW_SUMMARY_CHEV = `${TROW_BLOCK} [data-slot="trow-summary-chev"]`
 const TROW_BODY = `${TROW_BLOCK} [data-slot="trow-body"]`
 const TROW_ITEM = `${TROW_BLOCK} [data-slot="trow-item"]`
 
-test("E3 — three consecutive terminal tool calls collapse into one trow", async ({
+test("@smoke E3 — three consecutive terminal tool calls collapse into one trow", async ({
   page,
   llm,
   project,

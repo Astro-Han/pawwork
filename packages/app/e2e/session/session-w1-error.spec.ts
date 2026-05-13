@@ -20,7 +20,7 @@ const TROW_BLOCK = '[data-component="session-turn-trow-block"]'
 const TROW_BODY = `${TROW_BLOCK} [data-slot="trow-body"]`
 const AGENT_PROSE = '[data-component="session-turn-agent-round"] [data-slot="agent-prose"]'
 
-test("E14 — failed tool surfaces the data-failed marker on the trow", async ({ page, llm, project }) => {
+test("@smoke E14 — failed tool surfaces the data-failed marker on the trow", async ({ page, llm, project }) => {
   test.setTimeout(120_000)
   await project.open()
 
