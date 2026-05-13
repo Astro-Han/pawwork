@@ -211,6 +211,28 @@
   height: 12px;
 }
 
+/* Slice 11b.1 P0 #4 retest 5 (AstroHan msg=34822d84): the previous
+ * `gap: 8 → 6` on `trow-body` was masked by Solid Collapsible's
+ * hardcoded 30px trigger row + 26px arrow wrapper (collapsible.css
+ * L19, L72-77). Each per-tool row was effectively `max(30, content)`
+ * px tall regardless of the caption typography — stride was 30 + 6 =
+ * 36px between rows. Preview `.mf-tlist .ti`
+ * (message-flow.html L200-208) uses natural content height (~18px
+ * from mono-small 12px/150%) with a 12px hover-only chev. Mirror that
+ * inside the trow scope so the rendered rows match the screenshot
+ * spec — the resets are scoped to `[data-slot="trow-result-body"]`
+ * so Collapsible elsewhere (file-tree, settings, every other
+ * trigger) keeps the 30px default. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-trigger"] {
+  height: auto;
+  min-height: 0;
+}
+
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-arrow"] {
+  width: 12px;
+  height: 12px;
+}
+
 /* Inner Collapsible.Content expand / collapse animation — Solid's
  * Collapsible primitive ships with the keyframe rules commented out
  * (`collapsible.css` L92-101), so without this scoped override the
