@@ -32,7 +32,7 @@ describe("useSessionHashScroll", () => {
     expect(source).toContain("historyWindow.clearHashTarget()")
   })
 
-  test("timeline cancels bottom follow before hash or active-message navigation", async () => {
+  test("timeline routes hash or active-message navigation through controller target_message mode", async () => {
     const hashSource = await Bun.file(new URL("./use-session-hash-scroll-core.ts", import.meta.url)).text()
     const timelineSource = await Bun.file(new URL("./use-session-timeline-interaction.ts", import.meta.url)).text()
     const sessionSource = await Bun.file(new URL("../session.tsx", import.meta.url)).text()
@@ -41,7 +41,7 @@ describe("useSessionHashScroll", () => {
     expect(hashSource).toContain("input.onMessageNavigation?.(message.id)")
     expect(timelineSource).toContain('type: "target_message"')
     expect(timelineSource).toContain("const navigateMessageByOffset")
-    expect(timelineSource).toContain("scrollDock.cancelBottomFollowLock()")
+    expect(timelineSource).toContain("activeMessage.navigateMessageByOffset(offset)")
     expect(sessionSource).toContain("markScrollGesture: timelineInteraction.markScrollGesture")
     expect(sessionSource).toContain("navigateMessageByOffset: timelineInteraction.navigateMessageByOffset")
   })

@@ -14,6 +14,7 @@ import { Icon } from "./icon"
 import { groupParts, type PartGroup } from "./message-part-group"
 import { SystemEvent } from "./session-turn-event"
 import { TrowBlock, type TrowBlockLabels } from "./session-turn-trow-block"
+import { TextShimmer } from "./text-shimmer"
 import {
   computeElapsedSec,
   isInterrupted,
@@ -90,6 +91,7 @@ export interface SessionTurnAgentRoundProps {
     copied: string
     fork: string
     interrupted: string
+    thinking: string
     workingTime: (seconds: number) => string
     trow: TrowBlockLabels
   }
@@ -123,6 +125,7 @@ export interface SessionTurnAgentRoundProps {
    * read the setting but reasoning rendering ignored it.
    */
   showReasoningSummaries?: boolean
+  thinkingStatus?: { label: string }
   /**
    * Fires before the trow `<details>` toggles open/closed. Plumbed
    * down to every nested `<TrowBlock>` so the timeline owner can
@@ -270,7 +273,16 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
       data-running={isRunning() || undefined}
     >
       <Show when={typeof startTime() === "number"}>
-        <div data-slot="agent-working-time">{props.labels.workingTime(elapsedSec())}</div>
+        <div data-slot="agent-header">
+          <div data-slot="agent-working-time">{props.labels.workingTime(elapsedSec())}</div>
+          <Show when={props.thinkingStatus}>
+            {(status) => (
+              <div data-slot="agent-status">
+                <TextShimmer as="span" text={status().label} />
+              </div>
+            )}
+          </Show>
+        </div>
       </Show>
 
       <div data-slot="agent-body">
@@ -278,7 +290,10 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
           {(group) => (
             <Switch>
               <Match when={group.kind === "prose"}>
-                <div data-slot="agent-prose">
+                <div
+                  data-slot="agent-prose"
+                  data-timeline-anchor={`prose:${(group as Extract<PartGroup, { kind: "prose" }>).partID}`}
+                >
                   {props.renderProse({
                     messageID: findMessageIDForPart(props.assistantMessages, props.partsByMessage, (group as Extract<PartGroup, { kind: "prose" }>).partID),
                     partID: (group as Extract<PartGroup, { kind: "prose" }>).partID,
@@ -287,11 +302,15 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
                 </div>
               </Match>
               <Match when={group.kind === "reasoning"}>
-                {(props.renderReasoning ?? defaultRenderReasoning)({
-                  messageID: findMessageIDForPart(props.assistantMessages, props.partsByMessage, (group as Extract<PartGroup, { kind: "reasoning" }>).partID),
-                  partID: (group as Extract<PartGroup, { kind: "reasoning" }>).partID,
-                  text: (group as Extract<PartGroup, { kind: "reasoning" }>).text,
-                })}
+                <div
+                  data-timeline-anchor={`reasoning:${(group as Extract<PartGroup, { kind: "reasoning" }>).partID}`}
+                >
+                  {(props.renderReasoning ?? defaultRenderReasoning)({
+                    messageID: findMessageIDForPart(props.assistantMessages, props.partsByMessage, (group as Extract<PartGroup, { kind: "reasoning" }>).partID),
+                    partID: (group as Extract<PartGroup, { kind: "reasoning" }>).partID,
+                    text: (group as Extract<PartGroup, { kind: "reasoning" }>).text,
+                  })}
+                </div>
               </Match>
               <Match when={group.kind === "trow-block"}>
                 <TrowBlock

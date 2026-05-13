@@ -24,7 +24,23 @@
 }
 
 /* Working-time header — single caption, always visible, fg-weak. */
+[data-component="session-turn-agent-round"] [data-slot="agent-header"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 [data-component="session-turn-agent-round"] [data-slot="agent-working-time"] {
+  font: var(--type-caption);
+  color: var(--fg-weak);
+  line-height: 1.4;
+}
+
+[data-component="session-turn-agent-round"] [data-slot="agent-status"] {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
   font: var(--type-caption);
   color: var(--fg-weak);
   line-height: 1.4;

@@ -273,6 +273,39 @@ describe("session timeline scroll controller", () => {
     expect(controller.state().lastSafePosition).toEqual({ kind: "latest" })
   })
 
+  test("manual scroll back to bottom rejoins latest without jump button or End", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "keyboard_scroll",
+      key: "PageUp",
+      source: "scroll_view",
+    })
+    controller.observe({
+      type: "scroll_sample",
+      metrics: middleMetrics,
+      safePosition: readingAnchor,
+    })
+    controller.intent({
+      type: "wheel_scroll",
+      source: "timeline",
+      direction: "down",
+      strength: "weak",
+      nestedScrollable: false,
+    })
+
+    const result = controller.observe({
+      type: "scroll_sample",
+      metrics: bottomMetrics,
+      safePosition: { kind: "latest", messageID: "msg_latest" },
+    })
+
+    expect(result.reason).toBe("explicit_bottom_navigation")
+    expect(result.recovery).toEqual({ type: "none" })
+    expect(controller.state().mode).toBe("following_latest")
+    expect(controller.state().lastSafePosition).toEqual({ kind: "latest", messageID: "msg_latest" })
+  })
+
   test("layout observations while following latest use a layout-preservation reason", () => {
     const { controller } = makeController()
 
@@ -291,7 +324,7 @@ describe("session timeline scroll controller", () => {
     })
   })
 
-  test("reading anchor is restored for after-layout resize observations", () => {
+  test("content resize does not steal scroll position while reading history", () => {
     const { controller } = makeController()
 
     controller.intent({
@@ -312,12 +345,42 @@ describe("session timeline scroll controller", () => {
 
     expect(result).toEqual({
       accepted: true,
+      recovery: { type: "none" },
+      reason: "reading_anchor_preserved",
+    })
+    expect(controller.state().mode).toBe("reading_history")
+  })
+
+  test("dock resize still preserves the reading anchor", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "keyboard_scroll",
+      key: "PageUp",
+      source: "scroll_view",
+    })
+    controller.observe({
+      type: "scroll_sample",
+      metrics: middleMetrics,
+      safePosition: readingAnchor,
+    })
+
+    const result = controller.observe({
+      type: "dock_resize",
+      dockKind: "composer",
+      previousDockHeight: 64,
+      nextDockHeight: 96,
+      metrics: middleMetrics,
+    })
+
+    expect(result).toEqual({
+      accepted: true,
       recovery: {
         type: "restore_anchor",
-        reason: "content_resize_preserve_reading",
+        reason: "dock_resize_preserve_anchor",
         anchor: readingAnchor,
       },
-      reason: "content_resize_preserve_reading",
+      reason: "dock_resize_preserve_anchor",
     })
     expect(controller.state().mode).toBe("reading_history")
   })

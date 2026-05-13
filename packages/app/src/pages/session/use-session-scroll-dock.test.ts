@@ -122,11 +122,11 @@ describe("session scroll dock", () => {
     })
   })
 
-  test("marks jump when distance is larger than viewport threshold", () => {
+  test("marks jump as soon as the viewport is no longer pinned to the bottom", () => {
     const state = calculateSessionScrollState({
       clientHeight: 400,
-      scrollHeight: 1400,
-      scrollTop: 100,
+      scrollHeight: 1000,
+      scrollTop: 597,
     })
 
     expect(state).toEqual({
@@ -295,7 +295,7 @@ describe("session scroll dock", () => {
     })
   })
 
-  test("restores a submit-time browser reset while bottom follow is locked", () => {
+  test("resumeScroll jumps the viewport back to latest without a separate lock owner", () => {
     createRoot((dispose) => {
       const scroller = makeScroller({
         clientHeight: 400,
@@ -310,16 +310,13 @@ describe("session scroll dock", () => {
 
       scrollDock.setScrollRef(scroller.el)
       scrollDock.resumeScroll()
-      scroller.el.scrollTop = 0
-
-      expect(scrollDock.restoreBottomIfLocked()).toBe(true)
-      expect(scroller.top).toBe(1000)
+      expect(scroller.top).toBe(600)
 
       dispose()
     })
   })
 
-  test("repairs a locked reset before the next scroll state sample", () => {
+  test("scheduleScrollState only samples geometry and does not auto-repair off-bottom scroll", () => {
     createRoot((dispose) => {
       const scroller = makeScroller({
         clientHeight: 400,
@@ -333,17 +330,16 @@ describe("session scroll dock", () => {
       })
 
       scrollDock.setScrollRef(scroller.el)
-      scrollDock.resumeScroll()
       scroller.el.scrollTop = 0
       scrollDock.scheduleScrollState(scroller.el)
 
-      expect(scroller.top).toBe(1000)
+      expect(scroller.top).toBe(0)
 
       dispose()
     })
   })
 
-  test("does not restore after a real scroll gesture cancels the bottom follow lock", () => {
+  test("compat bottom-follow helpers are inert after controller ownership moved out", () => {
     createRoot((dispose) => {
       const scroller = makeScroller({
         clientHeight: 400,
@@ -363,12 +359,13 @@ describe("session scroll dock", () => {
 
       expect(scrollDock.restoreBottomIfLocked()).toBe(false)
       expect(scroller.top).toBe(0)
+      expect(scrollDock.bottomFollowLocked()).toBe(false)
 
       dispose()
     })
   })
 
-  test("does not restore or clear hash when the lock belongs to another session", () => {
+  test("compat owner-scoped bottom-follow helpers no longer mutate scroll state or clear hash", () => {
     createRoot((dispose) => {
       const scroller = makeScroller({
         clientHeight: 400,
@@ -385,13 +382,13 @@ describe("session scroll dock", () => {
       })
 
       scrollDock.setScrollRef(scroller.el)
-      scrollDock.resumeScroll("session-a")
+      scrollDock.resumeScroll()
       scroller.el.scrollTop = 0
 
-      expect(scrollDock.restoreBottomIfLocked("session-b")).toBe(false)
+      expect(scrollDock.restoreBottomIfLocked()).toBe(false)
       expect(scroller.top).toBe(0)
       expect(clearedHash).toBe(1)
-      expect(scrollDock.bottomFollowLocked("session-a")).toBe(false)
+      expect(scrollDock.bottomFollowLocked()).toBe(false)
 
       dispose()
     })

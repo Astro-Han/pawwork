@@ -181,3 +181,9 @@ test("working-time header is always visible (not hover-gated) â€” Codex Desktopæ
   expect(source).toMatch(/data-slot="agent-working-time">\{props\.labels\.workingTime\(elapsedSec\(\)\)\}/)
   expect(css).not.toMatch(/\[data-slot="agent-working-time"\][^{}]*\{[^}]*opacity:\s*0/)
 })
+
+test("agent header can show a dedicated thinking status beside working time", () => {
+  expect(source).toContain('data-slot="agent-header"')
+  expect(source).toContain('data-slot="agent-status"')
+  expect(source).toContain("props.thinkingStatus")
+})

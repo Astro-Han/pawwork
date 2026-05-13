@@ -85,6 +85,7 @@ export function createSessionTimelineInteraction(input: {
     clearMessageHash: () => clearMessageHash(),
     clearActiveMessage: () => activeMessage?.clearActiveMessage(),
     fill: () => historyBackfill?.fill(),
+    shouldStickToBottom: () => scrollController.state().mode === "following_latest",
     onContentResize: () => {
       const viewport = scrollDock.scroller()
       if (!viewport) return
@@ -120,9 +121,8 @@ export function createSessionTimelineInteraction(input: {
     },
   })
   const autoScroll = scrollDock.autoScroll
-  const lockOwner = () => input.sessionKey()
-  const resumeScroll = () => scrollDock.resumeScroll(lockOwner())
-  const userScrolledForHistory = () => (scrollDock.bottomFollowLocked(lockOwner()) ? false : autoScroll.userScrolled())
+  const resumeScroll = () => scrollDock.scrollToLatest()
+  const userScrolledForHistory = () => scrollController.state().mode !== "following_latest"
 
   activeMessage = createSessionActiveMessage({
     sessionKey: input.sessionKey,
@@ -130,7 +130,7 @@ export function createSessionTimelineInteraction(input: {
     lastUserMessageID: () => input.visibleUserMessages().at(-1)?.id,
     scroller: scrollDock.scroller,
     resumeScroll,
-    pauseAutoScroll: autoScroll.pause,
+    pauseAutoScroll: () => undefined,
   })
 
   const historyWindow = createSessionHistoryWindow({
@@ -165,36 +165,18 @@ export function createSessionTimelineInteraction(input: {
   })
 
   const markScrollGesture = (target?: EventTarget | null) => {
-    scrollDock.cancelBottomFollowLock()
     activeMessage.markScrollGesture(target)
   }
 
-  const shouldCancelBottomFollowLockForIntent = (intent: TimelineScrollIntent) => {
-    if (intent.type === "scrollbar_drag_start" || intent.type === "target_message") return true
-    if (intent.type === "layout_interaction") return true
-    if (intent.type === "keyboard_scroll") {
-      return intent.key === "ArrowUp" || intent.key === "PageUp" || intent.key === "Home"
-    }
-    if (intent.type === "wheel_scroll" || intent.type === "touch_scroll") {
-      // Slice 11b.1 P0 #6 retest — GPT-X RCA: the previous gate only
-      // released the bottom-follow lock on upward gestures, so a user
-      // who scrolled up and then nudged the wheel downward would still
-      // have the 3-second lock armed underneath, and the very next
-      // content resize would call `followBottom()` and snap the
-      // viewport back. Releasing the lock on every non-nested
-      // wheel/touch (regardless of direction) matches the intent
-      // signalled by any meaningful user gesture inside the timeline
-      // itself. Nested-scrollable gestures (inside a diff or code
-      // block) still preserve the lock since they're not directed at
-      // the timeline.
-      return !intent.nestedScrollable
-    }
-    return false
+  const navigateMessageByOffset = (offset: number) => {
+    activeMessage.navigateMessageByOffset(offset)
   }
 
-  const navigateMessageByOffset = (offset: number) => {
-    scrollDock.cancelBottomFollowLock()
-    activeMessage.navigateMessageByOffset(offset)
+  const timelineBottomSentinel = () => {
+    const viewport = scrollDock.scroller()
+    if (!viewport) return null
+    const found = viewport.querySelector("[data-timeline-bottom-sentinel]")
+    return found instanceof HTMLElement ? found : null
   }
 
   const applyTimelineRecovery = (recovery: TimelineRecovery) => {
@@ -208,7 +190,13 @@ export function createSessionTimelineInteraction(input: {
 
       if (recovery.type === "restore_latest") {
         historyWindow.resumeLatestWindow()
-        resumeScroll()
+        const viewport = scrollDock.scroller()
+        const restored = restoreTimelineSafePosition({
+          viewport,
+          position: { kind: "latest" },
+          bottomSentinel: timelineBottomSentinel(),
+        })
+        if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
         return
       }
 
@@ -216,22 +204,13 @@ export function createSessionTimelineInteraction(input: {
       const restored = restoreTimelineSafePosition({
         viewport,
         position: recovery.anchor,
+        bottomSentinel: timelineBottomSentinel(),
       })
       if (restored.ok && viewport) scrollDock.scheduleScrollState(viewport)
     })
   }
 
   const onTimelineScrollIntent = (intent: TimelineScrollIntent): TimelineScrollControllerResult => {
-    if (shouldCancelBottomFollowLockForIntent(intent)) scrollDock.cancelBottomFollowLock()
-    // Slice 11b.1 P0 #6 retest 4 (GPT-X RCA msg=d60ff75a): a trow
-    // toggle is a user-layout intent — distinct from a scroll gesture
-    // but still a "I'm reading here" signal. The controller flips to
-    // `reading_history` on the intent itself, but `autoScroll` lives
-    // in a parallel owner that does not observe the controller; it
-    // needs an explicit `pause()` so the next ResizeObserver tick
-    // from the agent's append does not re-snap the viewport to
-    // bottom underneath the user.
-    if (intent.type === "layout_interaction") autoScroll.pause()
     const result = scrollController.intent(intent)
     applyTimelineRecovery(result.recovery)
     return result
@@ -266,6 +245,8 @@ export function createSessionTimelineInteraction(input: {
   }
 
   const submitLatest = () => {
+    activeMessage.clearActiveMessage()
+    clearMessageHash()
     const result = scrollController.intent({
       type: "submit",
       originMode: scrollController.state().mode,
@@ -277,9 +258,7 @@ export function createSessionTimelineInteraction(input: {
   createEffect(
     on(
       () => [input.sessionID(), input.visibleUserMessages().at(-1)?.id, historyWindow.turnStart()] as const,
-      () => {
-        scrollDock.restoreBottomIfLocked(lockOwner())
-      },
+      () => undefined,
       { defer: true },
     ),
   )
@@ -304,7 +283,6 @@ export function createSessionTimelineInteraction(input: {
     scheduleScrollState: scrollDock.scheduleScrollState,
     consumePendingMessage: input.consumePendingMessage,
     onMessageNavigation: (messageID) => {
-      scrollDock.cancelBottomFollowLock()
       onTimelineScrollIntent({
         type: "target_message",
         messageID,

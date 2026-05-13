@@ -10,8 +10,18 @@ function messageElements(viewport: HTMLElement) {
   )
 }
 
+function timelineAnchorElements(viewport: HTMLElement) {
+  return Array.from(viewport.querySelectorAll("[data-timeline-anchor]")).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && !!el.dataset.timelineAnchor,
+  )
+}
+
 function messageElementByID(viewport: HTMLElement, messageID: string) {
   return messageElements(viewport).find((el) => el.dataset.messageId === messageID)
+}
+
+function anchorElementByID(viewport: HTMLElement, anchorID: string) {
+  return timelineAnchorElements(viewport).find((el) => el.dataset.timelineAnchor === anchorID)
 }
 
 function firstVisibleMessage(viewport: HTMLElement) {
@@ -21,6 +31,27 @@ function firstVisibleMessage(viewport: HTMLElement) {
     if (rect.bottom > viewportRect.top && rect.top < viewportRect.bottom) return { el, rect }
   }
   return undefined
+}
+
+function firstVisibleTimelineAnchor(viewport: HTMLElement) {
+  const viewportRect = viewport.getBoundingClientRect()
+  for (const el of timelineAnchorElements(viewport)) {
+    const rect = el.getBoundingClientRect()
+    if (rect.bottom <= viewportRect.top || rect.top >= viewportRect.bottom) continue
+    const anchorID = el.dataset.timelineAnchor
+    if (!anchorID) continue
+    const owner =
+      el.closest("[data-message-id]") instanceof HTMLElement ? (el.closest("[data-message-id]") as HTMLElement) : el
+    const messageID = owner.dataset.messageId
+    if (!messageID) continue
+    return { el, rect, anchorID, messageID }
+  }
+  return undefined
+}
+
+function bottomSentinel(viewport: HTMLElement) {
+  const el = viewport.querySelector("[data-timeline-bottom-sentinel]")
+  return el instanceof HTMLElement ? el : null
 }
 
 export function collectTimelineScrollMetrics(viewport: HTMLElement): TimelineScrollMetrics {
@@ -55,6 +86,19 @@ export function sampleTimelineSafePosition(args: {
     }
   }
 
+  const visibleAnchor = firstVisibleTimelineAnchor(args.viewport)
+  if (visibleAnchor) {
+    const viewportRect = args.viewport.getBoundingClientRect()
+    return {
+      kind: "reading",
+      anchorID: visibleAnchor.anchorID,
+      anchorMessageID: visibleAnchor.messageID,
+      offsetFromViewportTop: visibleAnchor.rect.top - viewportRect.top,
+      renderedStart: args.renderedStart,
+      renderedCount: args.renderedCount,
+    }
+  }
+
   const visible = firstVisibleMessage(args.viewport)
   const messageID = visible?.el.dataset.messageId
   if (!visible || !messageID) return { kind: "latest", messageID: args.newestMessageID }
@@ -70,17 +114,21 @@ export function sampleTimelineSafePosition(args: {
 }
 
 function restoreLatest(viewport: HTMLElement, bottomSentinel?: HTMLElement | null) {
+  const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
   if (bottomSentinel) {
     const viewportRect = viewport.getBoundingClientRect()
     const sentinelRect = bottomSentinel.getBoundingClientRect()
-    viewport.scrollTop = Math.max(0, viewport.scrollTop + sentinelRect.bottom - viewportRect.bottom)
+    const sentinelTop = Math.max(0, viewport.scrollTop + sentinelRect.bottom - viewportRect.bottom)
+    viewport.scrollTop = Math.max(sentinelTop, maxScrollTop)
     return
   }
-  viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+  viewport.scrollTop = maxScrollTop
 }
 
 function restoreReading(viewport: HTMLElement, position: Extract<TimelineSafePosition, { kind: "reading" }>) {
-  const anchor = messageElementByID(viewport, position.anchorMessageID)
+  const anchor =
+    (position.anchorID ? anchorElementByID(viewport, position.anchorID) : undefined) ??
+    messageElementByID(viewport, position.anchorMessageID)
   if (!anchor) return false
   const viewportRect = viewport.getBoundingClientRect()
   const anchorRect = anchor.getBoundingClientRect()
@@ -132,7 +180,7 @@ export function restoreTimelineSafePosition(args: {
   if (!args.viewport) return { ok: false, reason: "viewport_missing" }
 
   if (args.position.kind === "latest") {
-    restoreLatest(args.viewport, args.bottomSentinel)
+    restoreLatest(args.viewport, args.bottomSentinel ?? bottomSentinel(args.viewport))
     return { ok: true, restoredTo: args.position }
   }
 

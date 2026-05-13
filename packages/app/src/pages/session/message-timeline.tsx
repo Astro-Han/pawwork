@@ -468,6 +468,7 @@ export function MessageTimeline(props: {
                   )
                 }}
               </For>
+              <div data-timeline-bottom-sentinel aria-hidden="true" />
             </div>
           </div>
         </ScrollView>

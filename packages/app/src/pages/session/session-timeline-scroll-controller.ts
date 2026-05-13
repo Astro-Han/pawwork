@@ -18,6 +18,7 @@ export type TimelineSafePosition =
   | { kind: "latest"; messageID?: string }
   | {
       kind: "reading"
+      anchorID?: string
       anchorMessageID: string
       offsetFromViewportTop: number
       renderedStart: number
@@ -517,18 +518,18 @@ export function createSessionTimelineScrollController(
 
       if (observation.type === "scroll_sample") {
         if (observation.metrics.nearBottom) {
-          updateObservedSafePosition(state, observation.safePosition ?? { kind: "latest" })
-          if (state.lastIntent && isExplicitBottomIntent(state.lastIntent)) {
+          state.lastSafePosition = observation.safePosition?.kind === "latest" ? observation.safePosition : { kind: "latest" }
+          if (state.mode !== "targeting_message") {
             state.mode = "following_latest"
-            state.latestProtected = true
-            return result({
-              before,
-              observation,
-              accepted: true,
-              recovery: noRecovery,
-              reason: "explicit_bottom_navigation",
-            })
+            state.latestProtected = false
           }
+          return result({
+            before,
+            observation,
+            accepted: true,
+            recovery: noRecovery,
+            reason: "explicit_bottom_navigation",
+          })
         }
 
         if (
@@ -580,10 +581,17 @@ export function createSessionTimelineScrollController(
       }
 
       if (state.mode === "reading_history" && state.lastSafePosition.kind === "reading") {
+        if (observation.type === "content_resize") {
+          return result({
+            before,
+            observation,
+            accepted: true,
+            recovery: noRecovery,
+            reason: "reading_anchor_preserved",
+          })
+        }
         const reason =
-          observation.type === "content_resize"
-            ? "content_resize_preserve_reading"
-            : observation.type === "dock_resize"
+          observation.type === "dock_resize"
               ? "dock_resize_preserve_anchor"
               : "reading_anchor_preserved"
         return result({

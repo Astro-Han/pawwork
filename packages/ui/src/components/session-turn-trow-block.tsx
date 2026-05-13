@@ -206,6 +206,7 @@ export function TrowBlock(props: TrowBlockProps) {
       >
         <summary
           data-slot="trow-summary"
+          data-timeline-anchor={`trow-summary:${props.parts[0]?.id ?? "empty"}`}
           onPointerDown={fireLayoutInteraction}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") fireLayoutInteraction()

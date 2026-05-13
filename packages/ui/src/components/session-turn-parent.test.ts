@@ -12,3 +12,10 @@ test("session turn collects assistant messages by parent id across the full mess
   expect(source).toContain("item.parentID === msg.id")
   expect(source).not.toContain('if (item.role === "user") break')
 })
+
+test("thinking status is delegated into the agent header instead of rendering a bottom tail row", () => {
+  const source = readFileSync(new URL("./session-turn.tsx", import.meta.url), "utf8")
+
+  expect(source).toContain("thinkingStatus=")
+  expect(source).not.toContain('data-slot="session-turn-thinking"')
+})

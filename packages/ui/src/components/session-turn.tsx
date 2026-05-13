@@ -11,9 +11,7 @@ import { createMemo, createSignal, onCleanup, ParentProps, Show } from "solid-js
 import { createStore } from "solid-js/store"
 import { MessageDivider, type UserActions } from "./message-part"
 import { Card } from "./card"
-import { TextShimmer } from "./text-shimmer"
 import { SessionRetry } from "./session-retry"
-import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import {
@@ -25,7 +23,7 @@ import {
 } from "./session-turn-changes"
 import { TurnChangesList } from "./session-turn-changes-list"
 import { SessionTurnDiffsList } from "./session-turn-diffs-list"
-import { heading, list, partState, same, unwrap } from "./session-turn-helpers"
+import { list, same, unwrap } from "./session-turn-helpers"
 import { SessionTurnUserBubble } from "./session-turn-user-bubble"
 import { SessionTurnAgentRound } from "./session-turn-agent-round"
 import { createSessionTurnLeafBridges } from "./session-turn-leaf-bridges"
@@ -337,43 +335,11 @@ export function SessionTurn(
     if (end < start) return undefined
     return end - start
   })
-  const assistantDerived = createMemo(() => {
-    let visible = 0
-    let reason: string | undefined
-    const show = showReasoningSummaries()
-    for (const message of assistantMessages()) {
-      for (const part of list(data.store.part?.[message.id], emptyParts)) {
-        if (partState(part, show) === "visible") {
-          visible++
-        }
-        if (part.type === "reasoning" && part.text) {
-          const h = heading(part.text)
-          if (h) reason = h
-        }
-      }
-    }
-    return { visible, reason }
-  })
-  const assistantVisible = createMemo(() => assistantDerived().visible)
-  const reasoningHeading = createMemo(() => assistantDerived().reason)
-  // "Thinking…" is a pre-first-visible-output liveness affordance only.
-  // Slice 11b.1 third W1 retest (AstroHan msg=362e9b72 / GPT-X
-  // msg=22179280): if any reasoning / prose / trow has surfaced, the
-  // round already has its own liveness signal (TrowBlock shimmer,
-  // streaming prose, working-time tick); a separate "thinking" row at
-  // the bottom of the assistant-content block becomes a detached tail
-  // duplicating that. Tighten the condition so the row only renders
-  // before any visible part exists — the same `assistantVisible === 0`
-  // gate the `showReasoningSummaries: true` path already used, applied
-  // uniformly regardless of the setting (reasoning parts only count as
-  // visible when summaries are on, so this preserves the "show
-  // thinking while reasoning is streaming under the summary toggle"
-  // behaviour). When the gate flips, the row is removed at the next
-  // visible part, not faded out.
-  const showThinking = createMemo(() => {
+  const showThinkingStatus = createMemo(() => {
     if (!working() || !!error()) return false
     if (status().type === "retry") return false
-    return assistantVisible() === 0
+    if (showReasoningSummaries()) return false
+    return true
   })
 
   const autoScroll = createAutoScroll({
@@ -451,22 +417,9 @@ export function SessionTurn(
                       renderTool={leaf.renderTool}
                       actions={leaf.agentRoundActions()}
                       showReasoningSummaries={showReasoningSummaries()}
+                      thinkingStatus={showThinkingStatus() ? { label: leaf.agentRoundLabels().thinking } : undefined}
                       onTrowLayoutInteraction={props.onTrowLayoutInteraction}
                     />
-                  </div>
-                </Show>
-                <Show when={showThinking()}>
-                  <div data-slot="session-turn-thinking">
-                    <TextShimmer text={i18n.t("ui.sessionTurn.status.thinking")} />
-                    <Show when={!showReasoningSummaries()}>
-                      <TextReveal
-                        text={reasoningHeading()}
-                        class="session-turn-thinking-heading"
-                        travel={25}
-                        duration={700}
-                        truncate
-                      />
-                    </Show>
                   </div>
                 </Show>
                 <SessionRetry status={status()} show={active()} />

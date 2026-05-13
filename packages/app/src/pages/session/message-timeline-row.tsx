@@ -58,6 +58,7 @@ export function TimelineMessage(props: {
     <div
       id={props.anchorID}
       data-message-id={props.messageID}
+      data-timeline-anchor={props.messageID}
       classList={{
         "min-w-0 w-full max-w-full": true,
         "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,

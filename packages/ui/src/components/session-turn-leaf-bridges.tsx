@@ -111,6 +111,7 @@ export function createSessionTurnLeafBridges(input: LeafBridgeInputs) {
     copied: i18n.t("ui.message.copied"),
     fork: i18n.t("ui.sessionTurn.bubble.fork"),
     interrupted: i18n.t("ui.message.interrupted"),
+    thinking: i18n.t("ui.sessionTurn.status.thinking"),
     workingTime: (seconds) => i18n.t("ui.sessionTurn.workingTime", { seconds }),
     trow: {
       summaryRunning: (count) => i18n.t("ui.sessionTurn.trow.summary.running", { count }),
@@ -174,7 +175,7 @@ export function createSessionTurnLeafBridges(input: LeafBridgeInputs) {
     const owner = partOwnerMap().get(part.id)
     if (!owner) return null
     return (
-      <div data-slot="trow-result-body">
+      <div data-slot="trow-result-body" data-timeline-anchor={`tool:${part.id}`}>
         <Part
           part={part}
           message={owner}
