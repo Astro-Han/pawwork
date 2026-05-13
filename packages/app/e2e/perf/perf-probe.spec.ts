@@ -85,6 +85,14 @@ async function cooldownAfterRun(page: Parameters<typeof snapshotPerfProbe>[0]) {
   await page.waitForTimeout(250)
 }
 
+async function ensureTerminalClosed(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const terminal = page.locator(terminalSelector)
+  const visible = await terminal.isVisible().catch(() => false)
+  if (!visible) return
+  await page.keyboard.press(terminalToggleKey)
+  await expect(terminal).toHaveCount(0)
+}
+
 async function navigateProjectHome(page: Parameters<typeof snapshotPerfProbe>[0], directory: string) {
   await page.goto(sessionPath(directory))
   await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
@@ -251,13 +259,16 @@ test.describe("PR0.1 perf probe baseline", () => {
         await page.goto(sessionPath(project.directory, session.id))
         await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 30_000 })
 
-        const terminal = page.locator(terminalSelector).first()
+        const terminal = page.locator(terminalSelector)
 
+        await ensureTerminalClosed(page)
         await resetPerfProbe(page)
         await page.keyboard.press(terminalToggleKey)
-        await waitTerminalFocusIdle(page, { term: terminal })
+        await waitTerminalFocusIdle(page, { term: terminal.first() })
         await settleFrames(page, 4)
         runs.push(await snapshotPerfProbe(page))
+        await page.keyboard.press(terminalToggleKey)
+        await expect(terminal).toHaveCount(0)
         if (run < 2) await cooldownAfterRun(page)
       })
     }
