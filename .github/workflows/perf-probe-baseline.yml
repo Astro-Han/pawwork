@@ -9,6 +9,7 @@ on:
       - "packages/app/e2e/perf/**"
       - "packages/app/e2e/fixtures.ts"
       - "packages/app/package.json"
+      - "packages/app/playwright.config.ts"
       - "packages/app/script/compare-perf.ts"
       - "packages/app/script/e2e-local.ts"
       - "packages/app/src/testing/perf-metrics*"
