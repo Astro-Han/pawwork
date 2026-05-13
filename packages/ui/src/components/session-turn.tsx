@@ -347,11 +347,24 @@ export function SessionTurn(
   })
   const assistantVisible = createMemo(() => assistantDerived().visible)
   const reasoningHeading = createMemo(() => assistantDerived().reason)
+  // "Thinking…" is a pre-first-visible-output liveness affordance only.
+  // Slice 11b.1 third W1 retest (AstroHan msg=362e9b72 / GPT-X
+  // msg=22179280): if any reasoning / prose / trow has surfaced, the
+  // round already has its own liveness signal (TrowBlock shimmer,
+  // streaming prose, working-time tick); a separate "thinking" row at
+  // the bottom of the assistant-content block becomes a detached tail
+  // duplicating that. Tighten the condition so the row only renders
+  // before any visible part exists — the same `assistantVisible === 0`
+  // gate the `showReasoningSummaries: true` path already used, applied
+  // uniformly regardless of the setting (reasoning parts only count as
+  // visible when summaries are on, so this preserves the "show
+  // thinking while reasoning is streaming under the summary toggle"
+  // behaviour). When the gate flips, the row is removed at the next
+  // visible part, not faded out.
   const showThinking = createMemo(() => {
     if (!working() || !!error()) return false
     if (status().type === "retry") return false
-    if (showReasoningSummaries()) return assistantVisible() === 0
-    return true
+    return assistantVisible() === 0
   })
 
   const autoScroll = createAutoScroll({
