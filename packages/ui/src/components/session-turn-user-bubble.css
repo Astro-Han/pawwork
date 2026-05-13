@@ -65,6 +65,16 @@
   white-space: pre-wrap;      /* preserve `\n\n` paragraph boundaries */
   overflow-wrap: anywhere;
   word-wrap: break-word;
+  /* Opt back in to text selection: the app shell wraps the timeline in
+   * `select-none` (layout.tsx line 2320), with carve-outs only for
+   * input / textarea / contenteditable. Without this rule the legacy
+   * `[data-component="user-message"] [data-slot="user-message-text"]`
+   * carve-out (message-part.css L710) stopped applying once the W1
+   * leaves replaced the user surface, and bubble text became unselectable
+   * — regression flagged by AstroHan in the second W1 retest. */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 /* Toolbar — always mounted, visibility opacity-driven, hover OR

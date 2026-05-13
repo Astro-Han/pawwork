@@ -73,7 +73,10 @@
 }
 
 [data-component="session-turn-trow-block"] details[open] [data-slot="trow-summary-chev"] {
-  transform: rotate(90deg);
+  /* Open state rotates `chevron-down` 180° → up so the affordance reads
+   * "click to fold up". 90° rotation pointed the glyph sideways which
+   * AstroHan flagged in the second W1 retest. */
+  transform: rotate(180deg);
 }
 
 /* Running state — summary shimmer hook. The actual pw-shimmer animation
@@ -84,15 +87,16 @@
   /* Hook for shimmer; intentionally no animation rule here. */
 }
 
-/* Body — quiet log surface, hairline-bordered, transparent background.
- * Per DESIGN.md L417 the body is "transparent background, 1px
- * --border-weaker, radius-sm, mono-small, --fg-weak". Code blocks
- * inside the body keep their own --bg-cream. */
+/* Body — the outer wrapper that holds the per-tool sub-rows. AstroHan
+ * flagged in the second W1 retest that having a frame here AND a frame
+ * on each per-tool body produced a double-bordered "nested box" look;
+ * DESIGN.md L417 actually scopes the transparent + 1px --border-weaker
+ * + radius-sm frame to the per-tool result body, not the trow group
+ * wrapper. So the wrapper stays borderless and only owns the vertical
+ * rhythm + caption typography between sub-rows. */
 [data-component="session-turn-trow-block"] [data-slot="trow-body"] {
   margin-top: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--border-weaker);
-  border-radius: var(--radius-sm);
+  padding: 0;
   background: transparent;
   font: var(--type-mono-small);
   color: var(--fg-weak);

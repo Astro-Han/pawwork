@@ -39,6 +39,14 @@
 [data-component="session-turn-agent-round"] [data-slot="agent-prose"] {
   color: var(--fg-strong);
   font: var(--type-body);
+  /* Opt back in to text selection — the app shell sets `select-none`
+   * on the timeline body (layout.tsx L2320); without this rule agent
+   * prose stops being selectable once the W1 round replaces the legacy
+   * `[data-component="text-part"]` carve-out (message-part.css L710).
+   * Regression flagged by AstroHan in the second W1 retest. */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 /* Reasoning summaries — italic + muted, distinct from prose so users
@@ -51,6 +59,9 @@
   font-style: italic;
   color: var(--fg-secondary);
   line-height: 1.5;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 /* Toolbar — hover-only, always-mounted, opacity-driven. Left-aligned per
