@@ -51,6 +51,48 @@ export type PerfScenarioSummary = PerfRunSummary & {
   run_details: PerfRunSummary[]
 }
 
+export type PerfScenarioComparison = {
+  scenario: string
+  pass: boolean
+  failures: string[]
+  warnings: string[]
+  base: PerfScenarioSummary
+  head: PerfScenarioSummary
+}
+
+export type PerfBaselineComparison = {
+  pass: boolean
+  failures: string[]
+  warnings: string[]
+  scenarios: PerfScenarioComparison[]
+}
+
+const perfDeltaThresholds = {
+  interactionMedianMs: 10,
+  interactionMedianRatio: 1.05,
+  interactionWorstMs: 50,
+  longTaskMaxMs: 25,
+  tbtMs: 50,
+  frameGapP95Ms: 10,
+  frameGapMaxMs: 50,
+  jankCount: 2,
+  cls: 0.02,
+} as const
+
+const perfAbsoluteWarnings = {
+  interactionMsWorst: 200,
+  tbtMs: 200,
+  cls: 0.05,
+  fcpMs: 1800,
+  lcpMs: 2500,
+} as const
+
+const perfCatastrophicThresholds = {
+  interactionMsWorst: 500,
+  frameGapMaxMs: 500,
+  longTaskMaxMs: 250,
+} as const
+
 function round(input: number) {
   return Math.round(input * 1000) / 1000
 }
@@ -144,5 +186,123 @@ export function aggregatePerfRuns(input: {
     lcp_ms: optionalMedian(runs.map((run) => run.lcp_ms)),
     heap_used_mb: optionalMedian(runs.map((run) => run.heap_used_mb)),
     run_details: runs,
+  }
+}
+
+function exceededByDelta(input: { base: number; head: number; maxDelta: number; maxRatio?: number }) {
+  const delta = input.head - input.base
+  if (delta <= input.maxDelta) return false
+  if (input.maxRatio === undefined) return true
+  if (input.base <= 0) return true
+  return input.head > input.base * input.maxRatio
+}
+
+function addAbsoluteWarning(target: string[], key: string, value: number | undefined, threshold: number) {
+  if (value === undefined) return
+  if (value > threshold) target.push(key)
+}
+
+export function comparePerfScenarioSummaries(input: {
+  scenario: string
+  base: PerfScenarioSummary
+  head: PerfScenarioSummary
+}): PerfScenarioComparison {
+  const failures: string[] = []
+  const warnings: string[] = []
+
+  if (
+    exceededByDelta({
+      base: input.base.interaction_ms_median,
+      head: input.head.interaction_ms_median,
+      maxDelta: perfDeltaThresholds.interactionMedianMs,
+      maxRatio: perfDeltaThresholds.interactionMedianRatio,
+    })
+  ) {
+    failures.push("interaction_ms_median")
+  }
+
+  if (input.head.interaction_ms_worst > input.base.interaction_ms_worst + perfDeltaThresholds.interactionWorstMs) {
+    failures.push("interaction_ms_worst_delta")
+  }
+  if (input.head.interaction_ms_worst >= perfCatastrophicThresholds.interactionMsWorst) {
+    failures.push("interaction_ms_worst")
+  }
+  if (input.head.long_task_max_ms > input.base.long_task_max_ms + perfDeltaThresholds.longTaskMaxMs) {
+    failures.push("long_task_max_ms_delta")
+  }
+  if (input.head.long_task_max_ms >= perfCatastrophicThresholds.longTaskMaxMs) {
+    failures.push("long_task_max_ms")
+  }
+  if (input.head.tbt_ms > input.base.tbt_ms + perfDeltaThresholds.tbtMs) {
+    failures.push("tbt_ms")
+  }
+  if (input.head.frame_gap_p95_ms > input.base.frame_gap_p95_ms + perfDeltaThresholds.frameGapP95Ms) {
+    failures.push("frame_gap_p95_ms")
+  }
+  if (input.head.frame_gap_max_ms > input.base.frame_gap_max_ms + perfDeltaThresholds.frameGapMaxMs) {
+    failures.push("frame_gap_max_ms_delta")
+  }
+  if (input.head.frame_gap_max_ms >= perfCatastrophicThresholds.frameGapMaxMs) {
+    failures.push("frame_gap_max_ms")
+  }
+  if (input.head.jank_count_50ms > input.base.jank_count_50ms + perfDeltaThresholds.jankCount) {
+    failures.push("jank_count_50ms")
+  }
+  if (input.head.cls > input.base.cls + perfDeltaThresholds.cls) {
+    failures.push("cls_delta")
+  }
+
+  addAbsoluteWarning(warnings, "interaction_ms_worst", input.head.interaction_ms_worst, perfAbsoluteWarnings.interactionMsWorst)
+  addAbsoluteWarning(warnings, "tbt_ms", input.head.tbt_ms, perfAbsoluteWarnings.tbtMs)
+  addAbsoluteWarning(warnings, "cls", input.head.cls, perfAbsoluteWarnings.cls)
+  addAbsoluteWarning(warnings, "fcp_ms", input.head.fcp_ms, perfAbsoluteWarnings.fcpMs)
+  addAbsoluteWarning(warnings, "lcp_ms", input.head.lcp_ms, perfAbsoluteWarnings.lcpMs)
+
+  return {
+    scenario: input.scenario,
+    pass: failures.length === 0,
+    failures: [...new Set(failures)],
+    warnings: [...new Set(warnings)],
+    base: input.base,
+    head: input.head,
+  }
+}
+
+export function comparePerfBaselines(input: {
+  base: PerfScenarioSummary[]
+  head: PerfScenarioSummary[]
+}): PerfBaselineComparison {
+  const failures: string[] = []
+  const warnings: string[] = []
+  const scenarios: PerfScenarioComparison[] = []
+  const headByScenario = new Map(input.head.map((scenario) => [scenario.scenario, scenario]))
+
+  for (const baseScenario of input.base) {
+    const headScenario = headByScenario.get(baseScenario.scenario)
+    if (!headScenario) {
+      failures.push(`missing_head_scenario:${baseScenario.scenario}`)
+      continue
+    }
+    const comparison = comparePerfScenarioSummaries({
+      scenario: baseScenario.scenario,
+      base: baseScenario,
+      head: headScenario,
+    })
+    scenarios.push(comparison)
+    for (const failure of comparison.failures) failures.push(`${baseScenario.scenario}:${failure}`)
+    for (const warning of comparison.warnings) warnings.push(`${baseScenario.scenario}:${warning}`)
+  }
+
+  for (const headScenario of input.head) {
+    if (!input.base.some((scenario) => scenario.scenario === headScenario.scenario)) {
+      failures.push(`missing_base_scenario:${headScenario.scenario}`)
+    }
+  }
+
+  return {
+    pass: failures.length === 0,
+    failures,
+    warnings,
+    scenarios,
   }
 }

@@ -7,6 +7,7 @@ on:
       - "packages/app/e2e/perf/**"
       - "packages/app/e2e/fixtures.ts"
       - "packages/app/package.json"
+      - "packages/app/script/compare-perf.ts"
       - "packages/app/script/e2e-local.ts"
       - "packages/app/src/testing/perf-metrics*"
   workflow_dispatch:
@@ -18,10 +19,19 @@ jobs:
   perf-probe-baseline:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PERF_ARTIFACT_DIR: ${{ github.workspace }}/perf-artifacts
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
+          path: head
           persist-credentials: false
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
+        with:
+          path: base
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # actions/setup-node@v6.4.0
         with:
@@ -34,25 +44,52 @@ jobs:
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('head/bun.lock', 'base/bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # actions/cache@v5
         with:
           path: ${{ github.workspace }}/.playwright-browsers
-          key: playwright-${{ runner.os }}-${{ hashFiles('packages/app/package.json', 'bun.lock') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('head/packages/app/package.json', 'head/bun.lock', 'base/packages/app/package.json', 'base/bun.lock') }}
 
-      - run: bun install --frozen-lockfile
+      - name: Install head dependencies
+        working-directory: head
+        run: bun install --frozen-lockfile
+
+      - name: Install base dependencies
+        working-directory: base
+        run: bun install --frozen-lockfile
 
       - name: Install Playwright browsers
-        working-directory: packages/app
+        working-directory: head/packages/app
         run: bunx playwright install --with-deps chromium
 
-      - name: Run perf probe baseline
+      - name: Sync perf harness into base checkout
+        run: |
+          rsync -a --delete head/packages/app/e2e/perf/ base/packages/app/e2e/perf/
+          cp head/packages/app/src/testing/perf-metrics.ts base/packages/app/src/testing/perf-metrics.ts
+
+      - name: Run perf probe baseline (base)
         env:
           CI: "true"
-        run: bun --cwd packages/app test:e2e:local:perf
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base.json
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Run perf probe baseline (head)
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head.json
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Compare base and head perf baselines
+        run: >
+          bun head/packages/app/script/compare-perf.ts
+          --base "${PERF_ARTIFACT_DIR}/perf-base.json"
+          --head "${PERF_ARTIFACT_DIR}/perf-head.json"
+          --output "${PERF_ARTIFACT_DIR}/perf-compare.json"
 
       - name: Upload perf probe artifacts
         if: always()
@@ -62,6 +99,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
           path: |
-            packages/app/e2e/perf-results
-            packages/app/e2e/playwright-report
-            packages/app/e2e/test-results
+            perf-artifacts
+            base/packages/app/e2e/playwright-report
+            base/packages/app/e2e/test-results
+            head/packages/app/e2e/playwright-report
+            head/packages/app/e2e/test-results
