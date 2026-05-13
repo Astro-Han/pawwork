@@ -91,7 +91,7 @@ export function coalesceQueuedEvents(events: QueuedGlobalEvent[]): QueuedGlobalE
       const key = deltaKey(event)
       const index = key ? mergeableDeltaIndexByKey.get(key) : undefined
       const target = index !== undefined ? result[index] : undefined
-      if (key && target?.payload.type === "message.part.delta") {
+      if (key && index !== undefined && target?.payload.type === "message.part.delta") {
         result[index] = appendDelta(target, event.payload.properties.delta)
         continue
       }

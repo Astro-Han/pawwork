@@ -12,6 +12,22 @@ import { usePlatform } from "./platform"
 import { useServer } from "./server"
 import { createSseCursor } from "./global-sdk/sse-cursor"
 
+export function planFlushSchedule(input: {
+  now: number
+  lastFlushAt: number
+  frameMs: number
+  scheduledDueAt?: number
+}) {
+  const delayMs = Math.max(0, input.frameMs - (input.now - input.lastFlushAt))
+  const dueAt = input.now + delayMs
+
+  if (input.scheduledDueAt !== undefined && input.scheduledDueAt <= dueAt) {
+    return { delayMs: input.scheduledDueAt - input.now, dueAt: input.scheduledDueAt }
+  }
+
+  return { delayMs, dueAt }
+}
+
 const abortError = z.object({
   name: z.literal("AbortError"),
 })
@@ -48,17 +64,20 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
     }>()
 
     const FLUSH_FRAME_MS = 16
+    const DELTA_FRAME_MS = 33
     const STREAM_YIELD_MS = 8
     const RECONNECT_DELAY_MS = 250
 
     let queue: QueuedGlobalEvent[] = []
     let buffer: QueuedGlobalEvent[] = []
     let timer: ReturnType<typeof setTimeout> | undefined
+    let scheduledDueAt: number | undefined
     let last = 0
 
     const flush = () => {
       if (timer) clearTimeout(timer)
       timer = undefined
+      scheduledDueAt = undefined
 
       if (queue.length === 0) return
 
@@ -77,10 +96,19 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
       buffer.length = 0
     }
 
-    const schedule = () => {
-      if (timer) return
-      const elapsed = Date.now() - last
-      timer = setTimeout(flush, Math.max(0, FLUSH_FRAME_MS - elapsed))
+    const schedule = (frameMs = FLUSH_FRAME_MS) => {
+      const now = Date.now()
+      const next = planFlushSchedule({
+        now,
+        lastFlushAt: last,
+        frameMs,
+        scheduledDueAt,
+      })
+
+      if (timer && next.dueAt === scheduledDueAt) return
+      if (timer) clearTimeout(timer)
+      scheduledDueAt = next.dueAt
+      timer = setTimeout(flush, next.delayMs)
     }
 
     let streamErrorLogged = false
@@ -148,7 +176,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
                 continue
               }
               queue.push({ directory, payload })
-              schedule()
+              schedule(payload.type === "message.part.delta" ? DELTA_FRAME_MS : FLUSH_FRAME_MS)
 
               if (Date.now() - yielded < STREAM_YIELD_MS) continue
               yielded = Date.now()
