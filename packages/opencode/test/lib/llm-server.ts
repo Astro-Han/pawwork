@@ -35,6 +35,10 @@ type Wait = {
 type Sse = {
   type: "sse"
   head: unknown[]
+  stages?: Array<{
+    wait?: PromiseLike<unknown>
+    chunks: unknown[]
+  }>
   tail: unknown[]
   wait?: PromiseLike<unknown>
   hang?: boolean
@@ -288,9 +292,9 @@ function choices(part: unknown) {
   return choice
 }
 
-function flow(item: Sse) {
+function flowParts(parts: Iterable<unknown>) {
   const out: Flow[] = []
-  for (const part of [...item.head, ...item.tail]) {
+  for (const part of parts) {
     const choice = choices(part)
     const delta =
       choice && "delta" in choice && choice.delta && typeof choice.delta === "object" ? choice.delta : undefined
@@ -344,90 +348,112 @@ function responses(item: Sse, model: string) {
       }
     | undefined
   let usage: Usage | undefined
-  const lines: unknown[] = [responseCreated(model)]
-
-  for (const part of flow(item)) {
-    if (part.type === "text") {
-      msg ??= "msg_1"
-      if (!hasMsg) {
-        hasMsg = true
+  const pushFlow = (target: unknown[], parts: Iterable<unknown>) => {
+    for (const part of flowParts(parts)) {
+      if (part.type === "text") {
+        msg ??= "msg_1"
+        if (!hasMsg) {
+          hasMsg = true
+          seq += 1
+          target.push(responseMessage(msg, seq))
+        }
         seq += 1
-        lines.push(responseMessage(msg, seq))
+        target.push(responseText(msg, part.text, seq))
+        continue
       }
-      seq += 1
-      lines.push(responseText(msg, part.text, seq))
-      continue
-    }
 
-    if (part.type === "reason") {
-      reason ||= "rs_1"
-      if (!hasReason) {
-        hasReason = true
+      if (part.type === "reason") {
+        reason ||= "rs_1"
+        if (!hasReason) {
+          hasReason = true
+          seq += 1
+          target.push(responseReason(reason, seq))
+          seq += 1
+          target.push(responseReasonPart(reason, seq))
+        }
         seq += 1
-        lines.push(responseReason(reason, seq))
-        seq += 1
-        lines.push(responseReasonPart(reason, seq))
+        target.push(responseReasonText(reason, part.text, seq))
+        continue
       }
-      seq += 1
-      lines.push(responseReasonText(reason, part.text, seq))
-      continue
-    }
 
-    if (part.type === "tool-start") {
-      call ||= { id: part.id, item: "fc_1", name: part.name, args: "" }
-      seq += 1
-      lines.push(responseTool(call.id, call.item, call.name, seq))
-      continue
-    }
+      if (part.type === "tool-start") {
+        call ||= { id: part.id, item: "fc_1", name: part.name, args: "" }
+        seq += 1
+        target.push(responseTool(call.id, call.item, call.name, seq))
+        continue
+      }
 
-    if (part.type === "tool-args") {
-      if (!call) continue
-      call.args += part.text
-      seq += 1
-      lines.push(responseToolArgs(call.item, part.text, seq))
-      continue
-    }
+      if (part.type === "tool-args") {
+        if (!call) continue
+        call.args += part.text
+        seq += 1
+        target.push(responseToolArgs(call.item, part.text, seq))
+        continue
+      }
 
-    usage = part.usage
+      usage = part.usage
+    }
   }
 
+  const head = [responseCreated(model)]
+  pushFlow(head, item.head)
+  const stages =
+    item.stages?.map((stage) => {
+      const chunks: unknown[] = []
+      pushFlow(chunks, stage.chunks)
+      return {
+        wait: stage.wait,
+        chunks,
+      }
+    }) ?? []
+  const tail: unknown[] = []
+  pushFlow(tail, item.tail)
   if (msg) {
     seq += 1
-    lines.push(responseMessageDone(msg, seq))
+    tail.push(responseMessageDone(msg, seq))
   }
   if (reason) {
     seq += 1
-    lines.push(responseReasonDone(reason, seq))
+    tail.push(responseReasonDone(reason, seq))
   }
   if (call && !item.hang && !item.error) {
     seq += 1
-    lines.push(responseToolArgsDone(call.item, call.args, seq))
+    tail.push(responseToolArgsDone(call.item, call.args, seq))
     seq += 1
-    lines.push(responseToolDone(call, seq))
+    tail.push(responseToolDone(call, seq))
   }
-  if (!item.hang && !item.error) lines.push(responseCompleted({ seq: seq + 1, usage }))
-  return { ...item, head: lines, tail: [] } satisfies Sse
-}
-
-function modelFrom(body: unknown) {
-  if (!body || typeof body !== "object") return "test-model"
-  if (!("model" in body) || typeof body.model !== "string") return "test-model"
-  return body.model
+  if (!item.hang && !item.error) tail.push(responseCompleted({ seq: seq + 1, usage }))
+  return { ...item, head, stages, tail } satisfies Sse
 }
 
 function send(item: Sse) {
   const head = bytes(item.head)
+  const segments = item.stages ?? []
   const tail = bytes([...item.tail, ...(item.hang || item.error ? [] : [done])])
   const empty = Stream.fromIterable<Uint8Array>([])
-  const wait = item.wait
-  const body: Stream.Stream<Uint8Array, unknown> = wait
-    ? Stream.concat(head, Stream.fromEffect(Effect.promise(() => wait)).pipe(Stream.flatMap(() => tail)))
-    : Stream.concat(head, tail)
+
+  let body: Stream.Stream<Uint8Array, unknown> = head
+  for (const stage of segments) {
+    const chunkStream = bytes(stage.chunks)
+    const segment = stage.wait
+      ? Stream.fromEffect(Effect.promise(() => stage.wait)).pipe(Stream.flatMap(() => chunkStream))
+      : chunkStream
+    body = Stream.concat(body, segment)
+  }
+  body = Stream.concat(body, item.wait ? Stream.fromEffect(Effect.promise(() => item.wait)).pipe(Stream.flatMap(() => tail)) : tail)
+
   let end: Stream.Stream<Uint8Array, unknown> = empty
   if (item.error) end = Stream.concat(empty, Stream.fail(item.error))
   else if (item.hang) end = Stream.concat(empty, Stream.never)
 
   return HttpServerResponse.stream(Stream.concat(body, end), { contentType: "text/event-stream" })
+}
+
+function fail(item: HttpError) {
+  return HttpServerResponse.text(JSON.stringify(item.body), {
+    status: item.status,
+    contentType: "application/json",
+  })
 }
 
 const reset = Effect.fn("TestLLMServer.reset")(function* (item: Sse) {
@@ -436,17 +462,19 @@ const reset = Effect.fn("TestLLMServer.reset")(function* (item: Sse) {
   yield* Effect.sync(() => {
     res.writeHead(200, { "content-type": "text/event-stream" })
     for (const part of item.head) res.write(line(part))
+    for (const stage of item.stages ?? []) {
+      for (const part of stage.chunks) res.write(line(part))
+    }
     for (const part of item.tail) res.write(line(part))
     res.destroy(new Error("connection reset"))
   })
   return yield* Effect.never
 })
 
-function fail(item: HttpError) {
-  return HttpServerResponse.text(JSON.stringify(item.body), {
-    status: item.status,
-    contentType: "application/json",
-  })
+function modelFrom(body: unknown) {
+  if (!body || typeof body !== "object") return "test-model"
+  if (!("model" in body) || typeof body.model !== "string") return "test-model"
+  return body.model
 }
 
 export class Reply {
@@ -568,6 +596,10 @@ export function httpError(status: number, body: unknown): Item {
 export function raw(input: {
   chunks?: unknown[]
   head?: unknown[]
+  stages?: Array<{
+    wait?: PromiseLike<unknown>
+    chunks: unknown[]
+  }>
   tail?: unknown[]
   wait?: PromiseLike<unknown>
   hang?: boolean
@@ -577,6 +609,7 @@ export function raw(input: {
   return {
     type: "sse",
     head: input.head ?? input.chunks ?? [],
+    stages: input.stages,
     tail: input.tail ?? [],
     wait: input.wait,
     hang: input.hang,

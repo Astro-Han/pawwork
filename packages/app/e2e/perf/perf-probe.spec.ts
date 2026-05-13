@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import { raw } from "../../../opencode/test/lib/llm-server"
 import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
 import { promptSelector, sessionMessageItemSelector, sessionTurnListSelector, scrollViewportSelector } from "../selectors"
@@ -27,6 +28,34 @@ const longMarkdown = [
 ].join("\n")
 
 const scenarioResults: ReturnType<typeof summarizeScenarioRuns>[] = []
+
+const chatChunk = (delta: Record<string, unknown>, input?: { finish?: string; usage?: { input: number; output: number } }) => ({
+  id: "chatcmpl-test",
+  object: "chat.completion.chunk",
+  choices: [
+    {
+      delta,
+      ...(input?.finish ? { finish_reason: input.finish } : {}),
+    },
+  ],
+  ...(input?.usage
+    ? {
+        usage: {
+          prompt_tokens: input.usage.input,
+          completion_tokens: input.usage.output,
+          total_tokens: input.usage.input + input.usage.output,
+        },
+      }
+    : {}),
+})
+
+function splitText(value: string, size: number) {
+  const out: string[] = []
+  for (let index = 0; index < value.length; index += size) {
+    out.push(value.slice(index, index + size))
+  }
+  return out
+}
 
 function deferred() {
   let resolve!: () => void
@@ -124,22 +153,43 @@ test.describe("PR0.1 perf probe baseline", () => {
     scenarioResults.push(summarizeScenarioRuns({ branch: "dev", scenario: "homepage-cold", runs }))
   })
 
-  test("session-streaming-long emits a 3-run JSON baseline", async ({ page, project, assistant }) => {
+  test("session-streaming-long emits a 3-run JSON baseline", async ({ page, project, llm }) => {
     await installPerfProbe(page)
     await project.open()
 
     const runs = []
     for (let run = 0; run < 3; run += 1) {
-      const hold = deferred()
+      const firstWave = deferred()
+      const secondWave = deferred()
+      const chunks = splitText(longMarkdown, 320)
+      const headChunks = [chatChunk({ role: "assistant" }), ...chunks.slice(0, 3).map((chunk) => chatChunk({ content: chunk }))]
+      const stageOneChunks = chunks.slice(3, 9).map((chunk) => chatChunk({ content: chunk }))
+      const stageTwoChunks = chunks.slice(9).map((chunk) => chatChunk({ content: chunk }))
+
       await navigateProjectHome(page, project.directory)
-      await assistant.hold(longMarkdown, hold.promise)
+      await llm.push(
+        raw({
+          head: headChunks,
+          stages: [
+            { wait: firstWave.promise, chunks: stageOneChunks },
+            { wait: secondWave.promise, chunks: stageTwoChunks },
+          ],
+          tail: [chatChunk({}, { finish: "stop", usage: { input: 120, output: 480 } })],
+        }),
+      )
+
       const send = project.prompt(`Stream probe ${run + 1}`)
       await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
-      await expect(page.locator(sessionMessageItemSelector).last()).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByText("This stream exists to stress markdown rendering while the session remains interactive.")).toBeVisible({
+        timeout: 30_000,
+      })
+
       await resetPerfProbe(page, "session-streaming-long")
-      await page.getByRole("button", { name: "Right utility panel" }).click()
+      const click = page.getByRole("button", { name: "Right utility panel" }).click()
+      firstWave.resolve()
+      await click
       await settleFrames(page, 6)
-      hold.resolve()
+      secondWave.resolve()
       await send
       runs.push(await snapshotPerfProbe(page))
     }
