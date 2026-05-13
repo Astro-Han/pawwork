@@ -2,9 +2,15 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { raw } from "../../../opencode/test/lib/llm-server"
 import { test, expect } from "../fixtures"
-import { withSession } from "../actions"
-import { promptSelector, sessionMessageItemSelector, sessionTurnListSelector, scrollViewportSelector } from "../selectors"
-import { sessionPath } from "../utils"
+import { waitTerminalFocusIdle, withSession } from "../actions"
+import {
+  promptSelector,
+  sessionMessageItemSelector,
+  sessionTurnListSelector,
+  scrollViewportSelector,
+  terminalSelector,
+} from "../selectors"
+import { sessionPath, terminalToggleKey } from "../utils"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 
 const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
@@ -233,6 +239,30 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "tool-call-expand", runs }))
+  })
+
+  test("terminal-side-panel-open emits a 3-run JSON baseline", async ({ page, project }) => {
+    await installPerfProbe(page)
+    await project.open()
+
+    const runs = []
+    for (let run = 0; run < 3; run += 1) {
+      await withSession(project.sdk, `perf terminal ${Date.now()}-${run}`, async (session) => {
+        await page.goto(sessionPath(project.directory, session.id))
+        await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 30_000 })
+
+        const terminal = page.locator(terminalSelector).first()
+
+        await resetPerfProbe(page)
+        await page.keyboard.press(terminalToggleKey)
+        await waitTerminalFocusIdle(page, { term: terminal })
+        await settleFrames(page, 4)
+        runs.push(await snapshotPerfProbe(page))
+        if (run < 2) await cooldownAfterRun(page)
+      })
+    }
+
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "terminal-side-panel-open", runs }))
   })
 
   test("session-scroll-reading emits a 3-run JSON baseline", async ({ page, project }) => {
