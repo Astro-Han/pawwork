@@ -38,8 +38,8 @@ export default [
     name: "opencode-desktop:ui-hmr-guard",
     handleHotUpdate(ctx) {
       if (!shouldForceFullReloadForUiHmr({ file: ctx.file, modules: ctx.modules })) return
-      // TODO: remove this workaround after Solid/Vite fixes the upstream
-      // context/HMR edge cases tracked in
+      // TODO: remove this workaround after Solid/Vite fixes the related
+      // upstream context/HMR edge cases discussed in
       // https://github.com/solidjs/vite-plugin-solid/issues/80 and
       // https://github.com/solidjs/vite-plugin-solid/issues/106.
       ctx.server.config.logger.info(`[hmr] full reload after high-fanout ui edit: ${ctx.file}`)

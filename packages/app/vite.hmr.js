@@ -1,3 +1,6 @@
+// Current workspace UI fanout is clustered around modules like icon (39 app
+// imports), button (34), and toast (31), so 30 catches the known risky tier
+// without disabling normal HMR for smaller leaf modules.
 export const UI_HMR_FULL_RELOAD_THRESHOLD = 30
 
 function normalizePath(file) {
