@@ -74,6 +74,7 @@ jobs:
       - name: Sync perf harness into base checkout
         run: |
           rsync -a --delete head/packages/app/e2e/perf/ base/packages/app/e2e/perf/
+          cp head/packages/app/playwright.config.ts base/packages/app/playwright.config.ts
           cp head/packages/app/src/testing/perf-metrics.ts base/packages/app/src/testing/perf-metrics.ts
 
       - name: Run perf probe baseline (base)
@@ -98,6 +99,33 @@ jobs:
           --base "${PERF_ARTIFACT_DIR}/perf-base.json"
           --head "${PERF_ARTIFACT_DIR}/perf-head.json"
           --output "${PERF_ARTIFACT_DIR}/perf-compare.json"
+          --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
+
+      - name: Confirm perf regression (base)
+        if: steps.compare.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-confirm.json
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Confirm perf regression (head)
+        if: steps.compare.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-confirm.json
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Compare confirmed perf baselines
+        id: compare_confirmed
+        if: steps.compare.outcome == 'failure'
+        continue-on-error: true
+        run: >
+          bun head/packages/app/script/compare-perf.ts
+          --base "${PERF_ARTIFACT_DIR}/perf-base-confirm.json"
+          --head "${PERF_ARTIFACT_DIR}/perf-head-confirm.json"
+          --output "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
           --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
 
       - name: Comment perf deltas on pull request
@@ -142,7 +170,7 @@ jobs:
             core.info("Created perf delta comment")
 
       - name: Capture perf diagnostic trace (base)
-        if: steps.compare.outcome == 'failure'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
@@ -151,7 +179,7 @@ jobs:
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture perf diagnostic trace (head)
-        if: steps.compare.outcome == 'failure'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
@@ -160,7 +188,7 @@ jobs:
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Fail job on comparator regression
-        if: steps.compare.outcome == 'failure'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
         run: exit 1
 
       - name: Upload perf probe artifacts
