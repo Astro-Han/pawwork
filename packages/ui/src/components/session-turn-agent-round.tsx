@@ -14,7 +14,20 @@ import { Icon } from "./icon"
 import { groupParts, type PartGroup } from "./message-part-group"
 import { SystemEvent } from "./session-turn-event"
 import { TrowBlock, type TrowBlockLabels } from "./session-turn-trow-block"
+import {
+  computeElapsedSec,
+  isInterrupted,
+  selectFirstAssistant,
+  selectLatestAssistant,
+} from "./session-turn-agent-round-helpers"
+import { Tooltip } from "./tooltip"
 import "./session-turn-agent-round.css"
+
+// Re-export the pure helpers so existing callers (tests, neighbour
+// components) keep their `from "./session-turn-agent-round"` import path
+// working. The helpers themselves live in a sibling .ts module so test
+// runners don't pull the Kobalte tooltip chain on module load.
+export { computeElapsedSec, isInterrupted, selectFirstAssistant, selectLatestAssistant }
 
 /**
  * Slice 11b.1 agent round — DESIGN.md L463-L469, design doc §3.2 / §3.5 / §3.6.
@@ -110,60 +123,7 @@ export interface SessionTurnAgentRoundProps {
 }
 
 // ============================================================================
-// Pure helpers — exported so the reducer can be unit-tested without Solid.
-// ============================================================================
-
-export function selectFirstAssistant(messages: readonly AssistantMessage[]): AssistantMessage | undefined {
-  let best: AssistantMessage | undefined
-  for (const message of messages) {
-    const created = message.time?.created
-    if (typeof created !== "number") continue
-    if (!best || created < (best.time?.created ?? Number.POSITIVE_INFINITY)) {
-      best = message
-    }
-  }
-  return best
-}
-
-export function selectLatestAssistant(messages: readonly AssistantMessage[]): AssistantMessage | undefined {
-  // The round's "latest" assistant: the still-running message if any,
-  // otherwise the assistant with the largest `time.completed`.
-  let running: AssistantMessage | undefined
-  let bestCompleted: AssistantMessage | undefined
-  for (const message of messages) {
-    if (typeof message.time?.completed !== "number") {
-      if (typeof message.time?.created === "number") {
-        if (!running || (message.time.created ?? 0) > (running.time?.created ?? 0)) {
-          running = message
-        }
-      }
-      continue
-    }
-    if (!bestCompleted || (message.time.completed ?? 0) > (bestCompleted.time?.completed ?? 0)) {
-      bestCompleted = message
-    }
-  }
-  return running ?? bestCompleted
-}
-
-export function isInterrupted(messages: readonly AssistantMessage[]): boolean {
-  const latest = selectLatestAssistant(messages)
-  return latest?.error?.name === "MessageAbortedError"
-}
-
-export function computeElapsedSec(input: {
-  startMs: number | undefined
-  endMs: number | undefined
-  nowMs: number
-}): number {
-  const { startMs, endMs, nowMs } = input
-  if (typeof startMs !== "number") return 0
-  const reference = typeof endMs === "number" ? endMs : nowMs
-  return Math.max(0, Math.floor((reference - startMs) / 1000))
-}
-
-// ============================================================================
-// Component
+// Component (pure helpers extracted to ./session-turn-agent-round-helpers.ts)
 // ============================================================================
 
 export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
@@ -341,30 +301,36 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
           </div>
         </Show>
         <div data-slot="agent-toolbar-actions">
-          <button
-            type="button"
-            data-slot="agent-toolbar-action"
-            data-action="copy"
-            data-copied={copied() || undefined}
-            aria-label={copied() ? props.labels.copied : props.labels.copy}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => void handleCopy()}
-          >
-            <Icon name={copied() ? "check" : "copy"} />
-          </button>
-          <Show when={props.actions?.onFork}>
+          {/* Tooltips surface the same i18n label that drives aria-label so the
+              hover affordance is consistent with the keyboard a11y path. */}
+          <Tooltip value={copied() ? props.labels.copied : props.labels.copy} placement="top" gutter={4}>
             <button
               type="button"
               data-slot="agent-toolbar-action"
-              data-action="fork"
-              disabled={forking()}
-              aria-disabled={forking() || undefined}
-              aria-label={props.labels.fork}
+              data-action="copy"
+              data-copied={copied() || undefined}
+              aria-label={copied() ? props.labels.copied : props.labels.copy}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void handleFork()}
+              onClick={() => void handleCopy()}
             >
-              <Icon name="fork" />
+              <Icon name={copied() ? "check" : "copy"} />
             </button>
+          </Tooltip>
+          <Show when={props.actions?.onFork}>
+            <Tooltip value={props.labels.fork} placement="top" gutter={4}>
+              <button
+                type="button"
+                data-slot="agent-toolbar-action"
+                data-action="fork"
+                disabled={forking()}
+                aria-disabled={forking() || undefined}
+                aria-label={props.labels.fork}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void handleFork()}
+              >
+                <Icon name="fork" />
+              </button>
+            </Tooltip>
           </Show>
         </div>
       </div>

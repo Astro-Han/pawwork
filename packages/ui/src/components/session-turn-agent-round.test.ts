@@ -6,7 +6,7 @@ import {
   isInterrupted,
   selectFirstAssistant,
   selectLatestAssistant,
-} from "./session-turn-agent-round"
+} from "./session-turn-agent-round-helpers"
 
 const source = readFileSync(new URL("./session-turn-agent-round.tsx", import.meta.url), "utf8")
 const css = readFileSync(new URL("./session-turn-agent-round.css", import.meta.url), "utf8")

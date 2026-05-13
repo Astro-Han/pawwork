@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal } from "solid-js"
 import type { FilePart, UserMessage, Part, TextPart } from "@opencode-ai/sdk/v2"
 import { AttachmentChip } from "./attachment-chip"
 import { Icon } from "./icon"
+import { Tooltip } from "./tooltip"
 import "./session-turn-user-bubble.css"
 
 /**
@@ -158,32 +159,38 @@ export function SessionTurnUserBubble(props: SessionTurnUserBubbleProps) {
         </Show>
         <div data-slot="bubble-toolbar-actions">
           {/* Reset sits left of copy so the toolbar reads model · time · reset · copy
-              with copy on the rightmost slot per AstroHan W1 review feedback. */}
+              with copy on the rightmost slot per AstroHan W1 review feedback.
+              Tooltip wrappers surface the same i18n label that drives aria-label
+              so keyboard-only and pointer users get the same affordance hint. */}
           <Show when={props.actions?.onReset}>
+            <Tooltip value={props.labels.reset} placement="top" gutter={4}>
+              <button
+                type="button"
+                data-slot="bubble-toolbar-action"
+                data-action="reset"
+                disabled={resetting()}
+                aria-disabled={resetting() || undefined}
+                aria-label={props.labels.reset}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void handleReset()}
+              >
+                <Icon name="reset" />
+              </button>
+            </Tooltip>
+          </Show>
+          <Tooltip value={copied() ? props.labels.copied : props.labels.copy} placement="top" gutter={4}>
             <button
               type="button"
               data-slot="bubble-toolbar-action"
-              data-action="reset"
-              disabled={resetting()}
-              aria-disabled={resetting() || undefined}
-              aria-label={props.labels.reset}
+              data-action="copy"
+              data-copied={copied() || undefined}
+              aria-label={copied() ? props.labels.copied : props.labels.copy}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => void handleReset()}
+              onClick={() => void handleCopy()}
             >
-              <Icon name="reset" />
+              <Icon name={copied() ? "check" : "copy"} />
             </button>
-          </Show>
-          <button
-            type="button"
-            data-slot="bubble-toolbar-action"
-            data-action="copy"
-            data-copied={copied() || undefined}
-            aria-label={copied() ? props.labels.copied : props.labels.copy}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => void handleCopy()}
-          >
-            <Icon name={copied() ? "check" : "copy"} />
-          </button>
+          </Tooltip>
         </div>
       </div>
     </div>
