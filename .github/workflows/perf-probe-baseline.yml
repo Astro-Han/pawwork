@@ -62,6 +62,8 @@ jobs:
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('head/packages/app/package.json', 'head/bun.lock', 'base/packages/app/package.json', 'base/bun.lock') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Install head dependencies
         working-directory: head
