@@ -51,6 +51,7 @@ export type TimelineScrollReason =
   | "owner_mismatch_cancelled"
   | "owner_detached"
   | "anchor_unrecoverable_fallback"
+  | "layout_interaction_reading"
 
 export type TimelineRecovery =
   | { type: "none" }
@@ -94,6 +95,22 @@ export type TimelineScrollIntent =
       type: "target_message"
       messageID: string
       align: "nearest" | "top" | "center"
+    }
+  | {
+      // User-layout interaction that is *not* a scroll gesture but is
+      // still a "I want to read here" signal from the user — e.g.
+      // toggling a trow expand/collapse. Slice 11b.1 P0 #6 retest 4
+      // (GPT-X RCA msg=d60ff75a): without surfacing this intent to the
+      // controller, an `onToggle` from a long trow followed by an
+      // agent-append `content_resize` would land in the
+      // `following_latest` branch and restore the viewport to bottom —
+      // or, if the round was off-bottom, the message-level anchor
+      // restore would snap to the user-turn top. The intent flips mode
+      // to `reading_history` so subsequent observations preserve the
+      // local position the user is now reading; recovery is `none`
+      // because the layout change itself does the visual movement.
+      type: "layout_interaction"
+      source: "trow_toggle"
     }
 
 export type TimelineScrollObservation =
@@ -448,6 +465,26 @@ export function createSessionTimelineScrollController(
           accepted: true,
           recovery: noRecovery,
           reason: "scrollbar_drag_started",
+        })
+      }
+
+      if (intent.type === "layout_interaction") {
+        // Trow toggle (or any future user-layout intent) — flip to
+        // `reading_history` and drop the bottom-follow latch so the
+        // very next `content_resize` from the agent's append does not
+        // snap the viewport to bottom or to the user-turn top. No
+        // recovery is requested; the layout change itself produces
+        // the visible movement, and the next scroll_sample populates
+        // a fresh reading safePosition through the normal observation
+        // path.
+        state.mode = "reading_history"
+        state.latestProtected = false
+        return result({
+          before,
+          intent,
+          accepted: true,
+          recovery: noRecovery,
+          reason: "layout_interaction_reading",
         })
       }
 

@@ -40,6 +40,7 @@ export function TimelineMessage(props: {
   showReasoningSummaries: boolean
   turnChanges: Record<string, TurnChangeDisplay | null>
   turnChangeActions: TurnChangeActions
+  onTrowLayoutInteraction?: () => void
 }) {
   const comments = createMemo<MessageComment[]>(() => messageComments(props.parts ?? []), [], {
     equals: (a, b) =>
@@ -77,6 +78,7 @@ export function TimelineMessage(props: {
         showReasoningSummaries={props.showReasoningSummaries}
         turnChanges={props.turnChanges}
         turnChangeActions={props.turnChangeActions}
+        onTrowLayoutInteraction={props.onTrowLayoutInteraction}
         classes={{
           root: "min-w-0 w-full relative",
           content: "flex flex-col justify-between !overflow-visible",

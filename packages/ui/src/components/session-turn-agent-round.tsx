@@ -123,6 +123,14 @@ export interface SessionTurnAgentRoundProps {
    * read the setting but reasoning rendering ignored it.
    */
   showReasoningSummaries?: boolean
+  /**
+   * Fires before the trow `<details>` toggles open/closed. Plumbed
+   * down to every nested `<TrowBlock>` so the timeline owner can
+   * flip the scroll controller to `reading_history` before the agent's
+   * next `content_resize` lands. See `session-turn-trow-block.tsx`
+   * `onUserLayoutInteraction` for the trigger surface.
+   */
+  onTrowLayoutInteraction?: () => void
 }
 
 // ============================================================================
@@ -290,6 +298,7 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
                   parts={(group as Extract<PartGroup, { kind: "trow-block" }>).parts}
                   labels={props.labels.trow}
                   renderTool={props.renderTool}
+                  onUserLayoutInteraction={props.onTrowLayoutInteraction}
                 />
               </Match>
             </Switch>

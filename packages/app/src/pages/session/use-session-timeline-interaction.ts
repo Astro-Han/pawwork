@@ -171,6 +171,7 @@ export function createSessionTimelineInteraction(input: {
 
   const shouldCancelBottomFollowLockForIntent = (intent: TimelineScrollIntent) => {
     if (intent.type === "scrollbar_drag_start" || intent.type === "target_message") return true
+    if (intent.type === "layout_interaction") return true
     if (intent.type === "keyboard_scroll") {
       return intent.key === "ArrowUp" || intent.key === "PageUp" || intent.key === "Home"
     }
@@ -222,6 +223,15 @@ export function createSessionTimelineInteraction(input: {
 
   const onTimelineScrollIntent = (intent: TimelineScrollIntent): TimelineScrollControllerResult => {
     if (shouldCancelBottomFollowLockForIntent(intent)) scrollDock.cancelBottomFollowLock()
+    // Slice 11b.1 P0 #6 retest 4 (GPT-X RCA msg=d60ff75a): a trow
+    // toggle is a user-layout intent — distinct from a scroll gesture
+    // but still a "I'm reading here" signal. The controller flips to
+    // `reading_history` on the intent itself, but `autoScroll` lives
+    // in a parallel owner that does not observe the controller; it
+    // needs an explicit `pause()` so the next ResizeObserver tick
+    // from the agent's append does not re-snap the viewport to
+    // bottom underneath the user.
+    if (intent.type === "layout_interaction") autoScroll.pause()
     const result = scrollController.intent(intent)
     applyTimelineRecovery(result.recovery)
     return result

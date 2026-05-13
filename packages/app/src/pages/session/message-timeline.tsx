@@ -461,6 +461,9 @@ export function MessageTimeline(props: {
                           void platform.showItemInFolder?.(path)
                         },
                       }}
+                      onTrowLayoutInteraction={() =>
+                        props.onTimelineScrollIntent({ type: "layout_interaction", source: "trow_toggle" })
+                      }
                     />
                   )
                 }}

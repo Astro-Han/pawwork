@@ -127,6 +127,18 @@ export interface TrowBlockProps {
    * omitted, the block falls back to a minimal "name + status" row.
    */
   renderTool?: (part: ToolPart) => JSX.Element
+  /**
+   * Fires *before* the `<details>` toggles open/closed. Slice 11b.1 P0
+   * #6 retest 4 (GPT-X RCA msg=d60ff75a): the trow toggle is a user-
+   * layout intent ("I want to read here"), distinct from a scroll
+   * gesture. Without surfacing the intent before the toggle, the
+   * agent's next `content_resize` lands while the controller is still
+   * in `following_latest`, snapping the viewport off the user's
+   * focus. The callback fires on `onPointerDown` and on the keyboard
+   * activation keys (Enter / Space) so the affordance is covered for
+   * both mouse and keyboard users.
+   */
+  onUserLayoutInteraction?: () => void
 }
 
 /**
@@ -170,6 +182,15 @@ export function TrowBlock(props: TrowBlockProps) {
     })
   })
 
+  // Fires the user-layout intent before the native `<details>` toggle
+  // runs. Wired to `onPointerDown` (mouse / touch / pen) and the
+  // keyboard activation keys on the summary itself, so the timeline
+  // owner can flip the scroll controller to `reading_history` before
+  // the agent's next `content_resize` arrives.
+  const fireLayoutInteraction = () => {
+    props.onUserLayoutInteraction?.()
+  }
+
   return (
     <div
       data-component="session-turn-trow-block"
@@ -183,7 +204,13 @@ export function TrowBlock(props: TrowBlockProps) {
           setOpen(el.open)
         }}
       >
-        <summary data-slot="trow-summary">
+        <summary
+          data-slot="trow-summary"
+          onPointerDown={fireLayoutInteraction}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") fireLayoutInteraction()
+          }}
+        >
           <span data-slot="trow-summary-icon">
             <Icon name={summary().leadingIcon} />
           </span>

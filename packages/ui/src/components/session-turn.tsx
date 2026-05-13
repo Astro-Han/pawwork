@@ -84,6 +84,17 @@ export function SessionTurn(
     active?: boolean
     status?: SessionStatus
     onUserInteracted?: () => void
+    /**
+     * Slice 11b.1 P0 #6 retest 4 (GPT-X RCA msg=d60ff75a): trow
+     * expand/collapse is a user-layout intent the scroll controller
+     * needs to know about, distinct from a scroll gesture. Threading
+     * the callback from the timeline owner all the way to `<TrowBlock>`
+     * means the handler fires *before* the `<details>` `onToggle`
+     * runs, so the controller can flip to `reading_history` and drop
+     * the bottom-follow latch before the agent's next `content_resize`
+     * lands.
+     */
+    onTrowLayoutInteraction?: () => void
     classes?: {
       root?: string
       content?: string
@@ -440,6 +451,7 @@ export function SessionTurn(
                       renderTool={leaf.renderTool}
                       actions={leaf.agentRoundActions()}
                       showReasoningSummaries={showReasoningSummaries()}
+                      onTrowLayoutInteraction={props.onTrowLayoutInteraction}
                     />
                   </div>
                 </Show>
