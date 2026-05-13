@@ -381,12 +381,25 @@ export function MessageTimeline(props: {
                 }).catch(() => {})
               })
             }
+            // Slice 11b.1 P0 #6 retest — GPT-X RCA: previously
+            // `onScheduleScrollState` ran before the auto-scroll
+            // handlers had a chance to mark the gesture / clear the
+            // bottom-follow lock. With the bottom-follow lock still
+            // armed when `scheduleScrollState` ran, the
+            // bottomFollowLocked() branch inside `scheduleScrollState`
+            // would call `followBottom()` and snap the viewport back
+            // to bottom before the gesture path could even update
+            // `userScrolled`. Reordering the gesture-driven branch
+            // first lets the lock get cancelled and `userScrolled` get
+            // set on the same frame, so the schedule call below sees
+            // the post-gesture state.
+            if (props.hasScrollGesture()) {
+              props.onUserScroll()
+              props.onAutoScrollHandleScroll()
+              props.onMarkScrollGesture(e.currentTarget)
+            }
             props.onScheduleScrollState(e.currentTarget)
             props.onTurnBackfillScroll()
-            if (!props.hasScrollGesture()) return
-            props.onUserScroll()
-            props.onAutoScrollHandleScroll()
-            props.onMarkScrollGesture(e.currentTarget)
           }}
           onClick={props.onAutoScrollInteraction}
           class="relative min-w-0 w-full h-full"

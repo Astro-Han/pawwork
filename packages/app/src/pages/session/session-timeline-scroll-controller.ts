@@ -510,6 +510,28 @@ export function createSessionTimelineScrollController(
           })
         }
 
+        // Slice 11b.1 P0 #6 retest — GPT-X RCA (msg=bd9c5ed8): when the
+        // viewport moves off the bottom while we're still nominally in
+        // `following_latest`, and the last user intent was a non-nested
+        // wheel/touch (which the previous design treated as a "weak"
+        // gesture that did NOT flip to `reading_history`), the bottom
+        // branch below (`mode === "following_latest"` → restore_latest)
+        // would yank the viewport back to bottom on every subsequent
+        // resize. Demote to `reading_history` here so the user keeps
+        // the position they actually scrolled to. We only demote on
+        // non-nested gestures — nested-scrollable wheel/touch inside a
+        // diff or code block must not flip the timeline mode.
+        if (
+          state.mode === "following_latest" &&
+          !observation.metrics.nearBottom &&
+          state.lastIntent &&
+          (state.lastIntent.type === "wheel_scroll" || state.lastIntent.type === "touch_scroll") &&
+          !state.lastIntent.nestedScrollable
+        ) {
+          state.mode = "reading_history"
+          state.latestProtected = false
+        }
+
         updateObservedSafePosition(state, observation.safePosition)
         return result({
           before,

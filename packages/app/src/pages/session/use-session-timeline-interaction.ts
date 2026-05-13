@@ -175,7 +175,18 @@ export function createSessionTimelineInteraction(input: {
       return intent.key === "ArrowUp" || intent.key === "PageUp" || intent.key === "Home"
     }
     if (intent.type === "wheel_scroll" || intent.type === "touch_scroll") {
-      return intent.direction === "up" && !intent.nestedScrollable
+      // Slice 11b.1 P0 #6 retest — GPT-X RCA: the previous gate only
+      // released the bottom-follow lock on upward gestures, so a user
+      // who scrolled up and then nudged the wheel downward would still
+      // have the 3-second lock armed underneath, and the very next
+      // content resize would call `followBottom()` and snap the
+      // viewport back. Releasing the lock on every non-nested
+      // wheel/touch (regardless of direction) matches the intent
+      // signalled by any meaningful user gesture inside the timeline
+      // itself. Nested-scrollable gestures (inside a diff or code
+      // block) still preserve the lock since they're not directed at
+      // the timeline.
+      return !intent.nestedScrollable
     }
     return false
   }
