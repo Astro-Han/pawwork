@@ -445,6 +445,7 @@ export function SessionTurn(
                       actions={leaf.agentRoundActions()}
                       shellToolDefaultOpen={props.shellToolDefaultOpen}
                       editToolDefaultOpen={props.editToolDefaultOpen}
+                      showReasoningSummaries={showReasoningSummaries()}
                     />
                   </div>
                 </Show>
@@ -457,6 +458,7 @@ export function SessionTurn(
                         class="session-turn-thinking-heading"
                         travel={25}
                         duration={700}
+                        truncate
                       />
                     </Show>
                   </div>

@@ -120,6 +120,15 @@ export interface SessionTurnAgentRoundProps {
    * without this leaf needing to import the message-part graph.
    */
   renderTool?: (part: ToolPart) => JSX.Element
+  /**
+   * When `false`, reasoning groups are dropped from the rendered output
+   * so the round shows only prose + tool calls (matching the settings
+   * toggle "显示推理摘要 / Show reasoning summaries"). Defaults to
+   * `true`. AstroHan's fourth W1 retest (msg=ac13481a) flagged that the
+   * toggle previously had no effect on the W1 path — `showThinking`
+   * read the setting but reasoning rendering ignored it.
+   */
+  showReasoningSummaries?: boolean
 }
 
 // ============================================================================
@@ -194,7 +203,18 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
     return out
   })
 
-  const groups = createMemo<PartGroup[]>(() => groupParts(flatParts()))
+  // Drop reasoning groups when the settings toggle is off. The grouper
+  // is structural and does not know about user preferences; the W1
+  // "显示推理摘要" toggle suppresses the COT body, leaving only prose
+  // + tool calls plus the `Thinking…` placeholder that `SessionTurn`
+  // renders during pre-first-visible-output.
+  const groups = createMemo<PartGroup[]>(() => {
+    const raw = groupParts(flatParts())
+    if (props.showReasoningSummaries === false) {
+      return raw.filter((g) => g.kind !== "reasoning")
+    }
+    return raw
+  })
 
   const copyText = createMemo(() => {
     const pieces: string[] = []
