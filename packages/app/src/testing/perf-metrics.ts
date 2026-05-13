@@ -67,6 +67,8 @@ export type PerfBaselineComparison = {
   scenarios: PerfScenarioComparison[]
 }
 
+export const PERF_COMMENT_MARKER = "<!-- pawwork-perf-probe-baseline -->"
+
 const perfDeltaThresholds = {
   interactionMedianMs: 10,
   interactionMedianRatio: 1.05,
@@ -200,6 +202,46 @@ function exceededByDelta(input: { base: number; head: number; maxDelta: number; 
 function addAbsoluteWarning(target: string[], key: string, value: number | undefined, threshold: number) {
   if (value === undefined) return
   if (value > threshold) target.push(key)
+}
+
+function formatDelta(value: number) {
+  if (value === 0) return "0"
+  return `${value > 0 ? "+" : ""}${round(value)}`
+}
+
+function formatMetricDelta(base: number, head: number) {
+  return `${base} -> ${head} (${formatDelta(head - base)})`
+}
+
+function scenarioStatus(input: PerfScenarioComparison) {
+  if (input.failures.length > 0) return `fail: ${input.failures.join(", ")}`
+  if (input.warnings.length > 0) return `warn: ${input.warnings.join(", ")}`
+  return "pass"
+}
+
+export function renderPerfBaselineComment(input: PerfBaselineComparison) {
+  const lines = [
+    PERF_COMMENT_MARKER,
+    "## Perf delta summary",
+    "",
+    `Comparator: ${input.pass ? "pass" : "fail"}`,
+    "",
+    "| Scenario | interaction median | interaction worst | long task max | tbt | frame gap p95 | frame gap max | jank count | cls | status |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+  ]
+
+  for (const scenario of input.scenarios) {
+    lines.push(
+      `| ${scenario.scenario} | ${formatMetricDelta(scenario.base.interaction_ms_median, scenario.head.interaction_ms_median)} | ${formatMetricDelta(scenario.base.interaction_ms_worst, scenario.head.interaction_ms_worst)} | ${formatMetricDelta(scenario.base.long_task_max_ms, scenario.head.long_task_max_ms)} | ${formatMetricDelta(scenario.base.tbt_ms, scenario.head.tbt_ms)} | ${formatMetricDelta(scenario.base.frame_gap_p95_ms, scenario.head.frame_gap_p95_ms)} | ${formatMetricDelta(scenario.base.frame_gap_max_ms, scenario.head.frame_gap_max_ms)} | ${formatMetricDelta(scenario.base.jank_count_50ms, scenario.head.jank_count_50ms)} | ${formatMetricDelta(scenario.base.cls, scenario.head.cls)} | ${scenarioStatus(scenario)} |`,
+    )
+  }
+
+  if (input.failures.some((failure) => failure.startsWith("missing_"))) {
+    lines.push("")
+    lines.push(`Missing scenarios: ${input.failures.filter((failure) => failure.startsWith("missing_")).join(", ")}`)
+  }
+
+  return `${lines.join("\n")}\n`
 }
 
 export function comparePerfScenarioSummaries(input: {

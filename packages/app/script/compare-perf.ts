@@ -1,6 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
-import { comparePerfBaselines, type PerfScenarioSummary } from "../src/testing/perf-metrics"
+import { comparePerfBaselines, renderPerfBaselineComment, type PerfScenarioSummary } from "../src/testing/perf-metrics"
 
 function readArg(flag: string) {
   const index = process.argv.indexOf(flag)
@@ -22,6 +22,7 @@ async function main() {
   const basePath = readArg("--base")
   const headPath = readArg("--head")
   const outputPath = readArg("--output")
+  const commentOutputPath = readArg("--comment-output")
 
   if (!basePath || !headPath) {
     throw new Error("Usage: bun script/compare-perf.ts --base <perf-base.json> --head <perf-head.json> [--output <path>]")
@@ -33,6 +34,10 @@ async function main() {
   if (outputPath) {
     await fs.mkdir(path.dirname(outputPath), { recursive: true })
     await fs.writeFile(outputPath, `${JSON.stringify(comparison, null, 2)}\n`)
+  }
+  if (commentOutputPath) {
+    await fs.mkdir(path.dirname(commentOutputPath), { recursive: true })
+    await fs.writeFile(commentOutputPath, renderPerfBaselineComment(comparison))
   }
 
   const summary = {
