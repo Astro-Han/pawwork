@@ -118,8 +118,6 @@ export interface TrowBlockProps {
   parts: ToolPart[]
   /** Default open state — DESIGN.md L468 locks default-collapsed (false). */
   defaultOpen?: boolean
-  shellToolDefaultOpen?: boolean
-  editToolDefaultOpen?: boolean
   /** Caller-resolved summary labels. */
   labels: TrowBlockLabels
   /**

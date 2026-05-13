@@ -450,8 +450,6 @@ export function MessageTimeline(props: {
                       actions={props.actions}
                       status={active() ? sessionStatus() : undefined}
                       showReasoningSummaries={settings.general.showReasoningSummaries()}
-                      shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
-                      editToolDefaultOpen={settings.general.editToolPartsExpanded()}
                       turnChanges={turnChanges}
                       turnChangeActions={{
                         undo: (userMessageID, options) => turnChangeFetch(userMessageID, "undo", options),

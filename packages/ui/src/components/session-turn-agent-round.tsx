@@ -108,12 +108,6 @@ export interface SessionTurnAgentRoundProps {
   renderReasoning?: (input: { messageID: string; partID: string; text: string }) => JSX.Element
   actions?: SessionTurnAgentRoundActions
   /**
-   * Default-open hints forwarded to nested `<TrowBlock>`s, matching the
-   * existing SessionTurnProps shape.
-   */
-  shellToolDefaultOpen?: boolean
-  editToolDefaultOpen?: boolean
-  /**
    * Caller-provided per-tool renderer threaded into every `<TrowBlock>`.
    * The shell wires this to the existing `<Part>` registry so each tool
    * keeps its rich body (file accordion / raw output / copy button)
@@ -294,8 +288,6 @@ export function SessionTurnAgentRound(props: SessionTurnAgentRoundProps) {
               <Match when={group.kind === "trow-block"}>
                 <TrowBlock
                   parts={(group as Extract<PartGroup, { kind: "trow-block" }>).parts}
-                  shellToolDefaultOpen={props.shellToolDefaultOpen}
-                  editToolDefaultOpen={props.editToolDefaultOpen}
                   labels={props.labels.trow}
                   renderTool={props.renderTool}
                 />

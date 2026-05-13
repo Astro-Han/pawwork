@@ -68,8 +68,6 @@ export function SessionTurn(
     messages?: MessageType[]
     actions?: UserActions
     showReasoningSummaries?: boolean
-    shellToolDefaultOpen?: boolean
-    editToolDefaultOpen?: boolean
     turnChanges?: Record<string, TurnChangeDisplay | null | undefined>
     turnChangeActions?: {
       undo?: (
@@ -390,8 +388,6 @@ export function SessionTurn(
     turnDurationMs,
     working,
     actions: props.actions,
-    shellToolDefaultOpen: props.shellToolDefaultOpen,
-    editToolDefaultOpen: props.editToolDefaultOpen,
   })
 
   // Compaction divider stays — W1 doesn't redesign it. The interrupted
@@ -443,8 +439,6 @@ export function SessionTurn(
                       renderProse={leaf.renderProse}
                       renderTool={leaf.renderTool}
                       actions={leaf.agentRoundActions()}
-                      shellToolDefaultOpen={props.shellToolDefaultOpen}
-                      editToolDefaultOpen={props.editToolDefaultOpen}
                       showReasoningSummaries={showReasoningSummaries()}
                     />
                   </div>

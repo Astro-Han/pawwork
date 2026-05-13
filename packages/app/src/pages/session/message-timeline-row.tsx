@@ -38,8 +38,6 @@ export function TimelineMessage(props: {
   actions: UserActions
   status: SessionStatus
   showReasoningSummaries: boolean
-  shellToolDefaultOpen: boolean
-  editToolDefaultOpen: boolean
   turnChanges: Record<string, TurnChangeDisplay | null>
   turnChangeActions: TurnChangeActions
 }) {
@@ -77,8 +75,6 @@ export function TimelineMessage(props: {
         active={props.active}
         status={props.status}
         showReasoningSummaries={props.showReasoningSummaries}
-        shellToolDefaultOpen={props.shellToolDefaultOpen}
-        editToolDefaultOpen={props.editToolDefaultOpen}
         turnChanges={props.turnChanges}
         turnChangeActions={props.turnChangeActions}
         classes={{

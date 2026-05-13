@@ -39,8 +39,6 @@ export type LeafBridgeInputs = {
   turnDurationMs: Accessor<number | undefined>
   working: Accessor<boolean>
   actions?: UserActions
-  shellToolDefaultOpen?: boolean
-  editToolDefaultOpen?: boolean
 }
 
 export function createSessionTurnLeafBridges(input: LeafBridgeInputs) {
@@ -159,6 +157,19 @@ export function createSessionTurnLeafBridges(input: LeafBridgeInputs) {
   // `session-turn-trow-block.css` flattens any inner Part chrome's
   // hard-coded typography to the W1 caption family. New tools inherit
   // the reset automatically without touching the registry.
+  // Slice 11b.1 #5b (GPT-X review msg=69e11888 / AstroHan
+  // msg=7e4babaf): the legacy `shellToolDefaultOpen` /
+  // `editToolDefaultOpen` settings were unwired from this slot. In
+  // W1 the outer trow wrapper is default-collapsed, so a per-tool
+  // `defaultOpen` toggle never produced a visible change until the
+  // user expanded the trow first — the toggle read as broken. The
+  // settings persistence keys are kept in `context/settings.tsx` as
+  // no-op fields for migration compat; the UI rows + W1 prop
+  // threading were both removed. The bonus catch was that
+  // `editToolDefaultOpen` previously fell through to all non-bash
+  // tools (read / list / grep / websearch / …), not only edit /
+  // write / patch — which is its own confirmation that the toggle
+  // had drifted out of the W1 semantics.
   const renderTool = (part: ToolPart) => {
     const owner = partOwnerMap().get(part.id)
     if (!owner) return null
@@ -169,7 +180,6 @@ export function createSessionTurnLeafBridges(input: LeafBridgeInputs) {
           message={owner}
           showAssistantCopyPartID={input.assistantCopyPartID()}
           turnDurationMs={input.turnDurationMs()}
-          defaultOpen={part.tool === "bash" ? input.shellToolDefaultOpen : input.editToolDefaultOpen}
         />
       </div>
     )

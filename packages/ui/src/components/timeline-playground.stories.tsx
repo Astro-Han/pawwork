@@ -2004,8 +2004,6 @@ function Playground() {
                           messages={state.messages}
                           active={false}
                           showReasoningSummaries={true}
-                          shellToolDefaultOpen={true}
-                          editToolDefaultOpen={true}
                           classes={{
                             root: "min-w-0 w-full relative",
                             content: "flex flex-col justify-between !overflow-visible",

@@ -339,29 +339,21 @@ export const SettingsGeneral: Component = () => {
           </div>
         </SettingsRow>
 
-        <SettingsRow
-          title={language.t("settings.general.row.shellToolPartsExpanded.title")}
-          description={language.t("settings.general.row.shellToolPartsExpanded.description")}
-        >
-          <div data-action="settings-feed-shell-tool-parts-expanded">
-            <Switch
-              checked={settings.general.shellToolPartsExpanded()}
-              onChange={(checked) => settings.general.setShellToolPartsExpanded(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.general.row.editToolPartsExpanded.title")}
-          description={language.t("settings.general.row.editToolPartsExpanded.description")}
-        >
-          <div data-action="settings-feed-edit-tool-parts-expanded">
-            <Switch
-              checked={settings.general.editToolPartsExpanded()}
-              onChange={(checked) => settings.general.setEditToolPartsExpanded(checked)}
-            />
-          </div>
-        </SettingsRow>
+        {/* Slice 11b.1 #5b (GPT-X review msg=69e11888 / AstroHan
+         * msg=7e4babaf): the "Expand shell tool parts" / "Expand edit
+         * tool parts" rows used to map `defaultOpen` onto every bash /
+         * edit / write / patch tool in the legacy timeline. In W1 the
+         * trow group wrapper is default-collapsed, so the per-tool
+         * defaultOpen toggle never visibly changes anything until the
+         * user expands the outer trow first — the setting reads as
+         * broken. The two rows were removed; the persistence keys
+         * (`general.shellToolPartsExpanded` / `editToolPartsExpanded`)
+         * are kept as no-op fields in `context/settings.tsx` so users
+         * with the value already in localStorage do not see a
+         * migration error. Future work that re-introduces a tool-
+         * expansion preference should ship under a W1-shaped name
+         * (e.g. "default-expand the next-most-recent trow") rather
+         * than reviving these per-tool toggles. */}
 
         <SettingsRow
           title={language.t("settings.general.row.lsp.title")}
