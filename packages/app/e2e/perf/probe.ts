@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import { aggregatePerfRuns, summarizePerfRun, type PerfRunSummary } from "../../src/testing/perf-metrics"
+import { aggregatePerfRuns, summarizePerfRun, type PerfProfile, type PerfRunSummary } from "../../src/testing/perf-metrics"
 
 type BrowserPerfSample = {
   startedAt: number
@@ -158,6 +158,6 @@ export async function snapshotPerfProbe(page: Page) {
   return summarizePerfRun(sample)
 }
 
-export function summarizeScenarioRuns(input: { branch: string; scenario: string; runs: PerfRunSummary[] }) {
+export function summarizeScenarioRuns(input: { branch: string; profile?: PerfProfile; scenario: string; runs: PerfRunSummary[] }) {
   return aggregatePerfRuns(input)
 }

@@ -1,6 +1,41 @@
 import { describe, expect, test } from "bun:test"
 import { aggregatePerfRuns, comparePerfBaselines, comparePerfScenarioSummaries, PERF_COMMENT_MARKER, renderPerfBaselineComment, summarizePerfRun } from "./perf-metrics"
 
+function scenario(input: {
+  branch?: string
+  profile?: "default" | "low-end"
+  scenario?: string
+  interaction?: number
+  worst?: number
+  longTask?: number
+  tbt?: number
+  frameP95?: number
+  frameMax?: number
+  jank?: number
+  cls?: number
+}) {
+  const value = input.interaction ?? 40
+  return {
+    branch: input.branch ?? "base",
+    profile: input.profile ?? "default",
+    scenario: input.scenario ?? "homepage-cold",
+    runs: 3,
+    interaction_ms_median: value,
+    interaction_ms_worst: input.worst ?? value,
+    interaction_ms: value,
+    interaction_delay_ms: 0,
+    long_task_count: input.longTask && input.longTask > 0 ? 1 : 0,
+    long_task_max_ms: input.longTask ?? 0,
+    tbt_ms: input.tbt ?? 0,
+    frame_gap_p95_ms: input.frameP95 ?? 16.8,
+    frame_gap_max_ms: input.frameMax ?? 16.8,
+    jank_count_50ms: input.jank ?? 0,
+    cls: input.cls ?? 0,
+    window_ms: 900,
+    run_details: [],
+  }
+}
+
 describe("perf metrics", () => {
   test("summarizes a perf sample window", () => {
     const summary = summarizePerfRun({
@@ -104,6 +139,7 @@ describe("perf metrics", () => {
     })
 
     expect(summary.branch).toBe("dev")
+    expect(summary.profile).toBe("default")
     expect(summary.scenario).toBe("tool-call-expand")
     expect(summary.runs).toBe(3)
     expect(summary.interaction_ms_median).toBe(52)
@@ -122,6 +158,7 @@ describe("perf metrics", () => {
       scenario: "session-streaming-long",
       base: {
         branch: "base",
+        profile: "default",
         scenario: "session-streaming-long",
         runs: 3,
         interaction_ms_median: 100,
@@ -140,6 +177,7 @@ describe("perf metrics", () => {
       },
       head: {
         branch: "head",
+        profile: "default",
         scenario: "session-streaming-long",
         runs: 3,
         interaction_ms_median: 116,
@@ -168,6 +206,7 @@ describe("perf metrics", () => {
       scenario: "tool-call-expand",
       base: {
         branch: "base",
+        profile: "default",
         scenario: "tool-call-expand",
         runs: 3,
         interaction_ms_median: 120,
@@ -186,6 +225,7 @@ describe("perf metrics", () => {
       },
       head: {
         branch: "head",
+        profile: "default",
         scenario: "tool-call-expand",
         runs: 3,
         interaction_ms_median: 120,
@@ -213,6 +253,7 @@ describe("perf metrics", () => {
       scenario: "homepage-cold",
       base: {
         branch: "base",
+        profile: "default",
         scenario: "homepage-cold",
         runs: 3,
         interaction_ms_median: 70,
@@ -233,6 +274,7 @@ describe("perf metrics", () => {
       },
       head: {
         branch: "head",
+        profile: "default",
         scenario: "homepage-cold",
         runs: 3,
         interaction_ms_median: 74,
@@ -302,7 +344,72 @@ describe("perf metrics", () => {
     const result = comparePerfBaselines({ base, head })
 
     expect(result.pass).toBe(false)
-    expect(result.failures).toContain("missing_head_scenario:tool-call-expand")
+    expect(result.failures).toContain("missing_head_scenario:default:tool-call-expand")
+  })
+
+  test("compares baseline collections by profile and scenario", () => {
+    const base = [
+      scenario({ branch: "base", profile: "default", scenario: "session-timeline-recompute" }),
+      scenario({ branch: "base", profile: "low-end", scenario: "session-timeline-recompute" }),
+    ]
+    const head = [
+      scenario({ branch: "head", profile: "default", scenario: "session-timeline-recompute" }),
+      scenario({ branch: "head", profile: "low-end", scenario: "session-timeline-recompute", interaction: 60 }),
+    ]
+
+    const result = comparePerfBaselines({ base, head })
+
+    expect(result.scenarios.map((entry) => `${entry.profile}:${entry.scenario}`)).toEqual([
+      "default:session-timeline-recompute",
+      "low-end:session-timeline-recompute",
+    ])
+  })
+
+  test("fails when the matching profile and scenario is missing", () => {
+    const base = [
+      scenario({ branch: "base", profile: "default", scenario: "session-timeline-recompute" }),
+      scenario({ branch: "base", profile: "low-end", scenario: "session-timeline-recompute" }),
+    ]
+    const head = [scenario({ branch: "head", profile: "default", scenario: "session-timeline-recompute" })]
+
+    const result = comparePerfBaselines({ base, head })
+
+    expect(result.pass).toBe(false)
+    expect(result.failures).toContain("missing_head_scenario:low-end:session-timeline-recompute")
+  })
+
+  test("keeps low-end moderate regressions warning-only", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "session-timeline-recompute",
+      base: scenario({ branch: "base", profile: "low-end", interaction: 100, worst: 150 }),
+      head: scenario({ branch: "head", profile: "low-end", interaction: 126, worst: 190 }),
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).toHaveLength(0)
+    expect(result.warnings).toContain("interaction_ms_median")
+  })
+
+  test("fails low-end catastrophic regressions", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "session-timeline-recompute",
+      base: scenario({ branch: "base", profile: "low-end", interaction: 120, worst: 240, longTask: 120 }),
+      head: scenario({ branch: "head", profile: "low-end", interaction: 180, worst: 760, longTask: 360 }),
+    })
+
+    expect(result.pass).toBe(false)
+    expect(result.failures).toEqual(expect.arrayContaining(["interaction_ms_worst", "long_task_max_ms"]))
+  })
+
+  test("does not fail low-end absolute slowness without regression", () => {
+    const result = comparePerfScenarioSummaries({
+      scenario: "session-timeline-recompute",
+      base: scenario({ branch: "base", profile: "low-end", interaction: 120, worst: 760, longTask: 340 }),
+      head: scenario({ branch: "head", profile: "low-end", interaction: 121, worst: 761, longTask: 341 }),
+    })
+
+    expect(result.pass).toBe(true)
+    expect(result.failures).toHaveLength(0)
   })
 
   test("renders a markdown comment with scenario deltas and fail or warn status", () => {
@@ -391,8 +498,8 @@ describe("perf metrics", () => {
 
     expect(comment).toContain(PERF_COMMENT_MARKER)
     expect(comment).toContain("## Perf delta summary")
-    expect(comment).toContain("| homepage-cold |")
-    expect(comment).toContain("| session-scroll-reading |")
+    expect(comment).toContain("| default / homepage-cold |")
+    expect(comment).toContain("| default / session-scroll-reading |")
     expect(comment).toContain("warn: fcp_ms, lcp_ms")
     expect(comment).toContain("fail: interaction_ms_median")
   })
