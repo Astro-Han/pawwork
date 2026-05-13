@@ -65,6 +65,12 @@
   height: 12px;
   color: var(--icon-chev);
   transition: transform var(--duration-base) ease-out;
+  /* Collapsed = chevron points right ("click to expand sideways into
+   * detail"). AstroHan's third W1 retest (msg=362e9b72) re-defined the
+   * affordance: 折叠朝右、展开朝下. The second retest's "open = up"
+   * rule was wrong — file-tree and Collapsible's own chev all use
+   * down-when-open, so trow should match. */
+  transform: rotate(-90deg);
 }
 
 [data-component="session-turn-trow-block"] [data-slot="trow-summary-chev"] [data-icon] {
@@ -73,10 +79,8 @@
 }
 
 [data-component="session-turn-trow-block"] details[open] [data-slot="trow-summary-chev"] {
-  /* Open state rotates `chevron-down` 180° → up so the affordance reads
-   * "click to fold up". 90° rotation pointed the glyph sideways which
-   * AstroHan flagged in the second W1 retest. */
-  transform: rotate(180deg);
+  /* Open = chevron points down (natural `chevron-down` orientation). */
+  transform: rotate(0deg);
 }
 
 /* Running state — summary shimmer hook. The actual pw-shimmer animation
@@ -124,24 +128,24 @@
   letter-spacing: 0.5px;
 }
 
-/* Per-tool result body — DESIGN.md L417 frame. Each rich tool render
- * delivered through the `renderTool` slot (`session-turn-leaf-bridges`
- * → `<Part>`) is wrapped in this slot, so the W1 caption frame
- * (transparent fill + 1px --border-weaker hairline + radius-sm + 8/12
- * padding) lands on every tool body — read / find / web search / bash
- * today, and any tool added later. AstroHan flagged in the second W1
- * retest that the legacy renderers ship a sans / base / large title
- * block which looks out of place inside the trow caption surface;
- * the scoped resets below flatten that inner chrome to the W1 caption
- * typography (`--type-mono-small`, `--fg-weak`) without touching the
- * tool registry. */
+/* Per-tool result body — a pure CSS scope marker, no visual chrome.
+ *
+ * The earlier W1 design lock (DESIGN.md L417) called for a transparent
+ * + 1px --border-weaker + radius-sm frame around each tool's rich body.
+ * Slice 11b.1 #5 B+ shipped that frame and AstroHan flagged in the
+ * third W1 retest (msg=362e9b72) that it produced a "box per tool"
+ * look (and stacked on top of bash-output's own border when expanded).
+ * The W1 intent is a flat stacked feed where tools 叠在一起 inside the
+ * trow body — per-tool framing breaks that.
+ *
+ * The wrapper stays because it is the scope boundary that lets the
+ * resets below flatten inner Part chrome's hard-coded sans / base /
+ * large typography to the W1 caption family without touching the tool
+ * registry. The visual chrome (border / radius / padding) is what's
+ * removed. */
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] {
   width: 100%;
   min-width: 0;
-  background: transparent;
-  border: 1px solid var(--border-weaker);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
   font: var(--type-mono-small);
   color: var(--fg-weak);
 }
@@ -159,4 +163,17 @@
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="message-part-title-filename"] {
   font: var(--type-mono-small);
   color: var(--fg-weak);
+}
+
+/* Scoped reset for inner Collapsible.Arrow chev. AstroHan's third W1
+ * retest flagged that the chev inside each tool trigger ("执行命令
+ * XXXX" row) rendered as a "大 chevron" — Collapsible defaults to the
+ * 16px icon, but inside a trow caption surface it needs to match the
+ * trow summary chev's 12px. DESIGN.md L412 caps the chev at 12px. The
+ * reset only fires inside `[data-slot="trow-result-body"]` so the
+ * Collapsible default chev size elsewhere (file-tree, settings, etc.)
+ * is unaffected. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-arrow-icon"] [data-component="icon"] {
+  width: 12px;
+  height: 12px;
 }
