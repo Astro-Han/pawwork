@@ -231,9 +231,19 @@ export function renderPerfBaselineComment(input: PerfBaselineComparison) {
   ]
 
   for (const scenario of input.scenarios) {
-    lines.push(
-      `| ${scenario.scenario} | ${formatMetricDelta(scenario.base.interaction_ms_median, scenario.head.interaction_ms_median)} | ${formatMetricDelta(scenario.base.interaction_ms_worst, scenario.head.interaction_ms_worst)} | ${formatMetricDelta(scenario.base.long_task_max_ms, scenario.head.long_task_max_ms)} | ${formatMetricDelta(scenario.base.tbt_ms, scenario.head.tbt_ms)} | ${formatMetricDelta(scenario.base.frame_gap_p95_ms, scenario.head.frame_gap_p95_ms)} | ${formatMetricDelta(scenario.base.frame_gap_max_ms, scenario.head.frame_gap_max_ms)} | ${formatMetricDelta(scenario.base.jank_count_50ms, scenario.head.jank_count_50ms)} | ${formatMetricDelta(scenario.base.cls, scenario.head.cls)} | ${scenarioStatus(scenario)} |`,
-    )
+    const columns = [
+      scenario.scenario,
+      formatMetricDelta(scenario.base.interaction_ms_median, scenario.head.interaction_ms_median),
+      formatMetricDelta(scenario.base.interaction_ms_worst, scenario.head.interaction_ms_worst),
+      formatMetricDelta(scenario.base.long_task_max_ms, scenario.head.long_task_max_ms),
+      formatMetricDelta(scenario.base.tbt_ms, scenario.head.tbt_ms),
+      formatMetricDelta(scenario.base.frame_gap_p95_ms, scenario.head.frame_gap_p95_ms),
+      formatMetricDelta(scenario.base.frame_gap_max_ms, scenario.head.frame_gap_max_ms),
+      formatMetricDelta(scenario.base.jank_count_50ms, scenario.head.jank_count_50ms),
+      formatMetricDelta(scenario.base.cls, scenario.head.cls),
+      scenarioStatus(scenario),
+    ]
+    lines.push(`| ${columns.join(" | ")} |`)
   }
 
   if (input.failures.some((failure) => failure.startsWith("missing_"))) {
