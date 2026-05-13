@@ -61,6 +61,30 @@
   position: relative;
 }
 
+/* Dark-mode hairline ring. AstroHan flagged in the second W1 retest
+ * that the bubble silhouette became unreadable in dark — `--bg-cream`
+ * (#211d19) lands only ~5 RGB above `--bg-base` (#1a1714), which sits
+ * at the edge of perception at low luminance (Weber's law). Lifting
+ * the fill to `--surface-raised` (the prior attempt, `a4b44e213`) was
+ * reverted because it pulled the bubble out of the "cream content
+ * surface" family DESIGN.md L460 locks it to — semantically the wrong
+ * tier.
+ *
+ * Instead, give the bubble its missing shape signal via a 1px inset
+ * ring in dark only. `box-shadow: inset` does not affect layout, lets
+ * the cream fill stay intact, and reuses `--border-weak` rather than
+ * introducing a new token. Light mode keeps reading by luminance
+ * delta alone — the high-luminance side has plenty of edge sensitivity
+ * so no ring is needed there. */
+:root[data-color-scheme="dark"] [data-component="session-turn-user-bubble"] [data-slot="bubble"] {
+  box-shadow: inset 0 0 0 1px var(--border-weak);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"]) [data-component="session-turn-user-bubble"] [data-slot="bubble"] {
+    box-shadow: inset 0 0 0 1px var(--border-weak);
+  }
+}
+
 [data-component="session-turn-user-bubble"] [data-slot="bubble-text"] {
   white-space: pre-wrap;      /* preserve `\n\n` paragraph boundaries */
   overflow-wrap: anywhere;
