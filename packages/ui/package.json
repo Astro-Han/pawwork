@@ -25,7 +25,7 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
-    "test": "bun test",
+    "test": "bun test --conditions=browser",
     "dev": "vite",
     "generate:tailwind": "bun run script/tailwind.ts"
   },

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   forceOpenAllDetails,
   preserveDetailsOpenState,
+  renderBlocksToContainerForTest,
   resolveLinkAction,
   rewriteTaskListsForTest,
   sanitizeConfig,
@@ -204,6 +205,232 @@ describe("forceOpenAllDetails (streaming UX)", () => {
     const all = document.querySelectorAll("details")
     expect(all[0]!.hasAttribute("open")).toBe(true)
     expect(all[1]!.hasAttribute("open")).toBe(true)
+  })
+})
+
+describe("renderBlocksToContainer — dirty tail rendering contract", () => {
+  // The helper takes a flat list of prepared blocks (already sanitized to HTML)
+  // and writes them into the container as one child wrapper per block. Stable
+  // blocks whose key + html have not changed since the previous render skip
+  // morphdom entirely; only dirty (or content-changed) wrappers are diffed.
+  // This is the DOM-side of the C-min dirty-tail contract.
+
+  const labels = { copy: "Copy", copied: "Copied" }
+
+  test("first render writes one wrapper per block in order", () => {
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<p>alpha</p>" },
+        { key: "1:live", stable: false, html: "<p>beta tail</p>" },
+      ],
+      labels,
+    )
+    expect(container.children).toHaveLength(2)
+    expect(container.children[0]!.textContent).toBe("alpha")
+    expect(container.children[1]!.textContent).toBe("beta tail")
+  })
+
+  test("streaming progression: stable head wrapper element is preserved across renders, dirty tail updates", () => {
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<p>head paragraph</p>" },
+        { key: "1:live", stable: false, html: "<p>tail begin</p>" },
+      ],
+      labels,
+    )
+    const headWrap = container.children[0]
+    const tailWrap = container.children[1]
+    expect(headWrap).toBeDefined()
+    expect(tailWrap).toBeDefined()
+
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<p>head paragraph</p>" },
+        { key: "1:live", stable: false, html: "<p>tail extended now</p>" },
+      ],
+      labels,
+    )
+    // Head wrapper identity preserved (no DOM churn on stable block).
+    expect(container.children[0]).toBe(headWrap)
+    // Tail wrapper identity also preserved; only its inner content morphs.
+    expect(container.children[1]).toBe(tailWrap)
+    expect(tailWrap!.textContent).toBe("tail extended now")
+  })
+
+  test("abort consistency: final full render replaces partial tail with complete content, no orphan wrappers", () => {
+    const container = document.createElement("div")
+    // Streaming phase
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:live-head", stable: true, html: "<p>para A</p>" },
+        { key: "1:live-tail", stable: false, html: "<p>para B parti</p>" },
+      ],
+      labels,
+    )
+    expect(container.children).toHaveLength(2)
+
+    // Abort / SSE close → PacedMarkdown forces streaming=false, Markdown
+    // re-renders the full text as one stable block.
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:full", stable: true, html: "<p>para A</p><p>para B complete</p>" }],
+      labels,
+    )
+
+    expect(container.children).toHaveLength(1)
+    expect(container.textContent).toBe("para Apara B complete")
+    // The previous tail wrapper must not linger as a sibling.
+    expect(container.querySelectorAll("p")).toHaveLength(2)
+  })
+
+  test("final render after partial streaming clears tail-only state", () => {
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:live", stable: false, html: "<p>still streaming</p>" }],
+      labels,
+    )
+
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:full", stable: true, html: "<p>final complete content</p>" }],
+      labels,
+    )
+
+    expect(container.children).toHaveLength(1)
+    expect(container.firstElementChild!.textContent).toBe("final complete content")
+  })
+
+  test("preserves user collapse on stable details block across re-render", () => {
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<details><summary>x</summary>y</details>" },
+        { key: "1:live", stable: false, html: "<p>tail</p>" },
+      ],
+      labels,
+    )
+
+    const details = container.querySelector("details")!
+    // forceOpenAllDetails ran on first render — user collapses.
+    details.removeAttribute("open")
+
+    // Same stable head, advance tail.
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<details><summary>x</summary>y</details>" },
+        { key: "1:live", stable: false, html: "<p>tail extended</p>" },
+      ],
+      labels,
+    )
+
+    // Stable head is skipped entirely — the user's collapsed state survives.
+    expect(container.querySelector("details")!.hasAttribute("open")).toBe(false)
+  })
+
+  test("removing trailing dirty tail (e.g. tail merged into stable head on final render) does not leave orphans", () => {
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<p>head</p>" },
+        { key: "1:live", stable: false, html: "<p>tail draft</p>" },
+        { key: "2:live", stable: false, html: "<p>even tailer</p>" },
+      ],
+      labels,
+    )
+    expect(container.children).toHaveLength(3)
+
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:full", stable: true, html: "<p>head</p><p>tail final</p>" }],
+      labels,
+    )
+
+    expect(container.children).toHaveLength(1)
+    expect(container.textContent).toBe("headtail final")
+  })
+
+  test("same stable key but changed html: DOM content must update (no over-skip)", () => {
+    // Defends against an implementation that keys only on `key` and skips
+    // diff entirely when keys match — that would freeze retry / truncate /
+    // hash-drift cases on the previous render's content. The wrapper element
+    // may or may not be reused; what must hold is the visible text reflecting
+    // the latest html for that key.
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:full", stable: true, html: "<p>A</p>" }],
+      labels,
+    )
+    expect(container.textContent).toBe("A")
+
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:full", stable: true, html: "<p>A changed</p>" }],
+      labels,
+    )
+    expect(container.textContent).toBe("A changed")
+  })
+
+  test("labels change (i18n switch) invalidates copy button decoration without duplicating buttons", () => {
+    // Stable skip cannot key on (key + html) alone — copy button labels are
+    // a function of the i18n locale, and stale aria-label / tooltip after
+    // a language switch is a W1 gate regression. Block skip fingerprint must
+    // include `labels.copy` / `labels.copied` so a labels change re-decorates
+    // the block exactly once.
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:full", stable: true, html: "<pre><code>const x = 1</code></pre>" }],
+      { copy: "Copy", copied: "Copied" },
+    )
+    const buttonsEn = container.querySelectorAll('[data-slot="markdown-copy-button"]')
+    expect(buttonsEn).toHaveLength(1)
+    expect(buttonsEn[0]!.getAttribute("aria-label")).toBe("Copy")
+
+    // Switch locale: same key, same html, different labels.
+    renderBlocksToContainerForTest(
+      container,
+      [{ key: "0:full", stable: true, html: "<pre><code>const x = 1</code></pre>" }],
+      { copy: "复制", copied: "已复制" },
+    )
+    const buttonsZh = container.querySelectorAll('[data-slot="markdown-copy-button"]')
+    expect(buttonsZh).toHaveLength(1)
+    expect(buttonsZh[0]!.getAttribute("aria-label")).toBe("复制")
+  })
+
+  test("code copy button is wired exactly once per stable code block after re-render", () => {
+    const container = document.createElement("div")
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<pre><code>const x = 1</code></pre>" },
+        { key: "1:live", stable: false, html: "<p>tail</p>" },
+      ],
+      labels,
+    )
+
+    renderBlocksToContainerForTest(
+      container,
+      [
+        { key: "0:full", stable: true, html: "<pre><code>const x = 1</code></pre>" },
+        { key: "1:live", stable: false, html: "<p>tail extended</p>" },
+      ],
+      labels,
+    )
+
+    // Skip on stable block means we don't re-wrap or duplicate copy buttons.
+    const buttons = container.querySelectorAll('[data-slot="markdown-copy-button"]')
+    expect(buttons).toHaveLength(1)
   })
 })
 

@@ -404,6 +404,109 @@ function decorate(root: HTMLDivElement, labels: CopyLabels) {
   forceOpenAllDetails(root)
 }
 
+/**
+ * Per-block child container rendering. The C-min dirty-tail contract:
+ *
+ * - Each block becomes one `<div data-slot="markdown-block">` wrapper child
+ *   of the container, in order. Wrapper identity is preserved across
+ *   re-renders so morphdom diffing scope shrinks from "the whole document"
+ *   down to "the block whose content actually changed".
+ * - Stable blocks whose `(key + html + labels.copy + labels.copied)`
+ *   fingerprint matches the previous render skip morphdom + decorate
+ *   entirely — that is the win that turns 24 ms streaming flushes from
+ *   "re-parse + re-morphdom the entire visible message" into
+ *   "touch only the dirty tail wrapper".
+ * - Labels live in the fingerprint so an i18n locale switch still
+ *   re-decorates already-rendered code blocks (W1 i18n gate).
+ *
+ * `data-block-fp` lives on the wrapper as the persisted fingerprint. The
+ * key alone is not enough (would freeze on retry / hash drift); html alone
+ * is not enough (would freeze copy-button labels across locale switch).
+ */
+type RenderBlock = {
+  key: string
+  stable: boolean
+  html: string
+}
+
+function fingerprint(block: RenderBlock, labels: CopyLabels): string {
+  return `${block.key} ${labels.copy} ${labels.copied} ${block.html}`
+}
+
+function ensureBlockWrapper(container: HTMLDivElement, index: number, key: string): HTMLDivElement {
+  const existing = container.children[index]
+  if (existing instanceof HTMLDivElement && existing.getAttribute("data-slot") === "markdown-block") {
+    existing.setAttribute("data-block-key", key)
+    return existing
+  }
+  const wrap = document.createElement("div")
+  wrap.setAttribute("data-slot", "markdown-block")
+  wrap.setAttribute("data-block-key", key)
+  // Insert at the requested index so order stays canonical even if a prior
+  // index was re-targeted to a different block kind.
+  const ref = container.children[index] ?? null
+  container.insertBefore(wrap, ref)
+  return wrap
+}
+
+function renderBlocksToContainer(
+  container: HTMLDivElement,
+  blocks: readonly RenderBlock[],
+  labels: CopyLabels,
+): void {
+  // Trim trailing wrappers when the new render has fewer blocks (e.g. abort
+  // collapses N dirty wrappers into a single full-mode block).
+  while (container.children.length > blocks.length) {
+    container.lastElementChild?.remove()
+  }
+
+  for (let index = 0; index < blocks.length; index++) {
+    const block = blocks[index]!
+    const print = fingerprint(block, labels)
+    const existing = container.children[index]
+    if (
+      existing instanceof HTMLDivElement &&
+      existing.getAttribute("data-slot") === "markdown-block" &&
+      existing.getAttribute("data-block-fp") === print
+    ) {
+      // Stable head with unchanged fingerprint — the renderer's whole point
+      // is that we touch nothing here, not even decorate.
+      existing.setAttribute("data-block-key", block.key)
+      continue
+    }
+    const wrap = ensureBlockWrapper(container, index, block.key)
+    const temp = document.createElement("div")
+    temp.innerHTML = block.html
+    decorate(temp, labels)
+    morphdom(wrap, temp, {
+      childrenOnly: true,
+      onBeforeElUpdated: (fromEl, toEl) => {
+        if (
+          fromEl instanceof HTMLButtonElement &&
+          toEl instanceof HTMLButtonElement &&
+          fromEl.getAttribute("data-slot") === "markdown-copy-button" &&
+          toEl.getAttribute("data-slot") === "markdown-copy-button" &&
+          fromEl.getAttribute("data-copied") === "true"
+        ) {
+          setCopyState(toEl, labels, true)
+        }
+        preserveDetailsOpenState(fromEl, toEl)
+        if (fromEl.isEqualNode(toEl)) return false
+        return true
+      },
+    })
+    wrap.setAttribute("data-block-fp", print)
+  }
+}
+
+/**
+ * Test-only export. Production rendering goes through the `<Markdown>`
+ * component (sanitize / cache / labels / link routing). Direct callers of
+ * the helper would bypass the sanitize stage and ship raw html into the
+ * DOM — never wire this into business code.
+ */
+export const renderBlocksToContainerForTest = renderBlocksToContainer
+
 function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels) {
   const timeouts = new Map<HTMLButtonElement, ReturnType<typeof setTimeout>>()
 
@@ -484,40 +587,43 @@ export function Markdown(
   const marked = useMarked()
   const i18n = useI18n()
   const [root, setRoot] = createSignal<HTMLDivElement>()
-  const [html] = createResource(
+  const fallbackBlocks = (text: string): RenderBlock[] => [
+    { key: "fallback", stable: true, html: fallback(text) },
+  ]
+  const [blocks] = createResource(
     () => ({
       text: local.text,
       key: local.cacheKey,
       streaming: local.streaming ?? false,
     }),
-    async (src) => {
-      if (isServer) return fallback(src.text)
-      if (!src.text) return ""
+    async (src): Promise<RenderBlock[]> => {
+      if (isServer) return fallbackBlocks(src.text)
+      if (!src.text) return []
 
       const base = src.key ?? checksum(src.text)
-      return Promise.all(
-        stream(src.text, src.streaming).map(async (block, index) => {
-          const hash = checksum(block.raw)
-          const key = base ? `${base}:${index}:${block.mode}` : hash
-
-          if (key && hash) {
-            const cached = cache.get(key)
-            if (cached && cached.hash === hash) {
-              touch(key, cached)
-              return cached.html
+      try {
+        return await Promise.all(
+          stream(src.text, src.streaming).map(async (block, index): Promise<RenderBlock> => {
+            const hash = checksum(block.raw)
+            const cacheKey = base ? `${base}:${index}:${block.mode}` : hash
+            if (cacheKey && hash) {
+              const cached = cache.get(cacheKey)
+              if (cached && cached.hash === hash) {
+                touch(cacheKey, cached)
+                return { key: cacheKey, stable: block.stable, html: cached.html }
+              }
             }
-          }
-
-          const next = await Promise.resolve(marked.parse(block.src))
-          const safe = sanitize(next)
-          if (key && hash) touch(key, { hash, html: safe })
-          return safe
-        }),
-      )
-        .then((list) => list.join(""))
-        .catch(() => fallback(src.text))
+            const next = await Promise.resolve(marked.parse(block.src))
+            const safe = sanitize(next)
+            if (cacheKey && hash) touch(cacheKey, { hash, html: safe })
+            return { key: cacheKey || `block:${index}`, stable: block.stable, html: safe }
+          }),
+        )
+      } catch {
+        return fallbackBlocks(src.text)
+      }
     },
-    { initialValue: fallback(local.text) },
+    { initialValue: fallbackBlocks(local.text) },
   )
 
   let copyCleanup: (() => void) | undefined
@@ -526,11 +632,11 @@ export function Markdown(
 
   createEffect(() => {
     const container = root()
-    const content = local.text ? (html.latest ?? html() ?? "") : ""
+    const list = local.text ? (blocks.latest ?? blocks() ?? []) : []
     if (!container) return
     if (isServer) return
 
-    if (!content) {
+    if (list.length === 0) {
       container.innerHTML = ""
       return
     }
@@ -539,27 +645,7 @@ export function Markdown(
       copy: i18n.t("ui.textField.copyToClipboard"),
       copied: i18n.t("ui.textField.copied"),
     }
-    const temp = document.createElement("div")
-    temp.innerHTML = content
-    decorate(temp, labels)
-
-    morphdom(container, temp, {
-      childrenOnly: true,
-      onBeforeElUpdated: (fromEl, toEl) => {
-        if (
-          fromEl instanceof HTMLButtonElement &&
-          toEl instanceof HTMLButtonElement &&
-          fromEl.getAttribute("data-slot") === "markdown-copy-button" &&
-          toEl.getAttribute("data-slot") === "markdown-copy-button" &&
-          fromEl.getAttribute("data-copied") === "true"
-        ) {
-          setCopyState(toEl, labels, true)
-        }
-        preserveDetailsOpenState(fromEl, toEl)
-        if (fromEl.isEqualNode(toEl)) return false
-        return true
-      },
-    })
+    renderBlocksToContainer(container, list, labels)
 
     if (!copyCleanup)
       copyCleanup = setupCodeCopy(container, () => ({
