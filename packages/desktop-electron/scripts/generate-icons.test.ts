@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
+import sharp from "sharp"
+
 import * as generateIcons from "./generate-icons"
 
 import {
   ANDROID_ICON_OUTPUTS,
   ANDROID_ICON_BACKGROUND,
   ANDROID_XML_OUTPUTS,
+  DOCK_ICON_CONTENT_RATIO,
   ICNS_OUTPUTS,
   ICON_PNG_OUTPUTS,
   IOS_ICON_OUTPUTS,
@@ -17,6 +20,7 @@ import {
   createIco,
   createPngCache,
   getIconSource,
+  renderDockPng,
   resolveIconChannel,
 } from "./generate-icons"
 
@@ -186,5 +190,37 @@ describe("createIco", () => {
     expect(ico.readUInt32LE(34)).toBe(38 + smallPng.length)
     expect(ico.subarray(38, 38 + smallPng.length)).toEqual(smallPng)
     expect(ico.subarray(38 + smallPng.length)).toEqual(largePng)
+  })
+})
+
+describe("renderDockPng", () => {
+  test("canvas size matches the requested size", async () => {
+    const source = getIconSource("dev")
+    const buf = await renderDockPng(source, 256)
+    const { width, height } = await sharp(buf).metadata()
+    expect(width).toBe(256)
+    expect(height).toBe(256)
+  })
+
+  test("artwork does not fill the entire canvas (transparent padding prevents oversized Dock icon)", async () => {
+    const source = getIconSource("dev")
+    const canvasSize = 256
+    const buf = await renderDockPng(source, canvasSize)
+    // Trimming transparent edges must produce a smaller image than the full canvas.
+    // A full-canvas alpha bbox here would mean no padding was applied, reproducing the bug.
+    const { info } = await sharp(buf).trim({ threshold: 0 }).toBuffer({ resolveWithObject: true })
+    expect(info.width).toBeLessThan(canvasSize)
+    expect(info.height).toBeLessThan(canvasSize)
+  })
+
+  test("visible artwork is approximately DOCK_ICON_CONTENT_RATIO of the canvas", async () => {
+    const source = getIconSource("dev")
+    const canvasSize = 256
+    const buf = await renderDockPng(source, canvasSize)
+    const { info } = await sharp(buf).trim({ threshold: 0 }).toBuffer({ resolveWithObject: true })
+    const expectedInner = Math.round(canvasSize * DOCK_ICON_CONTENT_RATIO)
+    // Allow ±2px tolerance for antialiasing on SVG edges
+    expect(info.width).toBeGreaterThanOrEqual(expectedInner - 2)
+    expect(info.width).toBeLessThanOrEqual(expectedInner + 2)
   })
 })
