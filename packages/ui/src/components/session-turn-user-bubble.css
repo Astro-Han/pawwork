@@ -61,6 +61,24 @@
   position: relative;
 }
 
+/* Dark mode shape lift. DESIGN.md L460 names `--bg-cream` for the
+ * bubble fill so the bubble visually links to the composer ("your
+ * input archived"). In dark the cream/base delta collapses to ~5 RGB
+ * (`#211d19` cream on `#1a1714` base), which AstroHan flagged in the
+ * second W1 retest as "看不清". Lifting one tier to `--surface-raised`
+ * (#2a2622, Δ ~14 RGB) restores the bubble silhouette while keeping
+ * the warm-coffee hue family — the next step up from cream, the same
+ * tier the prompt-input gradient lands at. Light stays on cream
+ * because the high-luminance side has plenty of edge sensitivity. */
+:root[data-color-scheme="dark"] [data-component="session-turn-user-bubble"] [data-slot="bubble"] {
+  background: var(--surface-raised);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"]) [data-component="session-turn-user-bubble"] [data-slot="bubble"] {
+    background: var(--surface-raised);
+  }
+}
+
 [data-component="session-turn-user-bubble"] [data-slot="bubble-text"] {
   white-space: pre-wrap;      /* preserve `\n\n` paragraph boundaries */
   overflow-wrap: anywhere;
