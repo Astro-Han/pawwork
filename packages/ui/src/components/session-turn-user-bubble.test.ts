@@ -57,10 +57,13 @@ test("CSS bubble matches W1 lock: radius-lg + bg-cream + padding 12/16", () => {
   expect(css).toMatch(/\[data-slot="bubble"\][^{}]*\{[^}]*padding:\s*12px\s+16px/)
 })
 
-test("CSS wrap is right-aligned and capped at 75% of timeline column (§3.3 / DESIGN.md L453)", () => {
-  expect(css).toMatch(
-    /\[data-component="session-turn-user-bubble"\][^{}]*\{[^}]*align-self:\s*flex-end[^}]*max-width:\s*75%/,
-  )
+test("CSS wrap spans the column and shell caps at 75% of timeline column (§3.3 / DESIGN.md L453)", () => {
+  // AstroHan W1 review feedback: the wrap must hug the full column so its
+  // flex-end children land on the column's right edge; the 75% cap moves
+  // to the bubble shell so long text still content-hugs.
+  expect(css).toMatch(/\[data-component="session-turn-user-bubble"\][^{}]*\{[^}]*width:\s*100%/)
+  expect(css).toMatch(/\[data-component="session-turn-user-bubble"\][^{}]*\{[^}]*align-items:\s*flex-end/)
+  expect(css).toMatch(/\[data-slot="bubble"\][^{}]*\{[^}]*max-width:\s*75%/)
 })
 
 test("CSS bubble-text uses pre-wrap so `\\n\\n` paragraphs render verbatim (§3.3)", () => {

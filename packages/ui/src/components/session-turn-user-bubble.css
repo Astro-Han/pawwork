@@ -12,8 +12,13 @@
 [data-component="session-turn-user-bubble"] {
   display: flex;
   flex-direction: column;
-  align-self: flex-end; /* right-align the whole wrap to the timeline column */
-  max-width: 75%;       /* DESIGN.md L453 — bubble content-hugs to ≤75% width */
+  /* Wrapper spans the full timeline column so its flex-end children
+   * (attachment row, bubble shell, toolbar) hug the column's right edge.
+   * The 75% cap from DESIGN.md L453 applies to the bubble shell itself,
+   * not the wrap — otherwise `align-self: flex-end` quietly no-ops when
+   * the parent slot is a plain block. */
+  align-self: stretch;
+  width: 100%;
   align-items: flex-end;
   gap: 8px;             /* spacing between attachment row, bubble, toolbar */
 }
@@ -43,10 +48,11 @@
 }
 
 /* Bubble shell — radius-lg, cream fill, padding 12/16, body type, fg-strong.
- * align-self flex-end keeps the bubble right-aligned even when its text
- * shrinks below the wrap's 75% cap. */
+ * max-width 75% caps the shell so long messages don't span the full column;
+ * align-self flex-end keeps the shell right-edged within the wrap. */
 [data-component="session-turn-user-bubble"] [data-slot="bubble"] {
   align-self: flex-end;
+  max-width: 75%;
   background: var(--bg-cream);
   border-radius: var(--radius-lg);
   padding: 12px 16px;

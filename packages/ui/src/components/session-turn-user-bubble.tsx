@@ -157,17 +157,8 @@ export function SessionTurnUserBubble(props: SessionTurnUserBubbleProps) {
           </div>
         </Show>
         <div data-slot="bubble-toolbar-actions">
-          <button
-            type="button"
-            data-slot="bubble-toolbar-action"
-            data-action="copy"
-            data-copied={copied() || undefined}
-            aria-label={copied() ? props.labels.copied : props.labels.copy}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => void handleCopy()}
-          >
-            <Icon name={copied() ? "check" : "copy"} />
-          </button>
+          {/* Reset sits left of copy so the toolbar reads model · time · reset · copy
+              with copy on the rightmost slot per AstroHan W1 review feedback. */}
           <Show when={props.actions?.onReset}>
             <button
               type="button"
@@ -182,6 +173,17 @@ export function SessionTurnUserBubble(props: SessionTurnUserBubbleProps) {
               <Icon name="reset" />
             </button>
           </Show>
+          <button
+            type="button"
+            data-slot="bubble-toolbar-action"
+            data-action="copy"
+            data-copied={copied() || undefined}
+            aria-label={copied() ? props.labels.copied : props.labels.copy}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void handleCopy()}
+          >
+            <Icon name={copied() ? "check" : "copy"} />
+          </button>
         </div>
       </div>
     </div>

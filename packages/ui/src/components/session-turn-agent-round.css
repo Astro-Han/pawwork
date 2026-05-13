@@ -53,13 +53,15 @@
   line-height: 1.5;
 }
 
-/* Toolbar — hover-only, always-mounted, opacity-driven. The full
- * `.is-running` suppression (visibility hidden + pointer-events none
- * + aria-hidden) keeps Tab from reaching inert buttons mid-stream. */
+/* Toolbar — hover-only, always-mounted, opacity-driven. Left-aligned per
+ * AstroHan W1 review: the agent round is flat-left on `--bg-base`, so the
+ * toolbar reads under the prose's left edge to mirror that anchor. The
+ * `.is-running` suppression (visibility hidden + pointer-events none +
+ * aria-hidden) keeps Tab from reaching inert buttons mid-stream. */
 [data-component="session-turn-agent-round"] [data-slot="agent-toolbar"] {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 12px;
   font: var(--type-caption);
   color: var(--fg-weak);
