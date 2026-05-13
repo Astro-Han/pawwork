@@ -85,11 +85,35 @@ jobs:
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Compare base and head perf baselines
+        id: compare
+        continue-on-error: true
         run: >
           bun head/packages/app/script/compare-perf.ts
           --base "${PERF_ARTIFACT_DIR}/perf-base.json"
           --head "${PERF_ARTIFACT_DIR}/perf-head.json"
           --output "${PERF_ARTIFACT_DIR}/perf-compare.json"
+
+      - name: Capture perf diagnostic trace (base)
+        if: steps.compare.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-trace.json
+          PAWWORK_PERF_TRACE: "1"
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Capture perf diagnostic trace (head)
+        if: steps.compare.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-trace.json
+          PAWWORK_PERF_TRACE: "1"
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Fail job on comparator regression
+        if: steps.compare.outcome == 'failure'
+        run: exit 1
 
       - name: Upload perf probe artifacts
         if: always()

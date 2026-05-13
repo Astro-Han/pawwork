@@ -8,6 +8,7 @@ const command = `bun run dev -- --host 0.0.0.0 --port ${port}`
 const reuse = !process.env.CI
 const workers = Number(process.env.PLAYWRIGHT_WORKERS ?? (process.env.CI ? 5 : 0)) || undefined
 const reporter = [["html", { outputFolder: "e2e/playwright-report", open: "never" }], ["line"]] as const
+const trace = process.env.PAWWORK_PERF_TRACE === "1" ? "on" : "on-first-retry"
 
 if (process.env.PLAYWRIGHT_JUNIT_OUTPUT) {
   reporter.push(["junit", { outputFile: process.env.PLAYWRIGHT_JUNIT_OUTPUT }])
@@ -38,7 +39,7 @@ export default defineConfig({
   },
   use: {
     baseURL,
-    trace: "on-first-retry",
+    trace,
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
