@@ -15,6 +15,15 @@ export function createAutoScroll(options: AutoScrollOptions) {
   let settleTimer: ReturnType<typeof setTimeout> | undefined
   let autoTimer: ReturnType<typeof setTimeout> | undefined
   let auto: { top: number; time: number } | undefined
+  // Tracks the timestamp of the last upward gesture (wheel-up / touch-up).
+  // The ResizeObserver-driven `scrollToBottom` consults this window so a
+  // streaming-time content resize that lands in the same frame as the
+  // user's scroll-up gesture cannot snap the viewport back to bottom
+  // before the `userScrolled` store write has propagated. 500ms covers
+  // a single wheel tick + the layout pass; longer windows would feel
+  // unresponsive when the user wants to drop back into auto-follow.
+  let lastUpwardGestureAt = 0
+  const UPWARD_GESTURE_HOLD_MS = 500
 
   const threshold = () => options.bottomThreshold ?? 10
 
@@ -139,6 +148,7 @@ export function createAutoScroll(options: AutoScrollOptions) {
     const target = e.target instanceof Element ? e.target : undefined
     const nested = target?.closest("[data-scrollable]")
     if (el && nested && nested !== el) return
+    lastUpwardGestureAt = Date.now()
     stop()
   }
 
@@ -183,6 +193,13 @@ export function createAutoScroll(options: AutoScrollOptions) {
       }
       if (!active()) return
       if (store.userScrolled) return
+      // Honor a brief hold window after the user just scrolled up — the
+      // `userScrolled` store write may not have settled into this
+      // observer callback yet on the same frame, and snapping back to
+      // bottom in that gap is what produces the "scroll up, snap down"
+      // regression. The handleWheel path also calls `stop()` so this
+      // is belt-and-braces against a single observed glitch.
+      if (Date.now() - lastUpwardGestureAt < UPWARD_GESTURE_HOLD_MS) return
       // ResizeObserver fires after layout, before paint.
       // Keep the bottom locked in the same frame to avoid visible
       // "jump up then catch up" artifacts while streaming content.
