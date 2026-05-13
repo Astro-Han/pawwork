@@ -43,18 +43,23 @@ export function coalesceQueuedEvents(events: QueuedGlobalEvent[]): QueuedGlobalE
   const result: (QueuedGlobalEvent | undefined)[] = []
   const replaceable = new Map<string, number>()
   const deltaIndexesByPart = new Map<string, Set<number>>()
+  const mergeableDeltaIndexByKey = new Map<string, number>()
   const pushEvent = (event: QueuedGlobalEvent) => {
     const index = result.length
     result.push(event)
 
-    const key = partKey(event)
-    if (event.payload.type === "message.part.delta" && key) {
-      const indexes = deltaIndexesByPart.get(key) ?? new Set<number>()
+    const part = partKey(event)
+    if (event.payload.type === "message.part.delta" && part) {
+      const indexes = deltaIndexesByPart.get(part) ?? new Set<number>()
       indexes.add(index)
-      deltaIndexesByPart.set(key, indexes)
+      deltaIndexesByPart.set(part, indexes)
     }
 
     return index
+  }
+
+  const resetMergeableDeltaIndexes = () => {
+    mergeableDeltaIndexByKey.clear()
   }
 
   for (const event of events) {
@@ -77,18 +82,27 @@ export function coalesceQueuedEvents(events: QueuedGlobalEvent[]): QueuedGlobalE
         }
         deltaIndexesByPart.delete(updatedKey)
       }
+      resetMergeableDeltaIndexes()
       pushEvent(event)
       continue
     }
 
     if (event.payload.type === "message.part.delta") {
-      const last = result[result.length - 1]
-      if (last?.payload.type === "message.part.delta" && deltaKey(last) === deltaKey(event)) {
-        result[result.length - 1] = appendDelta(last, event.payload.properties.delta)
+      const key = deltaKey(event)
+      const index = key ? mergeableDeltaIndexByKey.get(key) : undefined
+      const target = index !== undefined ? result[index] : undefined
+      if (key && target?.payload.type === "message.part.delta") {
+        result[index] = appendDelta(target, event.payload.properties.delta)
         continue
       }
+
+      resetMergeableDeltaIndexes()
+      const nextIndex = pushEvent(event)
+      if (key) mergeableDeltaIndexByKey.set(key, nextIndex)
+      continue
     }
 
+    resetMergeableDeltaIndexes()
     pushEvent(event)
   }
 

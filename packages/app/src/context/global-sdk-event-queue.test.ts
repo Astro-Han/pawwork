@@ -50,11 +50,20 @@ describe("global SDK event queue coalescing", () => {
     expect(deltas(events)).toEqual(["a", "x", "b"])
   })
 
-  test("does not merge deltas across non-delta barriers", () => {
+  test("merges same-part deltas across session.status barriers", () => {
     const events = coalesceQueuedEvents(queued(delta("prt_1", "a"), status(), delta("prt_1", "b")))
 
-    expect(eventTypes(events)).toEqual(["message.part.delta", "session.status", "message.part.delta"])
-    expect(deltas(events)).toEqual(["a", "b"])
+    expect(eventTypes(events)).toEqual(["message.part.delta", "session.status"])
+    expect(deltas(events)).toEqual(["ab"])
+  })
+
+  test("same-part updates still cut a delta chain even when session.status is interleaved", () => {
+    const events = coalesceQueuedEvents(
+      queued(delta("prt_1", "before"), status(), updated("prt_1"), delta("prt_1", "after")),
+    )
+
+    expect(eventTypes(events)).toEqual(["session.status", "message.part.updated", "message.part.delta"])
+    expect(deltas(events)).toEqual(["after"])
   })
 
   test("does not merge same-part deltas for different fields", () => {
