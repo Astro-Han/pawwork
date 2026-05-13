@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { aggregatePerfRuns, comparePerfBaselines, comparePerfScenarioSummaries, summarizePerfRun } from "./perf-metrics"
+import { aggregatePerfRuns, comparePerfBaselines, comparePerfScenarioSummaries, PERF_COMMENT_MARKER, renderPerfBaselineComment, summarizePerfRun } from "./perf-metrics"
 
 describe("perf metrics", () => {
   test("summarizes a perf sample window", () => {
@@ -303,5 +303,97 @@ describe("perf metrics", () => {
 
     expect(result.pass).toBe(false)
     expect(result.failures).toContain("missing_head_scenario:tool-call-expand")
+  })
+
+  test("renders a markdown comment with scenario deltas and fail or warn status", () => {
+    const comparison = comparePerfBaselines({
+      base: [
+        aggregatePerfRuns({
+          branch: "base",
+          scenario: "homepage-cold",
+          runs: [
+            {
+              interaction_ms: 40,
+              interaction_delay_ms: 2,
+              long_task_count: 0,
+              long_task_max_ms: 0,
+              tbt_ms: 0,
+              frame_gap_p95_ms: 16,
+              frame_gap_max_ms: 24,
+              jank_count_50ms: 0,
+              cls: 0,
+              window_ms: 900,
+            },
+          ],
+        }),
+        aggregatePerfRuns({
+          branch: "base",
+          scenario: "session-scroll-reading",
+          runs: [
+            {
+              interaction_ms: 16,
+              interaction_delay_ms: 1,
+              long_task_count: 0,
+              long_task_max_ms: 0,
+              tbt_ms: 0,
+              frame_gap_p95_ms: 16,
+              frame_gap_max_ms: 16,
+              jank_count_50ms: 0,
+              cls: 0.01,
+              window_ms: 300,
+            },
+          ],
+        }),
+      ],
+      head: [
+        aggregatePerfRuns({
+          branch: "head",
+          scenario: "homepage-cold",
+          runs: [
+            {
+              interaction_ms: 40,
+              interaction_delay_ms: 2,
+              long_task_count: 0,
+              long_task_max_ms: 0,
+              tbt_ms: 0,
+              frame_gap_p95_ms: 16,
+              frame_gap_max_ms: 24,
+              jank_count_50ms: 0,
+              cls: 0,
+              window_ms: 900,
+              fcp_ms: 2400,
+              lcp_ms: 3100,
+            },
+          ],
+        }),
+        aggregatePerfRuns({
+          branch: "head",
+          scenario: "session-scroll-reading",
+          runs: [
+            {
+              interaction_ms: 32,
+              interaction_delay_ms: 1,
+              long_task_count: 0,
+              long_task_max_ms: 0,
+              tbt_ms: 0,
+              frame_gap_p95_ms: 16,
+              frame_gap_max_ms: 16,
+              jank_count_50ms: 0,
+              cls: 0.01,
+              window_ms: 300,
+            },
+          ],
+        }),
+      ],
+    })
+
+    const comment = renderPerfBaselineComment(comparison)
+
+    expect(comment).toContain(PERF_COMMENT_MARKER)
+    expect(comment).toContain("## Perf delta summary")
+    expect(comment).toContain("| homepage-cold |")
+    expect(comment).toContain("| session-scroll-reading |")
+    expect(comment).toContain("warn: fcp_ms, lcp_ms")
+    expect(comment).toContain("fail: interaction_ms_median")
   })
 })

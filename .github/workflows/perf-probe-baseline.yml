@@ -4,13 +4,20 @@ on:
   pull_request:
     paths:
       - ".github/workflows/perf-probe-baseline.yml"
+      - "packages/app/src/**"
+      - "packages/ui/src/**"
       - "packages/app/e2e/perf/**"
       - "packages/app/e2e/fixtures.ts"
       - "packages/app/package.json"
+      - "packages/app/playwright.config.ts"
       - "packages/app/script/compare-perf.ts"
       - "packages/app/script/e2e-local.ts"
       - "packages/app/src/testing/perf-metrics*"
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
 
 env:
   PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
@@ -68,6 +75,7 @@ jobs:
       - name: Sync perf harness into base checkout
         run: |
           rsync -a --delete head/packages/app/e2e/perf/ base/packages/app/e2e/perf/
+          cp head/packages/app/playwright.config.ts base/packages/app/playwright.config.ts
           cp head/packages/app/src/testing/perf-metrics.ts base/packages/app/src/testing/perf-metrics.ts
 
       - name: Run perf probe baseline (base)
@@ -85,11 +93,104 @@ jobs:
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Compare base and head perf baselines
+        id: compare
+        continue-on-error: true
         run: >
           bun head/packages/app/script/compare-perf.ts
           --base "${PERF_ARTIFACT_DIR}/perf-base.json"
           --head "${PERF_ARTIFACT_DIR}/perf-head.json"
           --output "${PERF_ARTIFACT_DIR}/perf-compare.json"
+          --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
+
+      - name: Confirm perf regression (base)
+        if: steps.compare.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-confirm.json
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Confirm perf regression (head)
+        if: steps.compare.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-confirm.json
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Compare confirmed perf baselines
+        id: compare_confirmed
+        if: steps.compare.outcome == 'failure'
+        continue-on-error: true
+        run: >
+          bun head/packages/app/script/compare-perf.ts
+          --base "${PERF_ARTIFACT_DIR}/perf-base-confirm.json"
+          --head "${PERF_ARTIFACT_DIR}/perf-head-confirm.json"
+          --output "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
+          --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
+
+      - name: Comment perf deltas on pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const fs = require("node:fs")
+            const marker = "<!-- pawwork-perf-probe-baseline -->"
+            const body = fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/perf-artifacts/perf-comment.md`, "utf8")
+            const pull_number = Number(process.env.PR_NUMBER)
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: pull_number,
+              per_page: 100,
+            })
+            const existing = comments.find((comment) => typeof comment.body === "string" && comment.body.includes(marker))
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              })
+              core.info(`Updated perf delta comment ${existing.id}`)
+              return
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pull_number,
+              body,
+            })
+            core.info("Created perf delta comment")
+
+      - name: Capture perf diagnostic trace (base)
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-trace.json
+          PAWWORK_PERF_TRACE: "1"
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Capture perf diagnostic trace (head)
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-trace.json
+          PAWWORK_PERF_TRACE: "1"
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Fail job on comparator regression
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        run: exit 1
 
       - name: Upload perf probe artifacts
         if: always()
