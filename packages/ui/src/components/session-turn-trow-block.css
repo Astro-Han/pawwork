@@ -2,9 +2,16 @@
  * Slice 11b.1 trow-block.
  *
  * Native `<details>` element drives expand / collapse — W1 lock. The
- * height-transition under `:not(prefers-reduced-motion)` is owned by
- * session-turn.css's `::details-content` rule (DESIGN.md L427 / preview
- * top-of-file). This file only owns the trow-block's own layout.
+ * height + opacity transition under `prefers-reduced-motion:
+ * no-preference` is owned by the `::details-content` rule below and
+ * mirrors `docs/design/preview/message-flow.html` L13-23. The header
+ * comment used to claim session-turn.css owned this rule, but it was
+ * never actually wired there; AstroHan's fourth W1 retest
+ * (msg=ac13481a) flagged the missing animation and slice 11b.1
+ * landed the rule here. The `interpolate-size: allow-keywords` global
+ * (utilities.css L2) is what lets `height: 0` ↔ `height: auto`
+ * interpolate; `transition-behavior: allow-discrete` covers the
+ * discrete `content-visibility` step.
  */
 
 [data-component="session-turn-trow-block"] {
@@ -14,6 +21,29 @@
 
 [data-component="session-turn-trow-block"] details {
   width: 100%;
+}
+
+/* Trow expand / collapse animation — mirror of preview
+ * message-flow.html L13-23. Gated by `prefers-reduced-motion: no-
+ * preference` so reduced-motion users see an instant toggle. The
+ * `:root { interpolate-size: allow-keywords }` declaration in
+ * utilities.css is what lets `height: auto` participate in the
+ * transition; without it the rule silently no-ops to a snap. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-component="session-turn-trow-block"] details::details-content {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition:
+      height var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1),
+      opacity var(--duration-fast) ease-out,
+      content-visibility var(--duration-slow);
+    transition-behavior: allow-discrete;
+  }
+  [data-component="session-turn-trow-block"] details[open]::details-content {
+    height: auto;
+    opacity: 1;
+  }
 }
 
 /* Summary row — leading icon (16px) + text + optional chev. The chev is
@@ -106,7 +136,10 @@
   color: var(--fg-weak);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  /* gap 8→6: AstroHan's fourth W1 retest (msg=ac13481a) flagged the
+   * expanded body felt too loose vs preview. message-flow.html L199
+   * `.mf-tlist` locks gap at 6px between sub-tool rows. */
+  gap: 6px;
 }
 
 /* Fallback row (default `renderTool` path) — used when the caller does
@@ -176,4 +209,43 @@
 [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-arrow-icon"] [data-component="icon"] {
   width: 12px;
   height: 12px;
+}
+
+/* Inner Collapsible.Content expand / collapse animation — Solid's
+ * Collapsible primitive ships with the keyframe rules commented out
+ * (`collapsible.css` L92-101), so without this scoped override the
+ * inner per-tool body would snap open. AstroHan's fourth W1 retest
+ * (msg=ac13481a) flagged the missing animation. The rule below
+ * mirrors the trow `::details-content` transition and is scoped to
+ * the trow result body so Collapsible elsewhere (file-tree, settings)
+ * stays on its default behaviour. The `:root { interpolate-size:
+ * allow-keywords }` global is what lets `height: auto` participate
+ * in the transition. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-content"] {
+    height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition:
+      height var(--duration-slow) cubic-bezier(0.16, 1, 0.3, 1),
+      opacity var(--duration-fast) ease-out;
+  }
+  [data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="collapsible-content"][data-expanded] {
+    height: auto;
+    opacity: 1;
+    overflow: visible;
+  }
+}
+
+/* WebFetch's renderer (`message-part-tools-basic.tsx` L142) is the
+ * only tool that ships a right-aligned `[data-component="tool-action"]`
+ * arrow inside its trigger row — the other tools (read / list / glob /
+ * grep / websearch) use the plain `trigger={{ title, subtitle }}`
+ * object form. AstroHan's fourth W1 retest (msg=ac13481a) flagged that
+ * the right arrow makes WebFetch look like an "old-style" interactive
+ * card instead of a left-aligned trow caption row. Suppress the action
+ * icon only inside the trow result body — standalone WebFetch outside
+ * the trow keeps the affordance. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-component="tool-action"] {
+  display: none;
 }
