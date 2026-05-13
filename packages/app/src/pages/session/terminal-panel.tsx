@@ -298,7 +298,23 @@ export function TerminalPanel(props: { embedded?: boolean }) {
                 </Tabs.List>
               </Tabs>
               <div class="flex-1 min-h-0 relative">
-                <Show when={terminal.active()} keyed>
+                {/*
+                 * C-min Cut 5: gate the mounted `<Terminal>` on both
+                 * `opened()` (view-level terminal visibility — driven by the
+                 * side panel's open/close + active-tab effect) and the
+                 * active terminal id. Without `opened()`, a side panel
+                 * collapse that closes the view-level terminal still left
+                 * the `<Terminal>` mounted (the side panel's tab content
+                 * only checks `sidePanelTab() === "terminal"`, not its own
+                 * `open()`), so ghostty-web's `startRenderLoop` kept rAF'ing
+                 * every frame in the background. Adding `opened()` here
+                 * unmounts `<Terminal>` through its existing cleanup /
+                 * persist / websocket close path; reopening remounts and
+                 * reconnects normally. The ghostty-web internal render
+                 * loop is intentionally untouched — that lives behind the
+                 * encapsulation boundary and is a P1 follow-up.
+                 */}
+                <Show when={opened() && terminal.active()} keyed>
                   {(id) => {
                     const ops = terminal.bind()
                     return (
