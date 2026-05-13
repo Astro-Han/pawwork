@@ -123,3 +123,40 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+
+/* Per-tool result body — DESIGN.md L417 frame. Each rich tool render
+ * delivered through the `renderTool` slot (`session-turn-leaf-bridges`
+ * → `<Part>`) is wrapped in this slot, so the W1 caption frame
+ * (transparent fill + 1px --border-weaker hairline + radius-sm + 8/12
+ * padding) lands on every tool body — read / find / web search / bash
+ * today, and any tool added later. AstroHan flagged in the second W1
+ * retest that the legacy renderers ship a sans / base / large title
+ * block which looks out of place inside the trow caption surface;
+ * the scoped resets below flatten that inner chrome to the W1 caption
+ * typography (`--type-mono-small`, `--fg-weak`) without touching the
+ * tool registry. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid var(--border-weaker);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font: var(--type-mono-small);
+  color: var(--fg-weak);
+}
+
+/* Scoped reset for inner Part chrome hard-coded typography. Inside the
+ * trow result body the W1 caption family wins; outside (e.g. an
+ * agent-prose Part), the original sans/base/large header still
+ * applies — these selectors only fire as descendants of
+ * `[data-slot="trow-result-body"]`. */
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-title"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-subtitle"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="basic-tool-tool-arg"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="message-part-title"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="message-part-title-text"],
+[data-component="session-turn-trow-block"] [data-slot="trow-result-body"] [data-slot="message-part-title-filename"] {
+  font: var(--type-mono-small);
+  color: var(--fg-weak);
+}

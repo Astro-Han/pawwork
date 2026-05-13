@@ -148,17 +148,30 @@ export function createSessionTurnLeafBridges(input: LeafBridgeInputs) {
     <PacedMarkdown text={slot.text} cacheKey={slot.partID} streaming={input.working()} />
   )
 
+  // `trow-result-body` is the single scoping boundary for DESIGN.md L417
+  // per-tool body chrome (transparent + 1px --border-weaker + radius-sm
+  // + mono-small / fg-weak). AstroHan flagged in the second W1 retest
+  // that read / find / web search / bash still rendered their legacy
+  // sans / base / large title block inside the trow body. Rewriting
+  // every renderer would touch the whole tool registry — and the next
+  // tool added would re-introduce the same drift. Instead the boundary
+  // lives at the trow result body wrapper, and the scoped CSS reset in
+  // `session-turn-trow-block.css` flattens any inner Part chrome's
+  // hard-coded typography to the W1 caption family. New tools inherit
+  // the reset automatically without touching the registry.
   const renderTool = (part: ToolPart) => {
     const owner = partOwnerMap().get(part.id)
     if (!owner) return null
     return (
-      <Part
-        part={part}
-        message={owner}
-        showAssistantCopyPartID={input.assistantCopyPartID()}
-        turnDurationMs={input.turnDurationMs()}
-        defaultOpen={part.tool === "bash" ? input.shellToolDefaultOpen : input.editToolDefaultOpen}
-      />
+      <div data-slot="trow-result-body">
+        <Part
+          part={part}
+          message={owner}
+          showAssistantCopyPartID={input.assistantCopyPartID()}
+          turnDurationMs={input.turnDurationMs()}
+          defaultOpen={part.tool === "bash" ? input.shellToolDefaultOpen : input.editToolDefaultOpen}
+        />
+      </div>
     )
   }
 
