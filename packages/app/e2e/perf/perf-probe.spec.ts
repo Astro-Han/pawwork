@@ -184,7 +184,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         timeout: 30_000,
       })
 
-      await resetPerfProbe(page, "session-streaming-long")
+      await resetPerfProbe(page)
       const click = page.getByRole("button", { name: "Right utility panel" }).click()
       firstWave.resolve()
       await click
@@ -212,7 +212,7 @@ test.describe("PR0.1 perf probe baseline", () => {
       await project.prompt(`Create todos for perf probe run ${run + 1}.`)
       const trigger = page.locator('[data-slot="collapsible-trigger"]').filter({ has: page.locator('[data-component="tool-trigger"]') }).first()
       await expect(trigger).toBeVisible({ timeout: 30_000 })
-      await resetPerfProbe(page, "tool-call-expand")
+      await resetPerfProbe(page)
       await trigger.click()
       await expect(trigger).toHaveAttribute("aria-expanded", "true")
       await trigger.click()
@@ -249,7 +249,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         await page.goto(sessionPath(project.directory, session.id))
         await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
         await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
-        await resetPerfProbe(page, "session-scroll-reading")
+        await resetPerfProbe(page)
         await page.locator(scrollViewportSelector).first().hover()
         await page.mouse.wheel(0, -3600)
         await settleFrames(page, 2)

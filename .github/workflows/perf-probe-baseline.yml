@@ -11,6 +11,9 @@ on:
       - "packages/app/src/testing/perf-metrics*"
   workflow_dispatch:
 
+env:
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright-browsers
+
 jobs:
   perf-probe-baseline:
     runs-on: ubuntu-latest

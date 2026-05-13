@@ -435,12 +435,12 @@ function send(item: Sse) {
   let body: Stream.Stream<Uint8Array, unknown> = head
   for (const stage of segments) {
     const chunkStream = bytes(stage.chunks)
-    const segment = stage.wait
-      ? Stream.fromEffect(Effect.promise(() => stage.wait)).pipe(Stream.flatMap(() => chunkStream))
-      : chunkStream
+    const wait = stage.wait
+    const segment = wait ? Stream.fromEffect(Effect.promise(() => wait)).pipe(Stream.flatMap(() => chunkStream)) : chunkStream
     body = Stream.concat(body, segment)
   }
-  body = Stream.concat(body, item.wait ? Stream.fromEffect(Effect.promise(() => item.wait)).pipe(Stream.flatMap(() => tail)) : tail)
+  const wait = item.wait
+  body = Stream.concat(body, wait ? Stream.fromEffect(Effect.promise(() => wait)).pipe(Stream.flatMap(() => tail)) : tail)
 
   let end: Stream.Stream<Uint8Array, unknown> = empty
   if (item.error) end = Stream.concat(empty, Stream.fail(item.error))

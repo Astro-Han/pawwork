@@ -15,7 +15,7 @@ type BrowserPerfSample = {
 
 type BrowserPerfWindow = Window & {
   __pawwork_perf_probe?: {
-    reset: (label?: string) => void
+    reset: () => void
     snapshot: () => BrowserPerfSample
   }
 }
@@ -141,12 +141,12 @@ export async function installPerfProbe(page: Page) {
   })
 }
 
-export async function resetPerfProbe(page: Page, label?: string) {
-  await page.evaluate((nextLabel) => {
+export async function resetPerfProbe(page: Page) {
+  await page.evaluate(() => {
     const probe = (window as BrowserPerfWindow).__pawwork_perf_probe
     if (!probe) throw new Error("Perf probe is not installed")
-    probe.reset(nextLabel)
-  }, label)
+    probe.reset()
+  })
 }
 
 export async function snapshotPerfProbe(page: Page) {
