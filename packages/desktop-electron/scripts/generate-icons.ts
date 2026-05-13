@@ -213,6 +213,40 @@ async function writePng(source: string, output: IconOutput) {
   await writeFile(target, await renderPng(source, output.size))
 }
 
+/**
+ * Fraction of the canvas that the visible artwork occupies in dock.png.
+ * macOS masks Dock icons with ~80% coverage; a full-canvas PNG appears oversized.
+ */
+export const DOCK_ICON_CONTENT_RATIO = 0.8
+
+/**
+ * Render a Dock-safe PNG: the icon artwork is scaled to
+ * `canvasSize * DOCK_ICON_CONTENT_RATIO` and centred on a transparent canvas.
+ * This prevents the macOS Dock from rendering the icon larger than its neighbours.
+ */
+export async function renderDockPng(source: string, canvasSize: number): Promise<Buffer> {
+  const inner = Math.round(canvasSize * DOCK_ICON_CONTENT_RATIO)
+  const padStart = Math.floor((canvasSize - inner) / 2)
+  const padEnd = canvasSize - inner - padStart
+  return sharp(source)
+    .resize(inner, inner)
+    .extend({
+      top: padStart,
+      bottom: padEnd,
+      left: padStart,
+      right: padEnd,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    })
+    .png()
+    .toBuffer()
+}
+
+async function writeDockPng(source: string, output: IconOutput) {
+  const target = path.join(ICON_DEST, output.path)
+  await mkdir(path.dirname(target), { recursive: true })
+  await writeFile(target, await renderDockPng(source, output.size))
+}
+
 async function writeXmlFiles() {
   for (const file of createAndroidXmlFiles()) {
     const target = path.join(ICON_DEST, file.path)
@@ -244,11 +278,15 @@ async function writeIco(source: string) {
 async function generate() {
   const channel = resolveIconChannel(process.argv[2])
   const source = getIconSource(channel)
-  const outputs = [...ICON_PNG_OUTPUTS, ...WINDOWS_TILE_OUTPUTS, ...ANDROID_ICON_OUTPUTS, ...IOS_ICON_OUTPUTS]
+  // dock.png requires transparent padding (see renderDockPng); exclude from the batch path.
+  const outputs = [...ICON_PNG_OUTPUTS, ...WINDOWS_TILE_OUTPUTS, ...ANDROID_ICON_OUTPUTS, ...IOS_ICON_OUTPUTS].filter(
+    (o) => o.path !== "dock.png",
+  )
+  const dockOutput = ICON_PNG_OUTPUTS.find((o) => o.path === "dock.png")!
 
   await rm(ICON_DEST, { recursive: true, force: true })
   await mkdir(ICON_DEST, { recursive: true })
-  await Promise.all(outputs.map((output) => writePng(source, output)))
+  await Promise.all([...outputs.map((output) => writePng(source, output)), writeDockPng(source, dockOutput)])
   await writeXmlFiles()
   await writeIco(source)
   await writeIcns(source)
