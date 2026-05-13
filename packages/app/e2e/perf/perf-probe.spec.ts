@@ -8,6 +8,7 @@ import { sessionPath } from "../utils"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 
 const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
+const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
 
 const longMarkdown = [
   "# Baseline stream",
@@ -71,6 +72,11 @@ async function settleFrames(page: Parameters<typeof snapshotPerfProbe>[0], count
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     }
   }, count)
+}
+
+async function cooldownAfterRun(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  await settleFrames(page, 6)
+  await page.waitForTimeout(250)
 }
 
 async function navigateProjectHome(page: Parameters<typeof snapshotPerfProbe>[0], directory: string) {
@@ -148,9 +154,10 @@ test.describe("PR0.1 perf probe baseline", () => {
       await settleFrames(page, 3)
       await page.keyboard.press("Escape")
       runs.push(await snapshotPerfProbe(page))
+      if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: "dev", scenario: "homepage-cold", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "homepage-cold", runs }))
   })
 
   test("session-streaming-long emits a 3-run JSON baseline", async ({ page, project, llm }) => {
@@ -192,9 +199,10 @@ test.describe("PR0.1 perf probe baseline", () => {
       secondWave.resolve()
       await send
       runs.push(await snapshotPerfProbe(page))
+      if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: "dev", scenario: "session-streaming-long", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "session-streaming-long", runs }))
   })
 
   test("tool-call-expand emits a 3-run JSON baseline", async ({ page, project, llm }) => {
@@ -221,9 +229,10 @@ test.describe("PR0.1 perf probe baseline", () => {
       await expect(trigger).toHaveAttribute("aria-expanded", "true")
       await settleFrames(page, 4)
       runs.push(await snapshotPerfProbe(page))
+      if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: "dev", scenario: "tool-call-expand", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "tool-call-expand", runs }))
   })
 
   test("session-scroll-reading emits a 3-run JSON baseline", async ({ page, project }) => {
@@ -258,9 +267,10 @@ test.describe("PR0.1 perf probe baseline", () => {
         await page.mouse.wheel(0, 3600)
         await settleFrames(page, 4)
         runs.push(await snapshotPerfProbe(page))
+        if (run < 2) await cooldownAfterRun(page)
       })
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: "dev", scenario: "session-scroll-reading", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "session-scroll-reading", runs }))
   })
 })
