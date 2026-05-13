@@ -171,7 +171,7 @@ describe("perf metrics", () => {
         scenario: "tool-call-expand",
         runs: 3,
         interaction_ms_median: 120,
-        interaction_ms_worst: 120,
+        interaction_ms_worst: 510,
         interaction_ms: 120,
         interaction_delay_ms: 12,
         long_task_count: 1,

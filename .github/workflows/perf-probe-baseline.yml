@@ -65,6 +65,11 @@ jobs:
         working-directory: head/packages/app
         run: bunx playwright install --with-deps chromium
 
+      - name: Sync perf harness into base checkout
+        run: |
+          rsync -a --delete head/packages/app/e2e/perf/ base/packages/app/e2e/perf/
+          cp head/packages/app/src/testing/perf-metrics.ts base/packages/app/src/testing/perf-metrics.ts
+
       - name: Run perf probe baseline (base)
         env:
           CI: "true"

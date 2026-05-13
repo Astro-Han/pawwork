@@ -5,7 +5,9 @@ import { comparePerfBaselines, type PerfScenarioSummary } from "../src/testing/p
 function readArg(flag: string) {
   const index = process.argv.indexOf(flag)
   if (index === -1) return undefined
-  return process.argv[index + 1]
+  const value = process.argv[index + 1]
+  if (!value || value.startsWith("--")) return undefined
+  return value
 }
 
 async function readPerfFile(filePath: string) {
