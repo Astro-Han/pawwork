@@ -259,6 +259,26 @@
   }
 }
 
+/* C-min Cut 4: while the surrounding agent round is actively streaming,
+ * skip the trow expand / collapse height transition and the per-tool
+ * Collapsible.Content height transition. Streaming tokens already cause
+ * `height: auto` to re-resolve frame-by-frame as the dirty tail grows;
+ * stacking the transition animation on top of those layout passes is what
+ * was eating the main-thread budget. Once streaming settles the user's
+ * own expand / collapse interactions still get the full animation. */
+[data-component="session-turn-agent-round"][data-running]
+  [data-component="session-turn-trow-block"]
+  details::details-content {
+  transition: none !important;
+}
+
+[data-component="session-turn-agent-round"][data-running]
+  [data-component="session-turn-trow-block"]
+  [data-slot="trow-result-body"]
+  [data-slot="collapsible-content"] {
+  transition: none !important;
+}
+
 /* WebFetch's renderer (`message-part-tools-basic.tsx` L142) is the
  * only tool that ships a right-aligned `[data-component="tool-action"]`
  * arrow inside its trigger row — the other tools (read / list / glob /

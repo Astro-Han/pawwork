@@ -100,6 +100,45 @@
   }
 }
 
+/* C-min Cut 4: while an agent round is actively streaming, collapse every
+ * `<TextShimmer>` inside its body (trow tool titles, in-tool status rows,
+ * message-part headings, etc.) to a static base render. The shimmer in the
+ * agent header — `[data-slot="agent-status"]` outside `[data-slot="agent-body"]`
+ * — is the one allowed running instance, matching the C-min plan's "shimmer
+ *收敛到 agent header 单实例" boundary. The selector mirrors the
+ * `prefers-reduced-motion` block below: animation off, char-base opacity
+ * forced visible, char-shimmer faded out and disconnected from
+ * background-clip: text so paints don't keep churning under the streaming
+ * markdown pipeline. */
+[data-component="session-turn-agent-round"][data-running]
+  [data-slot="agent-body"]
+  [data-component="text-shimmer"]
+  [data-slot="text-shimmer-char-base"],
+[data-component="session-turn-agent-round"][data-running]
+  [data-slot="agent-body"]
+  [data-component="text-shimmer"]
+  [data-slot="text-shimmer-char-shimmer"] {
+  transition-duration: 0ms;
+}
+
+[data-component="session-turn-agent-round"][data-running]
+  [data-slot="agent-body"]
+  [data-component="text-shimmer"]
+  [data-slot="text-shimmer-char-shimmer"] {
+  animation: none !important;
+  color: inherit;
+  -webkit-text-fill-color: currentColor;
+  background-image: none;
+  opacity: 0 !important;
+}
+
+[data-component="session-turn-agent-round"][data-running]
+  [data-slot="agent-body"]
+  [data-component="text-shimmer"]
+  [data-slot="text-shimmer-char-base"] {
+  opacity: 1 !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-component="text-shimmer"] [data-slot="text-shimmer-char-base"],
   [data-component="text-shimmer"] [data-slot="text-shimmer-char-shimmer"] {
