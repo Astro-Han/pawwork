@@ -1,5 +1,5 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { FetchHttpClient } from "effect/unstable/http"
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { describe, expect, test } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer, Option } from "effect"
 import path from "path"
@@ -203,6 +203,19 @@ const lsp = Layer.succeed(
 const status = SessionStatus.layer.pipe(Layer.provideMerge(Bus.layer))
 const run = SessionRunState.layer.pipe(Layer.provide(status))
 const infra = Layer.mergeAll(NodeFileSystem.layer, CrossSpawnSpawner.defaultLayer)
+const httpWithExaQuotaFixture = Layer.effect(
+  HttpClient.HttpClient,
+  Effect.gen(function* () {
+    const base = yield* HttpClient.HttpClient
+    return HttpClient.make((request) => {
+      if (request.url.startsWith("https://mcp.exa.ai/mcp")) {
+        return Effect.succeed(HttpClientResponse.fromWeb(request, new Response("quota exceeded", { status: 429 })))
+      }
+      return base.execute(request)
+    })
+  }),
+).pipe(Layer.provide(FetchHttpClient.layer))
+
 function makeHttp() {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
@@ -228,7 +241,7 @@ function makeHttp() {
     Layer.provide(Skill.defaultLayer),
     Layer.provide(Settings.defaultLayer),
     Layer.provide(WebSearchAuth.defaultLayer),
-    Layer.provide(FetchHttpClient.layer),
+    Layer.provide(httpWithExaQuotaFixture),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
@@ -546,6 +559,46 @@ it.live("loop continues when finish is tool-calls", () =>
         expect(result.info.finish).toBe("stop")
       }
     }),
+    { git: true, config: providerCfg },
+  ),
+)
+
+it.live("websearch failures surface Exa recovery copy instead of cleanup abort", () =>
+  provideTmpdirServer(
+    ({ llm }) =>
+      Effect.gen(function* () {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const session = yield* sessions.create({
+          title: "Websearch failure",
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        })
+        yield* prompt.prompt({
+          sessionID: session.id,
+          agent: "build",
+          noReply: true,
+          parts: [{ type: "text", text: "search the web" }],
+        })
+
+        yield* llm.tool("websearch", { query: "latest PawWork release" })
+
+        const result = yield* prompt.loop({ sessionID: session.id })
+        expect(result.info.role).toBe("assistant")
+        const allMessages = yield* MessageV2.filterCompactedEffect(session.id)
+        const allParts = allMessages.flatMap((m) => m.parts)
+        const tool = allParts.find((part): part is ErrorToolPart => {
+          return part.type === "tool" && part.tool === "websearch" && part.state.status === "error"
+        })
+        expect(tool).toBeDefined()
+        expect(tool?.state.error).toContain("The bundled Web Search quota was reached")
+        expect(tool?.state.error).not.toBe("Tool execution aborted")
+        expect(tool?.state.metadata?.interrupted).toBeUndefined()
+        expect(tool?.state.metadata?.webSearch?.failure).toMatchObject({
+          kind: "quota_exceeded",
+          source: "anonymous",
+          status: 429,
+        })
+      }),
     { git: true, config: providerCfg },
   ),
 )
