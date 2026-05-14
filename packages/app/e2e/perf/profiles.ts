@@ -5,6 +5,7 @@ export type PerfScenarioName =
   | "homepage-cold"
   | "session-streaming-long"
   | "tool-call-expand"
+  | "tool-default-open-heavy-bash"
   | "terminal-side-panel-open"
   | "session-scroll-reading"
   | "session-timeline-recompute"
@@ -13,6 +14,7 @@ const defaultScenarios = new Set<PerfScenarioName>([
   "homepage-cold",
   "session-streaming-long",
   "tool-call-expand",
+  "tool-default-open-heavy-bash",
   "terminal-side-panel-open",
   "session-scroll-reading",
 ])

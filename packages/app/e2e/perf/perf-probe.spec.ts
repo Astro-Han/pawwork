@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { raw } from "../../../opencode/test/lib/llm-server"
 import { test, expect } from "../fixtures"
-import { waitTerminalFocusIdle, withSession } from "../actions"
+import { cleanupSession, waitSessionIdle, waitSessionSaved, waitTerminalFocusIdle, withSession } from "../actions"
 import {
   promptSelector,
   sessionMessageItemSelector,
@@ -11,6 +11,7 @@ import {
   terminalSelector,
 } from "../selectors"
 import { sessionPath, terminalToggleKey } from "../utils"
+import type { createSdk } from "../utils"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { seedTimelineRecomputeSession } from "./timeline-fixture"
@@ -37,7 +38,21 @@ const longMarkdown = [
   ...Array.from({ length: 80 }, (_, index) => `Paragraph ${index + 1}: ${"streaming markdown content ".repeat(8)}`),
 ].join("\n")
 
+const heavyBashCommand =
+  'node -e \'for (let i = 0; i < 900; i++) console.log(String(i).padStart(4, "0") + " " + "heavy bash output ".repeat(8))\''
+
 const scenarioResults: ReturnType<typeof summarizeScenarioRuns>[] = []
+
+type PerfSdk = ReturnType<typeof createSdk>
+type PerfProject = {
+  directory: string
+  url: string
+  sdk: PerfSdk
+  trackSession: (sessionID: string) => void
+}
+type PerfLlm = {
+  tool: (name: string, input: unknown) => Promise<void>
+}
 
 const chatChunk = (delta: Record<string, unknown>, input?: { finish?: string; usage?: { input: number; output: number } }) => ({
   id: "chatcmpl-test",
@@ -147,6 +162,82 @@ async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], t
     { top, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
   )
   expect(found).toBe(true)
+}
+
+async function enableShellToolPartsExpanded(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const apply = () => {
+    const raw = localStorage.getItem("settings.v3")
+    const current = (() => {
+      if (!raw) return {}
+      try {
+        return JSON.parse(raw) as Record<string, unknown>
+      } catch {
+        return {}
+      }
+    })()
+    const general = current.general && typeof current.general === "object" ? current.general : {}
+    localStorage.setItem(
+      "settings.v3",
+      JSON.stringify({
+        ...current,
+        general: {
+          ...general,
+          shellToolPartsExpanded: true,
+        },
+      }),
+    )
+  }
+
+  await page.addInitScript(apply)
+  await page.evaluate(apply)
+}
+
+async function seedHeavyBashSession(input: {
+  project: PerfProject
+  llm: PerfLlm
+  run: number
+}) {
+  const session = await input.project.sdk.session
+    .create({
+      title: `perf heavy bash ${Date.now()}-${input.run}`,
+      permission: [{ permission: "bash", pattern: "*", action: "allow" }],
+    })
+    .then((result) => result.data)
+  if (!session?.id) throw new Error("Session create did not return an id")
+  input.project.trackSession(session.id)
+
+  await input.llm.tool("bash", {
+    command: heavyBashCommand,
+    description: "Prints heavy deterministic output",
+  })
+  await input.project.sdk.session.promptAsync({
+    sessionID: session.id,
+    agent: "build",
+    parts: [{ type: "text", text: "Run the heavy bash perf fixture." }],
+  })
+  await waitSessionIdle(input.project.sdk, session.id, 90_000)
+  await waitSessionSaved(input.project.directory, session.id, 90_000, input.project.url)
+
+  await expect
+    .poll(
+      async () => {
+        const messages = await input.project.sdk.session.messages({ sessionID: session.id, limit: 20 })
+        return (messages.data ?? []).some((message) =>
+          message.parts.some(
+            (part) =>
+              part.type === "tool" &&
+              part.tool === "bash" &&
+              part.state.status === "completed" &&
+              typeof part.state.output === "string" &&
+              part.state.output.includes("heavy bash output"),
+          ),
+        )
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true)
+
+  return session
 }
 
 function skipUnlessScenario(name: PerfScenarioName) {
@@ -260,6 +351,34 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-call-expand", runs }))
+  })
+
+  test("tool-default-open-heavy-bash emits a 3-run JSON baseline", async ({ page, project, llm }) => {
+    skipUnlessScenario("tool-default-open-heavy-bash")
+    await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
+    await project.open()
+    await enableShellToolPartsExpanded(page)
+
+    const runs = []
+    for (let run = 0; run < 3; run += 1) {
+      const session = await seedHeavyBashSession({ project, llm, run })
+      try {
+        await page.goto(sessionPath(project.directory, session.id))
+        const trigger = page.locator('[data-slot="collapsible-trigger"]').filter({ has: page.locator('[data-component="tool-trigger"]') }).first()
+        await expect(trigger).toBeVisible({ timeout: 30_000 })
+        await expect(trigger).toHaveAttribute("aria-expanded", "true")
+        await settleFrames(page, 2)
+        runs.push(await snapshotPerfProbe(page))
+      } finally {
+        await cleanupSession({ sdk: project.sdk, sessionID: session.id }).catch(() => undefined)
+      }
+      if (run < 2) await cooldownAfterRun(page)
+    }
+
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-default-open-heavy-bash", runs }),
+    )
   })
 
   test("terminal-side-panel-open emits a 3-run JSON baseline", async ({ page, project }) => {
