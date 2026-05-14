@@ -156,7 +156,7 @@ async function submitVisiblePrompt(page: Parameters<typeof snapshotPerfProbe>[0]
 }
 
 async function readPromptText(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  return page.locator(promptSelector).first().evaluate((el) => (el as HTMLElement).innerText.replace(/\u200B/g, "").trim())
+  return page.locator(promptSelector).first().evaluate((el) => (el.textContent ?? "").replace(/\u200B/g, "").trim())
 }
 
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
