@@ -53,6 +53,7 @@ export function createSessionReviewState(input: {
   sdk: ReturnType<typeof useSDK>
   wantsReview: () => boolean
   turnDiffs: () => SessionReviewDiff[]
+  artifactDiffs?: () => SessionReviewDiff[]
 }) {
   const [changes, setChanges] = createSignal<ReviewChangeMode>("turn")
   const [vcs, setVcs] = createStore<{
@@ -214,7 +215,7 @@ export function createSessionReviewState(input: {
       currentScope: input.executionScope(),
       sessionID: input.sessionID(),
       history: artifactHistory.latest,
-      turnDiffs: input.turnDiffs(),
+      turnDiffs: input.artifactDiffs?.() ?? input.turnDiffs(),
     }),
   )
 
@@ -245,7 +246,7 @@ export function createSessionReviewState(input: {
   createEffect(() => {
     const id = input.sessionID()
     if (!id) return
-    input.turnDiffs()
+    input.artifactDiffs?.() ?? input.turnDiffs()
     queueArtifactHistoryRefetch()
   })
 
