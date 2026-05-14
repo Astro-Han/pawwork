@@ -667,6 +667,8 @@ export function AssistantParts(props: {
       new Map(
         props.messages.map((message) => [message.id, index(list(data.store.part?.[message.id], emptyParts))] as const),
       ),
+    new Map(),
+    { equals: (a, b) => a === b || (a.size === b.size && [...a.keys()].every((k) => a.get(k) === b.get(k))) },
   )
 
   const grouped = createMemo(
@@ -905,7 +907,7 @@ export function AssistantMessageDisplay(props: {
   showReasoningSummaries?: boolean
 }) {
   const emptyTools: ToolPart[] = []
-  const part = createMemo(() => index(props.parts))
+  const part = createMemo(() => index(props.parts), new Map(), { equals: (a, b) => a === b || a.size === b.size })
   const grouped = createMemo(
     () =>
       groupParts(
