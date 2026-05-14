@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures"
-import { openRightPanel } from "../actions"
+import { openRightPanel, waitSessionIdle } from "../actions"
 import { bodyText } from "../prompt/mock"
 
 test("added files stay quiet until the user opens the Files tab", async ({ page, llm, project }) => {
@@ -36,6 +36,17 @@ test("added files stay quiet until the user opens the Files tab", async ({ page,
   })
 
   await expect.poll(() => llm.calls().then((count) => count > callsBefore), { timeout: 30000 }).toBe(true)
+  await waitSessionIdle(project.sdk, session.id)
+  await expect
+    .poll(
+      async () => {
+        const diff = await project.sdk.session.diff({ sessionID: session.id }).then((res) => res.data ?? [])
+        return diff.some((entry) => entry.file.endsWith("artifact-report.md") && entry.status === "added")
+      },
+      { timeout: 30000 },
+    )
+    .toBe(true)
+
   const rightPanel = page.locator('[data-component="right-panel"]')
   await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
 
