@@ -25,6 +25,7 @@ import {
   type TimelineScrollObservation,
 } from "@/pages/session/session-timeline-scroll-controller"
 import { taskDescription } from "@/pages/session/task-description"
+import { buildTurnMessagesByUserID, emptyAssistantMessages } from "@/pages/session/session-messages"
 import {
   turnFetchSignature,
   turnFetchTargets,
@@ -372,6 +373,7 @@ export function MessageTimeline(props: {
   const sessionKey = createMemo(() => props.sessionKey)
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
+  const turnMessagesByUserID = createMemo(() => buildTurnMessagesByUserID(sessionMessages()))
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
@@ -1104,7 +1106,8 @@ export function MessageTimeline(props: {
                 </div>
               </Show>
               <For each={rendered()}>
-                {(messageID) => {
+                {(messageID, index) => {
+                  const userMessage = createMemo(() => props.renderedUserMessages[index()])
                   const active = createMemo(() => activeMessageID() === messageID)
                   const comments = createMemo(() => messageComments(sync.data.part[messageID] ?? []), [], {
                     equals: (a, b) =>
@@ -1174,6 +1177,8 @@ export function MessageTimeline(props: {
                       <SessionTurn
                         sessionID={sessionID() ?? ""}
                         messageID={messageID}
+                        message={userMessage()}
+                        assistantMessages={turnMessagesByUserID().get(messageID) ?? emptyAssistantMessages}
                         messages={sessionMessages()}
                         actions={props.actions}
                         active={active()}
