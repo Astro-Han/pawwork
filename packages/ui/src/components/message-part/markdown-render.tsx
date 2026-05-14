@@ -145,7 +145,7 @@ export function relativizeProjectPath(path: string, directory?: string) {
   const separator = directory.includes("\\") ? "\\" : "/"
   const prefix = directory.endsWith(separator) ? directory : directory + separator
   if (!path.startsWith(prefix)) return path
-  return path.slice(directory.length)
+  return path.slice(prefix.length)
 }
 
 export function getDirectory(path: string | undefined) {

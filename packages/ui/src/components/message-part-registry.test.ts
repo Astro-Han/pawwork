@@ -116,3 +116,14 @@ test("split keeps hidden tools and deferred heavy tool bodies explicit", () => {
   expect(source).toContain("defaultOpen={completed()}")
   expect(deferCount).toBe(4)
 })
+
+test("review hardening keeps routing, clipboard, url, and write guards explicit", () => {
+  const source = readMessagePartSources()
+
+  expect(source).toContain("return path.slice(prefix.length)")
+  expect(source).toContain("path.search(/\\/session(?:\\/|$)/)")
+  expect([...source.matchAll(/try \{\n\s+await navigator\.clipboard\.writeText/g)].length).toBe(2)
+  expect(source).toContain('if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return ""')
+  expect(source).toContain("getDiagnostics(props.metadata?.diagnostics, props.input.filePath)")
+  expect(source).toContain("props.input.content != null && path()")
+})

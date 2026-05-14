@@ -13,7 +13,13 @@ ToolRegistry.register({
     const url = createMemo(() => {
       const value = props.input.url
       if (typeof value !== "string") return ""
-      return value
+      try {
+        const parsed = new URL(value)
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return ""
+        return parsed.toString()
+      } catch {
+        return ""
+      }
     })
     return (
       <BasicTool

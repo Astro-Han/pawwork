@@ -16,7 +16,7 @@ ToolRegistry.register({
   render(props) {
     const i18n = useI18n()
     const fileComponent = useFileComponent()
-    const diagnostics = createMemo(() => getDiagnostics(props.metadata.diagnostics, props.input.filePath))
+    const diagnostics = createMemo(() => getDiagnostics(props.metadata?.diagnostics, props.input.filePath))
     const path = createMemo(() => props.input.filePath || "")
     const filename = () => getFilename(props.input.filePath ?? "")
     const pending = () => props.status === "pending" || props.status === "running"
@@ -47,7 +47,7 @@ ToolRegistry.register({
             </div>
           }
         >
-          <Show when={props.input.content && path()}>
+          <Show when={props.input.content != null && path()}>
             <ToolFileAccordion path={path()}>
               <div data-component="write-content">
                 <Dynamic

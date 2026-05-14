@@ -19,7 +19,7 @@ export function sessionLink(id: string | undefined, path: string, href?: (id: st
   const direct = href?.(id)
   if (direct) return direct
 
-  const idx = path.indexOf("/session")
+  const idx = path.search(/\/session(?:\/|$)/)
   if (idx === -1) return
   return `${path.slice(0, idx)}/session/${id}`
 }
