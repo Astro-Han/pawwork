@@ -68,9 +68,9 @@ describe("session turn message indexing", () => {
     expect(byUserID.has("missing_user")).toBe(false)
   })
 
-  test("returns stable empty assistant lists for users without assistant messages", () => {
+  test("does not allocate per-user empty assistant lists", () => {
     const byUserID = buildTurnMessagesByUserID([message("user_1", "user")])
 
-    expect(byUserID.get("user_1")).toHaveLength(0)
+    expect(byUserID.has("user_1")).toBe(false)
   })
 })

@@ -350,16 +350,16 @@ export function MessageTimeline(props: {
   // hide the action rather than ship a misleading export.
   const exportAvailable = createMemo(() => !!platform.exportSession && server.current?.type === "sidecar")
 
-  const rendered = createMemo(() => props.renderedUserMessages)
+  const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
   const visibleRange = createMemo(() => {
-    const messages = rendered()
-    const first = messages[0]?.id
-    const last = messages.at(-1)?.id
+    const ids = rendered()
+    const first = ids[0]
+    const last = ids.at(-1)
     return {
-      rendered_count: messages.length,
+      rendered_count: ids.length,
       visible_first_message_id: first,
       visible_last_message_id: last,
-      signature: `${messages.length}:${first ?? ""}:${last ?? ""}`,
+      signature: `${ids.length}:${first ?? ""}:${last ?? ""}`,
     }
   })
   const visibleRangeData = () => {
@@ -1106,8 +1106,8 @@ export function MessageTimeline(props: {
                 </div>
               </Show>
               <For each={rendered()}>
-                {(userMessage) => {
-                  const messageID = userMessage.id
+                {(messageID, index) => {
+                  const userMessage = createMemo(() => props.renderedUserMessages[index()])
                   const active = createMemo(() => activeMessageID() === messageID)
                   const comments = createMemo(() => messageComments(sync.data.part[messageID] ?? []), [], {
                     equals: (a, b) =>
@@ -1177,7 +1177,7 @@ export function MessageTimeline(props: {
                       <SessionTurn
                         sessionID={sessionID() ?? ""}
                         messageID={messageID}
-                        message={userMessage}
+                        message={userMessage()}
                         assistantMessages={turnMessagesByUserID().get(messageID) ?? emptyAssistantMessages}
                         messages={sessionMessages()}
                         actions={props.actions}
