@@ -41,6 +41,12 @@ const longMarkdown = [
 const heavyBashCommand =
   'node -e \'for (let i = 0; i < 900; i++) console.log(String(i).padStart(4, "0") + " " + "heavy bash output ".repeat(8))\''
 
+const inputLagText = [
+  "Long session input lag probe.",
+  "Typing remains responsive while a realistic message history is mounted.",
+  "This fixed draft protects the composer path from timeline render regressions.",
+].join(" ")
+
 const scenarioResults: ReturnType<typeof summarizeScenarioRuns>[] = []
 
 type PerfSdk = ReturnType<typeof createSdk>
@@ -147,6 +153,10 @@ async function submitVisiblePrompt(page: Parameters<typeof snapshotPerfProbe>[0]
   await page.keyboard.type(text)
   await page.keyboard.press("Enter")
   await expect.poll(async () => (await readPromptSend(page)).started, { timeout: 10_000 }).toBeGreaterThan(previous.started)
+}
+
+async function readPromptText(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  return page.locator(promptSelector).first().evaluate((el) => (el as HTMLElement).innerText.replace(/\u200B/g, "").trim())
 }
 
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
@@ -272,6 +282,36 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "homepage-cold", runs }))
+  })
+
+  test("long-session-input-lag emits a 3-run JSON baseline", async ({ page, project }) => {
+    skipUnlessScenario("long-session-input-lag")
+    await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
+    await project.open()
+
+    const runs = []
+    for (let run = 0; run < 3; run += 1) {
+      await withSession(project.sdk, `perf input lag ${Date.now()}-${run}`, async (session) => {
+        await seedTimelineRecomputeSession(project, session.id)
+        await page.goto(sessionPath(project.directory, session.id))
+        await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 30_000 })
+        await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
+
+        const prompt = page.locator(promptSelector).first()
+        await prompt.click()
+        await prompt.fill("")
+        await resetPerfProbe(page)
+        await page.keyboard.type(`${inputLagText} run ${run + 1}.`)
+        await expect.poll(() => readPromptText(page)).toBe(`${inputLagText} run ${run + 1}.`)
+        await settleFrames(page, 4)
+        runs.push(await snapshotPerfProbe(page))
+        if (run < 2) await cooldownAfterRun(page)
+      })
+    }
+
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "long-session-input-lag", runs }))
   })
 
   test("session-streaming-long emits a 3-run JSON baseline", async ({ page, project, llm }) => {
