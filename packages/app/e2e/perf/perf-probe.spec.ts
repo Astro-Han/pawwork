@@ -14,7 +14,7 @@ import { sessionPath, terminalToggleKey } from "../utils"
 import type { createSdk } from "../utils"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
-import { seedTimelineRecomputeSession } from "./timeline-fixture"
+import { TIMELINE_RECOMPUTE_SEED_TURN_COUNT, seedTimelineRecomputeSession } from "./timeline-fixture"
 
 const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
 const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
@@ -159,6 +159,21 @@ async function readPromptText(page: Parameters<typeof snapshotPerfProbe>[0]) {
   return page.locator(promptSelector).first().evaluate((el) => (el.textContent ?? "").replace(/\u200B/g, "").trim())
 }
 
+async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfProbe>[0], expectedCount: number) {
+  const messages = page.locator(sessionMessageItemSelector)
+  if ((await messages.count()) < expectedCount) {
+    await page.locator(scrollViewportSelector).first().hover()
+    await page.mouse.wheel(0, -2400)
+    await settleFrames(page, 2)
+    await scrollTimelineTo(page, 0)
+    await settleFrames(page, 2)
+    const loadEarlier = page.getByRole("button", { name: /Load earlier messages|加载更早的消息/i }).first()
+    await expect(loadEarlier).toBeVisible({ timeout: 30_000 })
+    await loadEarlier.click()
+  }
+  await expect(messages).toHaveCount(expectedCount, { timeout: 30_000 })
+}
+
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
   const found = await page.evaluate(
     ({ top, scrollViewportSelector, turnListSelector }) => {
@@ -297,11 +312,12 @@ test.describe("PR0.1 perf probe baseline", () => {
         await page.goto(sessionPath(project.directory, session.id))
         await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
         await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 30_000 })
-        await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
+        await revealCachedSessionMessages(page, TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
 
         const prompt = page.locator(promptSelector).first()
         await prompt.click()
         await prompt.fill("")
+        await expect(page.locator(sessionMessageItemSelector)).toHaveCount(TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
         await resetPerfProbe(page)
         await page.keyboard.type(`${inputLagText} run ${run + 1}.`)
         await expect.poll(() => readPromptText(page)).toBe(`${inputLagText} run ${run + 1}.`)
