@@ -128,7 +128,7 @@
   background-color: #f3ede4;
 }
 @media (prefers-color-scheme: dark) {
-  [data-component="switch"]:not([data-disabled]) [data-slot="switch-thumb"] {
+  :root:not([data-color-scheme="light"]) [data-component="switch"]:not([data-disabled]) [data-slot="switch-thumb"] {
     background-color: #f3ede4;
   }
 }
