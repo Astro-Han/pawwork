@@ -2,6 +2,27 @@ import { test, expect } from "../fixtures"
 import { sessionTurnListSelector, titlebarRightSelector } from "../selectors"
 import { withSession } from "../actions"
 
+test("right panel unmounts its tab body while closed", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
+  const aside = page.getByRole("complementary", { name: "Right utility panel", includeHidden: true })
+  const tabLists = aside.locator('[role="tablist"]')
+  const initiallyOpen = (await aside.getAttribute("aria-hidden")) === "false"
+  if (initiallyOpen) await rightToggle.click()
+
+  await expect(aside).toHaveAttribute("aria-hidden", "true")
+  await expect(tabLists).toHaveCount(0)
+
+  await rightToggle.click()
+  await expect(aside).toHaveAttribute("aria-hidden", "false")
+  await expect(tabLists.first()).toBeVisible()
+
+  await rightToggle.click()
+  await expect(aside).toHaveAttribute("aria-hidden", "true")
+  await expect(tabLists).toHaveCount(0)
+})
+
 test("right panel width persists across reload", async ({ page, gotoSession }) => {
   await gotoSession()
 

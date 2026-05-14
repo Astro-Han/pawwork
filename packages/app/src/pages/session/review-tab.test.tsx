@@ -84,4 +84,33 @@ describe("SessionReviewTab", () => {
       dispose()
     }
   })
+
+  test("clears the exposed scroll element when unmounted", () => {
+    const scrollRefs: Array<HTMLDivElement | undefined> = []
+    const dispose = createRoot((dispose) => {
+      SessionReviewTab({
+        diffs: () => [],
+        view: () =>
+          ({
+            review: {
+              open: () => [],
+              setOpen: () => undefined,
+            },
+            scroll: () => undefined,
+            setScroll: () => undefined,
+          }) as any,
+        onScrollRef: (el) => scrollRefs.push(el),
+      })
+      return dispose
+    })
+
+    const scroll = document.createElement("div")
+    capturedProps[0].scrollRef(scroll)
+
+    dispose()
+
+    expect(scrollRefs).toHaveLength(2)
+    expect(scrollRefs[0]).toBe(scroll)
+    expect(scrollRefs[1]).toBeUndefined()
+  })
 })

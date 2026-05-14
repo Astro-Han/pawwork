@@ -119,6 +119,6 @@ export function createReviewPanelScroll(input: {
 
   return {
     activeDiff: () => state.activeDiff,
-    setReviewScroll: (el: HTMLDivElement) => setState("reviewScroll", el),
+    setReviewScroll: (el: HTMLDivElement | undefined) => setState("reviewScroll", el),
   }
 }

@@ -289,7 +289,8 @@ export function SessionSidePanel(props: {
             onResize={makeRightPanelResizeHandler(props.size, layout)}
           />
         </div>
-        <div class="size-full border-l border-border-weaker">
+        <Show when={open()}>
+        <div data-component="right-panel-body" class="size-full border-l border-border-weaker">
           <DragDropProvider
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -517,6 +518,7 @@ export function SessionSidePanel(props: {
             </Tabs>
           </DragDropProvider>
         </div>
+        </Show>
       </aside>
     </Show>
   )
