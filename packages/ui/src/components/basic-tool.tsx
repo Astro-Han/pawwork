@@ -61,6 +61,7 @@ export function BasicTool(props: BasicToolProps) {
   }
   const shouldRenderDetails = () => !props.hideDetails && (props.defer || !!props.children)
   const detailsReady = () => !props.defer || ready()
+  const closingAnimatedDetails = () => props.animated && !open()
 
   let frame: number | undefined
 
@@ -80,7 +81,7 @@ export function BasicTool(props: BasicToolProps) {
     if (!props.defer) return
     if (!open()) {
       cancel()
-      setState("ready", false)
+      if (!props.animated) setState("ready", false)
       return
     }
     if (untrack(ready)) return
@@ -115,6 +116,10 @@ export function BasicTool(props: BasicToolProps) {
         } else {
           contentRef.style.overflow = "hidden"
           heightAnim = animate(contentRef, { height: "0px" }, SPRING)
+          void heightAnim.finished.then(() => {
+            if (!contentRef || open()) return
+            if (props.defer) setState("ready", false)
+          })
         }
       },
       { defer: true },
@@ -234,7 +239,10 @@ export function BasicTool(props: BasicToolProps) {
           style={{
             height: initialOpen ? "auto" : "0px",
             overflow: initialOpen ? "visible" : "hidden",
+            "pointer-events": closingAnimatedDetails() ? "none" : undefined,
           }}
+          aria-hidden={closingAnimatedDetails() ? "true" : undefined}
+          inert={closingAnimatedDetails() ? true : undefined}
         >
           <Show when={detailsReady()}>{props.children}</Show>
         </div>
