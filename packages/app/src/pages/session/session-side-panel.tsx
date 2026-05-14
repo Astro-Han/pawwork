@@ -37,6 +37,8 @@ import {
 } from "@/pages/session/right-panel-tabs"
 import { useSessionLayout } from "@/pages/session/session-layout"
 
+const RIGHT_PANEL_BODY_UNMOUNT_DELAY_MS = 240
+
 /** Converts right-panel state into the CSS width applied to the shell. */
 export function formatRightPanelWidth(open: boolean, width: number): string {
   return open ? `${width}px` : "0px"
@@ -115,6 +117,14 @@ export function SessionSidePanel(props: {
   const reviewTab = createMemo(() => isDesktop())
   const sidePanelTab = createMemo(() => view().sidePanel.tab())
   const panelWidth = createMemo(() => formatRightPanelWidth(open(), layout.rightPanel.width()))
+  const [bodyMounted, setBodyMounted] = createSignal(open())
+  let bodyUnmountTimer: number | undefined
+
+  const clearBodyUnmountTimer = () => {
+    if (bodyUnmountTimer === undefined) return
+    window.clearTimeout(bodyUnmountTimer)
+    bodyUnmountTimer = undefined
+  }
 
   const normalizeTab = (tab: string) => {
     if (!tab.startsWith("file://")) return tab
@@ -197,6 +207,24 @@ export function SessionSidePanel(props: {
 
     if (view().terminal.opened()) view().terminal.close()
   })
+
+  createEffect(() => {
+    if (open()) {
+      clearBodyUnmountTimer()
+      setBodyMounted(true)
+      return
+    }
+
+    clearBodyUnmountTimer()
+    if (!bodyMounted()) return
+
+    bodyUnmountTimer = window.setTimeout(() => {
+      bodyUnmountTimer = undefined
+      setBodyMounted(false)
+    }, RIGHT_PANEL_BODY_UNMOUNT_DELAY_MS)
+  })
+
+  onCleanup(clearBodyUnmountTimer)
 
   const handleDragStart = (event: unknown) => {
     const id = getDraggableId(event)
@@ -289,7 +317,7 @@ export function SessionSidePanel(props: {
             onResize={makeRightPanelResizeHandler(props.size, layout)}
           />
         </div>
-        <Show when={open()}>
+        <Show when={bodyMounted()}>
         <div data-component="right-panel-body" class="size-full border-l border-border-weaker">
           <DragDropProvider
             onDragStart={handleDragStart}
