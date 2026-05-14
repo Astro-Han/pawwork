@@ -4,7 +4,6 @@ import type { useFile } from "@/context/file"
 import type { useLanguage } from "@/context/language"
 import type { useSDK } from "@/context/sdk"
 import type { useSync } from "@/context/sync"
-import { nextFilesPanelAutoOpen } from "@/pages/session/files-tab-state"
 import { createOpenReviewFile } from "@/pages/session/helpers"
 import { createReviewPanelScroll } from "@/pages/session/review-panel-scroll"
 import { createReviewPanelView } from "@/pages/session/review-panel-view"
@@ -26,8 +25,6 @@ export function createSessionReviewPanel(input: {
   sdk: ReturnType<typeof useSDK>
   sessionKey: () => string
   sync: ReturnType<typeof useSync>
-  timelineDiffs: () => Array<{ status?: string | null }>
-  turnDiffs: () => Array<{ status?: string | null }>
   view: ReturnType<typeof useSessionLayout>["view"]
   wantsReview: () => boolean
   openTab: (tab: string) => void
@@ -35,25 +32,6 @@ export function createSessionReviewPanel(input: {
 }) {
   let diffFrame: number | undefined
   let diffTimer: number | undefined
-
-  createEffect(() => {
-    if (!input.routeSessionID()) return
-
-    const source = input.timelineDiffs().length > 0 ? input.timelineDiffs() : input.turnDiffs()
-    const next = nextFilesPanelAutoOpen(
-      {
-        seenAdded: input.view().sidePanel.filesAutoOpenSeen(),
-        dismissed: input.view().sidePanel.filesAutoOpenDismissed(),
-      },
-      source,
-    )
-
-    if (next.open) {
-      input.view().sidePanel.setTab("files")
-      input.view().sidePanel.open()
-    }
-    input.view().sidePanel.setAutoOpenState(next)
-  })
 
   createEffect(
     on(

@@ -1,7 +1,8 @@
 import { test, expect } from "../fixtures"
+import { openRightPanel } from "../actions"
 import { bodyText } from "../prompt/mock"
 
-test("first added file auto-opens the Files tab and offers open actions", async ({ page, llm, project }) => {
+test("added files stay quiet until the user opens the Files tab", async ({ page, llm, project }) => {
   const callsBefore = await llm.calls()
   await project.open()
   const session = await project.sdk.session.create({ title: "E2E artifacts" }).then((res) => {
@@ -35,10 +36,17 @@ test("first added file auto-opens the Files tab and offers open actions", async 
   })
 
   await expect.poll(() => llm.calls().then((count) => count > callsBefore), { timeout: 30000 }).toBe(true)
-  await expect(page.getByRole("tab", { name: /files/i })).toHaveAttribute("aria-selected", "true")
-  await expect(page.locator('[data-artifact-file="artifact-report.md"]')).toBeVisible()
+  const rightPanel = page.locator('[data-component="right-panel"]')
+  await expect(rightPanel).toHaveAttribute("aria-hidden", "true")
+
+  const panel = await openRightPanel(page)
+  await panel.getByRole("button", { name: "Add tab" }).click()
+  await page.getByRole("menuitem", { name: "Files" }).click()
+
+  const shellTabList = panel.getByRole("tablist").first()
+  const filesTab = shellTabList.getByRole("tab", { name: "Files", exact: true })
+  await expect(filesTab).toHaveAttribute("aria-selected", "true")
+  await expect(page.locator('[data-artifact-file="artifact-report.md"]')).toBeVisible({ timeout: 30000 })
   await expect(page.getByRole("button", { name: /open file/i })).toBeVisible()
   await expect(page.getByRole("button", { name: /open folder/i })).toBeVisible()
-  await page.getByRole("tab", { name: /changes/i }).click()
-  await expect(page.getByRole("tab", { name: /all/i })).toBeVisible()
 })

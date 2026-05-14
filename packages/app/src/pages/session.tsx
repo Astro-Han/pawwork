@@ -344,6 +344,7 @@ export default function Page() {
     sdk,
     wantsReview,
     turnDiffs,
+    artifactDiffs: () => (timelineDiffs().length > 0 ? timelineDiffs() : turnDiffs()),
   })
 
   const newSessionWorktree = createSessionNewWorktree({
@@ -403,8 +404,6 @@ export default function Page() {
     sdk,
     sessionKey: timelineSessionKey,
     sync,
-    timelineDiffs,
-    turnDiffs,
     view,
     wantsReview,
     openTab: tabs().open,
