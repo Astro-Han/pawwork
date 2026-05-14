@@ -24,16 +24,14 @@ export function readUserMessages(messages: unknown): UserMessage[] {
 
 export function buildTurnMessagesByUserID(messages: readonly Message[]) {
   const result = new Map<string, AssistantMessage[]>()
-  const seenUsers = new Set<string>()
 
   for (const message of messages) {
     if (isUserMessage(message)) {
-      seenUsers.add(message.id)
       if (!result.has(message.id)) result.set(message.id, [])
       continue
     }
 
-    if (!isAssistantMessage(message) || !message.parentID || !seenUsers.has(message.parentID)) continue
+    if (!isAssistantMessage(message) || !message.parentID) continue
     const assistants = result.get(message.parentID)
     if (assistants) assistants.push(message)
   }

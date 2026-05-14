@@ -350,16 +350,16 @@ export function MessageTimeline(props: {
   // hide the action rather than ship a misleading export.
   const exportAvailable = createMemo(() => !!platform.exportSession && server.current?.type === "sidecar")
 
-  const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
+  const rendered = createMemo(() => props.renderedUserMessages)
   const visibleRange = createMemo(() => {
-    const ids = rendered()
-    const first = ids[0]
-    const last = ids.at(-1)
+    const messages = rendered()
+    const first = messages[0]?.id
+    const last = messages.at(-1)?.id
     return {
-      rendered_count: ids.length,
+      rendered_count: messages.length,
       visible_first_message_id: first,
       visible_last_message_id: last,
-      signature: `${ids.length}:${first ?? ""}:${last ?? ""}`,
+      signature: `${messages.length}:${first ?? ""}:${last ?? ""}`,
     }
   })
   const visibleRangeData = () => {
@@ -373,9 +373,6 @@ export function MessageTimeline(props: {
   const sessionKey = createMemo(() => props.sessionKey)
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
-  const renderedUserMessageByID = createMemo(
-    () => new Map(props.renderedUserMessages.map((message) => [message.id, message] as const)),
-  )
   const turnMessagesByUserID = createMemo(() => buildTurnMessagesByUserID(sessionMessages()))
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
@@ -1109,9 +1106,9 @@ export function MessageTimeline(props: {
                 </div>
               </Show>
               <For each={rendered()}>
-                {(messageID) => {
+                {(userMessage) => {
+                  const messageID = userMessage.id
                   const active = createMemo(() => activeMessageID() === messageID)
-                  const userMessage = createMemo(() => renderedUserMessageByID().get(messageID))
                   const comments = createMemo(() => messageComments(sync.data.part[messageID] ?? []), [], {
                     equals: (a, b) =>
                       a.length === b.length &&
@@ -1180,7 +1177,7 @@ export function MessageTimeline(props: {
                       <SessionTurn
                         sessionID={sessionID() ?? ""}
                         messageID={messageID}
-                        message={userMessage()}
+                        message={userMessage}
                         assistantMessages={turnMessagesByUserID().get(messageID) ?? emptyAssistantMessages}
                         messages={sessionMessages()}
                         actions={props.actions}
