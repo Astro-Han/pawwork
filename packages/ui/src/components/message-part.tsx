@@ -55,6 +55,7 @@ import { animate } from "motion"
 import { useLocation } from "@solidjs/router"
 import { attached, inline, kind } from "./message-file"
 import { normalizeShellOutput } from "../util/shell-output"
+import { webSearchErrorDisplay } from "./websearch-error-copy"
 
 function ShellSubmessage(props: { text: string; animate?: boolean }) {
   let widthRef: HTMLSpanElement | undefined
@@ -1441,12 +1442,13 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
                   </div>
                 )
               }
+              const webSearchError = part().tool === "websearch" ? webSearchErrorDisplay(partMetadata(), i18n) : undefined
               return (
                 <ToolErrorCard
                   tool={part().tool}
-                  error={error()}
+                  error={webSearchError?.error ?? error()}
                   defaultOpen={props.defaultOpen}
-                  subtitle={taskSubtitle()}
+                  subtitle={webSearchError?.subtitle ?? taskSubtitle()}
                   href={taskHref()}
                 />
               )

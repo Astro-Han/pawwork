@@ -129,6 +129,30 @@ export const dict: Record<string, string> = {
   "ui.tool.grep": "Grep",
   "ui.tool.webfetch": "Webfetch",
   "ui.tool.websearch": "Web Search",
+  "ui.tool.websearch.failure.quota.title": "Search quota reached",
+  "ui.tool.websearch.failure.quota.anonymous":
+    "The bundled Web Search quota has been used up. Add an Exa API key in Settings, or configure EXA_API_KEY, then try again.",
+  "ui.tool.websearch.failure.quota.saved":
+    "The saved Exa API key has reached its search quota. Update the key in Settings, or use another key, then try again.",
+  "ui.tool.websearch.failure.quota.env":
+    "The EXA_API_KEY search quota has been used up. Update the environment variable, or use another key, then try again.",
+  "ui.tool.websearch.failure.quota.unknown":
+    "Web Search quota has been reached. Add or update an Exa API key in Settings, configure EXA_API_KEY, or try again later.",
+  "ui.tool.websearch.failure.invalidKey.title": "Exa API key needs attention",
+  "ui.tool.websearch.failure.invalidKey.saved":
+    "The saved Exa API key is invalid. Update or remove it in Settings, then try again.",
+  "ui.tool.websearch.failure.invalidKey.env":
+    "The EXA_API_KEY environment variable is invalid. Update it, then try again.",
+  "ui.tool.websearch.failure.invalidKey.anonymous":
+    "Exa rejected the bundled Web Search request. Add an Exa API key in Settings, or try again later.",
+  "ui.tool.websearch.failure.invalidKey.unknown":
+    "Exa rejected the Web Search request. Check your Exa API key in Settings, or try again later.",
+  "ui.tool.websearch.failure.network.title": "Cannot reach Web Search",
+  "ui.tool.websearch.failure.network":
+    "PawWork could not connect to Exa for Web Search. Check your network connection, then try again.",
+  "ui.tool.websearch.failure.unknown.title": "Web Search failed",
+  "ui.tool.websearch.failure.unknown":
+    "Web Search failed while contacting Exa. Try again later. If it keeps happening, update your Exa API key in Settings.",
   "ui.tool.worktree.enter": "Enter worktree",
   "ui.tool.worktree.enter.fromProject": "{{project}} → {{target}}",
   "ui.tool.worktree.exit": "Exit worktree",
