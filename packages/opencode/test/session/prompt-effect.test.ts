@@ -216,7 +216,7 @@ const httpWithExaQuotaFixture = Layer.effect(
   }),
 ).pipe(Layer.provide(FetchHttpClient.layer))
 
-function makeHttp() {
+function makeHttp(httpLayer: Layer.Layer<HttpClient.HttpClient> = FetchHttpClient.layer) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -241,7 +241,7 @@ function makeHttp() {
     Layer.provide(Skill.defaultLayer),
     Layer.provide(Settings.defaultLayer),
     Layer.provide(WebSearchAuth.defaultLayer),
-    Layer.provide(httpWithExaQuotaFixture),
+    Layer.provide(httpLayer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),
     Layer.provide(Format.defaultLayer),
@@ -271,6 +271,7 @@ function makeHttp() {
 }
 
 const it = testEffect(makeHttp())
+const itWithExaQuota = testEffect(makeHttp(httpWithExaQuotaFixture))
 const unix = process.platform !== "win32" ? it.live : it.live.skip
 const slowIOTimeout = process.platform === "win32" ? 10_000 : 3_000
 
@@ -563,7 +564,7 @@ it.live("loop continues when finish is tool-calls", () =>
   ),
 )
 
-it.live("websearch failures surface Exa recovery copy instead of cleanup abort", () =>
+itWithExaQuota.live("websearch failures surface Exa recovery copy instead of cleanup abort", () =>
   provideTmpdirServer(
     ({ llm }) =>
       Effect.gen(function* () {
@@ -591,7 +592,7 @@ it.live("websearch failures surface Exa recovery copy instead of cleanup abort",
         })
         expect(tool).toBeDefined()
         expect(tool?.state.error).toContain("The bundled Web Search quota was reached")
-        expect(tool?.state.error).not.toBe("Tool execution aborted")
+        expect(tool?.state.error).not.toContain("Tool execution aborted")
         expect(tool?.state.metadata?.interrupted).toBeUndefined()
         expect(tool?.state.metadata?.webSearch?.failure).toMatchObject({
           kind: "quota_exceeded",
