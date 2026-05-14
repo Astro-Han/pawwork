@@ -30,7 +30,6 @@ export {
 } from "./color"
 
 export { resolveThemeVariant, resolveTheme, themeToCss } from "./resolve"
-export { applyTheme, loadThemeFromUrl, getActiveTheme, removeTheme, setColorScheme } from "./loader"
 export { ThemeProvider, useTheme, type ColorScheme, type ThemeStorageKeys } from "./context"
 
 export { DEFAULT_THEMES, pawworkTheme } from "./default-themes"

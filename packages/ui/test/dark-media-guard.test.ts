@@ -17,13 +17,6 @@
  * `theme/context.tsx`'s `applyThemeCss`, which emits CSS per-mode
  * without `@media` at all.
  *
- * `theme/loader.ts` also contains a `buildThemeCss` template literal
- * with unguarded `@media (prefers-color-scheme: dark)` blocks, but it
- * is dead code in PawWork: no callsite imports it, and
- * `desktop-electron/src/renderer/theme-context.test.ts` actively
- * enforces that the renderer uses `theme/context` rather than the
- * `theme/` barrel that re-exports loader. Not in scope here.
- *
  * Comment-only matches (e.g. doc strings explaining the convention)
  * are tolerated; we only check `@media` blocks that actually open a rule.
  */
