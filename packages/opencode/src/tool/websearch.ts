@@ -77,7 +77,7 @@ export const WebSearchTool = Tool.define(
             title: `Web search: ${params.query}`,
             metadata: {},
           }
-        }).pipe(Effect.orDie),
+        }),
     }
   }),
 )

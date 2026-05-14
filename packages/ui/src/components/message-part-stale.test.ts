@@ -28,6 +28,14 @@ test("question tool error renders interrupted variant via metadata.interrupted",
   expect(source).toContain('"ui.messagePart.questions.interrupted"')
 })
 
+test("websearch tool errors render localized structured failure copy", () => {
+  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+
+  expect(source).toContain('part().tool === "websearch" ? webSearchErrorDisplay(partMetadata(), i18n) : undefined')
+  expect(source).toContain("error={webSearchError?.error ?? error()}")
+  expect(source).toContain("subtitle={webSearchError?.subtitle ?? taskSubtitle()}")
+})
+
 test("interrupted i18n key exists in zh and en", () => {
   const zh = readFileSync(new URL("../i18n/zh.ts", import.meta.url), "utf8")
   const en = readFileSync(new URL("../i18n/en.ts", import.meta.url), "utf8")
