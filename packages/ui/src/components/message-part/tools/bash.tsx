@@ -70,6 +70,7 @@ ToolRegistry.register({
       <BasicTool
         {...props}
         icon="console"
+        defer
         trigger={
           <div data-slot="basic-tool-tool-info-structured">
             <div data-slot="basic-tool-tool-info-main">

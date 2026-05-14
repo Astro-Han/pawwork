@@ -41,10 +41,15 @@ export interface BasicToolProps {
 
 const SPRING = { type: "spring" as const, visualDuration: 0.35, bounce: 0 }
 
+export function basicToolInitialReady(props: { defaultOpen?: boolean; defer?: boolean }) {
+  if (props.defer) return false
+  return props.defaultOpen ?? false
+}
+
 export function BasicTool(props: BasicToolProps) {
   const [state, setState] = createStore({
     open: props.defaultOpen ?? false,
-    ready: props.defaultOpen ?? false,
+    ready: basicToolInitialReady(props),
   })
   const open = () => state.open
   const ready = () => state.ready
@@ -64,27 +69,22 @@ export function BasicTool(props: BasicToolProps) {
     if (props.forceOpen) setState("open", true)
   })
 
-  createEffect(
-    on(
-      open,
-      (value) => {
-        if (!props.defer) return
-        if (!value) {
-          cancel()
-          setState("ready", false)
-          return
-        }
+  createEffect(() => {
+    if (!props.defer) return
+    if (!open()) {
+      cancel()
+      setState("ready", false)
+      return
+    }
+    if (ready()) return
 
-        cancel()
-        frame = requestAnimationFrame(() => {
-          frame = undefined
-          if (!open()) return
-          setState("ready", true)
-        })
-      },
-      { defer: true },
-    ),
-  )
+    cancel()
+    frame = requestAnimationFrame(() => {
+      frame = undefined
+      if (!open()) return
+      setState("ready", true)
+    })
+  })
 
   // Animated height for collapsible open/close
   let contentRef: HTMLDivElement | undefined
