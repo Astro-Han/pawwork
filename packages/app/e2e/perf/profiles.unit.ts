@@ -7,3 +7,10 @@ test("default profile runs heavy default-open bash perf coverage", () => {
   expect(shouldRunScenario("default", scenario)).toBe(true)
   expect(shouldRunScenario("low-end", scenario)).toBe(false)
 })
+
+test("default profile runs long-session input lag coverage", () => {
+  const scenario = "long-session-input-lag" as PerfScenarioName
+
+  expect(shouldRunScenario("default", scenario)).toBe(true)
+  expect(shouldRunScenario("low-end", scenario)).toBe(false)
+})
