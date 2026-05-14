@@ -1,9 +1,19 @@
 import fs from "node:fs/promises"
 import { describe, expect, test } from "bun:test"
 
+const normalizeLineEndings = (text: string) => text.replace(/\r\n?/g, "\n")
+
 describe("perf workflow contract", () => {
+  test("matches workflow snippets after Windows line-ending checkout", () => {
+    const workflow = normalizeLineEndings("restore-keys: |\r\n            playwright-${{ runner.os }}-")
+
+    expect(workflow).toContain("restore-keys: |\n            playwright-${{ runner.os }}-")
+  })
+
   test("keeps default gate broad and low-end gate scoped", async () => {
-    const workflow = await fs.readFile(new URL("../../../../.github/workflows/perf-probe-baseline.yml", import.meta.url), "utf8")
+    const workflow = normalizeLineEndings(
+      await fs.readFile(new URL("../../../../.github/workflows/perf-probe-baseline.yml", import.meta.url), "utf8"),
+    )
 
     expect(workflow).toContain("fetch-depth: 0")
     expect(workflow).toContain("Detect low-end perf scope")
