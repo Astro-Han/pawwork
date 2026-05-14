@@ -313,8 +313,12 @@
   }
 }
 
+[data-color-scheme="dark"] [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
+  opacity: 0.6;
+}
+
 @media (prefers-color-scheme: dark) {
-  [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
+  :root:not([data-color-scheme="light"]) [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
     opacity: 0.6;
   }
 }
