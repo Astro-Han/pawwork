@@ -12,9 +12,12 @@ import {
 } from "../selectors"
 import { sessionPath, terminalToggleKey } from "../utils"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
+import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
+import { seedTimelineRecomputeSession } from "./timeline-fixture"
 
 const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
 const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
+const PERF_PROFILE = readPerfProfile()
 
 const longMarkdown = [
   "# Baseline stream",
@@ -146,6 +149,10 @@ async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], t
   expect(found).toBe(true)
 }
 
+function skipUnlessScenario(name: PerfScenarioName) {
+  test.skip(!shouldRunScenario(PERF_PROFILE, name), `${PERF_PROFILE} profile does not run ${name}`)
+}
+
 test.describe("PR0.1 perf probe baseline", () => {
   test.describe.configure({ mode: "serial" })
 
@@ -155,7 +162,9 @@ test.describe("PR0.1 perf probe baseline", () => {
   })
 
   test("homepage-cold emits a 3-run JSON baseline", async ({ page, project }) => {
+    skipUnlessScenario("homepage-cold")
     await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
     const runs = []
@@ -171,11 +180,13 @@ test.describe("PR0.1 perf probe baseline", () => {
       if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "homepage-cold", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "homepage-cold", runs }))
   })
 
   test("session-streaming-long emits a 3-run JSON baseline", async ({ page, project, llm }) => {
+    skipUnlessScenario("session-streaming-long")
     await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
     const runs = []
@@ -216,11 +227,13 @@ test.describe("PR0.1 perf probe baseline", () => {
       if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "session-streaming-long", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-streaming-long", runs }))
   })
 
   test("tool-call-expand emits a 3-run JSON baseline", async ({ page, project, llm }) => {
+    skipUnlessScenario("tool-call-expand")
     await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
     const runs = []
@@ -246,11 +259,13 @@ test.describe("PR0.1 perf probe baseline", () => {
       if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "tool-call-expand", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-call-expand", runs }))
   })
 
   test("terminal-side-panel-open emits a 3-run JSON baseline", async ({ page, project }) => {
+    skipUnlessScenario("terminal-side-panel-open")
     await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
     const runs = []
@@ -273,11 +288,13 @@ test.describe("PR0.1 perf probe baseline", () => {
       })
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "terminal-side-panel-open", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "terminal-side-panel-open", runs }))
   })
 
   test("session-scroll-reading emits a 3-run JSON baseline", async ({ page, project }) => {
+    skipUnlessScenario("session-scroll-reading")
     await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
     await project.open()
 
     const runs = []
@@ -312,6 +329,35 @@ test.describe("PR0.1 perf probe baseline", () => {
       })
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, scenario: "session-scroll-reading", runs }))
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-scroll-reading", runs }))
+  })
+
+  test("session-timeline-recompute emits a 3-run low-end JSON baseline", async ({ page, project }) => {
+    skipUnlessScenario("session-timeline-recompute")
+    await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
+    await project.open()
+
+    const runs = []
+    for (let run = 0; run < 3; run += 1) {
+      await withSession(project.sdk, `perf timeline recompute ${Date.now()}-${run}`, async (session) => {
+        await seedTimelineRecomputeSession(project, session.id)
+        await page.goto(sessionPath(project.directory, session.id))
+        await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
+        await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
+        await resetPerfProbe(page)
+        await page.locator(scrollViewportSelector).first().hover()
+        for (let index = 0; index < 4; index += 1) {
+          await page.mouse.wheel(0, index % 2 === 0 ? 2400 : -2400)
+          await settleFrames(page, 2)
+          await scrollTimelineTo(page, index % 2 === 0 ? 0 : 1200)
+          await settleFrames(page, 2)
+        }
+        runs.push(await snapshotPerfProbe(page))
+        if (run < 2) await cooldownAfterRun(page)
+      })
+    }
+
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-timeline-recompute", runs }))
   })
 })

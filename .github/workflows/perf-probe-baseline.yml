@@ -11,6 +11,7 @@ on:
       - "packages/app/package.json"
       - "packages/app/playwright.config.ts"
       - "packages/app/script/compare-perf.ts"
+      - "packages/app/script/merge-perf-artifacts.ts"
       - "packages/app/script/e2e-local.ts"
       - "packages/app/src/testing/perf-metrics*"
   workflow_dispatch:
@@ -31,11 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
+          fetch-depth: 0
           path: head
           persist-credentials: false
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
+          fetch-depth: 0
           path: base
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
@@ -59,6 +62,8 @@ jobs:
         with:
           path: ${{ github.workspace }}/.playwright-browsers
           key: playwright-${{ runner.os }}-${{ hashFiles('head/packages/app/package.json', 'head/bun.lock', 'base/packages/app/package.json', 'base/bun.lock') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Install head dependencies
         working-directory: head
@@ -78,6 +83,56 @@ jobs:
           cp head/packages/app/playwright.config.ts base/packages/app/playwright.config.ts
           cp head/packages/app/src/testing/perf-metrics.ts base/packages/app/src/testing/perf-metrics.ts
 
+      - name: Detect low-end perf scope
+        id: low_end_scope
+        working-directory: head
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          is_low_end_path() {
+            case "$1" in
+              packages/app/src/pages/session/*|packages/app/src/pages/session/**|packages/app/src/pages/session.tsx|packages/ui/src/components/message-part.tsx|packages/ui/src/components/session-turn.tsx|packages/ui/src/components/markdown.tsx|packages/app/e2e/perf/*|packages/app/e2e/perf/**|packages/app/src/testing/perf-metrics*|packages/app/script/compare-perf.ts|packages/app/script/merge-perf-artifacts.ts|.github/workflows/perf-probe-baseline.yml)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run_low_end=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+          run_low_end=false
+          mapfile -t changes < <(git diff --name-status --find-renames --find-copies "$BASE_SHA" "$HEAD_SHA" --)
+          for change in "${changes[@]}"; do
+            IFS=$'\t' read -r status path1 path2 <<< "$change"
+            case "$status" in
+              A*|M*|T*|D*)
+                if is_low_end_path "$path1"; then run_low_end=true; break; fi
+                ;;
+              R*|C*)
+                if is_low_end_path "$path1" || is_low_end_path "$path2"; then run_low_end=true; break; fi
+                ;;
+              *)
+                run_low_end=true
+                break
+                ;;
+            esac
+          done
+
+          echo "run_low_end=$run_low_end" >> "$GITHUB_OUTPUT"
+
       - name: Run perf probe baseline (base)
         env:
           CI: "true"
@@ -92,13 +147,45 @@ jobs:
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head.json
         run: bun --cwd head/packages/app test:e2e:local:perf
 
+      - name: Run low-end perf probe baseline (base)
+        if: steps.low_end_scope.outputs.run_low_end == 'true'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end.json
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Run low-end perf probe baseline (head)
+        if: steps.low_end_scope.outputs.run_low_end == 'true'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end.json
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Merge perf profile artifacts (base)
+        run: >
+          bun head/packages/app/script/merge-perf-artifacts.ts
+          --required "${PERF_ARTIFACT_DIR}/perf-base.json"
+          --optional "${PERF_ARTIFACT_DIR}/perf-base-low-end.json"
+          --output "${PERF_ARTIFACT_DIR}/perf-base-combined.json"
+
+      - name: Merge perf profile artifacts (head)
+        run: >
+          bun head/packages/app/script/merge-perf-artifacts.ts
+          --required "${PERF_ARTIFACT_DIR}/perf-head.json"
+          --optional "${PERF_ARTIFACT_DIR}/perf-head-low-end.json"
+          --output "${PERF_ARTIFACT_DIR}/perf-head-combined.json"
+
       - name: Compare base and head perf baselines
         id: compare
         continue-on-error: true
         run: >
           bun head/packages/app/script/compare-perf.ts
-          --base "${PERF_ARTIFACT_DIR}/perf-base.json"
-          --head "${PERF_ARTIFACT_DIR}/perf-head.json"
+          --base "${PERF_ARTIFACT_DIR}/perf-base-combined.json"
+          --head "${PERF_ARTIFACT_DIR}/perf-head-combined.json"
           --output "${PERF_ARTIFACT_DIR}/perf-compare.json"
           --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
 
@@ -118,14 +205,48 @@ jobs:
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-confirm.json
         run: bun --cwd head/packages/app test:e2e:local:perf
 
+      - name: Confirm low-end perf regression (base)
+        if: steps.compare.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-confirm.json
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Confirm low-end perf regression (head)
+        if: steps.compare.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-confirm.json
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Merge confirmed perf profile artifacts (base)
+        if: steps.compare.outcome == 'failure'
+        run: >
+          bun head/packages/app/script/merge-perf-artifacts.ts
+          --required "${PERF_ARTIFACT_DIR}/perf-base-confirm.json"
+          --optional "${PERF_ARTIFACT_DIR}/perf-base-low-end-confirm.json"
+          --output "${PERF_ARTIFACT_DIR}/perf-base-confirm-combined.json"
+
+      - name: Merge confirmed perf profile artifacts (head)
+        if: steps.compare.outcome == 'failure'
+        run: >
+          bun head/packages/app/script/merge-perf-artifacts.ts
+          --required "${PERF_ARTIFACT_DIR}/perf-head-confirm.json"
+          --optional "${PERF_ARTIFACT_DIR}/perf-head-low-end-confirm.json"
+          --output "${PERF_ARTIFACT_DIR}/perf-head-confirm-combined.json"
+
       - name: Compare confirmed perf baselines
         id: compare_confirmed
         if: steps.compare.outcome == 'failure'
         continue-on-error: true
         run: >
           bun head/packages/app/script/compare-perf.ts
-          --base "${PERF_ARTIFACT_DIR}/perf-base-confirm.json"
-          --head "${PERF_ARTIFACT_DIR}/perf-head-confirm.json"
+          --base "${PERF_ARTIFACT_DIR}/perf-base-confirm-combined.json"
+          --head "${PERF_ARTIFACT_DIR}/perf-head-confirm-combined.json"
           --output "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
           --comment-output "${PERF_ARTIFACT_DIR}/perf-comment.md"
 
@@ -185,6 +306,26 @@ jobs:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-trace.json
+          PAWWORK_PERF_TRACE: "1"
+        run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Capture low-end perf diagnostic trace (base)
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-trace.json
+          PAWWORK_PERF_TRACE: "1"
+        run: bun --cwd base/packages/app test:e2e:local:perf
+
+      - name: Capture low-end perf diagnostic trace (head)
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        env:
+          CI: "true"
+          PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd head/packages/app test:e2e:local:perf
 

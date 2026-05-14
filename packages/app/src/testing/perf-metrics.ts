@@ -42,8 +42,11 @@ export type PerfRunSummary = {
   heap_used_mb?: number
 }
 
+export type PerfProfile = "default" | "low-end"
+
 export type PerfScenarioSummary = PerfRunSummary & {
   branch: string
+  profile: PerfProfile
   scenario: string
   runs: number
   interaction_ms_median: number
@@ -52,6 +55,7 @@ export type PerfScenarioSummary = PerfRunSummary & {
 }
 
 export type PerfScenarioComparison = {
+  profile: PerfProfile
   scenario: string
   pass: boolean
   failures: string[]
@@ -93,6 +97,24 @@ const perfCatastrophicThresholds = {
   interactionMsWorst: 500,
   frameGapMaxMs: 500,
   longTaskMaxMs: 250,
+} as const
+
+const lowEndWarningThresholds = {
+  interactionMedianMs: 20,
+  interactionMedianRatio: 1.15,
+  interactionWorstMs: 80,
+  longTaskMaxMs: 60,
+  tbtMs: 120,
+  frameGapP95Ms: 20,
+  frameGapMaxMs: 120,
+  jankCount: 4,
+  cls: 0.04,
+} as const
+
+const lowEndCatastrophicThresholds = {
+  interactionMsWorst: 700,
+  frameGapMaxMs: 700,
+  longTaskMaxMs: 300,
 } as const
 
 function round(input: number) {
@@ -160,6 +182,7 @@ export function summarizePerfRun(input: PerfRunSample): PerfRunSummary {
 
 export function aggregatePerfRuns(input: {
   branch: string
+  profile?: PerfProfile
   scenario: string
   runs: PerfRunSummary[]
 }): PerfScenarioSummary {
@@ -170,6 +193,7 @@ export function aggregatePerfRuns(input: {
 
   return {
     branch: input.branch,
+    profile: input.profile ?? "default",
     scenario: input.scenario,
     runs: runs.length,
     interaction_ms_median: round(median(runs.map((run) => run.interaction_ms))),
@@ -226,13 +250,13 @@ export function renderPerfBaselineComment(input: PerfBaselineComparison) {
     "",
     `Comparator: ${input.pass ? "pass" : "fail"}`,
     "",
-    "| Scenario | interaction median | interaction worst | long task max | tbt | frame gap p95 | frame gap max | jank count | cls | status |",
+    "| Profile / Scenario | interaction median | interaction worst | long task max | tbt | frame gap p95 | frame gap max | jank count | cls | status |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ]
 
   for (const scenario of input.scenarios) {
     const columns = [
-      scenario.scenario,
+      `${scenario.profile} / ${scenario.scenario}`,
       formatMetricDelta(scenario.base.interaction_ms_median, scenario.head.interaction_ms_median),
       formatMetricDelta(scenario.base.interaction_ms_worst, scenario.head.interaction_ms_worst),
       formatMetricDelta(scenario.base.long_task_max_ms, scenario.head.long_task_max_ms),
@@ -261,6 +285,64 @@ export function comparePerfScenarioSummaries(input: {
 }): PerfScenarioComparison {
   const failures: string[] = []
   const warnings: string[] = []
+  const profile = input.head.profile ?? input.base.profile ?? "default"
+
+  if (profile === "low-end") {
+    if (
+      exceededByDelta({
+        base: input.base.interaction_ms_median,
+        head: input.head.interaction_ms_median,
+        maxDelta: lowEndWarningThresholds.interactionMedianMs,
+        maxRatio: lowEndWarningThresholds.interactionMedianRatio,
+      })
+    ) {
+      warnings.push("interaction_ms_median")
+    }
+    const interactionWorstRegressed =
+      input.head.interaction_ms_worst > input.base.interaction_ms_worst + lowEndWarningThresholds.interactionWorstMs
+    if (interactionWorstRegressed) {
+      warnings.push("interaction_ms_worst_delta")
+    }
+    if (interactionWorstRegressed && input.head.interaction_ms_worst >= lowEndCatastrophicThresholds.interactionMsWorst) {
+      failures.push("interaction_ms_worst")
+    }
+    const longTaskRegressed = input.head.long_task_max_ms > input.base.long_task_max_ms + lowEndWarningThresholds.longTaskMaxMs
+    if (longTaskRegressed) {
+      warnings.push("long_task_max_ms_delta")
+    }
+    if (longTaskRegressed && input.head.long_task_max_ms >= lowEndCatastrophicThresholds.longTaskMaxMs) {
+      failures.push("long_task_max_ms")
+    }
+    if (input.head.tbt_ms > input.base.tbt_ms + lowEndWarningThresholds.tbtMs) {
+      warnings.push("tbt_ms")
+    }
+    if (input.head.frame_gap_p95_ms > input.base.frame_gap_p95_ms + lowEndWarningThresholds.frameGapP95Ms) {
+      warnings.push("frame_gap_p95_ms")
+    }
+    const frameGapMaxRegressed = input.head.frame_gap_max_ms > input.base.frame_gap_max_ms + lowEndWarningThresholds.frameGapMaxMs
+    if (frameGapMaxRegressed) {
+      warnings.push("frame_gap_max_ms_delta")
+    }
+    if (frameGapMaxRegressed && input.head.frame_gap_max_ms >= lowEndCatastrophicThresholds.frameGapMaxMs) {
+      failures.push("frame_gap_max_ms")
+    }
+    if (input.head.jank_count_50ms > input.base.jank_count_50ms + lowEndWarningThresholds.jankCount) {
+      warnings.push("jank_count_50ms")
+    }
+    if (input.head.cls > input.base.cls + lowEndWarningThresholds.cls) {
+      warnings.push("cls_delta")
+    }
+
+    return {
+      profile,
+      scenario: input.scenario,
+      pass: failures.length === 0,
+      failures: [...new Set(failures)],
+      warnings: [...new Set(warnings)],
+      base: input.base,
+      head: input.head,
+    }
+  }
 
   if (
     exceededByDelta({
@@ -311,6 +393,7 @@ export function comparePerfScenarioSummaries(input: {
   addAbsoluteWarning(warnings, "lcp_ms", input.head.lcp_ms, perfAbsoluteWarnings.lcpMs)
 
   return {
+    profile,
     scenario: input.scenario,
     pass: failures.length === 0,
     failures: [...new Set(failures)],
@@ -320,6 +403,10 @@ export function comparePerfScenarioSummaries(input: {
   }
 }
 
+function scenarioKey(input: { profile?: PerfProfile; scenario: string }) {
+  return `${input.profile ?? "default"}:${input.scenario}`
+}
+
 export function comparePerfBaselines(input: {
   base: PerfScenarioSummary[]
   head: PerfScenarioSummary[]
@@ -327,12 +414,13 @@ export function comparePerfBaselines(input: {
   const failures: string[] = []
   const warnings: string[] = []
   const scenarios: PerfScenarioComparison[] = []
-  const headByScenario = new Map(input.head.map((scenario) => [scenario.scenario, scenario]))
+  const headByScenario = new Map(input.head.map((scenario) => [scenarioKey(scenario), scenario]))
 
   for (const baseScenario of input.base) {
-    const headScenario = headByScenario.get(baseScenario.scenario)
+    const key = scenarioKey(baseScenario)
+    const headScenario = headByScenario.get(key)
     if (!headScenario) {
-      failures.push(`missing_head_scenario:${baseScenario.scenario}`)
+      failures.push(`missing_head_scenario:${key}`)
       continue
     }
     const comparison = comparePerfScenarioSummaries({
@@ -341,13 +429,14 @@ export function comparePerfBaselines(input: {
       head: headScenario,
     })
     scenarios.push(comparison)
-    for (const failure of comparison.failures) failures.push(`${baseScenario.scenario}:${failure}`)
-    for (const warning of comparison.warnings) warnings.push(`${baseScenario.scenario}:${warning}`)
+    for (const failure of comparison.failures) failures.push(`${key}:${failure}`)
+    for (const warning of comparison.warnings) warnings.push(`${key}:${warning}`)
   }
 
   for (const headScenario of input.head) {
-    if (!input.base.some((scenario) => scenario.scenario === headScenario.scenario)) {
-      failures.push(`missing_base_scenario:${headScenario.scenario}`)
+    const key = scenarioKey(headScenario)
+    if (!input.base.some((scenario) => scenarioKey(scenario) === key)) {
+      failures.push(`missing_base_scenario:${key}`)
     }
   }
 
