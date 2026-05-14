@@ -46,6 +46,10 @@ function readMessagePartSources() {
   ].join("\n")
 }
 
+function readToolSource(file: string) {
+  return readFileSync(join(MESSAGE_PART_DIR, "tools", file), "utf8")
+}
+
 test("message-part internals do not import through the facade", () => {
   const offenders = sourceFiles(MESSAGE_PART_DIR)
     .map((file) => ({
@@ -109,12 +113,21 @@ test("part and tool side-effect barrels cover every registered renderer", () => 
 
 test("split keeps hidden tools and deferred heavy tool bodies explicit", () => {
   const source = readMessagePartSources()
-  const deferCount = [...source.matchAll(/\bdefer\b/g)].length
 
   expect(source).toContain('export const HIDDEN_TOOLS = new Set(["todowrite"])')
   expect(source).toContain('if (tool === "edit" || tool === "write" || tool === "apply_patch") return edit')
   expect(source).toContain("defaultOpen={completed()}")
-  expect(deferCount).toBe(4)
+
+  const deferredHeavyTools = {
+    "bash.tsx": 1,
+    "edit.tsx": 1,
+    "write.tsx": 1,
+    "apply-patch.tsx": 2,
+  } as const
+
+  for (const [file, count] of Object.entries(deferredHeavyTools)) {
+    expect([...readToolSource(file).matchAll(/\bdefer\b/g)].length).toBe(count)
+  }
 })
 
 test("review hardening keeps routing, clipboard, url, and write guards explicit", () => {
