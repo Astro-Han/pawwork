@@ -134,10 +134,6 @@
     padding: 12px 16px;
     border-radius: 14px;
 
-    @media (prefers-color-scheme: dark) {
-      background: var(--surface-raised);
-    }
-
     [data-highlight="file"] {
       color: var(--syntax-property);
     }
@@ -212,6 +208,12 @@
 
 [data-color-scheme="dark"] [data-component="user-message"] [data-slot="user-message-text"] {
   background: var(--surface-raised);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"]) [data-component="user-message"] [data-slot="user-message-text"] {
+    background: var(--surface-raised);
+  }
 }
 
 [data-component="text-part"] {
