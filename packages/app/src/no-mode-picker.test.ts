@@ -74,8 +74,9 @@ test("message-part.tsx no longer renders agent pill", async () => {
   // After Task 5, HighlightedText drops agents from allRefs and the type union no
   // longer includes "agent". Source-grep guards against future regressions that
   // re-introduce a styled pill via the same data-highlight marker.
-  const file = path.join(UI_COMPONENTS, "message-part.tsx")
-  const text = await fs.readFile(file, "utf8")
+  const root = path.join(UI_COMPONENTS, "message-part")
+  const files = [path.join(UI_COMPONENTS, "message-part.tsx"), ...(await walk(root))]
+  const text = (await Promise.all(files.map((file) => fs.readFile(file, "utf8")))).join("\n")
   // Match data-highlight="agent" / 'agent' / `agent` to survive quote-style changes.
   expect(text).not.toMatch(/data-highlight\s*=\s*["'`]agent["'`]/)
 })
