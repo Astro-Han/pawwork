@@ -83,7 +83,8 @@ describe("util.flock", () => {
           done,
           active,
           holdMs: 30,
-          staleMs: 1_000,
+          // This stress case validates normal contention; stale recovery has dedicated tests below.
+          staleMs: 30_000,
           timeoutMs: 15_000,
         }),
       ),

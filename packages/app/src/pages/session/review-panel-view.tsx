@@ -17,7 +17,7 @@ export function createReviewPanelView(input: {
   file: ReturnType<typeof useFile>
   focusedFile: () => string | undefined
   language: ReturnType<typeof useLanguage>
-  onScrollRef: (el: HTMLDivElement) => void
+  onScrollRef: (el: HTMLDivElement | undefined) => void
   onViewFile: (path: string) => void
   reviewState: ReturnType<typeof createSessionReviewState>
   view: ReturnType<typeof useSessionLayout>["view"]

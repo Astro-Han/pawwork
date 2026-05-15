@@ -210,13 +210,13 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
 
-      // Use bash tool (always registered) to create a file
-      const command = `echo 'snapshot race test content' > ${path.join(dir, "race-test.txt")}`
-      yield* llm.toolMatch((hit) => JSON.stringify(hit.body).includes("create the file"), "bash", {
-        command,
-        description: "create test file",
+      // Use an in-process file tool so this race test is not coupled to shell startup on Windows.
+      const filePath = path.join(dir, "race-test.txt")
+      yield* llm.toolMatch((hit) => JSON.stringify(hit.body).includes("create the file"), "write", {
+        filePath,
+        content: "snapshot race test content\n",
       })
-      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("bash"), "done")
+      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("write"), "done")
 
       // Seed user message
       yield* prompt.prompt({
@@ -231,7 +231,6 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
       expect(result.info.role).toBe("assistant")
 
       // Verify the file was created
-      const filePath = path.join(dir, "race-test.txt")
       const fileExists = yield* Effect.promise(() =>
         fs
           .access(filePath)
@@ -244,7 +243,7 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
       const allMsgs = yield* MessageV2.filterCompactedEffect(session.id)
       const tool = allMsgs
         .flatMap((m) => m.parts)
-        .find((p): p is MessageV2.ToolPart => p.type === "tool" && p.tool === "bash")
+        .find((p): p is MessageV2.ToolPart => p.type === "tool" && p.tool === "write")
       expect(tool?.state.status).toBe("completed")
 
       // Poll for diff — summarize() is fire-and-forget

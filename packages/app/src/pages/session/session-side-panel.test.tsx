@@ -26,7 +26,10 @@ beforeAll(async () => {
     DropdownMenu.Separator = () => null
     return { DropdownMenu }
   })
-  mock.module("@opencode-ai/ui/tooltip", () => ({ TooltipKeybind: (_props: any) => null }))
+  mock.module("@opencode-ai/ui/tooltip", () => ({
+    Tooltip: (props: { children?: unknown }) => props.children,
+    TooltipKeybind: (_props: any) => null,
+  }))
   mock.module("@opencode-ai/ui/resize-handle", () => ({ ResizeHandle: () => null }))
   mock.module("@opencode-ai/ui/logo", () => ({ Mark: () => null }))
   mock.module("@thisbeyond/solid-dnd", () => ({
@@ -74,6 +77,8 @@ beforeAll(async () => {
   mock.module("@/pages/session/files-tab", () => ({ FilesTab: () => null }))
   mock.module("@/pages/session/handoff", () => ({ setSessionHandoff: () => undefined }))
   mock.module("@/pages/session/session-layout", () => ({
+    sessionRouteLayoutKey: (params: { dir: string | undefined; id: string | undefined }) =>
+      params.dir ? `${params.dir}${params.id ? "/" + params.id : ""}` : "",
     useSessionLayout: () => ({
       layoutRouteKey: () => "dir/demo",
       tabs: () => ({

@@ -1,4 +1,4 @@
-import { createEffect, For, on, onCleanup, Show, type JSX } from "solid-js"
+import { createEffect, For, on, onCleanup, Show, untrack, type JSX } from "solid-js"
 import { animate, type AnimationPlaybackControls } from "motion"
 import { useI18n } from "../context/i18n"
 import { createStore } from "solid-js/store"
@@ -41,14 +41,27 @@ export interface BasicToolProps {
 
 const SPRING = { type: "spring" as const, visualDuration: 0.35, bounce: 0 }
 
+export function basicToolInitialReady(props: { defaultOpen?: boolean; defer?: boolean }) {
+  if (props.defer) return false
+  return props.defaultOpen ?? false
+}
+
 export function BasicTool(props: BasicToolProps) {
   const [state, setState] = createStore({
     open: props.defaultOpen ?? false,
-    ready: props.defaultOpen ?? false,
+    ready: basicToolInitialReady(props),
   })
   const open = () => state.open
   const ready = () => state.ready
   const pending = () => props.status === "pending" || props.status === "running"
+  const hasDetails = () => {
+    if (props.hideDetails || props.locked || pending()) return false
+    if (props.defer) return true
+    return !!props.children
+  }
+  const shouldRenderDetails = () => !props.hideDetails && (props.defer || !!props.children)
+  const detailsReady = () => !props.defer || ready()
+  const closingAnimatedDetails = () => props.animated && !open()
 
   let frame: number | undefined
 
@@ -64,27 +77,22 @@ export function BasicTool(props: BasicToolProps) {
     if (props.forceOpen) setState("open", true)
   })
 
-  createEffect(
-    on(
-      open,
-      (value) => {
-        if (!props.defer) return
-        if (!value) {
-          cancel()
-          setState("ready", false)
-          return
-        }
+  createEffect(() => {
+    if (!props.defer) return
+    if (!open()) {
+      cancel()
+      if (!props.animated) setState("ready", false)
+      return
+    }
+    if (untrack(ready)) return
 
-        cancel()
-        frame = requestAnimationFrame(() => {
-          frame = undefined
-          if (!open()) return
-          setState("ready", true)
-        })
-      },
-      { defer: true },
-    ),
-  )
+    cancel()
+    frame = requestAnimationFrame(() => {
+      frame = undefined
+      if (!open()) return
+      setState("ready", true)
+    })
+  })
 
   // Animated height for collapsible open/close
   let contentRef: HTMLDivElement | undefined
@@ -108,6 +116,10 @@ export function BasicTool(props: BasicToolProps) {
         } else {
           contentRef.style.overflow = "hidden"
           heightAnim = animate(contentRef, { height: "0px" }, SPRING)
+          void heightAnim.finished.then(() => {
+            if (!contentRef || open()) return
+            if (props.defer) setState("ready", false)
+          })
         }
       },
       { defer: true },
@@ -189,7 +201,7 @@ export function BasicTool(props: BasicToolProps) {
       <div data-slot="basic-tool-tool-trigger-content">
         <div data-slot="basic-tool-tool-info">{triggerInfo()}</div>
       </div>
-      <Show when={props.children && !props.hideDetails && !props.locked && !pending()}>
+      <Show when={hasDetails()}>
         <Collapsible.Arrow />
       </Show>
     </div>
@@ -219,7 +231,7 @@ export function BasicTool(props: BasicToolProps) {
           </Collapsible.Trigger>
         )}
       </Show>
-      <Show when={props.animated && props.children && !props.hideDetails}>
+      <Show when={props.animated && shouldRenderDetails()}>
         <div
           ref={contentRef}
           data-slot="collapsible-content"
@@ -227,14 +239,17 @@ export function BasicTool(props: BasicToolProps) {
           style={{
             height: initialOpen ? "auto" : "0px",
             overflow: initialOpen ? "visible" : "hidden",
+            "pointer-events": closingAnimatedDetails() ? "none" : undefined,
           }}
+          aria-hidden={closingAnimatedDetails() ? "true" : undefined}
+          inert={closingAnimatedDetails() ? true : undefined}
         >
-          {props.children}
+          <Show when={detailsReady()}>{props.children}</Show>
         </div>
       </Show>
-      <Show when={!props.animated && props.children && !props.hideDetails}>
+      <Show when={!props.animated && shouldRenderDetails()}>
         <Collapsible.Content>
-          <Show when={!props.defer || ready()}>{props.children}</Show>
+          <Show when={detailsReady()}>{props.children}</Show>
         </Collapsible.Content>
       </Show>
     </Collapsible>

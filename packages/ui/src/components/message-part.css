@@ -29,7 +29,7 @@
     justify-content: flex-end;
     gap: 8px;
     width: fit-content;
-    max-width: min(82%, 64ch);
+    max-width: 75%;
     margin-left: auto;
   }
 
@@ -114,7 +114,7 @@
 
   [data-slot="user-message-body"] {
     width: fit-content;
-    max-width: min(82%, 64ch);
+    max-width: 75%;
     margin-left: auto;
     display: flex;
     flex-direction: column;
@@ -130,10 +130,9 @@
     white-space: pre-wrap;
     word-break: break-word;
     overflow: hidden;
-    background: var(--surface-base);
-    border: 1px solid var(--border-weak);
-    padding: 8px 12px;
-    border-radius: 12px;
+    background: var(--surface-interactive-base);
+    padding: 12px 16px;
+    border-radius: 14px;
 
     [data-highlight="file"] {
       color: var(--syntax-property);
@@ -204,6 +203,16 @@
 
   .font-medium {
     font-weight: var(--font-weight-medium);
+  }
+}
+
+[data-color-scheme="dark"] [data-component="user-message"] [data-slot="user-message-text"] {
+  background: var(--surface-raised);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"]) [data-component="user-message"] [data-slot="user-message-text"] {
+    background: var(--surface-raised);
   }
 }
 
@@ -304,8 +313,12 @@
   }
 }
 
+[data-color-scheme="dark"] [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
+  opacity: 0.6;
+}
+
 @media (prefers-color-scheme: dark) {
-  [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
+  :root:not([data-color-scheme="light"]) [data-component="reasoning-part"] [data-component="markdown"] :not(pre) > code {
     opacity: 0.6;
   }
 }

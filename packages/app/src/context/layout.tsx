@@ -63,8 +63,6 @@ type SessionView = {
   reviewOpen?: string[]
   openShellTabs?: RightPanelTab[]
   sidePanelTab?: RightPanelTab | "changes"
-  filesAutoOpenSeen?: boolean
-  filesAutoOpenDismissed?: boolean
   pendingMessage?: string
   pendingMessageAt?: number
 }
@@ -935,11 +933,7 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             },
             closeTab(tab: RightPanelTab) {
               if (tab === "status") return
-              const session = key()
-              if (tab === "files" && (s().filesAutoOpenSeen ?? false)) {
-                setStore("sessionView", session, "filesAutoOpenDismissed", true)
-              }
-              setShellTabState(session, closeShellTab(shellTabState(), tab))
+              setShellTabState(key(), closeShellTab(shellTabState(), tab))
             },
             toggleTab(tab: RightPanelTab | "changes") {
               const target = defaultSidePanelTab(tab)
@@ -954,21 +948,6 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
             moveTab(tab: RightPanelTab, to: number) {
               if (tab === "status") return
               setShellTabState(key(), moveShellTab(shellTabState(), tab, to))
-            },
-            filesAutoOpenSeen: createMemo(() => s().filesAutoOpenSeen ?? false),
-            filesAutoOpenDismissed: createMemo(() => s().filesAutoOpenDismissed ?? false),
-            setAutoOpenState(next: { seenAdded: boolean; dismissed: boolean }) {
-              const session = key()
-              if (!store.sessionView[session]) {
-                setStore("sessionView", session, {
-                  scroll: {},
-                  filesAutoOpenSeen: next.seenAdded,
-                  filesAutoOpenDismissed: next.dismissed,
-                })
-                return
-              }
-              setStore("sessionView", session, "filesAutoOpenSeen", next.seenAdded)
-              setStore("sessionView", session, "filesAutoOpenDismissed", next.dismissed)
             },
             explorer: {
               tab: createMemo(() => store.fileTree?.tab ?? "changes"),

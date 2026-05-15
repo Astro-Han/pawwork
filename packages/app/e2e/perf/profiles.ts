@@ -3,16 +3,20 @@ import type { PerfProfile } from "../../src/testing/perf-metrics"
 
 export type PerfScenarioName =
   | "homepage-cold"
+  | "long-session-input-lag"
   | "session-streaming-long"
   | "tool-call-expand"
+  | "tool-default-open-heavy-bash"
   | "terminal-side-panel-open"
   | "session-scroll-reading"
   | "session-timeline-recompute"
 
 const defaultScenarios = new Set<PerfScenarioName>([
   "homepage-cold",
+  "long-session-input-lag",
   "session-streaming-long",
   "tool-call-expand",
+  "tool-default-open-heavy-bash",
   "terminal-side-panel-open",
   "session-scroll-reading",
 ])
