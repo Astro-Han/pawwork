@@ -13,6 +13,10 @@ export function urls(text: string | undefined) {
     })
 }
 
+function currentSession(path: string) {
+  return path.match(/\/session\/([^/?#]+)/)?.[1]
+}
+
 export function sessionLink(id: string | undefined, path: string, href?: (id: string) => string | undefined) {
   if (!id) return
 

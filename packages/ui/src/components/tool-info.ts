@@ -13,24 +13,6 @@ function pickString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
 }
 
-export function enterWorktreeOwnerProject(metadata: Record<string, any> = {}): string | undefined {
-  const owner = pickString(metadata.ownerDirectory)
-  return owner ? getFilename(owner) : undefined
-}
-
-export function enterWorktreeTarget(
-  input: Record<string, any> = {},
-  metadata: Record<string, any> = {},
-): string | undefined {
-  const activeDirectory = pickString(metadata.activeDirectory)
-  return (
-    pickString(metadata.branch) ||
-    pickString(metadata.slug) ||
-    pickString(input.name) ||
-    (activeDirectory ? getFilename(activeDirectory) : undefined)
-  )
-}
-
 function enterWorktreeOwnerProject(metadata: Record<string, any> = {}): string | undefined {
   const owner = pickString(metadata.ownerDirectory)
   return owner ? getFilename(owner) : undefined
