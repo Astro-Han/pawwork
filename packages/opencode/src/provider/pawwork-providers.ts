@@ -69,11 +69,13 @@ export const PAWWORK_PROVIDER_OVERLAYS: Record<string, ModelsDev.Provider> = {
       [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[9]]: textModel("kimi-k2.6", "Kimi K2.6", 262144, 32768, {
         attachment: true,
         reasoning: true,
+        interleaved: { field: "reasoning_content" },
         modalities: { input: ["text", "image", "video"], output: ["text"] },
       }),
       [VOLCENGINE_PLAN_VISIBLE_MODEL_IDS[10]]: textModel("kimi-k2.5", "Kimi K2.5", 262144, 32768, {
         attachment: true,
         reasoning: true,
+        interleaved: { field: "reasoning_content" },
         modalities: { input: ["text", "image"], output: ["text"] },
       }),
       [VOLCENGINE_PLAN_HIDDEN_MODEL_IDS[0]]: textModel("ark-code-latest", "Ark Code Latest", 256000, 4096, {
