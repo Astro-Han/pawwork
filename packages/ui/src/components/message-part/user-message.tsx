@@ -116,7 +116,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
                     when={type === "image"}
                     fallback={
                       <span data-slot="user-message-attachment-file">
-                        <FileIcon node={{ path: name, type: "file" }} />
+                        <FileIcon node={{ path: name, type: "file" }} mono={true} />
                       </span>
                     }
                   >
