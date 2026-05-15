@@ -121,4 +121,13 @@ describe("sanitizePersistedTerminalState", () => {
       }),
     ).toThrow("Unsafe terminal storage field: tabs.0.ptyID")
   })
+
+  test("fail-loud assertion traverses nested arrays", () => {
+    expect(() => assertNoUnsafeTerminalStorageFields({ tabs: [[{ ptyID: "pty_runtime" }]] })).toThrow(
+      "Unsafe terminal storage field: tabs.0.0.ptyID",
+    )
+    expect(() => assertNoUnsafeTerminalStorageFields([{ runtimePtyID: "pty_runtime" }])).toThrow(
+      "Unsafe terminal storage field: 0.runtimePtyID",
+    )
+  })
 })

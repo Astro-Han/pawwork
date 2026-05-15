@@ -205,17 +205,18 @@ export function assertNoUnsafeTerminalStorageFields(value: unknown) {
 }
 
 function findUnsafeField(value: unknown, path = ""): string | undefined {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const nextPath = path ? `${path}.${index}` : String(index)
+      const found = findUnsafeField(value[index], nextPath)
+      if (found) return found
+    }
+    return
+  }
   if (!record(value)) return
   for (const [key, child] of Object.entries(value)) {
     const nextPath = path ? `${path}.${key}` : key
     if ((unsafeTerminalStorageFieldNames as readonly string[]).includes(key)) return nextPath
-    if (Array.isArray(child)) {
-      for (let index = 0; index < child.length; index += 1) {
-        const found = findUnsafeField(child[index], `${nextPath}.${index}`)
-        if (found) return found
-      }
-      continue
-    }
     const found = findUnsafeField(child, nextPath)
     if (found) return found
   }
