@@ -70,7 +70,12 @@ const SessionIndexRoute = () => <Navigate href="session" />
 const HomeRedirectRoute = () => {
   const layout = useLayout()
   const sync = useGlobalSync()
-  const target = createMemo(() => layout.projects.list()[0]?.worktree ?? sync.data.project[0]?.worktree)
+  const target = createMemo(() => {
+    const local = layout.projects.list()[0]?.worktree
+    if (local) return local
+    if (!sync.ready) return undefined
+    return sync.data.project[0]?.worktree
+  })
   return (
     <Show
       when={target()}
