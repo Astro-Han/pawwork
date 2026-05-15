@@ -19,6 +19,7 @@ const pinned = {
 
 const runAttempt = "${{ github.run_attempt }}"
 const githubSha = "${{ github.sha }}"
+const lintJobName = "lint"
 const windowsUnitJobName = "unit-windows"
 
 // Suffixes drive readable job and artifact names; commands use package.json names verbatim.
@@ -161,7 +162,7 @@ describe("ci workflow", () => {
 
     const linuxUnitJobNames = linuxUnitJobs.map((job) => job.jobName)
 
-    for (const job of ["changes", "typecheck", ...linuxUnitJobNames]) {
+    for (const job of ["changes", "typecheck", lintJobName, ...linuxUnitJobNames]) {
       expect(checkoutStep(job)?.uses).toBe(pinned.checkout)
       expect(checkoutStep(job)?.with?.["persist-credentials"]).toBe(false)
     }
@@ -176,6 +177,14 @@ describe("ci workflow", () => {
         pinned.cache,
       ])
     }
+
+    expect(steps(lintJobName).find((step) => step.uses?.startsWith("actions/setup-node@"))?.uses).toBe(
+      pinned.setupNode,
+    )
+    expect(steps(lintJobName).find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))?.uses).toBe(pinned.setupBun)
+    expect(steps(lintJobName).filter((step) => step.uses?.startsWith("actions/cache@")).map((step) => step.uses)).toEqual(
+      [pinned.cache],
+    )
 
     for (const job of linuxUnitJobNames) {
       expect(stepByName(job, "Publish unit reports")?.uses).toBe(pinned.junit)
@@ -215,6 +224,23 @@ describe("ci workflow", () => {
     expect(filter?.run).toContain("R*|C*)")
     expect(filter?.run).toContain("if ! is_docs_path \"$path1\" || ! is_docs_path \"$path2\"; then")
     expect(filter?.run).toContain("echo \"docs_only=$docs_only\" >> \"$GITHUB_OUTPUT\"")
+  })
+
+  test("keeps lint as an advisory non-blocking product-code signal", () => {
+    const parsed = parseWorkflow(ciWorkflowPath)
+    const lint = parsed.jobs?.[lintJobName]
+    const check = parsed.jobs?.check
+    const checkNeeds = Array.isArray(check?.needs) ? check.needs : []
+
+    expect(lint?.needs).toBe("changes")
+    expect(lint?.if).toBe("needs.changes.outputs.docs_only != 'true'")
+    expect(lint?.["runs-on"]).toBe("ubuntu-latest")
+    expect(lint?.["timeout-minutes"]).toBe(20)
+    expect(lint?.["continue-on-error"]).toBe(true)
+    expect(lint?.permissions).toBeUndefined()
+    expect(lint?.defaults?.run?.shell).toBeUndefined()
+    expect(stepByName(lintJobName, "lint")?.run).toBe("bun run lint:ci")
+    expect(checkNeeds).not.toContain(lintJobName)
   })
 
   test("splits required Linux unit jobs by package while preserving Turbo dependency semantics", () => {
@@ -407,6 +433,7 @@ describe("ci workflow", () => {
 
     expect(check?.if).toBe("always()")
     expect(needs).toEqual(["changes", "typecheck", "unit-app", "unit-opencode", "unit-desktop"])
+    expect(needs).not.toContain(lintJobName)
     expect(needs).not.toContain("unit-windows")
     expect(needs).not.toContain("unit-windows-app")
     expect(needs).not.toContain("unit-windows-desktop")

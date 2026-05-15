@@ -11,6 +11,8 @@
     "dev:web": "bun --cwd packages/app dev",
     "dev:opencode": "bun run --cwd packages/opencode --conditions=browser src/index.ts",
     "typecheck": "bun turbo typecheck",
+    "lint": "eslint \"packages/{app,ui,desktop-electron}/src/**/*.{ts,tsx}\"",
+    "lint:ci": "bun run lint",
     "postinstall": "bun run --cwd packages/opencode fix-node-pty",
     "test": "echo 'do not run tests from root' && exit 1"
   },
@@ -71,11 +73,14 @@
     "@tsconfig/bun": "catalog:",
     "@types/mime-types": "3.0.1",
     "@typescript/native-preview": "catalog:",
+    "eslint": "^9.39.4",
+    "eslint-plugin-solid": "0.14.5",
     "glob": "13.0.5",
     "prettier": "3.6.2",
     "semver": "^7.6.0",
     "sst": "3.18.10",
-    "turbo": "2.8.13"
+    "turbo": "2.8.13",
+    "typescript-eslint": "8.59.3"
   },
   "dependencies": {
     "@opencode-ai/plugin": "workspace:*",
