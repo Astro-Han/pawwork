@@ -146,6 +146,7 @@ describe("tool name sanity", () => {
     [TOOL_TODOWRITE, "todo.ts"],
     [TOOL_WEBFETCH, "webfetch.ts"],
     [TOOL_WEBSEARCH, "websearch.ts"],
+    ["question", "question.ts"],
   ]
   for (const [tool, filename] of cases) {
     it(`"${tool}" literal appears in packages/opencode/src/tool/${filename}`, () => {

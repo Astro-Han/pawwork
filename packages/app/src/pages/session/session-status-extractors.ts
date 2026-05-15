@@ -11,17 +11,13 @@
 // so these extractors stay as pure functions testable against SDK fixtures.
 
 import type { Part } from "@opencode-ai/sdk/v2"
+import type { Todo } from "@opencode-ai/sdk/v2/client"
 
 export const TOOL_TODOWRITE = "todowrite"
 export const TOOL_WEBFETCH = "webfetch"
 export const TOOL_WEBSEARCH = "websearch"
 
-export interface TodoItem {
-  id?: string
-  content: string
-  status: string
-  priority: string
-}
+export type TodoItem = Pick<Todo, "content" | "status" | "priority"> & Partial<Pick<Todo, "id">>
 
 function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
   return part.type === "tool"

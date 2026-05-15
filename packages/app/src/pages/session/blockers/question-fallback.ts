@@ -41,7 +41,8 @@ export function findRunningQuestionFallbackSession(input: {
     const parts = input.partsByMessageID[m.id]
     if (!parts) continue
     for (const part of parts) {
-      if (part.type !== "tool" || part.tool !== "question" || part.state.status !== "running") continue
+      const QUESTION_TOOL = "question"
+      if (part.type !== "tool" || part.tool !== QUESTION_TOOL || part.state.status !== "running") continue
       const callID = part.callID
       const messageID = part.messageID
       if (!callID || !messageID || !coveredKeys.has(`${messageID}:${callID}`)) {

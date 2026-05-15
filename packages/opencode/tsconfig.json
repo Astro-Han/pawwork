@@ -3,8 +3,8 @@
   "extends": "@tsconfig/bun/tsconfig.json",
   "compilerOptions": {
     "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": [],
     "noUncheckedIndexedAccess": false,
     "customConditions": ["browser"],
     "paths": {
