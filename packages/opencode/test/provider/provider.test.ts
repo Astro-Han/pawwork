@@ -11,7 +11,6 @@ import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
 import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
-import { ProviderTransform } from "../../src/provider/transform"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
@@ -1251,7 +1250,7 @@ test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async 
   expect(provider.models["kimi-k2.5"].interleaved).toEqual({ field: "reasoning_content" })
 })
 
-test("adds reasoning_content replay metadata to confirmed Kimi Coding Plan K2.6 model", () => {
+test("does not add OpenAI-compatible replay metadata to Kimi Coding Plan Anthropic models", () => {
   const models = withPawWorkProviders({
     "kimi-for-coding": {
       id: "kimi-for-coding",
@@ -1292,34 +1291,8 @@ test("adds reasoning_content replay metadata to confirmed Kimi Coding Plan K2.6 
 
   const provider = Provider.fromModelsDevProvider(models["kimi-for-coding"])
 
-  expect(provider.models.k2p6.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+  expect(provider.models.k2p6.capabilities.interleaved).toBe(false)
   expect(provider.models.k2p5.capabilities.interleaved).toBe(false)
-
-  const messages = ProviderTransform.message(
-    [
-      {
-        role: "assistant",
-        content: [
-          { type: "reasoning", text: "thinking..." },
-          { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/tmp/a" } },
-        ],
-      },
-    ] as any[],
-    provider.models.k2p6,
-    {},
-  )
-
-  const content = messages[0].content
-  expect(Array.isArray(content)).toBe(true)
-  expect(content).toHaveLength(1)
-  expect((content as any[])[0]).toMatchObject({
-    type: "tool-call",
-    toolCallId: "toolu_1",
-    toolName: "read",
-    input: { filePath: "/tmp/a" },
-  })
-  expect((content as any[]).some((part: any) => part.type === "reasoning")).toBe(false)
-  expect(messages[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("thinking...")
 })
 
 test("uses doubao-seed-2.0-code as the Volcano Coding Plan default model", async () => {

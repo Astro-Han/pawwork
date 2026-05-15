@@ -14,8 +14,6 @@ const CODING_PLAN_COST = {
 }
 
 type Model = ModelsDev.Provider["models"][string]
-const KIMI_FOR_CODING_PROVIDER_ID = "kimi-for-coding"
-const KIMI_FOR_CODING_REASONING_CONTENT_MODEL_IDS = new Set(["k2p6"])
 
 const textModel = (id: string, name: string, context: number, output: number, extra: Partial<Model> = {}): Model => ({
   id,
@@ -88,33 +86,9 @@ export const PAWWORK_PROVIDER_OVERLAYS: Record<string, ModelsDev.Provider> = {
   },
 }
 
-function withReasoningContentReplay(model: Model) {
-  if (model.interleaved) return model
-  return {
-    ...model,
-    interleaved: { field: "reasoning_content" },
-  } satisfies Model
-}
-
-function withKimiForCodingReplay(provider: ModelsDev.Provider | undefined) {
-  if (!provider) return undefined
-  return {
-    ...provider,
-    models: Object.fromEntries(
-      Object.entries(provider.models).map(([id, model]) => [
-        id,
-        KIMI_FOR_CODING_REASONING_CONTENT_MODEL_IDS.has(id) ? withReasoningContentReplay(model) : model,
-      ]),
-    ),
-  } satisfies ModelsDev.Provider
-}
-
 export function withPawWorkProviders(providers: Record<string, ModelsDev.Provider>) {
-  const result = {
+  return {
     ...providers,
     ...PAWWORK_PROVIDER_OVERLAYS,
   }
-  const kimiForCoding = withKimiForCodingReplay(result[KIMI_FOR_CODING_PROVIDER_ID])
-  if (kimiForCoding) result[KIMI_FOR_CODING_PROVIDER_ID] = kimiForCoding
-  return result
 }
