@@ -938,10 +938,10 @@ export function MessageTimeline(props: {
     >
       <div class="relative w-full h-full min-w-0">
         <div
-          class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-[opacity,transform] duration-200 ease-out"
+          class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-opacity duration-200 ease-out"
           classList={{
-            "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-            "opacity-0 translate-y-2 scale-95 pointer-events-none":
+            "opacity-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
+            "opacity-0 pointer-events-none":
               !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
           }}
         >
