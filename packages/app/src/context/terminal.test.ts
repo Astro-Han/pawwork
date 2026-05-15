@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, mock, test } from "bun:test"
 let getWorkspaceTerminalCacheKey: (dir: string) => string
 let getLegacyTerminalStorageKeys: (dir: string, legacySessionID?: string) => string[]
 let migrateTerminalState: (value: unknown) => unknown
+let replaceTerminalWithClone: typeof import("./terminal")["replaceTerminalWithClone"]
 let createTerminalBinding: typeof import("./terminal")["createTerminalBinding"]
 
 beforeAll(async () => {
@@ -20,6 +21,7 @@ beforeAll(async () => {
   getWorkspaceTerminalCacheKey = mod.getWorkspaceTerminalCacheKey
   getLegacyTerminalStorageKeys = mod.getLegacyTerminalStorageKeys
   migrateTerminalState = mod.migrateTerminalState
+  replaceTerminalWithClone = mod.replaceTerminalWithClone
   createTerminalBinding = mod.createTerminalBinding
 })
 
@@ -80,6 +82,44 @@ describe("migrateTerminalState", () => {
         { id: "two", title: "shell", titleNumber: 7 },
       ],
     })
+  })
+})
+
+describe("replaceTerminalWithClone", () => {
+  test("replaces a stale runtime pty id and keeps the durable tab metadata", () => {
+    expect(
+      replaceTerminalWithClone(
+        {
+          active: "pty_old",
+          all: [
+            {
+              id: "pty_old",
+              title: "Terminal 2",
+              titleNumber: 2,
+              buffer: "old output",
+              cursor: 12,
+              scrollY: 8,
+              rows: 24,
+              cols: 80,
+            },
+          ],
+        },
+        "pty_old",
+        { id: "pty_new", title: "Terminal 2" },
+      ),
+    ).toEqual({
+      active: "pty_new",
+      all: [{ id: "pty_new", title: "Terminal 2", titleNumber: 2 }],
+    })
+  })
+
+  test("returns the original state when the stale id no longer exists", () => {
+    const current = {
+      active: "pty_a",
+      all: [{ id: "pty_a", title: "Terminal 1", titleNumber: 1 }],
+    }
+
+    expect(replaceTerminalWithClone(current, "pty_missing", { id: "pty_new", title: "Terminal 1" })).toBe(current)
   })
 })
 

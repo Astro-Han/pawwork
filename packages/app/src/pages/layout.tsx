@@ -34,7 +34,7 @@ import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { LayoutPageContext } from "@/context/layout-page"
 import { ShellSurfaceContext } from "@/context/shell-surface"
-import { clearWorkspaceTerminals } from "@/context/terminal"
+import { clearWorkspaceTerminals, isTerminalGoneError } from "@/context/terminal"
 import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
 import {
   clearSessionPrefetchInflight,
@@ -100,7 +100,7 @@ import {
 import { type WorkspaceSidebarContext } from "./layout/sidebar-workspace"
 import { PawworkSidebar, type PawworkSidebarSession } from "./layout/pawwork-sidebar"
 import { PawworkTitlebar } from "./layout/pawwork-titlebar"
-import { createDefaultLayoutPageState, createLayoutPagePersistTarget } from "./layout/layout-page-store"
+import { createDefaultLayoutPageState, createLayoutPagePersistTarget, removePinnedSessionIDs } from "./layout/layout-page-store"
 import { SettingsPage, type SettingsPageTab } from "@/components/settings-page"
 import { DialogDeleteSession } from "@/components/dialog-delete-session"
 import { sessionTitle } from "@/utils/session-title"
@@ -556,16 +556,28 @@ export default function Layout(props: ParentProps) {
     return pawworkSessionWindowState.normal.find((session) => session.id === sessionID)
   }
 
-  const loadSessionByID = async (sessionID: string | undefined) => {
-    if (!sessionID) return
+  type SessionLoadResult =
+    | { state: "found"; session: PawworkWindowSession }
+    | { state: "gone" }
+    | { state: "transient" }
+
+  const loadSessionByIDResult = async (sessionID: string | undefined): Promise<SessionLoadResult> => {
+    if (!sessionID) return { state: "gone" }
     const loaded = findLoadedSession(sessionID)
-    if (loaded) return loaded
+    if (loaded) return { state: "found", session: loaded }
     try {
       const response = await globalSDK.client.session.get({ sessionID })
-      return response.data && !response.data.time?.archived ? response.data : undefined
-    } catch {
-      return undefined
+      const session = response.data
+      if (session && !session.time?.archived) return { state: "found", session }
+      return { state: "gone" }
+    } catch (error) {
+      return isTerminalGoneError(error) ? { state: "gone" } : { state: "transient" }
     }
+  }
+
+  const loadSessionByID = async (sessionID: string | undefined) => {
+    const result = await loadSessionByIDResult(sessionID)
+    return result.state === "found" ? result.session : undefined
   }
 
   const projectKeyForSession = (session: Session | GlobalSession) => {
@@ -675,14 +687,20 @@ export default function Layout(props: ParentProps) {
           ...(pawworkSessionWindowState.active ? [pawworkSessionWindowState.active] : []),
         ].map((session) => [session.id, session] as const),
       )
-      const pinned = (
-        await Promise.all(
-          store.pawworkPinnedSessions.map(async (id) => {
-            const session = loaded.get(id) ?? (await loadSessionByID(id))
-            return session ? mergePawworkWindowSessionMetadata(session, existing.get(id)) : undefined
-          }),
+      const pinnedResults = await Promise.all(
+        store.pawworkPinnedSessions.map(async (id) => ({
+          id,
+          result: loaded.has(id) ? ({ state: "found", session: loaded.get(id)! } as const) : await loadSessionByIDResult(id),
+        })),
+      )
+      const gonePinnedIDs = new Set(pinnedResults.filter((entry) => entry.result.state === "gone").map((entry) => entry.id))
+      const pinned = pinnedResults
+        .map((entry) =>
+          entry.result.state === "found"
+            ? mergePawworkWindowSessionMetadata(entry.result.session, existing.get(entry.id))
+            : undefined,
         )
-      ).filter((session): session is PawworkWindowSession => !!session)
+        .filter((session): session is PawworkWindowSession => !!session)
       const activeID = params.id
       const active = activeID
         ? await (async () => {
@@ -701,6 +719,9 @@ export default function Layout(props: ParentProps) {
 
       if (rev !== pawworkSessionWindowRev) return
       batch(() => {
+        if (gonePinnedIDs.size) {
+          setStore("pawworkPinnedSessions", (current) => removePinnedSessionIDs(current, gonePinnedIDs))
+        }
         setPawworkSessionWindowState("normal", reconcile(sortPawworkSessionWindowSessions(normal), { key: "id" }))
         setPawworkSessionWindowState("pinned", reconcile(pinned, { key: "id" }))
         setPawworkSessionWindowState("active", activeRoot)
@@ -755,6 +776,7 @@ export default function Layout(props: ParentProps) {
   }
 
   const removePawworkWindowSession = (sessionID: string) => {
+    setStore("pawworkPinnedSessions", (current) => removePinnedSessionIDs(current, new Set([sessionID])))
     setPawworkSessionWindowState("normal", (current) => current.filter((session) => session.id !== sessionID))
     setPawworkSessionWindowState("pinned", (current) => current.filter((session) => session.id !== sessionID))
     if (pawworkSessionWindowState.active?.id === sessionID) {

@@ -25,6 +25,12 @@ function pinnedSessions(value: unknown) {
   })
 }
 
+export function removePinnedSessionIDs(current: string[], stale: ReadonlySet<string>) {
+  if (stale.size === 0) return current
+  const next = current.filter((id) => !stale.has(id))
+  return next.length === current.length ? current : next
+}
+
 function projectCollapsed(value: unknown) {
   if (!record(value)) return {} as Record<string, boolean>
   const out: Record<string, boolean> = {}

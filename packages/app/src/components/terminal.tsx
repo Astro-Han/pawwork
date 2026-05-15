@@ -12,7 +12,7 @@ import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { monoFontFamily, useSettings } from "@/context/settings"
-import type { LocalPTY } from "@/context/terminal"
+import { isTerminalGoneError, type LocalPTY } from "@/context/terminal"
 import { terminalAttr, terminalProbe } from "@/testing/terminal"
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
 import { terminalWebSocketURL } from "@/utils/terminal-websocket-url"
@@ -67,13 +67,6 @@ const DEFAULT_TERMINAL_COLORS: Record<"light" | "dark", TerminalColors> = {
 const debugTerminal = (...values: unknown[]) => {
   if (!import.meta.env.DEV) return
   console.debug("[terminal]", ...values)
-}
-
-const errorName = (err: unknown) => {
-  if (!err || typeof err !== "object") return
-  if (!("name" in err)) return
-  const errorName = err.name
-  return typeof errorName === "string" ? errorName : undefined
 }
 
 const useTerminalUiBindings = (input: {
@@ -496,7 +489,7 @@ export const Terminal = (props: TerminalProps) => {
           .get({ ptyID: id })
           .then(() => false)
           .catch((err) => {
-            if (errorName(err) === "NotFoundError") return true
+            if (isTerminalGoneError(err)) return true
             debugTerminal("failed to inspect terminal session", err)
             return false
           })

@@ -7,6 +7,12 @@ import { PtyID } from "@/pty/schema"
 import { NotFoundError } from "../../storage/db"
 import { errors } from "../error"
 
+export function assertPtyConnectTarget(info: unknown) {
+  if (!info) {
+    throw new NotFoundError({ message: "PTY session not found" })
+  }
+}
+
 export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
   return new Hono()
     .get(
@@ -159,7 +165,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
           return parsed
         })()
         let handler: Awaited<ReturnType<typeof Pty.connect>>
-        if (!(await Pty.get(id))) throw new Error("Session not found")
+        assertPtyConnectTarget(await Pty.get(id))
 
         type Socket = {
           readyState: number
