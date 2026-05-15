@@ -9,6 +9,7 @@ export type PerfScenarioName =
   | "tool-default-open-heavy-bash"
   | "terminal-side-panel-open"
   | "session-scroll-reading"
+  | "session-scroll-reading-long"
   | "session-timeline-recompute"
 
 const defaultScenarios = new Set<PerfScenarioName>([
@@ -21,7 +22,7 @@ const defaultScenarios = new Set<PerfScenarioName>([
   "session-scroll-reading",
 ])
 
-const lowEndScenarios = new Set<PerfScenarioName>(["session-timeline-recompute"])
+const lowEndScenarios = new Set<PerfScenarioName>(["session-scroll-reading-long", "session-timeline-recompute"])
 
 export function readPerfProfile(): PerfProfile {
   return process.env.PAWWORK_PERF_PROFILE === "low-end" ? "low-end" : "default"

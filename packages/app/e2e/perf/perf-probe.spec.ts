@@ -12,6 +12,7 @@ import {
 } from "../selectors"
 import { sessionPath, terminalToggleKey } from "../utils"
 import type { createSdk } from "../utils"
+import { composerEvent, type ComposerDriverState, type ComposerWindow } from "../../src/testing/session-composer"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { TIMELINE_RECOMPUTE_SEED_TURN_COUNT, seedTimelineRecomputeSession } from "./timeline-fixture"
@@ -47,6 +48,13 @@ const inputLagText = [
   "This fixed draft protects the composer path from timeline render regressions.",
 ].join(" ")
 
+const longScrollSeedTurns = 104
+const longScrollMinimumRenderedMessages = 80
+const longScrollCoverageRatio = 0.95
+const longScrollWheelDurationMs = 6_500
+const longScrollUpWheelDurationMs = 9_000
+const longScrollWheelStepPx = 720
+
 const scenarioResults: ReturnType<typeof summarizeScenarioRuns>[] = []
 
 type PerfSdk = ReturnType<typeof createSdk>
@@ -58,6 +66,13 @@ type PerfProject = {
 }
 type PerfLlm = {
   tool: (name: string, input: unknown) => Promise<void>
+}
+
+type TimelineMetrics = {
+  scrollTop: number
+  scrollHeight: number
+  clientHeight: number
+  maxScrollTop: number
 }
 
 const chatChunk = (delta: Record<string, unknown>, input?: { finish?: string; usage?: { input: number; output: number } }) => ({
@@ -187,6 +202,141 @@ async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], t
     { top, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
   )
   expect(found).toBe(true)
+}
+
+async function readTimelineMetrics(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const metrics = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return undefined
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+      return {
+        scrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight,
+        clientHeight: viewport.clientHeight,
+        maxScrollTop,
+      }
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(metrics).toBeTruthy()
+  return metrics as TimelineMetrics
+}
+
+function longScrollSeedText(run: number, index: number) {
+  const code = [
+    "```ts",
+    `export const scrollSeed${index} = { run: ${run}, turn: ${index} }`,
+    "```",
+  ].join("\n")
+  const paragraphs = Array.from(
+    { length: 14 + (index % 6) },
+    (_, line) => `line ${line}: ${"mixed markdown scroll content ".repeat(6)}${index % 5 === 0 ? "中文混排 " : ""}`,
+  ).join("\n")
+  const toolLike = [
+    "Tool output:",
+    `- bash ${index}: ${"completed output ".repeat(8)}`,
+    `- todo ${index % 4}: ${"active dock pressure ".repeat(6)}`,
+  ].join("\n")
+  return [`long scroll seed ${run}-${index}`, paragraphs, code, toolLike].join("\n\n")
+}
+
+async function seedLongScrollSession(project: PerfProject, sessionID: string, run: number) {
+  for (let index = 0; index < longScrollSeedTurns; index += 1) {
+    await project.sdk.session.promptAsync({
+      sessionID,
+      noReply: true,
+      parts: [{ type: "text", text: longScrollSeedText(run, index) }],
+    })
+  }
+}
+
+async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const messages = page.locator(sessionMessageItemSelector)
+  await expect(messages.first()).toBeVisible({ timeout: 30_000 })
+  await page.locator(scrollViewportSelector).first().hover()
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    if ((await messages.count()) >= longScrollMinimumRenderedMessages) return
+    await page.mouse.wheel(0, -2400)
+    await settleFrames(page, 2)
+    await scrollTimelineTo(page, 0)
+    await settleFrames(page, 2)
+  }
+  await expect.poll(async () => messages.count(), { timeout: 1_000 }).toBeGreaterThanOrEqual(longScrollMinimumRenderedMessages)
+}
+
+async function installComposerPerfDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  await page.addInitScript(() => {
+    const win = window as ComposerWindow
+    const saved = window.sessionStorage.getItem("__opencode_e2e_composer_sessions")
+    const sessions = saved ? JSON.parse(saved) : {}
+    win.__opencode_e2e = { ...win.__opencode_e2e, composer: { enabled: true, sessions } }
+  })
+}
+
+async function writeComposerDriver(
+  page: Parameters<typeof snapshotPerfProbe>[0],
+  sessionID: string,
+  driver: ComposerDriverState | undefined,
+) {
+  await page.evaluate(
+    (input: { event: string; sessionID: string; driver: ComposerDriverState | undefined }) => {
+      const win = window as ComposerWindow
+      const composer = win.__opencode_e2e?.composer
+      if (!composer?.enabled) throw new Error("Composer e2e driver is not enabled")
+      composer.sessions ??= {}
+      const prev = composer.sessions[input.sessionID] ?? {}
+      if (!input.driver) {
+        delete composer.sessions[input.sessionID]
+      } else {
+        composer.sessions[input.sessionID] = { ...prev, driver: input.driver }
+      }
+      window.sessionStorage.setItem("__opencode_e2e_composer_sessions", JSON.stringify(composer.sessions))
+      window.dispatchEvent(new CustomEvent(input.event, { detail: { sessionID: input.sessionID } }))
+    },
+    { event: composerEvent, sessionID, driver },
+  )
+}
+
+function longScrollTodoDriver(run: number, phase: number): ComposerDriverState {
+  const count = 4 + phase
+  return {
+    todos: Array.from({ length: count }, (_, index) => ({
+      content: `scroll perf active task ${run}-${phase}-${index}`,
+      priority: index === 0 ? "high" : index % 3 === 0 ? "low" : "medium",
+      status: index < phase ? "completed" : index === phase ? "in_progress" : "pending",
+    })),
+  }
+}
+
+function longScrollTodoPulse(
+  page: Parameters<typeof snapshotPerfProbe>[0],
+  sessionID: string,
+  run: number,
+) {
+  const checkpoints = [900, 2_400, 4_200, 6_800]
+  let next = 0
+  return async (elapsedMs: number) => {
+    if (next >= checkpoints.length || elapsedMs < checkpoints[next]) return
+    next += 1
+    await writeComposerDriver(page, sessionID, longScrollTodoDriver(run, next))
+  }
+}
+
+async function driveWheelStream(
+  page: Parameters<typeof snapshotPerfProbe>[0],
+  input: { direction: 1 | -1; durationMs: number; stepPx: number; onPulse?: (elapsedMs: number) => Promise<void> },
+) {
+  const started = Date.now()
+  let events = 0
+  while (Date.now() - started < input.durationMs) {
+    await page.mouse.wheel(0, input.direction * input.stepPx)
+    events += 1
+    await input.onPulse?.(Date.now() - started)
+    await page.waitForTimeout(16)
+  }
+  return { events, durationMs: Date.now() - started }
 }
 
 async function enableShellToolPartsExpanded(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -505,6 +655,68 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-scroll-reading", runs }))
+  })
+
+  test("session-scroll-reading-long emits a low-end full-coverage JSON baseline", async ({ page, project }) => {
+    skipUnlessScenario("session-scroll-reading-long")
+    test.setTimeout(180_000)
+    await installComposerPerfDriver(page)
+    await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
+    await project.open()
+
+    const runs = []
+    for (let run = 0; run < 3; run += 1) {
+      await withSession(project.sdk, `perf scroll long ${Date.now()}-${run}`, async (session) => {
+        await seedLongScrollSession(project, session.id, run)
+        await page.goto(sessionPath(project.directory, session.id))
+        await revealLongScrollWindow(page)
+        await writeComposerDriver(page, session.id, longScrollTodoDriver(run, 0))
+        await expect(page.locator('[data-component="session-todo-dock"]')).toBeVisible({ timeout: 10_000 })
+
+        await page.locator(scrollViewportSelector).first().hover()
+        await scrollTimelineTo(page, 0)
+        await settleFrames(page, 4)
+        const atTop = await readTimelineMetrics(page)
+        expect(atTop.maxScrollTop).toBeGreaterThan(4_000)
+
+        await resetPerfProbe(page)
+        const down = await driveWheelStream(page, {
+          direction: 1,
+          durationMs: longScrollWheelDurationMs,
+          stepPx: longScrollWheelStepPx,
+          onPulse: longScrollTodoPulse(page, session.id, run),
+        })
+        await settleFrames(page, 2)
+        const atBottom = await readTimelineMetrics(page)
+        const downCoverage = atBottom.maxScrollTop > 0 ? atBottom.scrollTop / atBottom.maxScrollTop : 0
+        expect(down.durationMs).toBeGreaterThanOrEqual(6_000)
+        expect(down.events).toBeGreaterThanOrEqual(100)
+        expect(downCoverage).toBeGreaterThanOrEqual(longScrollCoverageRatio)
+
+        const up = await driveWheelStream(page, {
+          direction: -1,
+          durationMs: longScrollUpWheelDurationMs,
+          stepPx: longScrollWheelStepPx,
+        })
+        await settleFrames(page, 4)
+        const backAtTop = await readTimelineMetrics(page)
+        const remainingTopRatio = atBottom.maxScrollTop > 0 ? backAtTop.scrollTop / atBottom.maxScrollTop : 0
+        expect(up.durationMs).toBeGreaterThanOrEqual(8_500)
+        expect(up.events).toBeGreaterThanOrEqual(100)
+        expect(remainingTopRatio).toBeLessThanOrEqual(1 - longScrollCoverageRatio)
+
+        const sample = await snapshotPerfProbe(page)
+        expect(sample.window_ms).toBeGreaterThanOrEqual(15_000)
+        runs.push(sample)
+        await writeComposerDriver(page, session.id, undefined)
+        if (run < 2) await cooldownAfterRun(page)
+      })
+    }
+
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-scroll-reading-long", runs }),
+    )
   })
 
   test("session-timeline-recompute emits a 3-run low-end JSON baseline", async ({ page, project }) => {
