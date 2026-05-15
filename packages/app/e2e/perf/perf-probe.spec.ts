@@ -15,6 +15,7 @@ import type { createSdk } from "../utils"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
 import { TIMELINE_RECOMPUTE_SEED_TURN_COUNT, seedTimelineRecomputeSession } from "./timeline-fixture"
+import { CONCURRENT_SHIMMER_COUNT, buildConcurrentShimmerReply } from "./concurrent-shimmer-fixture"
 
 const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
 const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
@@ -534,5 +535,46 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-timeline-recompute", runs }))
+  })
+
+  test("concurrent-shimmer-extreme emits a low-end JSON baseline", async ({ page, project, llm }) => {
+    skipUnlessScenario("concurrent-shimmer-extreme")
+    // 4× CPU throttle + 40 concurrent tool dispatches eats the default 60s budget.
+    test.setTimeout(180_000)
+    await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
+    await project.open()
+
+    // Single run: the hanging-LLM pattern leaves an SSE stream open for the
+    // whole sample window, so resetting between runs is fragile. The comparator
+    // medians over runs anyway, so a one-run sample still produces a clean
+    // base-vs-head delta for regression detection.
+    await navigateProjectHome(page, project.directory)
+    await llm.push(buildConcurrentShimmerReply(CONCURRENT_SHIMMER_COUNT))
+    await project.prompt("Concurrent shimmer probe.")
+
+    // Virtualization may keep some bottom rows unmounted; ≥ 8 active shimmer
+    // rows is enough to stress the renderer and keep base/head comparable.
+    const activeShimmerRows = page.locator('[data-component="tool-trigger"]').filter({
+      has: page.locator('[data-slot="text-shimmer-char-shimmer"][data-run="true"]'),
+    })
+    await expect.poll(() => activeShimmerRows.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(8)
+
+    // Guard against CI runners with reduced-motion forced on — text-shimmer.css
+    // disables the animation entirely in that mode, which would silently mask
+    // any regression.
+    const reducedMotion = await page.evaluate(
+      () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    )
+    expect(reducedMotion).toBe(false)
+
+    // Sample idle-shimmer cost across at least 2 full 1800ms cycles so the
+    // probe captures sustained animation pressure, not a single-frame settle.
+    await resetPerfProbe(page)
+    await page.waitForTimeout(3_600)
+    await settleFrames(page, 4)
+    const runs = [await snapshotPerfProbe(page)]
+
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "concurrent-shimmer-extreme", runs }))
   })
 })
