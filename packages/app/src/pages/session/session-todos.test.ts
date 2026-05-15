@@ -83,7 +83,13 @@ describe("selectSessionTodos", () => {
   test("returns empty when known backend todos clear stale active parts", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("old", "in_progress")] } }))]
 
-    expect(selectSessionTodos({ backend: [], parts })).toEqual([])
+    expect(selectSessionTodos({ backend: [], backendClearActiveParts: true, parts })).toEqual([])
+  })
+
+  test("keeps active parts over ordinary empty backend cache", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new", "in_progress")] } }))]
+
+    expect(selectSessionTodos({ backend: [], parts })).toEqual([todo("new", "in_progress")])
   })
 
   test("falls back to a secondary session source when the primary source is empty", () => {

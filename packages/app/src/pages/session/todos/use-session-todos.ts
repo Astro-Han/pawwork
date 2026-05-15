@@ -82,9 +82,19 @@ export function createSessionTodoModel(input: {
     const fallbackParts = fallbackMessages.flatMap((message) => sync.data.part[message.id] ?? [])
 
     return selectSessionTodoDockSnapshot({
-      primary: { sessionID: id, backend: globalSync.data.session_todo[id], parts },
+      primary: {
+        sessionID: id,
+        backend: globalSync.data.session_todo[id],
+        backendClearActiveParts: globalSync.data.session_todo_clear[id] === true,
+        parts,
+      },
       fallback: fallbackID
-        ? { sessionID: fallbackID, backend: globalSync.data.session_todo[fallbackID], parts: fallbackParts }
+        ? {
+            sessionID: fallbackID,
+            backend: globalSync.data.session_todo[fallbackID],
+            backendClearActiveParts: globalSync.data.session_todo_clear[fallbackID] === true,
+            parts: fallbackParts,
+          }
         : undefined,
     })
   })

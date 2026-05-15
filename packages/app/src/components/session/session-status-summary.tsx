@@ -43,9 +43,19 @@ function SourceRow(props: { url: string }) {
   )
 }
 
-export function SessionStatusSummary(props: { backend?: Accessor<Todo[] | undefined>; parts: Accessor<Part[]> }) {
+export function SessionStatusSummary(props: {
+  backend?: Accessor<Todo[] | undefined>
+  backendClearActiveParts?: Accessor<boolean | undefined>
+  parts: Accessor<Part[]>
+}) {
   const language = useLanguage()
-  const todos = createMemo(() => selectSessionTodos({ backend: props.backend?.(), parts: props.parts() }))
+  const todos = createMemo(() =>
+    selectSessionTodos({
+      backend: props.backend?.(),
+      backendClearActiveParts: props.backendClearActiveParts?.() === true,
+      parts: props.parts(),
+    }),
+  )
   const sources = createMemo(() => extractSources(props.parts()))
 
   return (

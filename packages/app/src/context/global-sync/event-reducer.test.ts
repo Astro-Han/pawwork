@@ -140,17 +140,63 @@ describe("applyGlobalEvent", () => {
 describe("applyDirectoryEvent", () => {
   test("caches detached todo updates before a directory child store exists", () => {
     const todos: Todo[] = [{ id: "todo_1", content: "fresh todo", status: "in_progress", priority: "high" } as Todo]
-    const writes: Array<{ sessionID: string; todos: Todo[] | undefined }> = []
+    const writes: Array<{
+      sessionID: string
+      todos: Todo[] | undefined
+      options?: { clearActiveParts?: boolean }
+    }> = []
 
     const handled = applyDetachedDirectoryEvent({
       event: { type: "todo.updated", properties: { sessionID: "ses_fresh", todos } },
-      setSessionTodo(sessionID, value) {
-        writes.push({ sessionID, todos: value })
+      setSessionTodo(sessionID, value, options) {
+        writes.push({ sessionID, todos: value, options })
       },
     })
 
     expect(handled).toBe(true)
-    expect(writes).toEqual([{ sessionID: "ses_fresh", todos }])
+    expect(writes).toEqual([{ sessionID: "ses_fresh", todos, options: undefined }])
+  })
+
+  test("marks detached empty todo updates as active-parts clears", () => {
+    const writes: Array<{
+      sessionID: string
+      todos: Todo[] | undefined
+      options?: { clearActiveParts?: boolean }
+    }> = []
+
+    const handled = applyDetachedDirectoryEvent({
+      event: { type: "todo.updated", properties: { sessionID: "ses_clear", todos: [] } },
+      setSessionTodo(sessionID, value, options) {
+        writes.push({ sessionID, todos: value, options })
+      },
+    })
+
+    expect(handled).toBe(true)
+    expect(writes).toEqual([{ sessionID: "ses_clear", todos: [], options: { clearActiveParts: true } }])
+  })
+
+  test("marks directory empty todo updates as active-parts clears", () => {
+    const [store, setStore] = createStore(baseState())
+    const writes: Array<{
+      sessionID: string
+      todos: Todo[] | undefined
+      options?: { clearActiveParts?: boolean }
+    }> = []
+
+    applyDirectoryEvent({
+      event: { type: "todo.updated", properties: { sessionID: "ses_clear", todos: [] } },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      setSessionTodo(sessionID, value, options) {
+        writes.push({ sessionID, todos: value, options })
+      },
+    })
+
+    expect(store.todo.ses_clear).toEqual([])
+    expect(writes).toEqual([{ sessionID: "ses_clear", todos: [], options: { clearActiveParts: true } }])
   })
 
   test("ignores detached events that need a directory child store", () => {

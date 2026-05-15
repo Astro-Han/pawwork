@@ -5,6 +5,7 @@ import { todoPhase, todoSnapshot, type SessionTodoItem, type TodoSnapshot, type 
 export type SessionTodoSource = {
   sessionID?: string
   backend?: Todo[]
+  backendClearActiveParts?: boolean
   parts: Part[]
 }
 
@@ -30,7 +31,6 @@ const sourceTodoSnapshot = (
   source: { backend: TodoSourceKind; parts: TodoSourceKind },
 ): TodoSnapshot | undefined => {
   const sourceParts = partTodos(input.parts)
-  const backendKnown = input.backend !== undefined
   const sourceBackend = input.backend ?? []
 
   if (sourceParts.length > 0 && sourceBackend.length > 0) {
@@ -49,7 +49,7 @@ const sourceTodoSnapshot = (
 
   if (sourceParts.length > 0) {
     const phase = todoPhase(sourceParts)
-    if (backendKnown && sourceBackend.length === 0 && phase === "active") {
+    if (input.backendClearActiveParts === true && sourceBackend.length === 0 && phase === "active") {
       return todoSnapshot({ sessionID: input.sessionID, source: source.backend, items: [], dockEligible: false })
     }
     return todoSnapshot({

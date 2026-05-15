@@ -18,6 +18,11 @@ import { diffs as list, message as clean } from "@/utils/diffs"
 import type { createBlockerTerminalCache } from "./blocker-terminal-cache"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
+type SetSessionTodo = (
+  sessionID: string,
+  todos: Todo[] | undefined,
+  options?: { clearActiveParts?: boolean },
+) => void
 
 export function applyGlobalEvent(input: {
   event: { type: string; properties?: unknown }
@@ -47,7 +52,7 @@ export function applyGlobalEvent(input: {
 function cleanupSessionCaches(
   setStore: SetStoreFunction<State>,
   sessionID: string,
-  setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void,
+  setSessionTodo?: SetSessionTodo,
 ) {
   if (!sessionID) return
   setSessionTodo?.(sessionID, undefined)
@@ -62,7 +67,7 @@ export function cleanupDroppedSessionCaches(
   store: Store<State>,
   setStore: SetStoreFunction<State>,
   next: Session[],
-  setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void,
+  setSessionTodo?: SetSessionTodo,
 ) {
   const keep = new Set(next.map((item) => item.id))
   const stale = [
@@ -90,14 +95,18 @@ export function cleanupDroppedSessionCaches(
 
 export function applyDetachedDirectoryEvent(input: {
   event: { type: string; properties?: unknown }
-  setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
+  setSessionTodo?: SetSessionTodo
 }) {
   if (!input.event.properties || typeof input.event.properties !== "object") return false
   switch (input.event.type) {
     case "todo.updated": {
       const props = input.event.properties as { sessionID?: string; todos?: Todo[] }
       if (!props.sessionID || !Array.isArray(props.todos)) return false
-      input.setSessionTodo?.(props.sessionID, props.todos)
+      input.setSessionTodo?.(
+        props.sessionID,
+        props.todos,
+        props.todos.length === 0 ? { clearActiveParts: true } : undefined,
+      )
       return true
     }
     case "session.deleted": {
@@ -125,7 +134,7 @@ export function applyDirectoryEvent(input: {
   directory: string
   loadLsp: () => void
   vcsCache?: VcsCache
-  setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
+  setSessionTodo?: SetSessionTodo
   blockerTerminals?: ReturnType<typeof createBlockerTerminalCache>
 }) {
   const event = input.event
@@ -197,7 +206,11 @@ export function applyDirectoryEvent(input: {
     case "todo.updated": {
       const props = event.properties as { sessionID: string; todos: Todo[] }
       input.setStore("todo", props.sessionID, reconcile(props.todos, { key: "id" }))
-      input.setSessionTodo?.(props.sessionID, props.todos)
+      input.setSessionTodo?.(
+        props.sessionID,
+        props.todos,
+        props.todos.length === 0 ? { clearActiveParts: true } : undefined,
+      )
       break
     }
     case "session.status": {
