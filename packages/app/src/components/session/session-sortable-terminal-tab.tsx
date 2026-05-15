@@ -7,18 +7,19 @@ import { Tabs } from "@opencode-ai/ui/tabs"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Icon } from "@opencode-ai/ui/icon"
 import { isDefaultTitle as isDefaultTerminalTitle } from "@/context/terminal-title"
-import { useTerminal, type LocalPTY } from "@/context/terminal"
+import { useTerminal } from "@/context/terminal"
+import type { TerminalTab } from "@/context/terminal-types"
 import { useLanguage } from "@/context/language"
 import { focusTerminalById } from "@/pages/session/helpers"
 
 export function SortableTerminalTab(props: {
-  terminal: LocalPTY
+  terminal: TerminalTab
   onClose?: () => void
   totalCount: number
 }): JSX.Element {
   const terminal = useTerminal()
   const language = useLanguage()
-  const sortable = createSortable(props.terminal.id)
+  const sortable = createSortable(props.terminal.tabID)
   const [store, setStore] = createStore({
     editing: false,
     title: props.terminal.title,
@@ -48,7 +49,7 @@ export function SortableTerminalTab(props: {
 
   const close = () => {
     const count = terminal.all().length
-    terminal.close(props.terminal.id)
+    terminal.close(props.terminal.tabID)
     if (count === 1) {
       props.onClose?.()
     }
@@ -57,7 +58,7 @@ export function SortableTerminalTab(props: {
   const focus = () => {
     if (store.editing) return
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-    focusTerminalById(props.terminal.id)
+    focusTerminalById(props.terminal.tabID)
   }
 
   const edit = (e?: Event) => {
@@ -76,7 +77,7 @@ export function SortableTerminalTab(props: {
 
     const value = store.title.trim()
     if (value && value !== props.terminal.title) {
-      terminal.update({ id: props.terminal.id, title: value })
+      terminal.update({ tabID: props.terminal.tabID, title: value })
     }
     setStore("editing", false)
   }
@@ -127,7 +128,7 @@ export function SortableTerminalTab(props: {
     >
       <div class="relative h-full">
         <Tabs.Trigger
-          value={props.terminal.id}
+          value={props.terminal.tabID}
           onClick={focus}
           onMouseDown={(e) => e.preventDefault()}
           onContextMenu={menu}

@@ -21,6 +21,11 @@ export type TerminalTab = {
   snapshot?: TerminalSnapshot
 }
 
+export type RuntimePTY = {
+  ptyID: RuntimePTYID
+  title: string
+}
+
 export type PersistedTerminalStateV2 = {
   version: 2
   activeTabID?: TerminalTabID

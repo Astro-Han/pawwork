@@ -21,6 +21,7 @@ import { createSizing, focusTerminalById } from "@/pages/session/helpers"
 import { getTerminalHandoff, setTerminalHandoff } from "@/pages/session/handoff"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { terminalProbe } from "@/testing/terminal"
+import type { TerminalTabID } from "@/context/terminal-types"
 
 export function TerminalPanel(props: { embedded?: boolean }) {
   const delays = [120, 240]
@@ -112,6 +113,9 @@ export function TerminalPanel(props: { embedded?: boolean }) {
       () => [opened(), terminal.active()] as const,
       ([next, id]) => {
         if (!next || !id) return
+        void terminal.ensureLive(id).catch((error) => {
+          console.error("Failed to create terminal runtime", error)
+        })
         const stop = focus(id)
         onCleanup(stop)
       },
@@ -152,10 +156,10 @@ export function TerminalPanel(props: { embedded?: boolean }) {
 
     setTerminalHandoff(
       dir,
-      all.map((pty) =>
+      all.map((tab) =>
         terminalTabLabel({
-          title: pty.title,
-          titleNumber: pty.titleNumber,
+          title: tab.title,
+          titleNumber: tab.titleNumber,
           t: language.t as (key: string, vars?: Record<string, string | number | boolean>) => string,
         }),
       ),
@@ -169,7 +173,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
   })
 
   const all = terminal.all
-  const ids = createMemo(() => all().map((pty) => pty.id))
+  const ids = createMemo(() => all().map((tab) => tab.tabID))
 
   const handleTerminalDragStart = (event: unknown) => {
     const id = getDraggableId(event)
@@ -182,10 +186,10 @@ export function TerminalPanel(props: { embedded?: boolean }) {
     if (!draggable || !droppable) return
 
     const terminals = terminal.all()
-    const fromIndex = terminals.findIndex((t) => t.id === draggable.id.toString())
-    const toIndex = terminals.findIndex((t) => t.id === droppable.id.toString())
+    const fromIndex = terminals.findIndex((t) => t.tabID === draggable.id.toString())
+    const toIndex = terminals.findIndex((t) => t.tabID === droppable.id.toString())
     if (fromIndex !== -1 && toIndex !== -1 && fromIndex !== toIndex) {
-      terminal.move(draggable.id.toString(), toIndex)
+      terminal.move(draggable.id.toString() as TerminalTabID, toIndex)
     }
   }
 
@@ -271,13 +275,13 @@ export function TerminalPanel(props: { embedded?: boolean }) {
               <Tabs
                 variant="alt"
                 value={terminal.active()}
-                onChange={(id) => terminal.open(id)}
+                onChange={(id) => terminal.open(id as TerminalTabID)}
                 class="!h-auto !flex-none"
               >
                 <Tabs.List class="h-10 border-b border-border-weaker">
                   <SortableProvider ids={ids()}>
                     <For each={all()}>
-                      {(pty) => <SortableTerminalTab terminal={pty} totalCount={all().length} onClose={close} />}
+                      {(tab) => <SortableTerminalTab terminal={tab} totalCount={all().length} onClose={close} />}
                     </For>
                   </SortableProvider>
                   <div class="h-full flex items-center justify-center">
@@ -300,19 +304,25 @@ export function TerminalPanel(props: { embedded?: boolean }) {
               <div class="flex-1 min-h-0 relative">
                 <Show when={terminal.active()} keyed>
                   {(id) => {
-                    const ops = terminal.bind()
                     return (
-                      <Show when={all().find((pty) => pty.id === id)}>
-                        {(pty) => (
-                          <div id={`terminal-wrapper-${id}`} class="absolute inset-0">
-                            <Terminal
-                              pty={pty()}
-                              autoFocus={opened()}
-                              onConnect={() => ops.trim(id)}
-                              onCleanup={ops.update}
-                              onConnectError={() => ops.clone(id)}
-                            />
-                          </div>
+                      <Show when={all().find((tab) => tab.tabID === id)}>
+                        {(tab) => (
+                          <Show when={terminal.connection(id)}>
+                            {(connection) => (
+                              <div id={`terminal-wrapper-${id}`} class="absolute inset-0">
+                                <Terminal
+                                  tab={tab()}
+                                  connection={connection()}
+                                  autoFocus={opened()}
+                                  onConnect={() => terminal.snapshot(id, {})}
+                                  onTerminalResize={(size) => terminal.resize(id, size)}
+                                  onSnapshot={(snapshot) => terminal.snapshot(id, snapshot)}
+                                  onGone={() => terminal.markGone(id)}
+                                  onError={() => terminal.markGone(id)}
+                                />
+                              </div>
+                            )}
+                          </Show>
                         )}
                       </Show>
                     )
@@ -323,7 +333,7 @@ export function TerminalPanel(props: { embedded?: boolean }) {
             <DragOverlay>
               <Show when={store.activeDraggable} keyed>
                 {(id) => (
-                  <Show when={all().find((pty) => pty.id === id)}>
+                  <Show when={all().find((tab) => tab.tabID === id)}>
                     {(t) => (
                       <div class="relative p-1 h-10 flex items-center bg-bg-base text-13-regular">
                         {terminalTabLabel({

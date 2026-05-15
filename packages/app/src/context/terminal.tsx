@@ -1,119 +1,53 @@
-import { createStore, produce, reconcile } from "solid-js/store"
+import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
-import { batch, createEffect, createMemo, createRoot, on, onCleanup, type Accessor } from "solid-js"
+import { batch, createEffect, createMemo, createRoot, createSignal, on, onCleanup, untrack, type Accessor } from "solid-js"
 import { useParams } from "@solidjs/router"
 import { useSDK } from "./sdk"
-import { usePlatform, type Platform } from "./platform"
+import type { Platform } from "./platform"
 import { defaultTitle, titleNumber } from "./terminal-title"
+import { createTerminalLifecycle } from "./terminal-lifecycle"
+import {
+  assertNoUnsafeTerminalStorageFields,
+  migratePersistedTerminalState,
+  sanitizePersistedTerminalState,
+} from "./terminal-storage"
+import {
+  runtimePTYID,
+  terminalTabID,
+  type PersistedTerminalStateV2,
+  type RuntimePTY,
+  type TerminalSnapshot,
+  type TerminalTab,
+  type TerminalTabID,
+} from "./terminal-types"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
-
-export type LocalPTY = {
-  id: string
-  title: string
-  titleNumber: number
-  rows?: number
-  cols?: number
-  buffer?: string
-  scrollY?: number
-  cursor?: number
-}
 
 const WORKSPACE_KEY = "__workspace__"
 const MAX_TERMINAL_SESSIONS = 20
 
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function text(value: unknown) {
-  return typeof value === "string" ? value : undefined
-}
-
-function num(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
-}
-
-function numberFromTitle(title: string) {
-  return titleNumber(title, MAX_TERMINAL_SESSIONS)
-}
-
-function pty(value: unknown): LocalPTY | undefined {
-  if (!record(value)) return
-
-  const id = text(value.id)
-  if (!id) return
-
-  const title = text(value.title) ?? ""
-  const number = num(value.titleNumber)
-  const rows = num(value.rows)
-  const cols = num(value.cols)
-  const buffer = text(value.buffer)
-  const scrollY = num(value.scrollY)
-  const cursor = num(value.cursor)
-
-  return {
-    id,
-    title,
-    titleNumber: number && number > 0 ? number : (numberFromTitle(title) ?? 0),
-    ...(rows !== undefined ? { rows } : {}),
-    ...(cols !== undefined ? { cols } : {}),
-    ...(buffer !== undefined ? { buffer } : {}),
-    ...(scrollY !== undefined ? { scrollY } : {}),
-    ...(cursor !== undefined ? { cursor } : {}),
-  }
-}
-
-export function migrateTerminalState(value: unknown) {
-  if (!record(value)) return value
-
-  const seen = new Set<string>()
-  const all = (Array.isArray(value.all) ? value.all : []).flatMap((item) => {
-    const next = pty(item)
-    if (!next || seen.has(next.id)) return []
-    seen.add(next.id)
-    return [next]
-  })
-
-  const active = text(value.active)
-
-  return {
-    active: active && seen.has(active) ? active : all[0]?.id,
-    all,
-  }
-}
-
-export function getWorkspaceTerminalCacheKey(dir: string) {
-  return `${dir}:${WORKSPACE_KEY}`
-}
-
-export function getLegacyTerminalStorageKeys(dir: string, legacySessionID?: string) {
-  if (!legacySessionID) return [`${dir}/terminal.v1`]
-  return [`${dir}/terminal/${legacySessionID}.v1`, `${dir}/terminal.v1`]
+export type TerminalTitleUpdate = {
+  tabID: TerminalTabID
+  title: string
 }
 
 type TerminalSession = ReturnType<typeof createWorkspaceTerminalSession>
-type TerminalUpdate = Partial<LocalPTY> & { id: string }
-type TerminalBoundSession = {
-  trim: (id: string) => void
-  update: (pty: TerminalUpdate) => void
-  clone: (id: string) => Promise<void>
-}
 type TerminalSessionLike = {
   ready: () => boolean
-  all: () => LocalPTY[]
-  active: () => string | undefined
+  all: () => TerminalTab[]
+  active: () => TerminalTabID | undefined
+  connection: (tabID: TerminalTabID) => RuntimePTY | undefined
   clear: () => void
   new: () => void
-  update: (pty: TerminalUpdate) => void
-  trim: (id: string) => void
-  trimAll: () => void
-  clone: (id: string) => Promise<void>
-  bind: () => TerminalBoundSession
-  open: (id: string) => void
+  update: (input: TerminalTitleUpdate) => void
+  snapshot: (tabID: TerminalTabID, snapshot: TerminalSnapshot) => void
+  resize: (tabID: TerminalTabID, size: NonNullable<TerminalSnapshot["size"]>) => void
+  ensureLive: (tabID: TerminalTabID) => Promise<RuntimePTY | undefined>
+  markGone: (tabID: TerminalTabID) => void
+  open: (id: TerminalTabID) => void
   next: () => void
   previous: () => void
-  close: (id: string) => Promise<void>
-  move: (id: string, to: number) => void
+  close: (id: TerminalTabID) => Promise<void>
+  move: (id: TerminalTabID, to: number) => void
 }
 
 type TerminalCacheEntry = {
@@ -122,16 +56,6 @@ type TerminalCacheEntry = {
 }
 
 const caches = new Set<Map<string, TerminalCacheEntry>>()
-
-const trimTerminal = (pty: LocalPTY) => {
-  if (!pty.buffer && pty.cursor === undefined && pty.scrollY === undefined) return pty
-  return {
-    ...pty,
-    buffer: undefined,
-    cursor: undefined,
-    scrollY: undefined,
-  }
-}
 
 export function isTerminalGoneError(error: unknown) {
   if (!error || typeof error !== "object") return false
@@ -146,25 +70,30 @@ export function isTerminalGoneError(error: unknown) {
   return value.response?.status === 404
 }
 
-export function replaceTerminalWithClone(
-  current: { active?: string; all: LocalPTY[] },
-  id: string,
-  clone: { id?: string; title?: string },
-) {
-  if (!clone.id) return current
-  const index = current.all.findIndex((pty) => pty.id === id)
-  const pty = current.all[index]
-  if (!pty) return current
-  const all = current.all.slice()
-  all[index] = {
-    id: clone.id,
-    title: clone.title ?? pty.title,
-    titleNumber: pty.titleNumber,
-  }
-  return {
-    active: current.active === id ? clone.id : current.active,
-    all,
-  }
+export function getWorkspaceTerminalCacheKey(dir: string) {
+  return `${dir}:${WORKSPACE_KEY}`
+}
+
+export function getLegacyTerminalStorageKeys(dir: string, legacySessionID?: string) {
+  if (!legacySessionID) return [`${dir}/terminal.v1`]
+  return [`${dir}/terminal/${legacySessionID}.v1`, `${dir}/terminal.v1`]
+}
+
+function sortedTabs(tabs: TerminalTab[]) {
+  return tabs.slice().sort((a, b) => a.order - b.order)
+}
+
+function normalizeOrder(tabs: TerminalTab[]) {
+  return sortedTabs(tabs).map((tab, order) => ({ ...tab, order }))
+}
+
+function nextTerminalTabID() {
+  return terminalTabID(`tab_${crypto.randomUUID()}`)
+}
+
+function assertSafeTerminalState(value: PersistedTerminalStateV2) {
+  if (!import.meta.env.DEV && !import.meta.env.TEST) return
+  assertNoUnsafeTerminalStorageFields(value)
 }
 
 export function clearWorkspaceTerminals(dir: string, sessionIDs?: string[], platform?: Platform) {
@@ -189,42 +118,64 @@ export function clearWorkspaceTerminals(dir: string, sessionIDs?: string[], plat
 
 function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: string, legacySessionID?: string) {
   const legacy = getLegacyTerminalStorageKeys(dir, legacySessionID)
-  const recovering = new Set<string>()
+  const [runtimeVersion, setRuntimeVersion] = createSignal(0)
+  const bumpRuntime = () => setRuntimeVersion((value) => value + 1)
 
   const [store, setStore, _, ready] = persisted(
     {
       ...Persist.workspace(dir, "terminal", legacy),
-      migrate: migrateTerminalState,
+      migrate: migratePersistedTerminalState,
     },
-    createStore<{
-      active?: string
-      all: LocalPTY[]
-    }>({
-      all: [],
+    createStore<PersistedTerminalStateV2>({
+      version: 2,
+      tabs: [],
     }),
   )
 
-  createEffect(() => {
-    const initialized = ready()
-    const all = store.all
-    if (!initialized) return
-    if (Array.isArray(all)) return
-    console.error("[terminal:invalid-store-all]", {
-      dir,
-      legacySessionID,
-      ready: initialized,
-      allType: typeof all,
-      allValue: all,
-      active: store.active,
+  const persistSafeState = () => {
+    const sanitized = sanitizePersistedTerminalState(store)
+    assertSafeTerminalState(sanitized)
+    batch(() => {
+      setStore("version", sanitized.version)
+      setStore("activeTabID", sanitized.activeTabID)
+      setStore("tabs", sanitized.tabs)
     })
+  }
+
+  createEffect(
+    on(
+      ready,
+      (initialized) => {
+        if (!initialized) return
+        untrack(persistSafeState)
+      },
+      { defer: true },
+    ),
+  )
+
+  const lifecycle = createTerminalLifecycle({
+    create: async ({ title }) => {
+      const result = await sdk.client.pty.create({ title })
+      const id = result.data?.id
+      if (!id) throw new Error("PTY create did not return an id")
+      return {
+        ptyID: runtimePTYID(id),
+        title: result.data?.title ?? title,
+      }
+    },
+    remove: async (ptyID) => {
+      await sdk.client.pty.remove({ ptyID }).catch(() => undefined)
+    },
   })
+
+  const all = createMemo(() => sortedTabs(store.tabs))
 
   const pickNextTerminalNumber = () => {
     const existingTitleNumbers = new Set(
-      store.all.flatMap((pty) => {
-        const direct = Number.isFinite(pty.titleNumber) && pty.titleNumber > 0 ? pty.titleNumber : undefined
+      store.tabs.flatMap((tab) => {
+        const direct = Number.isFinite(tab.titleNumber) && tab.titleNumber > 0 ? tab.titleNumber : undefined
         if (direct !== undefined) return [direct]
-        const parsed = numberFromTitle(pty.title)
+        const parsed = titleNumber(tab.title, MAX_TERMINAL_SESSIONS)
         if (parsed === undefined) return []
         return [parsed]
       }),
@@ -237,17 +188,63 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
     )
   }
 
-  const removeExited = (id: string) => {
-    const all = store.all
-    const index = all.findIndex((x) => x.id === id)
-    if (index === -1) return
-    const active = store.active === id ? (index === 0 ? all[1]?.id : all[0]?.id) : store.active
+  const tabIndex = (tabID: TerminalTabID) => store.tabs.findIndex((tab) => tab.tabID === tabID)
+
+  const logRuntimeCreateError = (error: unknown) => {
+    console.error("Failed to create terminal runtime", error)
+  }
+
+  const ensureLive = async (tabID: TerminalTabID) => {
+    const tab = store.tabs.find((item) => item.tabID === tabID)
+    if (!tab) return
+    const runtime = await lifecycle.ensureLive({ tabID, title: tab.title })
+    bumpRuntime()
+    return runtime
+  }
+
+  const markGone = (tabID: TerminalTabID) => {
+    lifecycle.markGone(tabID)
+    bumpRuntime()
+    if (store.activeTabID === tabID) void ensureLive(tabID).catch(logRuntimeCreateError)
+  }
+
+  const syncRuntime = (tabID: TerminalTabID, input: { title?: string; size?: NonNullable<TerminalSnapshot["size"]> }) => {
+    const runtime = lifecycle.peek(tabID)
+    if (!runtime) return
+    sdk.client.pty
+      .update({
+        ptyID: runtime.ptyID,
+        title: input.title,
+        size: input.size,
+      })
+      .catch((error: unknown) => {
+        if (isTerminalGoneError(error)) {
+          markGone(tabID)
+          return
+        }
+        console.error("Failed to update terminal", error)
+      })
+  }
+
+  const removeExited = (runtimeID: string) => {
+    const tab = store.tabs.find((item) => lifecycle.peek(item.tabID)?.ptyID === runtimeID)
+    if (!tab) return
+    lifecycle.removeRuntime(tab.tabID)
+    bumpRuntime()
+    const tabs = all()
+    const index = tabs.findIndex((item) => item.tabID === tab.tabID)
     batch(() => {
-      setStore("active", active)
+      if (store.activeTabID === tab.tabID) {
+        const next = index > 0 ? tabs[index - 1]?.tabID : tabs[1]?.tabID
+        setStore("activeTabID", next)
+      }
       setStore(
-        "all",
+        "tabs",
         produce((draft) => {
-          draft.splice(index, 1)
+          const currentIndex = draft.findIndex((item) => item.tabID === tab.tabID)
+          if (currentIndex !== -1) draft.splice(currentIndex, 1)
+          const normalized = normalizeOrder(draft)
+          draft.splice(0, draft.length, ...normalized)
         }),
       )
     })
@@ -258,192 +255,172 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
   })
   onCleanup(unsub)
 
-  const update = (client: ReturnType<typeof useSDK>["client"], pty: Partial<LocalPTY> & { id: string }) => {
-    const index = store.all.findIndex((x) => x.id === pty.id)
-    const previous = index >= 0 ? store.all[index] : undefined
-    if (index >= 0) {
-      setStore("all", index, (item) => ({ ...item, ...pty }))
-    }
-    client.pty
-      .update({
-        ptyID: pty.id,
-        title: pty.title,
-        size: pty.cols && pty.rows ? { rows: pty.rows, cols: pty.cols } : undefined,
-      })
-      .catch((error: unknown) => {
-        if (isTerminalGoneError(error)) {
-          void clone(client, pty.id)
-          return
-        }
-        if (previous) {
-          const currentIndex = store.all.findIndex((item) => item.id === pty.id)
-          if (currentIndex >= 0) setStore("all", currentIndex, previous)
-        }
-        console.error("Failed to update terminal", error)
-      })
-  }
-
-  const clone = async (client: ReturnType<typeof useSDK>["client"], id: string) => {
-    if (recovering.has(id)) return
-    const index = store.all.findIndex((x) => x.id === id)
-    const pty = store.all[index]
-    if (!pty) return
-    recovering.add(id)
-    const next = await client.pty
-      .create({
-        title: pty.title,
-      })
-      .catch((error: unknown) => {
-        console.error("Failed to clone terminal", error)
-        return undefined
-      })
-      .finally(() => {
-        recovering.delete(id)
-      })
-    if (!next?.data) return
-
-    const nextState = replaceTerminalWithClone({ active: store.active, all: store.all }, pty.id, next.data)
-    if (nextState.all === store.all) return
-
-    batch(() => {
-      setStore("all", reconcile(nextState.all, { key: "id" }))
-      setStore("active", nextState.active)
-    })
-  }
+  createEffect(
+    on(
+      () => `${sdk.url}:${dir}`,
+      () => {
+        lifecycle.clearRuntime()
+        bumpRuntime()
+      },
+      { defer: true },
+    ),
+  )
 
   return {
     ready,
-    all: createMemo(() => store.all),
-    active: createMemo(() => store.active),
+    all,
+    active: createMemo(() => store.activeTabID),
+    connection(tabID: TerminalTabID) {
+      runtimeVersion()
+      return lifecycle.peek(tabID)
+    },
     clear() {
+      lifecycle.clearRuntime()
+      bumpRuntime()
       batch(() => {
-        setStore("active", undefined)
-        setStore("all", [])
+        setStore("activeTabID", undefined)
+        setStore("tabs", [])
       })
     },
     new() {
       const nextNumber = pickNextTerminalNumber()
+      const tabID = nextTerminalTabID()
+      const tab = {
+        tabID,
+        title: defaultTitle(nextNumber),
+        titleNumber: nextNumber,
+        order: store.tabs.length,
+      } satisfies TerminalTab
 
-      sdk.client.pty
-        .create({ title: defaultTitle(nextNumber) })
-        .then((pty: { data?: { id?: string; title?: string } }) => {
-          const id = pty.data?.id
-          if (!id) return
-          const newTerminal = {
-            id,
-            title: pty.data?.title ?? defaultTitle(nextNumber),
-            titleNumber: nextNumber,
-          }
-          setStore("all", store.all.length, newTerminal)
-          setStore("active", id)
-        })
-        .catch((error: unknown) => {
-          console.error("Failed to create terminal", error)
-        })
-    },
-    update(pty: Partial<LocalPTY> & { id: string }) {
-      update(sdk.client, pty)
-    },
-    trim(id: string) {
-      const index = store.all.findIndex((x) => x.id === id)
-      if (index === -1) return
-      setStore("all", index, (pty) => trimTerminal(pty))
-    },
-    trimAll() {
-      setStore("all", (all) => {
-        const next = all.map(trimTerminal)
-        if (next.every((pty, index) => pty === all[index])) return all
-        return next
+      batch(() => {
+        setStore("tabs", store.tabs.length, tab)
+        setStore("activeTabID", tabID)
       })
-    },
-    async clone(id: string) {
-      await clone(sdk.client, id)
-    },
-    bind() {
-      const client = sdk.client
-      return {
-        trim(id: string) {
-          const index = store.all.findIndex((x) => x.id === id)
-          if (index === -1) return
-          setStore("all", index, (pty) => trimTerminal(pty))
-        },
-        update(pty: Partial<LocalPTY> & { id: string }) {
-          update(client, pty)
-        },
-        async clone(id: string) {
-          await clone(client, id)
-        },
-      }
-    },
-    open(id: string) {
-      setStore("active", id)
-    },
-    next() {
-      const index = store.all.findIndex((x) => x.id === store.active)
-      if (index === -1) return
-      const nextIndex = (index + 1) % store.all.length
-      setStore("active", store.all[nextIndex]?.id)
-    },
-    previous() {
-      const index = store.all.findIndex((x) => x.id === store.active)
-      if (index === -1) return
-      const prevIndex = index === 0 ? store.all.length - 1 : index - 1
-      setStore("active", store.all[prevIndex]?.id)
-    },
-    async close(id: string) {
-      const index = store.all.findIndex((f) => f.id === id)
-      if (index !== -1) {
+      const rollback = () => {
+        const tabs = all()
+        const index = tabs.findIndex((item) => item.tabID === tabID)
+        if (index === -1) return
         batch(() => {
-          if (store.active === id) {
-            const next = index > 0 ? store.all[index - 1]?.id : store.all[1]?.id
-            setStore("active", next)
+          if (store.activeTabID === tabID) {
+            const next = index > 0 ? tabs[index - 1]?.tabID : tabs[1]?.tabID
+            setStore("activeTabID", next)
           }
           setStore(
-            "all",
-            produce((all) => {
-              all.splice(index, 1)
+            "tabs",
+            produce((draft) => {
+              const currentIndex = draft.findIndex((item) => item.tabID === tabID)
+              if (currentIndex !== -1) draft.splice(currentIndex, 1)
+              const normalized = normalizeOrder(draft)
+              draft.splice(0, draft.length, ...normalized)
             }),
           )
         })
       }
+      void ensureLive(tabID)
+        .then((runtime) => {
+          if (!runtime) rollback()
+        })
+        .catch((error) => {
+          logRuntimeCreateError(error)
+          rollback()
+        })
+    },
+    update(input: TerminalTitleUpdate) {
+      const index = tabIndex(input.tabID)
+      if (index === -1) return
+      setStore("tabs", index, (tab) => ({ ...tab, title: input.title }))
+      syncRuntime(input.tabID, { title: input.title })
+    },
+    snapshot(tabID: TerminalTabID, snapshot: TerminalSnapshot) {
+      const index = tabIndex(tabID)
+      if (index === -1) return
+      if (Object.keys(snapshot).length === 0) {
+        setStore("tabs", index, (tab) => ({ ...tab, snapshot: undefined }))
+        return
+      }
+      setStore("tabs", index, (tab) => ({
+        ...tab,
+        snapshot: {
+          ...tab.snapshot,
+          ...snapshot,
+        },
+      }))
+    },
+    resize(tabID: TerminalTabID, size: NonNullable<TerminalSnapshot["size"]>) {
+      syncRuntime(tabID, { size })
+    },
+    ensureLive,
+    markGone,
+    open(id: TerminalTabID) {
+      if (!store.tabs.some((tab) => tab.tabID === id)) return
+      setStore("activeTabID", id)
+      void ensureLive(id).catch(logRuntimeCreateError)
+    },
+    next() {
+      const tabs = all()
+      const index = tabs.findIndex((tab) => tab.tabID === store.activeTabID)
+      if (index === -1) return
+      setStore("activeTabID", tabs[(index + 1) % tabs.length]?.tabID)
+    },
+    previous() {
+      const tabs = all()
+      const index = tabs.findIndex((tab) => tab.tabID === store.activeTabID)
+      if (index === -1) return
+      const prevIndex = index === 0 ? tabs.length - 1 : index - 1
+      setStore("activeTabID", tabs[prevIndex]?.tabID)
+    },
+    async close(id: TerminalTabID) {
+      const tabs = all()
+      const index = tabs.findIndex((tab) => tab.tabID === id)
+      if (index === -1) return
 
-      await sdk.client.pty.remove({ ptyID: id }).catch((error: unknown) => {
-        console.error("Failed to close terminal", error)
+      lifecycle.removeRuntime(id)
+      bumpRuntime()
+      batch(() => {
+        if (store.activeTabID === id) {
+          const next = index > 0 ? tabs[index - 1]?.tabID : tabs[1]?.tabID
+          setStore("activeTabID", next)
+        }
+        setStore(
+          "tabs",
+          produce((draft) => {
+            const currentIndex = draft.findIndex((tab) => tab.tabID === id)
+            if (currentIndex !== -1) draft.splice(currentIndex, 1)
+            const normalized = normalizeOrder(draft)
+            draft.splice(0, draft.length, ...normalized)
+          }),
+        )
       })
     },
-    move(id: string, to: number) {
-      const index = store.all.findIndex((f) => f.id === id)
+    move(id: TerminalTabID, to: number) {
+      const tabs = all()
+      const index = tabs.findIndex((tab) => tab.tabID === id)
       if (index === -1) return
-      setStore(
-        "all",
-        produce((all) => {
-          all.splice(to, 0, all.splice(index, 1)[0])
-        }),
-      )
+      const next = tabs.slice()
+      next.splice(to, 0, next.splice(index, 1)[0])
+      setStore("tabs", next.map((tab, order) => ({ ...tab, order })))
     },
   }
 }
 
 function createEmptyTerminalSession(): TerminalSessionLike {
-  const all = createMemo<LocalPTY[]>(() => [])
-  const active = createMemo<string | undefined>(() => undefined)
-  const bound: TerminalBoundSession = {
-    trim() {},
-    update() {},
-    async clone() {},
-  }
+  const all = createMemo<TerminalTab[]>(() => [])
+  const active = createMemo<TerminalTabID | undefined>(() => undefined)
 
   return {
     ready: () => false,
     all,
     active,
+    connection: () => undefined,
     clear() {},
     new() {},
     update() {},
-    trim() {},
-    trimAll() {},
-    async clone() {},
-    bind: () => bound,
+    snapshot() {},
+    resize() {},
+    async ensureLive() {
+      return undefined
+    },
+    markGone() {},
     open() {},
     next() {},
     previous() {},
@@ -459,15 +436,16 @@ export function createTerminalBinding(workspace: Accessor<TerminalSessionLike | 
     ready: () => current().ready(),
     all: () => current().all(),
     active: () => current().active(),
+    connection: (tabID: TerminalTabID) => current().connection(tabID),
     new: () => current().new(),
-    update: (pty: TerminalUpdate) => current().update(pty),
-    trim: (id: string) => current().trim(id),
-    trimAll: () => current().trimAll(),
-    clone: (id: string) => current().clone(id),
-    bind: () => current().bind(),
-    open: (id: string) => current().open(id),
-    close: (id: string) => current().close(id),
-    move: (id: string, to: number) => current().move(id, to),
+    update: (input: TerminalTitleUpdate) => current().update(input),
+    snapshot: (tabID: TerminalTabID, snapshot: TerminalSnapshot) => current().snapshot(tabID, snapshot),
+    resize: (tabID: TerminalTabID, size: NonNullable<TerminalSnapshot["size"]>) => current().resize(tabID, size),
+    ensureLive: (tabID: TerminalTabID) => current().ensureLive(tabID),
+    markGone: (tabID: TerminalTabID) => current().markGone(tabID),
+    open: (id: TerminalTabID) => current().open(id),
+    close: (id: TerminalTabID) => current().close(id),
+    move: (id: TerminalTabID, to: number) => current().move(id, to),
     next: () => current().next(),
     previous: () => current().previous(),
   }
@@ -478,7 +456,6 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
   gate: false,
   init: () => {
     const sdk = useSDK()
-    const platform = usePlatform()
     const params = useParams()
     const cache = new Map<string, TerminalCacheEntry>()
 
@@ -505,7 +482,6 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
     }
 
     const loadWorkspace = (dir: string, legacySessionID?: string) => {
-      // Terminals are workspace-scoped so tabs persist while switching sessions in the same directory.
       const key = getWorkspaceTerminalCacheKey(dir)
       const existing = cache.get(key)
       if (existing) {
@@ -529,41 +505,6 @@ export const { use: useTerminal, provider: TerminalProvider } = createSimpleCont
       if (!dir) return
       return loadWorkspace(dir, params.id)
     })
-
-    createEffect(() => {
-      const dir = params.dir
-      const current = workspace()
-      if (!dir || !current?.ready()) return
-      const all = current.all()
-      if (Array.isArray(all)) return
-      const target = Persist.workspace(dir, "terminal")
-      const payload = JSON.stringify({
-        dir,
-        active: current.active(),
-        allType: typeof all,
-        allValue: all,
-        storage: target.storage,
-        key: target.key,
-        legacy: getLegacyTerminalStorageKeys(dir, params.id),
-        at: new Date().toISOString(),
-      })
-      const store = platform.storage?.("pawwork.global.dat")
-      if (!store) return
-      void Promise.resolve(store.setItem("debug:terminal-invalid-all", payload)).catch(() => undefined)
-    })
-
-    createEffect(
-      on(
-        () => ({ dir: params.dir, id: params.id }),
-        (next, prev) => {
-          if (!prev?.dir) return
-          if (next.dir === prev.dir && next.id === prev.id) return
-          if (next.dir === prev.dir && next.id) return
-          loadWorkspace(prev.dir, prev.id).trimAll()
-        },
-        { defer: true },
-      ),
-    )
 
     return createTerminalBinding(workspace)
   },
