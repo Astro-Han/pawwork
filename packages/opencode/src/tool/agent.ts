@@ -153,6 +153,10 @@ const synthesizeOutput = (
       header = "status: running"
       body = wrapper("")
       break
+    default:
+      header = `status: ${(part as { status: string }).status}`
+      body = wrapper("")
+      break
   }
 
   return {

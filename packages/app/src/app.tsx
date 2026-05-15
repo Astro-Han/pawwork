@@ -31,10 +31,10 @@ import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider } from "@/context/global-sdk"
-import { GlobalSyncProvider } from "@/context/global-sync"
+import { GlobalSyncProvider, useGlobalSync } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
-import { LayoutProvider } from "@/context/layout"
+import { LayoutProvider, useLayout } from "@/context/layout"
 import { ModelsProvider } from "@/context/models"
 import { NotificationProvider } from "@/context/notification"
 import { PermissionProvider } from "@/context/permission"
@@ -49,8 +49,8 @@ import { ErrorPage } from "./pages/error"
 import { buildDesktopContext, desktopWindowTitle, type DesktopContext } from "./utils/desktop-context"
 import type { RendererDiagnosticInput, RendererDiagnosticsExportResult } from "@/context/platform"
 import { useCheckServerHealth } from "./utils/server-health"
+import { base64Encode } from "@opencode-ai/util/encode"
 
-const HomeRoute = lazy(() => import("@/pages/home"))
 const loadSession = () => import("@/pages/session")
 const Session = lazy(loadSession)
 const Loading = () => <div class="size-full" />
@@ -66,6 +66,25 @@ const SessionRoute = () => (
 )
 
 const SessionIndexRoute = () => <Navigate href="session" />
+
+const HomeRedirectRoute = () => {
+  const layout = useLayout()
+  const sync = useGlobalSync()
+  const target = createMemo(() => {
+    const local = layout.projects.list()[0]?.worktree
+    if (local) return local
+    if (!sync.ready) return undefined
+    return sync.data.project[0]?.worktree
+  })
+  return (
+    <Show
+      when={target()}
+      fallback={<div data-component="home-redirect-pending" class="size-full" aria-hidden="true" />}
+    >
+      {(directory) => <Navigate href={`/${base64Encode(directory())}/session`} />}
+    </Show>
+  )
+}
 
 type WebSearchStatus = {
   source: "saved" | "env" | "anonymous"
@@ -406,7 +425,7 @@ export function AppInterface(props: {
                 component={props.router ?? Router}
                 root={(routerProps) => <RouterRoot appChildren={props.children}>{routerProps.children}</RouterRoot>}
               >
-                <Route path="/" component={HomeRoute} />
+                <Route path="/" component={HomeRedirectRoute} />
                 <Route path="/:dir" component={DirectoryLayout}>
                   <Route path="/" component={SessionIndexRoute} />
                   <Route path="/session/:id?" component={SessionRoute} />

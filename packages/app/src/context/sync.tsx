@@ -321,6 +321,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       clearSessionPrefetch(directory, sessionIDs)
       for (const sessionID of sessionIDs) {
         globalSync.todo.set(sessionID, undefined)
+        clearOptimistic(directory, sessionID)
       }
       setStore(
         produce((draft) => {

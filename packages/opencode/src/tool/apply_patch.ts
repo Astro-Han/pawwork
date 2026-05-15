@@ -32,7 +32,9 @@ function isSensitiveFile(filePath: string) {
 }
 
 function notFound(error: unknown) {
-  return typeof error === "object" && error !== null && "reason" in error && (error as any).reason?._tag === "NotFound"
+  if (typeof error !== "object" || error === null || !("reason" in error)) return false
+  const reason = (error as Record<string, unknown>).reason
+  return typeof reason === "object" && reason !== null && "_tag" in reason && reason._tag === "NotFound"
 }
 
 function safeTotalDiff(changes: Array<{ diff: string; sensitive: boolean }>) {
