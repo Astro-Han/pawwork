@@ -1297,6 +1297,45 @@ test("todo dock and status summary use backend terminal update over stale todowr
   )
 })
 
+test("todo dock and status summary clear when backend todo update is empty", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock backend empty todo",
+    async (session) => {
+      const content = "backend cleared todo"
+      await project.gotoSession(session.id)
+
+      await llm.tool("todowrite", {
+        todos: [{ content, status: "in_progress", priority: "medium" }],
+      })
+      await llm.text("todo started")
+      await project.prompt("Create a todo and start it.")
+
+      const dockItem = page.locator('[data-slot="session-todo-item"]').filter({ hasText: content })
+      await expect(dockItem.first()).toHaveAttribute("data-state", "in_progress", { timeout: 30_000 })
+
+      await e2eUpdateTodos(
+        { url: project.url, directory: project.directory, sdk: project.sdk },
+        {
+          sessionID: session.id,
+          todos: [],
+        },
+      )
+
+      await expect(dockItem).toHaveCount(0, { timeout: 10_000 })
+
+      const rightPanel = page.locator("#right-panel")
+      if ((await rightPanel.getAttribute("aria-hidden")) !== "false") {
+        await page.locator(`${titlebarRightSelector} button`).first().click()
+      }
+      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+      await expect(rightPanel.locator('[data-slot="status-summary-todo"]').filter({ hasText: content })).toHaveCount(0)
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("todo dock appears for the first todowrite in a fresh session", async ({ page, llm, project }) => {
   await project.open()
 

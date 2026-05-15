@@ -71,13 +71,19 @@ describe("selectSessionTodos", () => {
     expect(selectSessionTodos({ backend: [], parts })).toEqual([todo("done from parts", "completed")])
   })
 
-  test("falls back to latest todowrite parts when backend todos are empty", () => {
+  test("falls back to latest todowrite parts when backend todos are unknown", () => {
     const parts = [
       toolPart("todowrite", completedState({ input: { todos: [todo("old", "pending")] } })),
       toolPart("todowrite", completedState({ input: { todos: [todo("new", "in_progress")] } })),
     ]
 
-    expect(selectSessionTodos({ backend: [], parts })).toEqual([todo("new", "in_progress")])
+    expect(selectSessionTodos({ backend: undefined, parts })).toEqual([todo("new", "in_progress")])
+  })
+
+  test("returns empty when known backend todos clear stale active parts", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("old", "in_progress")] } }))]
+
+    expect(selectSessionTodos({ backend: [], parts })).toEqual([])
   })
 
   test("falls back to a secondary session source when the primary source is empty", () => {
