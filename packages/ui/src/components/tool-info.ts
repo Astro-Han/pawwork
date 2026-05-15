@@ -64,20 +64,14 @@ export function agentTitle(i18n: UiI18n, type?: string) {
   return i18n.t("ui.tool.agent", { type })
 }
 
-export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
-  const input: any = part.state?.input ?? {}
-  const metadata: any = (part.state as any)?.metadata ?? {}
-  switch (part.tool) {
-    case "task": // agent-rename:legacy-render
-    case "agent": {
-      const subagentType = typeof input?.subagent_type === "string" ? input.subagent_type : undefined
-      const type = subagentType ? subagentType[0]!.toUpperCase() + subagentType.slice(1) : undefined
-      return {
-        icon: "agent",
-        title: agentTitle(i18n, type),
-        subtitle: input?.description || undefined,
-      }
-    }
+export function toolInfoForInput(
+  tool: string,
+  input: Record<string, any> = {},
+  metadata: Record<string, any> = {},
+  i18n: UiI18n,
+  options: { unknownSubtitle?: string } = {},
+): ToolInfo {
+  switch (tool) {
     case "read":
       return {
         icon: "glasses",
@@ -91,13 +85,29 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
         subtitle: input.path ? getFilename(input.path) : undefined,
       }
     case "glob":
-      return { icon: "magnifying-glass-menu", title: i18n.t("ui.tool.glob"), subtitle: input.pattern }
+      return {
+        icon: "magnifying-glass-menu",
+        title: i18n.t("ui.tool.glob"),
+        subtitle: input.pattern,
+      }
     case "grep":
-      return { icon: "magnifying-glass-menu", title: i18n.t("ui.tool.grep"), subtitle: input.pattern }
+      return {
+        icon: "magnifying-glass-menu",
+        title: i18n.t("ui.tool.grep"),
+        subtitle: input.pattern,
+      }
     case "webfetch":
-      return { icon: "window-cursor", title: i18n.t("ui.tool.webfetch"), subtitle: input.url }
+      return {
+        icon: "window-cursor",
+        title: i18n.t("ui.tool.webfetch"),
+        subtitle: input.url,
+      }
     case "websearch":
-      return { icon: "window-cursor", title: i18n.t("ui.tool.websearch"), subtitle: input.query }
+      return {
+        icon: "window-cursor",
+        title: i18n.t("ui.tool.websearch"),
+        subtitle: input.query,
+      }
     case "enter-worktree": {
       return {
         icon: "worktree",
@@ -112,8 +122,24 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
         subtitle: exitWorktreeSubtitle(metadata, i18n),
       }
     }
+    case "task": // agent-rename:legacy-render
+    case "agent": {
+      const type =
+        typeof input.subagent_type === "string" && input.subagent_type
+          ? input.subagent_type[0]!.toUpperCase() + input.subagent_type.slice(1)
+          : undefined
+      return {
+        icon: "agent",
+        title: agentTitle(i18n, type),
+        subtitle: input.description,
+      }
+    }
     case "bash":
-      return { icon: "console", title: i18n.t("ui.tool.shell"), subtitle: input.description }
+      return {
+        icon: "console",
+        title: i18n.t("ui.tool.shell"),
+        subtitle: input.description,
+      }
     case "edit":
       return {
         icon: "code-lines",
@@ -135,12 +161,31 @@ export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
           : undefined,
       }
     case "todowrite":
-      return { icon: "checklist", title: i18n.t("ui.tool.todos") }
+      return {
+        icon: "checklist",
+        title: i18n.t("ui.tool.todos"),
+      }
     case "question":
-      return { icon: "bubble-5", title: i18n.t("ui.tool.questions") }
+      return {
+        icon: "bubble-5",
+        title: i18n.t("ui.tool.questions"),
+      }
     case "skill":
-      return { icon: "brain", title: input.name || i18n.t("ui.tool.skill") }
+      return {
+        icon: "brain",
+        title: input.name || i18n.t("ui.tool.skill"),
+      }
     default:
-      return { icon: "mcp", title: part.tool, subtitle: "" }
+      return {
+        icon: "mcp",
+        title: tool,
+        subtitle: options.unknownSubtitle,
+      }
   }
+}
+
+export function buildToolInfo(part: ToolPart, i18n: UiI18n): ToolInfo {
+  const input: any = part.state?.input ?? {}
+  const metadata: any = (part.state as any)?.metadata ?? {}
+  return toolInfoForInput(part.tool, input, metadata, i18n, { unknownSubtitle: "" })
 }

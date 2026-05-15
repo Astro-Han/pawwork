@@ -26,6 +26,7 @@ import {
   type TimelineScrollObservation,
 } from "@/pages/session/session-timeline-scroll-controller"
 import { taskDescription } from "@/pages/session/task-description"
+import { buildTurnMessagesByUserID, emptyAssistantMessages } from "@/pages/session/session-messages"
 import {
   turnFetchSignature,
   turnFetchTargets,
@@ -373,6 +374,7 @@ export function MessageTimeline(props: {
   const sessionKey = createMemo(() => props.sessionKey)
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
+  const turnMessagesByUserID = createMemo(() => buildTurnMessagesByUserID(sessionMessages()))
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
@@ -937,16 +939,17 @@ export function MessageTimeline(props: {
     >
       <div class="relative w-full h-full min-w-0">
         <div
-          class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-[opacity,transform] duration-200 ease-out"
+          class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-opacity duration-200 ease-out"
           classList={{
-            "opacity-100 translate-y-0 scale-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-            "opacity-0 translate-y-2 scale-95 pointer-events-none":
+            "opacity-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
+            "opacity-0 pointer-events-none":
               !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
           }}
         >
+          {/* 偏离: W1 preview L267 锁 cursor:pointer，用户 2026-05-15 决定改回默认。preview/DESIGN 同步留 follow-up。 */}
           <button
             type="button"
-            class="pointer-events-auto size-8 rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-surface-raised hover:border-border-weak hover:[--icon-base:var(--icon-base)]"
+            class="pointer-events-auto w-[30px] h-[30px] rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center p-0 transition-[background-image] hover:[background-image:linear-gradient(var(--row-hover-overlay),var(--row-hover-overlay))]"
             style={{ "box-shadow": "var(--shadow-floating)" }}
             onClick={props.onResumeScroll}
             aria-label={language.t("session.messages.jumpToLatest")}
@@ -1104,12 +1107,9 @@ export function MessageTimeline(props: {
                   </Button>
                 </div>
               </Show>
-              <VList
-                data={rendered()}
-                style={{ height: "100%" }}
-                getKey={(messageID) => messageID}
-              >
-                {(messageID) => {
+              <For each={rendered()}>
+                {(messageID, index) => {
+                  const userMessage = createMemo(() => props.renderedUserMessages[index()])
                   const active = createMemo(() => activeMessageID() === messageID)
                   const comments = createMemo(() => messageComments(sync.data.part[messageID] ?? []), [], {
                     equals: (a, b) =>
@@ -1175,6 +1175,8 @@ export function MessageTimeline(props: {
                       <SessionTurn
                         sessionID={sessionID() ?? ""}
                         messageID={messageID}
+                        message={userMessage()}
+                        assistantMessages={turnMessagesByUserID().get(messageID) ?? emptyAssistantMessages}
                         messages={sessionMessages()}
                         actions={props.actions}
                         active={active()}
@@ -1202,7 +1204,7 @@ export function MessageTimeline(props: {
                     </div>
                   )
                 }}
-              </VList>
+              </For>
             </div>
           </div>
         </ScrollView>

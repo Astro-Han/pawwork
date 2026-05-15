@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { raw } from "../../../opencode/test/lib/llm-server"
 import { test, expect } from "../fixtures"
-import { waitTerminalFocusIdle, withSession } from "../actions"
+import { cleanupSession, waitSessionIdle, waitSessionSaved, waitTerminalFocusIdle, withSession } from "../actions"
 import {
   promptSelector,
   sessionMessageItemSelector,
@@ -11,9 +11,10 @@ import {
   terminalSelector,
 } from "../selectors"
 import { sessionPath, terminalToggleKey } from "../utils"
+import type { createSdk } from "../utils"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
-import { seedTimelineRecomputeSession } from "./timeline-fixture"
+import { TIMELINE_RECOMPUTE_SEED_TURN_COUNT, seedTimelineRecomputeSession } from "./timeline-fixture"
 
 const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
 const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
@@ -37,7 +38,27 @@ const longMarkdown = [
   ...Array.from({ length: 80 }, (_, index) => `Paragraph ${index + 1}: ${"streaming markdown content ".repeat(8)}`),
 ].join("\n")
 
+const heavyBashCommand =
+  'node -e \'for (let i = 0; i < 900; i++) console.log(String(i).padStart(4, "0") + " " + "heavy bash output ".repeat(8))\''
+
+const inputLagText = [
+  "Long session input lag probe.",
+  "Typing remains responsive while a realistic message history is mounted.",
+  "This fixed draft protects the composer path from timeline render regressions.",
+].join(" ")
+
 const scenarioResults: ReturnType<typeof summarizeScenarioRuns>[] = []
+
+type PerfSdk = ReturnType<typeof createSdk>
+type PerfProject = {
+  directory: string
+  url: string
+  sdk: PerfSdk
+  trackSession: (sessionID: string) => void
+}
+type PerfLlm = {
+  tool: (name: string, input: unknown) => Promise<void>
+}
 
 const chatChunk = (delta: Record<string, unknown>, input?: { finish?: string; usage?: { input: number; output: number } }) => ({
   id: "chatcmpl-test",
@@ -134,6 +155,25 @@ async function submitVisiblePrompt(page: Parameters<typeof snapshotPerfProbe>[0]
   await expect.poll(async () => (await readPromptSend(page)).started, { timeout: 10_000 }).toBeGreaterThan(previous.started)
 }
 
+async function readPromptText(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  return page.locator(promptSelector).first().evaluate((el) => (el.textContent ?? "").replace(/\u200B/g, "").trim())
+}
+
+async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfProbe>[0], expectedCount: number) {
+  const messages = page.locator(sessionMessageItemSelector)
+  if ((await messages.count()) < expectedCount) {
+    await page.locator(scrollViewportSelector).first().hover()
+    await page.mouse.wheel(0, -2400)
+    await settleFrames(page, 2)
+    await scrollTimelineTo(page, 0)
+    await settleFrames(page, 2)
+    const loadEarlier = page.getByRole("button", { name: /Load earlier messages|加载更早的消息/i }).first()
+    await expect(loadEarlier).toBeVisible({ timeout: 30_000 })
+    await loadEarlier.click()
+  }
+  await expect(messages).toHaveCount(expectedCount, { timeout: 30_000 })
+}
+
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
   const found = await page.evaluate(
     ({ top, scrollViewportSelector, turnListSelector }) => {
@@ -147,6 +187,82 @@ async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], t
     { top, scrollViewportSelector, turnListSelector: sessionTurnListSelector },
   )
   expect(found).toBe(true)
+}
+
+async function enableShellToolPartsExpanded(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const apply = () => {
+    const raw = localStorage.getItem("settings.v3")
+    const current = (() => {
+      if (!raw) return {}
+      try {
+        return JSON.parse(raw) as Record<string, unknown>
+      } catch {
+        return {}
+      }
+    })()
+    const general = current.general && typeof current.general === "object" ? current.general : {}
+    localStorage.setItem(
+      "settings.v3",
+      JSON.stringify({
+        ...current,
+        general: {
+          ...general,
+          shellToolPartsExpanded: true,
+        },
+      }),
+    )
+  }
+
+  await page.addInitScript(apply)
+  await page.evaluate(apply)
+}
+
+async function seedHeavyBashSession(input: {
+  project: PerfProject
+  llm: PerfLlm
+  run: number
+}) {
+  const session = await input.project.sdk.session
+    .create({
+      title: `perf heavy bash ${Date.now()}-${input.run}`,
+      permission: [{ permission: "bash", pattern: "*", action: "allow" }],
+    })
+    .then((result) => result.data)
+  if (!session?.id) throw new Error("Session create did not return an id")
+  input.project.trackSession(session.id)
+
+  await input.llm.tool("bash", {
+    command: heavyBashCommand,
+    description: "Prints heavy deterministic output",
+  })
+  await input.project.sdk.session.promptAsync({
+    sessionID: session.id,
+    agent: "build",
+    parts: [{ type: "text", text: "Run the heavy bash perf fixture." }],
+  })
+  await waitSessionIdle(input.project.sdk, session.id, 90_000)
+  await waitSessionSaved(input.project.directory, session.id, 90_000, input.project.url)
+
+  await expect
+    .poll(
+      async () => {
+        const messages = await input.project.sdk.session.messages({ sessionID: session.id, limit: 20 })
+        return (messages.data ?? []).some((message) =>
+          message.parts.some(
+            (part) =>
+              part.type === "tool" &&
+              part.tool === "bash" &&
+              part.state.status === "completed" &&
+              typeof part.state.output === "string" &&
+              part.state.output.includes("heavy bash output"),
+          ),
+        )
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true)
+
+  return session
 }
 
 function skipUnlessScenario(name: PerfScenarioName) {
@@ -181,6 +297,37 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "homepage-cold", runs }))
+  })
+
+  test("long-session-input-lag emits a 3-run JSON baseline", async ({ page, project }) => {
+    skipUnlessScenario("long-session-input-lag")
+    await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
+    await project.open()
+
+    const runs = []
+    for (let run = 0; run < 3; run += 1) {
+      await withSession(project.sdk, `perf input lag ${Date.now()}-${run}`, async (session) => {
+        await seedTimelineRecomputeSession(project, session.id)
+        await page.goto(sessionPath(project.directory, session.id))
+        await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
+        await expect(page.locator(promptSelector).first()).toBeVisible({ timeout: 30_000 })
+        await revealCachedSessionMessages(page, TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
+
+        const prompt = page.locator(promptSelector).first()
+        await prompt.click()
+        await prompt.fill("")
+        await expect(page.locator(sessionMessageItemSelector)).toHaveCount(TIMELINE_RECOMPUTE_SEED_TURN_COUNT)
+        await resetPerfProbe(page)
+        await page.keyboard.type(`${inputLagText} run ${run + 1}.`)
+        await expect.poll(() => readPromptText(page)).toBe(`${inputLagText} run ${run + 1}.`)
+        await settleFrames(page, 4)
+        runs.push(await snapshotPerfProbe(page))
+        if (run < 2) await cooldownAfterRun(page)
+      })
+    }
+
+    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "long-session-input-lag", runs }))
   })
 
   test("session-streaming-long emits a 3-run JSON baseline", async ({ page, project, llm }) => {
@@ -260,6 +407,34 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-call-expand", runs }))
+  })
+
+  test("tool-default-open-heavy-bash emits a 3-run JSON baseline", async ({ page, project, llm }) => {
+    skipUnlessScenario("tool-default-open-heavy-bash")
+    await installPerfProbe(page)
+    await applyPerfProfile(page, PERF_PROFILE)
+    await project.open()
+    await enableShellToolPartsExpanded(page)
+
+    const runs = []
+    for (let run = 0; run < 3; run += 1) {
+      const session = await seedHeavyBashSession({ project, llm, run })
+      try {
+        await page.goto(sessionPath(project.directory, session.id))
+        const trigger = page.locator('[data-slot="collapsible-trigger"]').filter({ has: page.locator('[data-component="tool-trigger"]') }).first()
+        await expect(trigger).toBeVisible({ timeout: 30_000 })
+        await expect(trigger).toHaveAttribute("aria-expanded", "true")
+        await settleFrames(page, 2)
+        runs.push(await snapshotPerfProbe(page))
+      } finally {
+        await cleanupSession({ sdk: project.sdk, sessionID: session.id }).catch(() => undefined)
+      }
+      if (run < 2) await cooldownAfterRun(page)
+    }
+
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-default-open-heavy-bash", runs }),
+    )
   })
 
   test("terminal-side-panel-open emits a 3-run JSON baseline", async ({ page, project }) => {

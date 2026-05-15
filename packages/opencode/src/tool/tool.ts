@@ -38,7 +38,7 @@ export interface Def<
   id: string
   description: string
   parameters: Parameters
-  execute(args: Schema.Schema.Type<Parameters>, ctx: Context): Effect.Effect<ExecuteResult<M>>
+  execute(args: Schema.Schema.Type<Parameters>, ctx: Context): Effect.Effect<ExecuteResult<M>, unknown>
   formatValidationError?(error: unknown): string
 }
 export type DefWithoutID<

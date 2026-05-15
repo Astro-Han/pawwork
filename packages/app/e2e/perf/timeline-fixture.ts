@@ -6,8 +6,10 @@ type TimelineProject = {
   }
 }
 
+export const TIMELINE_RECOMPUTE_SEED_TURN_COUNT = 36
+
 export async function seedTimelineRecomputeSession(project: TimelineProject, sessionID: string) {
-  for (let turn = 0; turn < 36; turn += 1) {
+  for (let turn = 0; turn < TIMELINE_RECOMPUTE_SEED_TURN_COUNT; turn += 1) {
     await project.sdk.session.promptAsync({
       sessionID,
       noReply: true,

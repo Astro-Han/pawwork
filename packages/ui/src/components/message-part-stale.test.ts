@@ -1,8 +1,31 @@
 import { expect, test } from "bun:test"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync, statSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+const COMPONENT_DIR = dirname(fileURLToPath(import.meta.url))
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir)
+    .flatMap((name) => {
+      const full = join(dir, name)
+      const stat = statSync(full)
+      if (stat.isDirectory()) return sourceFiles(full)
+      if (stat.isFile() && /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) return [full]
+      return []
+    })
+    .sort()
+}
+
+function readMessagePartSources() {
+  return [
+    readFileSync(join(COMPONENT_DIR, "message-part.tsx"), "utf8"),
+    ...sourceFiles(join(COMPONENT_DIR, "message-part")).map((file) => readFileSync(file, "utf8")),
+  ].join("\n")
+}
 
 test("assistant part renderers capture item values before passing them to Part", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readMessagePartSources()
 
   expect(source).toContain("function latestDefined")
   expect(source).not.toContain("<Show when={item()} keyed>")
@@ -12,7 +35,7 @@ test("assistant part renderers capture item values before passing them to Part",
 })
 
 test("tool file accordions account for tool content gap in sticky offset", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readMessagePartSources()
 
   expect(source).toContain('style={{ "--sticky-accordion-offset": "calc(32px + var(--tool-content-gap))" }}')
   expect(source).not.toContain('style={{ "--sticky-accordion-offset": "40px" }}')
@@ -22,10 +45,18 @@ test("tool file accordions account for tool content gap in sticky offset", () =>
 // (written by processor cleanup) so the check stays decoupled from the exact
 // backend error string. See #419.
 test("question tool error renders interrupted variant via metadata.interrupted", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readMessagePartSources()
 
   expect(source).toContain('part().tool === "question" && partMetadata()?.interrupted === true')
   expect(source).toContain('"ui.messagePart.questions.interrupted"')
+})
+
+test("websearch tool errors render localized structured failure copy", () => {
+  const source = readMessagePartSources()
+
+  expect(source).toContain('part().tool === "websearch" ? webSearchErrorDisplay(partMetadata(), i18n) : undefined')
+  expect(source).toContain("error={webSearchError?.error ?? error()}")
+  expect(source).toContain("subtitle={webSearchError?.subtitle ?? taskSubtitle()}")
 })
 
 test("interrupted i18n key exists in zh and en", () => {
@@ -43,7 +74,7 @@ test("interrupted i18n key exists in zh and en", () => {
 // a one-shot snapshot at component setup. Lock the accessor pattern so a
 // future "let me memo this once" refactor can't silently break live updates.
 test("partMetadata is a fresh accessor over part().state, not a setup-time snapshot", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readMessagePartSources()
 
   // Defined as () => …, not const partMetadata = props.part.metadata
   expect(source).toContain("const partMetadata = () => toolStateMetadata(part().state)")
@@ -52,14 +83,14 @@ test("partMetadata is a fresh accessor over part().state, not a setup-time snaps
 })
 
 test("synthetic stop tool parts are hidden through reactive metadata", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readMessagePartSources()
 
   expect(source).toContain("const hideSyntheticStop = createMemo(")
   expect(source).toMatch(/partMetadata\(\)\.diagnostics\?\.loop\?\.loopAction\s*===\s*"stop"/)
 })
 
 test("tool part wrapper suppresses both pending questions and synthetic stop tools", () => {
-  const source = readFileSync(new URL("./message-part.tsx", import.meta.url), "utf8")
+  const source = readMessagePartSources()
 
   expect(source).toContain("<Show when={!hideQuestion() && !hideSyntheticStop()}>")
 })

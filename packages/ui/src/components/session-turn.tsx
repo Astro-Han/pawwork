@@ -3,6 +3,7 @@ import {
   type SnapshotFileDiff,
   Message as MessageType,
   Part as PartType,
+  UserMessage,
 } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
@@ -156,6 +157,8 @@ export function SessionTurn(
   props: ParentProps<{
     sessionID: string
     messageID: string
+    message?: UserMessage
+    assistantMessages?: AssistantMessage[]
     messages?: MessageType[]
     actions?: UserActions
     showReasoningSummaries?: boolean
@@ -211,6 +214,7 @@ export function SessionTurn(
   })
 
   const message = createMemo(() => {
+    if (props.message?.id === props.messageID) return props.message
     const index = messageIndex()
     if (index < 0) return undefined
 
@@ -286,6 +290,7 @@ export function SessionTurn(
 
   const assistantMessages = createMemo(
     () => {
+      if (props.assistantMessages !== undefined) return props.assistantMessages
       const msg = message()
       if (!msg) return emptyAssistant
 

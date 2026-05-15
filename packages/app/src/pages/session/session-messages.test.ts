@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@opencode-ai/sdk/v2/client"
-import { readSessionMessages, readUserMessages } from "./session-messages"
+import { buildTurnMessagesByUserID, readSessionMessages, readUserMessages } from "./session-messages"
 
-const message = (id: string, role: Message["role"]): Message =>
+const message = (id: string, role: Message["role"], parentID?: string): Message =>
   ({
     id,
     sessionID: "ses_1",
     role,
+    parentID,
     time: { created: 1 },
   }) as Message
 
@@ -44,5 +45,32 @@ describe("session message readers", () => {
     const loaded = [null, {}, message("msg_1", "assistant"), message("msg_2", "user")]
 
     expect(readUserMessages(loaded).map((item) => item.id)).toEqual(["msg_2"])
+  })
+})
+
+describe("session turn message indexing", () => {
+  test("groups assistant messages by parent user while preserving current turn scan semantics", () => {
+    const loaded = [
+      message("early_assistant", "assistant", "user_1"),
+      message("user_1", "user"),
+      message("assistant_1", "assistant", "user_1"),
+      message("user_2", "user"),
+      message("assistant_2", "assistant", "user_1"),
+      message("assistant_3", "assistant", "user_2"),
+      message("orphan_assistant", "assistant"),
+      message("unknown_parent", "assistant", "missing_user"),
+    ]
+
+    const byUserID = buildTurnMessagesByUserID(loaded)
+
+    expect(byUserID.get("user_1")?.map((item) => item.id)).toEqual(["assistant_1", "assistant_2"])
+    expect(byUserID.get("user_2")?.map((item) => item.id)).toEqual(["assistant_3"])
+    expect(byUserID.has("missing_user")).toBe(false)
+  })
+
+  test("does not allocate per-user empty assistant lists", () => {
+    const byUserID = buildTurnMessagesByUserID([message("user_1", "user")])
+
+    expect(byUserID.has("user_1")).toBe(false)
   })
 })

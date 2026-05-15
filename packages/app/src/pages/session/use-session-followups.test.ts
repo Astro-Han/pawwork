@@ -48,7 +48,7 @@ beforeAll(async () => {
   }))
   mock.module("@/utils/persist", () => ({
     Persist: {
-      global: () => ({}),
+      global: (key: string, legacy?: string[]) => ({ key, legacy }),
     },
     persisted: (_target: unknown, store: unknown) => store,
   }))
