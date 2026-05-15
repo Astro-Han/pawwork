@@ -53,6 +53,17 @@ type GlobalStore = {
 
 const inactiveQueryFn = async () => null
 
+export function nextSessionTodoClearFlag(
+  previous: boolean | undefined,
+  todos: Todo[] | undefined,
+  options?: { clearActiveParts?: boolean },
+) {
+  if (!todos) return undefined
+  if (todos.length > 0) return undefined
+  if (options?.clearActiveParts === true) return true
+  return previous
+}
+
 export const loadSessionsQuery = (directory: string) =>
   queryOptions<null>({ queryKey: [directory, "loadSessions"], queryFn: inactiveQueryFn, enabled: false })
 
@@ -167,7 +178,8 @@ function createGlobalSync() {
       return
     }
     setGlobalStore("session_todo", sessionID, reconcile(todos, { key: "id" }))
-    if (todos.length === 0 && options?.clearActiveParts === true) {
+    const clearFlag = nextSessionTodoClearFlag(globalStore.session_todo_clear[sessionID], todos, options)
+    if (clearFlag === true) {
       setGlobalStore("session_todo_clear", sessionID, true)
       return
     }

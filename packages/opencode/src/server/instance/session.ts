@@ -140,6 +140,10 @@ export const SessionRoutes = lazy(() =>
     )
     .post(
       "/__e2e/update-todos",
+      async (c, next) => {
+        if (!e2eSessionRoutesEnabled()) return c.notFound()
+        await next()
+      },
       validator(
         "json",
         z.object({
@@ -148,8 +152,6 @@ export const SessionRoutes = lazy(() =>
         }),
       ),
       async (c) => {
-        if (!e2eSessionRoutesEnabled()) return c.notFound()
-
         const json = c.req.valid("json")
         await AppRuntime.runPromise(
           Todo.Service.use((svc) =>
