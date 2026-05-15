@@ -15,6 +15,13 @@ test("default profile runs long-session input lag coverage", () => {
   expect(shouldRunScenario("low-end", scenario)).toBe(false)
 })
 
+test("low-end profile runs long scroll reading coverage", () => {
+  const scenario = "session-scroll-reading-long" as PerfScenarioName
+
+  expect(shouldRunScenario("default", scenario)).toBe(false)
+  expect(shouldRunScenario("low-end", scenario)).toBe(true)
+})
+
 test("low-end profile gates concurrent-shimmer-extreme guard", () => {
   const scenario = "concurrent-shimmer-extreme" as PerfScenarioName
 
