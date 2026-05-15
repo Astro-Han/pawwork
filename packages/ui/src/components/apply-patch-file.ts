@@ -35,7 +35,7 @@ function status(type: Kind): "added" | "deleted" | "modified" {
   return "modified"
 }
 
-export function patchFile(raw: unknown): ApplyPatchFile | undefined {
+function patchFile(raw: unknown): ApplyPatchFile | undefined {
   if (!raw || typeof raw !== "object") return
 
   const value = raw as Raw

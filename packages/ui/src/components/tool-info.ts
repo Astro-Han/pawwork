@@ -31,6 +31,24 @@ export function enterWorktreeTarget(
   )
 }
 
+function enterWorktreeOwnerProject(metadata: Record<string, any> = {}): string | undefined {
+  const owner = pickString(metadata.ownerDirectory)
+  return owner ? getFilename(owner) : undefined
+}
+
+function enterWorktreeTarget(
+  input: Record<string, any> = {},
+  metadata: Record<string, any> = {},
+): string | undefined {
+  const activeDirectory = pickString(metadata.activeDirectory)
+  return (
+    pickString(metadata.branch) ||
+    pickString(metadata.slug) ||
+    pickString(input.name) ||
+    (activeDirectory ? getFilename(activeDirectory) : undefined)
+  )
+}
+
 export function enterWorktreeSubtitle(
   input: Record<string, any>,
   metadata: Record<string, any>,
@@ -42,12 +60,12 @@ export function enterWorktreeSubtitle(
   return target || project
 }
 
-export function exitWorktreeProjectName(metadata: Record<string, any> = {}): string | undefined {
+function exitWorktreeProjectName(metadata: Record<string, any> = {}): string | undefined {
   const dest = pickString(metadata.activeDirectory)
   return dest ? getFilename(dest) : undefined
 }
 
-export function exitWorktreePreviousLabel(metadata: Record<string, any> = {}): string | undefined {
+function exitWorktreePreviousLabel(metadata: Record<string, any> = {}): string | undefined {
   return pickString(metadata.previousBranch) || pickString(metadata.previousSlug)
 }
 
@@ -59,7 +77,7 @@ export function exitWorktreeSubtitle(metadata: Record<string, any>, i18n: UiI18n
   return previous
 }
 
-export function agentTitle(i18n: UiI18n, type?: string) {
+function agentTitle(i18n: UiI18n, type?: string) {
   if (!type) return i18n.t("ui.tool.agent.default")
   return i18n.t("ui.tool.agent", { type })
 }

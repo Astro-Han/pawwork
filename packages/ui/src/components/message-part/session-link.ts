@@ -24,10 +24,6 @@ export function sessionLink(id: string | undefined, path: string, href?: (id: st
   return `${path.slice(0, idx)}/session/${id}`
 }
 
-export function currentSession(path: string) {
-  return path.match(/\/session\/([^/?#]+)/)?.[1]
-}
-
 export function taskSession(
   input: Record<string, any>,
   path: string,

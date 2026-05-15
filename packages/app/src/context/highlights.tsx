@@ -313,7 +313,7 @@ function buildToastDescription(summaries: ReleaseSummary[], currentTag: string) 
     .join("\n\n")
 }
 
-export const { use: useHighlights, provider: HighlightsProvider } = createSimpleContext({
+export const { provider: HighlightsProvider } = createSimpleContext({
   name: "Highlights",
   gate: false,
   init: () => {

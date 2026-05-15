@@ -1,34 +1,3 @@
-export const diff = {
-  before: {
-    name: "src/greet.ts",
-    contents: `export function greet(name: string) {
-  return \`Hello, \${name}!\`
-}
-`,
-  },
-  after: {
-    name: "src/greet.ts",
-    contents: `export function greet(name: string, excited = false) {
-  const message = \`Hello, \${name}!\`
-  return excited ? \`\${message}!!\` : message
-}
-`,
-  },
-}
-
-export const code = {
-  name: "src/calc.ts",
-  contents: `export function sum(values: number[]) {
-  return values.reduce((total, value) => total + value, 0)
-}
-
-export function average(values: number[]) {
-  if (values.length === 0) return 0
-  return sum(values) / values.length
-}
-`,
-}
-
 export const markdown = [
   "# Markdown",
   "",

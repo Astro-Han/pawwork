@@ -26,7 +26,7 @@ function tone(name: string) {
   return palette[hash % palette.length]
 }
 
-export function agentColor(name: string, custom?: string) {
+function agentColor(name: string, custom?: string) {
   if (custom) return custom
   return defaults[name] ?? defaults[name.toLowerCase()] ?? tone(name.toLowerCase())
 }
