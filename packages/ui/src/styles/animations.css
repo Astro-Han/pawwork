@@ -5,7 +5,6 @@
   /* PawWork motion primitives · STANDARDS L22 */
   --animate-pw-spin:    pw-spin 700ms linear infinite;
   --animate-pw-rail:    pw-rail 1400ms linear infinite;
-  --animate-pw-shimmer: pw-shimmer 1200ms linear infinite;
 }
 
 @keyframes pulse-opacity {
@@ -63,12 +62,6 @@
 @keyframes pw-rail {
   from { transform: translateX(-100%); }
   to   { transform: translateX(500%); }
-}
-
-/* Tool-name shimmer when trow is running: gradient sweep across text via background-position */
-@keyframes pw-shimmer {
-  from { background-position: 200% center; }
-  to   { background-position: -200% center; }
 }
 
 .fade-up-text {

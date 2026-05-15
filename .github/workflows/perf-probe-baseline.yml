@@ -95,7 +95,7 @@ jobs:
 
           is_low_end_path() {
             case "$1" in
-              packages/app/src/pages/session/*|packages/app/src/pages/session/**|packages/app/src/pages/session.tsx|packages/ui/src/components/message-part.tsx|packages/ui/src/components/session-turn.tsx|packages/ui/src/components/markdown.tsx|packages/app/e2e/perf/*|packages/app/e2e/perf/**|packages/app/src/testing/perf-metrics*|packages/app/script/compare-perf.ts|packages/app/script/merge-perf-artifacts.ts|.github/workflows/perf-probe-baseline.yml)
+              packages/app/src/pages/session/*|packages/app/src/pages/session/**|packages/app/src/pages/session.tsx|packages/ui/src/components/message-part.tsx|packages/ui/src/components/session-turn.tsx|packages/ui/src/components/markdown.tsx|packages/ui/src/components/text-shimmer.css|packages/ui/src/components/text-shimmer.tsx|packages/ui/src/components/basic-tool.tsx|packages/ui/src/components/tool-status-title.tsx|packages/ui/src/styles/animations.css|packages/app/e2e/perf/*|packages/app/e2e/perf/**|packages/app/src/testing/perf-metrics*|packages/app/script/compare-perf.ts|packages/app/script/merge-perf-artifacts.ts|.github/workflows/perf-probe-baseline.yml)
                 return 0
                 ;;
               *)
