@@ -270,10 +270,25 @@ function makeHttp(httpLayer: Layer.Layer<HttpClient.HttpClient> = FetchHttpClien
   ).pipe(Layer.provide(summary))
 }
 
-const it = testEffect(makeHttp())
-const itWithExaQuota = testEffect(makeHttp(httpWithExaQuotaFixture))
+// Windows runner is consistently slow on Effect-fiber + SQLite + tmpdir-server
+// setup; default the live() timeout instead of bandaging individual tests.
+// An explicit third-arg timeout still overrides.
+const defaultLiveTimeout = process.platform === "win32" ? 10_000 : 3_000
+
+function withDefaultLiveTimeout<
+  T extends { live: ((...args: any[]) => any) & { only: any; skip: any } },
+>(raw: T): T {
+  const wrap = (fn: (...args: any[]) => any) =>
+    (name: any, body: any, opts?: any) => fn(name, body, opts ?? defaultLiveTimeout)
+  const live = wrap(raw.live) as T["live"]
+  live.only = wrap(raw.live.only)
+  live.skip = wrap(raw.live.skip)
+  return { ...raw, live }
+}
+
+const it = withDefaultLiveTimeout(testEffect(makeHttp()))
+const itWithExaQuota = withDefaultLiveTimeout(testEffect(makeHttp(httpWithExaQuotaFixture)))
 const unix = process.platform !== "win32" ? it.live : it.live.skip
-const slowIOTimeout = process.platform === "win32" ? 10_000 : 3_000
 
 // Config that registers a custom "test" provider with a "test-model" model
 // so provider model lookup succeeds inside the loop.
@@ -1294,7 +1309,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  slowIOTimeout,
 )
 
 // Cancel semantics
@@ -1324,7 +1338,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  slowIOTimeout,
 )
 
 it.live(
@@ -1352,7 +1365,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
 )
 
 it.live(
@@ -1395,7 +1407,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
 )
 
 it.live(
@@ -1486,7 +1497,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
 )
 
 it.live(
@@ -1564,7 +1574,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
 )
 
 // Queue semantics
@@ -1608,7 +1617,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  slowIOTimeout,
 )
 
 it.live(
@@ -1677,7 +1685,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  slowIOTimeout,
 )
 
 it.live(
@@ -1707,7 +1714,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  slowIOTimeout,
 )
 
 it.live("assertNotBusy succeeds when idle", () =>
@@ -1752,7 +1758,6 @@ it.live(
       }),
       { git: true, config: providerCfg },
     ),
-  3_000,
 )
 
 unix("shell captures stdout and stderr in completed tool output", () =>
@@ -2036,8 +2041,6 @@ unix(
   30_000,
 )
 
-const shellQueueTimeout = process.platform === "win32" ? 10_000 : 3_000
-
 unix(
   "loop waits while shell runs and starts after shell exits",
   () =>
@@ -2073,7 +2076,6 @@ unix(
       }),
       { git: true, config: providerCfg },
     ),
-  shellQueueTimeout,
 )
 
 unix(
@@ -2113,7 +2115,6 @@ unix(
       }),
       { git: true, config: providerCfg },
     ),
-  shellQueueTimeout,
 )
 
 unix(
