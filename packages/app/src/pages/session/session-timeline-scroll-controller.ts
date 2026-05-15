@@ -38,7 +38,6 @@ export type TimelineScrollReason =
   | "explicit_bottom_navigation"
   | "follow_latest_preserved"
   | "user_upward_navigation"
-  | "strong_upward_navigation"
   | "strong_downward_navigation"
   | "weak_scroll_observed"
   | "scrollbar_drag_started"
@@ -284,7 +283,7 @@ export function createTimelineScrollControllerDiagnostic(input: {
 }
 
 function isExplicitTopIntent(intent: TimelineScrollIntent) {
-  if (intent.type === "keyboard_scroll") return intent.key === "Home" || intent.key === "PageUp"
+  if (intent.type === "keyboard_scroll") return intent.key === "ArrowUp" || intent.key === "Home" || intent.key === "PageUp"
   if (intent.type === "wheel_scroll" || intent.type === "touch_scroll") {
     return intent.direction === "up" && !intent.nestedScrollable
   }

@@ -136,6 +136,32 @@ describe("session timeline scroll controller", () => {
     expect(controller.state().lastSafePosition).toEqual(readingAnchor)
   })
 
+  test("accepts ArrowUp navigation to history instead of restoring latest", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "submit",
+      originMode: "following_latest",
+    })
+    const intentResult = controller.intent({
+      type: "keyboard_scroll",
+      key: "ArrowUp",
+      source: "scroll_view",
+    })
+    const scrollResult = controller.observe({
+      type: "scroll_sample",
+      metrics: topMetrics,
+      safePosition: readingAnchor,
+    })
+
+    expect(intentResult.reason).toBe("explicit_top_navigation")
+    expect(scrollResult.accepted).toBe(true)
+    expect(scrollResult.recovery).toEqual({ type: "none" })
+    expect(controller.state().mode).toBe("reading_history")
+    expect(controller.state().latestProtected).toBe(false)
+    expect(controller.state().lastSafePosition).toEqual(readingAnchor)
+  })
+
   test("scrollbar drag after submit leaves latest protection before scroll samples", () => {
     const { controller } = makeController()
 
