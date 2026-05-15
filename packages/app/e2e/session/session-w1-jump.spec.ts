@@ -113,6 +113,25 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
       .toBe("rgba(0, 0, 0, 0.04)")
     await page.mouse.move(0, 0)
 
+    // Dark theme parity — flip data-color-scheme (the source of truth that
+    // Settings → Appearance writes) and re-hover. The overlay must follow
+    // the app attribute, not OS prefers-color-scheme, hence the white
+    // overlay even though Playwright defaults to a light OS preference.
+    await page.evaluate(() => {
+      document.documentElement.dataset.colorScheme = "dark"
+    })
+    await jumpButton.hover()
+    await expect
+      .poll(
+        () => jumpButton.evaluate((el) => window.getComputedStyle(el).backgroundColor),
+        { timeout: 2_000 },
+      )
+      .toBe("rgba(255, 255, 255, 0.04)")
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.colorScheme
+    })
+    await page.mouse.move(0, 0)
+
     // Click — should scroll the timeline back to the bottom.
     await jumpButton.click()
     await expect
