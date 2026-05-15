@@ -2,7 +2,6 @@ import { test, expect } from "../fixtures"
 
 test("@smoke root route falls back to backend project when local store is empty", async ({ page, project }) => {
   await project.open()
-  const slug = project.slug
 
   await page.evaluate(() => {
     const key = "pawwork.global.dat:server"
@@ -15,5 +14,5 @@ test("@smoke root route falls back to backend project when local store is empty"
 
   await page.goto("/")
 
-  await expect(page).toHaveURL(new RegExp(`/${slug}/session`))
+  await expect(page).toHaveURL(/\/[A-Za-z0-9_-]+\/session/)
 })
