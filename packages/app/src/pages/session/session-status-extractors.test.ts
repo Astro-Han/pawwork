@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "bun:test"
 import type { Part, ToolState } from "@opencode-ai/sdk/v2"
 import {
+  TOOL_QUESTION,
   TOOL_TODOWRITE,
   TOOL_WEBFETCH,
   TOOL_WEBSEARCH,
@@ -146,7 +147,7 @@ describe("tool name sanity", () => {
     [TOOL_TODOWRITE, "todo.ts"],
     [TOOL_WEBFETCH, "webfetch.ts"],
     [TOOL_WEBSEARCH, "websearch.ts"],
-    ["question", "question.ts"],
+    [TOOL_QUESTION, "question.ts"],
   ]
   for (const [tool, filename] of cases) {
     it(`"${tool}" literal appears in packages/opencode/src/tool/${filename}`, () => {

@@ -1,8 +1,9 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
 import type { Part } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
-import { extractSources, type TodoItem } from "@/pages/session/session-status-extractors"
+import { extractSources } from "@/pages/session/session-status-extractors"
 import { selectSessionTodos } from "@/pages/session/session-todos"
+import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 
 const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
   completed: { dot: "bg-icon-success-base", text: "" },
@@ -24,7 +25,7 @@ function Empty(props: { text: string }) {
   return <div class="text-13-regular text-fg-weaker">{props.text}</div>
 }
 
-function TodoRow(props: { todo: TodoItem }) {
+function TodoRow(props: { todo: SessionTodoItem }) {
   const style = () => TODO_STATUS_STYLES[props.todo.status] ?? TODO_STATUS_STYLES.pending
   return (
     <div class="flex items-start gap-2.5 py-1">
