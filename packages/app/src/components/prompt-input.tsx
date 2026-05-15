@@ -45,7 +45,6 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { promptSendDisabled } from "./prompt-input/readiness"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
-import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 
 interface PromptInputProps {
   class?: string
@@ -64,7 +63,6 @@ interface PromptInputProps {
   sessionIDControlled?: boolean
   actionReady?: () => boolean
   abortReady?: () => boolean
-  selectedSkill?: () => PawworkSkillName | undefined
 }
 
 const EXAMPLES = [
@@ -242,7 +240,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
           commentCount: commentCount(),
           example: suggest() ? language.t(EXAMPLES[store.placeholder]) : "",
           suggest: suggest(),
-          selectedSkill: props.selectedSkill?.(),
           t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
         })
       : language.t("prompt.loading"),
@@ -458,7 +455,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       resetHistoryNavigation(true)
     },
     setMode: (mode) => setStore("mode", mode),
-    selectedSkill: props.selectedSkill,
     setPopover: (popover) => setStore("popover", popover),
     newSessionWorktree: () => props.newSessionWorktree,
     onNewSessionWorktreeReset: props.onNewSessionWorktreeReset,
@@ -689,7 +685,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     actionReady: actionReady(),
                     abortReady: abortReady(),
                     blank: blank(),
-                    selectedSkill: !!props.selectedSkill?.(),
                   })}
                   aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
                 />

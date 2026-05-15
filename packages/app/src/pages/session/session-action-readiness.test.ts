@@ -15,14 +15,13 @@ const slashDraft = { text: "/release now" }
 const normalDraft = { text: "continue" }
 const leadingWhitespaceSlashDraft = { text: " /release now" }
 
-const queuedDraft = (input: { prompt: FollowupDraft["prompt"]; outgoingTextOverride?: string }): FollowupDraft => ({
+const queuedDraft = (input: { prompt: FollowupDraft["prompt"] }): FollowupDraft => ({
   sessionID: "ses_1",
   sessionDirectory: "/repo",
   prompt: input.prompt,
   context: [],
   agent: "agent",
   model: { providerID: "provider", modelID: "model" },
-  outgoingTextOverride: input.outgoingTextOverride,
 })
 
 describe("session action readiness", () => {
@@ -66,13 +65,8 @@ describe("session action readiness", () => {
         { type: "text", content: "/release now", start: 0, end: 12 },
       ],
     })
-    const draftWithOverride = queuedDraft({
-      prompt: [{ type: "text", content: "normal visible text", start: 0, end: 19 }],
-      outgoingTextOverride: "/release now",
-    })
 
     expect(followupCommandText(draftWithLeadingImage)).toBe("/release now")
-    expect(followupCommandText(draftWithOverride)).toBe("/release now")
     expect(
       canSendFollowupDraft({
         draft: { text: followupCommandText(draftWithLeadingImage) },

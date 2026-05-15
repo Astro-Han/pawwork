@@ -16,7 +16,6 @@ import type { SessionComposerState } from "@/pages/session/composer/session-comp
 import { DOCK_MOTION } from "@/pages/session/composer/motion"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
-import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 
 export function SessionComposerRegion(props: {
   variant?: "session" | "home"
@@ -31,7 +30,6 @@ export function SessionComposerRegion(props: {
   onSubmit: () => void
   onResponseSubmit: () => void
   onModeChange?: (mode: "normal" | "shell") => void
-  selectedSkill?: () => PawworkSkillName | undefined
   displaySessionID?: string
   displaySessionKey?: string
   followup?: {
@@ -242,7 +240,6 @@ export function SessionComposerRegion(props: {
                             onModeChange={props.onModeChange}
                             actionReady={() => props.actionReady ?? true}
                             abortReady={() => props.abortReady ?? props.actionReady ?? true}
-                            selectedSkill={props.selectedSkill}
                           />
                         </Show>
                       }

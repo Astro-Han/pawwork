@@ -5,7 +5,6 @@ import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLocation, useSearchParams } from "@solidjs/router"
-import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import { useComments } from "@/context/comments"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -576,7 +575,6 @@ export default function Page() {
     variant: "session" | "home",
     ctx?: {
       onModeChange: (mode: "normal" | "shell") => void
-      selectedSkill: () => PawworkSkillName | undefined
     },
   ) => (
     <SessionPageComposerRegion
@@ -599,7 +597,6 @@ export default function Page() {
       }}
       onResponseSubmit={submitLatest}
       onModeChange={ctx?.onModeChange}
-      selectedSkill={ctx?.selectedSkill}
       followup={
         variant === "session" && timelineSessionID() && submitReady() && !timelineIsChildSession()
           ? {

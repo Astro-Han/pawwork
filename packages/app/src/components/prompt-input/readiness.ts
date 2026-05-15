@@ -16,8 +16,7 @@ export function promptSendDisabled(input: {
   actionReady: boolean
   abortReady: boolean
   blank: boolean
-  selectedSkill: boolean
 }) {
   if (input.stopping) return !input.abortReady
-  return !input.actionReady || (input.blank && !input.selectedSkill)
+  return !input.actionReady || input.blank
 }
