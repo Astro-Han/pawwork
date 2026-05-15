@@ -87,9 +87,7 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
     const jumpButton = page.locator('button[aria-label="Jump to latest"]')
     await expect(jumpButton).toBeVisible()
 
-    // Geometry — preview L263-271 / L1066 locks 30 × 30. Read CSS rather
-    // than boundingBox so the parent's scale transform during transition
-    // does not skew the measurement.
+    // Geometry — preview L263-271 / L1066 locks 30 × 30.
     const dims = await jumpButton.evaluate((el) => {
       const cs = window.getComputedStyle(el)
       return { width: cs.width, height: cs.height }
