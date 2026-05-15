@@ -158,6 +158,25 @@ describe("selectSessionTodoDockSnapshot", () => {
     ).toMatchObject({ source: "fallback-backend", items: [todo("fallback backend", "pending")] })
   })
 
+  test("uses matching fallback backend terminal todos over stale fallback active parts", () => {
+    const fallbackParts = [
+      toolPart("todowrite", completedState({ input: { todos: [todo("fallback task", "in_progress")] } })),
+    ]
+
+    expect(
+      selectSessionTodoDockSnapshot({
+        primary: { backend: [], parts: [] },
+        fallback: { backend: [todo("fallback task", "completed")], parts: fallbackParts },
+      }),
+    ).toMatchObject({
+      source: "fallback-backend",
+      items: [todo("fallback task", "completed")],
+      phase: "terminal",
+      dockEligible: false,
+      historicalTerminal: true,
+    })
+  })
+
   test("keeps primary terminal backend ahead of fallback active parts", () => {
     const fallbackParts = [
       toolPart("todowrite", completedState({ input: { todos: [todo("fallback active", "in_progress")] } })),
@@ -187,5 +206,19 @@ describe("selectSessionTodos", () => {
     expect(selectSessionTodos({ backend: [todo("task A", "completed")], parts })).toEqual([
       todo("task A", "completed"),
     ])
+  })
+
+  test("returns fallback backend terminal todos when matching fallback parts are stale active", () => {
+    const fallbackParts = [
+      toolPart("todowrite", completedState({ input: { todos: [todo("fallback task", "in_progress")] } })),
+    ]
+
+    expect(
+      selectSessionTodos({
+        backend: [],
+        parts: [],
+        fallback: { backend: [todo("fallback task", "completed")], parts: fallbackParts },
+      }),
+    ).toEqual([todo("fallback task", "completed")])
   })
 })

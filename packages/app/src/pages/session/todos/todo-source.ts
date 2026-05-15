@@ -1,6 +1,6 @@
 import type { Part, Todo } from "@opencode-ai/sdk/v2"
 import { extractTodos } from "@/pages/session/session-status-extractors"
-import { todoPhase, todoSnapshot, type SessionTodoItem, type TodoSnapshot } from "./todo-model"
+import { todoPhase, todoSnapshot, type SessionTodoItem, type TodoSnapshot, type TodoSourceKind } from "./todo-model"
 
 export type SessionTodoSource = {
   sessionID?: string
@@ -25,37 +25,40 @@ const sameTodoList = (backend: SessionTodoItem[], parts: SessionTodoItem[]) => {
   })
 }
 
-const primaryTodoSnapshot = (input: SessionTodoSource): TodoSnapshot | undefined => {
-  const primaryParts = partTodos(input.parts)
-  const primaryBackend = input.backend ?? []
+const sourceTodoSnapshot = (
+  input: SessionTodoSource,
+  source: { backend: TodoSourceKind; parts: TodoSourceKind },
+): TodoSnapshot | undefined => {
+  const sourceParts = partTodos(input.parts)
+  const sourceBackend = input.backend ?? []
 
-  if (primaryParts.length > 0 && primaryBackend.length > 0) {
-    const partsPhase = todoPhase(primaryParts)
-    const backendPhase = todoPhase(primaryBackend)
-    if (backendPhase === "terminal" && partsPhase === "active" && sameTodoList(primaryBackend, primaryParts)) {
+  if (sourceParts.length > 0 && sourceBackend.length > 0) {
+    const partsPhase = todoPhase(sourceParts)
+    const backendPhase = todoPhase(sourceBackend)
+    if (backendPhase === "terminal" && partsPhase === "active" && sameTodoList(sourceBackend, sourceParts)) {
       return todoSnapshot({
         sessionID: input.sessionID,
-        source: "primary-backend",
-        items: primaryBackend,
+        source: source.backend,
+        items: sourceBackend,
         dockEligible: false,
         historicalTerminal: true,
       })
     }
   }
 
-  if (primaryParts.length > 0) {
-    const phase = todoPhase(primaryParts)
+  if (sourceParts.length > 0) {
+    const phase = todoPhase(sourceParts)
     return todoSnapshot({
       sessionID: input.sessionID,
-      source: "primary-parts",
-      items: primaryParts,
+      source: source.parts,
+      items: sourceParts,
       dockEligible: phase === "active",
       historicalTerminal: phase === "terminal",
     })
   }
 
-  if (primaryBackend.length > 0) {
-    return todoSnapshot({ sessionID: input.sessionID, source: "primary-backend", items: primaryBackend })
+  if (sourceBackend.length > 0) {
+    return todoSnapshot({ sessionID: input.sessionID, source: source.backend, items: sourceBackend })
   }
 }
 
@@ -63,28 +66,13 @@ const primaryTodoSnapshot = (input: SessionTodoSource): TodoSnapshot | undefined
 // list even when it is terminal. Dock snapshots below apply the stricter UI
 // policy that historical terminal tool parts must not reopen the composer dock.
 export function selectSessionTodoDataSnapshot(input: SelectSessionTodosInput): TodoSnapshot {
-  const primary = primaryTodoSnapshot(input.primary)
+  const primary = sourceTodoSnapshot(input.primary, { backend: "primary-backend", parts: "primary-parts" })
   if (primary) return primary
 
-  const fallbackParts = partTodos(input.fallback?.parts ?? [])
-  if (fallbackParts.length > 0) {
-    const phase = todoPhase(fallbackParts)
-    return todoSnapshot({
-      sessionID: input.fallback?.sessionID,
-      source: "fallback-parts",
-      items: fallbackParts,
-      dockEligible: phase === "active",
-      historicalTerminal: phase === "terminal",
-    })
-  }
-
-  if (input.fallback?.backend && input.fallback.backend.length > 0) {
-    return todoSnapshot({
-      sessionID: input.fallback.sessionID,
-      source: "fallback-backend",
-      items: input.fallback.backend,
-    })
-  }
+  const fallback = input.fallback
+    ? sourceTodoSnapshot(input.fallback, { backend: "fallback-backend", parts: "fallback-parts" })
+    : undefined
+  if (fallback) return fallback
 
   return todoSnapshot({ sessionID: input.primary.sessionID, source: "none", items: [] })
 }
@@ -93,28 +81,13 @@ export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): T
   // Dock source precedence is intentionally stricter than data precedence:
   // tool parts can beat lagging backend state while the dock machine decides
   // whether terminal snapshots complete an active dock or stay hidden history.
-  const primary = primaryTodoSnapshot(input.primary)
+  const primary = sourceTodoSnapshot(input.primary, { backend: "primary-backend", parts: "primary-parts" })
   if (primary) return primary
 
-  const fallbackParts = partTodos(input.fallback?.parts ?? [])
-  if (fallbackParts.length > 0) {
-    const phase = todoPhase(fallbackParts)
-    return todoSnapshot({
-      sessionID: input.fallback?.sessionID,
-      source: "fallback-parts",
-      items: fallbackParts,
-      dockEligible: phase === "active",
-      historicalTerminal: phase === "terminal",
-    })
-  }
-
-  if (input.fallback?.backend && input.fallback.backend.length > 0) {
-    return todoSnapshot({
-      sessionID: input.fallback.sessionID,
-      source: "fallback-backend",
-      items: input.fallback.backend,
-    })
-  }
+  const fallback = input.fallback
+    ? sourceTodoSnapshot(input.fallback, { backend: "fallback-backend", parts: "fallback-parts" })
+    : undefined
+  if (fallback) return fallback
 
   return todoSnapshot({ sessionID: input.primary.sessionID, source: "none", items: [], dockEligible: false })
 }
