@@ -411,6 +411,10 @@ export const PersistTesting = {
   workspaceStorage,
 }
 
+export function shouldDebugPersistedTerminalRead(key: string, dev = !!import.meta.env?.DEV) {
+  return dev && key === "workspace:terminal"
+}
+
 export const Persist = {
   global(key: string, legacy?: string[]): PersistTarget {
     return { storage: GLOBAL_STORAGE, key, legacy }
@@ -471,7 +475,7 @@ export function persisted<T>(
     if (!isDesktop) {
       const current = currentStorage as SyncStorage
       const legacyStore = legacyStorage as SyncStorage
-      const debugTerminal = config.key === "workspace:terminal"
+      const debugTerminal = shouldDebugPersistedTerminalRead(config.key)
 
       const api: SyncStorage = {
         getItem: (key) => {
@@ -485,7 +489,7 @@ export function persisted<T>(
             migrate: config.migrate,
           })
           if (debugTerminal) {
-            console.error("[persisted:workspace:terminal:sync]", {
+            console.debug("[persisted:workspace:terminal:sync]", {
               storage: config.storage,
               key,
               normalizedPreview: next?.slice(0, 240),
@@ -507,7 +511,7 @@ export function persisted<T>(
 
     const current = currentStorage as AsyncStorage
     const legacyStore = legacyStorage as AsyncStorage | undefined
-    const debugTerminal = config.key === "workspace:terminal"
+    const debugTerminal = shouldDebugPersistedTerminalRead(config.key)
 
     const api: AsyncStorage = {
       getItem: async (key) => {
@@ -521,7 +525,7 @@ export function persisted<T>(
           migrate: config.migrate,
         })
         if (debugTerminal) {
-          console.error("[persisted:workspace:terminal:async]", {
+          console.debug("[persisted:workspace:terminal:async]", {
             storage: config.storage,
             key,
             normalizedPreview: next?.slice(0, 240),

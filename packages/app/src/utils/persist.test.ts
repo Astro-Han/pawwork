@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 
 type PersistTestingType = typeof import("./persist").PersistTesting
+type ShouldDebugPersistedTerminalRead = typeof import("./persist").shouldDebugPersistedTerminalRead
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -56,6 +57,7 @@ class MemoryStorage implements Storage {
 const storage = new MemoryStorage()
 
 let persistTesting: PersistTestingType
+let shouldDebugPersistedTerminalRead: ShouldDebugPersistedTerminalRead
 
 beforeAll(async () => {
   mock.module("@/context/platform", () => ({
@@ -64,6 +66,7 @@ beforeAll(async () => {
 
   const mod = await import("./persist")
   persistTesting = mod.PersistTesting
+  shouldDebugPersistedTerminalRead = mod.shouldDebugPersistedTerminalRead
 })
 
 beforeEach(() => {
@@ -201,5 +204,14 @@ describe("persist localStorage resilience", () => {
     expect(result).toStartWith("pawwork.workspace.")
     expect(result.endsWith(".dat")).toBeTrue()
     expect(/[:\\/]/.test(result)).toBeFalse()
+  })
+
+  test("does not emit workspace terminal persisted debug logs outside dev", () => {
+    expect(shouldDebugPersistedTerminalRead("workspace:terminal", false)).toBe(false)
+  })
+
+  test("keeps workspace terminal persisted debug logs dev-only", () => {
+    expect(shouldDebugPersistedTerminalRead("workspace:terminal", true)).toBe(true)
+    expect(shouldDebugPersistedTerminalRead("layout-page", true)).toBe(false)
   })
 })

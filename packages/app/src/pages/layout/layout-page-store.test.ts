@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { AsyncStorage } from "@solid-primitives/storage"
 import { PersistTesting } from "@/utils/persist"
-import { createDefaultLayoutPageState, createLayoutPagePersistTarget, migrateLayoutPageState } from "./layout-page-store"
+import {
+  createDefaultLayoutPageState,
+  createLayoutPagePersistTarget,
+  migrateLayoutPageState,
+  removePinnedSessionIDs,
+} from "./layout-page-store"
 
 class ElectronPathStorage implements AsyncStorage {
   constructor(readonly data: Record<string, unknown> = {}) {}
@@ -116,6 +121,18 @@ describe("layout page state migration", () => {
         page: { sidebar: { opened: true } },
       }),
     ).toBeUndefined()
+  })
+})
+
+describe("pinned session recovery", () => {
+  test("removes only stale pinned session ids", () => {
+    expect(removePinnedSessionIDs(["ses_a", "ses_b", "ses_c"], new Set(["ses_b"]))).toEqual(["ses_a", "ses_c"])
+  })
+
+  test("keeps pinned sessions when no ids are confirmed stale", () => {
+    const current = ["ses_a", "ses_b"]
+
+    expect(removePinnedSessionIDs(current, new Set())).toBe(current)
   })
 })
 

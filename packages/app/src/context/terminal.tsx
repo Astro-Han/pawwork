@@ -1,4 +1,4 @@
-import { createStore, produce } from "solid-js/store"
+import { createStore, produce, reconcile } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { batch, createEffect, createMemo, createRoot, on, onCleanup, type Accessor } from "solid-js"
 import { useParams } from "@solidjs/router"
@@ -133,6 +133,40 @@ const trimTerminal = (pty: LocalPTY) => {
   }
 }
 
+export function isTerminalGoneError(error: unknown) {
+  if (!error || typeof error !== "object") return false
+  const value = error as {
+    name?: unknown
+    status?: unknown
+    statusCode?: unknown
+    response?: { status?: unknown }
+  }
+  if (value.name === "NotFoundError") return true
+  if (value.status === 404 || value.statusCode === 404) return true
+  return value.response?.status === 404
+}
+
+export function replaceTerminalWithClone(
+  current: { active?: string; all: LocalPTY[] },
+  id: string,
+  clone: { id?: string; title?: string },
+) {
+  if (!clone.id) return current
+  const index = current.all.findIndex((pty) => pty.id === id)
+  const pty = current.all[index]
+  if (!pty) return current
+  const all = current.all.slice()
+  all[index] = {
+    id: clone.id,
+    title: clone.title ?? pty.title,
+    titleNumber: pty.titleNumber,
+  }
+  return {
+    active: current.active === id ? clone.id : current.active,
+    all,
+  }
+}
+
 export function clearWorkspaceTerminals(dir: string, sessionIDs?: string[], platform?: Platform) {
   const key = getWorkspaceTerminalCacheKey(dir)
   for (const cache of caches) {
@@ -155,6 +189,7 @@ export function clearWorkspaceTerminals(dir: string, sessionIDs?: string[], plat
 
 function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: string, legacySessionID?: string) {
   const legacy = getLegacyTerminalStorageKeys(dir, legacySessionID)
+  const recovering = new Set<string>()
 
   const [store, setStore, _, ready] = persisted(
     {
@@ -236,6 +271,10 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         size: pty.cols && pty.rows ? { rows: pty.rows, cols: pty.cols } : undefined,
       })
       .catch((error: unknown) => {
+        if (isTerminalGoneError(error)) {
+          void clone(client, pty.id)
+          return
+        }
         if (previous) {
           const currentIndex = store.all.findIndex((item) => item.id === pty.id)
           if (currentIndex >= 0) setStore("all", currentIndex, previous)
@@ -245,9 +284,11 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
   }
 
   const clone = async (client: ReturnType<typeof useSDK>["client"], id: string) => {
+    if (recovering.has(id)) return
     const index = store.all.findIndex((x) => x.id === id)
     const pty = store.all[index]
     if (!pty) return
+    recovering.add(id)
     const next = await client.pty
       .create({
         title: pty.title,
@@ -256,24 +297,17 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         console.error("Failed to clone terminal", error)
         return undefined
       })
+      .finally(() => {
+        recovering.delete(id)
+      })
     if (!next?.data) return
 
-    const active = store.active === pty.id
+    const nextState = replaceTerminalWithClone({ active: store.active, all: store.all }, pty.id, next.data)
+    if (nextState.all === store.all) return
 
     batch(() => {
-      setStore("all", index, {
-        id: next.data.id,
-        title: next.data.title ?? pty.title,
-        titleNumber: pty.titleNumber,
-        buffer: undefined,
-        cursor: undefined,
-        scrollY: undefined,
-        rows: undefined,
-        cols: undefined,
-      })
-      if (active) {
-        setStore("active", next.data.id)
-      }
+      setStore("all", reconcile(nextState.all, { key: "id" }))
+      setStore("active", nextState.active)
     })
   }
 
