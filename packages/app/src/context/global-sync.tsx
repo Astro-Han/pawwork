@@ -445,6 +445,7 @@ function createGlobalSync() {
     if (typeof requestAnimationFrame === "function") {
       eventFrame = requestAnimationFrame(() => {
         eventFrame = undefined
+        if (!active) return
         eventTimer = setTimeout(() => {
           eventTimer = undefined
           void globalSDK.event.start()
