@@ -15,15 +15,38 @@ export type SelectSessionTodosInput = {
 
 const partTodos = (parts: Part[]) => extractTodos(parts)
 
-// Data snapshots are for status displays and should preserve the latest todo
-// list even when it is terminal. Dock snapshots below apply the stricter UI
-// policy that historical terminal tool parts must not reopen the composer dock.
-export function selectSessionTodoDataSnapshot(input: SelectSessionTodosInput): TodoSnapshot {
-  const primaryParts = partTodos(input.primary.parts)
+const sameTodoList = (backend: SessionTodoItem[], parts: SessionTodoItem[]) => {
+  if (backend.length !== parts.length) return false
+  return parts.every((part, index) => {
+    const fromBackend = backend[index]
+    if (!fromBackend) return false
+    if (part.id && fromBackend.id) return part.id === fromBackend.id
+    return part.content === fromBackend.content
+  })
+}
+
+const primaryTodoSnapshot = (input: SessionTodoSource): TodoSnapshot | undefined => {
+  const primaryParts = partTodos(input.parts)
+  const primaryBackend = input.backend ?? []
+
+  if (primaryParts.length > 0 && primaryBackend.length > 0) {
+    const partsPhase = todoPhase(primaryParts)
+    const backendPhase = todoPhase(primaryBackend)
+    if (backendPhase === "terminal" && partsPhase === "active" && sameTodoList(primaryBackend, primaryParts)) {
+      return todoSnapshot({
+        sessionID: input.sessionID,
+        source: "primary-backend",
+        items: primaryBackend,
+        dockEligible: false,
+        historicalTerminal: true,
+      })
+    }
+  }
+
   if (primaryParts.length > 0) {
     const phase = todoPhase(primaryParts)
     return todoSnapshot({
-      sessionID: input.primary.sessionID,
+      sessionID: input.sessionID,
       source: "primary-parts",
       items: primaryParts,
       dockEligible: phase === "active",
@@ -31,9 +54,17 @@ export function selectSessionTodoDataSnapshot(input: SelectSessionTodosInput): T
     })
   }
 
-  if (input.primary.backend && input.primary.backend.length > 0) {
-    return todoSnapshot({ sessionID: input.primary.sessionID, source: "primary-backend", items: input.primary.backend })
+  if (primaryBackend.length > 0) {
+    return todoSnapshot({ sessionID: input.sessionID, source: "primary-backend", items: primaryBackend })
   }
+}
+
+// Data snapshots are for status displays and should preserve the latest todo
+// list even when it is terminal. Dock snapshots below apply the stricter UI
+// policy that historical terminal tool parts must not reopen the composer dock.
+export function selectSessionTodoDataSnapshot(input: SelectSessionTodosInput): TodoSnapshot {
+  const primary = primaryTodoSnapshot(input.primary)
+  if (primary) return primary
 
   const fallbackParts = partTodos(input.fallback?.parts ?? [])
   if (fallbackParts.length > 0) {
@@ -62,39 +93,8 @@ export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): T
   // Dock source precedence is intentionally stricter than data precedence:
   // tool parts can beat lagging backend state while the dock machine decides
   // whether terminal snapshots complete an active dock or stay hidden history.
-  const primaryParts = partTodos(input.primary.parts)
-  const primaryBackend = input.primary.backend ?? []
-
-  // When backend has reached a terminal state but parts still show active,
-  // the backend update is fresher — prefer it so the UI does not get stuck.
-  if (primaryParts.length > 0 && primaryBackend.length > 0) {
-    const partsPhase = todoPhase(primaryParts)
-    const backendPhase = todoPhase(primaryBackend)
-    if (backendPhase === "terminal" && partsPhase === "active") {
-      return todoSnapshot({
-        sessionID: input.primary.sessionID,
-        source: "primary-backend",
-        items: primaryBackend,
-        dockEligible: false,
-        historicalTerminal: true,
-      })
-    }
-  }
-
-  if (primaryParts.length > 0) {
-    const phase = todoPhase(primaryParts)
-    return todoSnapshot({
-      sessionID: input.primary.sessionID,
-      source: "primary-parts",
-      items: primaryParts,
-      dockEligible: phase === "active",
-      historicalTerminal: phase === "terminal",
-    })
-  }
-
-  if (primaryBackend.length > 0) {
-    return todoSnapshot({ sessionID: input.primary.sessionID, source: "primary-backend", items: primaryBackend })
-  }
+  const primary = primaryTodoSnapshot(input.primary)
+  if (primary) return primary
 
   const fallbackParts = partTodos(input.fallback?.parts ?? [])
   if (fallbackParts.length > 0) {

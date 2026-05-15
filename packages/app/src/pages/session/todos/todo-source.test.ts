@@ -44,6 +44,22 @@ describe("selectSessionTodoDataSnapshot", () => {
       historicalTerminal: true,
     })
   })
+
+  test("uses matching backend terminal todos over stale active parts", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("task A", "in_progress")] } }))]
+
+    expect(
+      selectSessionTodoDataSnapshot({
+        primary: { backend: [todo("task A", "completed")], parts },
+      }),
+    ).toMatchObject({
+      source: "primary-backend",
+      items: [todo("task A", "completed")],
+      phase: "terminal",
+      dockEligible: false,
+      historicalTerminal: true,
+    })
+  })
 })
 
 describe("selectSessionTodoDockSnapshot", () => {
@@ -90,6 +106,21 @@ describe("selectSessionTodoDockSnapshot", () => {
       phase: "terminal",
       dockEligible: false,
       historicalTerminal: true,
+    })
+  })
+
+  test("keeps active parts when terminal backend describes a different todo", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
+
+    expect(
+      selectSessionTodoDockSnapshot({
+        primary: { backend: [todo("old task", "completed")], parts },
+      }),
+    ).toMatchObject({
+      source: "primary-parts",
+      items: [todo("new task", "in_progress")],
+      phase: "active",
+      dockEligible: true,
     })
   })
 
@@ -147,6 +178,14 @@ describe("selectSessionTodos", () => {
 
     expect(selectSessionTodos({ backend: [todo("from backend", "pending")], parts })).toEqual([
       todo("from parts", "in_progress"),
+    ])
+  })
+
+  test("returns backend terminal todos when matching parts are stale active", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("task A", "in_progress")] } }))]
+
+    expect(selectSessionTodos({ backend: [todo("task A", "completed")], parts })).toEqual([
+      todo("task A", "completed"),
     ])
   })
 })

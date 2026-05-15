@@ -49,6 +49,22 @@ describe("selectSessionTodos", () => {
     ])
   })
 
+  test("uses backend terminal todos when matching message-derived todos are stale active", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("task A", "in_progress")] } }))]
+
+    expect(selectSessionTodos({ backend: [backendTodo("task A", "completed")], parts })).toEqual([
+      backendTodo("task A", "completed"),
+    ])
+  })
+
+  test("keeps message-derived active todos when terminal backend todos do not match", () => {
+    const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("new task", "in_progress")] } }))]
+
+    expect(selectSessionTodos({ backend: [backendTodo("old task", "completed")], parts })).toEqual([
+      todo("new task", "in_progress"),
+    ])
+  })
+
   test("returns completed-only historical parts for status summary display", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 

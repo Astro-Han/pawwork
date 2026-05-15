@@ -1,5 +1,6 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
 import type { Part } from "@opencode-ai/sdk/v2"
+import type { Todo } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
 import { extractSources, type TodoItem } from "@/pages/session/session-status-extractors"
 import { selectSessionTodos } from "@/pages/session/session-todos"
@@ -27,7 +28,7 @@ function Empty(props: { text: string }) {
 function TodoRow(props: { todo: TodoItem }) {
   const style = () => TODO_STATUS_STYLES[props.todo.status] ?? TODO_STATUS_STYLES.pending
   return (
-    <div class="flex items-start gap-2.5 py-1">
+    <div data-slot="status-summary-todo" data-state={props.todo.status} class="flex items-start gap-2.5 py-1">
       <div class={`size-2 rounded-full shrink-0 mt-1.5 ${style().dot}`} aria-hidden />
       <div class={`text-13-regular text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
     </div>
@@ -42,9 +43,9 @@ function SourceRow(props: { url: string }) {
   )
 }
 
-export function SessionStatusSummary(props: { parts: Accessor<Part[]> }) {
+export function SessionStatusSummary(props: { backend?: Accessor<Todo[] | undefined>; parts: Accessor<Part[]> }) {
   const language = useLanguage()
-  const todos = createMemo(() => selectSessionTodos({ parts: props.parts() }))
+  const todos = createMemo(() => selectSessionTodos({ backend: props.backend?.(), parts: props.parts() }))
   const sources = createMemo(() => extractSources(props.parts()))
 
   return (
