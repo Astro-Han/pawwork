@@ -1,9 +1,9 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
-import { cleanupSession } from "../actions"
+import { withSession } from "../actions"
 import { scrollViewportSelector, sessionTurnListSelector } from "../selectors"
 
-type Sdk = Parameters<typeof cleanupSession>[0]["sdk"]
+type Sdk = Parameters<typeof withSession>[0]
 
 const JUMP_BUTTON_SIZE_PX = 30
 
@@ -53,10 +53,7 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
   project,
 }) => {
   await project.open()
-  const session = await project.sdk.session.create({ title: "w1 jump spec" }).then((r) => r.data)
-  if (!session?.id) throw new Error("Session create did not return an id")
-
-  try {
+  await withSession(project.sdk, "w1 jump spec", async (session) => {
     await seedSessionTurns({ sdk: project.sdk, sessionID: session.id, count: 12 })
     await project.gotoSession(session.id)
     await expect(page.locator(sessionTurnListSelector)).toBeVisible()
@@ -115,9 +112,7 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
     await scrollTimelineToTop(page)
     await jumpButton.click({ force: true })
     await expect
-      .poll(async () => (await timelineDistanceFromBottom(page)) ?? -1, { timeout: 5_000 })
+      .poll(async () => (await timelineDistanceFromBottom(page)) ?? Infinity, { timeout: 5_000 })
       .toBeLessThanOrEqual(8)
-  } finally {
-    await cleanupSession({ sdk: project.sdk, sessionID: session.id })
-  }
+  })
 })
