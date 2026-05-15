@@ -298,7 +298,27 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         setStore("tabs", store.tabs.length, tab)
         setStore("activeTabID", tabID)
       })
-      void ensureLive(tabID)
+      void ensureLive(tabID).then((runtime) => {
+        if (runtime) return
+        const tabs = all()
+        const index = tabs.findIndex((item) => item.tabID === tabID)
+        if (index === -1) return
+        batch(() => {
+          if (store.activeTabID === tabID) {
+            const next = index > 0 ? tabs[index - 1]?.tabID : tabs[1]?.tabID
+            setStore("activeTabID", next)
+          }
+          setStore(
+            "tabs",
+            produce((draft) => {
+              const currentIndex = draft.findIndex((item) => item.tabID === tabID)
+              if (currentIndex !== -1) draft.splice(currentIndex, 1)
+              const normalized = normalizeOrder(draft)
+              draft.splice(0, draft.length, ...normalized)
+            }),
+          )
+        })
+      })
     },
     update(input: TerminalTitleUpdate) {
       const index = tabIndex(input.tabID)

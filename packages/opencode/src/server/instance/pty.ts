@@ -103,6 +103,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
             },
           },
           ...errors(400),
+          ...errors(404),
         },
       }),
       validator("param", z.object({ ptyID: PtyID.zod })),
