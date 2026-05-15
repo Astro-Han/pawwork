@@ -148,13 +148,17 @@ function createGlobalSync() {
   }) as typeof setGlobalStore
 
   if (projectInit instanceof Promise) {
-    void projectInit.then(() => {
-      if (!active) return
-      if (projectWritten) return
-      const cached = projectCache.value
-      if (cached.length === 0) return
-      setGlobalStore("project", cached)
-    })
+    void projectInit
+      .then(() => {
+        if (!active) return
+        if (projectWritten) return
+        const cached = projectCache.value
+        if (cached.length === 0) return
+        setGlobalStore("project", cached)
+      })
+      .catch(() => {
+        // Project init failed — ignore; the sync loop will retry
+      })
   }
 
   const setSessionTodo = (

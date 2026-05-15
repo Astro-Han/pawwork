@@ -338,20 +338,27 @@ export namespace Workspace {
         continue
       }
       setStatus(space.id, "connected")
-      await parseSSE(res.body, signal, (evt) => {
-        const event = evt as SyncEvent.SerializedEvent
+      try {
+        await parseSSE(res.body, signal, (evt) => {
+          const event = evt as SyncEvent.SerializedEvent
 
-        try {
-          if (!event.type.startsWith("server.")) {
-            SyncEvent.replay(event)
+          try {
+            if (!event.type.startsWith("server.")) {
+              SyncEvent.replay(event)
+            }
+          } catch (err) {
+            log.warn("failed to replay sync event", {
+              workspaceID: space.id,
+              error: err,
+            })
           }
-        } catch (err) {
-          log.warn("failed to replay sync event", {
-            workspaceID: space.id,
-            error: err,
-          })
-        }
-      })
+        })
+      } catch (err) {
+        log.warn("sync stream parse error", {
+          workspaceID: space.id,
+          error: err,
+        })
+      }
       setStatus(space.id, "disconnected")
       log.info("disconnected to sync: " + space.id)
       await sleep(250)
