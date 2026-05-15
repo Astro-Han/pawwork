@@ -31,7 +31,7 @@ import { CommandProvider } from "@/context/command"
 import { CommentsProvider } from "@/context/comments"
 import { FileProvider } from "@/context/file"
 import { GlobalSDKProvider } from "@/context/global-sdk"
-import { GlobalSyncProvider } from "@/context/global-sync"
+import { GlobalSyncProvider, useGlobalSync } from "@/context/global-sync"
 import { HighlightsProvider } from "@/context/highlights"
 import { LanguageProvider, type Locale, useLanguage } from "@/context/language"
 import { LayoutProvider, useLayout } from "@/context/layout"
@@ -69,13 +69,14 @@ const SessionIndexRoute = () => <Navigate href="session" />
 
 const HomeRedirectRoute = () => {
   const layout = useLayout()
-  const project = createMemo(() => layout.projects.list()[0])
+  const sync = useGlobalSync()
+  const target = createMemo(() => layout.projects.list()[0]?.worktree ?? sync.data.project[0]?.worktree)
   return (
     <Show
-      when={project()}
+      when={target()}
       fallback={<div data-component="home-redirect-pending" class="size-full" aria-hidden="true" />}
     >
-      {(p) => <Navigate href={`/${base64Encode(p().worktree)}/session`} />}
+      {(directory) => <Navigate href={`/${base64Encode(directory())}/session`} />}
     </Show>
   )
 }
