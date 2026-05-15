@@ -1546,18 +1546,26 @@ export default function Layout(props: ParentProps) {
 
   function connectProvider() {
     const run = ++dialogRun
-    void import("@/components/dialog-select-provider").then((x) => {
-      if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogSelectProvider />)
-    })
+    void import("@/components/dialog-select-provider")
+      .then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(() => <x.DialogSelectProvider />)
+      })
+      .catch(() => {
+        // Chunk failed to load — ignore; user can retry
+      })
   }
 
   function openServer() {
     const run = ++dialogRun
-    void import("@/components/dialog-select-server").then((x) => {
-      if (dialogDead || dialogRun !== run) return
-      dialog.show(() => <x.DialogSelectServer />)
-    })
+    void import("@/components/dialog-select-server")
+      .then((x) => {
+        if (dialogDead || dialogRun !== run) return
+        dialog.show(() => <x.DialogSelectServer />)
+      })
+      .catch(() => {
+        // Chunk failed to load — ignore; user can retry
+      })
   }
 
   function openSettingsSurface() {
@@ -1774,13 +1782,18 @@ export default function Layout(props: ParentProps) {
       resolve(result)
     } else {
       const run = ++dialogRun
-      void import("@/components/dialog-select-directory").then((x) => {
-        if (dialogDead || dialogRun !== run) return
-        dialog.show(
-          () => <x.DialogSelectDirectory multiple={true} onSelect={resolve} />,
-          () => resolve(null),
-        )
-      })
+      void import("@/components/dialog-select-directory")
+        .then((x) => {
+          if (dialogDead || dialogRun !== run) return
+          dialog.show(
+            () => <x.DialogSelectDirectory multiple={true} onSelect={resolve} />,
+            () => resolve(null),
+          )
+        })
+        .catch(() => {
+          // Chunk failed to load — resolve gracefully
+          resolve(null)
+        })
     }
   }
 
