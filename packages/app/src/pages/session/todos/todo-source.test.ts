@@ -72,6 +72,27 @@ describe("selectSessionTodoDockSnapshot", () => {
     })
   })
 
+  test("backend terminal updates override stale active parts", () => {
+    // Scenario: LLM called todowrite once marking task as in_progress.
+    // Later, backend received a todo.updated event marking it completed.
+    // Backend terminal state should take precedence over stale active parts.
+    const parts = [
+      toolPart("todowrite", completedState({ input: { todos: [todo("task A", "in_progress")] } })),
+    ]
+
+    expect(
+      selectSessionTodoDockSnapshot({
+        primary: { backend: [todo("task A", "completed")], parts },
+      }),
+    ).toMatchObject({
+      source: "primary-backend",
+      items: [todo("task A", "completed")],
+      phase: "terminal",
+      dockEligible: false,
+      historicalTerminal: true,
+    })
+  })
+
   test("does not reopen completed-only historical parts over an empty backend", () => {
     const parts = [toolPart("todowrite", completedState({ input: { todos: [todo("done from parts", "completed")] } }))]
 

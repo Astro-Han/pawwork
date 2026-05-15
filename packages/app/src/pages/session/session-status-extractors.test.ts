@@ -84,16 +84,103 @@ describe("extractTodos", () => {
     expect(extractTodos([part])).toEqual([{ id: "todo_1", content: "A", status: "pending", priority: "medium" }])
   })
 
-  it("falls back to tool input when metadata todos are malformed", () => {
+  it("normalizes malformed metadata todos with default fields instead of falling back to input", () => {
     const part = toolPart(
       "todowrite",
       completedState({
-        input: { todos: [{ content: "A", status: "pending", priority: "medium" }] },
-        metadata: { todos: [{ id: "todo_1", content: "A", status: "pending" }] },
+        input: { todos: [{ content: "from input", status: "pending", priority: "low" }] },
+        metadata: { todos: [{ id: "todo_1", content: "A", status: "pending" }] }, // ← missing priority
       }),
     )
 
-    expect(extractTodos([part])).toEqual([{ content: "A", status: "pending", priority: "medium" }])
+    // Missing priority is normalized to "medium" instead of discarding the whole metadata batch.
+    expect(extractTodos([part])).toEqual([{ id: "todo_1", content: "A", status: "pending", priority: "medium" }])
+  })
+
+  it("normalizes partial metadata todos instead of discarding the whole batch", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "old from input", status: "pending", priority: "low" }] },
+        metadata: {
+          todos: [
+            { id: "todo_1", content: "updated", status: "completed", priority: "high" },
+            { id: "todo_2", content: "partial", status: "in_progress" }, // ← missing priority
+          ],
+        },
+      }),
+    )
+
+    // Missing fields are normalized with sensible defaults instead of discarding the whole batch.
+    expect(extractTodos([part])).toEqual([
+      { id: "todo_1", content: "updated", status: "completed", priority: "high" },
+      { id: "todo_2", content: "partial", status: "in_progress", priority: "medium" },
+    ])
+  })
+
+  it("later part normalizes partial metadata instead of falling back to stale input", () => {
+    const older = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "old", status: "pending", priority: "low" }] },
+        metadata: { todos: [{ id: "todo_1", content: "updated", status: "completed", priority: "high" }] },
+      }),
+    )
+    const newer = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "old", status: "pending", priority: "low" }] },
+        metadata: {
+          todos: [
+            { id: "todo_1", content: "updated", status: "completed", priority: "high" },
+            { id: "todo_2", content: "partial", status: "in_progress" }, // ← missing priority
+          ],
+        },
+      }),
+    )
+
+    // Newer part's metadata is partially invalid, but normalization preserves the valid
+    // items with defaulted fields instead of falling back to stale input.
+    expect(extractTodos([older, newer])).toEqual([
+      { id: "todo_1", content: "updated", status: "completed", priority: "high" },
+      { id: "todo_2", content: "partial", status: "in_progress", priority: "medium" },
+    ])
+  })
+
+  it("falls back to input when metadata is an empty object", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "from input", status: "pending", priority: "medium" }] },
+        metadata: {},
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([{ content: "from input", status: "pending", priority: "medium" }])
+  })
+
+  it("falls back to input when metadata.todos is not an array", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "from input", status: "pending", priority: "medium" }] },
+        metadata: { todos: "not-an-array" },
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([{ content: "from input", status: "pending", priority: "medium" }])
+  })
+
+  it("returns empty when neither metadata nor input contains valid todos", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: "not-an-array" },
+        metadata: { todos: "also-not-an-array" },
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([])
   })
 })
 

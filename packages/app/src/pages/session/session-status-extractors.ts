@@ -38,12 +38,24 @@ function isValidTodo(value: unknown): value is TodoItem {
   )
 }
 
+function normalizeTodo(value: unknown): TodoItem | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const v = value as Partial<Record<keyof TodoItem, unknown>>
+  if (typeof v.content !== "string") return undefined
+  return {
+    id: typeof v.id === "string" ? v.id : undefined,
+    content: v.content,
+    status: typeof v.status === "string" ? v.status : "pending",
+    priority: typeof v.priority === "string" ? v.priority : "medium",
+  }
+}
+
 function todosFromMetadata(part: Extract<Part, { type: "tool" }>): TodoItem[] | undefined {
   const metadata = part.state.status === "completed" ? part.state.metadata : undefined
   const todos = (metadata as { todos?: unknown } | undefined)?.todos
   if (!Array.isArray(todos)) return undefined
-  const valid = todos.filter(isValidTodo)
-  return valid.length === todos.length ? valid : undefined
+  const normalized = todos.map(normalizeTodo).filter((t): t is TodoItem => t !== undefined)
+  return normalized.length > 0 ? normalized : undefined
 }
 
 export function extractTodos(parts: Part[]): TodoItem[] {

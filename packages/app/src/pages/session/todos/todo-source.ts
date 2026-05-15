@@ -63,6 +63,24 @@ export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): T
   // tool parts can beat lagging backend state while the dock machine decides
   // whether terminal snapshots complete an active dock or stay hidden history.
   const primaryParts = partTodos(input.primary.parts)
+  const primaryBackend = input.primary.backend ?? []
+
+  // When backend has reached a terminal state but parts still show active,
+  // the backend update is fresher — prefer it so the UI does not get stuck.
+  if (primaryParts.length > 0 && primaryBackend.length > 0) {
+    const partsPhase = todoPhase(primaryParts)
+    const backendPhase = todoPhase(primaryBackend)
+    if (backendPhase === "terminal" && partsPhase === "active") {
+      return todoSnapshot({
+        sessionID: input.primary.sessionID,
+        source: "primary-backend",
+        items: primaryBackend,
+        dockEligible: false,
+        historicalTerminal: true,
+      })
+    }
+  }
+
   if (primaryParts.length > 0) {
     const phase = todoPhase(primaryParts)
     return todoSnapshot({
@@ -74,8 +92,8 @@ export function selectSessionTodoDockSnapshot(input: SelectSessionTodosInput): T
     })
   }
 
-  if (input.primary.backend && input.primary.backend.length > 0) {
-    return todoSnapshot({ sessionID: input.primary.sessionID, source: "primary-backend", items: input.primary.backend })
+  if (primaryBackend.length > 0) {
+    return todoSnapshot({ sessionID: input.primary.sessionID, source: "primary-backend", items: primaryBackend })
   }
 
   const fallbackParts = partTodos(input.fallback?.parts ?? [])
