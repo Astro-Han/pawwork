@@ -109,6 +109,9 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       validator("json", Pty.UpdateInput),
       async (c) => {
         const info = await Pty.update(c.req.valid("param").ptyID, c.req.valid("json"))
+        if (!info) {
+          throw new NotFoundError({ message: "Session not found" })
+        }
         return c.json(info)
       },
     )

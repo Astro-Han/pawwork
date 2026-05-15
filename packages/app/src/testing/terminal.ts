@@ -89,6 +89,9 @@ export const terminalProbe = (id: string) => {
         connects: prev.connects + 1,
       }
     },
+    disconnect() {
+      set({ connected: false })
+    },
     render(data: string) {
       const state = terms()
       if (!state) return

@@ -12,7 +12,8 @@ import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { useServer } from "@/context/server"
 import { monoFontFamily, useSettings } from "@/context/settings"
-import { isTerminalGoneError, type LocalPTY } from "@/context/terminal"
+import { isTerminalGoneError } from "@/context/terminal"
+import type { RuntimePTY, TerminalSnapshot, TerminalTab } from "@/context/terminal-types"
 import { terminalAttr, terminalProbe } from "@/testing/terminal"
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
 import { terminalWebSocketURL } from "@/utils/terminal-websocket-url"
@@ -21,12 +22,15 @@ import { terminalWriter } from "@/utils/terminal-writer"
 const TOGGLE_TERMINAL_ID = "terminal.toggle"
 const DEFAULT_TOGGLE_TERMINAL_KEYBIND = "ctrl+`"
 export interface TerminalProps extends ComponentProps<"div"> {
-  pty: LocalPTY
+  tab: TerminalTab
+  connection: RuntimePTY
   autoFocus?: boolean
   onSubmit?: () => void
-  onCleanup?: (pty: Partial<LocalPTY> & { id: string }) => void
+  onSnapshot?: (snapshot: TerminalSnapshot) => void
+  onTerminalResize?: (size: NonNullable<TerminalSnapshot["size"]>) => void
   onConnect?: () => void
-  onConnectError?: (error: unknown) => void
+  onGone?: (error: unknown) => void
+  onError?: (error: unknown) => void
 }
 
 let shared: Promise<{ mod: typeof import("ghostty-web"); ghostty: Ghostty }> | undefined
@@ -132,10 +136,9 @@ const persistTerminal = (input: {
   term: Term | undefined
   addon: SerializeAddon | undefined
   cursor: number
-  id: string
-  onCleanup?: (pty: Partial<LocalPTY> & { id: string }) => void
+  onSnapshot?: (snapshot: TerminalSnapshot) => void
 }) => {
-  if (!input.addon || !input.onCleanup || !input.term) return
+  if (!input.addon || !input.onSnapshot || !input.term) return
   const buffer = (() => {
     try {
       return input.addon.serialize()
@@ -145,12 +148,10 @@ const persistTerminal = (input: {
     }
   })()
 
-  input.onCleanup({
-    id: input.id,
+  input.onSnapshot({
     buffer,
     cursor: input.cursor,
-    rows: input.term.rows,
-    cols: input.term.cols,
+    size: { rows: input.term.rows, cols: input.term.cols },
     scrollY: input.term.getViewportY(),
   })
 }
@@ -171,21 +172,34 @@ export const Terminal = (props: TerminalProps) => {
   const password = auth?.password ?? ""
   const sameOrigin = new URL(url, location.href).origin === location.origin
   let container!: HTMLDivElement
-  const [local, others] = splitProps(props, ["pty", "class", "classList", "autoFocus", "onConnect", "onConnectError"])
-  const id = local.pty.id
-  const probe = terminalProbe(id)
-  const restore = typeof local.pty.buffer === "string" ? local.pty.buffer : ""
+  const [local, others] = splitProps(props, [
+    "tab",
+    "connection",
+    "class",
+    "classList",
+    "autoFocus",
+    "onSubmit",
+    "onSnapshot",
+    "onConnect",
+    "onGone",
+    "onError",
+    "onTerminalResize",
+  ])
+  const tabID = local.tab.tabID
+  const runtimeID = local.connection.ptyID
+  const probe = terminalProbe(tabID)
+  const restore = typeof local.tab.snapshot?.buffer === "string" ? local.tab.snapshot.buffer : ""
   const restoreSize =
     restore &&
-    typeof local.pty.cols === "number" &&
-    Number.isSafeInteger(local.pty.cols) &&
-    local.pty.cols > 0 &&
-    typeof local.pty.rows === "number" &&
-    Number.isSafeInteger(local.pty.rows) &&
-    local.pty.rows > 0
-      ? { cols: local.pty.cols, rows: local.pty.rows }
+    typeof local.tab.snapshot?.size?.cols === "number" &&
+    Number.isSafeInteger(local.tab.snapshot.size.cols) &&
+    local.tab.snapshot.size.cols > 0 &&
+    typeof local.tab.snapshot.size.rows === "number" &&
+    Number.isSafeInteger(local.tab.snapshot.size.rows) &&
+    local.tab.snapshot.size.rows > 0
+      ? { cols: local.tab.snapshot.size.cols, rows: local.tab.snapshot.size.rows }
       : undefined
-  const scrollY = typeof local.pty.scrollY === "number" ? local.pty.scrollY : undefined
+  const scrollY = typeof local.tab.snapshot?.scrollY === "number" ? local.tab.snapshot.scrollY : undefined
   let ws: WebSocket | undefined
   let term: Term | undefined
   let ghostty: Ghostty
@@ -199,7 +213,9 @@ export const Terminal = (props: TerminalProps) => {
   let disposed = false
   const cleanups: VoidFunction[] = []
   const start =
-    typeof local.pty.cursor === "number" && Number.isSafeInteger(local.pty.cursor) ? local.pty.cursor : undefined
+    typeof local.tab.snapshot?.cursor === "number" && Number.isSafeInteger(local.tab.snapshot.cursor)
+      ? local.tab.snapshot.cursor
+      : undefined
   let cursor = start ?? 0
   let seek = start !== undefined ? start : restore ? -1 : 0
   let output: ReturnType<typeof terminalWriter> | undefined
@@ -220,14 +236,8 @@ export const Terminal = (props: TerminalProps) => {
   }
 
   const pushSize = (cols: number, rows: number) => {
-    return client.pty
-      .update({
-        ptyID: id,
-        size: { cols, rows },
-      })
-      .catch((err) => {
-        debugTerminal("failed to sync terminal size", err)
-      })
+    local.onTerminalResize?.({ cols, rows })
+    return Promise.resolve()
   }
 
   const getTerminalColors = (): TerminalColors => {
@@ -436,7 +446,7 @@ export const Terminal = (props: TerminalProps) => {
       cleanups.push(() => disposeIfDisposable(onData))
       const onKey = t.onKey((key) => {
         if (key.key == "Enter") {
-          props.onSubmit?.()
+          local.onSubmit?.()
         }
       })
       cleanups.push(() => disposeIfDisposable(onKey))
@@ -481,12 +491,12 @@ export const Terminal = (props: TerminalProps) => {
         if (disposed) return
         if (once.value) return
         once.value = true
-        local.onConnectError?.(err)
+        local.onGone?.(err)
       }
 
       const gone = () =>
         client.pty
-          .get({ ptyID: id })
+          .get({ ptyID: runtimeID })
           .then(() => false)
           .catch((err) => {
             if (isTerminalGoneError(err)) return true
@@ -520,7 +530,7 @@ export const Terminal = (props: TerminalProps) => {
         const socket = new WebSocket(
           terminalWebSocketURL({
             url,
-            id,
+            id: runtimeID,
             directory,
             cursor: seek,
             sameOrigin,
@@ -582,6 +592,7 @@ export const Terminal = (props: TerminalProps) => {
         }
 
         const handleClose = (event: CloseEvent) => {
+          probe.disconnect()
           if (ws === socket) ws = undefined
           if (drop === stop) drop = undefined
           socket.removeEventListener("open", handleOpen)
@@ -617,7 +628,7 @@ export const Terminal = (props: TerminalProps) => {
         title: language.t("terminal.connectionLost.title"),
         description: err instanceof Error ? err.message : language.t("terminal.connectionLost.description"),
       })
-      local.onConnectError?.(err)
+      local.onError?.(err)
     })
   })
 
@@ -630,7 +641,7 @@ export const Terminal = (props: TerminalProps) => {
     if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) ws.close(1000)
 
     const finalize = () => {
-      persistTerminal({ term, addon: serializeAddon, cursor, id, onCleanup: props.onCleanup })
+      persistTerminal({ term, addon: serializeAddon, cursor, onSnapshot: local.onSnapshot })
       cleanup()
     }
 
@@ -646,7 +657,7 @@ export const Terminal = (props: TerminalProps) => {
     <div
       ref={container}
       data-component="terminal"
-      {...{ [terminalAttr]: id }}
+      {...{ [terminalAttr]: tabID }}
       data-prevent-autofocus
       tabIndex={-1}
       style={{ "background-color": terminalColors().background }}
