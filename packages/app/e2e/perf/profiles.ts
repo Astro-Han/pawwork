@@ -11,6 +11,7 @@ export type PerfScenarioName =
   | "session-scroll-reading"
   | "session-scroll-reading-long"
   | "session-timeline-recompute"
+  | "concurrent-shimmer-extreme"
 
 const defaultScenarios = new Set<PerfScenarioName>([
   "homepage-cold",
@@ -22,7 +23,11 @@ const defaultScenarios = new Set<PerfScenarioName>([
   "session-scroll-reading",
 ])
 
-const lowEndScenarios = new Set<PerfScenarioName>(["session-scroll-reading-long", "session-timeline-recompute"])
+const lowEndScenarios = new Set<PerfScenarioName>([
+  "session-scroll-reading-long",
+  "session-timeline-recompute",
+  "concurrent-shimmer-extreme",
+])
 
 export function readPerfProfile(): PerfProfile {
   return process.env.PAWWORK_PERF_PROFILE === "low-end" ? "low-end" : "default"

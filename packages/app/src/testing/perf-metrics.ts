@@ -79,7 +79,10 @@ const perfDeltaThresholds = {
   interactionWorstMs: 50,
   longTaskMaxMs: 25,
   tbtMs: 50,
-  frameGapP95Ms: 10,
+  // One frame at 60Hz is 16.67ms, so a tolerance below that flags single-frame
+  // CI runner jitter as a regression. Aligned with lowEndWarningThresholds.frameGapP95Ms
+  // so the default profile is no stricter than low-end.
+  frameGapP95Ms: 20,
   frameGapMaxMs: 50,
   jankCount: 2,
   cls: 0.02,
