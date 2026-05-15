@@ -229,11 +229,11 @@ describe("session timeline scroll controller", () => {
       nestedScrollable: false,
     })
 
-    expect(result.reason).toBe("strong_upward_navigation")
+    expect(result.reason).toBe("user_upward_navigation")
     expect(controller.state().mode).toBe("reading_history")
   })
 
-  test("weak upward wheel intent does not leave latest", () => {
+  test("weak upward wheel intent leaves latest", () => {
     const { controller } = makeController()
 
     const result = controller.intent({
@@ -244,8 +244,72 @@ describe("session timeline scroll controller", () => {
       nestedScrollable: false,
     })
 
+    expect(result.reason).toBe("user_upward_navigation")
+    expect(result.recovery).toEqual({ type: "none" })
+    expect(controller.state().mode).toBe("reading_history")
+    expect(controller.state().latestProtected).toBe(false)
+  })
+
+  test("nested weak upward wheel intent does not leave latest", () => {
+    const { controller } = makeController()
+
+    const result = controller.intent({
+      type: "wheel_scroll",
+      source: "timeline",
+      direction: "up",
+      strength: "weak",
+      nestedScrollable: true,
+    })
+
     expect(result.reason).toBe("weak_scroll_observed")
+    expect(result.recovery).toEqual({ type: "none" })
     expect(controller.state().mode).toBe("following_latest")
+  })
+
+  test("weak upward touch intent leaves latest", () => {
+    const { controller } = makeController()
+
+    const result = controller.intent({
+      type: "touch_scroll",
+      source: "timeline",
+      direction: "up",
+      strength: "weak",
+      nestedScrollable: false,
+    })
+
+    expect(result.reason).toBe("user_upward_navigation")
+    expect(result.recovery).toEqual({ type: "none" })
+    expect(controller.state().mode).toBe("reading_history")
+    expect(controller.state().latestProtected).toBe(false)
+  })
+
+  test("weak upward wheel after submit prevents top-reset restore latest", () => {
+    const { controller } = makeController()
+
+    controller.intent({
+      type: "submit",
+      originMode: "following_latest",
+    })
+    const intentResult = controller.intent({
+      type: "wheel_scroll",
+      source: "timeline",
+      direction: "up",
+      strength: "weak",
+      nestedScrollable: false,
+    })
+    const scrollResult = controller.observe({
+      type: "scroll_sample",
+      metrics: topMetrics,
+      safePosition: readingAnchor,
+    })
+
+    expect(intentResult.reason).toBe("user_upward_navigation")
+    expect(scrollResult.accepted).toBe(true)
+    expect(scrollResult.recovery).toEqual({ type: "none" })
+    expect(scrollResult.reason).toBe("reading_anchor_preserved")
+    expect(controller.state().mode).toBe("reading_history")
+    expect(controller.state().latestProtected).toBe(false)
+    expect(controller.state().lastSafePosition).toEqual(readingAnchor)
   })
 
   test("explicit bottom navigation rejoins latest from reading", () => {

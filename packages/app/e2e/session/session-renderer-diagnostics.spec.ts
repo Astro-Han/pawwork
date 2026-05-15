@@ -147,6 +147,27 @@ async function resetTimelineToTop(page: Page) {
   expect(found, "session timeline viewport should exist").toBe(true)
 }
 
+async function wheelTimelineBy(page: Page, deltaY: number) {
+  const box = await page.evaluate(
+    ({ scrollViewportSelector, turnListSelector }) => {
+      const list = document.querySelector(turnListSelector)
+      const viewport = list?.closest(scrollViewportSelector)
+      if (!(viewport instanceof HTMLElement)) return null
+      const rect = viewport.getBoundingClientRect()
+      return {
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      }
+    },
+    { scrollViewportSelector, turnListSelector: sessionTurnListSelector },
+  )
+  expect(box, "session timeline viewport should exist").not.toBeNull()
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + Math.min(box!.height / 2, box!.height - 4))
+  await page.mouse.wheel(0, deltaY)
+}
+
 async function markTimelinePointerGesture(page: Page) {
   const found = await page.evaluate(
     ({ scrollViewportSelector, turnListSelector }) => {
@@ -341,6 +362,59 @@ test("captures renderer diagnostics while guarding send scroll position", async 
     expect(
       events.some((event) => event.name === "session.scroll.sample" && event.data?.user_scrolled === false),
     ).toBe(true)
+  })
+})
+
+test("honors weak upward wheel after submit instead of restoring latest", async ({ page, project }) => {
+  test.setTimeout(120_000)
+
+  await installRendererDiagnosticsCapture(page)
+  await project.open()
+  const sdk = project.sdk
+
+  await withSession(sdk, `e2e weak wheel reading ${Date.now()}`, async (session) => {
+    project.trackSession(session.id)
+    await seedSessionTurns({ sdk, sessionID: session.id, count: 18 })
+
+    await project.gotoSession(session.id)
+    await expect(page.locator(sessionMessageItemSelector)).toHaveCount(10, { timeout: 30_000 })
+    await scrollTimelineToBottom(page)
+    await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(40)
+
+    const promptText = `weak wheel guard ${Date.now()}`
+    await sendVisiblePrompt({ page, text: promptText })
+    await expect(page.locator(sessionMessageItemSelector).last()).toContainText(promptText, { timeout: 30_000 })
+
+    const wheelCheckpoint = (await readRendererDiagnostics(page)).length
+    for (let i = 0; i < 8; i++) {
+      await wheelTimelineBy(page, -48)
+    }
+
+    await expect
+      .poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom, { timeout: 10_000 })
+      .toBeGreaterThan(160)
+
+    const events = (await readRendererDiagnostics(page)).slice(wheelCheckpoint)
+    expect(
+      events.some(
+        (event) =>
+          event.name === "session.timeline.scroll_controller" &&
+          event.data?.intent_type === "wheel_scroll" &&
+          event.data?.reason === "user_upward_navigation" &&
+          event.data?.mode_after === "reading_history",
+      ),
+    ).toBe(true)
+    expect(
+      events.some(
+        (event) =>
+          event.name === "session.timeline.scroll_controller" &&
+          event.data?.accepted === false &&
+          event.data?.reason === "submit_restore_latest_after_top_reset",
+      ),
+    ).toBe(false)
+
+    await page.getByRole("button", { name: "Jump to latest" }).click()
+    await expect.poll(async () => (await expectTimelineMetrics(page)).distanceFromBottom).toBeLessThan(80)
   })
 })
 
