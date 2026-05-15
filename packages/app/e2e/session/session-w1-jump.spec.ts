@@ -81,8 +81,8 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
 
     // Scroll to top so the dock surfaces the jump button (jump = true
     // requires overflow + distance > threshold). Then assert the button is
-    // truly visible — the wrapper applies opacity-0 / scale-95 / translate
-    // in the hidden state, so toBeVisible covers all three.
+    // truly visible — the wrapper applies opacity-0 / pointer-events-none
+    // in the hidden state.
     await scrollTimelineToTop(page)
     const jumpButton = page.locator('button[aria-label="Jump to latest"]')
     await expect(jumpButton).toBeVisible()
