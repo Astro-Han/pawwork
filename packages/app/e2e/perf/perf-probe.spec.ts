@@ -51,9 +51,11 @@ const inputLagText = [
 const longScrollSeedTurns = 104
 const longScrollMinimumRenderedMessages = 80
 const longScrollCoverageRatio = 0.95
-const longScrollWheelDurationMs = 6_500
-const longScrollUpWheelDurationMs = 9_000
-const longScrollWheelStepPx = 720
+const longScrollMinimumProbeWindowMs = 15_000
+const longScrollMaxRouteDurationMs = 30_000
+const longScrollTargetMovingSamples = 32
+const longScrollMinimumMovingSamples = 16
+const longScrollMinimumDistinctScrollTops = 12
 
 const scenarioResults: ReturnType<typeof summarizeScenarioRuns>[] = []
 
@@ -73,6 +75,15 @@ type TimelineMetrics = {
   scrollHeight: number
   clientHeight: number
   maxScrollTop: number
+}
+
+type WheelRouteResult = {
+  events: number
+  movingSamples: number
+  distinctScrollTopSamples: number
+  distancePx: number
+  durationMs: number
+  final: TimelineMetrics
 }
 
 const chatChunk = (delta: Record<string, unknown>, input?: { finish?: string; usage?: { input: number; output: number } }) => ({
@@ -204,6 +215,13 @@ async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], t
   expect(found).toBe(true)
 }
 
+async function hoverTimelineScrollLane(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const box = await page.locator(scrollViewportSelector).first().boundingBox()
+  expect(box).toBeTruthy()
+  if (!box) return
+  await page.mouse.move(box.x + box.width / 2, box.y + Math.min(120, box.height * 0.25))
+}
+
 async function readTimelineMetrics(page: Parameters<typeof snapshotPerfProbe>[0]) {
   const metrics = await page.evaluate(
     ({ scrollViewportSelector, turnListSelector }) => {
@@ -255,7 +273,7 @@ async function seedLongScrollSession(project: PerfProject, sessionID: string, ru
 async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>[0]) {
   const messages = page.locator(sessionMessageItemSelector)
   await expect(messages.first()).toBeVisible({ timeout: 30_000 })
-  await page.locator(scrollViewportSelector).first().hover()
+  await hoverTimelineScrollLane(page)
   for (let attempt = 0; attempt < 24; attempt += 1) {
     if ((await messages.count()) >= longScrollMinimumRenderedMessages) return
     await page.mouse.wheel(0, -2400)
@@ -263,7 +281,7 @@ async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>
     await scrollTimelineTo(page, 0)
     await settleFrames(page, 2)
   }
-  await expect.poll(async () => messages.count(), { timeout: 1_000 }).toBeGreaterThanOrEqual(longScrollMinimumRenderedMessages)
+  await expect.poll(async () => messages.count().catch(() => -1), { timeout: 1_000 }).toBeGreaterThanOrEqual(longScrollMinimumRenderedMessages)
 }
 
 async function installComposerPerfDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -315,28 +333,144 @@ function longScrollTodoPulse(
   sessionID: string,
   run: number,
 ) {
-  const checkpoints = [900, 2_400, 4_200, 6_800]
+  const checkpoints = [700, 1_600, 2_800, 4_200]
   let next = 0
   return async (elapsedMs: number) => {
-    if (next >= checkpoints.length || elapsedMs < checkpoints[next]) return
-    next += 1
-    await writeComposerDriver(page, sessionID, longScrollTodoDriver(run, next))
+    while (next < checkpoints.length && elapsedMs >= checkpoints[next]) {
+      next += 1
+      await writeComposerDriver(page, sessionID, longScrollTodoDriver(run, next))
+    }
   }
 }
 
-async function driveWheelStream(
+function calculateLongScrollStepPx(maxScrollTop: number) {
+  const target = Math.ceil((maxScrollTop * longScrollCoverageRatio) / longScrollTargetMovingSamples)
+  return Math.max(160, Math.min(900, target))
+}
+
+async function trackWheelMovement(
   page: Parameters<typeof snapshotPerfProbe>[0],
-  input: { direction: 1 | -1; durationMs: number; stepPx: number; onPulse?: (elapsedMs: number) => Promise<void> },
+  input: {
+    direction: 1 | -1
+    stepPx: number
+    previous: TimelineMetrics
+    startedAt: number
+    onPulse?: (elapsedMs: number) => Promise<void>
+  },
+) {
+  await page.mouse.wheel(0, input.direction * input.stepPx)
+  await input.onPulse?.(Date.now() - input.startedAt)
+  await page.waitForTimeout(16)
+
+  const next = await readTimelineMetrics(page)
+  const delta = Math.abs(next.scrollTop - input.previous.scrollTop)
+  return { next, delta }
+}
+
+async function driveWheelToRatio(
+  page: Parameters<typeof snapshotPerfProbe>[0],
+  input: {
+    direction: 1 | -1
+    targetRatio: number
+    stepPx: number
+    startedAt: number
+    onPulse?: (elapsedMs: number) => Promise<void>
+  },
 ) {
   const started = Date.now()
   let events = 0
-  while (Date.now() - started < input.durationMs) {
-    await page.mouse.wheel(0, input.direction * input.stepPx)
+  let movingSamples = 0
+  let distancePx = 0
+  let previous = await readTimelineMetrics(page)
+  const distinct = new Set([Math.round(previous.scrollTop)])
+  await hoverTimelineScrollLane(page)
+
+  while (Date.now() - started < longScrollMaxRouteDurationMs) {
+    const { next, delta } = await trackWheelMovement(page, {
+      direction: input.direction,
+      stepPx: input.stepPx,
+      previous,
+      startedAt: input.startedAt,
+      onPulse: input.onPulse,
+    })
     events += 1
-    await input.onPulse?.(Date.now() - started)
-    await page.waitForTimeout(16)
+    if (delta > 0.5) {
+      movingSamples += 1
+      distancePx += delta
+      distinct.add(Math.round(next.scrollTop))
+    }
+    previous = next
+
+    const ratio = next.maxScrollTop > 0 ? next.scrollTop / next.maxScrollTop : 0
+    const reached = input.direction === 1 ? ratio >= input.targetRatio : ratio <= input.targetRatio
+    if (reached && movingSamples >= longScrollMinimumMovingSamples) break
   }
-  return { events, durationMs: Date.now() - started }
+
+  return {
+    events,
+    movingSamples,
+    distinctScrollTopSamples: distinct.size,
+    distancePx,
+    durationMs: Date.now() - started,
+    final: previous,
+  }
+}
+
+async function sustainMovingScrollWindow(
+  page: Parameters<typeof snapshotPerfProbe>[0],
+  input: {
+    startedAt: number
+    stepPx: number
+    onPulse?: (elapsedMs: number) => Promise<void>
+  },
+): Promise<WheelRouteResult> {
+  const started = Date.now()
+  let events = 0
+  let movingSamples = 0
+  let distancePx = 0
+  let direction: 1 | -1 = 1
+  let previous = await readTimelineMetrics(page)
+  const distinct = new Set([Math.round(previous.scrollTop)])
+  await hoverTimelineScrollLane(page)
+
+  while (Date.now() - input.startedAt < longScrollMinimumProbeWindowMs) {
+    const ratio = previous.maxScrollTop > 0 ? previous.scrollTop / previous.maxScrollTop : 0
+    if (ratio >= 0.85) direction = -1
+    if (ratio <= 0.15) direction = 1
+
+    const { next, delta } = await trackWheelMovement(page, {
+      direction,
+      stepPx: input.stepPx,
+      previous,
+      startedAt: input.startedAt,
+      onPulse: input.onPulse,
+    })
+    events += 1
+    if (delta > 0.5) {
+      movingSamples += 1
+      distancePx += delta
+      distinct.add(Math.round(next.scrollTop))
+    }
+    previous = next
+  }
+
+  return {
+    events,
+    movingSamples,
+    distinctScrollTopSamples: distinct.size,
+    distancePx,
+    durationMs: Date.now() - started,
+    final: previous,
+  }
+}
+
+async function expandLongScrollTodoDock(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  const dock = page.locator('[data-component="session-todo-dock"]').first()
+  await expect(dock).toBeVisible({ timeout: 10_000 })
+  await dock.locator('[data-action="session-todo-toggle-button"]').click()
+  const list = dock.locator('[data-slot="session-todo-list"]')
+  await expect(list).toHaveAttribute("aria-hidden", "false", { timeout: 5_000 })
+  await expect.poll(async () => (await dock.boundingBox())?.height ?? -1).toBeGreaterThan(60)
 }
 
 async function enableShellToolPartsExpanded(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -642,7 +776,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         await expect(page.locator(sessionMessageItemSelector).first()).toBeVisible({ timeout: 30_000 })
         await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeGreaterThanOrEqual(8)
         await resetPerfProbe(page)
-        await page.locator(scrollViewportSelector).first().hover()
+        await hoverTimelineScrollLane(page)
         await page.mouse.wheel(0, -3600)
         await settleFrames(page, 2)
         await scrollTimelineTo(page, 0)
@@ -672,39 +806,51 @@ test.describe("PR0.1 perf probe baseline", () => {
         await page.goto(sessionPath(project.directory, session.id))
         await revealLongScrollWindow(page)
         await writeComposerDriver(page, session.id, longScrollTodoDriver(run, 0))
-        await expect(page.locator('[data-component="session-todo-dock"]')).toBeVisible({ timeout: 10_000 })
+        await expandLongScrollTodoDock(page)
 
-        await page.locator(scrollViewportSelector).first().hover()
+        await hoverTimelineScrollLane(page)
         await scrollTimelineTo(page, 0)
         await settleFrames(page, 4)
         const atTop = await readTimelineMetrics(page)
         expect(atTop.maxScrollTop).toBeGreaterThan(4_000)
+        const stepPx = calculateLongScrollStepPx(atTop.maxScrollTop)
 
         await resetPerfProbe(page)
-        const down = await driveWheelStream(page, {
+        const startedAt = Date.now()
+        const pulse = longScrollTodoPulse(page, session.id, run)
+        const down = await driveWheelToRatio(page, {
           direction: 1,
-          durationMs: longScrollWheelDurationMs,
-          stepPx: longScrollWheelStepPx,
-          onPulse: longScrollTodoPulse(page, session.id, run),
+          targetRatio: longScrollCoverageRatio,
+          stepPx,
+          startedAt,
+          onPulse: pulse,
         })
         await settleFrames(page, 2)
-        const atBottom = await readTimelineMetrics(page)
+        const atBottom = down.final
         const downCoverage = atBottom.maxScrollTop > 0 ? atBottom.scrollTop / atBottom.maxScrollTop : 0
-        expect(down.durationMs).toBeGreaterThanOrEqual(6_000)
-        expect(down.events).toBeGreaterThanOrEqual(100)
+        expect(down.movingSamples).toBeGreaterThanOrEqual(longScrollMinimumMovingSamples)
+        expect(down.distinctScrollTopSamples).toBeGreaterThanOrEqual(longScrollMinimumDistinctScrollTops)
         expect(downCoverage).toBeGreaterThanOrEqual(longScrollCoverageRatio)
 
-        const up = await driveWheelStream(page, {
+        const up = await driveWheelToRatio(page, {
           direction: -1,
-          durationMs: longScrollUpWheelDurationMs,
-          stepPx: longScrollWheelStepPx,
+          targetRatio: 1 - longScrollCoverageRatio,
+          stepPx,
+          startedAt,
         })
         await settleFrames(page, 4)
-        const backAtTop = await readTimelineMetrics(page)
-        const remainingTopRatio = atBottom.maxScrollTop > 0 ? backAtTop.scrollTop / atBottom.maxScrollTop : 0
-        expect(up.durationMs).toBeGreaterThanOrEqual(8_500)
-        expect(up.events).toBeGreaterThanOrEqual(100)
+        const backAtTop = up.final
+        const remainingTopRatio = backAtTop.maxScrollTop > 0 ? backAtTop.scrollTop / backAtTop.maxScrollTop : 0
+        expect(up.movingSamples).toBeGreaterThanOrEqual(longScrollMinimumMovingSamples)
+        expect(up.distinctScrollTopSamples).toBeGreaterThanOrEqual(longScrollMinimumDistinctScrollTops)
         expect(remainingTopRatio).toBeLessThanOrEqual(1 - longScrollCoverageRatio)
+
+        const sustain = await sustainMovingScrollWindow(page, { startedAt, stepPx, onPulse: pulse })
+        const totalMovingSamples = down.movingSamples + up.movingSamples + sustain.movingSamples
+        const totalDistinctScrollTops =
+          down.distinctScrollTopSamples + up.distinctScrollTopSamples + sustain.distinctScrollTopSamples
+        expect(totalMovingSamples).toBeGreaterThanOrEqual(longScrollMinimumMovingSamples * 3)
+        expect(totalDistinctScrollTops).toBeGreaterThanOrEqual(longScrollMinimumDistinctScrollTops * 3)
 
         const sample = await snapshotPerfProbe(page)
         expect(sample.window_ms).toBeGreaterThanOrEqual(15_000)
