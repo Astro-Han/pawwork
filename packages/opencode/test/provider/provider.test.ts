@@ -9,6 +9,7 @@ import { Plugin } from "../../src/plugin/index"
 import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
+import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "../../src/util/filesystem"
@@ -1245,6 +1246,53 @@ test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async 
   expect(provider.models["glm-5.1"].family).toBe("glm")
   expect(provider.models["glm-4.7"].family).toBe("glm")
   expect(provider.models["deepseek-v3.2"].family).toBe("deepseek")
+  expect(provider.models["kimi-k2.6"].interleaved).toEqual({ field: "reasoning_content" })
+  expect(provider.models["kimi-k2.5"].interleaved).toEqual({ field: "reasoning_content" })
+})
+
+test("does not add OpenAI-compatible replay metadata to Kimi Coding Plan Anthropic models", () => {
+  const models = withPawWorkProviders({
+    "kimi-for-coding": {
+      id: "kimi-for-coding",
+      name: "Kimi For Coding",
+      npm: "@ai-sdk/anthropic",
+      api: "https://api.kimi.com/coding/v1",
+      env: ["KIMI_API_KEY"],
+      models: {
+        k2p6: {
+          id: "k2p6",
+          name: "Kimi K2.6",
+          family: "kimi",
+          attachment: true,
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          release_date: "",
+          cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+          limit: { context: 262144, output: 32768 },
+          modalities: { input: ["text"], output: ["text"] },
+        },
+        k2p5: {
+          id: "k2p5",
+          name: "Kimi K2.5",
+          family: "kimi",
+          attachment: true,
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          release_date: "",
+          cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+          limit: { context: 262144, output: 32768 },
+          modalities: { input: ["text"], output: ["text"] },
+        },
+      },
+    },
+  })
+
+  const provider = Provider.fromModelsDevProvider(models["kimi-for-coding"])
+
+  expect(provider.models.k2p6.capabilities.interleaved).toBe(false)
+  expect(provider.models.k2p5.capabilities.interleaved).toBe(false)
 })
 
 test("uses doubao-seed-2.0-code as the Volcano Coding Plan default model", async () => {
