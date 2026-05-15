@@ -68,4 +68,23 @@ describe("pty routes", () => {
       },
     })
   })
+
+  test("maps missing remove targets as not found", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const app = new Hono().route("/pty", PtyRoutes(testUpgradeWebSocket))
+        app.onError(ErrorMiddleware)
+
+        const response = await app.request(`/pty/${PtyID.ascending()}`, {
+          method: "DELETE",
+        })
+        const body = await response.json()
+
+        expect(response.status).toBe(404)
+        expect(body.name).toBe("NotFoundError")
+      },
+    })
+  })
 })

@@ -136,7 +136,12 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       }),
       validator("param", z.object({ ptyID: PtyID.zod })),
       async (c) => {
-        await Pty.remove(c.req.valid("param").ptyID)
+        const id = c.req.valid("param").ptyID
+        const info = await Pty.get(id)
+        if (!info) {
+          throw new NotFoundError({ message: "Session not found" })
+        }
+        await Pty.remove(id)
         return c.json(true)
       },
     )
