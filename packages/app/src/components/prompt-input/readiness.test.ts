@@ -57,7 +57,6 @@ describe("promptSendDisabled", () => {
         actionReady: false,
         abortReady: true,
         blank: true,
-        selectedSkill: false,
       }),
     ).toBe(false)
   })
@@ -69,7 +68,6 @@ describe("promptSendDisabled", () => {
         actionReady: false,
         abortReady: true,
         blank: false,
-        selectedSkill: false,
       }),
     ).toBe(true)
   })

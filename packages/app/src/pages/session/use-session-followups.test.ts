@@ -59,7 +59,7 @@ beforeAll(async () => {
   }))
   mock.module("@/components/prompt-input/submit", () => ({
     followupCommandText: (item: FollowupDraft) =>
-      item.outgoingTextOverride ?? item.prompt.map((part) => ("content" in part ? part.content : "")).join(""),
+      item.prompt.map((part) => ("content" in part ? part.content : "")).join(""),
     sendFollowupDraft: (input: unknown) => sendFollowupDraftImpl(input),
   }))
 

@@ -671,16 +671,6 @@ export const dict = {
 
   "session.new.title": "What do you want to do?",
   "session.new.reassurance": "Files and conversations stay on your computer",
-  "session.new.card.document.title": "Process docs",
-  "session.new.card.document.description": "Edit, convert, and extract from Word, Excel, PowerPoint, and PDF files.",
-  "session.new.card.analysis.title": "Analyze data",
-  "session.new.card.analysis.description":
-    "Summarize spreadsheets, build charts, and answer questions from your files.",
-  "session.new.card.writing.title": "Start writing",
-  "session.new.card.writing.description": "Draft emails, reports, plans, and polished work copy.",
-  "session.new.placeholder.document": "Share a document and tell me what to organize, convert, or extract…",
-  "session.new.placeholder.analysis": "Share your data and tell me what to summarize, chart, or answer…",
-  "session.new.placeholder.writing": "Tell me what you'd like to write and I'll draft, polish, or rewrite…",
   "session.new.worktree.main": "Main branch",
   "session.new.worktree.mainWithBranch": "Main branch ({{branch}})",
   "session.new.worktree.create": "Create new worktree",
