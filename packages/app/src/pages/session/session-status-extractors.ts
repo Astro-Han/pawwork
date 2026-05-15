@@ -4,6 +4,7 @@
 //   todowrite → packages/opencode/src/tool/todo.ts
 //   webfetch  → packages/opencode/src/tool/webfetch.ts
 //   websearch → packages/opencode/src/tool/websearch.ts
+//   question  → packages/opencode/src/tool/question.ts
 //
 // Input shape: parts live in sync.data.part[message.id], keyed by messageID.
 // Callers pass a pre-flattened Part[] — produced by
@@ -11,25 +12,20 @@
 // so these extractors stay as pure functions testable against SDK fixtures.
 
 import type { Part } from "@opencode-ai/sdk/v2"
+import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 
 export const TOOL_TODOWRITE = "todowrite"
 export const TOOL_WEBFETCH = "webfetch"
 export const TOOL_WEBSEARCH = "websearch"
-
-export interface TodoItem {
-  id?: string
-  content: string
-  status: string
-  priority: string
-}
+export const TOOL_QUESTION = "question"
 
 function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
   return part.type === "tool"
 }
 
-function isValidTodo(value: unknown): value is TodoItem {
+function isValidTodo(value: unknown): value is SessionTodoItem {
   if (typeof value !== "object" || value === null) return false
-  const v = value as Partial<TodoItem>
+  const v = value as Partial<SessionTodoItem>
   return (
     (v.id === undefined || typeof v.id === "string") &&
     typeof v.content === "string" &&
@@ -38,7 +34,7 @@ function isValidTodo(value: unknown): value is TodoItem {
   )
 }
 
-function todosFromMetadata(part: Extract<Part, { type: "tool" }>): TodoItem[] | undefined {
+function todosFromMetadata(part: Extract<Part, { type: "tool" }>): SessionTodoItem[] | undefined {
   const metadata = part.state.status === "completed" ? part.state.metadata : undefined
   const todos = (metadata as { todos?: unknown } | undefined)?.todos
   if (!Array.isArray(todos)) return undefined
@@ -46,8 +42,8 @@ function todosFromMetadata(part: Extract<Part, { type: "tool" }>): TodoItem[] | 
   return valid.length === todos.length ? valid : undefined
 }
 
-export function extractTodos(parts: Part[]): TodoItem[] {
-  let latest: TodoItem[] = []
+export function extractTodos(parts: Part[]): SessionTodoItem[] {
+  let latest: SessionTodoItem[] = []
   for (const part of parts) {
     if (!isToolPart(part)) continue
     if (part.tool !== TOOL_TODOWRITE) continue

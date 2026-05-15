@@ -1,4 +1,5 @@
 import type { Message, Part } from "@opencode-ai/sdk/v2"
+import { TOOL_QUESTION } from "@/pages/session/session-status-extractors"
 
 // Minimal sync-entry shape this matcher needs. Widened from the full
 // QuestionRequest so callers (e.g. reverify) can pass narrower generics
@@ -41,7 +42,7 @@ export function findRunningQuestionFallbackSession(input: {
     const parts = input.partsByMessageID[m.id]
     if (!parts) continue
     for (const part of parts) {
-      if (part.type !== "tool" || part.tool !== "question" || part.state.status !== "running") continue
+      if (part.type !== "tool" || part.tool !== TOOL_QUESTION || part.state.status !== "running") continue
       const callID = part.callID
       const messageID = part.messageID
       if (!callID || !messageID || !coveredKeys.has(`${messageID}:${callID}`)) {
