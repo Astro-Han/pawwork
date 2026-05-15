@@ -79,13 +79,17 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
       )
       .toBeGreaterThan(450)
 
-    // The button is always present in the DOM (just transformed off-screen
-    // when the timeline is at bottom). Geometry assertions read CSS rather
-    // than boundingBox so they are not affected by the scale-95 hidden state.
+    // Scroll to top so the dock surfaces the jump button (jump = true
+    // requires overflow + distance > threshold). Then assert the button is
+    // truly visible — the wrapper applies opacity-0 / scale-95 / translate
+    // in the hidden state, so toBeVisible covers all three.
+    await scrollTimelineToTop(page)
     const jumpButton = page.locator('button[aria-label="Jump to latest"]')
-    await expect(jumpButton).toBeAttached()
+    await expect(jumpButton).toBeVisible()
 
-    // Geometry — preview L263-271 / L1066 locks 30 × 30.
+    // Geometry — preview L263-271 / L1066 locks 30 × 30. Read CSS rather
+    // than boundingBox so the parent's scale transform during transition
+    // does not skew the measurement.
     const dims = await jumpButton.evaluate((el) => {
       const cs = window.getComputedStyle(el)
       return { width: cs.width, height: cs.height, cursor: cs.cursor }
@@ -96,21 +100,21 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
     // Cursor — preview L267 locks cursor: pointer.
     expect(dims.cursor).toBe("pointer")
 
-    // Hover background — preview L269 layers a 4% black overlay over
-    // --surface-raised. We force the :hover class via hover() and read
-    // computed background-image; gradient stack must appear (not `none`).
-    await jumpButton.hover({ force: true })
-    const hoverBackgroundImage = await jumpButton.evaluate(
-      (el) => window.getComputedStyle(el).backgroundImage,
-    )
-    expect(hoverBackgroundImage).toContain("linear-gradient")
+    // Hover background — preview L269 layers a 4% overlay over
+    // --surface-raised. The hover class is bg-row-hover-overlay, which maps
+    // to the theme variable that flips correctly between light/dark via
+    // :root[data-color-scheme]. Light theme resolves to rgba(0, 0, 0, 0.04).
+    await jumpButton.hover()
+    await expect
+      .poll(
+        () => jumpButton.evaluate((el) => window.getComputedStyle(el).backgroundColor),
+        { timeout: 2_000 },
+      )
+      .toBe("rgba(0, 0, 0, 0.04)")
     await page.mouse.move(0, 0)
 
-    // Click — should scroll the timeline back to the bottom. Use scrollTo
-    // first to put the timeline somewhere off the bottom, then click and
-    // expect the dock to pull it back.
-    await scrollTimelineToTop(page)
-    await jumpButton.click({ force: true })
+    // Click — should scroll the timeline back to the bottom.
+    await jumpButton.click()
     await expect
       .poll(async () => (await timelineDistanceFromBottom(page)) ?? Infinity, { timeout: 5_000 })
       .toBeLessThanOrEqual(8)

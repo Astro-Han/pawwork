@@ -947,7 +947,7 @@ export function MessageTimeline(props: {
         >
           <button
             type="button"
-            class="pointer-events-auto w-[30px] h-[30px] rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-[linear-gradient(rgba(0,0,0,0.04),rgba(0,0,0,0.04))] dark:hover:bg-[linear-gradient(rgba(255,255,255,0.04),rgba(255,255,255,0.04))]"
+            class="pointer-events-auto w-[30px] h-[30px] rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-row-hover-overlay"
             style={{ "box-shadow": "var(--shadow-floating)" }}
             onClick={props.onResumeScroll}
             aria-label={language.t("session.messages.jumpToLatest")}
