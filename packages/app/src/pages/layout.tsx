@@ -34,7 +34,7 @@ import { showToast, Toast, toaster } from "@opencode-ai/ui/toast"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { LayoutPageContext } from "@/context/layout-page"
 import { ShellSurfaceContext } from "@/context/shell-surface"
-import { clearWorkspaceTerminals } from "@/context/terminal"
+import { clearWorkspaceTerminals, isTerminalGoneError } from "@/context/terminal"
 import { dropSessionCaches, pickSessionCacheEvictions } from "@/context/global-sync/session-cache"
 import {
   clearSessionPrefetchInflight,
@@ -556,19 +556,6 @@ export default function Layout(props: ParentProps) {
     return pawworkSessionWindowState.normal.find((session) => session.id === sessionID)
   }
 
-  const missingResourceError = (error: unknown) => {
-    if (!error || typeof error !== "object") return false
-    const value = error as {
-      name?: unknown
-      status?: unknown
-      statusCode?: unknown
-      response?: { status?: unknown }
-    }
-    if (value.name === "NotFoundError") return true
-    if (value.status === 404 || value.statusCode === 404) return true
-    return value.response?.status === 404
-  }
-
   type SessionLoadResult =
     | { state: "found"; session: PawworkWindowSession }
     | { state: "gone" }
@@ -584,7 +571,7 @@ export default function Layout(props: ParentProps) {
       if (session && !session.time?.archived) return { state: "found", session }
       return { state: "gone" }
     } catch (error) {
-      return missingResourceError(error) ? { state: "gone" } : { state: "transient" }
+      return isTerminalGoneError(error) ? { state: "gone" } : { state: "transient" }
     }
   }
 
