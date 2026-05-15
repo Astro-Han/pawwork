@@ -945,9 +945,10 @@ export function MessageTimeline(props: {
               !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
           }}
         >
+          {/* 偏离: W1 preview L267 锁 cursor:pointer，用户 2026-05-15 决定改回默认。preview/DESIGN 同步留 follow-up。 */}
           <button
             type="button"
-            class="pointer-events-auto w-[30px] h-[30px] rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center cursor-pointer p-0 transition-colors hover:bg-row-hover-overlay"
+            class="pointer-events-auto w-[30px] h-[30px] rounded-full border border-border-weaker bg-surface-raised flex items-center justify-center p-0 transition-[background-image] hover:[background-image:linear-gradient(var(--row-hover-overlay),var(--row-hover-overlay))]"
             style={{ "box-shadow": "var(--shadow-floating)" }}
             onClick={props.onResumeScroll}
             aria-label={language.t("session.messages.jumpToLatest")}

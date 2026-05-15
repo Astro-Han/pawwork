@@ -92,41 +92,41 @@ test("session w1 jump-to-bottom button matches W1-locked geometry and click beha
     // does not skew the measurement.
     const dims = await jumpButton.evaluate((el) => {
       const cs = window.getComputedStyle(el)
-      return { width: cs.width, height: cs.height, cursor: cs.cursor }
+      return { width: cs.width, height: cs.height }
     })
     expect(dims.width).toBe(`${JUMP_BUTTON_SIZE_PX}px`)
     expect(dims.height).toBe(`${JUMP_BUTTON_SIZE_PX}px`)
 
-    // Cursor — preview L267 locks cursor: pointer.
-    expect(dims.cursor).toBe("pointer")
-
-    // Hover background — preview L269 layers a 4% overlay over
-    // --surface-raised. The hover class is bg-row-hover-overlay, which maps
-    // to the theme variable that flips correctly between light/dark via
-    // :root[data-color-scheme]. Light theme resolves to rgba(0, 0, 0, 0.04).
+    // Hover background — preview L269-270 layers a 4% overlay on top of
+    // --surface-raised (not replacing it). Implemented as
+    // background-image: linear-gradient(var(--row-hover-overlay), var(...))
+    // so bg-surface-raised stays as the background-color underneath.
+    // --row-hover-overlay flips with :root[data-color-scheme], so dark
+    // theme parity (asserted below) follows the app attribute, not the
+    // OS prefers-color-scheme media query.
     await jumpButton.hover()
     await expect
       .poll(
-        () => jumpButton.evaluate((el) => window.getComputedStyle(el).backgroundColor),
+        () => jumpButton.evaluate((el) => window.getComputedStyle(el).backgroundImage),
         { timeout: 2_000 },
       )
-      .toBe("rgba(0, 0, 0, 0.04)")
+      .toBe("linear-gradient(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.04))")
     await page.mouse.move(0, 0)
 
     // Dark theme parity — flip data-color-scheme (the source of truth that
     // Settings → Appearance writes) and re-hover. The overlay must follow
-    // the app attribute, not OS prefers-color-scheme, hence the white
-    // overlay even though Playwright defaults to a light OS preference.
+    // the app attribute, hence the white overlay even though Playwright
+    // defaults to a light OS preference.
     await page.evaluate(() => {
       document.documentElement.dataset.colorScheme = "dark"
     })
     await jumpButton.hover()
     await expect
       .poll(
-        () => jumpButton.evaluate((el) => window.getComputedStyle(el).backgroundColor),
+        () => jumpButton.evaluate((el) => window.getComputedStyle(el).backgroundImage),
         { timeout: 2_000 },
       )
-      .toBe("rgba(255, 255, 255, 0.04)")
+      .toBe("linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04))")
     await page.evaluate(() => {
       delete document.documentElement.dataset.colorScheme
     })
