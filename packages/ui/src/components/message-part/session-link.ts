@@ -13,6 +13,10 @@ export function urls(text: string | undefined) {
     })
 }
 
+function currentSession(path: string) {
+  return path.match(/\/session\/([^/?#]+)/)?.[1]
+}
+
 export function sessionLink(id: string | undefined, path: string, href?: (id: string) => string | undefined) {
   if (!id) return
 
@@ -22,10 +26,6 @@ export function sessionLink(id: string | undefined, path: string, href?: (id: st
   const idx = path.search(/\/session(?:\/|$)/)
   if (idx === -1) return
   return `${path.slice(0, idx)}/session/${id}`
-}
-
-export function currentSession(path: string) {
-  return path.match(/\/session\/([^/?#]+)/)?.[1]
 }
 
 export function taskSession(

@@ -40,7 +40,7 @@ export function clampRightPanelWidth(raw: number | undefined): number {
 }
 export type AvatarColorKey = (typeof AVATAR_COLOR_KEYS)[number]
 
-export function getAvatarColors(key?: string) {
+function getAvatarColors(key?: string) {
   if (key && AVATAR_COLOR_KEYS.includes(key as AvatarColorKey)) {
     return {
       background: `var(--avatar-background-${key})`,

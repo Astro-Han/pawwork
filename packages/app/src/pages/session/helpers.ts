@@ -18,8 +18,6 @@ type TabsInput = {
   hasReview?: Accessor<boolean>
 }
 
-export const getSessionKey = (dir: string | undefined, id: string | undefined) => `${dir ?? ""}${id ? `/${id}` : ""}`
-
 export const createSessionTabs = (input: TabsInput) => {
   const review = input.review ?? (() => false)
   const hasReview = input.hasReview ?? (() => false)

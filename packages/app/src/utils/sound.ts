@@ -75,7 +75,7 @@ function getLoads() {
 
 const cache = new Map<SoundID, Promise<string | undefined>>()
 
-export function soundSrc(id: string | undefined) {
+function soundSrc(id: string | undefined) {
   const loads = getLoads()
   if (!id || !(id in loads)) return Promise.resolve(undefined)
   const key = id as SoundID
@@ -86,7 +86,7 @@ export function soundSrc(id: string | undefined) {
   return next
 }
 
-export function playSound(src: string | undefined) {
+function playSound(src: string | undefined) {
   if (typeof Audio === "undefined") return
   if (!src) return
   const audio = new Audio(src)

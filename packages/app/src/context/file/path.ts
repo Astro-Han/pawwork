@@ -1,4 +1,4 @@
-export function stripFileProtocol(input: string) {
+function stripFileProtocol(input: string) {
   if (!input.startsWith("file://")) return input
   return input.slice("file://".length)
 }
@@ -72,7 +72,7 @@ export function unquoteGitPath(input: string) {
   return new TextDecoder().decode(new Uint8Array(bytes))
 }
 
-export function decodeFilePath(input: string) {
+function decodeFilePath(input: string) {
   try {
     return decodeURIComponent(input)
   } catch {
