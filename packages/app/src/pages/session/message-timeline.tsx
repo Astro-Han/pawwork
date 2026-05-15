@@ -1,5 +1,4 @@
-import { For, createEffect, createMemo, on, onCleanup, onMount, Show, Index, type JSX, createSignal, untrack } from "solid-js"
-import { VList } from "virtua/solid"
+import { For, createEffect, createMemo, on, onCleanup, onMount, Show, Index, type JSX, createSignal } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
@@ -1130,6 +1129,10 @@ export function MessageTimeline(props: {
                       classList={{
                         "min-w-0 w-full max-w-full": true,
                         "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
+                      }}
+                      style={{
+                        "content-visibility": active() ? undefined : "auto",
+                        "contain-intrinsic-size": active() ? undefined : "auto 500px",
                       }}
                     >
                       <Show when={commentCount() > 0}>
