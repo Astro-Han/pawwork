@@ -2,3 +2,8 @@
 reviews:
   auto_review:
     auto_pause_after_reviewed_commits: 0
+  tools:
+    eslint:
+      enabled: true
+    github-checks:
+      enabled: true
