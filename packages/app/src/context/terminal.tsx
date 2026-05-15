@@ -135,7 +135,6 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
   const persistSafeState = () => {
     const sanitized = sanitizePersistedTerminalState(store)
     assertSafeTerminalState(sanitized)
-    if (JSON.stringify(sanitized) === JSON.stringify(store)) return
     batch(() => {
       setStore("version", sanitized.version)
       setStore("activeTabID", sanitized.activeTabID)
@@ -191,23 +190,22 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
 
   const tabIndex = (tabID: TerminalTabID) => store.tabs.findIndex((tab) => tab.tabID === tabID)
 
+  const logRuntimeCreateError = (error: unknown) => {
+    console.error("Failed to create terminal runtime", error)
+  }
+
   const ensureLive = async (tabID: TerminalTabID) => {
     const tab = store.tabs.find((item) => item.tabID === tabID)
     if (!tab) return
-    try {
-      const runtime = await lifecycle.ensureLive({ tabID, title: tab.title })
-      bumpRuntime()
-      return runtime
-    } catch (error) {
-      console.error("Failed to create terminal runtime", error)
-      return undefined
-    }
+    const runtime = await lifecycle.ensureLive({ tabID, title: tab.title })
+    bumpRuntime()
+    return runtime
   }
 
   const markGone = (tabID: TerminalTabID) => {
     lifecycle.markGone(tabID)
     bumpRuntime()
-    if (store.activeTabID === tabID) void ensureLive(tabID)
+    if (store.activeTabID === tabID) void ensureLive(tabID).catch(logRuntimeCreateError)
   }
 
   const syncRuntime = (tabID: TerminalTabID, input: { title?: string; size?: NonNullable<TerminalSnapshot["size"]> }) => {
@@ -298,8 +296,7 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
         setStore("tabs", store.tabs.length, tab)
         setStore("activeTabID", tabID)
       })
-      void ensureLive(tabID).then((runtime) => {
-        if (runtime) return
+      const rollback = () => {
         const tabs = all()
         const index = tabs.findIndex((item) => item.tabID === tabID)
         if (index === -1) return
@@ -318,7 +315,15 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
             }),
           )
         })
-      })
+      }
+      void ensureLive(tabID)
+        .then((runtime) => {
+          if (!runtime) rollback()
+        })
+        .catch((error) => {
+          logRuntimeCreateError(error)
+          rollback()
+        })
     },
     update(input: TerminalTitleUpdate) {
       const index = tabIndex(input.tabID)
@@ -349,7 +354,7 @@ function createWorkspaceTerminalSession(sdk: ReturnType<typeof useSDK>, dir: str
     open(id: TerminalTabID) {
       if (!store.tabs.some((tab) => tab.tabID === id)) return
       setStore("activeTabID", id)
-      void ensureLive(id)
+      void ensureLive(id).catch(logRuntimeCreateError)
     },
     next() {
       const tabs = all()

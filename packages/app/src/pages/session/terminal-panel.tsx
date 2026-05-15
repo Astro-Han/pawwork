@@ -113,7 +113,9 @@ export function TerminalPanel(props: { embedded?: boolean }) {
       () => [opened(), terminal.active()] as const,
       ([next, id]) => {
         if (!next || !id) return
-        void terminal.ensureLive(id)
+        void terminal.ensureLive(id).catch((error) => {
+          console.error("Failed to create terminal runtime", error)
+        })
         const stop = focus(id)
         onCleanup(stop)
       },
