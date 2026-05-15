@@ -195,6 +195,7 @@ export function createSessionTimelineInteraction(input: {
       if (current.sessionOwner !== owner.sessionOwner || current.viewportOwner !== owner.viewportOwner) return
 
       if (recovery.type === "restore_latest") {
+        if (current.mode !== "following_latest") return
         historyWindow.resumeLatestWindow()
         resumeScroll()
         return
