@@ -1,11 +1,11 @@
 import type { Part, Todo } from "@opencode-ai/sdk/v2"
-import { extractTodos } from "@/pages/session/session-status-extractors"
+import { extractTodos, TOOL_TODOWRITE } from "@/pages/session/session-status-extractors"
 import { todoPhase, todoSnapshot, type SessionTodoItem, type TodoSnapshot, type TodoSourceKind } from "./todo-model"
 
 export type SessionTodoSource = {
   sessionID?: string
   backend?: Todo[]
-  backendClearActiveParts?: boolean
+  backendClearActivePartsAt?: number
   parts: Part[]
 }
 
@@ -15,6 +15,20 @@ export type SelectSessionTodosInput = {
 }
 
 const partTodos = (parts: Part[]) => extractTodos(parts)
+
+const latestTodoWriteTime = (parts: Part[]) => {
+  let latest: number | undefined
+  for (const part of parts) {
+    if (part.type !== "tool") continue
+    if (part.tool !== TOOL_TODOWRITE) continue
+    if (part.state.status !== "completed") continue
+    const time = part.state.time
+    const value = typeof time.end === "number" ? time.end : typeof time.start === "number" ? time.start : undefined
+    if (value === undefined) continue
+    latest = latest === undefined ? value : Math.max(latest, value)
+  }
+  return latest
+}
 
 const sameTodoList = (backend: SessionTodoItem[], parts: SessionTodoItem[]) => {
   if (backend.length !== parts.length) return false
@@ -49,8 +63,11 @@ const sourceTodoSnapshot = (
 
   if (sourceParts.length > 0) {
     const phase = todoPhase(sourceParts)
-    if (input.backendClearActiveParts === true && sourceBackend.length === 0 && phase === "active") {
-      return todoSnapshot({ sessionID: input.sessionID, source: source.backend, items: [], dockEligible: false })
+    if (input.backendClearActivePartsAt !== undefined && sourceBackend.length === 0 && phase === "active") {
+      const partsTime = latestTodoWriteTime(input.parts)
+      if (partsTime === undefined || partsTime <= input.backendClearActivePartsAt) {
+        return todoSnapshot({ sessionID: input.sessionID, source: source.backend, items: [], dockEligible: false })
+      }
     }
     return todoSnapshot({
       sessionID: input.sessionID,

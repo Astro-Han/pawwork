@@ -8,11 +8,11 @@ describe("nextSessionTodoClearFlag", () => {
   const todo = { id: "todo_1", content: "work", status: "in_progress", priority: "medium" } as Todo
 
   test("marks live empty backend updates as active-parts clears", () => {
-    expect(nextSessionTodoClearFlag(undefined, [], { clearActiveParts: true })).toBe(true)
+    expect(nextSessionTodoClearFlag(undefined, [], { clearActiveParts: true }, 10)).toBe(10)
   })
 
   test("preserves existing live clear flag across ordinary empty backend refreshes", () => {
-    expect(nextSessionTodoClearFlag(true, [])).toBe(true)
+    expect(nextSessionTodoClearFlag(10, [])).toBe(10)
   })
 
   test("does not create a clear flag for ordinary empty backend refreshes", () => {
@@ -20,8 +20,8 @@ describe("nextSessionTodoClearFlag", () => {
   })
 
   test("clears the flag on non-empty backend updates and cleanup", () => {
-    expect(nextSessionTodoClearFlag(true, [todo])).toBeUndefined()
-    expect(nextSessionTodoClearFlag(true, undefined)).toBeUndefined()
+    expect(nextSessionTodoClearFlag(10, [todo])).toBeUndefined()
+    expect(nextSessionTodoClearFlag(10, undefined)).toBeUndefined()
   })
 })
 

@@ -29,7 +29,7 @@ type GlobalStore = {
     [sessionID: string]: Todo[]
   }
   session_todo_clear: {
-    [sessionID: string]: boolean
+    [sessionID: string]: number
   }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse

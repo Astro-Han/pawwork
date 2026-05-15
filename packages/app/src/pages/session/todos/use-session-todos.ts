@@ -85,14 +85,14 @@ export function createSessionTodoModel(input: {
       primary: {
         sessionID: id,
         backend: globalSync.data.session_todo[id],
-        backendClearActiveParts: globalSync.data.session_todo_clear[id] === true,
+        backendClearActivePartsAt: globalSync.data.session_todo_clear[id],
         parts,
       },
       fallback: fallbackID
         ? {
             sessionID: fallbackID,
             backend: globalSync.data.session_todo[fallbackID],
-            backendClearActiveParts: globalSync.data.session_todo_clear[fallbackID] === true,
+            backendClearActivePartsAt: globalSync.data.session_todo_clear[fallbackID],
             parts: fallbackParts,
           }
         : undefined,

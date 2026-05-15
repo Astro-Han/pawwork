@@ -17,13 +17,11 @@ export function SessionStatusPanel(props: { shown: Accessor<boolean> }) {
     return messages.flatMap((message) => sync.data.part[message.id] ?? [])
   })
   const backend = createMemo(() => (params.id ? globalSync.data.session_todo[params.id] : undefined))
-  const backendClearActiveParts = createMemo(() =>
-    params.id ? globalSync.data.session_todo_clear[params.id] === true : false,
-  )
+  const backendClearActivePartsAt = createMemo(() => (params.id ? globalSync.data.session_todo_clear[params.id] : undefined))
 
   return (
     <div class="h-full min-h-0 overflow-y-auto">
-      <SessionStatusSummary backend={backend} backendClearActiveParts={backendClearActiveParts} parts={parts} />
+      <SessionStatusSummary backend={backend} backendClearActivePartsAt={backendClearActivePartsAt} parts={parts} />
       <SessionStatusConnections shown={props.shown} />
     </div>
   )

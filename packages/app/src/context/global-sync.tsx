@@ -43,7 +43,7 @@ type GlobalStore = {
     [sessionID: string]: Todo[]
   }
   session_todo_clear: {
-    [sessionID: string]: boolean
+    [sessionID: string]: number
   }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
@@ -54,13 +54,14 @@ type GlobalStore = {
 const inactiveQueryFn = async () => null
 
 export function nextSessionTodoClearFlag(
-  previous: boolean | undefined,
+  previous: number | undefined,
   todos: Todo[] | undefined,
   options?: { clearActiveParts?: boolean },
+  now = Date.now(),
 ) {
   if (!todos) return undefined
   if (todos.length > 0) return undefined
-  if (options?.clearActiveParts === true) return true
+  if (options?.clearActiveParts === true) return now
   return previous
 }
 
@@ -179,8 +180,8 @@ function createGlobalSync() {
     }
     setGlobalStore("session_todo", sessionID, reconcile(todos, { key: "id" }))
     const clearFlag = nextSessionTodoClearFlag(globalStore.session_todo_clear[sessionID], todos, options)
-    if (clearFlag === true) {
-      setGlobalStore("session_todo_clear", sessionID, true)
+    if (clearFlag !== undefined) {
+      setGlobalStore("session_todo_clear", sessionID, clearFlag)
       return
     }
     setGlobalStore(
