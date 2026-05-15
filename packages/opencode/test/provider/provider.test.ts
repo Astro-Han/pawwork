@@ -9,7 +9,9 @@ import { Plugin } from "../../src/plugin/index"
 import { Auth } from "../../src/auth"
 import { ModelsDev } from "../../src/provider"
 import { Provider } from "../../src/provider"
+import { withPawWorkProviders } from "../../src/provider/pawwork-providers"
 import { localProviderImportSpec, stripOpenAIResponseInputIDs } from "../../src/provider/provider"
+import { ProviderTransform } from "../../src/provider/transform"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "../../src/util/filesystem"
 import { Env } from "../../src/env"
@@ -1245,6 +1247,79 @@ test("includes Volcano Engine Coding Plan as a PawWork provider overlay", async 
   expect(provider.models["glm-5.1"].family).toBe("glm")
   expect(provider.models["glm-4.7"].family).toBe("glm")
   expect(provider.models["deepseek-v3.2"].family).toBe("deepseek")
+  expect(provider.models["kimi-k2.6"].interleaved).toEqual({ field: "reasoning_content" })
+  expect(provider.models["kimi-k2.5"].interleaved).toEqual({ field: "reasoning_content" })
+})
+
+test("adds reasoning_content replay metadata to confirmed Kimi Coding Plan K2.6 model", () => {
+  const models = withPawWorkProviders({
+    "kimi-for-coding": {
+      id: "kimi-for-coding",
+      name: "Kimi For Coding",
+      npm: "@ai-sdk/anthropic",
+      api: "https://api.kimi.com/coding/v1",
+      env: ["KIMI_API_KEY"],
+      models: {
+        k2p6: {
+          id: "k2p6",
+          name: "Kimi K2.6",
+          family: "kimi",
+          attachment: true,
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          release_date: "",
+          cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+          limit: { context: 262144, output: 32768 },
+          modalities: { input: ["text"], output: ["text"] },
+        },
+        k2p5: {
+          id: "k2p5",
+          name: "Kimi K2.5",
+          family: "kimi",
+          attachment: true,
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          release_date: "",
+          cost: { input: 0, output: 0, cache_read: 0, cache_write: 0 },
+          limit: { context: 262144, output: 32768 },
+          modalities: { input: ["text"], output: ["text"] },
+        },
+      },
+    },
+  })
+
+  const provider = Provider.fromModelsDevProvider(models["kimi-for-coding"])
+
+  expect(provider.models.k2p6.capabilities.interleaved).toEqual({ field: "reasoning_content" })
+  expect(provider.models.k2p5.capabilities.interleaved).toBe(false)
+
+  const messages = ProviderTransform.message(
+    [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "thinking..." },
+          { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/tmp/a" } },
+        ],
+      },
+    ] as any[],
+    provider.models.k2p6,
+    {},
+  )
+
+  const content = messages[0].content
+  expect(Array.isArray(content)).toBe(true)
+  expect(content).toHaveLength(1)
+  expect((content as any[])[0]).toMatchObject({
+    type: "tool-call",
+    toolCallId: "toolu_1",
+    toolName: "read",
+    input: { filePath: "/tmp/a" },
+  })
+  expect((content as any[]).some((part: any) => part.type === "reasoning")).toBe(false)
+  expect(messages[0].providerOptions?.openaiCompatible?.reasoning_content).toBe("thinking...")
 })
 
 test("uses doubao-seed-2.0-code as the Volcano Coding Plan default model", async () => {

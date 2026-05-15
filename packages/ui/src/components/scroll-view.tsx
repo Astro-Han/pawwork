@@ -148,17 +148,6 @@ export function ScrollView(props: ScrollViewProps) {
     updateThumb()
   })
 
-  // Throttle scroll events to reduce CPU usage during scrolling
-  let scrollThrottleFrame: number | undefined
-  const throttledScroll = (e: Event) => {
-    if (scrollThrottleFrame !== undefined) return
-    scrollThrottleFrame = requestAnimationFrame(() => {
-      scrollThrottleFrame = undefined
-      updateThumb()
-      if (typeof events.onScroll === "function") events.onScroll(e as any)
-    })
-  }
-
   let startY = 0
   let startScrollTop = 0
 
@@ -259,7 +248,10 @@ export function ScrollView(props: ScrollViewProps) {
         ref={viewportRef}
         data-component="scroll-viewport"
         class="scroll-view__viewport"
-        onScroll={throttledScroll}
+        onScroll={(e) => {
+          updateThumb()
+          if (typeof events.onScroll === "function") events.onScroll(e as any)
+        }}
         onWheel={events.onWheel as any}
         onTouchStart={events.onTouchStart as any}
         onTouchMove={events.onTouchMove as any}
