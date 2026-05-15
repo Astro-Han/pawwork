@@ -1,6 +1,29 @@
 import { describe, expect, test } from "bun:test"
+import type { Todo } from "@opencode-ai/sdk/v2/client"
+import { nextSessionTodoClearFlag } from "./global-sync"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
+
+describe("nextSessionTodoClearFlag", () => {
+  const todo = { id: "todo_1", content: "work", status: "in_progress", priority: "medium" } as Todo
+
+  test("marks live empty backend updates as active-parts clears", () => {
+    expect(nextSessionTodoClearFlag(undefined, [], { clearActiveParts: true }, 10)).toBe(10)
+  })
+
+  test("preserves existing live clear flag across ordinary empty backend refreshes", () => {
+    expect(nextSessionTodoClearFlag(10, [])).toBe(10)
+  })
+
+  test("does not create a clear flag for ordinary empty backend refreshes", () => {
+    expect(nextSessionTodoClearFlag(undefined, [])).toBeUndefined()
+  })
+
+  test("clears the flag on non-empty backend updates and cleanup", () => {
+    expect(nextSessionTodoClearFlag(10, [todo])).toBeUndefined()
+    expect(nextSessionTodoClearFlag(10, undefined)).toBeUndefined()
+  })
+})
 
 describe("pickDirectoriesToEvict", () => {
   test("keeps pinned stores and evicts idle stores", () => {

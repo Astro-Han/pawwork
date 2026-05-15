@@ -32,6 +32,7 @@ function local(method: string, path: string) {
 
 function getSessionID(url: URL) {
   if (url.pathname === "/session/status") return null
+  if (url.pathname.startsWith("/session/__e2e/")) return null
 
   const id = url.pathname.match(/^\/session\/([^/]+)(?:\/|$)/)?.[1]
   if (!id) return null

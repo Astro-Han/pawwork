@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test"
-import type { PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2/client"
+import type { PermissionRequest, QuestionRequest, Todo } from "@opencode-ai/sdk/v2/client"
 import { test, expect } from "../fixtures"
 import {
   composerEvent,
@@ -17,6 +17,7 @@ import {
   sessionComposerDockSelector,
   sessionTurnListSelector,
   sessionTodoToggleButtonSelector,
+  titlebarRightSelector,
 } from "../selectors"
 import { modKey } from "../utils"
 import { inputMatch } from "../prompt/mock"
@@ -190,6 +191,21 @@ async function e2ePublishQuestionBlocker(project: ProjectQuestionSeed, request: 
     },
   )
   expect(response.status).toBe(204)
+}
+
+async function e2eUpdateTodos(
+  project: ProjectQuestionSeed,
+  input: { sessionID: string; todos: Array<Pick<Todo, "content" | "status" | "priority"> & Partial<Pick<Todo, "id">>> },
+) {
+  const response = await fetch(
+    `${project.url}/session/__e2e/update-todos?directory=${encodeURIComponent(project.directory)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  )
+  expect(response.status, await response.text()).toBe(204)
 }
 
 async function waitForQuestionSeed(project: ProjectQuestionSeed, sessionID: string) {
@@ -1232,6 +1248,89 @@ test("todo dock appears from real todowrite tool parts", async ({ page, llm, pro
       await project.prompt("Create a todo list and start counting.")
 
       await dock.expectCollapsed(["completed", "in_progress", "pending"])
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock and status summary use backend terminal update over stale todowrite parts", async ({
+  page,
+  llm,
+  project,
+}) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock backend terminal todo",
+    async (session) => {
+      const content = "backend terminal todo"
+      await project.gotoSession(session.id)
+
+      await llm.tool("todowrite", {
+        todos: [{ content, status: "in_progress", priority: "medium" }],
+      })
+      await llm.text("todo started")
+      await project.prompt("Create a todo and start it.")
+
+      const dockItem = page.locator('[data-slot="session-todo-item"]').filter({ hasText: content }).first()
+      await expect(dockItem).toHaveAttribute("data-state", "in_progress", { timeout: 30_000 })
+
+      await e2eUpdateTodos(
+        { url: project.url, directory: project.directory, sdk: project.sdk },
+        {
+          sessionID: session.id,
+          todos: [{ content, status: "completed", priority: "medium" }],
+        },
+      )
+
+      await expect(dockItem).toHaveAttribute("data-state", "completed", { timeout: 10_000 })
+
+      const rightPanel = page.locator("#right-panel")
+      if ((await rightPanel.getAttribute("aria-hidden")) !== "false") {
+        await page.locator(`${titlebarRightSelector} button`).first().click()
+      }
+      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+      const summaryTodo = rightPanel.locator('[data-slot="status-summary-todo"]').filter({ hasText: content }).first()
+      await expect(summaryTodo).toHaveAttribute("data-state", "completed", { timeout: 10_000 })
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock and status summary clear when backend todo update is empty", async ({ page, llm, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock backend empty todo",
+    async (session) => {
+      const content = "backend cleared todo"
+      await project.gotoSession(session.id)
+
+      await llm.tool("todowrite", {
+        todos: [{ content, status: "in_progress", priority: "medium" }],
+      })
+      await llm.text("todo started")
+      await project.prompt("Create a todo and start it.")
+
+      const dockItem = page.locator('[data-slot="session-todo-item"]').filter({ hasText: content })
+      await expect(dockItem.first()).toHaveAttribute("data-state", "in_progress", { timeout: 30_000 })
+
+      await e2eUpdateTodos(
+        { url: project.url, directory: project.directory, sdk: project.sdk },
+        {
+          sessionID: session.id,
+          todos: [],
+        },
+      )
+
+      await expect(dockItem).toHaveCount(0, { timeout: 10_000 })
+
+      const rightPanel = page.locator("#right-panel")
+      if ((await rightPanel.getAttribute("aria-hidden")) !== "false") {
+        await page.locator(`${titlebarRightSelector} button`).first().click()
+      }
+      await expect(rightPanel).toHaveAttribute("aria-hidden", "false")
+      await expect(rightPanel.locator('[data-slot="status-summary-todo"]').filter({ hasText: content })).toHaveCount(0)
     },
     { trackSession: project.trackSession },
   )

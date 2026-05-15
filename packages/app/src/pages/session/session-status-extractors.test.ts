@@ -96,6 +96,54 @@ describe("extractTodos", () => {
 
     expect(extractTodos([part])).toEqual([{ content: "A", status: "pending", priority: "medium" }])
   })
+
+  it("does not default missing metadata status to an active todo", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "from input", status: "completed", priority: "medium" }] },
+        metadata: { todos: [{ id: "todo_1", content: "from metadata", priority: "medium" }] },
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([{ content: "from input", status: "completed", priority: "medium" }])
+  })
+
+  it("falls back to input when metadata is an empty object", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "from input", status: "pending", priority: "medium" }] },
+        metadata: {},
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([{ content: "from input", status: "pending", priority: "medium" }])
+  })
+
+  it("falls back to input when metadata.todos is not an array", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: [{ content: "from input", status: "pending", priority: "medium" }] },
+        metadata: { todos: "not-an-array" },
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([{ content: "from input", status: "pending", priority: "medium" }])
+  })
+
+  it("returns empty when neither metadata nor input contains valid todos", () => {
+    const part = toolPart(
+      "todowrite",
+      completedState({
+        input: { todos: "not-an-array" },
+        metadata: { todos: "also-not-an-array" },
+      }),
+    )
+
+    expect(extractTodos([part])).toEqual([])
+  })
 })
 
 const webfetchPart = (url: string): Part => toolPart("webfetch", completedState({ input: { url } }))

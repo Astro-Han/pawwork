@@ -42,6 +42,9 @@ type GlobalStore = {
   session_todo: {
     [sessionID: string]: Todo[]
   }
+  session_todo_clear: {
+    [sessionID: string]: number
+  }
   provider: ProviderListResponse
   provider_auth: ProviderAuthResponse
   config: Config
@@ -49,6 +52,18 @@ type GlobalStore = {
 }
 
 const inactiveQueryFn = async () => null
+
+export function nextSessionTodoClearFlag(
+  previous: number | undefined,
+  todos: Todo[] | undefined,
+  options?: { clearActiveParts?: boolean },
+  now = Date.now(),
+) {
+  if (!todos) return undefined
+  if (todos.length > 0) return undefined
+  if (options?.clearActiveParts === true) return now
+  return previous
+}
 
 export const loadSessionsQuery = (directory: string) =>
   queryOptions<null>({ queryKey: [directory, "loadSessions"], queryFn: inactiveQueryFn, enabled: false })
@@ -75,6 +90,7 @@ function createGlobalSync() {
     path: { state: "", config: "", worktree: "", directory: "", home: "" },
     project: projectCache.value,
     session_todo: {},
+    session_todo_clear: {},
     provider: { all: [], connected: [], default: {} },
     provider_auth: {},
     config: {},
@@ -141,7 +157,11 @@ function createGlobalSync() {
     })
   }
 
-  const setSessionTodo = (sessionID: string, todos: Todo[] | undefined) => {
+  const setSessionTodo = (
+    sessionID: string,
+    todos: Todo[] | undefined,
+    options?: { clearActiveParts?: boolean },
+  ) => {
     if (!sessionID) return
     if (!todos) {
       setGlobalStore(
@@ -150,9 +170,26 @@ function createGlobalSync() {
           delete draft[sessionID]
         }),
       )
+      setGlobalStore(
+        "session_todo_clear",
+        produce((draft) => {
+          delete draft[sessionID]
+        }),
+      )
       return
     }
     setGlobalStore("session_todo", sessionID, reconcile(todos, { key: "id" }))
+    const clearFlag = nextSessionTodoClearFlag(globalStore.session_todo_clear[sessionID], todos, options)
+    if (clearFlag !== undefined) {
+      setGlobalStore("session_todo_clear", sessionID, clearFlag)
+      return
+    }
+    setGlobalStore(
+      "session_todo_clear",
+      produce((draft) => {
+        delete draft[sessionID]
+      }),
+    )
   }
 
   const paused = () => untrack(() => globalStore.reload) !== undefined

@@ -33,9 +33,11 @@ import { TurnChange, type Display as TurnChangeDisplay } from "@/session/turn-ch
 import { FileWatcher } from "@/file/watcher"
 import { File } from "@/file"
 import { LSP } from "@/lsp"
+import { Env } from "@/env"
 
 const log = Log.create({ service: "server" })
 const AbortMode = z.enum(["soft", "hard"])
+const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
   return Effect.gen(function* () {
@@ -134,6 +136,32 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const result = await AppRuntime.runPromise(SessionStatus.Service.use((svc) => svc.list()))
         return c.json(Object.fromEntries(result))
+      },
+    )
+    .post(
+      "/__e2e/update-todos",
+      async (c, next) => {
+        if (!e2eSessionRoutesEnabled()) return c.notFound()
+        await next()
+      },
+      validator(
+        "json",
+        z.object({
+          sessionID: SessionID.zod,
+          todos: z.array(Todo.Input),
+        }),
+      ),
+      async (c) => {
+        const json = c.req.valid("json")
+        await AppRuntime.runPromise(
+          Todo.Service.use((svc) =>
+            svc.update({
+              sessionID: json.sessionID,
+              todos: json.todos,
+            }),
+          ),
+        )
+        return c.body(null, 204)
       },
     )
     .get(
