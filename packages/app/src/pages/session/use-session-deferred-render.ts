@@ -1,4 +1,4 @@
-import { createComputed, createSignal, onCleanup } from "solid-js"
+import { createEffect, createSignal, onCleanup } from "solid-js"
 
 export function createSessionDeferredRender(sessionKey: () => string | undefined) {
   const [deferRender, setDeferRender] = createSignal(false)
@@ -15,7 +15,7 @@ export function createSessionDeferredRender(sessionKey: () => string | undefined
 
   onCleanup(clearDeferRenderSchedule)
 
-  createComputed((prev) => {
+  createEffect((prev) => {
     const key = sessionKey()
     if (key !== prev) {
       const epoch = ++deferRenderEpoch
