@@ -271,18 +271,12 @@ const TAILWIND_CSS = readFileSync(
 
 describe("#642 PR0: radii dual-namespace", () => {
   test("radii are pixel-equal between theme.css :root and tailwind @theme", () => {
-    // Strip CSS comments first so a `/* historical: --radius-sm: 4px */`
-    // doesn't pass the assertion.
-    const themeStripped = THEME_CSS.replace(/\/\*[\s\S]*?\*\//g, "")
-    const tailwindStripped = TAILWIND_CSS.replace(/\/\*[\s\S]*?\*\//g, "")
+    const themeDecls = parseDeclarations(extractBlock(THEME_CSS, ":root"))
+    const tailwindDecls = parseDeclarations(extractBlock(TAILWIND_CSS, "@theme"))
     const expected = { sm: "6px", md: "10px", lg: "14px" }
     for (const [name, value] of Object.entries(expected)) {
-      expect(themeStripped).toMatch(
-        new RegExp(`--radius-${name}:\\s*${value}\\b`),
-      )
-      expect(tailwindStripped).toMatch(
-        new RegExp(`--radius-${name}:\\s*${value}\\b`),
-      )
+      expect(themeDecls.get(`radius-${name}`)).toBe(value)
+      expect(tailwindDecls.get(`radius-${name}`)).toBe(value)
     }
   })
 })
