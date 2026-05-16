@@ -1,4 +1,4 @@
-import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX, createSignal } from "solid-js"
+import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
@@ -35,8 +35,6 @@ import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSettings } from "@/context/settings"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
-import { messageAgentColor } from "@/utils/agent"
-import { makeTimer } from "@solid-primitives/timer"
 import { webSearchRecoveryToast } from "./websearch-toasts"
 
 function isWebSearchToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
@@ -222,22 +220,6 @@ export function MessageTimeline(props: {
     return sync.data.session_status[id] ?? idle
   })
   const working = createSessionRunning(sessionStatus, sessionMessages)
-  const tint = createMemo(() => messageAgentColor(sessionMessages(), sync.data.agent))
-
-  const [timeoutDone, setTimeoutDone] = createSignal(true)
-
-  const workingStatus = createMemo<"hidden" | "showing" | "hiding">((prev) => {
-    if (working()) return "showing"
-    if (prev === "showing" || !timeoutDone()) return "hiding"
-    return "hidden"
-  })
-
-  createEffect(() => {
-    if (workingStatus() !== "hiding") return
-
-    setTimeoutDone(false)
-    makeTimer(() => setTimeoutDone(true), 260, setTimeout)
-  })
 
   const activeMessageID = createMemo(() => {
     const parentID = working() ? pending()?.parentID : undefined
