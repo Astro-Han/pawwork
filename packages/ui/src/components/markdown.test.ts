@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, mock, test, vi } from "bun:test"
 import {
   forceOpenAllDetails,
   preserveDetailsOpenState,
@@ -7,6 +7,26 @@ import {
   sanitizeConfig,
   sanitizeForTest,
 } from "./markdown"
+import { ensureCodeWrapper, markCodeLinks, setupCodeCopy } from "./markdown-code-tools"
+
+const originalClipboard = Object.getOwnPropertyDescriptor(Navigator.prototype, "clipboard")
+const originalError = console.error
+
+afterEach(() => {
+  if (originalClipboard) {
+    Object.defineProperty(Navigator.prototype, "clipboard", originalClipboard)
+  } else {
+    Reflect.deleteProperty(Navigator.prototype, "clipboard")
+  }
+  console.error = originalError
+})
+
+function setClipboard(writeText: (value: string) => Promise<void>) {
+  Object.defineProperty(Navigator.prototype, "clipboard", {
+    configurable: true,
+    get: () => ({ writeText }),
+  })
+}
 
 describe("DOMPurify whitelist config", () => {
   test("forbids unsafe tags", () => {
@@ -180,6 +200,110 @@ describe("link action routing", () => {
   })
   test("trims surrounding whitespace", () => {
     expect(resolveLinkAction("  https://x.com  ")).toEqual({ kind: "external", url: "https://x.com" })
+  })
+})
+
+describe("markdown code decoration", () => {
+  test("wraps code blocks with one copy button", () => {
+    document.body.innerHTML = "<pre><code>echo hi</code></pre>"
+    const block = document.querySelector("pre")!
+    const labels = { copy: "Copy", copied: "Copied" }
+
+    ensureCodeWrapper(block, labels)
+    ensureCodeWrapper(block, labels)
+
+    const wrapper = document.querySelector('[data-component="markdown-code"]')
+    expect(wrapper).not.toBeNull()
+    expect(wrapper!.querySelectorAll('[data-slot="markdown-copy-button"]')).toHaveLength(1)
+    expect(wrapper!.textContent).toContain("echo hi")
+  })
+
+  test("marks inline code URLs and unwraps them when no longer URL-shaped", () => {
+    document.body.innerHTML = "<p><code>https://example.com/readme</code></p>"
+    markCodeLinks(document.body as HTMLDivElement)
+
+    const link = document.querySelector("a.external-link")!
+    expect(link).not.toBeNull()
+    expect(link.getAttribute("href")).toBe("https://example.com/readme")
+
+    const code = link.querySelector("code")!
+    code.textContent = "not a url"
+    markCodeLinks(document.body as HTMLDivElement)
+
+    expect(document.querySelector("a.external-link")).toBeNull()
+    expect(document.querySelector("code")!.textContent).toBe("not a url")
+  })
+
+  test("leaves inline code inside existing markdown links unchanged", () => {
+    document.body.innerHTML = '<p><a href="https://example.com"><code>https://example.com</code></a></p>'
+    markCodeLinks(document.body as HTMLDivElement)
+
+    expect(document.querySelectorAll("a")).toHaveLength(1)
+    expect(document.querySelector("a")!.classList.contains("external-link")).toBe(false)
+    expect(document.querySelector("a > code")!.textContent).toBe("https://example.com")
+  })
+
+  test("copy button reports clipboard failures without entering copied state", async () => {
+    const error = new Error("denied")
+    const writeText = mock(async () => {
+      throw error
+    })
+    const consoleError = mock(() => undefined)
+    console.error = consoleError as typeof console.error
+    setClipboard(writeText)
+
+    document.body.innerHTML =
+      '<div data-component="markdown-code"><pre><code>echo hi</code></pre><button type="button" data-slot="markdown-copy-button">Copy</button></div>'
+    const cleanup = setupCodeCopy(document.body as HTMLDivElement, () => ({ copy: "Copy", copied: "Copied" }))
+    const button = document.querySelector("button")!
+
+    button.click()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(writeText).toHaveBeenCalledWith("echo hi")
+    expect(consoleError).toHaveBeenCalledWith("Clipboard copy failed", error)
+    expect(button.hasAttribute("data-copied")).toBe(false)
+
+    cleanup()
+  })
+
+  test("copy button resets with current labels and clears the finished timer", async () => {
+    vi.useFakeTimers()
+    try {
+      const writeText = mock(async () => undefined)
+      setClipboard(writeText)
+      let copyLabel = "Copy"
+
+      document.body.innerHTML =
+        '<div data-component="markdown-code"><pre><code>echo hi</code></pre><button type="button" data-slot="markdown-copy-button">Copy</button></div>'
+      const cleanup = setupCodeCopy(document.body as HTMLDivElement, () => ({
+        copy: copyLabel,
+        copied: "Copied",
+      }))
+      const button = document.querySelector("button")!
+
+      button.click()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(button.getAttribute("aria-label")).toBe("Copied")
+
+      copyLabel = "Copy now"
+      vi.advanceTimersByTime(2000)
+
+      expect(button.hasAttribute("data-copied")).toBe(false)
+      expect(button.getAttribute("aria-label")).toBe("Copy now")
+
+      button.click()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(writeText).toHaveBeenCalledTimes(2)
+      cleanup()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
