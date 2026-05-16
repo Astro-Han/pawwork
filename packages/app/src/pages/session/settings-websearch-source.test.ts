@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 
 const settingsSource = readFileSync(new URL("../../context/settings.tsx", import.meta.url), "utf8")
 const generalSource = readFileSync(new URL("../../components/settings-general.tsx", import.meta.url), "utf8")
+const webSearchRowSource = readFileSync(new URL("../../components/settings-web-search-row.tsx", import.meta.url), "utf8")
 const appSource = readFileSync(new URL("../../app.tsx", import.meta.url), "utf8")
 const enSource = readFileSync(new URL("../../i18n/en.ts", import.meta.url), "utf8")
 const zhSource = readFileSync(new URL("../../i18n/zh.ts", import.meta.url), "utf8")
@@ -16,10 +17,11 @@ describe("settings web search source contract", () => {
   })
 
   test("renders the General Web Search controls without persisting API key input in settings state", () => {
-    expect(generalSource).toContain('data-action="settings-web-search-enabled"')
-    expect(generalSource).toContain('data-action="settings-web-search-manage"')
-    expect(generalSource).toContain("DialogConnectWebSearch")
-    expect(generalSource).not.toContain("savingExaKey")
+    expect(generalSource).toContain("<SettingsWebSearchRow />")
+    expect(webSearchRowSource).toContain('data-action="settings-web-search-enabled"')
+    expect(webSearchRowSource).toContain('data-action="settings-web-search-manage"')
+    expect(webSearchRowSource).toContain("DialogConnectWebSearch")
+    expect(webSearchRowSource).not.toContain("savingExaKey")
     expect(settingsSource).not.toContain("exaApiKey")
   })
 
@@ -62,16 +64,16 @@ describe("settings web search source contract", () => {
   })
 
   test("refreshes the General row status after dialog credential changes", () => {
-    expect(generalSource).toContain("webSearchStatusActions")
-    expect(generalSource).toContain("onStatusChanged={webSearchStatusActions.refetch}")
-    expect(generalSource).toContain("settings.general.webSearch.chip.savedQuota")
+    expect(webSearchRowSource).toContain("webSearchStatusActions")
+    expect(webSearchRowSource).toContain("onStatusChanged={webSearchStatusActions.refetch}")
+    expect(webSearchRowSource).toContain("settings.general.webSearch.chip.savedQuota")
   })
 
   test("prioritizes saved quota over saved invalid-key attention in General status copy", () => {
-    const quotaChip = generalSource.indexOf("settings.general.webSearch.chip.savedQuota")
-    const invalidChip = generalSource.indexOf("settings.general.webSearch.chip.invalid")
-    const quotaSecondary = generalSource.indexOf("settings.general.webSearch.secondary.savedQuota")
-    const failedSecondary = generalSource.indexOf("settings.general.webSearch.secondary.failed")
+    const quotaChip = webSearchRowSource.indexOf("settings.general.webSearch.chip.savedQuota")
+    const invalidChip = webSearchRowSource.indexOf("settings.general.webSearch.chip.invalid")
+    const quotaSecondary = webSearchRowSource.indexOf("settings.general.webSearch.secondary.savedQuota")
+    const failedSecondary = webSearchRowSource.indexOf("settings.general.webSearch.secondary.failed")
 
     expect(quotaChip).toBeGreaterThan(-1)
     expect(invalidChip).toBeGreaterThan(-1)
