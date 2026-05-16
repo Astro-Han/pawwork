@@ -11,6 +11,8 @@ describe("heterogeneous scroll fixture", () => {
     expect(combined).toContain("```ts")
     expect(combined).toContain("```diff")
     expect(combined).toContain("```json")
+    expect(combined).toContain("```text")
+    expect(combined).toContain("pawwork perf probe")
     expect(combined).toContain("| phase | status |")
     expect(combined).toContain("Reasoning summary")
     expect(combined).toContain("中文混排")
