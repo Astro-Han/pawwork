@@ -303,6 +303,21 @@ describe("#642 PR0: --code-surface three-block presence", () => {
   })
 })
 
+const MARKED_TSX = readFileSync(
+  join(ROOT, "src/context/marked.tsx"),
+  "utf-8",
+)
+
+describe("#642 PR0: shiki OpenCode theme background binds to --code-surface", () => {
+  test("editor.background = var(--code-surface) (DESIGN.md L179)", () => {
+    // Shiki single-theme codeToHtml inlines editor.background on
+    // <pre class="shiki">, which beats any plain CSS rule on .shiki.
+    // Binding the theme value itself is the only way fence-code blocks
+    // actually render on the --code-surface alpha overlay.
+    expect(MARKED_TSX).toMatch(/"editor\.background":\s*"var\(--code-surface\)"/)
+  })
+})
+
 describe("theme-parser: extractBlock fixtures", () => {
   test("extracts a top-level selector block", () => {
     const css = `:root {\n  --color: red;\n}\n`
