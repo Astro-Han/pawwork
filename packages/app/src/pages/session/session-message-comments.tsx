@@ -58,7 +58,7 @@ export function SessionMessageComments(props: { comments: MessageComment[] }) {
                   <Show when={comment()}>
                     {(c) => (
                       <div class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak bg-surface-base px-2.5 py-2">
-                        <div class="flex items-center gap-1.5 min-w-0 text-13-medium text-fg-strong">
+                        <div class="flex items-center gap-1.5 min-w-0 text-body font-emphasis text-fg-strong">
                           <FileIcon node={{ path: c().path, type: "file" }} class="size-3.5 shrink-0" />
                           <span class="truncate">{getFilename(c().path)}</span>
                           <Show when={c().selection}>
@@ -71,7 +71,7 @@ export function SessionMessageComments(props: { comments: MessageComment[] }) {
                             )}
                           </Show>
                         </div>
-                        <div class="pt-1 text-13-regular text-fg-strong whitespace-pre-wrap break-words">
+                        <div class="pt-1 text-body text-fg-strong whitespace-pre-wrap break-words">
                           {c().comment}
                         </div>
                       </div>
