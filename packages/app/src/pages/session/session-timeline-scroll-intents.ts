@@ -11,6 +11,11 @@ export type TimelineBoundaryGesture = {
   atNestedBoundary: boolean
 }
 
+const scrollMetricThresholds = {
+  nearTop: 12,
+  nearBottom: 2,
+}
+
 export function timelineBoundaryTarget(root: HTMLElement, target: EventTarget | null) {
   const current = target instanceof Element ? target : undefined
   const nested = current?.closest("[data-scrollable]")
@@ -20,7 +25,7 @@ export function timelineBoundaryTarget(root: HTMLElement, target: EventTarget | 
 }
 
 export function timelineBoundaryGesture(input: {
-  root: HTMLDivElement
+  root: HTMLElement
   target: EventTarget | null
   delta: number
 }): TimelineBoundaryGesture {
@@ -54,8 +59,8 @@ export function scrollViewMetricsToTimelineMetrics(metrics: {
     clientHeight: metrics.clientHeight,
     distanceFromTop: metrics.scrollTop,
     distanceFromBottom,
-    nearTop: metrics.scrollTop <= 12,
-    nearBottom: distanceFromBottom <= 2,
+    nearTop: metrics.scrollTop <= scrollMetricThresholds.nearTop,
+    nearBottom: distanceFromBottom <= scrollMetricThresholds.nearBottom,
   }
 }
 
@@ -82,7 +87,7 @@ export type TimelineGestureIntentResult = {
 }
 
 export function createWheelTimelineScrollIntent(input: {
-  root: HTMLDivElement
+  root: HTMLElement
   target: EventTarget | null
   deltaY: number
   deltaMode: number
@@ -103,7 +108,7 @@ export function createWheelTimelineScrollIntent(input: {
 }
 
 export function createTouchTimelineScrollIntent(input: {
-  root: HTMLDivElement
+  root: HTMLElement
   target: EventTarget | null
   delta: number
 }): TimelineGestureIntentResult | undefined {
@@ -118,7 +123,7 @@ export function createTouchTimelineScrollIntent(input: {
 
 function createPointerTimelineScrollIntent(input: {
   type: "wheel_scroll" | "touch_scroll"
-  root: HTMLDivElement
+  root: HTMLElement
   target: EventTarget | null
   delta: number
 }): TimelineGestureIntentResult {
