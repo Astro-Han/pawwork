@@ -6,6 +6,7 @@ import { createStore } from "solid-js/store"
 import { Link } from "@/components/link"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useLanguage } from "@/context/language"
+import { submitProviderApiAuth } from "./dialog-connect-provider-api-auth"
 import { formatProviderConnectError } from "./dialog-connect-provider-error"
 
 type ProviderConnectInfo = {
@@ -34,14 +35,19 @@ export function ProviderApiAuthView(props: { provider: () => ProviderConnectInfo
     }
 
     setFormStore("error", undefined)
-    await globalSDK.client.auth.set({
-      providerID: props.provider().id,
-      auth: {
-        type: "api",
-        key: apiKey,
-      },
+    const error = await submitProviderApiAuth({
+      setAuth: () =>
+        globalSDK.client.auth.set({
+          providerID: props.provider().id,
+          auth: {
+            type: "api",
+            key: apiKey,
+          },
+        }),
+      onComplete: props.onComplete,
+      formatError: (error) => formatProviderConnectError(error, language.t("common.requestFailed")),
     })
-    await props.onComplete()
+    if (error) setFormStore("error", error)
   }
 
   return (
