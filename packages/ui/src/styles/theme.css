@@ -85,6 +85,7 @@
   --surface-base:   #ffffff;
   --surface-raised: #ffffff;
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
+  --code-surface:   rgba(0, 0, 0, 0.04); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
@@ -286,6 +287,7 @@
   --surface-base:   #221f1c;
   --surface-raised: #3a3431;
   --surface-sunken: #16130f;
+  --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #15120f;
 
   /* Dark ink · STANDARDS L11 (4-tier mirror) */
@@ -433,6 +435,7 @@
     --surface-base:   #221f1c;
     --surface-raised: #3a3431;
     --surface-sunken: #16130f;
+    --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
     --sidebar:        #15120f;
 
     --fg-strong: #f3ede4;
