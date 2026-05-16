@@ -29,7 +29,7 @@ export namespace Skill {
 
   export const Info = z.object({
     name: z.string(),
-    description: z.string(),
+    description: z.string().optional(),
     location: z.string(),
     content: z.string(),
   })
@@ -275,13 +275,18 @@ export namespace Skill {
     Layer.provide(AppFileSystem.defaultLayer),
   )
 
+  export function displayable(list: Info[]) {
+    return list.filter((skill) => skill.description !== undefined)
+  }
+
   export function fmt(list: Info[], opts: { verbose: boolean }) {
-    if (list.length === 0) return "No skills are currently available."
+    const displayableSkills = displayable(list)
+    if (displayableSkills.length === 0) return "No skills are currently available."
     if (opts.verbose) {
       return [
         "<available_skills>",
-        ...list
-          .sort((a, b) => a.name.localeCompare(b.name))
+        ...displayableSkills
+          .toSorted((a, b) => a.name.localeCompare(b.name))
           .flatMap((skill) => [
             "  <skill>",
             `    <name>${skill.name}</name>`,
@@ -295,7 +300,7 @@ export namespace Skill {
 
     return [
       "## Available Skills",
-      ...list
+      ...displayableSkills
         .toSorted((a, b) => a.name.localeCompare(b.name))
         .map((skill) => `- **${skill.name}**: ${skill.description}`),
     ].join("\n")

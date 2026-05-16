@@ -5942,7 +5942,7 @@ export type AppSkillsResponses = {
    */
   200: Array<{
     name: string
-    description: string
+    description?: string
     location: string
     content: string
   }>

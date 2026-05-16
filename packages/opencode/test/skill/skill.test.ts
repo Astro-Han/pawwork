@@ -157,6 +157,40 @@ Just some content without YAML frontmatter.
   })
 })
 
+test("discovers skills without descriptions but hides them from formatted prompts", async () => {
+  await using tmp = await tmpdir({
+    git: true,
+    init: async (dir) => {
+      const skillDir = path.join(dir, ".opencode", "skill", "manual-skill")
+      await Bun.write(
+        path.join(skillDir, "SKILL.md"),
+        `---
+name: manual-skill
+---
+
+# Manual Skill
+
+Instructions here.
+`,
+      )
+    },
+  })
+
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const skills = await Skill.all()
+      const item = skills.find((s) => s.name === "manual-skill")
+      expect(item).toBeDefined()
+      expect(item!.description).toBeUndefined()
+      expect(Skill.fmt(skills, { verbose: false })).not.toContain("manual-skill")
+      expect(Skill.fmt(skills, { verbose: true })).not.toContain("manual-skill")
+      expect(Skill.fmt([item!], { verbose: false })).toBe("No skills are currently available.")
+      expect(Skill.fmt([item!], { verbose: true })).toBe("No skills are currently available.")
+    },
+  })
+})
+
 test("returns empty array when no skills exist", async () => {
   await using tmp = await tmpdir({ git: true })
 

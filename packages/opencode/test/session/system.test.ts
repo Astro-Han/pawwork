@@ -117,17 +117,18 @@ describe("session.system", () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
-        for (const [name, description] of [
-          ["zeta-skill", "Zeta skill."],
-          ["alpha-skill", "Alpha skill."],
-          ["middle-skill", "Middle skill."],
+        for (const { name, description } of [
+          { name: "zeta-skill", description: "Zeta skill." },
+          { name: "alpha-skill", description: "Alpha skill." },
+          { name: "middle-skill", description: "Middle skill." },
+          { name: "manual-skill" },
         ]) {
           const skillDir = path.join(dir, ".opencode", "skill", name)
           await Bun.write(
             path.join(skillDir, "SKILL.md"),
             `---
 name: ${name}
-description: ${description}
+${description === undefined ? "" : `description: ${description}`}
 ---
 
 # ${name}
@@ -162,6 +163,7 @@ description: ${description}
           expect(alpha).toBeGreaterThan(-1)
           expect(middle).toBeGreaterThan(alpha)
           expect(zeta).toBeGreaterThan(middle)
+          expect(first).not.toContain("manual-skill")
         },
       })
     } finally {
