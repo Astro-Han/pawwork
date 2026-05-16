@@ -573,7 +573,7 @@ export function DialogSelectServer() {
                           as={IconButton}
                           icon="dot-grid"
                           variant="ghost"
-                          class="shrink-0 size-8 hover:bg-surface-sunken data-[expanded]:bg-surface-base-active"
+                          class="shrink-0 size-8 hover:bg-row-active-overlay data-[expanded]:bg-surface-base-active"
                           onClick={(e: MouseEvent) => e.stopPropagation()}
                           onPointerDown={(e: PointerEvent) => e.stopPropagation()}
                         />
