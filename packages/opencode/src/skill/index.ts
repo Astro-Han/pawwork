@@ -29,7 +29,7 @@ export namespace Skill {
 
   export const Info = z.object({
     name: z.string(),
-    description: z.string(),
+    description: z.string().optional(),
     location: z.string(),
     content: z.string(),
   })
@@ -276,12 +276,13 @@ export namespace Skill {
   )
 
   export function fmt(list: Info[], opts: { verbose: boolean }) {
-    if (list.length === 0) return "No skills are currently available."
+    const described = list.filter((skill) => skill.description !== undefined)
+    if (described.length === 0) return "No skills are currently available."
     if (opts.verbose) {
       return [
         "<available_skills>",
-        ...list
-          .sort((a, b) => a.name.localeCompare(b.name))
+        ...described
+          .toSorted((a, b) => a.name.localeCompare(b.name))
           .flatMap((skill) => [
             "  <skill>",
             `    <name>${skill.name}</name>`,
@@ -295,7 +296,7 @@ export namespace Skill {
 
     return [
       "## Available Skills",
-      ...list
+      ...described
         .toSorted((a, b) => a.name.localeCompare(b.name))
         .map((skill) => `- **${skill.name}**: ${skill.description}`),
     ].join("\n")
