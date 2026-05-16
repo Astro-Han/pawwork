@@ -1,7 +1,15 @@
 import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
 
-test("dropping an image file adds an attachment", async ({ page, gotoSession }) => {
+// The shared e2e backend only exposes text-only models, so the image-attach
+// happy path cannot be exercised here. These specs lock in the two paths the
+// drop-file pipeline owns under that constraint:
+//   1. dropping an image with a text-only model surfaces the "choose a vision
+//      model" toast and never adds a chip
+//   2. dropping a non-image file routes through addDirect and renders a chip
+//      with a Remove control
+
+test("dropping an image with a text-only model surfaces the unsupported toast", async ({ page, gotoSession }) => {
   await gotoSession()
 
   const prompt = page.locator(promptSelector)
@@ -18,13 +26,30 @@ test("dropping an image file adds an attachment", async ({ page, gotoSession }) 
 
   await page.dispatchEvent("body", "drop", { dataTransfer: dt })
 
-  const img = page.locator('img[alt="drop.png"]').first()
-  await expect(img).toBeVisible()
+  await expect(page.getByText("This model cannot read images")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Choose model" })).toBeVisible()
+  await expect(page.locator('img[alt="drop.png"]')).toHaveCount(0)
+})
 
+test("dropping a text file adds a removable attachment chip", async ({ page, gotoSession }) => {
+  await gotoSession()
+
+  const prompt = page.locator(promptSelector)
+  await prompt.click()
+
+  const dt = await page.evaluateHandle(() => {
+    const dt = new DataTransfer()
+    const file = new File(["hello from drop"], "drop.txt", { type: "text/plain" })
+    dt.items.add(file)
+    return dt
+  })
+
+  await page.dispatchEvent("body", "drop", { dataTransfer: dt })
+
+  await expect(page.getByText("drop.txt").first()).toBeVisible()
   const remove = page.getByRole("button", { name: "Remove attachment" }).first()
   await expect(remove).toBeVisible()
 
-  await img.hover()
-  await remove.click()
-  await expect(page.locator('img[alt="drop.png"]')).toHaveCount(0)
+  await remove.click({ force: true })
+  await expect(page.getByText("drop.txt")).toHaveCount(0)
 })
