@@ -294,11 +294,6 @@ export function SessionTurn(
     if (!messages.length) return false
     return messages.some((item) => typeof item.time.completed !== "number")
   })
-  const visibleTurnChange = createMemo(() => {
-    const current = turnChange()
-    if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return
-    return current
-  })
   const interrupted = createMemo(() => assistantMessages().some((m) => m.error?.name === "MessageAbortedError"))
   const divider = createMemo(() => {
     if (compaction()) return i18n.t("ui.messagePart.compaction")
@@ -339,6 +334,11 @@ export function SessionTurn(
     return data.store.session_status[props.sessionID] ?? idle
   })
   const working = createMemo(() => status().type !== "idle" && active())
+  const visibleTurnChange = createMemo(() => {
+    const current = turnChange()
+    if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return
+    return current
+  })
   const showReasoningSummaries = createMemo(() => props.showReasoningSummaries ?? true)
 
   const assistantCopyPartID = createMemo(() => {

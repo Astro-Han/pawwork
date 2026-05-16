@@ -29,3 +29,9 @@ test("turn-change expansion state stays owned by session turn", () => {
   expect(turnSource).toContain("onExpandedChange={(value) => setTurnExpanded(value)}")
   expect(panelSource).not.toContain("const [turnExpanded, setTurnExpanded] = createSignal<string[]>([])")
 })
+
+test("visible turn-change memo is declared after working state", () => {
+  const source = readFileSync(new URL("./session-turn.tsx", import.meta.url), "utf8")
+
+  expect(source.indexOf("const working = createMemo")).toBeLessThan(source.indexOf("const visibleTurnChange = createMemo"))
+})
