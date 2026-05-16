@@ -16,6 +16,18 @@ describe("dialog-select-server source boundary", () => {
     expect(defaultsSource).toContain("export function useServerPreview")
     expect(formSource).toContain("export function ServerForm")
     expect(listSource).toContain("export function ServerConnectionList")
+
+    for (const ownerImplementation of [
+      "export function useDefaultServer",
+      "export function useServerPreview",
+      "export function ServerForm",
+      "export function ServerConnectionList",
+      "createResource",
+      "TextField",
+      "DropdownMenu",
+    ]) {
+      expect(dialogSource).not.toContain(ownerImplementation)
+    }
   })
 
   test("preserves add/edit fields and list menu actions after extraction", () => {

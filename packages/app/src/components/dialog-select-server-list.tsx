@@ -22,6 +22,10 @@ interface ServerConnectionListProps {
 
 export function ServerConnectionList(props: ServerConnectionListProps) {
   const language = useLanguage()
+  const currentKey = () => {
+    const current = props.current()
+    return current ? ServerConnection.key(current) : undefined
+  }
 
   return (
     <List
@@ -41,7 +45,6 @@ export function ServerConnectionList(props: ServerConnectionListProps) {
     >
       {(i) => {
         const key = ServerConnection.key(i)
-        const active = props.current()
         return (
           <div class="flex items-center gap-3 min-w-0 flex-1 w-full group/item">
             <div class="flex flex-col h-full items-start w-5">
@@ -62,7 +65,7 @@ export function ServerConnectionList(props: ServerConnectionListProps) {
               showCredentials
             />
             <div class="flex items-center justify-center gap-4 pl-4">
-              <Show when={active && ServerConnection.key(active) === key}>
+              <Show when={currentKey() === key}>
                 <Icon name="check" class="h-6" />
               </Show>
 
