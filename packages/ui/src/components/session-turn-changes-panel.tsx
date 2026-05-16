@@ -16,10 +16,13 @@ import {
 } from "./session-turn-changes"
 
 const emptyTurnFiles: TurnChangeFile[] = []
+const emptyExpanded: readonly string[] = []
 
 export function SessionTurnChangesPanel(props: {
   turnChange: TurnChangeDisplay
   actions?: TurnChangeActions
+  expanded?: readonly string[]
+  onExpandedChange?: (value: string[]) => void
 }) {
   const i18n = useI18n()
   const fileComponent = useFileComponent()
@@ -28,9 +31,9 @@ export function SessionTurnChangesPanel(props: {
   const turnEdited = createMemo(() => turnFiles().length)
   const turnAdditions = createMemo(() => turnFiles().reduce((sum, file) => sum + (file.additions ?? 0), 0))
   const turnDeletions = createMemo(() => turnFiles().reduce((sum, file) => sum + (file.deletions ?? 0), 0))
-  const [turnExpanded, setTurnExpanded] = createSignal<string[]>([])
   const [confirmAction, setConfirmAction] = createSignal<"undo" | "redo" | undefined>()
   let confirmTimer: ReturnType<typeof setTimeout> | undefined
+  const expandedPaths = () => props.expanded ?? emptyExpanded
 
   const resetConfirm = () => {
     if (confirmTimer) clearTimeout(confirmTimer)
@@ -112,10 +115,11 @@ export function SessionTurnChangesPanel(props: {
       <div data-slot="session-turn-changes-list">
         <For each={turnFiles()}>
           {(file) => {
-            const expanded = createMemo(() => turnExpanded().includes(file.path))
+            const expanded = createMemo(() => expandedPaths().includes(file.path))
             const toggle = () => {
               if (!file.expandable) return
-              setTurnExpanded((current) =>
+              const current = expandedPaths()
+              props.onExpandedChange?.(
                 current.includes(file.path) ? current.filter((item) => item !== file.path) : [...current, file.path],
               )
             }

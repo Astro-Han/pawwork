@@ -288,6 +288,7 @@ export function SessionTurn(
   )
 
   const turnChange = createMemo(() => props.turnChanges?.[props.messageID])
+  const [turnExpanded, setTurnExpanded] = createSignal<string[]>([])
   const turnInProgress = createMemo(() => {
     const messages = assistantMessages()
     if (!messages.length) return false
@@ -444,7 +445,14 @@ export function SessionTurn(
                 </Show>
                 <SessionRetry status={status()} show={active()} />
                 <Show when={visibleTurnChange()}>
-                  {(display) => <SessionTurnChangesPanel turnChange={display()} actions={props.turnChangeActions} />}
+                  {(display) => (
+                    <SessionTurnChangesPanel
+                      turnChange={display()}
+                      actions={props.turnChangeActions}
+                      expanded={turnExpanded()}
+                      onExpandedChange={(value) => setTurnExpanded(value)}
+                    />
+                  )}
                 </Show>
                 <Show when={!hasVisibleTurnChanges(turnChange()) && edited() > 0 && !working()}>
                   <div
