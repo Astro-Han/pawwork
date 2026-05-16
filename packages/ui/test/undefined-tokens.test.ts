@@ -3,7 +3,7 @@
  *
  * Scans all CSS, TS, and TSX files under packages/ui/src and packages/app/src
  * for var(--xxx) references where --xxx starts with a STANDARDS-regulated prefix
- * (brand, bg, surface, fg, border, icon, success, warning, error, diff, shadow, ring, sidebar).
+ * (brand, bg, surface, fg, border, icon, success, warning, error, diff, shadow, ring, sidebar, code).
  *
  * Asserts that each such regulated token is either:
  *   1. Defined in theme.css (any block, including UNREGULATED section), OR
@@ -24,7 +24,7 @@ const THEME_CSS_PATH = join(WORKTREE, "packages/ui/src/styles/theme.css")
 
 // Mirrors REGULATED_PREFIXES in theme-parity.test.ts
 const REGULATED_PREFIXES =
-  /^(brand|bg|surface|fg|border|icon|success|warning|error|diff|shadow|ring|sidebar)/
+  /^(brand|bg|surface|fg|border|icon|success|warning|error|diff|shadow|ring|sidebar|code)/
 
 // Tokens that are legitimately absent from theme.css:
 //   - pierre diff-viewer external API (--diffs-*): set by the pierre.js library

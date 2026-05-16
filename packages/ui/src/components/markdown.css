@@ -101,7 +101,7 @@
   /* §4 Inline code · 复用 DESIGN.md「Code & diff」 */
   :not(pre) > code {
     font: var(--type-mono-small);
-    background: var(--surface-sunken);
+    background: var(--code-surface);
     padding: 0 var(--space-xs);
     border-radius: var(--radius-sm);
     color: var(--fg-strong);
@@ -315,6 +315,7 @@
     padding: var(--space-md);
     border-radius: var(--radius-sm);
     border: 0.5px solid var(--border-weak);
+    background: var(--code-surface);
   }
 
   /* Code copy-button overlay (fence shell affordance) */

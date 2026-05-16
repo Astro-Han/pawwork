@@ -56,11 +56,9 @@
   --tracking-tight: var(--letter-spacing-tight);
   --tracking-tightest: var(--letter-spacing-tightest);
 
-  --radius-xs: 0.125rem;
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.875rem;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
 
   --shadow-xs: var(--shadow-raised);
   --shadow-md: var(--shadow-floating);

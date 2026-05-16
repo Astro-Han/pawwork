@@ -47,7 +47,7 @@ export function StatusPopover() {
           />
         </div>
       }
-      class="[&_[data-slot=popover-body]]:p-0 w-[360px] max-w-[calc(100vw-40px)] bg-transparent border-0 shadow-none rounded-xl"
+      class="[&_[data-slot=popover-body]]:p-0 w-[360px] max-w-[calc(100vw-40px)] bg-transparent border-0 shadow-none rounded-lg"
       gutter={4}
       placement="bottom-end"
       shift={-168}
@@ -55,7 +55,7 @@ export function StatusPopover() {
       <Show when={shown()}>
         <Suspense
           fallback={
-            <div class="w-[360px] h-14 rounded-xl bg-surface-raised shadow-[var(--shadow-lg-border-base)]" />
+            <div class="w-[360px] h-14 rounded-lg bg-surface-raised shadow-[var(--shadow-lg-border-base)]" />
           }
         >
           <Body shown={shown} />

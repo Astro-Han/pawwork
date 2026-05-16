@@ -246,10 +246,10 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
   const pluginEmpty = createMemo(() => pluginEmptyMessage(language.t("dialog.plugins.empty"), "pawwork.json"))
 
   return (
-    <div class="flex items-center gap-1 w-[360px] rounded-xl shadow-[var(--shadow-lg-border-base)]">
+    <div class="flex items-center gap-1 w-[360px] rounded-lg shadow-[var(--shadow-lg-border-base)]">
       <Tabs
         aria-label={language.t("status.popover.ariaLabel")}
-        class="tabs bg-surface-raised rounded-xl overflow-hidden"
+        class="tabs bg-surface-raised rounded-lg overflow-hidden"
         data-component="tabs"
         data-active="servers"
         defaultValue="servers"

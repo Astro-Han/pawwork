@@ -125,7 +125,7 @@ export function FilesTab(props: { files: FilesTabEntry[] }) {
               return (
                 <section
                   data-artifact-file={entry.file}
-                  class="rounded-xl border border-border-weaker bg-bg-base p-3 flex flex-col gap-3"
+                  class="rounded-lg border border-border-weaker bg-bg-base p-3 flex flex-col gap-3"
                 >
                   <div class="flex items-start gap-3">
                     <FileIcon node={{ path: entry.path, type: "file" }} class="shrink-0 mt-0.5" />

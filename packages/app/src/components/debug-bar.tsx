@@ -401,7 +401,7 @@ export function DebugBar() {
     >
     <aside
       aria-label={language.t("debugBar.ariaLabel")}
-      class="pointer-events-auto fixed bottom-3 right-3 z-50 w-[308px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border-base bg-surface-raised p-0.5 text-fg-strong shadow-[var(--shadow-lg-border-base)] sm:bottom-4 sm:right-4 sm:w-[324px]"
+      class="pointer-events-auto fixed bottom-3 right-3 z-50 w-[308px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-border-base bg-surface-raised p-0.5 text-fg-strong shadow-[var(--shadow-lg-border-base)] sm:bottom-4 sm:right-4 sm:w-[324px]"
     >
       <button
         type="button"

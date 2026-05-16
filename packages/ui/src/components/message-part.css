@@ -364,7 +364,7 @@
 [data-component="bash-output"] {
   width: 100%;
   border: 1px solid var(--border-weak);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   position: relative;
   overflow: hidden;
@@ -1127,7 +1127,7 @@
     &:focus-visible {
       outline: 1px solid var(--brand-primary);
       outline-offset: 2px;
-      border-radius: var(--radius-xs);
+      border-radius: var(--radius-sm);
     }
 
     &:disabled {

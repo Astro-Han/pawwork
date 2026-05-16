@@ -66,18 +66,15 @@
   --space-4xl: 48px;
   --space-5xl: 64px;
 
-  /* ────────── Radius · STANDARDS L16 (4 tiers) ────────── */
+  /* ────────── Radius · STANDARDS L16 (3 tiers) ────────── */
   --radius-sm:   6px;
   --radius-md:   10px;
   --radius-lg:   14px;
-  --radius-pill: 9999px;
 
   /* ────────── Brand · STANDARDS L8 ────────── */
   --brand-primary:       #ff5910;
   --brand-primary-hover: #e04e0e;
   --brand-primary-on:    #ffffff;
-  --brand-danger:        #d24a3a;
-  --brand-danger-hover:  #b53c2e;
 
   /* ────────── Light surface · STANDARDS L9 (2 tiers) ────────── */
   --bg-base:        #ffffff;
@@ -85,6 +82,7 @@
   --surface-base:   #ffffff;
   --surface-raised: #ffffff;
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
+  --code-surface:   rgba(0, 0, 0, 0.04); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
@@ -286,6 +284,7 @@
   --surface-base:   #221f1c;
   --surface-raised: #3a3431;
   --surface-sunken: #16130f;
+  --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #15120f;
 
   /* Dark ink · STANDARDS L11 (4-tier mirror) */
@@ -433,6 +432,7 @@
     --surface-base:   #221f1c;
     --surface-raised: #3a3431;
     --surface-sunken: #16130f;
+    --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
     --sidebar:        #15120f;
 
     --fg-strong: #f3ede4;
