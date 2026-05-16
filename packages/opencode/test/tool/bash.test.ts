@@ -153,9 +153,7 @@ const each = (
 ) => {
   for (const item of shells) {
     const run = withShell(item, () => fn(item))
-    const opts = options?.(item)
-    if (opts) test(`${name} [${item.label}]`, run, opts)
-    else test(`${name} [${item.label}]`, run)
+    test(`${name} [${item.label}]`, run, options?.(item))
   }
 }
 
