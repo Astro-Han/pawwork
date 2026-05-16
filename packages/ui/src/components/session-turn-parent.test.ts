@@ -16,7 +16,7 @@ test("session turn collects assistant messages by parent id across the full mess
 test("legacy diff fallback is gated by visible turn-change data", () => {
   const source = readFileSync(new URL("./session-turn.tsx", import.meta.url), "utf8")
 
-  expect(source).toContain("!hasVisibleTurnChanges(turnChange()) && edited() > 0 && !working()")
+  expect(source).toContain("!hasVisibleTurnChanges(turnChange()) && diffs().length > 0 && !working()")
   expect(source).not.toContain("props.turnChanges === undefined &&")
 })
 
