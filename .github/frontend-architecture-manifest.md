@@ -7,7 +7,7 @@ This manifest covers git-tracked, hand-written frontend files under `packages/ap
 ## Current State
 
 - Manifest status: governance baseline.
-- Baseline commit: `eb80bed96` (`feat(ui): #642 PR1 typography role utilities`).
+- Baseline commit: `5da4d3d61` (`fix: harden frontend inventory classification`).
 - Default branch: `dev`.
 - Master owner: [#599 UI rewrite v2](https://github.com/Astro-Han/pawwork/issues/599).
 - Historical issue [#440](https://github.com/Astro-Han/pawwork/issues/440) is closed and must not be used as a new work entry.
@@ -60,7 +60,8 @@ If this work changes from physical LOC to logical LOC or another metric, add sch
 
 ## Baseline Summary
 
-Generated with `node script/frontend-inventory.mjs --format json` at baseline commit `eb80bed96`.
+Generated with `node script/frontend-inventory.mjs --format json` at baseline commit `5da4d3d61`.
+This replaces the earlier `eb80bed96` draft baseline because the review fix made the report include root-level `src/*.ts(x)` files and stopped classifying logic-bearing `index.ts` / pure-config candidates as visibility-only inventory.
 
 | Metric | Count |
 | --- | ---: |
