@@ -1,175 +1,18 @@
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Dialog } from "@opencode-ai/ui/dialog"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
-import { List } from "@opencode-ai/ui/list"
-import { TextField } from "@opencode-ai/ui/text-field"
 import { useMutation } from "@tanstack/solid-query"
-import { showToast } from "@opencode-ai/ui/toast"
 import { useNavigate } from "@solidjs/router"
-import { createEffect, createMemo, createResource, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
-import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
 import { type ServerHealth, useCheckServerHealth } from "@/utils/server-health"
-
-const DEFAULT_USERNAME = "opencode"
-
-interface ServerFormProps {
-  value: string
-  name: string
-  username: string
-  password: string
-  placeholder: string
-  busy: boolean
-  error: string
-  status: boolean | undefined
-  onChange: (value: string) => void
-  onNameChange: (value: string) => void
-  onUsernameChange: (value: string) => void
-  onPasswordChange: (value: string) => void
-  onSubmit: () => void
-  onBack: () => void
-}
-
-function showRequestError(language: ReturnType<typeof useLanguage>, err: unknown) {
-  showToast({
-    variant: "error",
-    title: language.t("common.requestFailed"),
-    description: err instanceof Error ? err.message : String(err),
-  })
-}
-
-function useDefaultServer() {
-  const language = useLanguage()
-  const platform = usePlatform()
-  const [defaultKey, defaultUrlActions] = createResource(
-    async () => {
-      try {
-        const key = await platform.getDefaultServer?.()
-        if (!key) return null
-        return key
-      } catch (err) {
-        showRequestError(language, err)
-        return null
-      }
-    },
-    { initialValue: null },
-  )
-
-  const canDefault = createMemo(() => !!platform.getDefaultServer && !!platform.setDefaultServer)
-  const setDefault = async (key: ServerConnection.Key | null) => {
-    try {
-      await platform.setDefaultServer?.(key)
-      defaultUrlActions.mutate(key)
-    } catch (err) {
-      showRequestError(language, err)
-    }
-  }
-
-  return { defaultKey, canDefault, setDefault }
-}
-
-function useServerPreview() {
-  const checkServerHealth = useCheckServerHealth()
-
-  const looksComplete = (value: string) => {
-    const normalized = normalizeServerUrl(value)
-    if (!normalized) return false
-    const host = normalized.replace(/^https?:\/\//, "").split("/")[0]
-    if (!host) return false
-    if (host.includes("localhost") || host.startsWith("127.0.0.1")) return true
-    return host.includes(".") || host.includes(":")
-  }
-
-  const previewStatus = async (
-    value: string,
-    username: string,
-    password: string,
-    setStatus: (value: boolean | undefined) => void,
-  ) => {
-    setStatus(undefined)
-    if (!looksComplete(value)) return
-    const normalized = normalizeServerUrl(value)
-    if (!normalized) return
-    const http: ServerConnection.HttpBase = { url: normalized }
-    if (username) http.username = username
-    if (password) http.password = password
-    const result = await checkServerHealth(http)
-    setStatus(result.healthy)
-  }
-
-  return { previewStatus }
-}
-
-function ServerForm(props: ServerFormProps) {
-  const language = useLanguage()
-  const keyDown = (event: KeyboardEvent) => {
-    event.stopPropagation()
-    if (event.key === "Escape") {
-      event.preventDefault()
-      props.onBack()
-      return
-    }
-    if (event.key !== "Enter" || event.isComposing) return
-    event.preventDefault()
-    props.onSubmit()
-  }
-
-  return (
-    <div class="px-5">
-      <div class="bg-surface-base rounded-md p-5 flex flex-col gap-3">
-        <div class="flex-1 min-w-0 [&_[data-slot=input-wrapper]]:relative">
-          <TextField
-            type="text"
-            label={language.t("dialog.server.add.url")}
-            placeholder={props.placeholder}
-            value={props.value}
-            autofocus
-            validationState={props.error ? "invalid" : "valid"}
-            error={props.error}
-            disabled={props.busy}
-            onChange={props.onChange}
-            onKeyDown={keyDown}
-          />
-        </div>
-        <TextField
-          type="text"
-          label={language.t("dialog.server.add.name")}
-          placeholder={language.t("dialog.server.add.namePlaceholder")}
-          value={props.name}
-          disabled={props.busy}
-          onChange={props.onNameChange}
-          onKeyDown={keyDown}
-        />
-        <div class="grid grid-cols-2 gap-2 min-w-0">
-          <TextField
-            type="text"
-            label={language.t("dialog.server.add.username")}
-            placeholder={language.t("dialog.server.add.usernamePlaceholder")}
-            value={props.username}
-            disabled={props.busy}
-            onChange={props.onUsernameChange}
-            onKeyDown={keyDown}
-          />
-          <TextField
-            type="password"
-            label={language.t("dialog.server.add.password")}
-            placeholder={language.t("dialog.server.add.passwordPlaceholder")}
-            value={props.password}
-            disabled={props.busy}
-            onChange={props.onPasswordChange}
-            onKeyDown={keyDown}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
+import { DEFAULT_USERNAME, useDefaultServer, useServerPreview } from "./dialog-select-server-default"
+import { ServerForm } from "./dialog-select-server-form"
+import { ServerConnectionList } from "./dialog-select-server-list"
 
 export function DialogSelectServer() {
   const navigate = useNavigate()
@@ -526,97 +369,17 @@ export function DialogSelectServer() {
             />
           }
         >
-          <List
-            search={{
-              placeholder: language.t("dialog.server.search.placeholder"),
-              autofocus: false,
-            }}
-            noInitialSelection
-            emptyMessage={language.t("dialog.server.empty")}
+          <ServerConnectionList
             items={sortedItems}
-            key={(x) => x.http.url}
-            onSelect={(x) => {
-              if (x) select(x)
-            }}
-            divider={true}
-            class="px-5 [&_[data-slot=list-search-wrapper]]:w-full [&_[data-slot=list-scroll]]h-[300px] [&_[data-slot=list-scroll]]:overflow-y-auto [&_[data-slot=list-items]]:bg-surface-base [&_[data-slot=list-items]]:rounded-md [&_[data-slot=list-item]]:min-h-14 [&_[data-slot=list-item]]:p-3 [&_[data-slot=list-item]]:!bg-transparent"
-          >
-            {(i) => {
-              const key = ServerConnection.key(i)
-              return (
-                <div class="flex items-center gap-3 min-w-0 flex-1 w-full group/item">
-                  <div class="flex flex-col h-full items-start w-5">
-                    <ServerHealthIndicator health={store.status[key]} />
-                  </div>
-                  <ServerRow
-                    conn={i}
-                    dimmed={store.status[key]?.healthy === false}
-                    status={store.status[key]}
-                    class="flex items-center gap-3 min-w-0 flex-1"
-                    badge={
-                      <Show when={defaultKey() === ServerConnection.key(i)}>
-                        <span class="text-fg-base bg-surface-base text-body px-1.5 rounded-sm">
-                          {language.t("dialog.server.status.default")}
-                        </span>
-                      </Show>
-                    }
-                    showCredentials
-                  />
-                  <div class="flex items-center justify-center gap-4 pl-4">
-                    <Show when={ServerConnection.key(current()) === key}>
-                      <Icon name="check" class="h-6" />
-                    </Show>
-
-                    <Show when={i.type === "http"}>
-                      <DropdownMenu>
-                        <DropdownMenu.Trigger
-                          as={IconButton}
-                          icon="dot-grid"
-                          variant="ghost"
-                          class="shrink-0 size-8 hover:bg-row-active-overlay data-[expanded]:bg-surface-base-active"
-                          onClick={(e: MouseEvent) => e.stopPropagation()}
-                          onPointerDown={(e: PointerEvent) => e.stopPropagation()}
-                        />
-                        <DropdownMenu.Portal>
-                          <DropdownMenu.Content class="mt-1">
-                            <DropdownMenu.Item
-                              onSelect={() => {
-                                if (i.type !== "http") return
-                                startEdit(i)
-                              }}
-                            >
-                              <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.edit")}</DropdownMenu.ItemLabel>
-                            </DropdownMenu.Item>
-                            <Show when={canDefault() && defaultKey() !== key}>
-                              <DropdownMenu.Item onSelect={() => setDefault(key)}>
-                                <DropdownMenu.ItemLabel>
-                                  {language.t("dialog.server.menu.default")}
-                                </DropdownMenu.ItemLabel>
-                              </DropdownMenu.Item>
-                            </Show>
-                            <Show when={canDefault() && defaultKey() === key}>
-                              <DropdownMenu.Item onSelect={() => setDefault(null)}>
-                                <DropdownMenu.ItemLabel>
-                                  {language.t("dialog.server.menu.defaultRemove")}
-                                </DropdownMenu.ItemLabel>
-                              </DropdownMenu.Item>
-                            </Show>
-                            <DropdownMenu.Separator />
-                            <DropdownMenu.Item
-                              onSelect={() => handleRemove(ServerConnection.key(i))}
-                              class="text-error-text hover:bg-error-bg"
-                            >
-                              <DropdownMenu.ItemLabel>{language.t("dialog.server.menu.delete")}</DropdownMenu.ItemLabel>
-                            </DropdownMenu.Item>
-                          </DropdownMenu.Content>
-                        </DropdownMenu.Portal>
-                      </DropdownMenu>
-                    </Show>
-                  </div>
-                </div>
-              )
-            }}
-          </List>
+            current={current}
+            status={store.status}
+            defaultKey={defaultKey}
+            canDefault={canDefault}
+            setDefault={setDefault}
+            onEdit={startEdit}
+            onRemove={handleRemove}
+            onSelect={select}
+          />
         </Show>
 
         <div class="px-5 pb-5">
