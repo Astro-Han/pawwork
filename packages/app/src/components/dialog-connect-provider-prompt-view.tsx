@@ -104,14 +104,15 @@ export function ProviderOAuthPromptsView(props: {
                 current={select()?.options.find((x) => x.value === formStore.value[select()!.key])}
                 onSelect={(value) => {
                   if (!value) return
-                  const prompt = select()
-                  if (!prompt) return
+                  const currentItem = item()
+                  if (!currentItem || currentItem.prompt.type !== "select") return
+                  const prompt = currentItem.prompt
                   const nextValue = {
                     ...formStore.value,
                     [prompt.key]: value.value,
                   }
                   setFormStore("value", prompt.key, value.value)
-                  void next(item()!.index, nextValue)
+                  void next(currentItem.index, nextValue)
                 }}
               >
                 {(option) => (
