@@ -39,6 +39,11 @@
       "pattern": "^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|var\\(--[a-z0-9-]+\\))$",
       "description": "Either a hex color value (#rgb/#rgba/#rrggbb/#rrggbbaa) or a CSS variable reference"
     },
+    "CssValue": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A raw CSS value for a generated custom property override"
+    },
     "ThemeSeedColors": {
       "type": "object",
       "description": "The legacy semantic seed set used to generate a theme",
@@ -152,7 +157,7 @@
           "type": "object",
           "description": "Optional direct overrides for any CSS variable (without -- prefix)",
           "additionalProperties": {
-            "$ref": "#/definitions/ColorValue"
+            "$ref": "#/definitions/CssValue"
           }
         }
       }
