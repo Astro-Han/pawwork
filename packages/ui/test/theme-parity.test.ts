@@ -32,10 +32,10 @@ const PAWWORK_JSON = JSON.parse(
 // Non-color tokens (font-*, space-*, radius-*, type-*, duration-*, letter-*,
 // line-height-*, --color-scheme) are excluded from parity checks.
 const REGULATED_PREFIXES =
-  /^(brand|bg|surface|fg|border|icon|success|warning|error|diff|shadow|ring|sidebar)/
+  /^(brand|bg|surface|fg|border|icon|success|warning|error|diff|shadow|ring|sidebar|code)/
 
 // Tokens whose light value is intentionally identical in dark mode.
-const SAME_IN_DARK = new Set(["brand-primary", "brand-primary-on", "fg-on-brand", "brand-danger", "brand-danger-hover"])
+const SAME_IN_DARK = new Set(["brand-primary", "brand-primary-on", "fg-on-brand"])
 
 // ─── CSS parsing helpers ────────────────────────────────────────────────────
 
@@ -254,6 +254,60 @@ describe("theme-parity: runtime-critical non-regulated tokens", () => {
 })
 
 // ─── Parser unit fixtures ────────────────────────────────────────────────────
+
+// ─── #642 PR0 invariants ────────────────────────────────────────────────────
+
+// `code` is now inside REGULATED_PREFIXES (Step 2 of #642 plan Task 0.2), so
+// light/dark parity for --code-surface is auto-covered by the existing
+// exact-set test. The assertion below additionally pins the three theme-block
+// values. `radius` remains outside REGULATED_PREFIXES (radii live in
+// tailwind/@theme too, and the dual-namespace invariant is a separate
+// dimension); the radii assertion below covers it directly.
+
+const TAILWIND_CSS = readFileSync(
+  join(ROOT, "src/styles/tailwind/index.css"),
+  "utf-8",
+)
+
+describe("#642 PR0: radii dual-namespace", () => {
+  test("radii are pixel-equal between theme.css :root and tailwind @theme", () => {
+    // Strip CSS comments first so a `/* historical: --radius-sm: 4px */`
+    // doesn't pass the assertion.
+    const themeStripped = THEME_CSS.replace(/\/\*[\s\S]*?\*\//g, "")
+    const tailwindStripped = TAILWIND_CSS.replace(/\/\*[\s\S]*?\*\//g, "")
+    const expected = { sm: "6px", md: "10px", lg: "14px" }
+    for (const [name, value] of Object.entries(expected)) {
+      expect(themeStripped).toMatch(
+        new RegExp(`--radius-${name}:\\s*${value}\\b`),
+      )
+      expect(tailwindStripped).toMatch(
+        new RegExp(`--radius-${name}:\\s*${value}\\b`),
+      )
+    }
+  })
+})
+
+describe("#642 PR0: --code-surface three-block presence", () => {
+  test("--code-surface is declared in all three theme blocks with expected values", () => {
+    const lightDecls = parseDeclarations(extractBlock(THEME_CSS, ":root"))
+    const darkDecls = parseDeclarations(
+      extractBlock(THEME_CSS, ':root[data-color-scheme="dark"]'),
+    )
+    const mediaDecls = parseDeclarations(
+      extractBlock(THEME_CSS, "@media (prefers-color-scheme: dark)"),
+    )
+
+    expect(normalize(lightDecls.get("code-surface") ?? "")).toBe(
+      normalize("rgba(0, 0, 0, 0.04)"),
+    )
+    expect(normalize(darkDecls.get("code-surface") ?? "")).toBe(
+      normalize("rgba(255, 255, 255, 0.06)"),
+    )
+    expect(normalize(mediaDecls.get("code-surface") ?? "")).toBe(
+      normalize("rgba(255, 255, 255, 0.06)"),
+    )
+  })
+})
 
 describe("theme-parser: extractBlock fixtures", () => {
   test("extracts a top-level selector block", () => {
