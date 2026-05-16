@@ -122,4 +122,16 @@
   line-height: var(--line-height-kbd);
 }
 
+@utility font-body {
+  font-weight: var(--font-weight-body);
+}
+
+@utility font-emphasis {
+  font-weight: var(--font-weight-emphasis);
+}
+
+@utility tracking-cjk {
+  letter-spacing: var(--letter-spacing-cjk);
+}
+
 @import "./colors.css";

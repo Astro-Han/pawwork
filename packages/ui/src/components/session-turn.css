@@ -53,7 +53,7 @@
     color: var(--fg-weak);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     line-height: 20px;
     min-height: 20px;
 
@@ -121,7 +121,7 @@
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
     line-height: var(--line-height-h3);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     color: var(--fg-strong);
     white-space: nowrap;
   }
@@ -285,7 +285,7 @@
     color: var(--fg-strong);
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     line-height: var(--line-height-h3);
   }
 
@@ -361,7 +361,7 @@
   [data-slot="session-turn-diff-filename"] {
     min-width: 0;
     color: var(--fg-strong);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
