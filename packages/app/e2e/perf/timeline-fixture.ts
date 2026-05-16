@@ -8,12 +8,18 @@ type TimelineProject = {
 
 export const TIMELINE_RECOMPUTE_SEED_TURN_COUNT = 36
 
+const MIXED_CONTENT_CHUNK = "mixed session content ".repeat(7)
+const TOOL_OUTPUT_CHUNK = "tool output chunk ".repeat(10)
+const COMPLETED_OUTPUT_CHUNK = "completed output ".repeat(8)
+const EXPANDED_TOOL_BODY_CHUNK = "expanded tool body ".repeat(8)
+const ACTIVE_DOCK_STATE_CHUNK = "active dock state ".repeat(6)
+
 export function buildHeterogeneousScrollSeedText(input: { run: number; turn: number }) {
   const { run, turn } = input
+  const chineseText = turn % 4 === 0 ? "中文混排 " : ""
   const body = Array.from(
     { length: 12 + (turn % 5) },
-    (_, line) =>
-      `paragraph ${line}: ${"mixed session content ".repeat(7)}${turn % 4 === 0 ? "中文混排 " : ""}run ${run} turn ${turn}`,
+    (_, line) => `paragraph ${line}: ${MIXED_CONTENT_CHUNK}${chineseText}run ${run} turn ${turn}`,
   ).join("\n")
   let mixedBlock: string
   switch (turn % 6) {
@@ -40,7 +46,7 @@ export function buildHeterogeneousScrollSeedText(input: { run: number; turn: num
       mixedBlock = [
         "```text",
         `$ pawwork perf probe --run=${run} --turn=${turn}`,
-        `stdout: ${"tool output chunk ".repeat(10)}`,
+        `stdout: ${TOOL_OUTPUT_CHUNK}`,
         `stderr: ${turn % 2 === 0 ? "none" : "retryable warning"}`,
         "```",
       ].join("\n")
@@ -58,9 +64,9 @@ export function buildHeterogeneousScrollSeedText(input: { run: number; turn: num
   const toolTranscript = [
     "Tool transcript",
     `command: bash scroll-fixture-${turn}`,
-    `stdout chunk 1: ${"completed output ".repeat(8)}`,
-    `stdout chunk 2: ${"expanded tool body ".repeat(8)}`,
-    `todo pressure ${turn % 4}: ${"active dock state ".repeat(6)}`,
+    `stdout chunk 1: ${COMPLETED_OUTPUT_CHUNK}`,
+    `stdout chunk 2: ${EXPANDED_TOOL_BODY_CHUNK}`,
+    `todo pressure ${turn % 4}: ${ACTIVE_DOCK_STATE_CHUNK}`,
   ].join("\n")
 
   return [`scroll fixture run ${run} turn ${turn}`, body, mixedBlock, toolTranscript].join("\n\n")
