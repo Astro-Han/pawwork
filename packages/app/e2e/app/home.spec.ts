@@ -1,14 +1,14 @@
 import { test, expect } from "../fixtures"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
-test("@smoke home renders hero composer without skill-card shortcuts", async ({ page, project }) => {
+test("@smoke home renders hero composer with updated welcome heading", async ({ page, project }) => {
   await project.open()
 
   const home = page.locator('[data-component="session-new-home"]')
   const composer = home.locator(sessionComposerDockSelector)
   const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
   await expect(home).toBeVisible()
-  await expect(page.getByRole("heading", { name: "What do you want to do?" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /今天我们做点什么|What should we work on/ })).toBeVisible()
   await expect(page.locator(sessionComposerDockSelector)).toHaveCount(1)
   await expect(composer).toHaveCount(1)
   await expect(composer).toHaveCSS("text-align", "left")

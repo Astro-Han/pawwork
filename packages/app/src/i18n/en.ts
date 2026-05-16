@@ -596,6 +596,7 @@ export const dict = {
   "notification.session.error.fallbackDescription": "An error occurred",
 
   "home.recentProjects": "Recent projects",
+  "home.hero.title": "What should we work on?",
 
   "session.tab.session": "Session",
   "session.tab.review": "Review",
@@ -669,7 +670,6 @@ export const dict = {
   "session.revertDock.expand": "Expand rolled back messages",
   "session.revertDock.restore": "Restore message",
 
-  "session.new.title": "What do you want to do?",
   "session.new.reassurance": "Files and conversations stay on your computer",
   "session.new.worktree.main": "Main branch",
   "session.new.worktree.mainWithBranch": "Main branch ({{branch}})",

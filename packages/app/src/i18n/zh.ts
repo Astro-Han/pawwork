@@ -565,6 +565,7 @@ export const dict = {
   "notification.session.error.fallbackDescription": "发生错误",
 
   "home.recentProjects": "最近项目",
+  "home.hero.title": "今天我们做点什么？",
 
   "session.tab.session": "会话",
   "session.tab.review": "审查",
@@ -623,7 +624,6 @@ export const dict = {
   "session.revertDock.collapse": "折叠已回滚消息",
   "session.revertDock.expand": "展开已回滚消息",
   "session.revertDock.restore": "恢复消息",
-  "session.new.title": "今天想做什么？",
   "session.new.reassurance": "文件和对话仅在本机处理",
   "session.new.worktree.main": "主分支",
   "session.new.worktree.mainWithBranch": "主分支（{{branch}}）",
