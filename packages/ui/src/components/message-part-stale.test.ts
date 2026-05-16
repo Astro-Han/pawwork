@@ -47,14 +47,14 @@ test("tool file accordions account for tool content gap in sticky offset", () =>
 test("question tool error renders interrupted variant via metadata.interrupted", () => {
   const source = readMessagePartSources()
 
-  expect(source).toContain('part().tool === "question" && partMetadata()?.interrupted === true')
+  expect(source).toContain("part().tool === TOOL_QUESTION && partMetadata()?.interrupted === true")
   expect(source).toContain('"ui.messagePart.questions.interrupted"')
 })
 
 test("websearch tool errors render localized structured failure copy", () => {
   const source = readMessagePartSources()
 
-  expect(source).toContain('part().tool === "websearch" ? webSearchErrorDisplay(partMetadata(), i18n) : undefined')
+  expect(source).toContain("part().tool === TOOL_WEBSEARCH ? webSearchErrorDisplay(partMetadata(), i18n) : undefined")
   expect(source).toContain("error={webSearchError?.error ?? error()}")
   expect(source).toContain("subtitle={webSearchError?.subtitle ?? taskSubtitle()}")
 })

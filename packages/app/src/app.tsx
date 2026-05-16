@@ -365,7 +365,7 @@ function ConnectionError(props: { onRetry?: () => void; onServerSelected?: (key:
         <Splash class="w-12 h-15 mb-4" />
         <p class="text-body text-fg-base">
           {unreachable()[0]}
-          <span class="text-fg-strong font-[var(--font-weight-h3)]">{name()}</span>
+          <span class="text-fg-strong font-emphasis">{name()}</span>
           {unreachable()[1]}
         </p>
         <p class="mt-1 text-body text-fg-weak">{language.t("app.server.retrying")}</p>

@@ -10,6 +10,8 @@
     "dev:desktop": "bun --cwd packages/desktop-electron dev",
     "dev:web": "bun --cwd packages/app dev",
     "dev:opencode": "bun run --cwd packages/opencode --conditions=browser src/index.ts",
+    "frontend:inventory": "node script/frontend-inventory.mjs",
+    "frontend:inventory:json": "node script/frontend-inventory.mjs --format json",
     "typecheck": "bun turbo typecheck",
     "lint": "eslint \"packages/{app,ui,desktop-electron}/src/**/*.{ts,tsx}\"",
     "lint:ci": "bun run lint",

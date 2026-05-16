@@ -262,7 +262,7 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
                 text={todo().content}
                 class="text-body min-w-0 break-words"
                 style={{
-                  "line-height": "var(--line-height-caption)",
+                  "line-height": "var(--line-height-body)",
                   transition:
                     "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
                   color:

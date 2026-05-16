@@ -1,6 +1,7 @@
 import type { Part as PartType, ToolPart } from "@opencode-ai/sdk/v2"
 import { PART_MAPPING } from "./registry"
 import { CONTEXT_GROUP_TOOLS, HIDDEN_TOOLS } from "./shared-utils"
+import { TOOL_QUESTION } from "../tool-contract"
 
 export type PartRef = {
   messageID: string
@@ -90,7 +91,7 @@ export function groupParts(parts: { messageID: string; part: PartType }[]) {
 export function renderable(part: PartType, showReasoningSummaries = true) {
   if (part.type === "tool") {
     if (HIDDEN_TOOLS.has(part.tool)) return false
-    if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
+    if (part.tool === TOOL_QUESTION) return part.state.status !== "pending" && part.state.status !== "running"
     return true
   }
   if (part.type === "text") return !!part.text?.trim()

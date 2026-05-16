@@ -141,7 +141,7 @@ export const lineCommentStyles = `
 [data-component="line-comment"] [data-slot="line-comment-editor-label"] {
   font-family: var(--font-family-sans);
   font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-h3);
+  font-weight: var(--font-weight-emphasis);
   line-height: var(--line-height-h3);
   color: var(--fg-weak);
   min-width: 0;
@@ -251,7 +251,7 @@ export const lineCommentStyles = `
   padding: 0 10px;
   font-family: var(--font-family-sans);
   font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-h3);
+  font-weight: var(--font-weight-emphasis);
 }
 
 [data-component="line-comment"] [data-slot="line-comment-action"][data-variant="ghost"] {

@@ -244,7 +244,7 @@ export function SessionComposerRegion(props: {
                         </Show>
                       }
                     >
-                      <DockSegment ref={props.inputRef} class="w-full p-3 text-h2 font-[var(--font-weight-body)] text-fg-weak">
+                      <DockSegment ref={props.inputRef} class="w-full p-3 text-h2 font-body text-fg-weak">
                         <span>{language.t("session.child.promptDisabled")} </span>
                         <Show when={parentID()}>
                           <button

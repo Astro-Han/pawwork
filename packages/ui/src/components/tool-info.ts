@@ -2,6 +2,14 @@ import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { getFilename } from "@opencode-ai/core/util/path"
 import type { UiI18n } from "../context/i18n"
 import type { IconProps } from "./icon"
+import {
+  TOOL_AGENT,
+  TOOL_AGENT_LEGACY,
+  TOOL_QUESTION,
+  TOOL_TODOWRITE,
+  TOOL_WEBFETCH,
+  TOOL_WEBSEARCH,
+} from "./tool-contract"
 
 export type ToolInfo = {
   icon: IconProps["name"]
@@ -96,13 +104,13 @@ export function toolInfoForInput(
         title: i18n.t("ui.tool.grep"),
         subtitle: input.pattern,
       }
-    case "webfetch":
+    case TOOL_WEBFETCH:
       return {
         icon: "window-cursor",
         title: i18n.t("ui.tool.webfetch"),
         subtitle: input.url,
       }
-    case "websearch":
+    case TOOL_WEBSEARCH:
       return {
         icon: "window-cursor",
         title: i18n.t("ui.tool.websearch"),
@@ -122,8 +130,8 @@ export function toolInfoForInput(
         subtitle: exitWorktreeSubtitle(metadata, i18n),
       }
     }
-    case "task": // agent-rename:legacy-render
-    case "agent": {
+    case TOOL_AGENT_LEGACY: // agent-rename:legacy-render
+    case TOOL_AGENT: {
       const type =
         typeof input.subagent_type === "string" && input.subagent_type
           ? input.subagent_type[0]!.toUpperCase() + input.subagent_type.slice(1)
@@ -160,12 +168,12 @@ export function toolInfoForInput(
           ? `${input.files.length} ${i18n.t(input.files.length > 1 ? "ui.common.file.other" : "ui.common.file.one")}`
           : undefined,
       }
-    case "todowrite":
+    case TOOL_TODOWRITE:
       return {
         icon: "checklist",
         title: i18n.t("ui.tool.todos"),
       }
-    case "question":
+    case TOOL_QUESTION:
       return {
         icon: "bubble-5",
         title: i18n.t("ui.tool.questions"),
