@@ -1,4 +1,4 @@
-/* DESIGN.md L264 — `.kbd` `--type-kbd` 加 `--bg-base` 加 1px `--border-weak`
+/* DESIGN.md L264 — `.kbd` uses the kbd typography role plus `--bg-base` and 1px `--border-weak`
  * 加 1px 硬阴影，padding 1px 6px (physical keycap look). */
 [data-component="keybind"] {
   display: inline-flex;
@@ -10,6 +10,9 @@
   background: var(--bg-base);
   border: 1px solid var(--border-weak);
   box-shadow: 0 1px 0 0 var(--border-weak);
-  font: var(--type-kbd);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-kbd);
+  font-weight: var(--font-weight-kbd);
+  line-height: var(--line-height-kbd);
   color: var(--fg-weak);
 }

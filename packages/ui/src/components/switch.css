@@ -47,29 +47,26 @@
     user-select: none;
     color: var(--fg-base);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
+    font-size: var(--font-size-caption);
     font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="switch-description"] {
     color: var(--fg-base);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-x-small);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-normal);
-    letter-spacing: var(--letter-spacing-normal);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-caption);
   }
 
   [data-slot="switch-error"] {
     color: var(--error-text);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-x-small);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-normal);
-    letter-spacing: var(--letter-spacing-normal);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-caption);
   }
 
   /* Unchecked hover: slightly deeper alpha on the track */

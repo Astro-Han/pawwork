@@ -30,7 +30,7 @@ Use for pending states inside buttons or list rows.
 const defaults = {
   text: "Loading...",
   active: true,
-  class: "text-14-medium text-fg-strong",
+  class: "text-h3 text-fg-strong",
   offset: 0,
 } as const
 

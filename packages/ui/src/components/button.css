@@ -7,9 +7,8 @@
   border: none;
   border-radius: var(--radius-md);
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: var(--letter-spacing-normal);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-h3);
   line-height: 1;
   gap: 6px;
   text-decoration: none;

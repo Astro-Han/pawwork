@@ -70,7 +70,7 @@
     flex: 0 1 auto;
     min-width: 0;
     max-width: 100%;
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
   }
 
   [data-slot="basic-tool-tool-info-structured"] {
@@ -95,11 +95,10 @@
   [data-slot="basic-tool-tool-title"] {
     flex-shrink: 0;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-strong);
 
     &.capitalize {
@@ -108,7 +107,7 @@
 
     &.agent-title {
       color: var(--fg-strong);
-      font-weight: var(--font-weight-medium);
+      font-weight: var(--font-weight-h3);
     }
   }
 
@@ -120,11 +119,10 @@
     white-space: nowrap;
     font-family: var(--font-family-sans);
     font-variant-numeric: tabular-nums;
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     color: var(--fg-base);
 
     &.clickable {
@@ -141,7 +139,7 @@
       color: var(--brand-primary);
       text-decoration: none;
       text-underline-offset: 2px;
-      font-weight: var(--font-weight-regular);
+      font-weight: var(--font-weight-body);
 
       &:hover {
         color: var(--brand-primary);
@@ -166,11 +164,10 @@
     white-space: nowrap;
     font-family: var(--font-family-sans);
     font-variant-numeric: tabular-nums;
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     color: var(--fg-base);
   }
 
@@ -231,11 +228,10 @@
   [data-component="task-tool-title"] {
     flex-shrink: 0;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     text-transform: capitalize;
   }
 

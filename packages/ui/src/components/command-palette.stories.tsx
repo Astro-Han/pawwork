@@ -108,7 +108,7 @@ export const WithMockItems = {
                     border: "none",
                     outline: "none",
                     color: "var(--fg-base)",
-                    "font-size": "var(--font-size-base)",
+                    "font-size": "var(--font-size-body)",
                   }}
                 />
               </div>
@@ -118,7 +118,7 @@ export const WithMockItems = {
                     style={{
                       padding: "8px 14px",
                       cursor: "pointer",
-                      "font-size": "var(--font-size-base)",
+                      "font-size": "var(--font-size-body)",
                       color: "var(--fg-base)",
                     }}
                   >

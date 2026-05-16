@@ -48,7 +48,7 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
           "aria-label": language.t("workspace.chip.ariaLabel"),
           "aria-haspopup": "menu",
           class:
-            "px-1.5 inline-flex items-center gap-1.5 text-13-regular text-fg-base font-normal",
+            "px-1.5 inline-flex items-center gap-1.5 text-body text-fg-base font-normal",
           style: props.style,
         } as any
       }
@@ -62,12 +62,12 @@ export function WorkspaceChip(props: { style?: JSX.CSSProperties | string } = {}
       class="min-w-56 max-w-xs"
     >
       <div role="menu" aria-label={language.t("workspace.chip.popover.title")}>
-        <div class="px-2 pt-0.5 pb-2 text-13-regular text-fg-weak">
+        <div class="px-2 pt-0.5 pb-2 text-body text-fg-weak">
           {language.t("workspace.chip.popover.title")}
         </div>
         <Show
           when={workspaces().length > 0}
-          fallback={<div class="px-2 py-2 text-13-regular text-fg-weak">{language.t("workspace.chip.empty")}</div>}
+          fallback={<div class="px-2 py-2 text-body text-fg-weak">{language.t("workspace.chip.empty")}</div>}
         >
           <div class="flex flex-col gap-0.5">
           <For each={workspaces()}>

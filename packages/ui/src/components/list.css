@@ -164,13 +164,12 @@
         color: var(--fg-weak);
         white-space: nowrap;
 
-        /* text-14-regular */
+        /* text-body */
         font-family: var(--font-family-sans);
-        font-size: var(--font-size-base);
+        font-size: var(--font-size-body);
         font-style: normal;
-        font-weight: var(--font-weight-regular);
-        line-height: var(--line-height-large); /* 142.857% */
-        letter-spacing: var(--letter-spacing-normal);
+        font-weight: var(--font-weight-body);
+        line-height: var(--line-height-h3); /* 142.857% */
       }
 
       [data-slot="list-filter"] {
@@ -202,13 +201,12 @@
 
         color: var(--fg-weak);
 
-        /* text-12-regular — aligned with sidebar section headers */
+        /* text-caption — aligned with sidebar section headers */
         font-family: var(--font-family-sans);
-        font-size: var(--font-size-x-small);
+        font-size: var(--font-size-caption);
         font-style: normal;
-        font-weight: var(--font-weight-regular);
-        line-height: var(--line-height-large);
-        letter-spacing: var(--letter-spacing-normal);
+        font-weight: var(--font-weight-body);
+        line-height: var(--line-height-h3);
 
         &::after {
           content: "";
@@ -301,13 +299,12 @@
           align-items: center;
           color: var(--fg-strong);
 
-          /* text-14-medium */
+          /* text-h3 */
           font-family: var(--font-family-sans);
-          font-size: var(--font-size-hierarchy);
+          font-size: var(--font-size-h3);
           font-style: normal;
-          font-weight: var(--font-weight-medium);
-          line-height: var(--line-height-large); /* 142.857% */
-          letter-spacing: var(--letter-spacing-normal);
+          font-weight: var(--font-weight-h3);
+          line-height: var(--line-height-h3); /* 142.857% */
 
           [data-component="input"] {
             width: 100%;

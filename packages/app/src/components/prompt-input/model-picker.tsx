@@ -82,7 +82,7 @@ const ModelList: Component<{
         if (i.latest) tagNames.push("latest")
         const visible = tagNames.slice(0, 2)
         return (
-          <div class="w-full min-w-0 flex items-center gap-x-3 text-13-regular text-left">
+          <div class="w-full min-w-0 flex items-center gap-x-3 text-body text-left">
             <ProviderIcon id={i.provider.id} class="size-4 shrink-0 text-fg-base" />
             <span class="min-w-0 truncate">{i.name}</span>
             <For each={visible}>{(tag) => <Tag class="shrink-0">{language.t(`model.tag.${tag}`)}</Tag>}</For>
@@ -107,7 +107,7 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
       <Kobalte modal={false} placement="right-start" gutter={4}>
         <Kobalte.Trigger
           disabled={!supported()}
-          class="group/think w-full h-[30px] px-2 gap-3 flex items-center rounded-[6px] text-13-regular text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-fg-base"
+          class="group/think w-full h-[30px] px-2 gap-3 flex items-center rounded-[6px] text-body text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-fg-base"
         >
           <span>{language.t("dialog.model.variant")}</span>
           <span class="ml-auto text-fg-weak">{translateVariant(language.t, current())}</span>

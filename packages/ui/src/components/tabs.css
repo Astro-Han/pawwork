@@ -49,13 +49,12 @@
     gap: 12px;
     color: var(--fg-base);
 
-    /* text-14-medium */
+    /* text-h3 */
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-hierarchy);
+    font-size: var(--font-size-h3);
     font-style: normal;
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large); /* 142.857% */
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3); /* 142.857% */
 
     white-space: nowrap;
     flex-shrink: 0;
@@ -293,13 +292,12 @@
       border-bottom-color: transparent;
       gap: 4px;
 
-      /* text-14-regular */
+      /* text-body */
       font-family: var(--font-family-sans);
-      font-size: var(--font-size-base);
+      font-size: var(--font-size-body);
       font-style: normal;
-      font-weight: var(--font-weight-regular);
-      line-height: var(--line-height-x-large); /* 171.429% */
-      letter-spacing: var(--letter-spacing-normal);
+      font-weight: var(--font-weight-body);
+      line-height: var(--line-height-body); /* 171.429% */
 
       [data-slot="tabs-trigger"] {
         height: 100%;
@@ -364,13 +362,12 @@
       background-color: transparent;
       gap: 0;
 
-      /* text-13-medium */
+      /* text-h3 */
       font-family: var(--font-family-sans);
-      font-size: var(--font-size-small);
+      font-size: var(--font-size-caption);
       font-style: normal;
-      font-weight: var(--font-weight-medium);
-      line-height: var(--line-height-large);
-      letter-spacing: var(--letter-spacing-normal);
+      font-weight: var(--font-weight-h3);
+      line-height: var(--line-height-h3);
 
       [data-slot="tabs-trigger"] {
         height: 100%;
@@ -581,8 +578,8 @@
         width: 100%;
         padding: 0 0 0 4px;
         font-family: var(--font-family-sans);
-        font-size: var(--font-size-small);
-        font-weight: var(--font-weight-medium);
+        font-size: var(--font-size-caption);
+        font-weight: var(--font-weight-h3);
         color: var(--fg-weak);
       }
 
@@ -591,11 +588,11 @@
         border: none;
         border-radius: var(--radius-md);
 
-        /* text-14-medium */
+        /* text-h3 */
         font-family: var(--font-family-sans);
-        font-size: var(--font-size-base);
-        font-weight: var(--font-weight-medium);
-        line-height: var(--line-height-large);
+        font-size: var(--font-size-body);
+        font-weight: var(--font-weight-h3);
+        line-height: var(--line-height-h3);
 
         [data-slot="tabs-trigger"] {
           border: none;

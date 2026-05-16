@@ -64,13 +64,13 @@
         [data-slot="dialog-title"] {
           color: var(--fg-strong);
 
-          /* text-16-medium */
+          /* text-h2 */
           font-family: var(--font-family-sans);
-          font-size: var(--font-size-large);
+          font-size: var(--font-size-h2);
           font-style: normal;
-          font-weight: var(--font-weight-medium);
-          line-height: var(--line-height-x-large); /* 150% */
-          letter-spacing: var(--letter-spacing-tight);
+          font-weight: var(--font-weight-h3);
+          line-height: var(--line-height-body); /* 150% */
+          letter-spacing: var(--letter-spacing-h1);
         }
         /* [data-slot="dialog-close-button"] {} */
       }
@@ -88,13 +88,12 @@
 
         color: var(--fg-base);
 
-        /* text-14-regular */
+        /* text-body */
         font-family: var(--font-family-sans);
-        font-size: var(--font-size-base);
+        font-size: var(--font-size-body);
         font-style: normal;
-        font-weight: var(--font-weight-regular);
-        line-height: var(--line-height-large); /* 142.857% */
-        letter-spacing: var(--letter-spacing-normal);
+        font-weight: var(--font-weight-body);
+        line-height: var(--line-height-h3); /* 142.857% */
       }
 
       [data-slot="dialog-body"] {

@@ -26,7 +26,7 @@ export function DialogDeleteSession(props: {
   return (
     <Dialog title={language.t("session.delete.title")} fit class="w-full max-w-[420px] mx-auto">
       <div class="px-6 pt-2 pb-6">
-        <span class="text-13-regular text-fg-strong">
+        <span class="text-body text-fg-strong">
           {language.t("session.delete.confirm", { name: props.name })}
         </span>
       </div>

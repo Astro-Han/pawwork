@@ -31,11 +31,11 @@ export function FileSearchBar(props: {
           ref={props.setInput}
           placeholder={i18n.t("ui.fileSearch.placeholder")}
           value={props.query()}
-          class="w-40 bg-transparent outline-none text-13-regular text-fg-strong placeholder:text-fg-weak"
+          class="w-40 bg-transparent outline-none text-body text-fg-strong placeholder:text-fg-weak"
           onInput={(e) => props.onInput(e.currentTarget.value)}
           onKeyDown={(e) => props.onKeyDown(e as KeyboardEvent)}
         />
-        <div class="shrink-0 text-13-regular text-fg-weak tabular-nums text-right" style={{ width: "10ch" }}>
+        <div class="shrink-0 text-body text-fg-weak tabular-nums text-right" style={{ width: "10ch" }}>
           {props.count() ? `${props.index() + 1}/${props.count()}` : "0/0"}
         </div>
         <div class="flex items-center">

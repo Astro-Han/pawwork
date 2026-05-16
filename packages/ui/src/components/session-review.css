@@ -33,9 +33,9 @@
 
   [data-slot="session-review-title"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-large);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-h2);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-strong);
   }
 
@@ -174,8 +174,8 @@
 
   [data-slot="session-review-change"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-h3);
   }
 
   [data-slot="session-review-change"][data-type="added"] {
@@ -206,15 +206,15 @@
 
   [data-slot="session-review-large-diff-title"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-h3);
     color: var(--fg-strong);
     margin-bottom: 4px;
   }
 
   [data-slot="session-review-large-diff-meta"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
+    font-size: var(--font-size-caption);
     color: var(--fg-weak);
     word-break: break-word;
   }

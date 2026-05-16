@@ -43,13 +43,12 @@
         color: var(--fg-strong);
         transition: background-color 0.15s ease;
 
-        /* text-13-regular */
+        /* text-body */
         font-family: var(--font-family-sans);
-        font-size: var(--font-size-small);
+        font-size: var(--font-size-caption);
         font-style: normal;
-        font-weight: var(--font-weight-regular);
-        line-height: var(--line-height-large); /* 166.667% */
-        letter-spacing: var(--letter-spacing-normal);
+        font-weight: var(--font-weight-body);
+        line-height: var(--line-height-h3); /* 166.667% */
 
         &:hover:not([data-disabled]) {
           background-color: var(--surface-sunken);

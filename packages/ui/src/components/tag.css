@@ -13,8 +13,7 @@
   border-radius: var(--radius-sm);
 
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-h3);
   line-height: 1;
-  letter-spacing: var(--letter-spacing-normal);
 }

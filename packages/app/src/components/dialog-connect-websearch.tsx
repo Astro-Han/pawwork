@@ -99,7 +99,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
 
   const renderSavedKeyForm = (statusKey: "dialog.websearch.status.savedQuota" | "dialog.websearch.status.failed") => (
     <div class="flex flex-col gap-4">
-      <div class="text-13-regular text-fg-base">{language.t(statusKey)}</div>
+      <div class="text-body text-fg-base">{language.t(statusKey)}</div>
       <TextField
         autofocus
         type="password"
@@ -149,7 +149,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
         {/* Header: service icon + title */}
         <div class="px-2.5 flex gap-4 items-center">
           <Icon name="link" class="size-5 shrink-0 text-icon-strong" />
-          <div class="text-16-medium text-fg-strong">{title()}</div>
+          <div class="text-h2 text-fg-strong">{title()}</div>
         </div>
 
         <div class="px-2.5 pb-10 flex flex-col gap-6">
@@ -157,7 +157,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
             {/* loading/error state: avoid showing anonymous setup before status is known */}
             <Match when={statusError()}>
               <div class="flex flex-col gap-4">
-                <div class="text-13-regular text-fg-base">{language.t("dialog.websearch.status.error")}</div>
+                <div class="text-body text-fg-base">{language.t("dialog.websearch.status.error")}</div>
                 <Button variant="primary" onClick={() => void webSearchStatusActions.refetch()}>
                   {language.t("dialog.websearch.action.retry")}
                 </Button>
@@ -165,18 +165,18 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
             </Match>
 
             <Match when={!status()}>
-              <div class="text-13-regular text-fg-base">{language.t("dialog.websearch.status.loading")}</div>
+              <div class="text-body text-fg-base">{language.t("dialog.websearch.status.loading")}</div>
             </Match>
 
             {/* env state: read-only, no input, no save/remove */}
             <Match when={status()?.source === "env"}>
-              <div class="text-13-regular text-fg-base">{language.t("dialog.websearch.body.env")}</div>
+              <div class="text-body text-fg-base">{language.t("dialog.websearch.body.env")}</div>
             </Match>
 
             {/* saved + healthy state */}
             <Match when={status()?.source === "saved" && !status()?.needsAttention && !status()?.quotaExceeded}>
               <div class="flex flex-col gap-4">
-                <div class="text-13-regular text-fg-base">{language.t("dialog.websearch.status.active")}</div>
+                <div class="text-body text-fg-base">{language.t("dialog.websearch.status.active")}</div>
                 <div class="flex gap-2">
                   <Button variant="ghost" disabled={removing() || saving()} onClick={handleRemove}>
                     {language.t("dialog.websearch.action.remove")}
@@ -224,14 +224,14 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
             {/* anonymous (default) state */}
             <Match when={status()?.source === "anonymous"}>
               <div class="flex flex-col gap-4">
-                <div class="text-13-regular text-fg-base">
+                <div class="text-body text-fg-base">
                   {language.t(
                     status()?.quotaExceeded
                       ? "dialog.websearch.body.exhausted.line1"
                       : "dialog.websearch.body.default.line1",
                   )}
                 </div>
-                <div class="text-13-regular text-fg-base">
+                <div class="text-body text-fg-base">
                   {language.t(
                     status()?.quotaExceeded
                       ? "dialog.websearch.body.exhausted.line2"
@@ -256,7 +256,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
                   autocapitalize="off"
                   spellcheck={false}
                 />
-                <div class="text-13-regular text-fg-weak">
+                <div class="text-body text-fg-weak">
                   {language.t(
                     status()?.quotaExceeded ? "dialog.websearch.status.exhausted" : "dialog.websearch.status.bundled",
                   )}
@@ -271,7 +271,7 @@ export function DialogConnectWebSearch(props: { onStatusChanged?: () => void } =
                     {language.t("dialog.websearch.action.save")}
                   </Button>
                   <Show when={!saving()}>
-                    <div class="text-13-regular text-fg-weak">
+                    <div class="text-body text-fg-weak">
                       <Link href="https://exa.ai">{language.t("dialog.websearch.help.getKey")}</Link>
                     </div>
                   </Show>

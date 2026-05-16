@@ -6,7 +6,7 @@ export function MessageDivider(props: { label: string }) {
     <div data-component="compaction-part">
       <div data-slot="compaction-part-divider">
         <span data-slot="compaction-part-line" />
-        <span data-slot="compaction-part-label" class="text-13-regular text-fg-weak">
+        <span data-slot="compaction-part-label" class="text-body text-fg-weak">
           {props.label}
         </span>
         <span data-slot="compaction-part-line" />

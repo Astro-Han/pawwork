@@ -15,7 +15,7 @@ function AboutDialogBody(props: { info: AboutInfo }) {
   const language = useLanguage()
   return (
     <Dialog title={language.t("about.title")} class="w-full max-w-[400px] mx-auto">
-      <dl class="text-sm space-y-1 p-6 pt-0">
+      <dl class="text-caption space-y-1 p-6 pt-0">
         <div>
           <dt class="inline">{language.t("about.version")}: </dt>
           <dd class="inline">{props.info.version}</dd>

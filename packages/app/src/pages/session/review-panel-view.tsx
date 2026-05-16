@@ -35,14 +35,14 @@ export function createReviewPanelView(input: {
         onSelect={(option) => option && input.reviewState.setChanges(option)}
         variant="ghost"
         size="small"
-        valueClass="text-13-medium"
+        valueClass="text-h3"
       />
     )
   }
 
   const empty = (text: string) => (
     <div class="h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6">
-      <div class="text-13-regular text-fg-weak max-w-56">{text}</div>
+      <div class="text-body text-fg-weak max-w-56">{text}</div>
     </div>
   )
 
@@ -67,7 +67,7 @@ export function createReviewPanelView(input: {
 
     return (
       <div class={emptyInput.emptyClass}>
-        <div class="text-13-regular text-fg-weak max-w-56">{reviewEmptyText()}</div>
+        <div class="text-body text-fg-weak max-w-56">{reviewEmptyText()}</div>
       </div>
     )
   }

@@ -112,7 +112,7 @@ registerPartComponent("text", function TextPartDisplay(props) {
               />
             </Tooltip>
             <Show when={meta()}>
-              <span data-slot="text-part-meta" class="text-13-regular text-fg-weak cursor-default">
+              <span data-slot="text-part-meta" class="text-body text-fg-weak cursor-default">
                 {meta()}
               </span>
             </Show>

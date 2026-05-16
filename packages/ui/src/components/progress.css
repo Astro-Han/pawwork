@@ -13,10 +13,9 @@
   [data-slot="progress-label"],
   [data-slot="progress-value-label"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="progress-label"] {

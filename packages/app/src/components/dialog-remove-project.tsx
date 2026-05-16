@@ -26,10 +26,10 @@ export function DialogRemoveProject(props: {
   return (
     <Dialog title={language.t("project.remove.title")} fit class="w-full max-w-[420px] mx-auto">
       <div class="px-6 pt-2 pb-6">
-        <span class="text-13-regular text-fg-strong">
+        <span class="text-body text-fg-strong">
           {language.t("project.remove.confirm", { name: props.name })}
         </span>
-        <p class="mt-2 text-13-regular text-fg-weak">
+        <p class="mt-2 text-body text-fg-weak">
           {language.t("project.remove.description")}
         </p>
       </div>

@@ -529,7 +529,7 @@ export function MessageTimeline(props: {
                     <For each={conflictPaths.slice(0, 6)}>
                       {(item) => (
                         <div
-                          class="px-3 py-1.5 text-13-regular text-fg-strong font-mono truncate"
+                          class="px-3 py-1.5 text-body text-fg-strong font-mono truncate"
                           title={item}
                         >
                           {item}
@@ -537,7 +537,7 @@ export function MessageTimeline(props: {
                       )}
                     </For>
                     <Show when={conflictPaths.length > 6}>
-                      <div class="px-3 py-1.5 text-12-regular text-fg-weak border-t border-border-base">
+                      <div class="px-3 py-1.5 text-caption text-fg-weak border-t border-border-base">
                         {language.t("ui.sessionTurn.turnChanges.confirmListMore", {
                           count: conflictPaths.length - 6,
                         })}
@@ -1096,7 +1096,7 @@ export function MessageTimeline(props: {
                   <Button
                     variant="ghost"
                     size="large"
-                    class="text-13-medium opacity-50"
+                    class="text-h3 opacity-50"
                     disabled={props.historyLoading}
                     onClick={props.onLoadEarlier}
                   >
@@ -1146,7 +1146,7 @@ export function MessageTimeline(props: {
                                     <Show when={comment()}>
                                       {(c) => (
                                         <div class="shrink-0 max-w-[260px] rounded-[6px] border border-border-weak bg-bg-base px-2.5 py-2">
-                                          <div class="flex items-center gap-1.5 min-w-0 text-13-medium text-fg-strong">
+                                          <div class="flex items-center gap-1.5 min-w-0 text-h3 text-fg-strong">
                                             <FileIcon
                                               node={{ path: c().path, type: "file" }}
                                               class="size-3.5 shrink-0"
@@ -1162,7 +1162,7 @@ export function MessageTimeline(props: {
                                               )}
                                             </Show>
                                           </div>
-                                          <div class="pt-1 text-13-regular text-fg-strong whitespace-pre-wrap break-words">
+                                          <div class="pt-1 text-body text-fg-strong whitespace-pre-wrap break-words">
                                             {c().comment}
                                           </div>
                                         </div>

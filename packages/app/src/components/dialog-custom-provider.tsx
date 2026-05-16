@@ -177,11 +177,11 @@ export function DialogCustomProvider(props: Props) {
       <div class="flex flex-col gap-6 px-2.5 pb-3 overflow-y-auto max-h-[60vh]">
         <div class="px-2.5 flex gap-4 items-center">
           <ProviderIcon id="synthetic" class="size-5 shrink-0 text-icon-strong" />
-          <div class="text-16-medium text-fg-strong">{language.t("provider.custom.title")}</div>
+          <div class="text-h2 text-fg-strong">{language.t("provider.custom.title")}</div>
         </div>
 
         <form onSubmit={save} class="px-2.5 pb-6 flex flex-col gap-6">
-          <p class="text-13-regular text-fg-base">
+          <p class="text-body text-fg-base">
             {language.t("provider.custom.description.prefix")}
             <Link href="https://github.com/Astro-Han/pawwork#readme" tabIndex={-1}>
               {language.t("provider.custom.description.link")}
@@ -226,7 +226,7 @@ export function DialogCustomProvider(props: Props) {
           </div>
 
           <div class="flex flex-col gap-3">
-            <label class="text-13-medium text-fg-weak">{language.t("provider.custom.models.label")}</label>
+            <label class="text-h3 text-fg-weak">{language.t("provider.custom.models.label")}</label>
             <For each={form.models}>
               {(m, i) => (
                 <div class="flex gap-2 items-start" data-row={m.row}>
@@ -270,7 +270,7 @@ export function DialogCustomProvider(props: Props) {
           </div>
 
           <div class="flex flex-col gap-3">
-            <label class="text-13-medium text-fg-weak">{language.t("provider.custom.headers.label")}</label>
+            <label class="text-h3 text-fg-weak">{language.t("provider.custom.headers.label")}</label>
             <For each={form.headers}>
               {(h, i) => (
                 <div class="flex gap-2 items-start" data-row={h.row}>

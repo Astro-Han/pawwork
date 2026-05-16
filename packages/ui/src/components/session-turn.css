@@ -52,8 +52,8 @@
     min-width: 0;
     color: var(--fg-weak);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-h3);
     line-height: 20px;
     min-height: 20px;
 
@@ -67,7 +67,7 @@
     flex: 1 1 auto;
     min-width: 0;
     color: var(--fg-weaker);
-    font-weight: var(--font-weight-regular);
+    font-weight: var(--font-weight-body);
   }
 
   .error-card {
@@ -119,9 +119,9 @@
     align-items: baseline;
     gap: 7px;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    line-height: var(--line-height-large);
-    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-h3);
+    font-weight: var(--font-weight-h3);
     color: var(--fg-strong);
     white-space: nowrap;
   }
@@ -138,14 +138,14 @@
 
   [data-slot="session-turn-changes-omitted"] {
     color: var(--fg-weaker);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-regular);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-body);
   }
 
   [data-slot="session-turn-changes-undone"] {
     color: var(--fg-weaker);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-regular);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-body);
   }
 
   [data-slot="session-turn-changes-action"] {
@@ -158,9 +158,9 @@
     background: transparent;
     color: var(--fg-weak);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     line-height: 1;
-    font-weight: var(--font-weight-regular);
+    font-weight: var(--font-weight-body);
     cursor: pointer;
   }
 
@@ -221,8 +221,8 @@
     white-space: nowrap;
     color: var(--fg-strong);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="session-turn-change-meta"] {
@@ -230,8 +230,8 @@
     gap: 7px;
     align-items: center;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-h3);
     white-space: nowrap;
   }
 
@@ -241,7 +241,7 @@
 
   [data-slot="session-turn-change-unrestorable"] {
     color: var(--fg-weak);
-    font-size: var(--font-size-small);
+    font-size: var(--font-size-caption);
   }
 
   [data-slot="session-turn-change-actions"] {
@@ -263,8 +263,8 @@
     background: var(--warning-bg, var(--surface-base));
     color: var(--warning-text, var(--fg-weak));
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="session-turn-diffs-header"] {
@@ -284,17 +284,17 @@
     font-variant-numeric: tabular-nums;
     color: var(--fg-strong);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="session-turn-diffs-toggle"] {
     color: var(--brand-primary);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.15s ease;
@@ -312,8 +312,8 @@
   [data-slot="session-turn-diffs-more"] {
     color: var(--fg-weak);
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-h3);
     margin-top: 12px;
     padding: 0 0 6px;
     cursor: pointer;
@@ -345,8 +345,8 @@
     min-width: 0;
 
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="session-turn-diff-directory"] {
@@ -361,7 +361,7 @@
   [data-slot="session-turn-diff-filename"] {
     min-width: 0;
     color: var(--fg-strong);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-h3);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

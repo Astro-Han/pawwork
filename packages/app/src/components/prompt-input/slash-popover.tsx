@@ -65,7 +65,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                       onMouseEnter={() => props.setAtActive(key)}
                     >
                       <FileIcon node={{ path: item.path, type: "file" }} class="shrink-0 size-4" />
-                      <div class="flex items-center text-13-regular min-w-0">
+                      <div class="flex items-center text-body min-w-0">
                         <span class="text-fg-weak whitespace-nowrap truncate min-w-0">{directory}</span>
                         <Show when={!isDirectory}>
                           <span class="text-fg-strong whitespace-nowrap">{filename}</span>
@@ -94,14 +94,14 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                     onMouseEnter={() => props.setSlashActive(cmd.id)}
                   >
                     <div class="flex items-center gap-2 min-w-0">
-                      <span class="text-13-regular text-fg-strong whitespace-nowrap">/{cmd.trigger}</span>
+                      <span class="text-body text-fg-strong whitespace-nowrap">/{cmd.trigger}</span>
                       <Show when={cmd.description}>
-                        <span class="text-13-regular text-fg-weak truncate">{cmd.description}</span>
+                        <span class="text-body text-fg-weak truncate">{cmd.description}</span>
                       </Show>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                       <Show when={cmd.type === "custom" && cmd.source !== "command"}>
-                        <span class="text-13-regular text-fg-weak px-1.5 py-0.5 bg-surface-base rounded">
+                        <span class="text-body text-fg-weak px-1.5 py-0.5 bg-surface-base rounded">
                           {cmd.source === "skill"
                             ? props.t("prompt.slash.badge.skill")
                             : cmd.source === "mcp"
@@ -110,7 +110,7 @@ export const PromptPopover: Component<PromptPopoverProps> = (props) => {
                         </span>
                       </Show>
                       <Show when={props.commandKeybind(cmd.id)}>
-                        <span class="text-13-regular text-fg-weak">{props.commandKeybind(cmd.id)}</span>
+                        <span class="text-body text-fg-weak">{props.commandKeybind(cmd.id)}</span>
                       </Show>
                     </div>
                   </button>

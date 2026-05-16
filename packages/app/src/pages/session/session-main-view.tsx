@@ -108,19 +108,19 @@ export function SessionMainView(props: {
                 >
                   <div class="flex flex-col items-center gap-2">
                     <div class="size-8 rounded-full border border-border-weak border-t-brand-primary animate-spin" />
-                    <div class="text-13-medium text-fg-strong">{props.language.t("session.opening")}</div>
-                    <div class="text-12-regular text-fg-weak">{props.language.t("session.messages.loading")}</div>
+                    <div class="text-h3 text-fg-strong">{props.language.t("session.opening")}</div>
+                    <div class="text-caption text-fg-weak">{props.language.t("session.messages.loading")}</div>
                     <div class="mt-2 flex items-center justify-center gap-2">
                       <button
                         type="button"
-                        class="rounded-md border border-border-weak px-3 py-1 text-13-regular text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
+                        class="rounded-md border border-border-weak px-3 py-1 text-body text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
                         onClick={props.onRetryOpenSession}
                       >
                         {props.language.t("common.retry")}
                       </button>
                       <button
                         type="button"
-                        class="rounded-md border border-border-weak px-3 py-1 text-13-regular text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
+                        class="rounded-md border border-border-weak px-3 py-1 text-body text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
                         onClick={props.onOpenNewSession}
                       >
                         {props.language.t("command.session.new")}

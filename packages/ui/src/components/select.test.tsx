@@ -96,10 +96,10 @@ describe("Select: settings variant CSS", () => {
     expect(block).toContain("justify-content: flex-end")
   })
 
-  test("settings variant value is rendered at base font size (14px)", () => {
+  test("settings variant value is rendered at the body role size", () => {
     const settingsIdx = css.indexOf('&[data-trigger-style="settings"]')
     const block = css.slice(settingsIdx, settingsIdx + 800)
-    expect(block).toContain("--font-size-base")
+    expect(block).toContain("--font-size-body")
   })
 
   test("settings variant does NOT override hover with --surface-sunken", () => {

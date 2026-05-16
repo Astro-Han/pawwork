@@ -147,7 +147,7 @@ export const Playground = {
               <span>Thinking</span>
               <span style={headingSlot}>
                 <TextReveal
-                  class="text-14-regular"
+                  class="text-body"
                   text={text()}
                   duration={duration()}
                   edge={hybridEdge()}
@@ -166,7 +166,7 @@ export const Playground = {
               <span>Thinking</span>
               <span style={headingSlot}>
                 <TextReveal
-                  class="text-14-regular"
+                  class="text-body"
                   text={text()}
                   duration={duration()}
                   edge={edge()}

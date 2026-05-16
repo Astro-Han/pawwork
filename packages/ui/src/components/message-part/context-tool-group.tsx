@@ -22,7 +22,7 @@ export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
         <div data-component="context-tool-group-trigger">
           <span
             data-slot="context-tool-group-title"
-            class="min-w-0 flex items-center gap-2 text-13-medium text-fg-strong"
+            class="min-w-0 flex items-center gap-2 text-h3 text-fg-strong"
           >
             <span data-slot="context-tool-group-label" class="shrink-0">
               <ToolStatusTitle

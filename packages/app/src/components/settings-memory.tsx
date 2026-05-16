@@ -89,41 +89,41 @@ export function SettingsMemory(props: { directory?: string }) {
     <div class="py-4">
       <SettingsList>
         <section class="flex flex-col gap-1 border-b border-border-weak py-3">
-          <h2 class="text-16-medium text-fg-strong">{language.t("settings.memory.title")}</h2>
-          <p class="text-13-regular text-fg-weak">{language.t("settings.memory.description")}</p>
+          <h2 class="text-h2 text-fg-strong">{language.t("settings.memory.title")}</h2>
+          <p class="text-body text-fg-weak">{language.t("settings.memory.description")}</p>
           <Show when={state.latest?.path}>
-            <p class="text-12-regular text-fg-weaker">{state.latest?.path}</p>
+            <p class="text-caption text-fg-weaker">{state.latest?.path}</p>
           </Show>
         </section>
 
         <section class="flex flex-wrap items-center gap-4 border-b border-border-weak py-3 sm:flex-nowrap">
           <div class="min-w-0 flex-1">
-            <div class="text-13-medium text-fg-strong">{language.t("settings.memory.enabled.title")}</div>
-            <div class="text-13-regular text-fg-weak">{language.t("settings.memory.enabled.description")}</div>
+            <div class="text-h3 text-fg-strong">{language.t("settings.memory.enabled.title")}</div>
+            <div class="text-body text-fg-weak">{language.t("settings.memory.enabled.description")}</div>
           </div>
           <Switch checked={!state.latest?.disabled} onChange={toggle} />
         </section>
 
         <Show when={state.latest?.status === "safe_mode"}>
-          <section class="rounded border border-danger/40 bg-danger/5 p-3 text-13-regular text-danger">
+          <section class="rounded border border-danger/40 bg-danger/5 p-3 text-body text-danger">
             {language.t("settings.memory.safeMode", { reason: state.latest?.reason ?? "" })}
           </section>
         </Show>
 
         <Show when={state.latest?.profileTooLarge}>
-          <section class="rounded border border-border bg-surface-base p-3 text-13-regular text-fg-weak">
+          <section class="rounded border border-border bg-surface-base p-3 text-body text-fg-weak">
             {language.t("settings.memory.profileTooLarge")}
           </section>
         </Show>
 
         <section class="flex flex-col gap-3 py-3">
           <div>
-            <div class="text-13-medium text-fg-strong">{language.t("settings.memory.raw.title")}</div>
-            <div class="text-13-regular text-fg-weak">{language.t("settings.memory.raw.description")}</div>
+            <div class="text-h3 text-fg-strong">{language.t("settings.memory.raw.title")}</div>
+            <div class="text-body text-fg-weak">{language.t("settings.memory.raw.description")}</div>
           </div>
           <textarea
             data-action="settings-memory-raw"
-            class="min-h-[360px] w-full rounded-[var(--radius-md)] border border-border-weak bg-surface-base p-3 font-mono text-13-regular text-fg-strong"
+            class="min-h-[360px] w-full rounded-[var(--radius-md)] border border-border-weak bg-surface-base p-3 font-mono text-body text-fg-strong"
             value={draft()}
             spellcheck={false}
             onInput={(event) => setDraft(event.currentTarget.value)}

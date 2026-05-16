@@ -143,7 +143,7 @@ export function SessionTodoDock(props: {
         >
           <span
             data-slot="session-todo-progress"
-            class="text-13-regular text-fg-strong cursor-default inline-flex items-center shrink-0 overflow-visible leading-none"
+            class="text-body text-fg-strong cursor-default inline-flex items-center shrink-0 overflow-visible leading-none"
             aria-label={label()}
             style={{
               "--tool-motion-odometer-ms": "600ms",
@@ -175,7 +175,7 @@ export function SessionTodoDock(props: {
             }}
           >
             <TextReveal
-              class="text-13-regular text-fg-base cursor-default leading-none"
+              class="text-body text-fg-base cursor-default leading-none"
               text={store.collapsed ? preview() : undefined}
               duration={600}
               travel={25}
@@ -260,9 +260,9 @@ function TodoList(props: { todos: SessionTodoItem[] }) {
               <TextStrikethrough
                 active={todo().status === "completed" || todo().status === "cancelled"}
                 text={todo().content}
-                class="text-13-regular min-w-0 break-words"
+                class="text-body min-w-0 break-words"
                 style={{
-                  "line-height": "var(--line-height-normal)",
+                  "line-height": "var(--line-height-caption)",
                   transition:
                     "color 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1)), opacity 220ms var(--tool-motion-ease, cubic-bezier(0.22, 1, 0.36, 1))",
                   color:

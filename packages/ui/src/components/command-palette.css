@@ -89,7 +89,7 @@
     }
 
     [data-slot="list-search-input"] [data-slot="input-input"] {
-      font-size: var(--font-size-base);
+      font-size: var(--font-size-body);
       line-height: 1.4;
       max-height: none;
     }
@@ -112,8 +112,8 @@
 [data-component="command-palette"] [data-slot="list-header"] {
   /* Section headers per L32: type-h3 family (500 13) uppercase 0.5 tracking. */
   padding: 12px 16px 6px;
-  font-size: var(--font-size-x-small);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-h3);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   line-height: 1;
@@ -136,7 +136,7 @@
   min-height: 30px;
   padding: 0 12px;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body);
 }
 
 [data-component="command-palette"] [data-slot="list-item"][data-active="true"]:not([data-selected]) {
@@ -156,7 +156,7 @@
   padding: 48px 32px;
 
   [data-slot="list-message"] {
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     color: var(--fg-weak);
   }
 }
