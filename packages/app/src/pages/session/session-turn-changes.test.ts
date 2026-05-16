@@ -62,7 +62,7 @@ describe("blockedTurnChangeDescription", () => {
         t,
       ),
     ).toBe(
-      "session.turnChange.blocked.conflict session.turnChange.blocked.files[a.ts, b.ts, c.tssession.turnChange.blocked.more[1]]",
+      "session.turnChange.blocked.conflict session.turnChange.blocked.files[a.ts, b.ts, c.ts, session.turnChange.blocked.more[1]]",
     )
   })
 })

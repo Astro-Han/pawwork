@@ -70,7 +70,7 @@ export function blockedTurnChangeDescription(body: any, t: Translate) {
     : []
   if (!files.length) return base
   const visible = files.slice(0, 3).join(", ")
-  const rest = files.length > 3 ? t("session.turnChange.blocked.more", { count: files.length - 3 }) : ""
+  const rest = files.length > 3 ? `, ${t("session.turnChange.blocked.more", { count: files.length - 3 })}` : ""
   return `${base} ${t("session.turnChange.blocked.files", { files: `${visible}${rest}` })}`
 }
 
