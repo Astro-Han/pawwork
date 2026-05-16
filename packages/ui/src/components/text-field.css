@@ -5,8 +5,8 @@
     width: 100%;
     color: var(--fg-strong);
 
-    /* text-h3 */
-    font: var(--font-weight-h3) var(--font-size-caption)/1 var(--font-family-sans);
+    /* compact field text + font-emphasis */
+    font: var(--font-weight-emphasis) var(--font-size-caption)/1 var(--font-family-sans);
 
     &:focus {
       outline: none;
@@ -26,11 +26,11 @@
     [data-slot="input-label"] {
       color: var(--fg-weak);
 
-      /* text-h3 */
+      /* compact label + font-emphasis */
       font-family: var(--font-family-sans);
       font-size: var(--font-size-caption);
       font-style: normal;
-      font-weight: var(--font-weight-h3);
+      font-weight: var(--font-weight-emphasis);
       line-height: 18px; /* 150% */
     }
 
@@ -78,8 +78,8 @@
       background: transparent;
       border: none;
 
-      /* text-h3 */
-      font: var(--font-weight-h3) var(--font-size-caption)/1 var(--font-family-sans);
+      /* compact field text + font-emphasis */
+      font: var(--font-weight-emphasis) var(--font-size-caption)/1 var(--font-family-sans);
 
       &:focus {
         outline: none;
@@ -167,7 +167,7 @@
       background: transparent;
       border: none;
 
-      font: var(--font-weight-h3) var(--font-size-caption)/1 var(--font-family-sans);
+      font: var(--font-weight-emphasis) var(--font-size-caption)/1 var(--font-family-sans);
 
       &:focus {
         outline: none;

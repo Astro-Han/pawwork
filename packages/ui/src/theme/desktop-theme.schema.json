@@ -42,7 +42,8 @@
     "CssValue": {
       "type": "string",
       "minLength": 1,
-      "description": "A raw CSS value for a generated custom property override"
+      "pattern": "^[^;{}\\u0000-\\u001F\\u007F]+$",
+      "description": "A single-declaration CSS value for a generated custom property override"
     },
     "ThemeSeedColors": {
       "type": "object",
@@ -156,6 +157,9 @@
         "overrides": {
           "type": "object",
           "description": "Optional direct overrides for any CSS variable (without -- prefix)",
+          "propertyNames": {
+            "pattern": "^[a-z0-9-]+$"
+          },
           "additionalProperties": {
             "$ref": "#/definitions/CssValue"
           }

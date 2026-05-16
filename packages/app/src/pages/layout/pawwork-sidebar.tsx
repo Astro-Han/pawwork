@@ -280,7 +280,7 @@ export const PawworkSidebar = (props: {
             }
             titleContent={({ title }) => (
               <span
-                class="text-body text-fg-base [.active_&]:text-fg-strong [.active_&]:font-[var(--font-weight-h3)] min-w-0 flex-1 truncate"
+                class="text-body text-fg-base [.active_&]:text-fg-strong [.active_&]:font-emphasis min-w-0 flex-1 truncate"
                 onDblClick={(e: MouseEvent) => {
                   e.preventDefault()
                   e.stopPropagation()

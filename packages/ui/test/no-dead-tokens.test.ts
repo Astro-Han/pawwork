@@ -13,9 +13,12 @@ import { join } from "path"
 const UI_ROOT = join(import.meta.dirname, "..")
 const REPO_ROOT = join(UI_ROOT, "..", "..")
 const THEME_CSS = readFileSync(join(UI_ROOT, "src/styles/theme.css"), "utf-8")
-const SEARCH_ROOTS = ["packages", "docs/design/preview"].filter((path) =>
-  existsSync(join(REPO_ROOT, path)),
-)
+const SEARCH_ROOTS = ["packages", "docs/design/preview"].filter((path) => {
+  if (!existsSync(join(REPO_ROOT, path))) return false
+  const result = spawnSync("git", ["ls-files", "--", path], { cwd: REPO_ROOT, encoding: "utf8" })
+  if (result.error) throw result.error
+  return result.stdout.trim().length > 0
+})
 
 const BANNED_CUSTOM_PROPERTIES = [
   "--type-display",
@@ -101,6 +104,7 @@ const REQUIRED_CUSTOM_PROPERTIES = [
   "--font-weight-h3",
   "--font-weight-body",
   "--font-weight-caption",
+  "--font-weight-emphasis",
   "--font-weight-mono",
   "--font-weight-mono-small",
   "--font-weight-kbd",
@@ -115,6 +119,7 @@ const REQUIRED_CUSTOM_PROPERTIES = [
   "--line-height-kbd",
   "--letter-spacing-display",
   "--letter-spacing-h1",
+  "--letter-spacing-cjk",
 ]
 
 function expectNoRgMatches(patterns: string[], extraGlobs: string[] = []) {

@@ -43,7 +43,7 @@ export function SessionPermissionContent(props: {
               <span data-slot="permission-spacer" aria-hidden="true" />
               <div data-slot="permission-patterns">
                 <For each={props.request.patterns}>
-                  {(pattern) => <code class="text-body text-fg-base break-all">{pattern}</code>}
+                  {(pattern) => <code class="text-mono-small text-fg-base break-all">{pattern}</code>}
                 </For>
               </div>
             </div>
