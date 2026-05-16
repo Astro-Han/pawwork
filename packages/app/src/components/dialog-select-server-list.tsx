@@ -32,12 +32,12 @@ export function ServerConnectionList(props: ServerConnectionListProps) {
       noInitialSelection
       emptyMessage={language.t("dialog.server.empty")}
       items={props.items}
-      key={(x) => x.http.url}
+      key={ServerConnection.key}
       onSelect={(x) => {
         if (x) props.onSelect(x)
       }}
       divider={true}
-      class="px-5 [&_[data-slot=list-search-wrapper]]:w-full [&_[data-slot=list-scroll]]h-[300px] [&_[data-slot=list-scroll]]:overflow-y-auto [&_[data-slot=list-items]]:bg-surface-base [&_[data-slot=list-items]]:rounded-md [&_[data-slot=list-item]]:min-h-14 [&_[data-slot=list-item]]:p-3 [&_[data-slot=list-item]]:!bg-transparent"
+      class="px-5 [&_[data-slot=list-search-wrapper]]:w-full [&_[data-slot=list-scroll]]:h-[300px] [&_[data-slot=list-scroll]]:overflow-y-auto [&_[data-slot=list-items]]:bg-surface-base [&_[data-slot=list-items]]:rounded-[var(--radius-md)] [&_[data-slot=list-item]]:min-h-14 [&_[data-slot=list-item]]:p-3 [&_[data-slot=list-item]]:!bg-transparent"
     >
       {(i) => {
         const key = ServerConnection.key(i)
