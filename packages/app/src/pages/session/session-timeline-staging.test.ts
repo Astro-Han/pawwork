@@ -108,6 +108,33 @@ const mount = (factory) => {
   let staging
   let setCount
   const dispose = mount(() => {
+    const [count, nextCount] = createSignal(16)
+    setCount = nextCount
+    staging = createTimelineStaging({
+      sessionKey: () => "ses_1",
+      turnStart: () => 6,
+      messages: () => messages(count()),
+      config: { init: 10, batch: 3 },
+    })
+    return null
+  })
+
+  const firstFrame = raf.pendingIDs()[0]
+  assert(firstFrame !== undefined, "active staging should schedule a frame")
+  setCount(18)
+  assert(ids(staging.messages()) === ids(messages(18).slice(8)), "active staging should not pop to all messages")
+  assert(staging.isStaging() === true, "message growth should keep staging active")
+  assert(raf.pendingIDs().includes(firstFrame), "message growth should keep the existing staging frame")
+  assert(raf.flushOne() === true, "existing staging frame should continue after growth")
+  assert(ids(staging.messages()) === ids(messages(18).slice(5)), "continued staging should add one batch after growth")
+  dispose()
+}
+
+{
+  const raf = installAnimationFrameQueue()
+  let staging
+  let setCount
+  const dispose = mount(() => {
     const [count, nextCount] = createSignal(13)
     setCount = nextCount
     staging = createTimelineStaging({
