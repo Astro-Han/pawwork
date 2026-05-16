@@ -7,6 +7,7 @@ import {
   sanitizeConfig,
   sanitizeForTest,
 } from "./markdown"
+import { ensureCodeWrapper, markCodeLinks } from "./markdown-code-tools"
 
 describe("DOMPurify whitelist config", () => {
   test("forbids unsafe tags", () => {
@@ -180,6 +181,38 @@ describe("link action routing", () => {
   })
   test("trims surrounding whitespace", () => {
     expect(resolveLinkAction("  https://x.com  ")).toEqual({ kind: "external", url: "https://x.com" })
+  })
+})
+
+describe("markdown code decoration", () => {
+  test("wraps code blocks with one copy button", () => {
+    document.body.innerHTML = "<pre><code>echo hi</code></pre>"
+    const block = document.querySelector("pre")!
+    const labels = { copy: "Copy", copied: "Copied" }
+
+    ensureCodeWrapper(block, labels)
+    ensureCodeWrapper(block, labels)
+
+    const wrapper = document.querySelector('[data-component="markdown-code"]')
+    expect(wrapper).not.toBeNull()
+    expect(wrapper!.querySelectorAll('[data-slot="markdown-copy-button"]')).toHaveLength(1)
+    expect(wrapper!.textContent).toContain("echo hi")
+  })
+
+  test("marks inline code URLs and unwraps them when no longer URL-shaped", () => {
+    document.body.innerHTML = "<p><code>https://example.com/readme</code></p>"
+    markCodeLinks(document.body as HTMLDivElement)
+
+    const link = document.querySelector("a.external-link")!
+    expect(link).not.toBeNull()
+    expect(link.getAttribute("href")).toBe("https://example.com/readme")
+
+    const code = link.querySelector("code")!
+    code.textContent = "not a url"
+    markCodeLinks(document.body as HTMLDivElement)
+
+    expect(document.querySelector("a.external-link")).toBeNull()
+    expect(document.querySelector("code")!.textContent).toBe("not a url")
   })
 })
 
