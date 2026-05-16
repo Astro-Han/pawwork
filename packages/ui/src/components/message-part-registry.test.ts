@@ -114,7 +114,7 @@ test("part and tool side-effect barrels cover every registered renderer", () => 
 test("split keeps hidden tools and deferred heavy tool bodies explicit", () => {
   const source = readMessagePartSources()
 
-  expect(source).toContain('export const HIDDEN_TOOLS = new Set(["todowrite"])')
+  expect(source).toContain("export const HIDDEN_TOOLS = new Set<string>(HIDDEN_TOOL_NAMES)")
   expect(source).toContain('if (tool === "edit" || tool === "write" || tool === "apply_patch") return edit')
   expect(source).toContain("defaultOpen={completed()}")
 

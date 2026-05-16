@@ -62,7 +62,7 @@
   strong,
   b {
     color: var(--fg-strong);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
   }
   em,
   i {
@@ -280,7 +280,7 @@
     gap: var(--space-sm);
     padding: var(--space-sm) 0;
     list-style: none;
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     color: var(--fg-strong);
     user-select: none;
   }
@@ -367,7 +367,7 @@
       font-family: var(--font-family-sans);
       font-size: var(--font-size-caption);
       font-style: normal;
-      font-weight: var(--font-weight-h3);
+      font-weight: var(--font-weight-emphasis);
       line-height: var(--line-height-h3);
       opacity: 0;
       transition: opacity 0.15s ease;

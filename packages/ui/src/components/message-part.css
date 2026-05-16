@@ -278,12 +278,13 @@
 [data-component="reasoning-part"] {
   width: 100%;
   color: var(--fg-base);
-  line-height: var(--line-height-caption);
+  line-height: var(--line-height-body);
 
   [data-component="markdown"] {
     margin-top: 16px;
     font-style: normal;
-    font-size: var(--font-size-caption);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
     color: var(--fg-weak);
 
     strong,
@@ -441,7 +442,7 @@
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     line-height: var(--line-height-h3);
     color: var(--fg-base);
   }
@@ -613,7 +614,7 @@
   }
 
   [data-slot="message-part-todo-content"] {
-    line-height: var(--line-height-caption);
+    line-height: var(--line-height-body);
 
     &[data-completed="completed"] {
       text-decoration: line-through;
@@ -676,7 +677,7 @@
 
   [data-slot="diagnostic-label"] {
     color: var(--error-text);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     text-transform: uppercase;
     letter-spacing: -0.5px;
     flex-shrink: 0;
@@ -801,10 +802,6 @@
       display: none;
     }
 
-    code {
-      font-size: var(--font-size-caption);
-      line-height: var(--line-height-h3);
-    }
   }
 
   [data-slot="permission-footer"] {
@@ -872,7 +869,7 @@
 
   [data-slot="question-header-seq"] {
     color: var(--fg-weak);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
@@ -944,7 +941,7 @@
   [data-slot="question-text"] {
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     line-height: var(--line-height-h3);
     color: var(--fg-strong);
     padding: 0 10px;
@@ -1070,7 +1067,7 @@
   [data-slot="option-label"] {
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     line-height: var(--line-height-h3);
     color: var(--fg-strong);
   }
@@ -1247,7 +1244,7 @@
   [data-slot="apply-patch-change"] {
     font-family: var(--font-family-sans);
     font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
   }
 
   [data-slot="apply-patch-change"][data-type="added"] {
