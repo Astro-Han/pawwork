@@ -46,10 +46,12 @@ test("dropping a text file adds a removable attachment chip", async ({ page, got
 
   await page.dispatchEvent("body", "drop", { dataTransfer: dt })
 
-  await expect(page.getByText("drop.txt").first()).toBeVisible()
+  const chip = page.getByText("drop.txt").first()
+  await expect(chip).toBeVisible()
+  await chip.hover()
+
   const remove = page.getByRole("button", { name: "Remove attachment" }).first()
   await expect(remove).toBeVisible()
-
-  await remove.click({ force: true })
+  await remove.click()
   await expect(page.getByText("drop.txt")).toHaveCount(0)
 })
