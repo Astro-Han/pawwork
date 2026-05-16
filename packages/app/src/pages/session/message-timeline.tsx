@@ -1,12 +1,6 @@
 import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX, createSignal } from "solid-js"
-import { createStore, produce } from "solid-js/store"
-import { useNavigate } from "@solidjs/router"
-import { useMutation } from "@tanstack/solid-query"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
-import { IconButton } from "@opencode-ai/ui/icon-button"
-import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
@@ -31,22 +25,17 @@ import {
   extractMessageComments,
   SessionMessageComments,
 } from "@/pages/session/session-message-comments"
-import { taskDescription } from "@/pages/session/task-description"
 import { buildTurnMessagesByUserID, emptyAssistantMessages } from "@/pages/session/session-messages"
 import { createSessionTurnChanges } from "@/pages/session/session-turn-changes"
 import { createSessionRunning } from "@/pages/session/session-running-state"
-import { SessionContextUsage } from "@/components/session-context-usage"
 import { useLanguage } from "@/context/language"
 import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
 import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
-import { useServer } from "@/context/server"
 import { useSettings } from "@/context/settings"
-import { useSDK } from "@/context/sdk"
 import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { messageAgentColor } from "@/utils/agent"
-import { sessionTitle } from "@/utils/session-title"
 import { makeTimer } from "@solid-primitives/timer"
 import { webSearchRecoveryToast } from "./websearch-toasts"
 
@@ -65,7 +54,7 @@ type UserActions = {
   revert?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
 }
 
-export { taskDescription }
+export { taskDescription } from "@/pages/session/task-description"
 
 export function MessageTimeline(props: {
   sessionID: string
@@ -110,23 +99,16 @@ export function MessageTimeline(props: {
       }
     | undefined
 
-  const navigate = useNavigate()
-  const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
   const language = useLanguage()
   const shellSurface = useShellSurface()
   const { params } = useSessionRouteKey()
   const platform = usePlatform()
-  const server = useServer()
   onCleanup(() => {
     mounted = false
     if (scrollSampleFrame !== undefined) cancelAnimationFrame(scrollSampleFrame)
   })
-  // Export hits the embedded sidecar via main-process IPC. When the user has switched the
-  // active server to a remote HTTP/SSH target, the sidecar holds different data than the UI;
-  // hide the action rather than ship a misleading export.
-  const exportAvailable = createMemo(() => !!platform.exportSession && server.current?.type === "sidecar")
 
   const rendered = createMemo(() => props.renderedUserMessages.map((message) => message.id))
   const visibleRange = createMemo(() => {
@@ -276,41 +258,6 @@ export function MessageTimeline(props: {
 
     return undefined
   })
-  const info = createMemo(() => {
-    const id = sessionID()
-    if (!id) return
-    return sync.session.get(id)
-  })
-  const titleValue = createMemo(() => info()?.title)
-  const titleLabel = createMemo(() => sessionTitle(titleValue()))
-  const parentID = createMemo(() => info()?.parentID)
-  const parent = createMemo(() => {
-    const id = parentID()
-    if (!id) return
-    return sync.session.get(id)
-  })
-  const parentMessages = createMemo(() => {
-    const id = parentID()
-    if (!id) return emptyMessages
-    return sync.data.message[id] ?? emptyMessages
-  })
-  const parentTitle = createMemo(() => sessionTitle(parent()?.title) ?? language.t("command.session.new"))
-  const childTaskDescription = createMemo(() => {
-    const id = sessionID()
-    if (!id) return
-    return parentMessages()
-      .flatMap((message) => sync.data.part[message.id] ?? [])
-      .map((part) => taskDescription(part, id))
-      .findLast((value): value is string => !!value)
-  })
-  const childTitle = createMemo(() => {
-    if (!parentID()) return titleLabel() ?? ""
-    if (childTaskDescription()) return childTaskDescription()
-    const value = titleLabel()?.replace(/\s+\(@[^)]+ subagent\)$/, "")
-    if (value) return value
-    return language.t("command.session.new")
-  })
-  const showHeader = createMemo(() => !!(titleValue() || parentID()))
   // Match the initial window cap so session switches do not reveal the window in partial batches.
   const stageCfg = { init: 10, batch: 3 }
   const staging = createTimelineStaging({
@@ -319,144 +266,6 @@ export function MessageTimeline(props: {
     messages: () => props.renderedUserMessages,
     config: stageCfg,
   })
-
-  const [title, setTitle] = createStore({
-    draft: "",
-    editing: false,
-    menuOpen: false,
-    pendingRename: false,
-  })
-  let titleRef: HTMLInputElement | undefined
-
-  let more: HTMLButtonElement | undefined
-
-  const errorMessage = (err: unknown) => {
-    if (err && typeof err === "object" && "data" in err) {
-      const data = (err as { data?: { message?: string } }).data
-      if (data?.message) return data.message
-    }
-    if (err instanceof Error) return err.message
-    return language.t("common.requestFailed")
-  }
-
-  const titleMutation = useMutation(() => ({
-    mutationFn: (input: { id: string; title: string }) =>
-      sdk.client.session.update({ sessionID: input.id, title: input.title }),
-    onSuccess: (_, input) => {
-      sync.set(
-        produce((draft) => {
-          const index = draft.session.findIndex((s) => s.id === input.id)
-          if (index !== -1) draft.session[index].title = input.title
-        }),
-      )
-      setTitle("editing", false)
-    },
-    onError: (err) => {
-      showToast({
-        title: language.t("common.requestFailed"),
-        description: errorMessage(err),
-      })
-    },
-  }))
-
-  const onExport = async () => {
-    const id = sessionID()
-    if (!id || !platform.exportSession) return
-
-    // Build a slug-based default filename. Falls back to id suffix if slug is missing.
-    const slugSource = info()?.slug ?? id
-    // Allow Unicode letters/numbers (CJK titles work) but strip filesystem-hostile chars.
-    // If sanitization produces an empty/dash-only string, fall back to the id suffix.
-    const sanitized = slugSource.replace(/[\\/:*?"<>|]/g, "-").slice(0, 32)
-    const slug = /[\p{L}\p{N}]/u.test(sanitized) ? sanitized : id.slice(-8)
-    const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..+$/, "")
-    const defaultName = `pawwork-session-${slug}-${stamp}.json`
-
-    let result: { ok: true; path: string } | { ok: false; error: string }
-    try {
-      result = await platform.exportSession(id, sdk.directory, defaultName, language.t("session.export.action.export"))
-    } catch (err) {
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: errorMessage(err),
-        variant: "error",
-      })
-      return
-    }
-    if (!result.ok) {
-      if (result.error === "cancelled") return
-      showToast({
-        title: language.t("session.export.error.failed"),
-        description: result.error,
-        variant: "error",
-      })
-      return
-    }
-    showToast({
-      title: language.t("session.export.success"),
-      description: result.path,
-    })
-  }
-
-  createEffect(
-    on(
-      sessionKey,
-      () =>
-        setTitle({
-          draft: "",
-          editing: false,
-          menuOpen: false,
-          pendingRename: false,
-        }),
-      { defer: true },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => [parentID(), childTaskDescription()] as const,
-      ([id, description]) => {
-        if (!id || description) return
-        if (sync.data.message[id] !== undefined) return
-        void sync.session.sync(id)
-      },
-      { defer: true },
-    ),
-  )
-
-  const openTitleEditor = () => {
-    if (!sessionID() || parentID()) return
-    setTitle({ editing: true, draft: titleLabel() ?? "" })
-    requestAnimationFrame(() => {
-      titleRef?.focus()
-      titleRef?.select()
-    })
-  }
-
-  const closeTitleEditor = () => {
-    if (titleMutation.isPending) return
-    setTitle("editing", false)
-  }
-
-  const saveTitleEditor = () => {
-    const id = sessionID()
-    if (!id) return
-    if (titleMutation.isPending) return
-
-    const next = title.draft.trim()
-    if (!next || next === (titleLabel() ?? "")) {
-      setTitle("editing", false)
-      return
-    }
-
-    titleMutation.mutate({ id, title: next })
-  }
-
-  const navigateParent = () => {
-    const id = parentID()
-    if (!id) return
-    navigate(`/${params.dir}/session/${id}`)
-  }
 
   return (
     <Show
