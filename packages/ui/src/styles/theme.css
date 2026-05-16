@@ -274,10 +274,10 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Dark mode source of truth: explicit toggle attribute.
- * The Settings → Appearance toggle (context.tsx) writes dataset.colorScheme
- * to this element; loader.ts handles the CSS color-scheme property separately.
- * This block IS the dark theme; the @media block below is a first-paint mirror only.
+ * Dark first-paint mirror for the explicit toggle attribute.
+ * Runtime dark tokens are written by applyThemeCss() in theme/context.tsx via
+ * the injected <style id="oc-theme"> sheet. This selector keeps pre-boot paint
+ * aligned with that runtime path; it is not the runtime source of truth.
  * ────────────────────────────────────────────────────────────────────────── */
 :root[data-color-scheme="dark"] {
   /* Dark surface · STANDARDS L10 (6-tier warm coffee) */
