@@ -56,17 +56,19 @@ export function createTimelineStaging(input: TimelineStageInput) {
     on(
       () => [input.sessionKey(), input.turnStart() > 0, input.messages().length] as const,
       ([sessionKey, isWindowed, total]) => {
-        cancel()
         const shouldStage =
           isWindowed &&
           total > input.config.init &&
-          state.completedSession !== sessionKey &&
-          state.activeSession !== sessionKey
+          state.completedSession !== sessionKey
         if (!shouldStage) {
+          cancel()
           setState({ activeSession: "", count: total })
           return
         }
 
+        if (state.activeSession === sessionKey) return
+
+        cancel()
         let count = Math.min(total, input.config.init)
         setState({ activeSession: sessionKey, count })
 
