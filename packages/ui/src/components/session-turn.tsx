@@ -11,7 +11,7 @@ import { useFileComponent } from "../context/file"
 
 import { Binary } from "@opencode-ai/core/util/binary"
 import { getDirectory, getFilename } from "@opencode-ai/core/util/path"
-import { createEffect, createMemo, createSignal, For, on, onCleanup, ParentProps, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, ParentProps, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { AssistantParts, Message, MessageDivider, PART_MAPPING, type UserActions } from "./message-part"
@@ -20,21 +20,14 @@ import { Accordion } from "./accordion"
 import { StickyAccordionHeader } from "./sticky-accordion-header"
 import { DiffChanges } from "./diff-changes"
 import { Icon } from "./icon"
-import { IconButton } from "./icon-button"
 import { TextShimmer } from "./text-shimmer"
-import { Tooltip } from "./tooltip"
 import { SessionRetry } from "./session-retry"
 import { TextReveal } from "./text-reveal"
 import { createAutoScroll } from "../hooks"
 import { useI18n } from "../context/i18n"
 import { normalize } from "./session-diff"
-import {
-  hasTurnChangeActionHandler,
-  hasVisibleTurnChanges,
-  turnChangeAction,
-  type TurnChangeDisplay,
-  type TurnChangeFile,
-} from "./session-turn-changes"
+import { hasVisibleTurnChanges, type TurnChangeActions, type TurnChangeDisplay } from "./session-turn-changes"
+import { SessionTurnChangesPanel } from "./session-turn-changes-panel"
 
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
@@ -165,18 +158,7 @@ export function SessionTurn(
     shellToolDefaultOpen?: boolean
     editToolDefaultOpen?: boolean
     turnChanges?: Record<string, TurnChangeDisplay | null | undefined>
-    turnChangeActions?: {
-      undo?: (
-        userMessageID: string,
-        options?: { force?: boolean },
-      ) => Promise<TurnChangeDisplay | undefined> | void
-      redo?: (
-        userMessageID: string,
-        options?: { force?: boolean },
-      ) => Promise<TurnChangeDisplay | undefined> | void
-      openFile?: (path: string) => void
-      showInFolder?: (path: string) => void
-    }
+    turnChangeActions?: TurnChangeActions
     active?: boolean
     status?: SessionStatus
     onUserInteracted?: () => void
@@ -195,7 +177,6 @@ export function SessionTurn(
   const emptyParts: PartType[] = []
   const emptyAssistant: AssistantMessage[] = []
   const emptyDiffs: SnapshotFileDiff[] = []
-  const emptyTurnFiles: TurnChangeFile[] = []
   const idle = { type: "idle" as const }
 
   const allMessages = createMemo(() => props.messages ?? list(data.store.message?.[props.sessionID], emptyMessages))
@@ -312,57 +293,11 @@ export function SessionTurn(
     if (!messages.length) return false
     return messages.some((item) => typeof item.time.completed !== "number")
   })
-  const turnFiles = createMemo(() => turnChange()?.files ?? emptyTurnFiles)
-  const turnEdited = createMemo(() => turnFiles().length)
-  const turnAdditions = createMemo(() => turnFiles().reduce((sum, file) => sum + (file.additions ?? 0), 0))
-  const turnDeletions = createMemo(() => turnFiles().reduce((sum, file) => sum + (file.deletions ?? 0), 0))
-  const [turnExpanded, setTurnExpanded] = createSignal<string[]>([])
-  const [confirmAction, setConfirmAction] = createSignal<"undo" | "redo" | undefined>()
-  let confirmTimer: ReturnType<typeof setTimeout> | undefined
-  const resetConfirm = () => {
-    if (confirmTimer) clearTimeout(confirmTimer)
-    confirmTimer = undefined
-    setConfirmAction(undefined)
-  }
-  const primeConfirm = (action: "undo" | "redo") => {
-    if (confirmAction() === action) return true
-    setConfirmAction(action)
-    if (confirmTimer) clearTimeout(confirmTimer)
-    confirmTimer = setTimeout(resetConfirm, 3000)
-    return false
-  }
-  onCleanup(resetConfirm)
-  const mutateTurnChange = async () => {
+  const visibleTurnChange = createMemo(() => {
     const current = turnChange()
-    const id = current?.messageID
-    if (!id) return
-    const action = turnChangeAction(current)
-    if (!action || !hasTurnChangeActionHandler(current, props.turnChangeActions)) return
-    if (!primeConfirm(action)) return
-    resetConfirm()
-    if (action === "undo") await props.turnChangeActions?.undo?.(id)
-    else await props.turnChangeActions?.redo?.(id)
-  }
-  const turnActionLabel = createMemo(() => {
-    const current = turnChange()
-    const action = turnChangeAction(current)
-    if (!action) return ""
-    const base = action === "undo" ? i18n.t("ui.sessionTurn.turnChanges.undo") : i18n.t("ui.sessionTurn.turnChanges.reapply")
-    return confirmAction() === action
-      ? action === "undo"
-        ? i18n.t("ui.sessionTurn.turnChanges.undoConfirm")
-        : i18n.t("ui.sessionTurn.turnChanges.redoConfirm")
-      : base
+    if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return
+    return current
   })
-  const isUndoneTurn = createMemo(() => {
-    const current = turnChange()
-    return !!(current && current.redoAvailable && !current.undoAvailable)
-  })
-  const turnStatusLabel = (status: TurnChangeFile["status"]) => {
-    if (status === "added") return i18n.t("ui.sessionTurn.turnChanges.status.added")
-    if (status === "deleted") return i18n.t("ui.sessionTurn.turnChanges.status.deleted")
-    return i18n.t("ui.sessionTurn.turnChanges.status.updated")
-  }
   const interrupted = createMemo(() => assistantMessages().some((m) => m.error?.name === "MessageAbortedError"))
   const divider = createMemo(() => {
     if (compaction()) return i18n.t("ui.messagePart.compaction")
@@ -508,143 +443,12 @@ export function SessionTurn(
                   </div>
                 </Show>
                 <SessionRetry status={status()} show={active()} />
-                <Show when={hasVisibleTurnChanges(turnChange()) && !working() && !turnInProgress()}>
-                  <div data-slot="session-turn-changes" data-component="session-turn-changes">
-                    <div data-slot="session-turn-changes-header">
-                      <div data-slot="session-turn-changes-summary">
-                        <span>
-                          {i18n.t(
-                            turnEdited() === 1
-                              ? "ui.sessionTurn.turnChanges.summary.one"
-                              : "ui.sessionTurn.turnChanges.summary.other",
-                            { count: turnEdited() },
-                          )}
-                        </span>
-                        <span data-slot="session-turn-changes-additions">+{turnAdditions()}</span>
-                        <span data-slot="session-turn-changes-deletions">-{turnDeletions()}</span>
-                        <Show when={turnChange()?.truncated && (turnChange()?.omittedCount ?? 0) > 0}>
-                          <span data-slot="session-turn-changes-omitted">
-                            {i18n.t("ui.sessionTurn.turnChanges.omitted", { count: turnChange()?.omittedCount ?? 0 })}
-                          </span>
-                        </Show>
-                        <Show when={isUndoneTurn()}>
-                          <span data-slot="session-turn-changes-undone">
-                            {i18n.t("ui.sessionTurn.turnChanges.undone")}
-                          </span>
-                        </Show>
-                      </div>
-                      <Show when={turnActionLabel() && hasTurnChangeActionHandler(turnChange(), props.turnChangeActions)}>
-                        <button
-                          type="button"
-                          data-slot="session-turn-changes-action"
-                          data-confirm={confirmAction() || undefined}
-                          onClick={mutateTurnChange}
-                          onMouseLeave={resetConfirm}
-                        >
-                          {turnActionLabel()}
-                        </button>
-                      </Show>
-                    </div>
-                    <div data-slot="session-turn-changes-list">
-                      <For each={turnFiles()}>
-                        {(file) => {
-                          const expanded = createMemo(() => turnExpanded().includes(file.path))
-                          const toggle = () => {
-                            if (!file.expandable) return
-                            setTurnExpanded((current) =>
-                              current.includes(file.path)
-                                ? current.filter((item) => item !== file.path)
-                                : [...current, file.path],
-                            )
-                          }
-                          const view = createMemo(() =>
-                            file.patch
-                              ? normalize({
-                                  file: file.path,
-                                  patch: file.patch,
-                                  additions: file.additions ?? 0,
-                                  deletions: file.deletions ?? 0,
-                                  status: file.status,
-                                })
-                              : undefined,
-                          )
-                          return (
-                            <div data-slot="session-turn-change-item" data-expanded={expanded() || undefined}>
-                              <div
-                                data-slot="session-turn-change-row"
-                                data-expandable={file.expandable || undefined}
-                                onClick={toggle}
-                              >
-                                <span data-slot="session-turn-change-chevron">
-                                  <Show when={file.expandable}>
-                                    <Icon name="chevron-down" />
-                                  </Show>
-                                </span>
-                                <span data-slot="session-turn-change-path">{file.path}</span>
-                                <span data-slot="session-turn-change-meta">
-                                  <Show
-                                    when={file.additions !== undefined || file.deletions !== undefined}
-                                    fallback={<span data-slot="session-turn-change-status">{turnStatusLabel(file.status)}</span>}
-                                  >
-                                    <span data-slot="session-turn-changes-additions">+{file.additions ?? 0}</span>
-                                    <span data-slot="session-turn-changes-deletions">-{file.deletions ?? 0}</span>
-                                  </Show>
-                                  <Show when={file.large && file.restoreAvailable === false}>
-                                    <span data-slot="session-turn-change-unrestorable">
-                                      {i18n.t("ui.sessionTurn.turnChanges.unrestorable")}
-                                    </span>
-                                  </Show>
-                                </span>
-                                <span data-slot="session-turn-change-actions" onClick={(event) => event.stopPropagation()}>
-                                  <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.openFile")} placement="top">
-                                    <IconButton
-                                      icon="open-file"
-                                      size="small"
-                                      variant="ghost"
-                                      aria-label={i18n.t("ui.sessionTurn.turnChanges.openFile")}
-                                      disabled={file.status === "deleted" || !file.openPath || !props.turnChangeActions?.openFile}
-                                      onClick={() => file.openPath && props.turnChangeActions?.openFile?.(file.openPath)}
-                                    />
-                                  </Tooltip>
-                                  <Tooltip value={i18n.t("ui.sessionTurn.turnChanges.showInFolder")} placement="top">
-                                    <IconButton
-                                      icon="folder-add-left"
-                                      size="small"
-                                      variant="ghost"
-                                      aria-label={i18n.t("ui.sessionTurn.turnChanges.showInFolder")}
-                                      disabled={!file.openPath || !props.turnChangeActions?.showInFolder}
-                                      onClick={() =>
-                                        file.openPath &&
-                                        props.turnChangeActions?.showInFolder?.(
-                                          file.status === "deleted" ? getDirectory(file.openPath) : file.openPath,
-                                        )
-                                      }
-                                    />
-                                  </Tooltip>
-                                </span>
-                              </div>
-                              <Show when={expanded() && view()}>
-                                {(diff) => (
-                                  <div data-slot="session-turn-change-diff" data-scrollable>
-                                    <Dynamic component={fileComponent} mode="diff" fileDiff={diff().fileDiff} />
-                                  </div>
-                                )}
-                              </Show>
-                            </div>
-                          )
-                        }}
-                      </For>
-                    </div>
-                    <Show when={(turnChange()?.skippedCount ?? 0) > 0}>
-                      <div data-slot="session-turn-changes-skipped-notice">
-                        {i18n.t("ui.sessionTurn.turnChanges.skippedNotice", {
-                          count: turnChange()?.skippedCount ?? 0,
-                        })}
-                      </div>
-                    </Show>
-                  </div>
+                <Show when={visibleTurnChange()}>
+                  {(display) => <SessionTurnChangesPanel turnChange={display()} actions={props.turnChangeActions} />}
                 </Show>
-                <Show when={props.turnChanges === undefined && turnEdited() === 0 && edited() > 0 && !working()}>
+                <Show
+                  when={props.turnChanges === undefined && (turnChange()?.files.length ?? 0) === 0 && edited() > 0 && !working()}
+                >
                   <div
                     data-slot="session-turn-diffs"
                     data-component="session-turn-diffs-group"
