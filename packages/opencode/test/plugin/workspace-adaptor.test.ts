@@ -529,6 +529,13 @@ describe("plugin.workspace", () => {
     const second = await waitForCounter(tmp.extra.counter, first, workspaceSyncRetryTimeout)
     expect(second).toBeGreaterThan(first)
 
+    await waitFor(
+      () =>
+        Workspace.status()
+          .find((item) => item.workspaceID === workspace.id)
+          ?.error?.includes("target unavailable") ?? false,
+      workspaceSyncRetryTimeout,
+    )
     const status = Workspace.status().find((item) => item.workspaceID === workspace.id)
     expect(status?.error).toContain("target unavailable")
   })
