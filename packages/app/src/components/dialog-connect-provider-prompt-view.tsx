@@ -5,6 +5,7 @@ import { TextField } from "@opencode-ai/ui/text-field"
 import { createMemo, Match, Switch } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLanguage } from "@/context/language"
+import { getProviderOAuthSelectPromptState, type ProviderOAuthPrompt } from "./dialog-connect-provider-prompt-state"
 
 export function ProviderOAuthPromptsView(props: {
   method: () => ProviderAuthMethod | undefined
@@ -22,7 +23,7 @@ export function ProviderOAuthPromptsView(props: {
     if (value?.type !== "oauth") return []
     return value.prompts ?? []
   })
-  const matches = (prompt: NonNullable<ReturnType<typeof prompts>[number]>, value: Record<string, string>) => {
+  const matches = (prompt: ProviderOAuthPrompt, value: Record<string, string>) => {
     if (!prompt.when) return true
     const actual = value[prompt.when.key]
     if (actual === undefined) return false
@@ -105,14 +106,11 @@ export function ProviderOAuthPromptsView(props: {
                 onSelect={(value) => {
                   if (!value) return
                   const currentItem = item()
-                  if (!currentItem || currentItem.prompt.type !== "select") return
-                  const prompt = currentItem.prompt
-                  const nextValue = {
-                    ...formStore.value,
-                    [prompt.key]: value.value,
-                  }
-                  setFormStore("value", prompt.key, value.value)
-                  void next(currentItem.index, nextValue)
+                  if (!currentItem) return
+                  const nextState = getProviderOAuthSelectPromptState(currentItem, value, formStore.value)
+                  if (!nextState) return
+                  setFormStore("value", currentItem.prompt.key, value.value)
+                  void next(nextState.index, nextState.value)
                 }}
               >
                 {(option) => (
