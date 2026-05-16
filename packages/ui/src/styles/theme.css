@@ -66,11 +66,10 @@
   --space-4xl: 48px;
   --space-5xl: 64px;
 
-  /* ────────── Radius · STANDARDS L16 (4 tiers) ────────── */
+  /* ────────── Radius · STANDARDS L16 (3 tiers) ────────── */
   --radius-sm:   6px;
   --radius-md:   10px;
   --radius-lg:   14px;
-  --radius-pill: 9999px;
 
   /* ────────── Brand · STANDARDS L8 ────────── */
   --brand-primary:       #ff5910;
