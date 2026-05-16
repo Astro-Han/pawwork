@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { base64Encode, checksum } from "@opencode-ai/util/encode"
 
@@ -60,4 +61,22 @@ export function workspacePersistKey(directory: string, key: string) {
   const head = (directory.slice(0, 12) || "workspace").replace(/[^a-zA-Z0-9._-]/g, "-")
   const sum = checksum(directory) ?? "0"
   return `pawwork.workspace.${head}.${sum}.dat:workspace:${key}`
+}
+
+const applyPawWorkDarkModeStorage = () => {
+  localStorage.setItem("pawwork-theme-id", "pawwork")
+  localStorage.setItem("pawwork-color-scheme", "dark")
+  localStorage.removeItem("pawwork-theme-css-light")
+  localStorage.removeItem("pawwork-theme-css-dark")
+}
+
+export async function applyDarkModeForTests(page: Page) {
+  // Dark-mode tests must use the same storage + boot path as the app. Mutating
+  // data-color-scheme directly flips selector-only rules but leaves the injected
+  // oc-theme token sheet on its previous light values.
+  await page.addInitScript(applyPawWorkDarkModeStorage)
+  if (!page.url().startsWith("about:")) {
+    await page.evaluate(applyPawWorkDarkModeStorage)
+    await page.reload({ waitUntil: "domcontentloaded" })
+  }
 }
