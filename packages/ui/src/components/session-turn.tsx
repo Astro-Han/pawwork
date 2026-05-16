@@ -446,9 +446,7 @@ export function SessionTurn(
                 <Show when={visibleTurnChange()}>
                   {(display) => <SessionTurnChangesPanel turnChange={display()} actions={props.turnChangeActions} />}
                 </Show>
-                <Show
-                  when={props.turnChanges === undefined && (turnChange()?.files.length ?? 0) === 0 && edited() > 0 && !working()}
-                >
+                <Show when={!hasVisibleTurnChanges(turnChange()) && edited() > 0 && !working()}>
                   <div
                     data-slot="session-turn-diffs"
                     data-component="session-turn-diffs-group"
