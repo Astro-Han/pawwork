@@ -1,0 +1,448 @@
+#!/usr/bin/env node
+import { execFileSync } from "node:child_process"
+import { readFileSync } from "node:fs"
+import { basename } from "node:path"
+
+const FRONTEND_PATHS = [
+  "packages/app/src/**/*.ts",
+  "packages/app/src/**/*.tsx",
+  "packages/ui/src/**/*.ts",
+  "packages/ui/src/**/*.tsx",
+]
+
+const OWNER_LANES = [
+  {
+    lane: "#595/#615 scroll-perf",
+    issue: "https://github.com/Astro-Han/pawwork/issues/595",
+    reason: "scroll, perf probes, timeline position ownership, or long-session responsiveness",
+    patterns: [
+      /scroll/i,
+      /virtual/i,
+      /perf/i,
+      /performance/i,
+      /timeline-scroll/i,
+      /create-auto-scroll/i,
+      /use-session-hash-scroll/i,
+    ],
+  },
+  {
+    lane: "#601 message flow",
+    issue: "https://github.com/Astro-Han/pawwork/issues/601",
+    reason: "session timeline, turn shell, message shell, markdown, tool rows, or message-flow state",
+    patterns: [
+      /message/i,
+      /timeline/i,
+      /session-turn/i,
+      /markdown/i,
+      /reasoning/i,
+      /tool-call/i,
+      /attachment/i,
+      /session-status/i,
+      /use-session-commands/i,
+      /use-session-timeline/i,
+      /^packages\/app\/src\/pages\/session\.tsx$/,
+    ],
+  },
+  {
+    lane: "#604 settings",
+    issue: "https://github.com/Astro-Han/pawwork/issues/604",
+    reason: "settings page, provider dialogs, settings context, or settings-owned permission surface",
+    patterns: [
+      /settings/i,
+      /dialog-connect-provider/i,
+      /dialog-select-server/i,
+      /dialog-select-provider/i,
+      /dialog-custom-provider/i,
+      /dialog-connect-websearch/i,
+      /provider/i,
+      /permission/i,
+    ],
+  },
+  {
+    lane: "#638 interface audit",
+    issue: "https://github.com/Astro-Han/pawwork/issues/638",
+    reason: "public exports, package contract, shared type/interface, schema, event name, or tool-name boundary",
+    patterns: [
+      /types?\.ts$/,
+      /interface/i,
+      /contract/i,
+      /schema/i,
+      /event-reducer/i,
+      /tool-name/i,
+      /event-name/i,
+      /index\.ts$/,
+      /desktop-api/i,
+      /session-status-extractors/i,
+    ],
+  },
+  {
+    lane: "#605 visual shell",
+    issue: "https://github.com/Astro-Han/pawwork/issues/605",
+    reason: "shared visual primitives, theme, typography, token, style, motion, or reusable UI package surface",
+    patterns: [
+      /^packages\/ui\/src\//,
+      /theme/i,
+      /token/i,
+      /typography/i,
+      /visual/i,
+      /style/i,
+      /animation/i,
+      /line-comment/i,
+      /status-popover/i,
+    ],
+  },
+  {
+    lane: "#606 final shell",
+    issue: "https://github.com/Astro-Han/pawwork/issues/606",
+    reason: "layout, global shell, final assembly, shared app context, or cross-area shell cleanup",
+    patterns: [
+      /layout/i,
+      /shell/i,
+      /app\.tsx$/,
+      /router/i,
+      /context\/layout/i,
+      /context\/global/i,
+      /context\/local/i,
+      /context\/sync/i,
+      /context\/terminal/i,
+      /context\/platform/i,
+      /context\/command/i,
+      /context\/notification/i,
+    ],
+  },
+  {
+    lane: "#599 mainline",
+    issue: "https://github.com/Astro-Han/pawwork/issues/599",
+    reason: "launch path, home/onboarding entry, or UI rewrite integration owner",
+    patterns: [/home/i, /onboarding/i, /welcome/i, /session-list/i, /launch/i, /project/i],
+  },
+]
+
+const CLOSED_AREA_HINTS = [
+  {
+    issue: "https://github.com/Astro-Han/pawwork/issues/602",
+    reason: "matches closed right-panel Area B; needs current owner before new implementation",
+    patterns: [
+      /terminal/i,
+      /session-review/i,
+      /session-side-panel/i,
+      /file-tree/i,
+      /file-tabs/i,
+      /context\/file/i,
+      /components\/file/i,
+    ],
+  },
+  {
+    issue: "https://github.com/Astro-Han/pawwork/issues/603",
+    reason: "matches closed home Area C; needs current owner before new implementation",
+    patterns: [/home/i],
+  },
+]
+
+function parseArgs(argv) {
+  const out = {
+    format: "summary",
+    maxRows: 80,
+  }
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (arg === "--format") {
+      out.format = argv[index + 1] ?? out.format
+      index += 1
+      continue
+    }
+    if (arg === "--json") out.format = "json"
+    if (arg === "--markdown") out.format = "markdown"
+    if (arg === "--max-rows") {
+      out.maxRows = Number(argv[index + 1] ?? out.maxRows)
+      index += 1
+    }
+  }
+
+  return out
+}
+
+function physicalLoc(content) {
+  if (content.length === 0) return 0
+  const newlineCount = content.match(/\n/g)?.length ?? 0
+  return newlineCount + (content.endsWith("\n") ? 0 : 1)
+}
+
+function stripComments(content) {
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\n)\s*\/\/.*(?=\n|$)/g, "$1")
+    .trim()
+}
+
+function isFacade(path, content) {
+  const name = basename(path)
+  if (name === "index.ts" || name === "index.tsx") return true
+
+  const stripped = stripComments(content)
+  if (!stripped) return false
+
+  const lines = stripped.split(/\n/).map((line) => line.trim()).filter(Boolean)
+  return lines.length > 0 && lines.every((line) => {
+    return (
+      line.startsWith("export ") ||
+      /^import\s+type\s/.test(line) ||
+      /^import\s*\{[^}]*\}\s*from\s*/.test(line)
+    )
+  })
+}
+
+function isGeneratedOrStatic(path, content) {
+  const head = content.slice(0, 400).toLowerCase()
+  return (
+    /generated/.test(head) ||
+    /(^|\/)(generated|gen|fixtures?|mocks?|assets)(\/|$)/.test(path) ||
+    /\.gen\.|\.generated\./.test(path) ||
+    /\/(app-icons|file-icons|provider-icons)\/types\.ts$/.test(path)
+  )
+}
+
+function isPureConfig(path, content) {
+  if (/\.config\.ts$/.test(path)) return true
+  if (/(^|\/)constants\//.test(path)) return true
+
+  const stripped = stripComments(content)
+  if (!stripped) return false
+  if (/<[A-Z_a-z]/.test(stripped)) return false
+  if (/\b(createSignal|createMemo|createEffect|onMount|onCleanup|function\s|=>\s*\{)/.test(stripped)) return false
+
+  const lines = stripped.split(/\n/).map((line) => line.trim()).filter(Boolean)
+  return lines.length > 0 && lines.every((line) => {
+    return (
+      line.startsWith("import ") ||
+      line.startsWith("export const ") ||
+      line.startsWith("export type ") ||
+      line.startsWith("export interface ") ||
+      /^[\]}),;]+$/.test(line) ||
+      /^["'`A-Za-z0-9_$-]+:/.test(line) ||
+      /^["'`].*[,;]?$/.test(line) ||
+      /^[A-Z0-9_$]+[,;]?$/.test(line)
+    )
+  })
+}
+
+function classify(path, content) {
+  const classifications = []
+  const reasons = []
+
+  if (/(^|\/)(__tests__|__mocks__|test|tests|e2e)(\/|$)|\.(test|spec)\./.test(path)) {
+    classifications.push("test")
+    reasons.push("test/spec path or filename")
+  }
+  if (/\.stories\./.test(path) || /(^|\/)stories(\/|$)|storybook/.test(path)) {
+    classifications.push("story")
+    reasons.push("storybook file")
+  }
+  if (/(^|\/)(i18n|locales?|translations?|dictionary|dictionaries)(\/|$)/.test(path)) {
+    classifications.push("i18n")
+    reasons.push("i18n dictionary")
+  }
+  if (isGeneratedOrStatic(path, content)) {
+    classifications.push("generated-static")
+    reasons.push("generated or static map/asset")
+  }
+  if (isPureConfig(path, content)) {
+    classifications.push("pure-config")
+    reasons.push("pure config or constants table")
+  }
+  if (isFacade(path, content)) {
+    classifications.push("facade")
+    reasons.push("public facade/barrel")
+  }
+  if (/(left-sidebar|sidebar|composer|dock|input-bar|prompt-input)/.test(path)) {
+    classifications.push("delivered-surface")
+    reasons.push("already-delivered left-sidebar/composer/dock/input surface")
+  }
+
+  if (classifications.length > 0) {
+    return {
+      setType: "visibility-only inventory",
+      classifications,
+      classificationReason: reasons.join("; "),
+    }
+  }
+
+  return {
+    setType: "production ratchet set",
+    classifications: ["production"],
+    classificationReason: "hand-written production frontend file",
+  }
+}
+
+function ownerFor(path) {
+  for (const owner of OWNER_LANES) {
+    if (owner.patterns.some((pattern) => pattern.test(path))) return owner
+  }
+
+  const closedHint = CLOSED_AREA_HINTS.find((hint) => hint.patterns.some((pattern) => pattern.test(path)))
+  if (closedHint) {
+    return {
+      lane: "other/deferred",
+      issue: closedHint.issue,
+      reason: closedHint.reason,
+    }
+  }
+
+  return {
+    lane: "other/deferred",
+    issue: null,
+    reason: "no active owner lane matched; needs live issue link before implementation",
+  }
+}
+
+function statusFor(record) {
+  if (record.setType === "visibility-only inventory") {
+    return {
+      status: "inventory-only",
+      reason: "visible for future agents but outside default production ratchet",
+    }
+  }
+
+  if (record.loc > 500) {
+    return {
+      status: "needs-over-500-resolution",
+      reason: ">500 production file; must be resolved or documented as an approved exception",
+    }
+  }
+
+  if (record.loc > 200) {
+    return {
+      status: "needs-owner-manifest-entry",
+      reason: ">200 production file; must keep owner lane, responsibility explanation, or approved exception",
+    }
+  }
+
+  if (record.ownerLane === "other/deferred") {
+    return {
+      status: "needs-live-owner-issue",
+      reason: "production file has no active owner lane match",
+    }
+  }
+
+  return {
+    status: "within-ratchet",
+    reason: "production file is within current warn-only threshold",
+  }
+}
+
+function listFrontendFiles() {
+  const stdout = execFileSync("git", ["ls-files", ...FRONTEND_PATHS], { encoding: "utf8" }).trim()
+  return stdout ? stdout.split("\n").filter(Boolean).sort() : []
+}
+
+function buildInventory() {
+  const files = listFrontendFiles()
+  const records = files.map((path) => {
+    const content = readFileSync(path, "utf8")
+    const classification = classify(path, content)
+    const owner = ownerFor(path)
+    const record = {
+      path,
+      loc: physicalLoc(content),
+      setType: classification.setType,
+      classifications: classification.classifications,
+      ownerLane: owner.lane,
+      ownerIssue: owner.issue,
+      approvedException: null,
+      classificationReason: classification.classificationReason,
+      ownerReason: owner.reason,
+    }
+    return {
+      ...record,
+      ...statusFor(record),
+    }
+  })
+
+  const summary = {
+    schemaVersion: 1,
+    command: "node script/frontend-inventory.mjs --format json",
+    locMetric: "physical LOC including blank lines and comments",
+    paths: FRONTEND_PATHS,
+    totalTrackedTsTsx: records.length,
+    production: records.filter((record) => record.setType === "production ratchet set").length,
+    visibilityOnly: records.filter((record) => record.setType === "visibility-only inventory").length,
+    approvedExceptions: records.filter((record) => record.approvedException).length,
+    productionOver500: records.filter(
+      (record) => record.setType === "production ratchet set" && record.loc > 500,
+    ).length,
+    productionOver200: records.filter(
+      (record) => record.setType === "production ratchet set" && record.loc > 200,
+    ).length,
+    visibilityOver500: records.filter(
+      (record) => record.setType === "visibility-only inventory" && record.loc > 500,
+    ).length,
+    visibilityOver200: records.filter(
+      (record) => record.setType === "visibility-only inventory" && record.loc > 200,
+    ).length,
+  }
+
+  const byOwnerLane = {}
+  for (const record of records.filter((item) => item.setType === "production ratchet set")) {
+    byOwnerLane[record.ownerLane] ??= { total: 0, over200: 0, over500: 0 }
+    byOwnerLane[record.ownerLane].total += 1
+    if (record.loc > 200) byOwnerLane[record.ownerLane].over200 += 1
+    if (record.loc > 500) byOwnerLane[record.ownerLane].over500 += 1
+  }
+
+  return {
+    summary,
+    byOwnerLane,
+    records,
+  }
+}
+
+function printSummary(inventory) {
+  console.log("Frontend inventory baseline")
+  console.log(`Schema: ${inventory.summary.schemaVersion}`)
+  console.log(`Command: ${inventory.summary.command}`)
+  console.log(`LOC: ${inventory.summary.locMetric}`)
+  console.log("")
+  for (const [key, value] of Object.entries(inventory.summary)) {
+    if (["schemaVersion", "command", "locMetric", "paths"].includes(key)) continue
+    console.log(`${key}: ${value}`)
+  }
+  console.log("")
+  console.log("Production by owner lane:")
+  for (const [owner, counts] of Object.entries(inventory.byOwnerLane)) {
+    console.log(`- ${owner}: ${counts.total} files, ${counts.over200} over 200, ${counts.over500} over 500`)
+  }
+
+  const over500 = inventory.records
+    .filter((record) => record.setType === "production ratchet set" && record.loc > 500)
+    .sort((a, b) => b.loc - a.loc)
+  if (over500.length > 0) {
+    console.error("")
+    console.error(`warn: ${over500.length} production files are over 500 LOC; this script is warn-only.`)
+  }
+}
+
+function printMarkdown(inventory, maxRows) {
+  console.log("| LOC | Owner Lane | Status | Path | Reason |")
+  console.log("| ---: | --- | --- | --- | --- |")
+  const rows = inventory.records
+    .filter((record) => record.setType === "production ratchet set" && record.loc > 200)
+    .sort((a, b) => b.loc - a.loc)
+    .slice(0, maxRows)
+  for (const record of rows) {
+    console.log(
+      `| ${record.loc} | ${record.ownerLane} | ${record.status} | \`${record.path}\` | ${record.ownerReason} |`,
+    )
+  }
+}
+
+const args = parseArgs(process.argv.slice(2))
+const inventory = buildInventory()
+
+if (args.format === "json") {
+  console.log(JSON.stringify(inventory, null, 2))
+} else if (args.format === "markdown") {
+  printMarkdown(inventory, args.maxRows)
+} else {
+  printSummary(inventory)
+}
