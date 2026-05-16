@@ -53,6 +53,7 @@ const TYPOGRAPHY_ROLE_TOKENS = new Set([
   "font-weight-h3",
   "font-weight-body",
   "font-weight-caption",
+  "font-weight-emphasis",
   "font-weight-mono",
   "font-weight-mono-small",
   "font-weight-kbd",
@@ -67,6 +68,7 @@ const TYPOGRAPHY_ROLE_TOKENS = new Set([
   "line-height-kbd",
   "letter-spacing-display",
   "letter-spacing-h1",
+  "letter-spacing-cjk",
 ])
 
 function expectedOverrideKeys(regulatedKeys: Map<string, string>) {

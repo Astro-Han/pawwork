@@ -13,9 +13,13 @@ import { join } from "path"
 const UI_ROOT = join(import.meta.dirname, "..")
 const REPO_ROOT = join(UI_ROOT, "..", "..")
 const THEME_CSS = readFileSync(join(UI_ROOT, "src/styles/theme.css"), "utf-8")
-const SEARCH_ROOTS = ["packages", "docs/design/preview"].filter((path) =>
-  existsSync(join(REPO_ROOT, path)),
-)
+const SEARCH_ROOTS = ["packages", "docs/design/preview"].filter((path) => {
+  if (!existsSync(join(REPO_ROOT, path))) return false
+  const result = spawnSync("git", ["ls-files", "--", path], { cwd: REPO_ROOT, encoding: "utf8" })
+  if (result.error) throw result.error
+  return result.stdout.trim().length > 0
+})
+const TRACKED_SEARCH_FILES = trackedFiles(SEARCH_ROOTS)
 
 const BANNED_CUSTOM_PROPERTIES = [
   "--type-display",
@@ -101,6 +105,7 @@ const REQUIRED_CUSTOM_PROPERTIES = [
   "--font-weight-h3",
   "--font-weight-body",
   "--font-weight-caption",
+  "--font-weight-emphasis",
   "--font-weight-mono",
   "--font-weight-mono-small",
   "--font-weight-kbd",
@@ -115,35 +120,52 @@ const REQUIRED_CUSTOM_PROPERTIES = [
   "--line-height-kbd",
   "--letter-spacing-display",
   "--letter-spacing-h1",
+  "--letter-spacing-cjk",
 ]
 
-function expectNoRgMatches(patterns: string[], extraGlobs: string[] = []) {
-  const args = [
-    "--pcre2",
-    "-n",
-    "--color=never",
-    ...patterns.flatMap((pattern) => ["-e", pattern]),
-    "-g",
-    "!packages/ui/test/no-dead-tokens.test.ts",
-    ...extraGlobs.flatMap((glob) => ["-g", glob]),
-    ...SEARCH_ROOTS,
-  ]
-  const result = spawnSync("rg", args, { cwd: REPO_ROOT, encoding: "utf8" })
+function trackedFiles(roots: string[]) {
+  const result = spawnSync("git", ["ls-files", "--", ...roots], { cwd: REPO_ROOT, encoding: "utf8" })
   if (result.error) throw result.error
-  const output = [result.stdout, result.stderr].filter(Boolean).join("\n")
+  if (result.status !== 0) throw new Error(result.stderr)
+  return result.stdout.split(/\r?\n/).filter(Boolean)
+}
 
-  expect(result.status, output).toBe(1)
+function isExcluded(path: string, globs: string[]) {
+  return globs.some((glob) => {
+    const exclusion = glob.startsWith("!") ? glob.slice(1) : glob
+    if (exclusion.endsWith("/**")) return path.startsWith(exclusion.slice(0, -3) + "/")
+    return path === exclusion
+  })
+}
+
+function expectNoMatches(patterns: string[], extraGlobs: string[] = []) {
+  const exclusions = ["!packages/ui/test/no-dead-tokens.test.ts", ...extraGlobs]
+  const regexes = patterns.map((pattern) => new RegExp(pattern, "u"))
+  const hits: string[] = []
+
+  for (const path of TRACKED_SEARCH_FILES) {
+    if (isExcluded(path, exclusions)) continue
+    const source = readFileSync(join(REPO_ROOT, path), "utf8")
+    for (const regex of regexes) {
+      if (regex.test(source)) {
+        hits.push(path)
+        break
+      }
+    }
+  }
+
+  expect(hits).toEqual([])
 }
 
 describe("#642 PR2 no dead typography tokens", () => {
   test("old custom-property names are absent from source", () => {
-    expectNoRgMatches(BANNED_CUSTOM_PROPERTIES.map((token) => `${token}\\b`), [
+    expectNoMatches(BANNED_CUSTOM_PROPERTIES.map((token) => `${token}\\b`), [
       "!packages/ui/scripts/**",
     ])
   })
 
   test("old typography utility classes are absent from class-bearing source", () => {
-    expectNoRgMatches(
+    expectNoMatches(
       BANNED_UTILITY_CLASSES.map((className) => `\\b${className}\\b`),
       [
         "!packages/ui/src/theme/**",

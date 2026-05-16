@@ -10,15 +10,16 @@ import { webSearchErrorDisplay } from "../../websearch-error-copy"
 import { sessionLink } from "../session-link"
 import { registerPartComponent, ToolRegistry } from "../registry"
 import { toolStateError, toolStateMetadata } from "../context-tool-helpers"
+import { TOOL_AGENT, TOOL_AGENT_LEGACY, TOOL_QUESTION, TOOL_TODOWRITE, TOOL_WEBSEARCH } from "../../tool-contract"
 
 registerPartComponent("tool", function ToolPartDisplay(props) {
   const data = useData()
   const i18n = useI18n()
   const part = () => props.part as ToolPart
-  if (part().tool === "todowrite") return null
+  if (part().tool === TOOL_TODOWRITE) return null
 
   const hideQuestion = createMemo(
-    () => part().tool === "question" && (part().state.status === "pending" || part().state.status === "running"),
+    () => part().tool === TOOL_QUESTION && (part().state.status === "pending" || part().state.status === "running"),
   )
 
   const emptyInput: Record<string, any> = {}
@@ -31,16 +32,16 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
     () => partMetadata().diagnostics?.loop?.loopAction === "stop",
   )
   const taskId = createMemo(() => {
-    if (part().tool !== "task" && part().tool !== "agent") return // agent-rename:legacy-render
+    if (part().tool !== TOOL_AGENT_LEGACY && part().tool !== TOOL_AGENT) return // agent-rename:legacy-render
     const value = partMetadata().sessionId
     if (typeof value === "string" && value) return value
   })
   const taskHref = createMemo(() => {
-    if (part().tool !== "task" && part().tool !== "agent") return // agent-rename:legacy-render
+    if (part().tool !== TOOL_AGENT_LEGACY && part().tool !== TOOL_AGENT) return // agent-rename:legacy-render
     return sessionLink(taskId(), useLocation().pathname, data.sessionHref)
   })
   const taskSubtitle = createMemo(() => {
-    if (part().tool !== "task" && part().tool !== "agent") return undefined // agent-rename:legacy-render
+    if (part().tool !== TOOL_AGENT_LEGACY && part().tool !== TOOL_AGENT) return undefined // agent-rename:legacy-render
     const value = input().description
     if (typeof value === "string" && value) return value
     return taskId()
@@ -55,7 +56,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
           <Match when={part().state.status === "error" && toolStateError(part().state)}>
             {(error) => {
               const cleaned = error().replace("Error: ", "")
-              if (part().tool === "question" && cleaned.includes("dismissed this question")) {
+              if (part().tool === TOOL_QUESTION && cleaned.includes("dismissed this question")) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
                     <span class="text-body text-fg-weak cursor-default">
@@ -70,7 +71,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
               // know they can just re-ask. Identify by metadata.interrupted
               // (written by processor cleanup) so this is independent of the
               // exact error string used in the backend. See #419.
-              if (part().tool === "question" && partMetadata()?.interrupted === true) {
+              if (part().tool === TOOL_QUESTION && partMetadata()?.interrupted === true) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
                     <span class="text-body text-fg-weak cursor-default">
@@ -79,7 +80,8 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
                   </div>
                 )
               }
-              const webSearchError = part().tool === "websearch" ? webSearchErrorDisplay(partMetadata(), i18n) : undefined
+              const webSearchError =
+                part().tool === TOOL_WEBSEARCH ? webSearchErrorDisplay(partMetadata(), i18n) : undefined
               return (
                 <ToolErrorCard
                   tool={part().tool}

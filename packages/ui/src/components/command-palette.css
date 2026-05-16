@@ -110,10 +110,10 @@
 }
 
 [data-component="command-palette"] [data-slot="list-header"] {
-  /* Section headers per L32: type-h3 family (500 13) uppercase 0.5 tracking. */
+  /* Section headers: caption-sized label with semantic emphasis. */
   padding: 12px 16px 6px;
   font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-h3);
+  font-weight: var(--font-weight-emphasis);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   line-height: 1;

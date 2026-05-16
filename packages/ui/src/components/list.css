@@ -169,7 +169,7 @@
         font-size: var(--font-size-body);
         font-style: normal;
         font-weight: var(--font-weight-body);
-        line-height: var(--line-height-h3); /* 142.857% */
+        line-height: var(--line-height-h3); /* 150% */
       }
 
       [data-slot="list-filter"] {
@@ -304,7 +304,7 @@
           font-size: var(--font-size-h3);
           font-style: normal;
           font-weight: var(--font-weight-h3);
-          line-height: var(--line-height-h3); /* 142.857% */
+          line-height: var(--line-height-h3); /* 150% */
 
           [data-component="input"] {
             width: 100%;

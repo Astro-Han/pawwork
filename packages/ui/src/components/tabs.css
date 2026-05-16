@@ -54,7 +54,7 @@
     font-size: var(--font-size-h3);
     font-style: normal;
     font-weight: var(--font-weight-h3);
-    line-height: var(--line-height-h3); /* 142.857% */
+    line-height: var(--line-height-h3); /* 150% */
 
     white-space: nowrap;
     flex-shrink: 0;
@@ -297,7 +297,7 @@
       font-size: var(--font-size-body);
       font-style: normal;
       font-weight: var(--font-weight-body);
-      line-height: var(--line-height-body); /* 171.429% */
+      line-height: var(--line-height-body); /* 160% */
 
       [data-slot="tabs-trigger"] {
         height: 100%;
@@ -362,11 +362,11 @@
       background-color: transparent;
       gap: 0;
 
-      /* text-h3 */
+      /* text-caption + font-emphasis */
       font-family: var(--font-family-sans);
       font-size: var(--font-size-caption);
       font-style: normal;
-      font-weight: var(--font-weight-h3);
+      font-weight: var(--font-weight-emphasis);
       line-height: var(--line-height-h3);
 
       [data-slot="tabs-trigger"] {
@@ -579,7 +579,7 @@
         padding: 0 0 0 4px;
         font-family: var(--font-family-sans);
         font-size: var(--font-size-caption);
-        font-weight: var(--font-weight-h3);
+        font-weight: var(--font-weight-emphasis);
         color: var(--fg-weak);
       }
 
@@ -588,10 +588,10 @@
         border: none;
         border-radius: var(--radius-md);
 
-        /* text-h3 */
+        /* text-body + font-emphasis */
         font-family: var(--font-family-sans);
         font-size: var(--font-size-body);
-        font-weight: var(--font-weight-h3);
+        font-weight: var(--font-weight-emphasis);
         line-height: var(--line-height-h3);
 
         [data-slot="tabs-trigger"] {

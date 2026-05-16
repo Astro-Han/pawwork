@@ -22,6 +22,7 @@ import { extractPromptFromParts } from "@/utils/prompt"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
+import { shareSessionCommand, unshareSessionCommand } from "@/pages/session/session-share-command"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -129,92 +130,21 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     if (sessionID) return permission.isAutoAccepting(sessionID, sdk.directory)
     return permission.isAutoAcceptingDirectory(sdk.directory)
   }
-  const write = async (value: string) => {
-    const body = typeof document === "undefined" ? undefined : document.body
-    if (body) {
-      const textarea = document.createElement("textarea")
-      textarea.value = value
-      textarea.setAttribute("readonly", "")
-      textarea.style.position = "fixed"
-      textarea.style.opacity = "0"
-      textarea.style.pointerEvents = "none"
-      body.appendChild(textarea)
-      textarea.select()
-      const copied = document.execCommand("copy")
-      body.removeChild(textarea)
-      if (copied) return true
-    }
-
-    const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard
-    if (!clipboard?.writeText) return false
-    return clipboard.writeText(value).then(
-      () => true,
-      () => false,
-    )
-  }
-
-  const copyShare = async (url: string, existing: boolean) => {
-    if (!(await write(url))) {
-      showToast({
-        title: language.t("toast.session.share.copyFailed.title"),
-        variant: "error",
-      })
-      return
-    }
-
-    showToast({
-      title: existing ? language.t("session.share.copy.copied") : language.t("toast.session.share.success.title"),
-      description: language.t("toast.session.share.success.description"),
-      variant: "success",
+  const share = async () => {
+    await shareSessionCommand({
+      sessionID: params.id,
+      existingUrl: info()?.share?.url,
+      client: sdk.client.session,
+      language,
     })
   }
 
-  const share = async () => {
-    const sessionID = params.id
-    if (!sessionID) return
-
-    const existing = info()?.share?.url
-    if (existing) {
-      await copyShare(existing, true)
-      return
-    }
-
-    const url = await sdk.client.session
-      .share({ sessionID })
-      .then((res) => res.data?.share?.url)
-      .catch(() => undefined)
-    if (!url) {
-      showToast({
-        title: language.t("toast.session.share.failed.title"),
-        description: language.t("toast.session.share.failed.description"),
-        variant: "error",
-      })
-      return
-    }
-
-    await copyShare(url, false)
-  }
-
   const unshare = async () => {
-    const sessionID = params.id
-    if (!sessionID) return
-
-    await sdk.client.session
-      .unshare({ sessionID })
-      .then(() =>
-        showToast({
-          title: language.t("toast.session.unshare.success.title"),
-          description: language.t("toast.session.unshare.success.description"),
-          variant: "success",
-        }),
-      )
-      .catch(() =>
-        showToast({
-          title: language.t("toast.session.unshare.failed.title"),
-          description: language.t("toast.session.unshare.failed.description"),
-          variant: "error",
-        }),
-      )
+    await unshareSessionCommand({
+      sessionID: params.id,
+      client: sdk.client.session,
+      language,
+    })
   }
 
   const openFile = (source?: "palette" | "keybind" | "slash") => {
