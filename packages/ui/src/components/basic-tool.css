@@ -97,7 +97,7 @@
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     line-height: var(--line-height-h3);
     color: var(--fg-strong);
 
@@ -107,7 +107,7 @@
 
     &.agent-title {
       color: var(--fg-strong);
-      font-weight: var(--font-weight-h3);
+      font-weight: var(--font-weight-emphasis);
     }
   }
 
@@ -230,7 +230,7 @@
     font-family: var(--font-family-sans);
     font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-h3);
+    font-weight: var(--font-weight-emphasis);
     line-height: var(--line-height-h3);
     text-transform: capitalize;
   }

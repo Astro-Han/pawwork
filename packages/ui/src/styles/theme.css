@@ -40,6 +40,7 @@
   --font-weight-h3: 500;
   --font-weight-body: 400;
   --font-weight-caption: 400;
+  --font-weight-emphasis: 500;
   --font-weight-mono: 400;
   --font-weight-mono-small: 400;
   --font-weight-kbd: 500;
@@ -56,6 +57,7 @@
 
   --letter-spacing-display: -0.32px;
   --letter-spacing-h1: -0.16px;
+  --letter-spacing-cjk: 0;
 
   /* ────────── Spacing · STANDARDS L15 (9-tier 4pt grid) ────────── */
   --space-xs:  4px;
