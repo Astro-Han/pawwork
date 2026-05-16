@@ -19,7 +19,7 @@ const assistant = (id: string, parentID?: string | null, completed?: number): Me
 
 const t = (key: string, params?: Record<string, unknown>) => {
   if (params?.files) return `${key}[${params.files}]`
-  if (params?.count) return `${key}[${params.count}]`
+  if (params?.count) return `, ${key}[${params.count}]`
   return key
 }
 
