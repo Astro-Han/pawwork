@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
-import { basename } from "node:path"
 
 const FRONTEND_PATHS = [
   "packages/app/src/**/*.ts",
@@ -9,6 +8,7 @@ const FRONTEND_PATHS = [
   "packages/ui/src/**/*.ts",
   "packages/ui/src/**/*.tsx",
 ]
+const FRONTEND_PATHSPECS = FRONTEND_PATHS.map((path) => `:(glob)${path}`)
 
 const OWNER_LANES = [
   {
@@ -155,7 +155,8 @@ function parseArgs(argv) {
     if (arg === "--json") out.format = "json"
     if (arg === "--markdown") out.format = "markdown"
     if (arg === "--max-rows") {
-      out.maxRows = Number(argv[index + 1] ?? out.maxRows)
+      const maxRows = Number(argv[index + 1] ?? out.maxRows)
+      if (Number.isFinite(maxRows) && maxRows >= 0) out.maxRows = maxRows
       index += 1
     }
   }
@@ -172,25 +173,81 @@ function physicalLoc(content) {
 function stripComments(content) {
   return content
     .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|\n)\s*\/\/.*(?=\n|$)/g, "$1")
+    .split("\n")
+    .map(stripLineComment)
+    .join("\n")
     .trim()
 }
 
-function isFacade(path, content) {
-  const name = basename(path)
-  if (name === "index.ts" || name === "index.tsx") return true
+function stripLineComment(line) {
+  let quote = null
+  let escaped = false
 
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    const next = line[index + 1]
+
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (quote && char === "\\") {
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) quote = null
+      continue
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char
+      continue
+    }
+    if (char === "/" && next === "/") return line.slice(0, index).trimEnd()
+  }
+
+  return line
+}
+
+function isFacade(path, content) {
   const stripped = stripComments(content)
   if (!stripped) return false
 
-  const lines = stripped.split(/\n/).map((line) => line.trim()).filter(Boolean)
-  return lines.length > 0 && lines.every((line) => {
-    return (
-      line.startsWith("export ") ||
-      /^import\s+type\s/.test(line) ||
-      /^import\s*\{[^}]*\}\s*from\s*/.test(line)
-    )
-  })
+  const statements = moduleStatements(stripped)
+  return statements.length > 0 && statements.every(isFacadeStatement)
+}
+
+function moduleStatements(content) {
+  const statements = []
+  let current = ""
+
+  for (const line of content.split(/\n/).map((item) => item.trim()).filter(Boolean)) {
+    current = current ? `${current} ${line}` : line
+    if (isCompleteModuleStatement(current)) {
+      statements.push(current)
+      current = ""
+    }
+  }
+
+  return current ? [] : statements
+}
+
+function isCompleteModuleStatement(statement) {
+  if (!/^(import|export)\b/.test(statement)) return false
+  return (
+    /\bfrom\s+["'][^"']+["'];?$/.test(statement) ||
+    /^export\s+(type\s+)?\{[\s\S]*\};?$/.test(statement)
+  )
+}
+
+function isFacadeStatement(statement) {
+  return (
+    /^export\s+(type\s+)?\{[\s\S]*\}\s+from\s+["'][^"']+["'];?$/.test(statement) ||
+    /^export\s+\*\s+from\s+["'][^"']+["'];?$/.test(statement) ||
+    /^export\s+(type\s+)?\{[\s\S]*\};?$/.test(statement) ||
+    /^import\s+type\s+[\s\S]+\s+from\s+["'][^"']+["'];?$/.test(statement) ||
+    /^import\s+(?!["'])[\s\S]+\s+from\s+["'][^"']+["'];?$/.test(statement)
+  )
 }
 
 function isGeneratedOrStatic(path, content) {
@@ -204,18 +261,17 @@ function isGeneratedOrStatic(path, content) {
 }
 
 function isPureConfig(path, content) {
-  if (/\.config\.ts$/.test(path)) return true
-  if (/(^|\/)constants\//.test(path)) return true
-
   const stripped = stripComments(content)
   if (!stripped) return false
   if (/<[A-Z_a-z]/.test(stripped)) return false
-  if (/\b(createSignal|createMemo|createEffect|onMount|onCleanup|function\s|=>\s*\{)/.test(stripped)) return false
+  if (/\b(createSignal|createMemo|createEffect|onMount|onCleanup|function\b)|=>/.test(stripped)) return false
+  if (/\.config\.ts$/.test(path)) return true
+  if (/(^|\/)constants\//.test(path)) return true
 
   const lines = stripped.split(/\n/).map((line) => line.trim()).filter(Boolean)
   return lines.length > 0 && lines.every((line) => {
     return (
-      line.startsWith("import ") ||
+      isBoundImportStatement(line) ||
       line.startsWith("export const ") ||
       line.startsWith("export type ") ||
       line.startsWith("export interface ") ||
@@ -225,6 +281,10 @@ function isPureConfig(path, content) {
       /^[A-Z0-9_$]+[,;]?$/.test(line)
     )
   })
+}
+
+function isBoundImportStatement(line) {
+  return /^import\s+(?!["'])/.test(line)
 }
 
 function classify(path, content) {
@@ -332,14 +392,33 @@ function statusFor(record) {
 }
 
 function listFrontendFiles() {
-  const stdout = execFileSync("git", ["ls-files", ...FRONTEND_PATHS], { encoding: "utf8" }).trim()
+  let stdout = ""
+  try {
+    stdout = execFileSync("git", ["ls-files", ...FRONTEND_PATHSPECS], { encoding: "utf8" }).trim()
+  } catch (error) {
+    exitWithInventoryError("git ls-files failed; run this command from a PawWork git checkout.", error)
+  }
   return stdout ? stdout.split("\n").filter(Boolean).sort() : []
+}
+
+function readFrontendFile(path) {
+  try {
+    return readFileSync(path, "utf8")
+  } catch (error) {
+    exitWithInventoryError(`failed to read tracked frontend file: ${path}`, error)
+  }
+}
+
+function exitWithInventoryError(message, error) {
+  console.error(`error: ${message}`)
+  if (error instanceof Error && error.message) console.error(error.message)
+  process.exit(1)
 }
 
 function buildInventory() {
   const files = listFrontendFiles()
   const records = files.map((path) => {
-    const content = readFileSync(path, "utf8")
+    const content = readFrontendFile(path)
     const classification = classify(path, content)
     const owner = ownerFor(path)
     const record = {

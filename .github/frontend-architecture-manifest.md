@@ -64,12 +64,12 @@ Generated with `node script/frontend-inventory.mjs --format json` at baseline co
 
 | Metric | Count |
 | --- | ---: |
-| Tracked `.ts` / `.tsx` files | 672 |
-| Production ratchet set | 349 |
-| Visibility-only inventory | 323 |
+| Tracked `.ts` / `.tsx` files | 682 |
+| Production ratchet set | 356 |
+| Visibility-only inventory | 326 |
 | Approved exceptions | 0 |
 | Production files `>500` LOC | 26 |
-| Production files `>200` LOC | 79 |
+| Production files `>200` LOC | 80 |
 | Visibility-only files `>500` LOC | 15 |
 | Visibility-only files `>200` LOC | 56 |
 
@@ -77,13 +77,13 @@ Production by owner lane:
 
 | Owner lane | Files | `>200` | `>500` |
 | --- | ---: | ---: | ---: |
-| other/deferred | 128 | 24 | 5 |
-| #638 interface audit | 6 | 1 | 0 |
+| other/deferred | 130 | 24 | 5 |
+| #638 interface audit | 7 | 1 | 0 |
 | #604 settings | 21 | 9 | 3 |
 | #599 mainline | 2 | 0 | 0 |
-| #606 final shell | 44 | 13 | 6 |
-| #601 message flow | 55 | 9 | 5 |
-| #605 visual shell | 82 | 18 | 6 |
+| #606 final shell | 45 | 14 | 6 |
+| #601 message flow | 56 | 9 | 5 |
+| #605 visual shell | 84 | 18 | 6 |
 | #595/#615 scroll-perf | 11 | 5 | 1 |
 
 ## Owner Lanes
