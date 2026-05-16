@@ -313,6 +313,12 @@
     opacity: 1;
   }
 
+  [data-slot="session-turn-diffs-toggle"]:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--border-active);
+    outline-offset: 2px;
+  }
+
   [data-slot="session-turn-diffs-more"] {
     appearance: none;
     border: 0;
@@ -324,6 +330,7 @@
     margin-top: 12px;
     padding: 0 0 6px;
     cursor: pointer;
+    text-align: left;
     transition: color 0.15s ease;
 
     &:hover {
