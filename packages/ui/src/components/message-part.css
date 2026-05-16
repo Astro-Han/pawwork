@@ -802,12 +802,6 @@
       display: none;
     }
 
-    code {
-      font-family: var(--font-family-mono);
-      font-size: var(--font-size-mono-small);
-      font-weight: var(--font-weight-mono-small);
-      line-height: var(--line-height-mono-small);
-    }
   }
 
   [data-slot="permission-footer"] {

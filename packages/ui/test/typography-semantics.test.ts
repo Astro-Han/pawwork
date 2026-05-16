@@ -55,7 +55,7 @@ describe("#642 PR3 typography role semantics", () => {
     const messagePart = read("packages/ui/src/components/message-part.css")
 
     expect(permissionDock).toContain('class="text-mono-small text-fg-base break-all"')
-    expect(block(messagePart, '[data-slot="permission-patterns"]')).toContain("font-size: var(--font-size-mono-small)")
+    expect(block(messagePart, '[data-slot="permission-patterns"]')).not.toContain("code {")
   })
 
   test("theme roles expose emphasis weight and cjk tracking tokens", () => {
