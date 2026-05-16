@@ -146,12 +146,16 @@ const withShell = (item: { label: string; shell: string }, fn: () => Promise<voi
   }
 }
 
-const each = (name: string, fn: (item: { label: string; shell: string }) => Promise<void>) => {
+const each = (
+  name: string,
+  fn: (item: { label: string; shell: string }) => Promise<void>,
+  options?: (item: { label: string; shell: string }) => Parameters<typeof test>[2] | undefined,
+) => {
   for (const item of shells) {
-    test(
-      `${name} [${item.label}]`,
-      withShell(item, () => fn(item)),
-    )
+    const run = withShell(item, () => fn(item))
+    const opts = options?.(item)
+    if (opts) test(`${name} [${item.label}]`, run, opts)
+    else test(`${name} [${item.label}]`, run)
   }
 }
 
@@ -175,25 +179,30 @@ const mustTruncate = (result: {
 }
 
 describe("tool.bash", () => {
-  each("basic", async () => {
-    await Instance.provide({
-      directory: projectRoot,
-      fn: async () => {
-        const bash = await initBash()
-        const result = await Effect.runPromise(
-          bash.execute(
-            {
-              command: "echo test",
-              description: "Echo test message",
-            },
-            ctx,
-          ),
-        )
-        expect(result.metadata.exit).toBe(0)
-        expect(result.metadata.output).toContain("test")
-      },
-    })
-  })
+  each(
+    "basic",
+    async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await initBash()
+          const result = await Effect.runPromise(
+            bash.execute(
+              {
+                command: "echo test",
+                description: "Echo test message",
+              },
+              ctx,
+            ),
+          )
+          expect(result.metadata.exit).toBe(0)
+          expect(result.metadata.output).toContain("test")
+        },
+      })
+    },
+    // pwsh cold start on Windows hosted runners can exceed Bun's default 30s.
+    (item) => (item.label === "pwsh" ? { timeout: 60_000 } : undefined),
+  )
 
   each("does not expose internal server auth env to user commands", async () => {
     const previousUsername = process.env.OPENCODE_SERVER_USERNAME
