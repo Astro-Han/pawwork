@@ -364,7 +364,7 @@
 [data-component="bash-output"] {
   width: 100%;
   border: 1px solid var(--border-weak);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   position: relative;
   overflow: hidden;
