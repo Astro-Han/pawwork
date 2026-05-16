@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test"
+import { describe, test } from "bun:test"
+import { runBrowserCheck } from "@/testing/browser-subprocess"
 
 const browserCheck = String.raw`
 import { createRoot, createSignal } from "solid-js"
@@ -119,15 +120,6 @@ const installTimerQueue = () => {
 
 describe("createSessionDeferredRender", () => {
   test("preserves deferred render scheduling behavior", () => {
-    const result = Bun.spawnSync({
-      cmd: [process.execPath, "--conditions=browser", "--preload", "./happydom.ts", "-e", browserCheck],
-      cwd: new URL("../../..", import.meta.url).pathname,
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-
-    const output = `${new TextDecoder().decode(result.stdout)}${new TextDecoder().decode(result.stderr)}`
-    expect(output).toBe("")
-    expect(result.exitCode).toBe(0)
+    runBrowserCheck(browserCheck)
   })
 })
