@@ -73,4 +73,69 @@
   --animate-pulse: var(--animate-pulse);
 }
 
+@utility text-display {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-display);
+  font-weight: var(--font-weight-display);
+  line-height: var(--line-height-display);
+  letter-spacing: var(--letter-spacing-display);
+}
+
+@utility text-h1 {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-h1);
+  line-height: var(--line-height-h1);
+  letter-spacing: var(--letter-spacing-h1);
+}
+
+@utility text-h2 {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-h2);
+  line-height: var(--line-height-h2);
+}
+
+@utility text-h3 {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+  line-height: var(--line-height-h3);
+}
+
+@utility text-body {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
+}
+
+@utility text-caption {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-caption);
+  line-height: var(--line-height-caption);
+}
+
+@utility text-mono {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-mono);
+  font-weight: var(--font-weight-mono);
+  line-height: var(--line-height-mono);
+}
+
+@utility text-mono-small {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-mono-small);
+  font-weight: var(--font-weight-mono-small);
+  line-height: var(--line-height-mono-small);
+}
+
+@utility text-kbd {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-kbd);
+  font-weight: var(--font-weight-kbd);
+  line-height: var(--line-height-kbd);
+}
+
 @import "./colors.css";

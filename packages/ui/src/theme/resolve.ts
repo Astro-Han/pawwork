@@ -521,7 +521,7 @@ function generateNeutralAlphaScale(neutralScale: HexColor[], isDark: boolean): H
   return alphas.map((alpha) => blend(neutralScale[11], neutralScale[0], alpha))
 }
 
-function getHex(value: ColorValue | undefined): HexColor | undefined {
+function getHex(value: string | undefined): HexColor | undefined {
   if (!value?.startsWith("#")) return
   return value as HexColor
 }
