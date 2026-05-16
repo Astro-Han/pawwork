@@ -12,3 +12,26 @@ test("session turn collects assistant messages by parent id across the full mess
   expect(source).toContain("item.parentID === msg.id")
   expect(source).not.toContain('if (item.role === "user") break')
 })
+
+test("legacy diff fallback is gated by visible turn-change data", () => {
+  const source = readFileSync(new URL("./session-turn.tsx", import.meta.url), "utf8")
+
+  expect(source).toContain("!hasVisibleTurnChanges(turnChange()) && edited() > 0 && !working()")
+  expect(source).not.toContain("props.turnChanges === undefined &&")
+})
+
+test("turn-change expansion state stays owned by session turn", () => {
+  const turnSource = readFileSync(new URL("./session-turn.tsx", import.meta.url), "utf8")
+  const panelSource = readFileSync(new URL("./session-turn-changes-panel.tsx", import.meta.url), "utf8")
+
+  expect(turnSource).toContain("const [turnExpanded, setTurnExpanded] = createSignal<string[]>([])")
+  expect(turnSource).toContain("expanded={turnExpanded()}")
+  expect(turnSource).toContain("onExpandedChange={(value) => setTurnExpanded(value)}")
+  expect(panelSource).not.toContain("const [turnExpanded, setTurnExpanded] = createSignal<string[]>([])")
+})
+
+test("visible turn-change memo is declared after working state", () => {
+  const source = readFileSync(new URL("./session-turn.tsx", import.meta.url), "utf8")
+
+  expect(source.indexOf("const working = createMemo")).toBeLessThan(source.indexOf("const visibleTurnChange = createMemo"))
+})

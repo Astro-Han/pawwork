@@ -24,6 +24,13 @@ export type TurnChangeDisplay = {
   files: TurnChangeFile[]
 }
 
+export type TurnChangeActions = {
+  undo?: (userMessageID: string, options?: { force?: boolean }) => Promise<TurnChangeDisplay | undefined> | void
+  redo?: (userMessageID: string, options?: { force?: boolean }) => Promise<TurnChangeDisplay | undefined> | void
+  openFile?: (path: string) => void
+  showInFolder?: (path: string) => void
+}
+
 export function hasVisibleTurnChanges(display: TurnChangeDisplay | null | undefined) {
   return !!display && (display.files.length > 0 || !!display.truncated)
 }
@@ -39,7 +46,7 @@ export function turnChangeAction(display: TurnChangeDisplay | null | undefined):
 
 export function hasTurnChangeActionHandler(
   display: TurnChangeDisplay | null | undefined,
-  actions: { undo?: unknown; redo?: unknown } | null | undefined,
+  actions: TurnChangeActions | null | undefined,
 ) {
   const action = turnChangeAction(display)
   if (action === "undo") return typeof actions?.undo === "function"
