@@ -1127,7 +1127,7 @@
     &:focus-visible {
       outline: 1px solid var(--brand-primary);
       outline-offset: 2px;
-      border-radius: var(--radius-xs);
+      border-radius: var(--radius-sm);
     }
 
     &:disabled {

@@ -555,7 +555,7 @@ export function DialogSelectServer() {
                     class="flex items-center gap-3 min-w-0 flex-1"
                     badge={
                       <Show when={defaultKey() === ServerConnection.key(i)}>
-                        <span class="text-fg-base bg-surface-base text-13-regular px-1.5 rounded-xs">
+                        <span class="text-fg-base bg-surface-base text-13-regular px-1.5 rounded-sm">
                           {language.t("dialog.server.status.default")}
                         </span>
                       </Show>
