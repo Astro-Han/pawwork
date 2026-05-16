@@ -1,20 +1,15 @@
 import { useDialog } from "@opencode-ai/ui/context/dialog"
-import { createMemo, createEffect, createComputed, createSignal, on, onCleanup, untrack } from "solid-js"
+import { createMemo, createEffect, createSignal, on } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
-import { showToast } from "@opencode-ai/ui/toast"
 import { useLocation, useSearchParams } from "@solidjs/router"
 import { useComments } from "@/context/comments"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { usePrompt } from "@/context/prompt"
-import {
-  createSessionPerformanceDiagnostics,
-  emitRendererDiagnostic,
-  sessionAbortDiagnosticEvent,
-} from "@/context/renderer-diagnostics"
+import { emitRendererDiagnostic } from "@/context/renderer-diagnostics"
 import { useSDK } from "@/context/sdk"
 import { useSettings } from "@/context/settings"
 import { useServer } from "@/context/server"
@@ -25,7 +20,6 @@ import { buildDesktopContext } from "@/utils/desktop-context"
 import { createSessionComposerState } from "@/pages/session/composer"
 import { createExecutionScopeTracker, type ExecutionScope } from "@/pages/session/execution-scope"
 import { createSizing } from "@/pages/session/helpers"
-import { promptScopeForSession } from "@/pages/session/prompt-route-scope"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { SessionPageComposerRegion } from "@/pages/session/session-composer-region"
 import { SessionMainView } from "@/pages/session/session-main-view"
@@ -41,13 +35,15 @@ import { createSessionRevert } from "@/pages/session/use-session-revert"
 import { createSessionReviewPanel } from "@/pages/session/use-session-review-panel"
 import { createSessionReviewState } from "@/pages/session/use-session-review-state"
 import { createSessionRouteTabs } from "@/pages/session/use-session-route-tabs"
+import { createSessionRevertSupport } from "@/pages/session/use-session-revert-support"
 import { createSessionTimelineData } from "@/pages/session/use-session-timeline-data"
 import { createSessionTimelineInteraction } from "@/pages/session/use-session-timeline-interaction"
+import { createSessionDeferredRender } from "@/pages/session/use-session-deferred-render"
+import { createSessionPageDiagnostics } from "@/pages/session/use-session-page-diagnostics"
+import { useSessionRoutePromptBootstrap } from "@/pages/session/use-session-route-prompt-bootstrap"
 import { useSessionVcsRefresh } from "@/pages/session/use-session-vcs-refresh"
 import { diffs as list } from "@/utils/diffs"
 import { decode64 } from "@/utils/base64"
-import { extractPromptFromParts } from "@/utils/prompt"
-import { formatServerError } from "@/utils/server-errors"
 
 export default function Page() {
   const globalSync = useGlobalSync()
@@ -79,18 +75,13 @@ export default function Page() {
     send: window.api?.setDesktopContext,
   })
 
-  createEffect(
-    on(
-      () => [prompt.ready(), params.id, searchParams.prompt] as const,
-      ([ready, sessionID, text]) => {
-        if (!ready || sessionID || !text) return
-        untrack(() => {
-          prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
-          setSearchParams({ ...searchParams, prompt: undefined })
-        })
-      },
-    ),
-  )
+  useSessionRoutePromptBootstrap({
+    ready: prompt.ready,
+    sessionID: () => params.id,
+    prompt: () => searchParams.prompt,
+    setPrompt: (text) => prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length),
+    clearPrompt: () => setSearchParams({ ...searchParams, prompt: undefined }),
+  })
 
   const isDesktop = createMediaQuery("(min-width: 768px)")
   const size = createSizing()
@@ -125,22 +116,29 @@ export default function Page() {
   const submitReady = timeline.actionReady
   const workspaceSubmitReady = timeline.workspaceSubmitReady
   const timelineIsChildSession = timeline.isChildSession
-  const emitAbortDiagnostic = (
-    sessionID: string,
-    source: "revert" | "autoHeal",
-    result: "aborted" | "ignored_awaiting_question",
-  ) => {
-    emitDiagnostics(
-      sessionAbortDiagnosticEvent({
-        routeSessionID: params.id,
-        visibleSessionID: timelineSessionID(),
-        timelineSessionID: timelineSessionID(),
-        source,
-        mode: "hard",
-        result,
-      }),
-    )
-  }
+  const timelineMessages = timeline.messages
+  const timelineMessagesReady = timeline.messagesReady
+  const timelineDiffs = timeline.diffs
+  const timelineUserMessages = timeline.userMessages
+  const timelineRevertMessageID = timeline.revertMessageID
+  const timelineVisibleUserMessages = timeline.visibleUserMessages
+  const timelineHistoryMore = timeline.historyMore
+  const timelineHistoryLoading = timeline.historyLoading
+  const lastUserMessage = timeline.lastUserMessage
+  const diagnostics = createSessionPageDiagnostics({
+    routeSessionID: () => params.id,
+    timelineSessionID,
+    routeMessagesReady: timeline.routeMessagesReady,
+    visibleMessagesReady: timelineMessagesReady,
+    actionReady: submitReady,
+    messageCachePresent: timeline.messageCachePresent,
+    sessionInfoPresent: timeline.sessionInfoPresent,
+    statusKnown: timeline.statusKnown,
+    historyMore: timelineHistoryMore,
+    historyLoading: timelineHistoryLoading,
+    messages: timelineMessages,
+  })
+  const emitAbortDiagnostic = diagnostics.emitAbortDiagnostic
   const haltAbort = (sessionID: string, source: "revert" | "autoHeal" = "autoHeal") =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
       ? sdk.client.session.abort({ sessionID, mode: "hard" }).then((result) => {
@@ -167,120 +165,6 @@ export default function Page() {
     fallbackSessionID: () => params.id,
     halt: haltAbort,
   })
-  const timelineMessages = timeline.messages
-  const timelineMessagesReady = timeline.messagesReady
-  const timelineDiffs = timeline.diffs
-  const timelineUserMessages = timeline.userMessages
-  const timelineRevertMessageID = timeline.revertMessageID
-  const timelineVisibleUserMessages = timeline.visibleUserMessages
-  const timelineHistoryMore = timeline.historyMore
-  const timelineHistoryLoading = timeline.historyLoading
-  const lastUserMessage = timeline.lastUserMessage
-  const countMessageParts = (message: unknown) => {
-    if (!message || typeof message !== "object" || !("parts" in message)) return 0
-    const parts = (message as { parts?: unknown }).parts
-    return Array.isArray(parts) ? parts.length : 0
-  }
-  const timelineMessageMetrics = createMemo(() => {
-    const messages = timelineMessages()
-    return {
-      messageCount: messages.length,
-      partCount: messages.reduce((count, message) => count + countMessageParts(message), 0),
-    }
-  })
-  const emitDiagnostics = (event: Parameters<typeof emitRendererDiagnostic>[0]) => {
-    void emitRendererDiagnostic(event).catch(() => undefined)
-  }
-
-  createEffect(
-    on(
-      () => {
-        const routeSessionID = params.id
-        const visibleSessionID = timelineSessionID()
-        const metrics = timelineMessageMetrics()
-        return {
-          routeSessionID,
-          visibleSessionID,
-          routeReady: timeline.routeMessagesReady(),
-          visibleReady: timelineMessagesReady(),
-          actionReady: submitReady(),
-          messageCachePresent: timeline.messageCachePresent(),
-          sessionInfoPresent: timeline.sessionInfoPresent(),
-          statusKnown: timeline.statusKnown(),
-          transitioning: !!routeSessionID && !!visibleSessionID && routeSessionID !== visibleSessionID,
-          messageCount: metrics.messageCount,
-          partCount: metrics.partCount,
-          historyMore: timelineHistoryMore(),
-          historyLoading: timelineHistoryLoading(),
-        }
-      },
-      (state) => {
-        emitDiagnostics({
-          name: "session.view.state",
-          route_session_id: state.routeSessionID,
-          visible_session_id: state.visibleSessionID,
-          timeline_session_id: state.visibleSessionID,
-          data: {
-            route_session_id: state.routeSessionID,
-            visible_session_id: state.visibleSessionID,
-            timeline_session_id: state.visibleSessionID,
-            route_ready: state.routeReady,
-            visible_ready: state.visibleReady,
-            action_ready: state.actionReady,
-            message_cache_present: state.messageCachePresent,
-            session_info_present: state.sessionInfoPresent,
-            status_known: state.statusKnown,
-            transitioning: state.transitioning,
-            message_count: state.messageCount,
-            part_count: state.partCount,
-            history_more: state.historyMore,
-            history_loading: state.historyLoading,
-          },
-        })
-      },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => {
-        const id = timelineSessionID()
-        return { routeSessionID: params.id, visibleSessionID: id, timelineSessionID: id }
-      },
-      (next, previous) => {
-        if (!previous) return
-        if (
-          next.routeSessionID === previous.routeSessionID &&
-          next.visibleSessionID === previous.visibleSessionID &&
-          next.timelineSessionID === previous.timelineSessionID
-        ) {
-          return
-        }
-        emitDiagnostics({
-          name: "session.identity.transition",
-          route_session_id: next.routeSessionID,
-          visible_session_id: next.visibleSessionID,
-          timeline_session_id: next.timelineSessionID,
-          data: {
-            from_route_session_id: previous.routeSessionID,
-            to_route_session_id: next.routeSessionID,
-            from_visible_session_id: previous.visibleSessionID,
-            to_visible_session_id: next.visibleSessionID,
-            from_timeline_session_id: previous.timelineSessionID,
-            to_timeline_session_id: next.timelineSessionID,
-          },
-        })
-      },
-      { defer: true },
-    ),
-  )
-
-  createSessionPerformanceDiagnostics({
-    routeSessionID: () => params.id,
-    visibleSessionID: timelineSessionID,
-    timelineSessionID,
-  })
-
   createEffect(() => {
     const tab = activeFileTab()
     if (!tab) return
@@ -290,36 +174,7 @@ export default function Page() {
   })
 
   const [mobileTab, setMobileTab] = createSignal<"session" | "changes">("session")
-  const [deferRender, setDeferRender] = createSignal(false)
-  let deferRenderFrame: number | undefined
-  let deferRenderTimer: number | undefined
-  let deferRenderEpoch = 0
-
-  const clearDeferRenderSchedule = () => {
-    if (deferRenderFrame !== undefined) cancelAnimationFrame(deferRenderFrame)
-    if (deferRenderTimer !== undefined) window.clearTimeout(deferRenderTimer)
-    deferRenderFrame = undefined
-    deferRenderTimer = undefined
-  }
-
-  onCleanup(clearDeferRenderSchedule)
-
-  createComputed((prev) => {
-    const key = timelineSessionKey()
-    if (key !== prev) {
-      const epoch = ++deferRenderEpoch
-      setDeferRender(true)
-      clearDeferRenderSchedule()
-      deferRenderFrame = requestAnimationFrame(() => {
-        deferRenderFrame = undefined
-        deferRenderTimer = window.setTimeout(() => {
-          deferRenderTimer = undefined
-          if (epoch === deferRenderEpoch) setDeferRender(false)
-        }, 0)
-      })
-    }
-    return key
-  }, timelineSessionKey())
+  const deferRender = createSessionDeferredRender(timelineSessionKey)
 
   const turnDiffs = createMemo(() => list(lastUserMessage()?.summary?.diffs))
   const mobileChanges = createMemo(() => !isDesktop() && mobileTab() === "changes")
@@ -447,53 +302,18 @@ export default function Page() {
     review: reviewTab,
   })
 
-  type SyncStore = typeof sync.data
-  const draftFrom = (source: { directory: string; store: SyncStore }, id: string) =>
-    extractPromptFromParts(source.store.part[id] ?? [], {
-      directory: source.directory,
-      attachmentName: language.t("common.attachment"),
-    })
-
-  const line = (id: string) => {
-    const text = draftFrom({ directory: sdk.directory, store: sync.data }, id)
-      .map((part) => (part.type === "image" ? `[image:${part.filename}]` : part.content))
-      .join("")
-      .replace(/\s+/g, " ")
-      .trim()
-    if (text) return text
-    return `[${language.t("common.attachment")}]`
-  }
-
-  const fail = (err: unknown) => {
-    showToast({
-      variant: "error",
-      title: language.t("common.requestFailed"),
-      description: formatServerError(err, language.t),
-    })
-  }
-
-  type SyncSetter = typeof sync.set
-  const merge = (setStore: SyncSetter, next: NonNullable<ReturnType<typeof timeline.routeInfo>>) =>
-    setStore("session", (list) => {
-      const idx = list.findIndex((item) => item.id === next.id)
-      if (idx < 0) return list
-      const out = list.slice()
-      out[idx] = next
-      return out
-    })
-
-  const roll = (
-    setStore: SyncSetter,
-    sessionID: string,
-    next: NonNullable<ReturnType<typeof timeline.routeInfo>>["revert"],
-  ) =>
-    setStore("session", (list) => {
-      const idx = list.findIndex((item) => item.id === sessionID)
-      if (idx < 0) return list
-      const out = list.slice()
-      out[idx] = { ...out[idx], revert: next }
-      return out
-    })
+  const revertSupport = createSessionRevertSupport({
+    directory: () => sdk.directory,
+    routeDir: () => params.dir,
+    sessionID: timelineSessionID,
+    attachmentLabel: () => language.t("common.attachment"),
+    t: language.t,
+    prompt,
+    sync,
+    createClient: sdk.createClient,
+    currentExecutionScope,
+  })
+  const fail = revertSupport.fail
 
   const timelineRunning = createSessionRunning(
     () => {
@@ -528,36 +348,16 @@ export default function Page() {
     sessionID: timelineSessionID,
     revertMessageID: timelineRevertMessageID,
     timelineUserMessages,
-    lineText: line,
+    lineText: revertSupport.line,
     prompt,
     sync,
-    snapshot: () => {
-      const directory = sdk.directory
-      const handle = sync.retainDirectory(directory)
-      const scope = currentExecutionScope()
-      return {
-        scope,
-        currentScope: currentExecutionScope,
-        client: sdk.createClient({ directory, throwOnError: true }),
-        store: handle.store,
-        setStore: handle.setStore,
-        prompt: prompt.current().slice(),
-        promptScope: promptScopeForSession({
-          routeDir: params.dir,
-          routeDirectory: directory,
-          targetDirectory: directory,
-          sessionID: timelineSessionID(),
-        }),
-        release: handle.release,
-        directory,
-      }
-    },
+    snapshot: revertSupport.snapshot,
     actionReady: sessionActionReady,
     halt: haltWithSnapshot,
-    draft: draftFrom,
+    draft: revertSupport.draftFrom,
     fail,
-    merge,
-    roll,
+    merge: revertSupport.merge,
+    roll: revertSupport.roll,
   })
 
   const actions = { revert: sessionRevert.revert }

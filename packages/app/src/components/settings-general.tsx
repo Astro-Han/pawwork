@@ -1,18 +1,14 @@
-import { Component, Show, createMemo, createResource, onMount, type JSX } from "solid-js"
-import { createStore } from "solid-js/store"
-import { Button } from "@opencode-ai/ui/button"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { Component, Show, createMemo, createResource, onMount } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { Select } from "@opencode-ai/ui/select"
 import { Switch } from "@opencode-ai/ui/switch"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
-import { showToast } from "@opencode-ai/ui/toast"
 import { useParams } from "@solidjs/router"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
-import { canCheckUpdate, canUseDisplayBackend, usePlatform } from "@/context/platform"
+import { canUseDisplayBackend, usePlatform } from "@/context/platform"
 import {
   monoDefault,
   monoFontFamily,
@@ -23,47 +19,17 @@ import {
   useSettings,
 } from "@/context/settings"
 import { decode64 } from "@/utils/base64"
-import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { Link } from "./link"
-import { DialogConnectWebSearch } from "./dialog-connect-websearch"
 import { SettingsList } from "./settings-list"
-
-let demoSoundState = {
-  cleanup: undefined as (() => void) | undefined,
-  timeout: undefined as NodeJS.Timeout | undefined,
-  run: 0,
-}
+import { SettingsNotificationsSection } from "./settings-notifications-section"
+import { SettingsRow } from "./settings-row"
+import { SettingsSoundsSection } from "./settings-sounds-section"
+import { SettingsUpdatesSection } from "./settings-updates-section"
+import { SettingsWebSearchRow } from "./settings-web-search-row"
 
 type ThemeOption = {
   id: string
   name: string
-}
-
-// To prevent audio from overlapping/playing very quickly when navigating the settings menus,
-// delay the playback by 100ms during quick selection changes and pause existing sounds.
-const stopDemoSound = () => {
-  demoSoundState.run += 1
-  if (demoSoundState.cleanup) {
-    demoSoundState.cleanup()
-  }
-  clearTimeout(demoSoundState.timeout)
-  demoSoundState.cleanup = undefined
-}
-
-const playDemoSound = (id: string | undefined) => {
-  stopDemoSound()
-  if (!id) return
-
-  const run = ++demoSoundState.run
-  demoSoundState.timeout = setTimeout(() => {
-    void playSoundById(id).then((cleanup) => {
-      if (demoSoundState.run !== run) {
-        cleanup?.()
-        return
-      }
-      demoSoundState.cleanup = cleanup
-    })
-  }, 100)
 }
 
 export const SettingsGeneral: Component = () => {
@@ -73,14 +39,9 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const params = useParams()
   const settings = useSettings()
-  const dialog = useDialog()
 
   onMount(() => {
     void theme.loadThemes()
-  })
-
-  const [store, setStore] = createStore({
-    checking: false,
   })
 
   const linux = createMemo(() => platform.os === "linux" && canUseDisplayBackend(platform))
@@ -110,96 +71,6 @@ export const SettingsGeneral: Component = () => {
     permission.disableAutoAccept(params.id, value)
   }
 
-  const check = () => {
-    const checkUpdate = platform.checkUpdate
-    if (!canCheckUpdate(platform) || !checkUpdate) return
-    setStore("checking", true)
-
-    void checkUpdate()
-      .then((result) => {
-        if (result.status === "busy") {
-          showToast({
-            title: language.t("settings.updates.toast.busy.title"),
-            description: language.t("settings.updates.toast.busy.description"),
-          })
-          return
-        }
-
-        if (result.status === "disabled") {
-          showToast({
-            title: language.t("settings.updates.toast.disabled.title"),
-            description: language.t("settings.updates.toast.disabled.description"),
-          })
-          return
-        }
-
-        if (result.status === "failed") {
-          showToast({
-            title: language.t("common.requestFailed"),
-            description: result.message || language.t("settings.updates.toast.failed.description"),
-          })
-          return
-        }
-
-        if (!result.updateAvailable) {
-          showToast({
-            variant: "success",
-            icon: "circle-check",
-            title: language.t("settings.updates.toast.latest.title"),
-            description: language.t("settings.updates.toast.latest.description", { version: platform.version ?? "" }),
-          })
-          return
-        }
-
-        const actions = platform.update
-          ? [
-              {
-                label: language.t("toast.update.action.installRestart"),
-                onClick: async () => {
-                  await platform.update!()
-                },
-              },
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-          : [
-              {
-                label: language.t("toast.update.action.notYet"),
-                onClick: "dismiss" as const,
-              },
-            ]
-
-        showToast({
-          persistent: true,
-          icon: "download",
-          title: language.t("toast.update.title"),
-          description: language.t("toast.update.description", { version: result.version ?? "" }),
-          actions,
-        })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err)
-        showToast({ title: language.t("common.requestFailed"), description: message })
-      })
-      .finally(() => setStore("checking", false))
-  }
-
-  const [webSearchStatusResource, webSearchStatusActions] = createResource(() => window.api?.webSearchStatus?.())
-  const webSearchStatus = createMemo(() => webSearchStatusResource.latest)
-  // Chip label for the current web search auth state.
-  const webSearchChipText = createMemo(() => {
-    const s = webSearchStatus()
-    if (!s) return language.t("settings.general.webSearch.chip.loading")
-    if (s.source === "saved" && s.quotaExceeded) return language.t("settings.general.webSearch.chip.savedQuota")
-    if (s.source === "saved" && s.needsAttention) return language.t("settings.general.webSearch.chip.invalid")
-    if (s.source === "saved") return language.t("settings.general.webSearch.chip.personal")
-    if (s.source === "env") return language.t("settings.general.webSearch.chip.env")
-    if (s.quotaExceeded) return language.t("settings.general.webSearch.chip.exhausted")
-    return language.t("settings.general.webSearch.chip.free")
-  })
-
   const themeOptions = createMemo<ThemeOption[]>(() => theme.ids().map((id) => ({ id, name: theme.name(id) })))
 
   const colorSchemeOptions = createMemo((): { value: ColorScheme; label: string }[] => [
@@ -215,40 +86,8 @@ export const SettingsGeneral: Component = () => {
     })),
   )
 
-  const noneSound = { id: "none", label: "sound.option.none" } as const
-  const soundOptions = [noneSound, ...SOUND_OPTIONS]
   const mono = () => monoInput(settings.appearance.font())
   const sans = () => sansInput(settings.appearance.uiFont())
-
-  const soundSelectProps = (
-    enabled: () => boolean,
-    current: () => string,
-    setEnabled: (value: boolean) => void,
-    set: (id: string) => void,
-  ) => ({
-    options: soundOptions,
-    current: enabled() ? (soundOptions.find((o) => o.id === current()) ?? noneSound) : noneSound,
-    value: (o: (typeof soundOptions)[number]) => o.id,
-    label: (o: (typeof soundOptions)[number]) => language.t(o.label),
-    onHighlight: (option: (typeof soundOptions)[number] | undefined) => {
-      if (!option) return
-      playDemoSound(option.id === "none" ? undefined : option.id)
-    },
-    onSelect: (option: (typeof soundOptions)[number] | undefined) => {
-      if (!option) return
-      if (option.id === "none") {
-        setEnabled(false)
-        stopDemoSound()
-        return
-      }
-      setEnabled(true)
-      set(option.id)
-      playDemoSound(option.id)
-    },
-    variant: "secondary" as const,
-    size: "small" as const,
-    triggerVariant: "settings" as const,
-  })
 
   const GeneralSection = () => (
     <div class="flex flex-col gap-1">
@@ -279,53 +118,7 @@ export const SettingsGeneral: Component = () => {
           </div>
         </SettingsRow>
 
-        <SettingsRow
-          title={
-            <div class="flex items-center gap-2">
-              <span>{language.t("settings.general.webSearch.title")}</span>
-              <span class="text-body text-fg-weaker rounded px-1.5 py-0.5 bg-bg-cream">
-                {webSearchChipText()}
-              </span>
-            </div>
-          }
-          description={
-            <>
-              <span>{language.t("settings.general.webSearch.description")}</span>
-              {webSearchStatus()?.source === "saved" && webSearchStatus()?.quotaExceeded && (
-                <span class="block pt-1 text-body text-fg-weaker">
-                  {language.t("settings.general.webSearch.secondary.savedQuota")}
-                </span>
-              )}
-              {webSearchStatus()?.source === "saved" && webSearchStatus()?.needsAttention && (
-                <span class="block pt-1 text-body text-fg-weaker">
-                  {language.t("settings.general.webSearch.secondary.failed")}
-                </span>
-              )}
-              {webSearchStatus()?.source === "anonymous" && webSearchStatus()?.quotaExceeded && (
-                <span class="block pt-1 text-body text-fg-weaker">
-                  {language.t("settings.general.webSearch.secondary.exhausted")}
-                </span>
-              )}
-            </>
-          }
-        >
-          <div class="flex items-center gap-2">
-            <Button
-              data-action="settings-web-search-manage"
-              size="small"
-              variant="ghost"
-              onClick={() => dialog.show(() => <DialogConnectWebSearch onStatusChanged={webSearchStatusActions.refetch} />)}
-            >
-              {language.t("settings.general.webSearch.action.manage")}
-            </Button>
-            <div data-action="settings-web-search-enabled">
-              <Switch
-                checked={settings.general.webSearchEnabled()}
-                onChange={(checked) => settings.general.setWebSearchEnabled(checked)}
-              />
-            </div>
-          </div>
-        </SettingsRow>
+        <SettingsWebSearchRow />
 
         <SettingsRow
           title={language.t("settings.general.row.reasoningSummaries.title")}
@@ -486,147 +279,6 @@ export const SettingsGeneral: Component = () => {
     </div>
   )
 
-  const NotificationsSection = () => (
-    <div class="flex flex-col gap-1">
-      <h3 class="text-h3 text-fg-strong pb-2">{language.t("settings.general.section.notifications")}</h3>
-
-      <SettingsList>
-        <SettingsRow
-          title={language.t("settings.general.notifications.agent.title")}
-          description={language.t("settings.general.notifications.agent.description")}
-        >
-          <div data-action="settings-notifications-agent">
-            <Switch
-              checked={settings.notifications.agent()}
-              onChange={(checked) => settings.notifications.setAgent(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.general.notifications.permissions.title")}
-          description={language.t("settings.general.notifications.permissions.description")}
-        >
-          <div data-action="settings-notifications-permissions">
-            <Switch
-              checked={settings.notifications.permissions()}
-              onChange={(checked) => settings.notifications.setPermissions(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.general.notifications.errors.title")}
-          description={language.t("settings.general.notifications.errors.description")}
-        >
-          <div data-action="settings-notifications-errors">
-            <Switch
-              checked={settings.notifications.errors()}
-              onChange={(checked) => settings.notifications.setErrors(checked)}
-            />
-          </div>
-        </SettingsRow>
-      </SettingsList>
-    </div>
-  )
-
-  const SoundsSection = () => (
-    <div class="flex flex-col gap-1">
-      <h3 class="text-h3 text-fg-strong pb-2">{language.t("settings.general.section.sounds")}</h3>
-
-      <SettingsList>
-        <SettingsRow
-          title={language.t("settings.general.sounds.agent.title")}
-          description={language.t("settings.general.sounds.agent.description")}
-        >
-          <Select
-            data-action="settings-sounds-agent"
-            {...soundSelectProps(
-              () => settings.sounds.agentEnabled(),
-              () => settings.sounds.agent(),
-              (value) => settings.sounds.setAgentEnabled(value),
-              (id) => settings.sounds.setAgent(id),
-            )}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.general.sounds.permissions.title")}
-          description={language.t("settings.general.sounds.permissions.description")}
-        >
-          <Select
-            data-action="settings-sounds-permissions"
-            {...soundSelectProps(
-              () => settings.sounds.permissionsEnabled(),
-              () => settings.sounds.permissions(),
-              (value) => settings.sounds.setPermissionsEnabled(value),
-              (id) => settings.sounds.setPermissions(id),
-            )}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.general.sounds.errors.title")}
-          description={language.t("settings.general.sounds.errors.description")}
-        >
-          <Select
-            data-action="settings-sounds-errors"
-            {...soundSelectProps(
-              () => settings.sounds.errorsEnabled(),
-              () => settings.sounds.errors(),
-              (value) => settings.sounds.setErrorsEnabled(value),
-              (id) => settings.sounds.setErrors(id),
-            )}
-          />
-        </SettingsRow>
-      </SettingsList>
-    </div>
-  )
-
-  const UpdatesSection = () => (
-    <div class="flex flex-col gap-1">
-      <h3 class="text-h3 text-fg-strong pb-2">{language.t("settings.general.section.updates")}</h3>
-
-      <SettingsList>
-        <SettingsRow
-          title={language.t("settings.updates.row.startup.title")}
-          description={language.t("settings.updates.row.startup.description")}
-        >
-          <div data-action="settings-updates-startup">
-            <Switch
-              checked={settings.updates.startup()}
-              disabled={!canCheckUpdate(platform)}
-              onChange={(checked) => settings.updates.setStartup(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.general.row.releaseNotes.title")}
-          description={language.t("settings.general.row.releaseNotes.description")}
-        >
-          <div data-action="settings-release-notes">
-            <Switch
-              checked={settings.general.releaseNotes()}
-              onChange={(checked) => settings.general.setReleaseNotes(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
-          title={language.t("settings.updates.row.check.title")}
-          description={language.t("settings.updates.row.check.description")}
-        >
-          <Button variant="secondary" disabled={store.checking || !canCheckUpdate(platform)} onClick={check}>
-            {store.checking
-              ? language.t("settings.updates.action.checking")
-              : language.t("settings.updates.action.checkNow")}
-          </Button>
-        </SettingsRow>
-      </SettingsList>
-    </div>
-  )
-
   return (
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-raised)_calc(100%_-_24px),transparent)]">
@@ -640,9 +292,9 @@ export const SettingsGeneral: Component = () => {
 
         <AppearanceSection />
 
-        <NotificationsSection />
+        <SettingsNotificationsSection />
 
-        <SoundsSection />
+        <SettingsSoundsSection />
 
         {/*<Show when={platform.platform === "desktop" && platform.os === "windows" && platform.getWslEnabled}>
           {(_) => {
@@ -672,7 +324,7 @@ export const SettingsGeneral: Component = () => {
           }}
         </Show>*/}
 
-        <UpdatesSection />
+        <SettingsUpdatesSection />
 
         <Show when={linux()}>
           {(_) => {
@@ -710,24 +362,6 @@ export const SettingsGeneral: Component = () => {
           }}
         </Show>
       </div>
-    </div>
-  )
-}
-
-interface SettingsRowProps {
-  title: string | JSX.Element
-  description: string | JSX.Element
-  children: JSX.Element
-}
-
-const SettingsRow: Component<SettingsRowProps> = (props) => {
-  return (
-    <div class="flex flex-wrap items-center gap-4 py-3 border-b border-border-weak last:border-none sm:flex-nowrap">
-      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="text-h3 text-fg-strong">{props.title}</span>
-        <span class="text-body text-fg-weak">{props.description}</span>
-      </div>
-      <div class="flex w-full justify-end sm:w-auto sm:shrink-0">{props.children}</div>
     </div>
   )
 }
