@@ -275,13 +275,17 @@ export namespace Skill {
     Layer.provide(AppFileSystem.defaultLayer),
   )
 
+  export function displayable(list: Info[]) {
+    return list.filter((skill) => skill.description !== undefined)
+  }
+
   export function fmt(list: Info[], opts: { verbose: boolean }) {
-    const described = list.filter((skill) => skill.description !== undefined)
-    if (described.length === 0) return "No skills are currently available."
+    const displayableSkills = displayable(list)
+    if (displayableSkills.length === 0) return "No skills are currently available."
     if (opts.verbose) {
       return [
         "<available_skills>",
-        ...described
+        ...displayableSkills
           .toSorted((a, b) => a.name.localeCompare(b.name))
           .flatMap((skill) => [
             "  <skill>",
@@ -296,7 +300,7 @@ export namespace Skill {
 
     return [
       "## Available Skills",
-      ...described
+      ...displayableSkills
         .toSorted((a, b) => a.name.localeCompare(b.name))
         .map((skill) => `- **${skill.name}**: ${skill.description}`),
     ].join("\n")

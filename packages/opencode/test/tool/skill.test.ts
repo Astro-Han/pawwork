@@ -124,6 +124,55 @@ description: ${description}
     }
   })
 
+  test("description uses empty state when only manual skills are available", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        const skillDir = path.join(dir, ".opencode", "skill", "manual-skill")
+        await Bun.write(
+          path.join(skillDir, "SKILL.md"),
+          `---
+name: manual-skill
+---
+
+# Manual Skill
+`,
+        )
+      },
+    })
+
+    const home = process.env.OPENCODE_TEST_HOME
+    process.env.OPENCODE_TEST_HOME = tmp.path
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const agent = {
+            name: "build",
+            mode: "primary" as const,
+            permission: [
+              { permission: "skill", pattern: "*", action: "deny" as const },
+              { permission: "skill", pattern: "manual-skill", action: "allow" as const },
+            ],
+            options: {},
+          }
+          const desc = await ToolRegistry.tools({
+            providerID: "opencode" as any,
+            modelID: "gpt-5" as any,
+            agent,
+          }).then((tools) => tools.find((tool) => tool.id === SkillTool.id)?.description ?? "")
+
+          expect(desc).toContain("No skills are currently available.")
+          expect(desc).not.toContain("manual-skill")
+          expect(desc).not.toContain("The following skills provide specialized sets of instructions")
+        },
+      })
+    } finally {
+      process.env.OPENCODE_TEST_HOME = home
+    }
+  })
+
   test("execute returns skill content block with files", async () => {
     await using tmp = await tmpdir({
       git: true,
