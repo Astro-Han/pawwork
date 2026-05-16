@@ -1,5 +1,7 @@
+import { HIDDEN_TOOL_NAMES } from "../tool-contract"
+
 export const CONTEXT_GROUP_TOOLS = new Set(["read", "glob", "grep", "list"])
-export const HIDDEN_TOOLS = new Set(["todowrite"])
+export const HIDDEN_TOOLS = new Set<string>(HIDDEN_TOOL_NAMES)
 
 export function list<T>(value: T[] | undefined | null, fallback: T[]) {
   if (Array.isArray(value)) return value

@@ -47,7 +47,7 @@
         font-size: var(--font-size-caption);
         font-style: normal;
         font-weight: var(--font-weight-body);
-        line-height: var(--line-height-h3); /* 166.667% */
+        line-height: var(--line-height-h3); /* 150% */
 
         &:hover:not([data-disabled]) {
           background-color: var(--surface-sunken);

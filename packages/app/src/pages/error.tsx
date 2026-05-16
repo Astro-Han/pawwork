@@ -124,8 +124,8 @@ export const ErrorPage: Component<ErrorPageProps> = (props) => {
     <div class="relative flex-1 h-screen w-screen min-h-0 overflow-y-auto bg-bg-base font-sans">
       <div class="w-full max-w-[32rem] flex flex-col pt-[28vh] pb-16 pl-[clamp(1.5rem,10vw,6rem)] pr-6">
         <div class="flex flex-col gap-3">
-          <h1 class="text-display font-[var(--font-weight-body)] text-fg-strong text-balance">{language.t("error.page.title")}</h1>
-          <p class="text-h2 font-[var(--font-weight-body)] text-fg-base text-balance">{language.t("error.page.description")}</p>
+          <h1 class="text-display font-body text-fg-strong text-balance">{language.t("error.page.title")}</h1>
+          <p class="text-h2 font-body text-fg-base text-balance">{language.t("error.page.description")}</p>
         </div>
 
         <Show when={knownError()}>

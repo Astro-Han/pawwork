@@ -48,7 +48,7 @@
     font-size: var(--font-size-h3);
     font-style: normal;
     font-weight: var(--font-weight-h3);
-    line-height: var(--line-height-h3); /* 166.667% */
+    line-height: var(--line-height-h3); /* 150% */
 
     /* &:hover { */
     /*   background-color: var(--surface-base); */
