@@ -2,7 +2,7 @@ import type { ColorValue, DesktopTheme, HexColor, ResolvedTheme, ThemeVariant } 
 import { blend, generateNeutralScale, generateScale, hexToOklch, hexToRgb, shift, withAlpha } from "./color"
 
 const THEME_TOKEN_NAME_PATTERN = /^[a-z0-9-]+$/
-const CSS_SINGLE_DECLARATION_VALUE_PATTERN = /^[^;{}\x00-\x1F\x7F]+$/
+const CSS_SINGLE_DECLARATION_VALUE_PATTERN = /^(?!.*\/\*)(?!.*\*\/)[^;{}\x00-\x1F\x7F]+$/
 
 function assertThemeCssDeclaration(key: string, value: unknown) {
   if (!THEME_TOKEN_NAME_PATTERN.test(key)) {
