@@ -1,6 +1,5 @@
-// Tool names are hardcoded here. Canonical definitions live in
-// packages/opencode/src/tool/ — if upstream renames a tool, the sanity test
-// in session-status-extractors.test.ts catches it by grepping the source file.
+// Tool names are centralized in @opencode-ai/ui/tool-contract. The contract test
+// checks them against packages/opencode/src/tool so an upstream rename is visible.
 //   todowrite → packages/opencode/src/tool/todo.ts
 //   webfetch  → packages/opencode/src/tool/webfetch.ts
 //   websearch → packages/opencode/src/tool/websearch.ts
@@ -12,12 +11,10 @@
 // so these extractors stay as pure functions testable against SDK fixtures.
 
 import type { Part } from "@opencode-ai/sdk/v2"
+import { TOOL_QUESTION, TOOL_TODOWRITE, TOOL_WEBFETCH, TOOL_WEBSEARCH } from "@opencode-ai/ui/tool-contract"
 import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 
-export const TOOL_TODOWRITE = "todowrite"
-export const TOOL_WEBFETCH = "webfetch"
-export const TOOL_WEBSEARCH = "websearch"
-export const TOOL_QUESTION = "question"
+export { TOOL_QUESTION, TOOL_TODOWRITE, TOOL_WEBFETCH, TOOL_WEBSEARCH } from "@opencode-ai/ui/tool-contract"
 
 function isToolPart(part: Part): part is Extract<Part, { type: "tool" }> {
   return part.type === "tool"
