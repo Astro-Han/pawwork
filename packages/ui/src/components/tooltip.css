@@ -9,7 +9,10 @@
 }
 
 [data-slot="tooltip-keybind-key"] {
-  font: var(--type-kbd);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-kbd);
+  font-weight: var(--font-weight-kbd);
+  line-height: var(--line-height-kbd);
   color: var(--bg-cream);
 }
 
@@ -25,10 +28,9 @@
 
   /* sans 13/500/1.2 inline per DESIGN.md L190 */
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-h3);
   line-height: 1.2;
-  letter-spacing: var(--letter-spacing-normal);
 
   opacity: 0;
 

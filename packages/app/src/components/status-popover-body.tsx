@@ -256,19 +256,19 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
         variant="alt"
       >
         <Tabs.List data-slot="tablist" class="bg-transparent border-b-0 px-4 pt-2 pb-0 gap-4 h-10">
-          <Tabs.Trigger value="servers" data-slot="tab" class="text-13-regular">
+          <Tabs.Trigger value="servers" data-slot="tab" class="text-body">
             {sortedServers().length > 0 ? `${sortedServers().length} ` : ""}
             {language.t("status.popover.tab.servers")}
           </Tabs.Trigger>
-          <Tabs.Trigger value="mcp" data-slot="tab" class="text-13-regular">
+          <Tabs.Trigger value="mcp" data-slot="tab" class="text-body">
             {mcpConnected() > 0 ? `${mcpConnected()} ` : ""}
             {language.t("status.popover.tab.mcp")}
           </Tabs.Trigger>
-          <Tabs.Trigger value="lsp" data-slot="tab" class="text-13-regular">
+          <Tabs.Trigger value="lsp" data-slot="tab" class="text-body">
             {lspCount() > 0 ? `${lspCount()} ` : ""}
             {language.t("status.popover.tab.lsp")}
           </Tabs.Trigger>
-          <Tabs.Trigger value="plugins" data-slot="tab" class="text-13-regular">
+          <Tabs.Trigger value="plugins" data-slot="tab" class="text-body">
             {pluginCount() > 0 ? `${pluginCount()} ` : ""}
             {language.t("status.popover.tab.plugins")}
           </Tabs.Trigger>
@@ -302,11 +302,11 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                         dimmed={blocked()}
                         status={health[key]}
                         class="flex items-center gap-2 w-full min-w-0"
-                        nameClass="text-13-regular text-fg-base truncate"
-                        versionClass="text-13-regular text-fg-weak truncate"
+                        nameClass="text-body text-fg-base truncate"
+                        versionClass="text-body text-fg-weak truncate"
                         badge={
                           <Show when={key === defaultServer.key()}>
-                            <span class="text-13-regular text-fg-base bg-surface-base px-1.5 py-0.5 rounded-md">
+                            <span class="text-body text-fg-base bg-surface-base px-1.5 py-0.5 rounded-md">
                               {language.t("common.default")}
                             </span>
                           </Show>
@@ -345,7 +345,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
               <Show
                 when={mcpNames().length > 0}
                 fallback={
-                  <div class="text-13-regular text-fg-base text-center my-auto">{language.t("dialog.mcp.empty")}</div>
+                  <div class="text-body text-fg-base text-center my-auto">{language.t("dialog.mcp.empty")}</div>
                 }
               >
                 <For each={mcpNames()}>
@@ -372,7 +372,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                               status() === "needs_auth" || status() === "needs_client_registration",
                           }}
                         />
-                        <span class="text-13-regular text-fg-base truncate flex-1">{name}</span>
+                        <span class="text-body text-fg-base truncate flex-1">{name}</span>
                         <div onClick={(event) => event.stopPropagation()}>
                           <Switch
                             checked={enabled()}
@@ -398,7 +398,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
               <Show
                 when={lspItems().length > 0}
                 fallback={
-                  <div class="text-13-regular text-fg-base text-center my-auto">{language.t("dialog.lsp.empty")}</div>
+                  <div class="text-body text-fg-base text-center my-auto">{language.t("dialog.lsp.empty")}</div>
                 }
               >
                 <For each={lspItems()}>
@@ -411,7 +411,7 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
                           "bg-error": item.status === "error",
                         }}
                       />
-                      <span class="text-13-regular text-fg-base truncate">{item.name || item.id}</span>
+                      <span class="text-body text-fg-base truncate">{item.name || item.id}</span>
                     </div>
                   )}
                 </For>
@@ -425,13 +425,13 @@ export function StatusPanel(props: { shown: Accessor<boolean> }) {
             <div class="flex flex-col p-3 bg-bg-base rounded-sm min-h-14">
               <Show
                 when={plugins().length > 0}
-                fallback={<div class="text-13-regular text-fg-base text-center my-auto">{pluginEmpty()}</div>}
+                fallback={<div class="text-body text-fg-base text-center my-auto">{pluginEmpty()}</div>}
               >
                 <For each={plugins()}>
                   {(plugin) => (
                     <div class="flex items-center gap-2 w-full px-2 py-1">
                       <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" />
-                      <span class="text-13-regular text-fg-base truncate">{plugin}</span>
+                      <span class="text-body text-fg-base truncate">{plugin}</span>
                     </div>
                   )}
                 </For>

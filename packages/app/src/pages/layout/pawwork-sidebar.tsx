@@ -46,7 +46,7 @@ function ProjectGroupHeader(props: {
           data-component="pawwork-group-header"
           data-collapsed={props.collapsed ? "true" : undefined}
           title={props.projectKey}
-          class="group/group-header h-[30px] w-full flex items-center rounded-sm text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay focus-within:bg-row-hover-overlay"
+          class="group/group-header h-[30px] w-full flex items-center rounded-sm text-body text-fg-weak transition-colors hover:bg-row-hover-overlay focus-within:bg-row-hover-overlay"
         >
           <button
             type="button"
@@ -280,7 +280,7 @@ export const PawworkSidebar = (props: {
             }
             titleContent={({ title }) => (
               <span
-                class="text-13-regular text-fg-base [.active_&]:text-fg-strong [.active_&]:font-medium min-w-0 flex-1 truncate"
+                class="text-body text-fg-base [.active_&]:text-fg-strong [.active_&]:font-[var(--font-weight-h3)] min-w-0 flex-1 truncate"
                 onDblClick={(e: MouseEvent) => {
                   e.preventDefault()
                   e.stopPropagation()
@@ -375,7 +375,7 @@ export const PawworkSidebar = (props: {
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="new-session" class="text-icon-base" />
               </span>
-              <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
+              <span class="text-h3 text-fg-base min-w-0 flex-1 truncate">{language.t("command.session.new")}</span>
             </button>
           </TooltipKeybind>
           <TooltipKeybind
@@ -392,7 +392,7 @@ export const PawworkSidebar = (props: {
               <span class="shrink-0 w-4 h-4 flex items-center">
                 <Icon name="magnifying-glass" class="text-icon-base" />
               </span>
-              <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
+              <span class="text-h3 text-fg-base min-w-0 flex-1 truncate">{language.t("sidebar.pawwork.search")}</span>
             </button>
           </TooltipKeybind>
         </div>
@@ -403,8 +403,8 @@ export const PawworkSidebar = (props: {
         fallback={
           <div class="flex flex-1 items-center px-5">
             <div class="flex w-full flex-col gap-3">
-              <div class="text-13-medium text-fg-strong">{language.t("sidebar.empty.title")}</div>
-              <p class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.empty.description")}</p>
+              <div class="text-h3 text-fg-strong">{language.t("sidebar.empty.title")}</div>
+              <p class="text-body text-fg-weak">{language.t("sidebar.pawwork.empty.description")}</p>
               <Button data-action="pawwork-open-project" onClick={props.onOpenProject}>
                 {language.t("command.project.open")}
               </Button>
@@ -424,13 +424,13 @@ export const PawworkSidebar = (props: {
             <nav class="flex flex-col">
               <Show when={pinnedRows().length > 0}>
                 <section data-component="pawwork-sidebar-pinned" class="flex flex-col gap-0.5">
-                  <div class="mt-4 h-[30px] flex items-center px-2.5 text-13-regular text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
+                  <div class="mt-4 h-[30px] flex items-center px-2.5 text-body text-fg-weak">{language.t("sidebar.pawwork.pinned")}</div>
                   <For each={pinnedRows()}>{(entry) => renderSessionItem(entry)}</For>
                 </section>
               </Show>
               <Show when={rows().length > 0 || groupedRows().length > 0}>
                 <div class="mt-4 h-[30px] flex items-center justify-between px-2.5">
-                  <span class="text-13-regular text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
+                  <span class="text-body text-fg-weak">{language.t("sidebar.pawwork.all")}</span>
                   <DropdownMenu>
                     <Tooltip placement="bottom" value={language.t("sidebar.pawwork.sort.label")}>
                       <DropdownMenu.Trigger
@@ -526,7 +526,7 @@ export const PawworkSidebar = (props: {
                   data-action="pawwork-session-show-more"
                   disabled={props.sessionWindow().loading}
                   onClick={props.onShowMore}
-                  class="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay disabled:opacity-50"
+                  class="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-body text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay disabled:opacity-50"
                 >
                   {props.sessionWindow().loading ? language.t("common.loading") : language.t("common.showMore")}
                 </button>
@@ -536,7 +536,7 @@ export const PawworkSidebar = (props: {
                   type="button"
                   data-action="pawwork-session-search-history"
                   onClick={props.onSearchOlderSessions}
-                  class="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-13-regular text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay"
+                  class="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-body text-fg-weak transition-colors hover:bg-row-hover-overlay hover:text-fg-base focus:outline-none focus-visible:bg-row-hover-overlay"
                 >
                   {language.t("sidebar.pawwork.searchHistory")}
                 </button>
@@ -565,7 +565,7 @@ export const PawworkSidebar = (props: {
             <span class="shrink-0 w-4 h-4 flex items-center">
               <Icon name="settings-gear" class="text-icon-base" />
             </span>
-            <span class="text-13-medium text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
+            <span class="text-h3 text-fg-base min-w-0 flex-1 truncate">{props.settingsLabel()}</span>
           </button>
         </TooltipKeybind>
       </div>

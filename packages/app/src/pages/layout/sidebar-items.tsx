@@ -54,7 +54,7 @@ const SessionRow = (props: {
       <Show
         when={props.titleContent}
         fallback={
-          <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong [.active_&]:font-medium min-w-0 flex-1 truncate">
+          <span class="text-body text-fg-base [.active_&]:text-fg-strong [.active_&]:font-[var(--font-weight-h3)] min-w-0 flex-1 truncate">
             {title()}
           </span>
         }
@@ -123,7 +123,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
         return <Icon name="circle-x" class="text-error" />
       case "time": {
         const t = props.timeText?.(props.session)
-        return t ? <span class="text-12-regular text-fg-weaker whitespace-nowrap">{t}</span> : null
+        return t ? <span class="text-caption text-fg-weaker whitespace-nowrap">{t}</span> : null
       }
     }
   }
@@ -239,7 +239,7 @@ export const NewSessionItem = (props: {
       <div data-leading-slot class="shrink-0 w-4 h-4 flex items-center">
         <Icon name="new-session" class="text-icon-weak" />
       </div>
-      <span class="text-13-regular text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">{label}</span>
+      <span class="text-body text-fg-base [.active_&]:text-fg-strong min-w-0 flex-1 truncate">{label}</span>
     </A>
   )
 

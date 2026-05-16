@@ -43,9 +43,9 @@
       background-image: none;
 
       [data-slot="select-select-trigger-value"] {
-        font-size: var(--font-size-base);
-        font-weight: var(--font-weight-regular);
-        line-height: var(--line-height-large);
+        font-size: var(--font-size-body);
+        font-weight: var(--font-weight-body);
+        line-height: var(--line-height-h3);
       }
 
       &:not([data-expanded]):not(:focus-visible):focus {

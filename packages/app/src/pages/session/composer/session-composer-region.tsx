@@ -168,7 +168,7 @@ export function SessionComposerRegion(props: {
                   when={props.state.permissionRequest()}
                   keyed
                   fallback={
-                    <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none">
+                    <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-body text-fg-weak whitespace-pre-wrap pointer-events-none">
                       {handoffPrompt() || language.t("prompt.loading")}
                     </DockSegment>
                   }
@@ -244,7 +244,7 @@ export function SessionComposerRegion(props: {
                         </Show>
                       }
                     >
-                      <DockSegment ref={props.inputRef} class="w-full p-3 text-16-regular text-fg-weak">
+                      <DockSegment ref={props.inputRef} class="w-full p-3 text-h2 font-[var(--font-weight-body)] text-fg-weak">
                         <span>{language.t("session.child.promptDisabled")} </span>
                         <Show when={parentID()}>
                           <button

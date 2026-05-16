@@ -6,7 +6,10 @@
   min-width: 0;
   max-width: 100%;
   overflow-wrap: break-word;
-  font: var(--type-body);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
   color: var(--fg-strong);
 
   > *:first-child {
@@ -28,7 +31,10 @@
   h4,
   h5,
   h6 {
-    font: var(--type-h3);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-h3);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     margin: var(--space-lg) 0 var(--space-sm);
     text-transform: none;
     letter-spacing: 0;
@@ -56,7 +62,7 @@
   strong,
   b {
     color: var(--fg-strong);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-h3);
   }
   em,
   i {
@@ -100,7 +106,10 @@
 
   /* §4 Inline code · 复用 DESIGN.md「Code & diff」 */
   :not(pre) > code {
-    font: var(--type-mono-small);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-mono-small);
+    font-weight: var(--font-weight-mono-small);
+    line-height: var(--line-height-mono-small);
     background: var(--code-surface);
     padding: 0 var(--space-xs);
     border-radius: var(--radius-sm);
@@ -210,12 +219,18 @@
     border-collapse: collapse;
     width: 100%;
     margin: 0 0 var(--space-md);
-    font: var(--type-body);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-body);
   }
   thead th {
     padding: var(--space-sm) var(--space-md);
     border-bottom: 1px solid var(--border-base);
-    font: var(--type-h3);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-h3);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-strong);
     text-align: left;
     vertical-align: top;
@@ -265,7 +280,7 @@
     gap: var(--space-sm);
     padding: var(--space-sm) 0;
     list-style: none;
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-h3);
     color: var(--fg-strong);
     user-select: none;
   }
@@ -311,7 +326,10 @@
     }
   }
   .shiki {
-    font: var(--type-mono-small);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-mono-small);
+    font-weight: var(--font-weight-mono-small);
+    line-height: var(--line-height-mono-small);
     padding: var(--space-md);
     border-radius: var(--radius-sm);
     border: 0.5px solid var(--border-weak);
@@ -347,11 +365,10 @@
       pointer-events: none;
       white-space: nowrap;
       font-family: var(--font-family-sans);
-      font-size: var(--font-size-small);
+      font-size: var(--font-size-caption);
       font-style: normal;
-      font-weight: var(--font-weight-medium);
-      line-height: var(--line-height-large);
-      letter-spacing: var(--letter-spacing-normal);
+      font-weight: var(--font-weight-h3);
+      line-height: var(--line-height-h3);
       opacity: 0;
       transition: opacity 0.15s ease;
     }

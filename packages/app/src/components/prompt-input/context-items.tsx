@@ -57,7 +57,10 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                     "bg-bg-weak hover:bg-surface-interactive-base": !selected,
                   }}
                   style={{
-                    font: "var(--type-mono-small)",
+                    "font-family": "var(--font-family-mono)",
+                    "font-size": "var(--font-size-mono-small)",
+                    "font-weight": "var(--font-weight-mono-small)",
+                    "line-height": "var(--line-height-mono-small)",
                     color: "var(--fg-base)",
                     "white-space": "nowrap",
                   }}

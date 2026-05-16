@@ -34,7 +34,10 @@
       flex: 1;
       color: var(--fg-strong);
       margin: 0;
-      font: var(--type-h3);
+      font-family: var(--font-family-sans);
+      font-size: var(--font-size-h3);
+      font-weight: var(--font-weight-h3);
+      line-height: var(--line-height-h3);
     }
 
     [data-slot="popover-close-button"] {
@@ -46,7 +49,10 @@
     padding: 0 12px 8px;
     margin: 0;
     color: var(--fg-base);
-    font: var(--type-body);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-body);
   }
 
   [data-slot="popover-body"] {
@@ -70,7 +76,10 @@
     border: none;
     outline: none;
     color: var(--fg-strong);
-    font: var(--type-body);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-body);
 
     &::placeholder {
       color: var(--fg-weak);
@@ -95,7 +104,10 @@
   border-radius: var(--radius-sm);
   cursor: default;
   color: var(--fg-strong);
-  font: var(--type-body);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
   white-space: nowrap;
   user-select: none;
 
@@ -140,7 +152,10 @@
 
 [data-slot="popover-item-shortcut"] {
   margin-left: auto;
-  font: var(--type-kbd);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-kbd);
+  font-weight: var(--font-weight-kbd);
+  line-height: var(--line-height-kbd);
   color: var(--fg-weak);
 }
 

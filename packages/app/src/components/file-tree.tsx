@@ -93,7 +93,7 @@ const buildDragImage = (target: HTMLElement) => {
 
   const image = document.createElement("div")
   image.className =
-    "flex items-center gap-x-2 px-2 py-1 bg-surface-raised rounded-md border border-border-base text-13-regular text-fg-strong"
+    "flex items-center gap-x-2 px-2 py-1 bg-surface-raised rounded-md border border-border-base text-body text-fg-strong"
   image.style.position = "absolute"
   image.style.top = "-1000px"
   image.innerHTML = (icon as SVGElement).outerHTML + (text as HTMLSpanElement).outerHTML
@@ -167,7 +167,7 @@ const FileTreeNode = (
       {local.children}
       <span
         classList={{
-          "flex-1 min-w-0 text-13-medium whitespace-nowrap truncate": true,
+          "flex-1 min-w-0 text-h3 whitespace-nowrap truncate": true,
           "text-fg-weaker": local.node.ignored,
           "text-fg-weak": !local.node.ignored && !active(),
         }}
@@ -180,7 +180,7 @@ const FileTreeNode = (
         if (!value) return null
         if (local.node.type === "file") {
           return (
-            <span class="shrink-0 w-4 text-center text-13-medium" style={kindTextColor(value)}>
+            <span class="shrink-0 w-4 text-center text-h3" style={kindTextColor(value)}>
               {kindLabel(value)}
             </span>
           )
@@ -430,7 +430,7 @@ export default function FileTree(props: {
                     />
                     <Show
                       when={level < MAX_DEPTH && !chain.includes(key(node.path))}
-                      fallback={<div class="px-2 py-1 text-13-regular text-fg-weak">...</div>}
+                      fallback={<div class="px-2 py-1 text-body text-fg-weak">...</div>}
                     >
                       <FileTree
                         path={node.path}

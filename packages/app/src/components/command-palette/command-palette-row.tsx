@@ -18,7 +18,7 @@ export function CommandPaletteRow(props: { item: CommandPaletteEntry }) {
         <div class="w-full flex items-center justify-between rounded-md pl-1">
           <div class="flex items-center gap-x-3 grow min-w-0">
             <FileIcon node={{ path: item().path ?? "", type: "file" }} class="shrink-0 size-4" />
-            <div class="flex items-center text-13-regular">
+            <div class="flex items-center text-body">
               <span class="text-fg-weak whitespace-nowrap overflow-hidden overflow-ellipsis truncate min-w-0">
                 {getDirectory(item().path ?? "")}
               </span>
@@ -31,9 +31,9 @@ export function CommandPaletteRow(props: { item: CommandPaletteEntry }) {
       <Match when={item().type === "command"}>
         <div class="w-full flex items-center justify-between gap-4">
           <div class="flex items-center gap-2 min-w-0">
-            <span class="text-13-regular text-fg-strong whitespace-nowrap">{item().title}</span>
+            <span class="text-body text-fg-strong whitespace-nowrap">{item().title}</span>
             <Show when={item().description}>
-              <span class="text-13-regular text-fg-weak truncate">{item().description}</span>
+              <span class="text-body text-fg-weak truncate">{item().description}</span>
             </Show>
           </div>
           <Show when={item().keybind}>
@@ -46,12 +46,12 @@ export function CommandPaletteRow(props: { item: CommandPaletteEntry }) {
           <div class="flex items-center gap-x-3 grow min-w-0">
             <Icon name="bubble-5" class="shrink-0 text-icon-weak" />
             <div class="flex items-center gap-2 min-w-0">
-              <span class="text-13-regular text-fg-strong truncate" classList={{ "opacity-70": !!item().archived }}>
+              <span class="text-body text-fg-strong truncate" classList={{ "opacity-70": !!item().archived }}>
                 {item().title}
               </span>
               <Show when={item().description}>
                 <span
-                  class="text-13-regular text-fg-weak truncate"
+                  class="text-body text-fg-weak truncate"
                   classList={{ "opacity-70": !!item().archived }}
                 >
                   {item().description}
@@ -60,7 +60,7 @@ export function CommandPaletteRow(props: { item: CommandPaletteEntry }) {
             </div>
           </div>
           <Show when={item().updated}>
-            <span class="text-13-regular text-fg-weak whitespace-nowrap ml-2">
+            <span class="text-body text-fg-weak whitespace-nowrap ml-2">
               {getRelativeTime(new Date(item().updated!).toISOString(), language.t)}
             </span>
           </Show>

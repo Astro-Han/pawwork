@@ -94,12 +94,12 @@ export function SessionHeader() {
       <Show when={!shellSurface.settingsOpen() && leftMount()}>
         {(mount) => (
           <Portal mount={mount()}>
-            <div class="hidden md:flex w-full min-w-0 max-w-[720px] items-center overflow-hidden text-13-medium">
+            <div class="hidden md:flex w-full min-w-0 max-w-[720px] items-center overflow-hidden text-h3">
               <Show
                 when={params.id}
                 fallback={<div class="min-w-0 truncate text-fg-strong">{homeTitle()}</div>}
               >
-                <span class="max-w-full shrink-0 truncate text-13-medium text-fg-strong" title={sessionTitle()}>
+                <span class="max-w-full shrink-0 truncate text-h3 text-fg-strong" title={sessionTitle()}>
                   {sessionTitle()}
                 </span>
                 <div class="ml-3 flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
@@ -108,7 +108,7 @@ export function SessionHeader() {
                       type="button"
                       variant="ghost"
                       size="small"
-                      class="group h-[26px] max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-13-regular text-fg-weak hover:text-fg-strong"
+                      class="group h-[26px] max-w-[180px] min-w-0 shrink items-center gap-1 rounded px-1 shadow-none text-body text-fg-weak hover:text-fg-strong"
                       onClick={openProjectDirectory}
                       aria-label={
                         canOpenProjectDirectory() ? language.t("session.header.open.ariaLabel", { app: fileManagerLabel() }) : undefined

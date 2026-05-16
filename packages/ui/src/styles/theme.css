@@ -23,28 +23,7 @@
   --font-family-sans--font-feature-settings: normal;
   --font-family-mono--font-feature-settings: normal;
 
-  /* ────────── Type scale primitives · STANDARDS L19 ────────── */
-  --font-size-x-small: 12px;
-  --font-size-small: 13px;
-  --font-size-base: 13px;
-  --font-size-hierarchy: 13px;
-  --font-size-large: 16px;
-  --font-size-x-large: 20px;
-  --font-size-2x-large: 28px;
-
-  --font-weight-regular: 400;
-  --font-weight-medium: 500;
-
-  --line-height-normal: 130%;
-  --line-height-large: 150%;
-  --line-height-x-large: 180%;
-  --line-height-2x-large: 200%;
-
-  --letter-spacing-normal: 0;
-  --letter-spacing-tight: -0.16px;
-  --letter-spacing-tightest: -0.32px;
-
-  /* ────────── Type role properties · #642 PR1 ────────── */
+  /* ────────── Type role properties · #642 ────────── */
   --font-size-display: 28px;
   --font-size-h1: 20px;
   --font-size-h2: 16px;
@@ -77,17 +56,6 @@
 
   --letter-spacing-display: -0.32px;
   --letter-spacing-h1: -0.16px;
-
-  /* ────────── Type roles · STANDARDS L19 (9 semantic roles) ────────── */
-  --type-display:    500 28px/130% var(--font-family-sans);
-  --type-h1:         500 20px/130% var(--font-family-sans);
-  --type-h2:         500 16px/150% var(--font-family-sans);
-  --type-h3:         500 13px/150% var(--font-family-sans);
-  --type-body:       400 13px/160% var(--font-family-sans);
-  --type-caption:    400 13px/130% var(--font-family-sans);
-  --type-mono:       400 13px/150% var(--font-family-mono);
-  --type-mono-small: 400 12px/150% var(--font-family-mono);
-  --type-kbd:        500 11px/130% var(--font-family-mono);
 
   /* ────────── Spacing · STANDARDS L15 (9-tier 4pt grid) ────────── */
   --space-xs:  4px;
@@ -592,7 +560,10 @@
 /* ────────── Element role mapping (default body styling) ────────── */
 html,
 body {
-  font: var(--type-body);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
   color: var(--fg-strong);
   background: var(--bg-base);
 }

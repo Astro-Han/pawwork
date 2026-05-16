@@ -376,7 +376,7 @@ export const SettingsKeybinds: Component = () => {
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-raised)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-4 pt-6 pb-6 max-w-[720px]">
           <div class="flex items-center justify-between gap-4">
-            <h2 class="text-16-medium text-fg-strong">{language.t("settings.shortcuts.title")}</h2>
+            <h2 class="text-h2 text-fg-strong">{language.t("settings.shortcuts.title")}</h2>
             <Button variant="secondary" onClick={resetAll} disabled={!hasOverrides()}>
               {language.t("settings.shortcuts.reset.button")}
             </Button>
@@ -408,17 +408,17 @@ export const SettingsKeybinds: Component = () => {
           {(group) => (
             <Show when={(filtered().get(group) ?? []).length > 0}>
               <div class="flex flex-col gap-1">
-                <h3 class="text-13-medium text-fg-strong pb-2">{language.t(groupKey[group])}</h3>
+                <h3 class="text-h3 text-fg-strong pb-2">{language.t(groupKey[group])}</h3>
                 <SettingsList>
                   <For each={filtered().get(group) ?? []}>
                     {(id) => (
                       <div class="flex items-center justify-between gap-4 py-3 border-b border-border-weak last:border-none">
-                        <span class="text-13-regular text-fg-strong">{title(id)}</span>
+                        <span class="text-body text-fg-strong">{title(id)}</span>
                         <button
                           type="button"
                           data-keybind-id={id}
                           classList={{
-                            "h-[30px] px-3 rounded-md text-13-regular": true,
+                            "h-[30px] px-3 rounded-md text-body": true,
                             "bg-surface-base text-fg-weak hover:bg-surface-raised active:bg-surface-base":
                               store.active !== id,
                             "border border-border-weak bg-surface-sunken text-fg-weak": store.active === id,
@@ -443,9 +443,9 @@ export const SettingsKeybinds: Component = () => {
 
         <Show when={store.filter && !hasResults()}>
           <div class="flex flex-col items-center justify-center py-12 text-center">
-            <span class="text-13-regular text-fg-weak">{language.t("settings.shortcuts.search.empty")}</span>
+            <span class="text-body text-fg-weak">{language.t("settings.shortcuts.search.empty")}</span>
             <Show when={store.filter}>
-              <span class="text-13-regular text-fg-strong mt-1">"{store.filter}"</span>
+              <span class="text-body text-fg-strong mt-1">"{store.filter}"</span>
             </Show>
           </div>
         </Show>

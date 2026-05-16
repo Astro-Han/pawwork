@@ -38,7 +38,7 @@ export function PromptModelControl(props: {
             variant: "ghost",
             size: "normal",
             style: props.triggerStyle(),
-            class: "min-w-0 justify-start text-13-regular text-fg-base font-normal",
+            class: "min-w-0 justify-start text-body text-fg-base font-normal",
             "data-action": "prompt-model",
             "data-picker-trigger": "",
             disabled: !props.actionReady(),

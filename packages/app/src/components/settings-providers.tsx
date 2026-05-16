@@ -131,18 +131,18 @@ export const SettingsProviders: Component = () => {
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-raised)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-1 pt-6 pb-8 max-w-[720px]">
-          <h2 class="text-16-medium text-fg-strong">{language.t("settings.providers.title")}</h2>
+          <h2 class="text-h2 text-fg-strong">{language.t("settings.providers.title")}</h2>
         </div>
       </div>
 
       <div class="flex flex-col gap-8 max-w-[720px]">
         <div class="flex flex-col gap-1" data-component="connected-providers-section">
-          <h3 class="text-13-medium text-fg-strong pb-2">{language.t("settings.providers.section.connected")}</h3>
+          <h3 class="text-h3 text-fg-strong pb-2">{language.t("settings.providers.section.connected")}</h3>
           <SettingsList>
             <Show
               when={connected().length > 0}
               fallback={
-                <div class="py-4 text-13-regular text-fg-weak">
+                <div class="py-4 text-body text-fg-weak">
                   {language.t("settings.providers.connected.empty")}
                 </div>
               }
@@ -156,13 +156,13 @@ export const SettingsProviders: Component = () => {
                   >
                     <div class="flex items-center gap-3 min-w-0">
                       <ProviderIcon id={item.id} class="size-5 shrink-0 text-icon-strong" />
-                      <span class="text-13-medium text-fg-strong truncate">{item.name}</span>
+                      <span class="text-h3 text-fg-strong truncate">{item.name}</span>
                       <Tag>{type(item)}</Tag>
                     </div>
                     <Show
                       when={canDisconnect(item)}
                       fallback={
-                        <span class="text-13-regular text-fg-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
+                        <span class="text-body text-fg-base opacity-0 group-hover:opacity-100 transition-opacity duration-200 pr-3 cursor-default">
                           {language.t("settings.providers.connected.environmentDescription")}
                         </span>
                       }
@@ -179,7 +179,7 @@ export const SettingsProviders: Component = () => {
         </div>
 
         <div class="flex flex-col gap-1">
-          <h3 class="text-13-medium text-fg-strong pb-2">{language.t("settings.providers.section.popular")}</h3>
+          <h3 class="text-h3 text-fg-strong pb-2">{language.t("settings.providers.section.popular")}</h3>
           <SettingsList>
             <For each={popular()}>
               {(item) => (
@@ -191,7 +191,7 @@ export const SettingsProviders: Component = () => {
                   <div class="flex flex-col min-w-0">
                     <div class="flex items-center gap-x-3">
                       <ProviderIcon id={item.id} class="size-5 shrink-0 text-icon-strong" />
-                      <span class="text-13-medium text-fg-strong">{item.name}</span>
+                      <span class="text-h3 text-fg-strong">{item.name}</span>
                       <Show when={item.id === "opencode"}>
                         <Tag>{language.t("dialog.provider.tag.recommended")}</Tag>
                       </Show>
@@ -200,7 +200,7 @@ export const SettingsProviders: Component = () => {
                       </Show>
                     </div>
                     <Show when={note(item.id)}>
-                      {(key) => <span class="text-13-regular text-fg-weak pl-8">{language.t(key())}</span>}
+                      {(key) => <span class="text-body text-fg-weak pl-8">{language.t(key())}</span>}
                     </Show>
                   </div>
                   <Button
@@ -224,10 +224,10 @@ export const SettingsProviders: Component = () => {
               <div class="flex flex-col min-w-0">
                 <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <ProviderIcon id="synthetic" class="size-5 shrink-0 text-icon-strong" />
-                  <span class="text-13-medium text-fg-strong">{language.t("provider.custom.title")}</span>
+                  <span class="text-h3 text-fg-strong">{language.t("provider.custom.title")}</span>
                   <Tag>{language.t("settings.providers.tag.custom")}</Tag>
                 </div>
-                <span class="text-13-regular text-fg-weak pl-8">
+                <span class="text-body text-fg-weak pl-8">
                   {language.t("settings.providers.custom.description")}
                 </span>
               </div>
@@ -246,7 +246,7 @@ export const SettingsProviders: Component = () => {
 
           <Button
             variant="ghost"
-            class="px-0 py-0 mt-5 text-13-medium text-brand-primary text-left justify-start hover:bg-transparent active:bg-transparent"
+            class="px-0 py-0 mt-5 text-h3 text-brand-primary text-left justify-start hover:bg-transparent active:bg-transparent"
             onClick={() => {
               dialog.show(() => <DialogSelectProvider />)
             }}

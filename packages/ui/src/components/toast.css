@@ -122,13 +122,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 
-    /* text-14-medium */
+    /* text-h3 */
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-hierarchy);
+    font-size: var(--font-size-h3);
     font-style: normal;
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large); /* 142.857% */
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3); /* 142.857% */
 
     margin: 0;
   }
@@ -139,13 +138,12 @@
     overflow-wrap: anywhere;
     word-break: break-word;
 
-    /* text-14-regular */
+    /* text-body */
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-x-large); /* 171.429% */
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-body); /* 171.429% */
 
     margin: 0;
   }
@@ -170,10 +168,9 @@
 
     color: inherit;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
 
     &:hover {
       text-decoration: underline;
@@ -203,8 +200,8 @@
   }
 
   [data-slot="toast-markdown"] {
-    font-size: var(--font-size-base);
-    line-height: var(--line-height-x-large);
+    font-size: var(--font-size-body);
+    line-height: var(--line-height-body);
     color: inherit;
 
     ul {

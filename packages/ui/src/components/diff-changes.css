@@ -7,11 +7,10 @@
   [data-slot="diff-changes-additions"] {
     font-family: var(--font-family-mono);
     font-feature-settings: var(--font-family-mono--font-feature-settings);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     text-align: right;
     color: var(--success-text);
   }
@@ -19,11 +18,10 @@
   [data-slot="diff-changes-deletions"] {
     font-family: var(--font-family-mono);
     font-feature-settings: var(--font-family-mono--font-feature-settings);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     text-align: right;
     color: var(--error-text);
   }

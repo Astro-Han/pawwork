@@ -1970,10 +1970,10 @@ export default function Layout(props: ParentProps) {
       <Dialog title={language.t("workspace.delete.title")} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
           <div class="flex flex-col gap-1">
-            <span class="text-13-regular text-fg-strong">
+            <span class="text-body text-fg-strong">
               {language.t("workspace.delete.confirm", { name: name() })}
             </span>
-            <span class="text-13-regular text-fg-weak">{description()}</span>
+            <span class="text-body text-fg-weak">{description()}</span>
           </div>
           <div class="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => dialog.close()}>
@@ -2044,10 +2044,10 @@ export default function Layout(props: ParentProps) {
       <Dialog title={language.t("workspace.reset.title")} fit>
         <div class="flex flex-col gap-4 pl-6 pr-2.5 pb-3">
           <div class="flex flex-col gap-1">
-            <span class="text-13-regular text-fg-strong">
+            <span class="text-body text-fg-strong">
               {language.t("workspace.reset.confirm", { name: name() })}
             </span>
-            <span class="text-13-regular text-fg-weak">
+            <span class="text-body text-fg-weak">
               {description()} {archivedLabel()} {language.t("workspace.reset.note")}
             </span>
           </div>

@@ -12,13 +12,12 @@
   border-radius: var(--radius-md);
   padding: var(--card-pad-y) var(--card-pad-r) var(--card-pad-y) var(--card-pad-l);
 
-  /* text-14-regular */
+  /* text-body */
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body);
   font-style: normal;
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-large);
-  letter-spacing: var(--letter-spacing-normal);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-h3);
   color: var(--fg-strong);
 
   --card-gap: 8px;
@@ -49,7 +48,7 @@
 
   :where([data-card="title"], [data-slot="card-title"]) {
     color: var(--fg-strong);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-h3);
   }
 
   :where([data-slot="card-title"]) {

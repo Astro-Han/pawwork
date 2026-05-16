@@ -113,20 +113,20 @@ export const SettingsWorktrees: Component = () => {
   return (
     <SettingsList>
       <div class="flex flex-col gap-1 pt-6 pb-2 max-w-[720px]">
-        <h2 class="text-16-medium text-fg-strong">{language.t("settings.worktrees.title")}</h2>
-        <p class="text-13-regular text-fg-weak">{language.t("settings.worktrees.description")}</p>
+        <h2 class="text-h2 text-fg-strong">{language.t("settings.worktrees.title")}</h2>
+        <p class="text-body text-fg-weak">{language.t("settings.worktrees.description")}</p>
       </div>
 
       <Show
         when={!data.loading}
-        fallback={<div class="text-13-regular text-fg-weak py-6 text-center">{language.t("common.loading")}</div>}
+        fallback={<div class="text-body text-fg-weak py-6 text-center">{language.t("common.loading")}</div>}
       >
         <Show
           when={!data.error}
           fallback={
             <div class="flex flex-col items-center gap-2 py-12">
-              <div class="text-13-medium text-fg-strong">{language.t("common.requestFailed")}</div>
-              <div class="text-13-regular text-fg-weak">{errorText(data.error)}</div>
+              <div class="text-h3 text-fg-strong">{language.t("common.requestFailed")}</div>
+              <div class="text-body text-fg-weak">{errorText(data.error)}</div>
             </div>
           }
         >
@@ -135,8 +135,8 @@ export const SettingsWorktrees: Component = () => {
             fallback={
               <div class="flex flex-col items-center gap-2 py-12">
                 <Icon name="worktree" class="text-fg-weaker" />
-                <div class="text-13-medium text-fg-strong">{language.t("settings.worktrees.empty.title")}</div>
-                <div class="text-13-regular text-fg-weak">{language.t("settings.worktrees.empty.body")}</div>
+                <div class="text-h3 text-fg-strong">{language.t("settings.worktrees.empty.title")}</div>
+                <div class="text-body text-fg-weak">{language.t("settings.worktrees.empty.body")}</div>
               </div>
             }
           >

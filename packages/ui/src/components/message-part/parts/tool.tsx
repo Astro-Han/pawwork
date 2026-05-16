@@ -58,7 +58,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
               if (part().tool === "question" && cleaned.includes("dismissed this question")) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
-                    <span class="text-13-regular text-fg-weak cursor-default">
+                    <span class="text-body text-fg-weak cursor-default">
                       {i18n.t("ui.messagePart.questions.dismissed")}
                     </span>
                   </div>
@@ -73,7 +73,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
               if (part().tool === "question" && partMetadata()?.interrupted === true) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
-                    <span class="text-13-regular text-fg-weak cursor-default">
+                    <span class="text-body text-fg-weak cursor-default">
                       {i18n.t("ui.messagePart.questions.interrupted")}
                     </span>
                   </div>

@@ -164,7 +164,7 @@ export function SortableTerminalTab(props: {
               onBlur={save}
               onKeyDown={keydown}
               onMouseDown={(e) => e.stopPropagation()}
-              class="bg-transparent border-none outline-none text-sm min-w-0 flex-1"
+              class="bg-transparent border-none outline-none text-caption min-w-0 flex-1"
             />
           </div>
         </Show>

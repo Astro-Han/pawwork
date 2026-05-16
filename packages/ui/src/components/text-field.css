@@ -5,9 +5,8 @@
     width: 100%;
     color: var(--fg-strong);
 
-    /* text-13-medium */
-    font: var(--font-weight-medium) var(--font-size-small)/1 var(--font-family-sans);
-    letter-spacing: var(--letter-spacing-normal);
+    /* text-h3 */
+    font: var(--font-weight-h3) var(--font-size-caption)/1 var(--font-family-sans);
 
     &:focus {
       outline: none;
@@ -27,13 +26,12 @@
     [data-slot="input-label"] {
       color: var(--fg-weak);
 
-      /* text-13-medium */
+      /* text-h3 */
       font-family: var(--font-family-sans);
-      font-size: var(--font-size-small);
+      font-size: var(--font-size-caption);
       font-style: normal;
-      font-weight: var(--font-weight-medium);
+      font-weight: var(--font-weight-h3);
       line-height: 18px; /* 150% */
-      letter-spacing: var(--letter-spacing-normal);
     }
 
     [data-slot="input-wrapper"] {
@@ -80,9 +78,8 @@
       background: transparent;
       border: none;
 
-      /* text-13-medium */
-      font: var(--font-weight-medium) var(--font-size-small)/1 var(--font-family-sans);
-      letter-spacing: var(--letter-spacing-normal);
+      /* text-h3 */
+      font: var(--font-weight-h3) var(--font-size-caption)/1 var(--font-family-sans);
 
       &:focus {
         outline: none;
@@ -116,11 +113,10 @@
       color: var(--error-text);
 
       font-family: var(--font-family-sans);
-      font-size: var(--font-size-small);
+      font-size: var(--font-size-caption);
       font-style: normal;
-      font-weight: var(--font-weight-regular);
+      font-weight: var(--font-weight-body);
       line-height: 18px;
-      letter-spacing: var(--letter-spacing-normal);
     }
 
     /* Disabled state */
@@ -171,8 +167,7 @@
       background: transparent;
       border: none;
 
-      font: var(--font-weight-medium) var(--font-size-small)/1 var(--font-family-sans);
-      letter-spacing: var(--letter-spacing-normal);
+      font: var(--font-weight-h3) var(--font-size-caption)/1 var(--font-family-sans);
 
       &:focus {
         outline: none;
@@ -216,7 +211,6 @@
       padding: 0;
 
       font: inherit;
-      letter-spacing: var(--letter-spacing-normal);
 
       &:focus {
         outline: none;

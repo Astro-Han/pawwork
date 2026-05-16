@@ -16,14 +16,14 @@ const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
 function Section(props: { title: string; children: JSX.Element }) {
   return (
     <div class="flex flex-col gap-2 px-4 py-3">
-      <div class="text-13-medium uppercase tracking-wide text-fg-weaker">{props.title}</div>
+      <div class="text-h3 uppercase tracking-wide text-fg-weaker">{props.title}</div>
       {props.children}
     </div>
   )
 }
 
 function Empty(props: { text: string }) {
-  return <div class="text-13-regular text-fg-weaker">{props.text}</div>
+  return <div class="text-body text-fg-weaker">{props.text}</div>
 }
 
 function TodoRow(props: { todo: SessionTodoItem }) {
@@ -31,7 +31,7 @@ function TodoRow(props: { todo: SessionTodoItem }) {
   return (
     <div data-slot="status-summary-todo" data-state={props.todo.status} class="flex items-start gap-2.5 py-1">
       <div class={`size-2 rounded-full shrink-0 mt-1.5 ${style().dot}`} aria-hidden />
-      <div class={`text-13-regular text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
+      <div class={`text-body text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
     </div>
   )
 }
@@ -39,7 +39,7 @@ function TodoRow(props: { todo: SessionTodoItem }) {
 function SourceRow(props: { url: string }) {
   return (
     <div class="flex items-center gap-2 py-1" title={props.url}>
-      <span class="text-13-regular text-fg-base truncate min-w-0">{props.url}</span>
+      <span class="text-body text-fg-base truncate min-w-0">{props.url}</span>
     </div>
   )
 }

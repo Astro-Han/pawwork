@@ -9,11 +9,10 @@
 
 [data-component="user-message"] {
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-body);
   font-style: normal;
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-large);
-  letter-spacing: var(--letter-spacing-normal);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-h3);
   color: var(--fg-strong);
   display: flex;
   flex-direction: column;
@@ -100,9 +99,9 @@
     white-space: nowrap;
     color: #ffffff;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="user-message-body"] {
@@ -194,9 +193,6 @@
     color: var(--fg-strong);
   }
 
-  .font-medium {
-    font-weight: var(--font-weight-medium);
-  }
 }
 
 [data-color-scheme="dark"] [data-component="user-message"] [data-slot="user-message-text"] {
@@ -282,12 +278,12 @@
 [data-component="reasoning-part"] {
   width: 100%;
   color: var(--fg-base);
-  line-height: var(--line-height-normal);
+  line-height: var(--line-height-caption);
 
   [data-component="markdown"] {
     margin-top: 16px;
     font-style: normal;
-    font-size: var(--font-size-small);
+    font-size: var(--font-size-caption);
     color: var(--fg-weak);
 
     strong,
@@ -413,8 +409,8 @@
   [data-slot="bash-pre"] code {
     font-family: var(--font-family-mono);
     font-feature-settings: var(--font-family-mono--font-feature-settings);
-    font-size: var(--font-size-small);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-h3);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
@@ -443,11 +439,10 @@
     gap: 8px;
     min-width: 0;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-body);
     font-style: normal;
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
-    letter-spacing: var(--letter-spacing-normal);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-base);
   }
 
@@ -479,14 +474,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-weight: var(--font-weight-regular);
+    font-weight: var(--font-weight-body);
   }
 
   [data-slot="message-part-path"] {
     display: flex;
     flex-grow: 1;
     min-width: 0;
-    font-weight: var(--font-weight-regular);
+    font-weight: var(--font-weight-body);
   }
 
   [data-slot="message-part-directory"] {
@@ -565,8 +560,8 @@
   display: flex;
   flex-direction: column;
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-large);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-h3);
   color: var(--fg-base);
 }
 
@@ -618,7 +613,7 @@
   }
 
   [data-slot="message-part-todo-content"] {
-    line-height: var(--line-height-normal);
+    line-height: var(--line-height-caption);
 
     &[data-completed="completed"] {
       text-decoration: line-through;
@@ -675,13 +670,13 @@
     align-items: baseline;
     gap: 6px;
     font-family: var(--font-family-mono);
-    font-size: var(--font-size-small);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-caption);
+    line-height: var(--line-height-h3);
   }
 
   [data-slot="diagnostic-label"] {
     color: var(--error-text);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-h3);
     text-transform: uppercase;
     letter-spacing: -0.5px;
     flex-shrink: 0;
@@ -765,9 +760,9 @@
 
   [data-slot="permission-header-title"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-hierarchy);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-h3);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-strong);
     min-width: 0;
   }
@@ -782,9 +777,9 @@
 
   [data-slot="permission-hint"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     color: var(--fg-weak);
     padding: 0;
   }
@@ -807,8 +802,8 @@
     }
 
     code {
-      font-size: var(--font-size-x-small);
-      line-height: var(--line-height-large);
+      font-size: var(--font-size-caption);
+      line-height: var(--line-height-h3);
     }
   }
 
@@ -862,9 +857,9 @@
 
   [data-slot="question-header-title"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-hierarchy);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-h3);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-strong);
     min-width: 0;
     display: flex;
@@ -877,7 +872,7 @@
 
   [data-slot="question-header-seq"] {
     color: var(--fg-weak);
-    font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-h3);
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
@@ -885,7 +880,7 @@
 
   [data-slot="question-header-separator"] {
     color: var(--icon-weak);
-    font-weight: var(--font-weight-regular);
+    font-weight: var(--font-weight-body);
     flex-shrink: 0;
   }
 
@@ -948,9 +943,9 @@
 
   [data-slot="question-text"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-strong);
     padding: 0 10px;
     white-space: pre-wrap;
@@ -1074,17 +1069,17 @@
 
   [data-slot="option-label"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-medium);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-h3);
+    line-height: var(--line-height-h3);
     color: var(--fg-strong);
   }
 
   [data-slot="option-description"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     color: var(--fg-base);
     min-width: 0;
     overflow-wrap: anywhere;
@@ -1110,9 +1105,9 @@
     box-shadow: none;
     outline: none;
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-regular);
-    line-height: var(--line-height-large);
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-body);
+    line-height: var(--line-height-h3);
     color: var(--fg-base);
     min-width: 0;
     cursor: text;
@@ -1161,7 +1156,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: var(--font-size-small);
+    font-size: var(--font-size-caption);
 
     [data-slot="question-text"] {
       color: var(--fg-weak);
@@ -1251,8 +1246,8 @@
 
   [data-slot="apply-patch-change"] {
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-small);
-    font-weight: var(--font-weight-medium);
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-h3);
   }
 
   [data-slot="apply-patch-change"][data-type="added"] {
@@ -1291,9 +1286,9 @@
   gap: 8px;
   padding: 4px 0 4px 28px;
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-large);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-h3);
   color: var(--fg-weak);
 
   [data-component="icon"] {

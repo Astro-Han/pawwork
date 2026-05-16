@@ -62,9 +62,9 @@ export function SessionFollowupDock(props: {
             />
           }
         >
-          <span class="shrink-0 text-13-medium text-fg-strong cursor-default leading-none">{label()}</span>
+          <span class="shrink-0 text-h3 text-fg-strong cursor-default leading-none">{label()}</span>
           <Show when={store.collapsed && preview()}>
-            <span class="min-w-0 flex-1 truncate text-13-regular text-fg-base cursor-default leading-none">
+            <span class="min-w-0 flex-1 truncate text-body text-fg-base cursor-default leading-none">
               {preview()}
             </span>
           </Show>
@@ -81,7 +81,7 @@ export function SessionFollowupDock(props: {
             <For each={props.items}>
               {(item) => (
                 <div class="h-[30px] flex items-center gap-2 min-w-0">
-                  <span class="min-w-0 flex-1 truncate text-13-regular text-fg-strong leading-none">{item.text}</span>
+                  <span class="min-w-0 flex-1 truncate text-body text-fg-strong leading-none">{item.text}</span>
                   <Button
                     size="small"
                     variant="ghost"

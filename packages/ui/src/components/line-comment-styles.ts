@@ -121,10 +121,9 @@ export const lineCommentStyles = `
   flex: 1;
   min-width: 0;
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-x-large);
-  letter-spacing: var(--letter-spacing-normal);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
   color: var(--fg-strong);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -141,10 +140,9 @@ export const lineCommentStyles = `
 [data-component="line-comment"] [data-slot="line-comment-label"],
 [data-component="line-comment"] [data-slot="line-comment-editor-label"] {
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-large);
-  letter-spacing: var(--letter-spacing-normal);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-h3);
+  line-height: var(--line-height-h3);
   color: var(--fg-weak);
   min-width: 0;
   white-space: normal;
@@ -169,8 +167,8 @@ export const lineCommentStyles = `
   border: 1px solid var(--border-base);
   color: var(--fg-strong);
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  line-height: var(--line-height-large);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-h3);
 }
 
 [data-component="line-comment"] [data-slot="line-comment-textarea"]:focus {
@@ -213,8 +211,8 @@ export const lineCommentStyles = `
   align-items: center;
   min-width: 0;
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  line-height: var(--line-height-large);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-h3);
 }
 
 [data-component="line-comment"] [data-slot="line-comment-mention-dir"] {
@@ -252,8 +250,8 @@ export const lineCommentStyles = `
   height: 30px;
   padding: 0 10px;
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-h3);
 }
 
 [data-component="line-comment"] [data-slot="line-comment-action"][data-variant="ghost"] {

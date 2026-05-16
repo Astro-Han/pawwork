@@ -27,7 +27,7 @@
 
 html,
 :host {
-  line-height: var(--line-height-large); /* 1 */
+  line-height: var(--line-height-h3); /* 1 */
   -webkit-text-size-adjust: 100%; /* 2 */
   tab-size: 4; /* 3 */
   font-family: var(--font-family-sans); /* 4 */

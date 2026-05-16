@@ -5,8 +5,7 @@ import type { JSX } from "solid-js"
 // centered → 3+3 breathing each side.
 //
 // h-[36px] is intentional, not h-9. This app sets root font-size to 13px via
-// `html { font: var(--type-body) }` in theme.css (where --type-body is
-// 400 13px/150%), so Tailwind's rem-based scale resolves h-9 to
+// `html` uses `--font-size-body` in theme.css, so Tailwind's rem-based scale resolves h-9 to
 // 2.25rem × 13 = 29.25px — short of the 30px IconButton, which would force the
 // chev to overflow the row and clip against the segment's overflow-y: hidden.
 // DESIGN.md contracts are absolute pixels, so absolute-pixel utilities are the

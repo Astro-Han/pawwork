@@ -66,13 +66,12 @@
   border-radius: var(--radius-sm);
   cursor: default;
 
-  /* text-13-regular */
+  /* text-body */
   font-family: var(--font-family-sans);
-  font-size: var(--font-size-small);
+  font-size: var(--font-size-caption);
   font-style: normal;
-  font-weight: var(--font-weight-regular);
+  font-weight: var(--font-weight-body);
   line-height: 1.5;
-  letter-spacing: var(--letter-spacing-normal);
 
   color: var(--fg-base);
 
@@ -91,7 +90,7 @@
 [data-picker-item]:where([data-selected]) {
   background: var(--row-active-overlay);
   color: var(--fg-strong);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-h3);
 }
 
 [data-picker-item]:where(

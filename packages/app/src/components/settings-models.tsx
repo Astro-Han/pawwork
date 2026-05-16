@@ -16,7 +16,7 @@ type ModelItem = ReturnType<ReturnType<typeof useModels>["list"]>[number]
 const ListLoadingState: Component<{ label: string }> = (props) => {
   return (
     <div class="flex flex-col items-center justify-center py-12 text-center">
-      <span class="text-13-regular text-fg-weak">{props.label}</span>
+      <span class="text-body text-fg-weak">{props.label}</span>
     </div>
   )
 }
@@ -24,9 +24,9 @@ const ListLoadingState: Component<{ label: string }> = (props) => {
 const ListEmptyState: Component<{ message: string; filter: string }> = (props) => {
   return (
     <div class="flex flex-col items-center justify-center py-12 text-center">
-      <span class="text-13-regular text-fg-weak">{props.message}</span>
+      <span class="text-body text-fg-weak">{props.message}</span>
       <Show when={props.filter}>
-        <span class="text-13-regular text-fg-strong mt-1">&quot;{props.filter}&quot;</span>
+        <span class="text-body text-fg-strong mt-1">&quot;{props.filter}&quot;</span>
       </Show>
     </div>
   )
@@ -62,7 +62,7 @@ export const SettingsModels: Component = () => {
     <div class="flex flex-col h-full overflow-y-auto no-scrollbar px-4 pb-10 sm:px-10 sm:pb-10">
       <div class="sticky top-0 z-10 bg-[linear-gradient(to_bottom,var(--surface-raised)_calc(100%_-_24px),transparent)]">
         <div class="flex flex-col gap-4 pt-6 pb-6 max-w-[720px]">
-          <h2 class="text-16-medium text-fg-strong">{language.t("settings.models.title")}</h2>
+          <h2 class="text-h2 text-fg-strong">{language.t("settings.models.title")}</h2>
           <div class="flex items-center gap-2 px-3 h-9 rounded-lg bg-surface-base">
             <Icon name="magnifying-glass" class="text-icon-weak flex-shrink-0" />
             <TextField
@@ -100,7 +100,7 @@ export const SettingsModels: Component = () => {
                 <div class="flex flex-col gap-1">
                   <div class="flex items-center gap-2 pb-2">
                     <ProviderIcon id={group.category} class="size-5 shrink-0 text-icon-strong" />
-                    <span class="text-13-medium text-fg-strong">{group.items[0].provider.name}</span>
+                    <span class="text-h3 text-fg-strong">{group.items[0].provider.name}</span>
                   </div>
                   <SettingsList>
                     <For each={group.items}>
@@ -109,7 +109,7 @@ export const SettingsModels: Component = () => {
                         return (
                           <div class="flex flex-wrap items-center justify-between gap-4 py-3 border-b border-border-weak last:border-none">
                             <div class="min-w-0">
-                              <span class="text-13-regular text-fg-strong truncate block">{item.name}</span>
+                              <span class="text-body text-fg-strong truncate block">{item.name}</span>
                             </div>
                             <div class="flex-shrink-0">
                               <Switch

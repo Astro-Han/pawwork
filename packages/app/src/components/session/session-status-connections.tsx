@@ -13,7 +13,7 @@ const POLL_MS = 10_000
 type CategoryState = "ok" | "warn" | "empty"
 
 function EmptyHint(props: { text: string }) {
-  return <div class="text-13-regular text-fg-weaker py-1">{props.text}</div>
+  return <div class="text-body text-fg-weaker py-1">{props.text}</div>
 }
 
 function SectionRow(props: {
@@ -38,8 +38,8 @@ function SectionRow(props: {
         aria-expanded={props.expanded}
       >
         <div class={`size-1.5 rounded-full shrink-0 ${dot()}`} aria-hidden />
-        <div class="text-13-regular text-fg-base">{props.title}</div>
-        <div class="text-13-regular text-fg-weaker">{props.count}</div>
+        <div class="text-body text-fg-base">{props.title}</div>
+        <div class="text-body text-fg-weaker">{props.count}</div>
         <div class="flex-1" />
         <Icon
           name="chevron-down"
@@ -174,7 +174,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
 
   return (
     <div class="flex flex-col">
-      <div class="text-13-medium uppercase tracking-wide text-fg-weaker px-4 py-3 pb-1">
+      <div class="text-h3 uppercase tracking-wide text-fg-weaker px-4 py-3 pb-1">
         {language.t("status.connections.title")}
       </div>
 
@@ -199,7 +199,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
               return (
                 <div class="flex items-center gap-2 py-1">
                   <div class={`size-1.5 rounded-full shrink-0 ${dotClass()}`} aria-hidden />
-                  <span class="text-13-regular text-fg-base truncate min-w-0">{conn.http.url}</span>
+                  <span class="text-body text-fg-base truncate min-w-0">{conn.http.url}</span>
                 </div>
               )
             }}
@@ -239,9 +239,9 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
                     }}
                     aria-hidden
                   />
-                  <span class="text-13-regular text-fg-base truncate min-w-0">{name}</span>
+                  <span class="text-body text-fg-base truncate min-w-0">{name}</span>
                   <Show when={label()}>
-                    <span class="text-13-regular text-fg-weaker ml-auto">{label()}</span>
+                    <span class="text-body text-fg-weaker ml-auto">{label()}</span>
                   </Show>
                 </div>
               )
@@ -271,7 +271,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
                   }}
                   aria-hidden
                 />
-                <span class="text-13-regular text-fg-base truncate min-w-0">{item.name || item.id}</span>
+                <span class="text-body text-fg-base truncate min-w-0">{item.name || item.id}</span>
               </div>
             )}
           </For>
@@ -290,7 +290,7 @@ export function SessionStatusConnections(props: { shown: Accessor<boolean> }) {
             {(plugin) => (
               <div class="flex items-center gap-2 py-1">
                 <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" aria-hidden />
-                <span class="text-13-regular text-fg-base truncate min-w-0">{plugin}</span>
+                <span class="text-body text-fg-base truncate min-w-0">{plugin}</span>
               </div>
             )}
           </For>
