@@ -6,7 +6,6 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Dialog } from "@opencode-ai/ui/dialog"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
@@ -34,15 +33,9 @@ import {
 } from "@/pages/session/session-message-comments"
 import { taskDescription } from "@/pages/session/task-description"
 import { buildTurnMessagesByUserID, emptyAssistantMessages } from "@/pages/session/session-messages"
-import {
-  turnFetchSignature,
-  turnFetchTargets,
-  type TurnFetchAssistantLite,
-  type TurnFetchInput,
-} from "@/pages/session/turn-change-fetch"
+import { createSessionTurnChanges } from "@/pages/session/session-turn-changes"
 import { createSessionRunning } from "@/pages/session/session-running-state"
 import { SessionContextUsage } from "@/components/session-context-usage"
-import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useLanguage } from "@/context/language"
 import { useSessionRouteKey } from "@/pages/session/session-layout"
 import { usePlatform } from "@/context/platform"
@@ -70,30 +63,6 @@ const idle = { type: "idle" as const }
 type UserActions = {
   fork?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
   revert?: (input: { sessionID: string; messageID: string }) => Promise<void> | void
-}
-
-type TurnChangeDisplay = {
-  sessionID: string
-  turnID: string
-  messageID: string
-  undoAvailable: boolean
-  redoAvailable: boolean
-  truncated?: boolean
-  omittedCount?: number
-  skippedCount?: number
-  files: Array<{
-    path: string
-    openPath?: string
-    status: "added" | "modified" | "deleted"
-    additions?: number
-    deletions?: number
-    patch?: string
-    sensitive?: boolean
-    binary?: boolean
-    large?: boolean
-    restoreAvailable?: boolean
-    expandable: boolean
-  }>
 }
 
 export { taskDescription }
@@ -145,7 +114,6 @@ export function MessageTimeline(props: {
   const sdk = useSDK()
   const sync = useSync()
   const settings = useSettings()
-  const dialog = useDialog()
   const language = useLanguage()
   const shellSurface = useShellSurface()
   const { params } = useSessionRouteKey()
@@ -184,261 +152,10 @@ export function MessageTimeline(props: {
   const sessionID = createMemo(() => props.sessionID)
   const sessionMessages = createMemo(() => props.sessionMessages)
   const turnMessagesByUserID = createMemo(() => buildTurnMessagesByUserID(sessionMessages()))
+  const turnChangeController = createSessionTurnChanges({ sessionID, sessionMessages })
   const webSearchToastSurfaced = new Set<string>()
   const webSearchPartCursor = new Map<string, number>()
   const webSearchPendingParts = new Map<string, Set<string>>()
-  const [turnChanges, setTurnChanges] = createStore<Record<string, TurnChangeDisplay | null>>({})
-  const fetchedTurnChanges = new Set<string>()
-  const turnChangeRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  const cancelTurnChangeRetries = () => {
-    for (const timer of turnChangeRetryTimers.values()) clearTimeout(timer)
-    turnChangeRetryTimers.clear()
-  }
-  onCleanup(cancelTurnChangeRetries)
-  createEffect(
-    on(
-      sessionID,
-      () => {
-        cancelTurnChangeRetries()
-        fetchedTurnChanges.clear()
-      },
-      { defer: true },
-    ),
-  )
-
-  const authHeaders = () => {
-    const current = server.current
-    if (!current?.http.password) return {} as Record<string, string>
-    return {
-      Authorization: `Basic ${btoa(`${current.http.username ?? "opencode"}:${current.http.password}`)}`,
-    }
-  }
-
-  const blockedDescription = (body: any) => {
-    const base =
-      body?.reason === "conflict"
-        ? language.t("session.turnChange.blocked.conflict")
-        : body?.reason === "unsupported_size"
-          ? language.t("session.turnChange.blocked.unsupportedSize")
-          : body?.reason === "permission_denied"
-            ? language.t("session.turnChange.blocked.permissionDenied")
-            : body?.reason === "rollback_failed"
-              ? language.t("session.turnChange.blocked.rollbackFailed")
-              : language.t("session.turnChange.blocked.generic")
-    const files = Array.isArray(body?.files)
-      ? body.files.filter((file: any) => typeof file?.path === "string").map((file: any) => file.path as string)
-      : []
-    if (!files.length) return base
-    const visible = files.slice(0, 3).join(", ")
-    const rest = files.length > 3 ? language.t("session.turnChange.blocked.more", { count: files.length - 3 }) : ""
-    return `${base} ${language.t("session.turnChange.blocked.files", { files: `${visible}${rest}` })}`
-  }
-
-  const turnChangeFetch = async (
-    userMessageID: string,
-    action?: "undo" | "redo",
-    options?: { force?: boolean },
-  ): Promise<TurnChangeDisplay | undefined> => {
-    const current = server.current
-    const id = sessionID()
-    if (!current || !id) return
-    const url = `${current.http.url}/session/${id}/turn/${userMessageID}/changes${action ? `/${action}` : ""}`
-    let res: Response
-    try {
-      res = await fetch(url, {
-        method: action ? "POST" : "GET",
-        headers: {
-          ...authHeaders(),
-          ...(action ? { "Content-Type": "application/json" } : {}),
-        },
-        ...(action ? { body: JSON.stringify({ force: !!options?.force }) } : {}),
-      })
-    } catch (err) {
-      if (action) {
-        showToast({
-          title:
-            action === "undo"
-              ? language.t("session.turnChange.undoBlocked")
-              : language.t("session.turnChange.redoBlocked"),
-          description: language.t("session.turnChange.blocked.generic"),
-          variant: "error",
-        })
-      }
-      return turnChanges[userMessageID] ?? undefined
-    }
-    if (!res.ok) {
-      if (action) {
-        showToast({
-          title:
-            action === "undo"
-              ? language.t("session.turnChange.undoBlocked")
-              : language.t("session.turnChange.redoBlocked"),
-          description: language.t("session.turnChange.blocked.generic"),
-          variant: "error",
-        })
-      }
-      return turnChanges[userMessageID] ?? undefined
-    }
-    let body: any
-    try {
-      body = await res.json()
-    } catch {
-      if (action) {
-        showToast({
-          title:
-            action === "undo"
-              ? language.t("session.turnChange.undoBlocked")
-              : language.t("session.turnChange.redoBlocked"),
-          description: language.t("session.turnChange.blocked.generic"),
-          variant: "error",
-        })
-      }
-      return turnChanges[userMessageID] ?? undefined
-    }
-    if (!action) {
-      setTurnChanges(userMessageID, body ?? null)
-      return body ?? undefined
-    }
-    if (body?.status === "applied") {
-      const rawDisplay: TurnChangeDisplay | null = body.display ?? null
-      let display: TurnChangeDisplay | null = rawDisplay
-      if (rawDisplay && Array.isArray(body.skipped) && body.skipped.length) {
-        const skippedCount = body.skipped.reduce(
-          (sum: number, item: any) => sum + (Array.isArray(item?.files) ? item.files.length : 0),
-          0,
-        )
-        if (skippedCount > 0) display = { ...rawDisplay, skippedCount }
-      }
-      setTurnChanges(userMessageID, display)
-      return display ?? undefined
-    }
-    if (action && body?.status === "blocked" && body.reason === "conflict" && !options?.force) {
-      const conflictPaths = Array.isArray(body.files)
-        ? (body.files as Array<{ path?: unknown }>)
-            .map((file) => (typeof file?.path === "string" ? file.path : ""))
-            .filter((path) => path.length > 0)
-        : []
-      return await new Promise<TurnChangeDisplay | undefined>((resolve) => {
-        let settled = false
-        const finish = (value: TurnChangeDisplay | undefined) => {
-          if (settled) return
-          settled = true
-          resolve(value)
-        }
-        dialog.show(
-          () => (
-            <Dialog
-              title={language.t("ui.sessionTurn.turnChanges.confirmTitle")}
-              description={language.t("ui.sessionTurn.turnChanges.confirmDescription")}
-              size="normal"
-              fit
-            >
-              <div class="flex flex-col gap-4 px-5 pb-5 pt-2">
-                <Show when={conflictPaths.length > 0}>
-                  <div class="flex flex-col rounded-md border border-border-base bg-surface-base max-h-44 overflow-auto">
-                    <For each={conflictPaths.slice(0, 6)}>
-                      {(item) => (
-                        <div
-                          class="px-3 py-1.5 text-body text-fg-strong font-mono truncate"
-                          title={item}
-                        >
-                          {item}
-                        </div>
-                      )}
-                    </For>
-                    <Show when={conflictPaths.length > 6}>
-                      <div class="px-3 py-1.5 text-caption text-fg-weak border-t border-border-base">
-                        {language.t("ui.sessionTurn.turnChanges.confirmListMore", {
-                          count: conflictPaths.length - 6,
-                        })}
-                      </div>
-                    </Show>
-                  </div>
-                </Show>
-                <div class="flex justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      dialog.close()
-                      finish(undefined)
-                    }}
-                  >
-                    {language.t("ui.sessionTurn.turnChanges.confirmCancel")}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={async () => {
-                      dialog.close()
-                      const next = await turnChangeFetch(userMessageID, action, { force: true })
-                      finish(next)
-                    }}
-                  >
-                    {language.t("ui.sessionTurn.turnChanges.confirmApply")}
-                  </Button>
-                </div>
-              </div>
-            </Dialog>
-          ),
-          () => finish(undefined),
-        )
-      })
-    }
-    showToast({
-      title:
-        action === "undo"
-          ? language.t("session.turnChange.undoBlocked")
-          : language.t("session.turnChange.redoBlocked"),
-      description: blockedDescription(body),
-      variant: "error",
-    })
-    return turnChanges[userMessageID] ?? undefined
-  }
-
-  const turnFetchInput = (): TurnFetchInput | null => {
-    const id = sessionID()
-    if (!id) return null
-    const assistants: TurnFetchAssistantLite[] = []
-    for (const message of sessionMessages()) {
-      if (message.role !== "assistant") continue
-      assistants.push({
-        id: message.id,
-        parentID: message.parentID,
-        completed: message.time.completed,
-      })
-    }
-    return { sessionID: id, assistants }
-  }
-
-  createEffect(
-    on(
-      () => {
-        const input = turnFetchInput()
-        return input ? turnFetchSignature(input) : ""
-      },
-      () => {
-        const input = turnFetchInput()
-        if (!input) return
-        for (const target of turnFetchTargets(input)) {
-          if (fetchedTurnChanges.has(target.key)) continue
-          fetchedTurnChanges.add(target.key)
-          void turnChangeFetch(target.userMessageID)
-            .then((display) => {
-              if (display) return
-              if (turnChangeRetryTimers.has(target.key)) return
-              const timer = setTimeout(() => {
-                turnChangeRetryTimers.delete(target.key)
-                void turnChangeFetch(target.userMessageID).catch(() => undefined)
-              }, 500)
-              turnChangeRetryTimers.set(target.key, timer)
-            })
-            .catch(() => {
-              fetchedTurnChanges.delete(target.key)
-              setTurnChanges(target.userMessageID, null)
-            })
-        }
-      },
-    ),
-  )
 
   onMount(() => {
     void emitRendererDiagnostic({
@@ -932,10 +649,9 @@ export function MessageTimeline(props: {
                         showReasoningSummaries={settings.general.showReasoningSummaries()}
                         shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
                         editToolDefaultOpen={settings.general.editToolPartsExpanded()}
-                        turnChanges={turnChanges}
+                        turnChanges={turnChangeController.turnChanges}
                         turnChangeActions={{
-                          undo: (userMessageID, options) => turnChangeFetch(userMessageID, "undo", options),
-                          redo: (userMessageID, options) => turnChangeFetch(userMessageID, "redo", options),
+                          ...turnChangeController.actions,
                           openFile: (path) => {
                             void platform.openPath?.(path)
                           },
