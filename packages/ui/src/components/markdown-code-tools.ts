@@ -91,10 +91,9 @@ export function markCodeLinks(root: HTMLDivElement) {
   const codeNodes = Array.from(root.querySelectorAll(":not(pre) > code"))
   for (const code of codeNodes) {
     const href = codeUrl(code.textContent ?? "")
-    const parentLink =
-      code.parentElement instanceof HTMLAnchorElement && code.parentElement.classList.contains("external-link")
-        ? code.parentElement
-        : null
+    const parent = code.parentElement
+    if (parent instanceof HTMLAnchorElement && !parent.classList.contains("external-link")) continue
+    const parentLink = parent instanceof HTMLAnchorElement ? parent : null
 
     if (!href) {
       if (parentLink) parentLink.replaceWith(code)
@@ -136,13 +135,19 @@ export function setupCodeCopy(root: HTMLDivElement, getLabels: () => CopyLabels)
     if (!content) return
     const clipboard = navigator?.clipboard
     if (!clipboard) return
-    await clipboard.writeText(content)
-    const labels = getLabels()
-    setCopyState(button, labels, true)
-    const existing = timeouts.get(button)
-    if (existing) clearTimeout(existing)
-    const timeout = setTimeout(() => setCopyState(button, labels, false), 2000)
-    timeouts.set(button, timeout)
+    try {
+      await clipboard.writeText(content)
+      setCopyState(button, getLabels(), true)
+      const existing = timeouts.get(button)
+      if (existing) clearTimeout(existing)
+      const timeout = setTimeout(() => {
+        setCopyState(button, getLabels(), false)
+        timeouts.delete(button)
+      }, 2000)
+      timeouts.set(button, timeout)
+    } catch (err) {
+      console.error("Clipboard copy failed", err)
+    }
   }
 
   const buttons = Array.from(root.querySelectorAll('[data-slot="markdown-copy-button"]'))
