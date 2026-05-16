@@ -43,7 +43,6 @@
         color: var(--fg-strong);
         transition: background-color 0.15s ease;
 
-        /* text-body */
         font-family: var(--font-family-sans);
         font-size: var(--font-size-caption);
         font-style: normal;

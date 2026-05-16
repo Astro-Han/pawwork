@@ -45,7 +45,7 @@
 
     /* text-h3 */
     font-family: var(--font-family-sans);
-    font-size: var(--font-size-caption);
+    font-size: var(--font-size-h3);
     font-style: normal;
     font-weight: var(--font-weight-h3);
     line-height: var(--line-height-h3); /* 166.667% */

@@ -68,8 +68,8 @@
           font-family: var(--font-family-sans);
           font-size: var(--font-size-h2);
           font-style: normal;
-          font-weight: var(--font-weight-h3);
-          line-height: var(--line-height-body); /* 150% */
+          font-weight: var(--font-weight-h2);
+          line-height: var(--line-height-h2); /* 150% */
           letter-spacing: var(--letter-spacing-h1);
         }
         /* [data-slot="dialog-close-button"] {} */
