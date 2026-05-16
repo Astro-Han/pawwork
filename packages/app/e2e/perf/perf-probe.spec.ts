@@ -15,7 +15,11 @@ import type { createSdk } from "../utils"
 import { composerEvent, type ComposerDriverState, type ComposerWindow } from "../../src/testing/session-composer"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
-import { TIMELINE_RECOMPUTE_SEED_TURN_COUNT, seedTimelineRecomputeSession } from "./timeline-fixture"
+import {
+  TIMELINE_RECOMPUTE_SEED_TURN_COUNT,
+  buildHeterogeneousScrollSeedText,
+  seedTimelineRecomputeSession,
+} from "./timeline-fixture"
 import { CONCURRENT_SHIMMER_COUNT, buildConcurrentShimmerReply } from "./concurrent-shimmer-fixture"
 
 const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
@@ -244,21 +248,7 @@ async function readTimelineMetrics(page: Parameters<typeof snapshotPerfProbe>[0]
 }
 
 function longScrollSeedText(run: number, index: number) {
-  const code = [
-    "```ts",
-    `export const scrollSeed${index} = { run: ${run}, turn: ${index} }`,
-    "```",
-  ].join("\n")
-  const paragraphs = Array.from(
-    { length: 14 + (index % 6) },
-    (_, line) => `line ${line}: ${"mixed markdown scroll content ".repeat(6)}${index % 5 === 0 ? "中文混排 " : ""}`,
-  ).join("\n")
-  const toolLike = [
-    "Tool output:",
-    `- bash ${index}: ${"completed output ".repeat(8)}`,
-    `- todo ${index % 4}: ${"active dock pressure ".repeat(6)}`,
-  ].join("\n")
-  return [`long scroll seed ${run}-${index}`, paragraphs, code, toolLike].join("\n\n")
+  return buildHeterogeneousScrollSeedText({ run, turn: index })
 }
 
 async function seedLongScrollSession(project: PerfProject, sessionID: string, run: number) {
