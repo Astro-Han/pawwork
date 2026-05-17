@@ -30,5 +30,9 @@ export function bundledToolsDir(): string {
 // will end up in the spawned env; pass "" if unknown.
 export function prependBundledTools(currentPath: string): string {
   const dir = bundledToolsDir()
-  return dir ? `${dir}${path.delimiter}${currentPath}` : currentPath
+  if (!dir) return currentPath
+  // Don't append a trailing delimiter when currentPath is empty: on POSIX an
+  // empty PATH segment is interpreted as the current directory, which weakens
+  // command-resolution safety (cwd-shadowing of system commands).
+  return currentPath ? `${dir}${path.delimiter}${currentPath}` : dir
 }

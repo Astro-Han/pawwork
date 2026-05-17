@@ -77,8 +77,11 @@ describe("util.env.bundledTools", () => {
     expect(prependBundledTools("/usr/bin:/bin")).toBe(`${expectedDir}${path.delimiter}/usr/bin:/bin`)
   })
 
-  test("prepend with empty currentPath still yields a valid PATH (no trailing delimiter weirdness)", () => {
+  test("prepend with empty currentPath returns bundled dir alone, never a trailing-delimiter PATH (cwd-shadowing guard)", () => {
+    // POSIX treats an empty PATH segment (leading/trailing/double colon) as
+    // the current directory, so emitting "/r/tools:" would let a malicious
+    // file in cwd shadow officecli. The helper must drop the delimiter.
     setResourcesPath("/r")
-    expect(prependBundledTools("")).toBe(`${path.join("/r", "tools")}${path.delimiter}`)
+    expect(prependBundledTools("")).toBe(path.join("/r", "tools"))
   })
 })
