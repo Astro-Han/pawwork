@@ -15,8 +15,11 @@ describe("HomeSuggestionList source contract", () => {
   test("observes sessionCount only for the auto-dismiss effect, not as visibility gate", () => {
     expect(source).toContain("sync.data.session")
     expect(source).toMatch(/sync\.data\.session\??\.length/)
-    // sync.ready stays as a hydration guard so dismissed isn't read as [] mid-load.
+    // BOTH stores must gate visibility on desktop because sync and settings
+    // are independent async hydrations; reading dismissed before settings is
+    // ready returns the withFallback([]) default and re-shows dismissed chips.
     expect(source).toContain("sync.ready")
+    expect(source).toContain("settings.ready()")
     // No per-project gate: visibility no longer derives from sessionCount === 0.
     expect(source).not.toMatch(/firstTimeVisitor/)
   })

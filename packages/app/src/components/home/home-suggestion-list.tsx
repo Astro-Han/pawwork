@@ -45,10 +45,12 @@ export const HomeSuggestionList: Component = () => {
   const sessionCount = createMemo(() => sync.data.session?.length ?? 0)
 
   const visibleIDs = createMemo(() => {
-    // sync.ready guards the brief hydration window where settings may not be
-    // fully loaded yet. Without this, the dismissed list may read as [] for a
-    // frame before its real value, causing chips to flash.
-    if (!sync.ready) return []
+    // Wait for BOTH stores. On desktop, sync and settings are separate async
+    // hydrations (see packages/app/src/utils/persist.ts AsyncStorage branch),
+    // so sync.ready alone does not imply settings.ready(). The dismissed
+    // accessor uses a withFallback([]) default, which would briefly read as
+    // an empty list and re-show chips the user has already dismissed.
+    if (!sync.ready || !settings.ready()) return []
     return resolveVisibleHomeSuggestions({
       dismissed: filterKnownIDs(settings.general.homeSuggestionsDismissed()),
     })
