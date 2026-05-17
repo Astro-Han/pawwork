@@ -20,6 +20,7 @@ const pinned = {
 const runAttempt = "${{ github.run_attempt }}"
 const githubSha = "${{ github.sha }}"
 const lintJobName = "lint"
+const frontendArchitectureJobName = "frontend-architecture"
 const windowsUnitJobName = "unit-windows"
 
 // Suffixes drive readable job and artifact names; commands use package.json names verbatim.
@@ -243,6 +244,39 @@ describe("ci workflow", () => {
     expect(checkNeeds).not.toContain(lintJobName)
   })
 
+  test("runs frontend architecture inventory as a warn-only blocking infrastructure check", () => {
+    const parsed = parseWorkflow(ciWorkflowPath)
+    const job = parsed.jobs?.[frontendArchitectureJobName]
+    const check = parsed.jobs?.check
+    const checkNeeds = Array.isArray(check?.needs) ? check.needs : []
+    const inventory = stepByName(frontendArchitectureJobName, "frontend inventory")
+    const ratchet = stepByName(frontendArchitectureJobName, "LOC ratchet warnings")
+
+    expect(job?.needs).toBe("changes")
+    expect(job?.if).toBe("needs.changes.outputs.docs_only != 'true'")
+    expect(job?.["runs-on"]).toBe("ubuntu-latest")
+    expect(job?.["timeout-minutes"]).toBe(10)
+    expect(job?.["continue-on-error"]).toBeUndefined()
+    expect(job?.permissions).toBeUndefined()
+    expect(checkoutStep(frontendArchitectureJobName)?.uses).toBe(pinned.checkout)
+    expect(checkoutStep(frontendArchitectureJobName)?.with?.["fetch-depth"]).toBe(0)
+    expect(steps(frontendArchitectureJobName).find((step) => step.uses?.startsWith("actions/setup-node@"))?.uses).toBe(
+      pinned.setupNode,
+    )
+    expect(steps(frontendArchitectureJobName).find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))?.uses).toBe(
+      pinned.setupBun,
+    )
+    expect(steps(frontendArchitectureJobName).filter((step) => step.uses?.startsWith("actions/cache@")).map((step) => step.uses)).toEqual([
+      pinned.cache,
+    ])
+    expect(inventory?.run).toContain("node script/frontend-inventory.mjs --format json")
+    expect(inventory?.run).toContain(".artifacts/frontend-architecture/frontend-inventory.json")
+    expect(ratchet?.env?.BASE_SHA).toBe("${{ github.event.pull_request.base.sha || github.event.before }}")
+    expect(ratchet?.env?.HEAD_SHA).toBe("${{ github.sha }}")
+    expect(ratchet?.run).toBe("node script/frontend-inventory.mjs --check-baseline --base \"$BASE_SHA\" --head \"$HEAD_SHA\"")
+    expect(checkNeeds).toContain(frontendArchitectureJobName)
+  })
+
   test("splits required Linux unit jobs by package while preserving Turbo dependency semantics", () => {
     const parsed = parseWorkflow(ciWorkflowPath)
 
@@ -432,7 +466,15 @@ describe("ci workflow", () => {
     const validate = stepByName("check", "Validate CI result")
 
     expect(check?.if).toBe("always()")
-    expect(needs).toEqual(["changes", "typecheck", "unit-ui-focused", "unit-app", "unit-opencode", "unit-desktop"])
+    expect(needs).toEqual([
+      "changes",
+      "typecheck",
+      frontendArchitectureJobName,
+      "unit-ui-focused",
+      "unit-app",
+      "unit-opencode",
+      "unit-desktop",
+    ])
     expect(needs).not.toContain(lintJobName)
     expect(needs).not.toContain("unit-windows")
     expect(needs).not.toContain("unit-windows-app")
@@ -443,11 +485,13 @@ describe("ci workflow", () => {
     expect(needs).not.toContain("unit-windows-opencode-server-tools")
     expect(validate?.env?.DOCS_ONLY).toBe("${{ needs.changes.outputs.docs_only }}")
     expect(validate?.env?.TYPECHECK_RESULT).toBe("${{ needs.typecheck.result }}")
+    expect(validate?.env?.FRONTEND_ARCHITECTURE_RESULT).toBe("${{ needs['frontend-architecture'].result }}")
     expect(validate?.env?.UNIT_UI_FOCUSED_RESULT).toBe("${{ needs['unit-ui-focused'].result }}")
     expect(validate?.env?.UNIT_APP_RESULT).toBe("${{ needs['unit-app'].result }}")
     expect(validate?.env?.UNIT_OPENCODE_RESULT).toBe("${{ needs['unit-opencode'].result }}")
     expect(validate?.env?.UNIT_DESKTOP_RESULT).toBe("${{ needs['unit-desktop'].result }}")
     expect(validate?.run).toContain("Docs-only change, daily CI skipped.")
+    expect(validate?.run).toContain("FRONTEND_ARCHITECTURE_RESULT")
     expect(validate?.run).toContain("UNIT_UI_FOCUSED_RESULT")
     expect(validate?.run).toContain("UNIT_APP_RESULT")
     expect(validate?.run).toContain("UNIT_OPENCODE_RESULT")

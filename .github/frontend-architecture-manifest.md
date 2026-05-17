@@ -6,8 +6,8 @@ This manifest covers git-tracked, hand-written frontend files under `packages/ap
 
 ## Current State
 
-- Manifest status: governance baseline.
-- Baseline commit: `5da4d3d61` (`fix: harden frontend inventory classification`).
+- Manifest status: LOC warn-only CI slice.
+- Baseline commit: `c3e931935` (`chore(release): bump desktop version to v2026.5.17`).
 - Default branch: `dev`.
 - Master owner: [#599 UI rewrite v2](https://github.com/Astro-Han/pawwork/issues/599).
 - Historical issue [#440](https://github.com/Astro-Han/pawwork/issues/440) is closed and must not be used as a new work entry.
@@ -20,10 +20,11 @@ The repeatable report command is:
 ```sh
 bun run frontend:inventory
 node script/frontend-inventory.mjs --format json
+node script/frontend-inventory.mjs --check-baseline --base origin/dev --head HEAD
 bun run frontend:inventory -- --format markdown --max-rows 120
 ```
 
-The script is warn-only in this governance phase. It prints threshold warnings but exits successfully.
+The script is warn-only in this governance phase. It prints threshold warnings for touched production frontend files above the `>500` and `>200` LOC lines, but exits successfully unless inventory generation or git diff fails.
 
 ## Report Schema
 
@@ -60,17 +61,17 @@ If this work changes from physical LOC to logical LOC or another metric, add sch
 
 ## Baseline Summary
 
-Generated with `node script/frontend-inventory.mjs --format json` at baseline commit `5da4d3d61`.
-This replaces the earlier `eb80bed96` draft baseline because the review fix made the report include root-level `src/*.ts(x)` files and stopped classifying logic-bearing `index.ts` / pure-config candidates as visibility-only inventory.
+Generated with `node script/frontend-inventory.mjs --format json` at baseline commit `c3e931935`.
+This replaces the earlier `5da4d3d61` baseline after the merged UI governance and owner-extraction queue changed the tracked frontend file set.
 
 | Metric | Count |
 | --- | ---: |
-| Tracked `.ts` / `.tsx` files | 682 |
-| Production ratchet set | 356 |
-| Visibility-only inventory | 326 |
+| Tracked `.ts` / `.tsx` files | 727 |
+| Production ratchet set | 388 |
+| Visibility-only inventory | 339 |
 | Approved exceptions | 0 |
-| Production files `>500` LOC | 26 |
-| Production files `>200` LOC | 80 |
+| Production files `>500` LOC | 19 |
+| Production files `>200` LOC | 81 |
 | Visibility-only files `>500` LOC | 15 |
 | Visibility-only files `>200` LOC | 56 |
 
@@ -78,14 +79,14 @@ Production by owner lane:
 
 | Owner lane | Files | `>200` | `>500` |
 | --- | ---: | ---: | ---: |
-| other/deferred | 130 | 24 | 5 |
-| #638 interface audit | 7 | 1 | 0 |
-| #604 settings | 21 | 9 | 3 |
+| other/deferred | 136 | 24 | 5 |
+| #638 interface audit | 8 | 1 | 0 |
+| #604 settings | 35 | 9 | 0 |
 | #599 mainline | 2 | 0 | 0 |
 | #606 final shell | 45 | 14 | 6 |
-| #601 message flow | 56 | 9 | 5 |
+| #601 message flow | 66 | 10 | 1 |
 | #605 visual shell | 84 | 18 | 6 |
-| #595/#615 scroll-perf | 11 | 5 | 1 |
+| #595/#615 scroll-perf | 12 | 5 | 1 |
 
 ## Owner Lanes
 
@@ -106,9 +107,9 @@ Closed area references are allowed as background only. [#602](https://github.com
 
 | Stage | Rule |
 | --- | --- |
-| 1. Governance | Warn only. Establish baseline, schema, owner map, report command, and exception format. |
-| 2. New `>500` guard | Do not add or modify an unexplained production file above 500 LOC. |
-| 3. New `>200` guard | Do not add or modify a production file above 200 LOC without owner lane and manifest entry. |
+| 1. Governance | Warn only. Establish baseline, schema, owner map, report command, CI inventory job, and exception format. |
+| 2. New `>500` guard | Warn when a PR adds or modifies a production file above 500 LOC. Do not hard fail in the current slice. |
+| 3. New `>200` guard | Warn when a PR adds or modifies a production file above 200 LOC. Do not hard fail in the current slice. |
 | 4. Tighter ratchet | Only after the launch path is stable and current exceptions are reviewed. |
 
 ## Exception Schema
@@ -134,28 +135,21 @@ Current approved exceptions: none.
 | LOC | Owner Lane | Status | Path |
 | ---: | --- | --- | --- |
 | 2463 | #606 final shell | needs-over-500-resolution | `packages/app/src/pages/layout.tsx` |
-| 1217 | #601 message flow | needs-over-500-resolution | `packages/app/src/pages/session/message-timeline.tsx` |
 | 1129 | #605 visual shell | needs-over-500-resolution | `packages/ui/src/components/file.tsx` |
 | 1119 | #606 final shell | needs-over-500-resolution | `packages/app/src/context/layout.tsx` |
-| 753 | #601 message flow | needs-over-500-resolution | `packages/ui/src/components/session-turn.tsx` |
-| 733 | #604 settings | needs-over-500-resolution | `packages/app/src/components/settings-general.tsx` |
-| 691 | #601 message flow | needs-over-500-resolution | `packages/app/src/pages/session.tsx` |
 | 673 | other/deferred | needs-over-500-resolution | `packages/app/src/components/terminal.tsx` |
 | 665 | #606 final shell | needs-over-500-resolution | `packages/app/src/context/sync.tsx` |
 | 661 | #605 visual shell | needs-over-500-resolution | `packages/ui/src/components/session-review.tsx` |
-| 654 | #604 settings | needs-over-500-resolution | `packages/app/src/components/dialog-connect-provider.tsx` |
-| 649 | #604 settings | needs-over-500-resolution | `packages/app/src/components/dialog-select-server.tsx` |
 | 634 | other/deferred | needs-over-500-resolution | `packages/app/src/addons/serialize.ts` |
-| 618 | #601 message flow | needs-over-500-resolution | `packages/app/src/pages/session/use-session-commands.tsx` |
-| 598 | #601 message flow | needs-over-500-resolution | `packages/ui/src/components/markdown.tsx` |
 | 596 | #605 visual shell | needs-over-500-resolution | `packages/ui/src/components/line-comment-annotations.tsx` |
 | 595 | #595/#615 scroll-perf | needs-over-500-resolution | `packages/app/src/pages/session/session-timeline-scroll-controller.ts` |
 | 588 | #605 visual shell | needs-over-500-resolution | `packages/ui/src/components/file-icon.tsx` |
 | 568 | other/deferred | needs-over-500-resolution | `packages/app/src/utils/persist.ts` |
 | 560 | #606 final shell | needs-over-500-resolution | `packages/app/src/context/local.tsx` |
+| 556 | #605 visual shell | needs-over-500-resolution | `packages/ui/src/theme/resolve.ts` |
 | 553 | other/deferred | needs-over-500-resolution | `packages/app/src/pages/session/session-side-panel.tsx` |
+| 548 | #601 message flow | needs-over-500-resolution | `packages/app/src/pages/session/use-session-commands.tsx` |
 | 543 | #606 final shell | needs-over-500-resolution | `packages/app/src/context/global-sync.tsx` |
-| 540 | #605 visual shell | needs-over-500-resolution | `packages/ui/src/theme/resolve.ts` |
 | 527 | #605 visual shell | needs-over-500-resolution | `packages/ui/src/context/marked.tsx` |
 | 511 | #606 final shell | needs-over-500-resolution | `packages/app/src/context/terminal.tsx` |
 | 507 | other/deferred | needs-over-500-resolution | `packages/app/src/components/file-tree.tsx` |
@@ -170,7 +164,8 @@ bun run frontend:inventory -- --format markdown --max-rows 120
 
 | PR | Owner lane | Base | Depends on | Boundary | Architecture effect | Verification | Status | Public write status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Governance PR | #599 mainline / governance | `dev` | None | Manifest, schema, owner map, warn-only script, baseline report command | boundary created, owner map established, ratchet command added | `bun run frontend:inventory`, `node script/frontend-inventory.mjs --format json`, `bun run frontend:inventory -- --format markdown --max-rows 120` | in progress | PR body only |
+| Governance PR | #599 mainline / governance | `dev` | None | Manifest, schema, owner map, warn-only script, baseline report command | boundary created, owner map established, ratchet command added | `bun run frontend:inventory`, `node script/frontend-inventory.mjs --format json`, `bun run frontend:inventory -- --format markdown --max-rows 120` | complete | PR body only |
+| LOC warn-only CI PR | #688 governance | `dev` | None | Add CI inventory output and touched-file LOC warnings for `>500` / `>200` production frontend files | LOC governance is executable in CI; current slice warns only and does not enforce hard failure | `node script/frontend-inventory.mjs --format json`, `node script/frontend-inventory.mjs --check-baseline --base origin/dev --head HEAD`, workflow/script contract tests | in progress | PR body only |
 | Contract PR | #638 interface audit | Governance branch or post-merge `dev` | Governance PR | Public contract/import boundary and compatibility checks | public contract stabilized, private import risk surfaced | typecheck plus contract-specific compatibility check | planned | PR body only |
 | Message-flow PR stack | #601 message flow | post-governance `dev` unless stacked | Governance PR, maybe Contract PR if public imports move | Current launch-path message flow files only | owner extracted, LOC reduced, verification added | typecheck, unit/e2e, #600 perf gate, visual smoke | planned | PR body only |
 | [#670](https://github.com/Astro-Han/pawwork/pull/670) | #601 message flow | `dev` | #667, #669 | Extract `createTimelineStaging` from `MessageTimeline` into `session-timeline-staging.ts` with browser-condition staging tests | timeline staging owner isolated; active-session message growth remains staged instead of popping to full render | focused staging/history/scroll tests, typecheck, diff check, PR CI | in review | PR body + manifest |

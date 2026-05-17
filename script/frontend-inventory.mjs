@@ -141,12 +141,29 @@ const CLOSED_AREA_HINTS = [
 
 function parseArgs(argv) {
   const out = {
+    base: null,
+    checkBaseline: false,
     format: "summary",
+    head: "HEAD",
     maxRows: 80,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
+    if (arg === "--check-baseline") {
+      out.checkBaseline = true
+      continue
+    }
+    if (arg === "--base" || arg === "--base-ref") {
+      out.base = argv[index + 1] ?? out.base
+      index += 1
+      continue
+    }
+    if (arg === "--head" || arg === "--head-ref") {
+      out.head = argv[index + 1] ?? out.head
+      index += 1
+      continue
+    }
     if (arg === "--format") {
       out.format = argv[index + 1] ?? out.format
       index += 1
@@ -401,11 +418,80 @@ function listFrontendFiles() {
   return stdout ? stdout.split("\n").filter(Boolean).sort() : []
 }
 
+function listChangedFrontendFiles(base, head) {
+  if (!base || /^0{40}$/.test(base)) {
+    return {
+      changedPaths: [],
+      skippedReason: "No comparable base ref was provided; inventory generated without touched-file warnings.",
+    }
+  }
+
+  let stdout = ""
+  try {
+    stdout = execFileSync(
+      "git",
+      ["diff", "--name-status", "--find-renames", "--find-copies", base, head, "--", ...FRONTEND_PATHSPECS],
+      { encoding: "utf8" },
+    ).trim()
+  } catch (error) {
+    exitWithInventoryError(`git diff failed for frontend inventory baseline check (${base}..${head}).`, error)
+  }
+
+  const changedPaths = new Set()
+  for (const line of stdout ? stdout.split("\n") : []) {
+    const [status, path1, path2] = line.split("\t")
+    if (!status || status.startsWith("D")) continue
+    changedPaths.add(status.startsWith("R") || status.startsWith("C") ? path2 : path1)
+  }
+
+  return {
+    changedPaths: [...changedPaths].filter(Boolean).sort(),
+    skippedReason: null,
+  }
+}
+
 function readFrontendFile(path) {
   try {
     return readFileSync(path, "utf8")
   } catch (error) {
     exitWithInventoryError(`failed to read tracked frontend file: ${path}`, error)
+  }
+}
+
+function githubWarning(record, threshold) {
+  const title = encodeURIComponent("Frontend LOC ratchet")
+  return `::warning file=${record.path},title=${title}::${record.path} is ${record.loc} LOC (${threshold}); warn-only for #688 LOC ratchet. Keep an owner lane or split before promoting this gate.`
+}
+
+function checkBaseline(inventory, { base, head }) {
+  const { changedPaths, skippedReason } = listChangedFrontendFiles(base, head)
+  const recordsByPath = new Map(inventory.records.map((record) => [record.path, record]))
+  const touchedProduction = changedPaths
+    .map((path) => recordsByPath.get(path))
+    .filter((record) => record?.setType === "production ratchet set")
+  const over500 = touchedProduction.filter((record) => record.loc > 500)
+  const over200 = touchedProduction.filter((record) => record.loc > 200)
+  const warnRows = touchedProduction
+    .filter((record) => record.loc > 200)
+    .sort((a, b) => b.loc - a.loc)
+
+  console.log("Frontend LOC ratchet warnings")
+  console.log("Mode: warn-only")
+  console.log(`Base: ${base ?? "(not provided)"}`)
+  console.log(`Head: ${head}`)
+  console.log(`Changed frontend files: ${changedPaths.length}`)
+  console.log(`Touched production files: ${touchedProduction.length}`)
+  console.log(`Touched production files >500 LOC: ${over500.length}`)
+  console.log(`Touched production files >200 LOC: ${over200.length}`)
+
+  if (skippedReason) {
+    console.log(skippedReason)
+    return
+  }
+
+  for (const record of warnRows) {
+    const threshold = record.loc > 500 ? ">500 LOC" : ">200 LOC"
+    console.error(githubWarning(record, threshold))
   }
 }
 
@@ -518,7 +604,9 @@ function printMarkdown(inventory, maxRows) {
 const args = parseArgs(process.argv.slice(2))
 const inventory = buildInventory()
 
-if (args.format === "json") {
+if (args.checkBaseline) {
+  checkBaseline(inventory, args)
+} else if (args.format === "json") {
   console.log(JSON.stringify(inventory, null, 2))
 } else if (args.format === "markdown") {
   printMarkdown(inventory, args.maxRows)
