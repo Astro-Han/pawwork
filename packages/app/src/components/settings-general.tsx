@@ -22,6 +22,7 @@ import { decode64 } from "@/utils/base64"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
 import { SettingsNotificationsSection } from "./settings-notifications-section"
+import { HOME_SUGGESTION_CHIPS } from "./home/home-suggestions-state"
 import { SettingsRow } from "./settings-row"
 import { SettingsSoundsSection } from "./settings-sounds-section"
 import { SettingsUpdatesSection } from "./settings-updates-section"
@@ -128,7 +129,7 @@ export const SettingsGeneral: Component = () => {
             <Show
               when={
                 settings.general.homeSuggestionsEnabled() &&
-                settings.general.homeSuggestionsDismissed().length >= 3
+                settings.general.homeSuggestionsDismissed().length > 0
               }
             >
               <button
@@ -143,7 +144,10 @@ export const SettingsGeneral: Component = () => {
               checked={settings.general.homeSuggestionsEnabled()}
               onChange={(checked) => {
                 settings.general.setHomeSuggestionsEnabled(checked)
-                if (checked && settings.general.homeSuggestionsDismissed().length >= 3) {
+                if (
+                  checked &&
+                  settings.general.homeSuggestionsDismissed().length >= HOME_SUGGESTION_CHIPS.length
+                ) {
                   settings.general.setHomeSuggestionsDismissed([])
                 }
               }}

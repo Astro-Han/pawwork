@@ -13,9 +13,14 @@ describe("settings-general home suggestions row", () => {
     expect(source).toContain("settings.general.setHomeSuggestionsEnabled(")
   })
 
-  test("exposes a restore-all button gated by all-three-dismissed state", () => {
-    expect(source).toContain("settings.general.homeSuggestionsDismissed().length >= 3")
+  test("exposes a restore button whenever any chip is dismissed (not only all-dismissed)", () => {
+    expect(source).toContain("homeSuggestionsDismissed().length > 0")
     expect(source).toContain("settings.general.setHomeSuggestionsDismissed([])")
+  })
+
+  test("uses HOME_SUGGESTION_CHIPS.length for the all-dismissed gate (not a hardcoded count)", () => {
+    expect(source).toContain("HOME_SUGGESTION_CHIPS.length")
+    expect(source).not.toMatch(/homeSuggestionsDismissed\(\)\.length\s*>=\s*3\b/)
   })
 
   test("clears dismissed list when re-enabling and previously all-dismissed", () => {

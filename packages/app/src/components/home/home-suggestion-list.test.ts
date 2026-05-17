@@ -21,6 +21,14 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toContain("sync.ready")
   })
 
+  test("uses homeSuggestionsSeen as a one-way bit so returning users do not re-enter onboarding", () => {
+    // firstTimeVisitor must factor in seen flag
+    expect(source).toContain("homeSuggestionsSeen")
+    expect(source).toContain("setHomeSuggestionsSeen(true)")
+    // session-count > 0 should flip seen=true via createEffect (one-way hydration latch)
+    expect(source).toMatch(/createEffect\([\s\S]{0,400}setHomeSuggestionsSeen\(true\)/)
+  })
+
   test("exposes the documented data-component and data-action hooks for E2E", () => {
     expect(source).toContain('data-component="home-suggestion-list"')
     expect(source).toContain('data-action="home-suggestion-row"')
@@ -33,17 +41,36 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toContain('[data-component="prompt-input"]')
   })
 
+  test("explicitly restores caret position after focus so follow-up typing works deterministically", () => {
+    expect(source).toContain("setCursorPosition")
+  })
+
+  test("respects user-typed content via prompt.dirty() before overwriting", () => {
+    expect(source).toContain("prompt.dirty()")
+  })
+
+  test("filters dismissed IDs against known chip IDs (no bare type cast)", () => {
+    expect(source).toContain("filterKnownIDs")
+    // negative: must NOT launder the persisted store value with a bare cast
+    expect(source).not.toMatch(/homeSuggestionsDismissed\(\) as HomeSuggestionChipID\[\]/)
+  })
+
   test("uses the settings accessor for read and write (not raw store)", () => {
     expect(source).toContain("settings.general.homeSuggestionsEnabled()")
     expect(source).toContain("settings.general.homeSuggestionsDismissed()")
     expect(source).toContain("settings.general.setHomeSuggestionsDismissed(")
-    // negative: must NOT reach into the raw store or call setStore directly
     expect(source).not.toContain("settings.store.general")
     expect(source).not.toContain("settings.setStore(")
   })
 
   test("section dismiss writes all three chip ids", () => {
     expect(source).toContain("HOME_SUGGESTION_CHIPS.map")
+  })
+
+  test("rest-state dismiss button is not clickable (pointer-events-none) and not in tab order", () => {
+    expect(source).toContain("pointer-events-none")
+    expect(source).toContain("group-hover:pointer-events-auto")
+    expect(source).toContain("tabIndex={-1}")
   })
 
   test("renders nothing when there are no visible chips", () => {

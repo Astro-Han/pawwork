@@ -15,7 +15,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/app/shell-frame.spec.ts:@smoke shell frame exposes stable desktop hooks",
   "packages/app/e2e/files/file-tree.spec.ts:@smoke review tab no longer renders the legacy file-tree sub-panel",
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke clicking a suggestion row prefills the composer",
-  "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke composer placeholder is the static home string and does not rotate",
+  "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke composer placeholder is the static home string",
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke home shows 3 suggestion rows for a first-time visitor",
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke per-row X dismisses one row and persists across reload",
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke section X dismisses all three rows and hides the section",

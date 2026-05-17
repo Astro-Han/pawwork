@@ -55,18 +55,16 @@ test("@smoke section X dismisses all three rows and hides the section", async ({
   await expect(page.locator(suggestionListSelector)).toHaveCount(0)
 })
 
-test("@smoke composer placeholder is the static home string and does not rotate", async ({ page, project }) => {
+test("@smoke composer placeholder is the static home string", async ({ page, project }) => {
   await project.open()
 
   const editor = page.locator(promptSelector)
   await expect(editor).toBeVisible()
-  const initialLabel = await editor.getAttribute("aria-label")
-  expect(initialLabel).toMatch(/(输入你的任务|Type your task)/)
-
-  // wait ~7s (longer than the deleted 6.5s rotation) and confirm the label is unchanged
-  await page.waitForTimeout(7000)
-  const labelAfter = await editor.getAttribute("aria-label")
-  expect(labelAfter).toBe(initialLabel)
+  // Match the single static home placeholder in either locale. The legacy 25-prompt
+  // rotation pool and its 6.5s interval were removed. The resource file is the only
+  // source of truth. See packages/app/src/components/prompt-input/placeholder.ts.
+  const label = await editor.getAttribute("aria-label")
+  expect(label).toMatch(/(输入你的任务，或 @ 引用文件|Type your task, or @ to mention files)/)
 })
 
 test("returning visitor (sessions > 0) sees no suggestion list", async ({ page, project, assistant }) => {
@@ -96,10 +94,13 @@ test("hover reveals the per-row X (rest state hides it)", async ({ page, project
 
   // rest state: per-row X is rendered but not visible (opacity-0)
   await expect(firstRowDismiss).toHaveCSS("opacity", "0")
+  // and not clickable (pointer-events-none keeps it out of the hit-test surface)
+  await expect(firstRowDismiss).toHaveCSS("pointer-events", "none")
 
-  // hover the row → group-hover reveals the X (opacity-1)
+  // hover the row → group-hover reveals the X (opacity-1) and re-enables clicks
   await firstRow.hover()
   await expect(firstRowDismiss).toHaveCSS("opacity", "1")
+  await expect(firstRowDismiss).toHaveCSS("pointer-events", "auto")
 })
 
 test("editing a prefilled suggestion preserves the user's edit on send", async ({ page, project, assistant }) => {
@@ -111,7 +112,7 @@ test("editing a prefilled suggestion preserves the user's edit on send", async (
   await expect(editor).toBeFocused()
 
   // append a suffix
-  await page.keyboard.type(" — please be concise")
+  await page.keyboard.type(" please be concise")
   await page.keyboard.press("Enter")
 
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
@@ -119,31 +120,29 @@ test("editing a prefilled suggestion preserves the user's edit on send", async (
   await expect(page.getByText(/please be concise/)).toBeVisible()
 })
 
-test("settings toggle hides and restores the suggestion section", async ({ page, project }) => {
+test("settings toggle hides and restores the suggestion section via the real Settings UI", async ({
+  page,
+  project,
+}) => {
   await project.open()
   await expect(page.locator(suggestionListSelector)).toBeVisible()
 
-  // toggle off via localStorage write (Settings page navigation/click is covered by
-  // the contract test for settings-general.tsx; this E2E focuses on persisted-state
-  // behaviour — does the suggestion section actually disappear when the flag flips)
-  await page.evaluate(() => {
-    // settings.v3 lives in localStorage as the persisted store; flip the key directly
-    // to avoid full-flow navigation in this test.
-    const raw = localStorage.getItem("settings.v3")
-    const parsed = raw ? JSON.parse(raw) : {}
-    parsed.general = { ...(parsed.general ?? {}), homeSuggestionsEnabled: false }
-    localStorage.setItem("settings.v3", JSON.stringify(parsed))
-  })
-  await page.reload()
+  // Open Settings (kbd shortcut path is project-wide; settings page is a full pane,
+  // not a dialog — see settings.spec.ts for the canonical opening behavior).
+  await page.goto("#/settings/general")
+  const switchEl = page.locator('[data-action="settings-home-suggestions"] [role="switch"]')
+  await expect(switchEl).toBeVisible()
+  // turn off
+  await switchEl.click()
+
+  await project.open()
   await expect(page.locator(suggestionListSelector)).toHaveCount(0)
 
-  await page.evaluate(() => {
-    const raw = localStorage.getItem("settings.v3")
-    const parsed = raw ? JSON.parse(raw) : {}
-    parsed.general = { ...(parsed.general ?? {}), homeSuggestionsEnabled: true }
-    localStorage.setItem("settings.v3", JSON.stringify(parsed))
-  })
-  await page.reload()
+  // turn it back on via the real Settings switch
+  await page.goto("#/settings/general")
+  await switchEl.click()
+
+  await project.open()
   await expect(page.locator(suggestionListSelector).locator(rowSelector)).toHaveCount(3)
 })
 
@@ -151,12 +150,15 @@ test("language switch updates chip text without losing dismissed state", async (
   await project.open()
 
   const list = page.locator(suggestionListSelector)
+  // capture text of the second row in the current locale (first row will be dismissed below)
+  const secondRowTextBefore = (await list.locator(rowSelector).nth(1).innerText()).trim()
+
   // dismiss the first row in current locale
   await list.locator(rowSelector).first().hover()
   await list.locator(rowDismissSelector).first().click()
   await expect(list.locator(rowSelector)).toHaveCount(2)
 
-  // Confirmed via packages/app/src/context/language.tsx — persistence key is "language",
+  // Confirmed via packages/app/src/context/language.tsx. Persistence key is "language",
   // shape is { locale: "zh" | "en" }, migrated from legacy "language.v1".
   await page.evaluate(() => {
     const raw = localStorage.getItem("language")
@@ -167,5 +169,11 @@ test("language switch updates chip text without losing dismissed state", async (
   await page.reload()
 
   // still 2 rows visible (dismissed state preserved across locale flip)
-  await expect(page.locator(suggestionListSelector).locator(rowSelector)).toHaveCount(2)
+  const listAfter = page.locator(suggestionListSelector)
+  await expect(listAfter.locator(rowSelector)).toHaveCount(2)
+
+  // and chip text actually flipped to the other locale (key insight: the row text
+  // must NOT equal the pre-flip text — that would mean i18n didn't propagate)
+  const secondRowTextAfter = (await listAfter.locator(rowSelector).nth(0).innerText()).trim()
+  expect(secondRowTextAfter).not.toBe(secondRowTextBefore)
 })

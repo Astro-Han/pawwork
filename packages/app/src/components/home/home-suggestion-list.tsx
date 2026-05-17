@@ -1,9 +1,10 @@
-import { For, Show, createMemo, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, type Component } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
+import { setCursorPosition } from "@/components/prompt-input/editor-dom"
 import {
   HOME_SUGGESTION_CHIPS,
   resolveVisibleHomeSuggestions,
@@ -12,10 +13,24 @@ import {
 
 const PROMPT_EDITOR_SELECTOR = '[data-component="prompt-input"]'
 
-function focusComposerEditor() {
+function focusComposerEditor(caretAt: number) {
   if (typeof document === "undefined") return
   const editor = document.querySelector<HTMLElement>(PROMPT_EDITOR_SELECTOR)
-  editor?.focus()
+  if (!editor) return
+  editor.focus()
+  setCursorPosition(editor, caretAt)
+}
+
+const KNOWN_CHIP_IDS = new Set<HomeSuggestionChipID>(HOME_SUGGESTION_CHIPS.map((chip) => chip.id))
+
+function filterKnownIDs(raw: readonly string[]): HomeSuggestionChipID[] {
+  const out: HomeSuggestionChipID[] = []
+  for (const value of raw) {
+    if (KNOWN_CHIP_IDS.has(value as HomeSuggestionChipID)) {
+      out.push(value as HomeSuggestionChipID)
+    }
+  }
+  return out
 }
 
 export const HomeSuggestionList: Component = () => {
@@ -25,17 +40,26 @@ export const HomeSuggestionList: Component = () => {
   const sync = useSync()
 
   const sessionCount = createMemo(() => Object.keys(sync.data.session ?? {}).length)
-  // sync.ready guards against showing chips during the initial loading hydration —
-  // sync.data.session is an empty object while status === "loading", which would
-  // make every user (returning or new) momentarily look like a first-time visitor.
-  // sync.ready is a getter on the context (not a function).
-  const firstTimeVisitor = createMemo(() => sync.ready && sessionCount() === 0)
+  const seen = createMemo(() => settings.general.homeSuggestionsSeen())
+
+  // Flip seen=true on first hydrated state with sessions. Returning users
+  // who clean up all sessions will never re-enter first-time onboarding.
+  createEffect(() => {
+    if (!sync.ready) return
+    if (seen()) return
+    if (sessionCount() > 0) settings.general.setHomeSuggestionsSeen(true)
+  })
+
+  // sync.ready guards against showing chips during initial hydration, where
+  // sync.data.session is briefly empty and every user looks like a new visitor.
+  // sync.ready is a reactive getter on the context, not a function call.
+  const firstTimeVisitor = createMemo(() => sync.ready && sessionCount() === 0 && !seen())
 
   const visibleIDs = createMemo(() =>
     resolveVisibleHomeSuggestions({
       firstTimeVisitor: firstTimeVisitor(),
       enabled: settings.general.homeSuggestionsEnabled(),
-      dismissed: settings.general.homeSuggestionsDismissed() as HomeSuggestionChipID[],
+      dismissed: filterKnownIDs(settings.general.homeSuggestionsDismissed()),
     }),
   )
 
@@ -46,18 +70,38 @@ export const HomeSuggestionList: Component = () => {
 
   type I18nKey = Parameters<typeof language.t>[0]
 
+  const markSeen = () => {
+    if (!seen()) settings.general.setHomeSuggestionsSeen(true)
+  }
+
   const prefill = (text: string) => {
+    markSeen()
+    // Respect user-typed content. If they've already started a message, append
+    // the suggestion text with a space; otherwise replace.
+    if (prompt.dirty()) {
+      const existing = prompt
+        .current()
+        .map((part) => ("content" in part ? part.content : ""))
+        .join("")
+      const suffix = existing.endsWith(" ") || existing.length === 0 ? "" : " "
+      const merged = `${existing}${suffix}${text}`
+      prompt.set([{ type: "text", content: merged, start: 0, end: merged.length }], merged.length)
+      requestAnimationFrame(() => focusComposerEditor(merged.length))
+      return
+    }
     prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
-    requestAnimationFrame(focusComposerEditor)
+    requestAnimationFrame(() => focusComposerEditor(text.length))
   }
 
   const dismissRow = (id: HomeSuggestionChipID) => {
-    const current = settings.general.homeSuggestionsDismissed() as HomeSuggestionChipID[]
+    markSeen()
+    const current = filterKnownIDs(settings.general.homeSuggestionsDismissed())
     if (current.includes(id)) return
     settings.general.setHomeSuggestionsDismissed([...current, id])
   }
 
   const dismissAll = () => {
+    markSeen()
     settings.general.setHomeSuggestionsDismissed(HOME_SUGGESTION_CHIPS.map((chip) => chip.id))
   }
 
@@ -97,7 +141,8 @@ export const HomeSuggestionList: Component = () => {
                 </button>
                 <button
                   type="button"
-                  class="ml-3 text-fg-muted opacity-0 group-hover:opacity-100 hover:text-fg-strong transition-opacity"
+                  tabIndex={-1}
+                  class="ml-3 text-fg-muted opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:text-fg-strong transition-opacity"
                   aria-label={language.t("home.suggestion.row.dismiss")}
                   onClick={() => dismissRow(chip.id)}
                   data-action="home-suggestion-row-dismiss"
