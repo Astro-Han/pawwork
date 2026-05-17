@@ -305,10 +305,11 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setHomeSuggestionsDismissed(value: string[]) {
           setStore("general", "homeSuggestionsDismissed", value)
         },
-        // homeSuggestionsSeen is a one-way bit: once the user has any session
-        // hydrated, or clicks/dismisses a chip, this flips to true and never
-        // resets. Without it, a returning user who deletes all sessions would
-        // re-enter "first-time visitor" state and see the onboarding chips
+        // homeSuggestionsSeen is a one-way bit: flips to true when the user
+        // has any session hydrated, clicks a chip, or dismisses the whole
+        // section. Per-row dismiss does NOT flip it (those are curation, not
+        // exit). Without this flag, a returning user who deletes all sessions
+        // would re-enter "first-time visitor" state and see onboarding chips
         // again, which the design explicitly rejects.
         homeSuggestionsSeen: withFallback(
           () => store.general?.homeSuggestionsSeen,

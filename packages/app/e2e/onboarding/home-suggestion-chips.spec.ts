@@ -60,11 +60,24 @@ test("@smoke composer placeholder is the static home string", async ({ page, pro
 
   const editor = page.locator(promptSelector)
   await expect(editor).toBeVisible()
-  // Match the single static home placeholder in either locale. The legacy 25-prompt
-  // rotation pool and its 6.5s interval were removed. The resource file is the only
-  // source of truth. See packages/app/src/components/prompt-input/placeholder.ts.
+
+  // Read the live locale and assert against the matching i18n value. A regression
+  // that swaps the placeholder to a wrong string in either locale must fail,
+  // not be masked by an either-or regex.
+  // Persistence key is "language" and shape is { locale: "zh" | "en" }; verified
+  // via packages/app/src/context/language.tsx.
+  const locale = await page.evaluate(() => {
+    const raw = localStorage.getItem("language")
+    const parsed = raw ? JSON.parse(raw) : { locale: "zh" }
+    return parsed.locale?.startsWith?.("zh") ? "zh" : "en"
+  })
   const label = await editor.getAttribute("aria-label")
-  expect(label).toMatch(/(输入你的任务，或 @ 引用文件|Type your task, or @ to mention files)/)
+  // i18n source: packages/app/src/i18n/{zh,en}.ts → prompt.placeholder.home
+  if (locale === "zh") {
+    expect(label).toBe("输入你的任务，或 @ 引用文件")
+  } else {
+    expect(label).toBe("Type your task, or @ to mention files")
+  }
 })
 
 test("returning visitor (sessions > 0) sees no suggestion list", async ({ page, project, assistant }) => {

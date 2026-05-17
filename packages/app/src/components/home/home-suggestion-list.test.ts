@@ -29,6 +29,28 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toMatch(/createEffect\([\s\S]{0,400}setHomeSuggestionsSeen\(true\)/)
   })
 
+  test("per-row dismiss does NOT mark seen (would otherwise hide section after the first dismiss)", () => {
+    // The dismissRow body must not call markSeen() — confirmed by inspecting the
+    // dismissRow function body in source. Encoded as: there is a dismissRow
+    // definition, and within ~400 chars of its declaration, markSeen() is not
+    // called between the dismissRow line and its closing `}`.
+    const match = source.match(/const dismissRow = [\s\S]*?\n  \}/)
+    expect(match).not.toBeNull()
+    expect(match![0]).not.toContain("markSeen()")
+  })
+
+  test("section dismiss (dismissAll) DOES mark seen", () => {
+    const match = source.match(/const dismissAll = [\s\S]*?\n  \}/)
+    expect(match).not.toBeNull()
+    expect(match![0]).toContain("markSeen()")
+  })
+
+  test("chip click (prefill) DOES mark seen", () => {
+    const match = source.match(/const prefill = [\s\S]*?\n  \}/)
+    expect(match).not.toBeNull()
+    expect(match![0]).toContain("markSeen()")
+  })
+
   test("exposes the documented data-component and data-action hooks for E2E", () => {
     expect(source).toContain('data-component="home-suggestion-list"')
     expect(source).toContain('data-action="home-suggestion-row"')

@@ -94,7 +94,9 @@ export const HomeSuggestionList: Component = () => {
   }
 
   const dismissRow = (id: HomeSuggestionChipID) => {
-    markSeen()
+    // Per-row dismiss is fine-grained curation, not an onboarding exit signal.
+    // Do NOT mark seen here, or the section hides immediately after the first
+    // dismiss and the Settings restore button becomes a silent no-op.
     const current = filterKnownIDs(settings.general.homeSuggestionsDismissed())
     if (current.includes(id)) return
     settings.general.setHomeSuggestionsDismissed([...current, id])
