@@ -48,7 +48,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
 import { Process } from "@/util/process"
-import { withoutInternalServerAuthEnv } from "@/util/env"
+import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { Cause, Deferred, Effect, Exit, Layer, Option, Scope, Context } from "effect"
 import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
@@ -1209,12 +1209,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             plugin.trigger("shell.env", { cwd, sessionID: input.sessionID, callID: part.callID }, { env: {} }),
           )
 
+          const shellEnvRecord = shellEnv.env as Record<string, string>
+          // Resolve PATH case-insensitively (Windows uses "Path") and strip
+          // every casing from the merged env before writing back a canonical
+          // PATH, so the spawned child does not receive duplicate keys.
+          const currentPath =
+            envValueCaseInsensitive(shellEnvRecord, "PATH") ?? envValueCaseInsensitive(process.env, "PATH") ?? ""
           const env = withoutInternalServerAuthEnv({
             ...process.env,
-            ...shellEnv.env,
+            ...shellEnvRecord,
             TERM: "dumb",
+            OFFICECLI_SKIP_UPDATE: "1",
             ...(shellName === "zsh" || shellName === "bash" ? { OPENCODE_SHELL_CWD: cwd } : {}),
-          })
+          } as Record<string, string>)
+          stripPathKeys(env)
+          env.PATH = prependBundledTools(currentPath)
 
           const cmd = ChildProcess.make(sh, args, {
             cwd,

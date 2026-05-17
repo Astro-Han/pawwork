@@ -9,7 +9,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import { lazy } from "@opencode-ai/util/lazy"
 import { Shell } from "@/shell/shell"
 import { Plugin } from "@/plugin"
-import { envValueCaseInsensitive, withoutInternalServerAuthEnv } from "@/util/env"
+import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { Process } from "@/util/process"
 import { PtyID } from "./schema"
 import { Effect, Layer, Context } from "effect"
@@ -257,13 +257,25 @@ export namespace Pty {
 
         const cwd = input.cwd || s.dir
         const shell = yield* plugin.trigger("shell.env", { cwd }, { env: {} })
+        const shellEnvRecord = shell.env as Record<string, string>
+        const inputEnvRecord = (input.env ?? {}) as Record<string, string>
+        // Resolve PATH case-insensitively (Windows exposes "Path") and strip
+        // every casing from the merged env before writing back a canonical
+        // PATH, so the spawned PTY does not receive duplicate keys.
+        const currentPath =
+          envValueCaseInsensitive(shellEnvRecord, "PATH") ??
+          envValueCaseInsensitive(inputEnvRecord, "PATH") ??
+          envValueCaseInsensitive(process.env, "PATH") ??
+          ""
         const env = withoutInternalServerAuthEnv({
           ...process.env,
-          ...input.env,
-          ...shell.env,
+          ...inputEnvRecord,
+          ...shellEnvRecord,
           TERM: "xterm-256color",
           OPENCODE_TERMINAL: "1",
         } as Record<string, string>)
+        stripPathKeys(env)
+        env.PATH = prependBundledTools(currentPath)
         // bun-pty merges with the parent process environment internally, so
         // deleting these keys is not enough for PTY sessions. Override with
         // empty values to prevent PawWork's internal server credentials from

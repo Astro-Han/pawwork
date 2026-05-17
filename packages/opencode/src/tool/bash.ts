@@ -23,7 +23,7 @@ import { Plugin } from "@/plugin"
 import { Effect, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
-import { withoutInternalServerAuthEnv } from "@/util/env"
+import { envValueCaseInsensitive, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "@/util/env"
 import { Global } from "@opencode-ai/core/global"
 import { assertExternalDirectoryEffect, resolveExternalPathForPermission } from "./external-directory"
 import { InstanceState } from "@/effect/instance-state"
@@ -468,17 +468,23 @@ export const BashTool = Tool.define(
         { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
         { env: {} },
       )
-      // Prepend bundled tools directory to PATH so the agent can call them
-      const resourcesPath = (process as any).resourcesPath as string | undefined
-      const bundledToolsDir = resourcesPath ? path.join(resourcesPath, "tools") : ""
       const extraEnv = extra.env as Record<string, string>
-      const currentPath = extraEnv.PATH || process.env.PATH || ""
-      return withoutInternalServerAuthEnv({
+      // Read PATH case-insensitively: a shell plugin may emit "Path" on
+      // Windows, and process.env preserves the OS casing during spread.
+      // After the merge, strip every case-variant of PATH before writing
+      // back a single canonical PATH so the spawned child does not receive
+      // both `Path` and `PATH` (the latter would otherwise win and drop
+      // the inherited system path).
+      const currentPath =
+        envValueCaseInsensitive(extraEnv, "PATH") ?? envValueCaseInsensitive(process.env, "PATH") ?? ""
+      const env = withoutInternalServerAuthEnv({
         ...process.env,
         ...extraEnv,
         OFFICECLI_SKIP_UPDATE: "1",
-        PATH: bundledToolsDir ? `${bundledToolsDir}${path.delimiter}${currentPath}` : currentPath,
-      })
+      } as Record<string, string>)
+      stripPathKeys(env)
+      env.PATH = prependBundledTools(currentPath)
+      return env
     })
 
     const readTrackedState = Effect.fn("BashTool.readTrackedState")((file: string) =>
