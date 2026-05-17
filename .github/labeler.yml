@@ -24,9 +24,3 @@ harness:
   - changed-files:
       - any-glob-to-any-file:
           - "packages/opencode/**"
-
-documentation:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "docs/**"
-          - "**/*.md"

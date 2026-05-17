@@ -40,7 +40,7 @@ Required for visible UI changes.
 
 - [ ] Human review status is stated above as pending, approved, or not required
 - [ ] I linked the related issue, or stated why there is no issue
-- [ ] This PR has type, primary area, and priority labels, or I requested maintainer labeling
+- [ ] This PR has exactly one type label (`bug`, `enhancement`, `task`, or `documentation`), at least one primary routing label (`app`, `ui`, `platform`, `harness`, or `ci`), and exactly one priority label (`P0` to `P3`), or I requested maintainer labeling
 - [ ] I described the review focus and any meaningful risks
 - [ ] I listed the relevant verification steps and the key result for each
 - [ ] I did not introduce unrelated refactors, dependencies, generated files, or file changes beyond the stated scope
