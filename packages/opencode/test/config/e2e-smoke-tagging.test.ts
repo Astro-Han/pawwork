@@ -18,7 +18,6 @@ const expectedSmokeTests = [
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke composer placeholder is the static home string",
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke home shows 3 suggestion rows for a first-time visitor",
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke per-row X dismisses one row and persists across reload",
-  "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke section X dismisses all three rows and hides the section",
   "packages/app/e2e/prompt/first-message-reply.spec.ts:@smoke first replied message in a new session renders without page errors",
   "packages/app/e2e/prompt/prompt.spec.ts:@smoke can send a prompt and receive a reply",
   "packages/app/e2e/release-notes/release-notes-toast.spec.ts:@smoke shows subtle toast when stored version is older than current",

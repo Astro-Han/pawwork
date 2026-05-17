@@ -12,57 +12,27 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toContain("useLanguage")
   })
 
-  test("computes firstTimeVisitor from sync.data.session count", () => {
+  test("computes firstTimeVisitor from sync.data.session.length and sync.ready", () => {
     expect(source).toContain("sync.data.session")
     expect(source).toMatch(/sync\.data\.session\??\.length/)
-  })
-
-  test("guards firstTimeVisitor on sync.ready to avoid flashing during hydration", () => {
     expect(source).toContain("sync.ready")
-  })
-
-  test("uses homeSuggestionsSeen as a one-way bit so returning users do not re-enter onboarding", () => {
-    // firstTimeVisitor must factor in seen flag
-    expect(source).toContain("homeSuggestionsSeen")
-    expect(source).toContain("setHomeSuggestionsSeen(true)")
-    // session-count > 0 should flip seen=true via createEffect (one-way hydration latch)
-    expect(source).toMatch(/createEffect\([\s\S]{0,400}setHomeSuggestionsSeen\(true\)/)
-  })
-
-  test("per-row dismiss does NOT mark seen (would otherwise hide section after the first dismiss)", () => {
-    // The dismissRow body must not call markSeen() — confirmed by inspecting the
-    // dismissRow function body in source. Encoded as: there is a dismissRow
-    // definition, and within ~400 chars of its declaration, markSeen() is not
-    // called between the dismissRow line and its closing `}`.
-    const match = source.match(/const dismissRow = [\s\S]*?\n  \}/)
-    expect(match).not.toBeNull()
-    expect(match![0]).not.toContain("markSeen()")
-  })
-
-  test("section dismiss (dismissAll) DOES mark seen", () => {
-    const match = source.match(/const dismissAll = [\s\S]*?\n  \}/)
-    expect(match).not.toBeNull()
-    expect(match![0]).toContain("markSeen()")
-  })
-
-  test("chip click (prefill) DOES mark seen, but only AFTER the dirty no-op branch", () => {
-    const match = source.match(/const prefill = [\s\S]*?\n  \}/)
-    expect(match).not.toBeNull()
-    expect(match![0]).toContain("markSeen()")
-    // Order: prompt.dirty() check must come before markSeen() so a chip click
-    // that becomes a no-op (because the composer was already dirty) does not
-    // silently exit onboarding.
-    const dirtyIndex = match![0].indexOf("prompt.dirty()")
-    const seenIndex = match![0].indexOf("markSeen()")
-    expect(dirtyIndex).toBeGreaterThan(-1)
-    expect(seenIndex).toBeGreaterThan(dirtyIndex)
   })
 
   test("exposes the documented data-component and data-action hooks for E2E", () => {
     expect(source).toContain('data-component="home-suggestion-list"')
     expect(source).toContain('data-action="home-suggestion-row"')
     expect(source).toContain('data-action="home-suggestion-row-dismiss"')
-    expect(source).toContain('data-action="home-suggestion-section-dismiss"')
+  })
+
+  test("does NOT render a section-level dismiss (only per-row X remains)", () => {
+    expect(source).not.toContain("home-suggestion-section-dismiss")
+    expect(source).not.toContain("home.suggestion.section")
+  })
+
+  test("does NOT couple to homeSuggestionsEnabled or homeSuggestionsSeen (those were removed)", () => {
+    expect(source).not.toContain("homeSuggestionsEnabled")
+    expect(source).not.toContain("homeSuggestionsSeen")
+    expect(source).not.toContain("setHomeSuggestionsSeen")
   })
 
   test("prefills the composer via prompt.set and focuses the editor", () => {
@@ -75,9 +45,6 @@ describe("HomeSuggestionList source contract", () => {
   })
 
   test("respects user-typed content via prompt.dirty() (does not overwrite)", () => {
-    // Behavior: if prompt is dirty, do NOT call prompt.set with the suggestion
-    // text. Just focus the editor. Otherwise, prefill normally. We verify the
-    // dirty-branch body does NOT contain prompt.set(.
     expect(source).toContain("prompt.dirty()")
     const dirtyBranch = source.match(/if \(prompt\.dirty\(\)\)\s*\{[\s\S]*?\}/)
     expect(dirtyBranch).not.toBeNull()
@@ -86,20 +53,14 @@ describe("HomeSuggestionList source contract", () => {
 
   test("filters dismissed IDs against known chip IDs (no bare type cast)", () => {
     expect(source).toContain("filterKnownIDs")
-    // negative: must NOT launder the persisted store value with a bare cast
     expect(source).not.toMatch(/homeSuggestionsDismissed\(\) as HomeSuggestionChipID\[\]/)
   })
 
   test("uses the settings accessor for read and write (not raw store)", () => {
-    expect(source).toContain("settings.general.homeSuggestionsEnabled()")
     expect(source).toContain("settings.general.homeSuggestionsDismissed()")
     expect(source).toContain("settings.general.setHomeSuggestionsDismissed(")
     expect(source).not.toContain("settings.store.general")
     expect(source).not.toContain("settings.setStore(")
-  })
-
-  test("section dismiss writes all three chip ids", () => {
-    expect(source).toContain("HOME_SUGGESTION_CHIPS.map")
   })
 
   test("rest-state dismiss button is not clickable (pointer-events-none) and not in tab order", () => {
@@ -112,9 +73,7 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toContain("visibleChips().length > 0")
   })
 
-  test("uses i18n keys for chip text and aria-labels", () => {
-    expect(source).toContain("home.suggestion.section.label")
-    expect(source).toContain("home.suggestion.section.dismiss")
+  test("uses i18n keys for chip text and aria-label", () => {
     expect(source).toContain("home.suggestion.row.dismiss")
   })
 })

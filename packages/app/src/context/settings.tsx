@@ -33,9 +33,7 @@ export interface Settings {
     editToolPartsExpanded: boolean
     lspEnabled: boolean
     webSearchEnabled: boolean
-    homeSuggestionsEnabled: boolean
     homeSuggestionsDismissed: string[]
-    homeSuggestionsSeen: boolean
   }
   updates: {
     startup: boolean
@@ -117,9 +115,7 @@ const defaultSettings: Settings = {
     editToolPartsExpanded: false,
     lspEnabled: false,
     webSearchEnabled: true,
-    homeSuggestionsEnabled: true,
     homeSuggestionsDismissed: [],
-    homeSuggestionsSeen: false,
   },
   updates: {
     startup: true,
@@ -291,32 +287,12 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         setWebSearchEnabled(value: boolean) {
           setStore("general", "webSearchEnabled", value)
         },
-        homeSuggestionsEnabled: withFallback(
-          () => store.general?.homeSuggestionsEnabled,
-          defaultSettings.general.homeSuggestionsEnabled,
-        ),
-        setHomeSuggestionsEnabled(value: boolean) {
-          setStore("general", "homeSuggestionsEnabled", value)
-        },
         homeSuggestionsDismissed: withFallback(
           () => store.general?.homeSuggestionsDismissed,
           defaultSettings.general.homeSuggestionsDismissed,
         ),
         setHomeSuggestionsDismissed(value: string[]) {
           setStore("general", "homeSuggestionsDismissed", value)
-        },
-        // homeSuggestionsSeen is a one-way bit: flips to true when the user
-        // has any session hydrated, clicks a chip, or dismisses the whole
-        // section. Per-row dismiss does NOT flip it (those are curation, not
-        // exit). Without this flag, a returning user who deletes all sessions
-        // would re-enter "first-time visitor" state and see onboarding chips
-        // again, which the design explicitly rejects.
-        homeSuggestionsSeen: withFallback(
-          () => store.general?.homeSuggestionsSeen,
-          defaultSettings.general.homeSuggestionsSeen,
-        ),
-        setHomeSuggestionsSeen(value: boolean) {
-          setStore("general", "homeSuggestionsSeen", value)
         },
       },
       updates: {

@@ -570,10 +570,8 @@ export const dict = {
 
   "home.recentProjects": "Recent projects",
   "home.hero.title": "What should we work on?",
-  "home.suggestion.section.label": "Prompt suggestions",
-  "home.suggestion.section.dismiss": "Dismiss all prompt suggestions",
   "home.suggestion.row.dismiss": "Dismiss this prompt",
-  "home.suggestion.analyze-spreadsheet": "Analyze a spreadsheet — surface key data and anomalies",
+  "home.suggestion.analyze-spreadsheet": "Analyze a spreadsheet and surface key data",
   "home.suggestion.news-brief": "Summarize today's news worth following into a brief",
   "home.suggestion.draft-email": "Draft a work email for me",
 
@@ -884,9 +882,6 @@ export const dict = {
     "Show edit, write, and patch tool parts expanded by default in the timeline",
   "settings.general.row.lsp.title": "Language Server Protocol (LSP)",
   "settings.general.row.lsp.description": "Detect type errors and symbol references when editing code",
-  "settings.general.homeSuggestions": "Home prompt suggestions",
-  "settings.general.homeSuggestions.description": "Show 3 prompt suggestion rows under the composer for new visitors. Click a row to prefill the input.",
-  "settings.general.homeSuggestions.reset": "Restore all suggestions",
   "settings.general.webSearch.title": "Web search",
   "settings.general.webSearch.description": "Let agents look up fresh information online when needed",
   "settings.general.webSearch.chip.free": "Free (bundled)",

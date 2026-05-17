@@ -121,42 +121,6 @@ export const SettingsGeneral: Component = () => {
         <SettingsWebSearchRow />
 
         <SettingsRow
-          title={language.t("settings.general.homeSuggestions")}
-          description={language.t("settings.general.homeSuggestions.description")}
-        >
-          <div class="flex items-center gap-3" data-action="settings-home-suggestions">
-            <Show
-              when={
-                settings.general.homeSuggestionsEnabled() &&
-                settings.general.homeSuggestionsDismissed().length > 0
-              }
-            >
-              {/* Gate on dismissed only: this is non-empty in exactly the two
-                  paths a Restore would actually help (per-row dismissal and
-                  section dismiss, since dismissAll writes all ids). For a
-                  returning user the createEffect auto-latches seen=true but
-                  leaves dismissed empty, so the button stays hidden and we
-                  do not surface a no-op recovery. Restore still resets BOTH
-                  state slots so the section dismiss path actually unwinds. */}
-              <button
-                type="button"
-                class="text-fg-muted hover:text-fg-strong text-sm"
-                onClick={() => {
-                  settings.general.setHomeSuggestionsDismissed([])
-                  settings.general.setHomeSuggestionsSeen(false)
-                }}
-              >
-                {language.t("settings.general.homeSuggestions.reset")}
-              </button>
-            </Show>
-            <Switch
-              checked={settings.general.homeSuggestionsEnabled()}
-              onChange={(checked) => settings.general.setHomeSuggestionsEnabled(checked)}
-            />
-          </div>
-        </SettingsRow>
-
-        <SettingsRow
           title={language.t("settings.general.row.reasoningSummaries.title")}
           description={language.t("settings.general.row.reasoningSummaries.description")}
         >

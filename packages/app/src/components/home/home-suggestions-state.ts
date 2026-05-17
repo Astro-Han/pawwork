@@ -13,13 +13,11 @@ export const HOME_SUGGESTION_CHIPS: readonly HomeSuggestionChip[] = [
 
 export interface ResolveHomeSuggestionsInput {
   firstTimeVisitor: boolean
-  enabled: boolean
   dismissed: readonly HomeSuggestionChipID[]
 }
 
 export function resolveVisibleHomeSuggestions(input: ResolveHomeSuggestionsInput): HomeSuggestionChipID[] {
   if (!input.firstTimeVisitor) return []
-  if (!input.enabled) return []
   const dismissedSet = new Set(input.dismissed)
   return HOME_SUGGESTION_CHIPS.map((chip) => chip.id).filter((id) => !dismissedSet.has(id))
 }
