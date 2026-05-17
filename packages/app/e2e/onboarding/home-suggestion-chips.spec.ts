@@ -1,10 +1,11 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
+import { modKey } from "../utils"
 
-const suggestionListSelector = '[data-component="home-suggestion-list"]'
-const rowSelector = '[data-action="home-suggestion-row"]'
-const rowDismissSelector = '[data-action="home-suggestion-row-dismiss"]'
+const SUGGESTION_LIST_SELECTOR = '[data-component="home-suggestion-list"]'
+const ROW_SELECTOR = '[data-action="home-suggestion-row"]'
+const ROW_DISMISS_SELECTOR = '[data-action="home-suggestion-row-dismiss"]'
 
 async function readDismissedFromStorage(page: Page): Promise<string[]> {
   // settings.v3 is persisted via the settings store (utils/persist.ts) — in the
@@ -24,16 +25,16 @@ async function readDismissedFromStorage(page: Page): Promise<string[]> {
 test("@smoke home shows 3 suggestion rows for a first-time visitor", async ({ page, project }) => {
   await project.open()
 
-  const list = page.locator(suggestionListSelector)
+  const list = page.locator(SUGGESTION_LIST_SELECTOR)
   await expect(list).toBeVisible()
-  await expect(list.locator(rowSelector)).toHaveCount(3)
+  await expect(list.locator(ROW_SELECTOR)).toHaveCount(3)
 })
 
 test("@smoke clicking a suggestion row prefills the composer", async ({ page, project }) => {
   await project.open()
 
-  const list = page.locator(suggestionListSelector)
-  const firstRow = list.locator(rowSelector).first()
+  const list = page.locator(SUGGESTION_LIST_SELECTOR)
+  const firstRow = list.locator(ROW_SELECTOR).first()
   const text = (await firstRow.innerText()).trim()
   await firstRow.click()
 
@@ -48,17 +49,17 @@ test("@smoke clicking a suggestion row prefills the composer", async ({ page, pr
 test("@smoke per-row X dismisses one row and persists across reload", async ({ page, project }) => {
   await project.open()
 
-  const list = page.locator(suggestionListSelector)
-  await expect(list.locator(rowSelector)).toHaveCount(3)
+  const list = page.locator(SUGGESTION_LIST_SELECTOR)
+  await expect(list.locator(ROW_SELECTOR)).toHaveCount(3)
 
-  const firstRow = list.locator(rowSelector).first()
+  const firstRow = list.locator(ROW_SELECTOR).first()
   await firstRow.hover()
-  await list.locator(rowDismissSelector).first().click()
+  await list.locator(ROW_DISMISS_SELECTOR).first().click()
 
-  await expect(list.locator(rowSelector)).toHaveCount(2)
+  await expect(list.locator(ROW_SELECTOR)).toHaveCount(2)
 
   await page.reload()
-  await expect(page.locator(suggestionListSelector).locator(rowSelector)).toHaveCount(2)
+  await expect(page.locator(SUGGESTION_LIST_SELECTOR).locator(ROW_SELECTOR)).toHaveCount(2)
 })
 
 test("@smoke composer placeholder is the static home string", async ({ page, project }) => {
@@ -92,19 +93,19 @@ test("@smoke composer placeholder is the static home string", async ({ page, pro
 
 test("dismissing all 3 rows hides the section entirely", async ({ page, project }) => {
   await project.open()
-  const list = page.locator(suggestionListSelector)
-  await expect(list.locator(rowSelector)).toHaveCount(3)
+  const list = page.locator(SUGGESTION_LIST_SELECTOR)
+  await expect(list.locator(ROW_SELECTOR)).toHaveCount(3)
 
   for (let i = 0; i < 3; i++) {
-    const firstRow = list.locator(rowSelector).first()
+    const firstRow = list.locator(ROW_SELECTOR).first()
     await firstRow.hover()
-    await list.locator(rowDismissSelector).first().click()
+    await list.locator(ROW_DISMISS_SELECTOR).first().click()
   }
 
-  await expect(page.locator(suggestionListSelector)).toHaveCount(0)
+  await expect(page.locator(SUGGESTION_LIST_SELECTOR)).toHaveCount(0)
 
   await page.reload()
-  await expect(page.locator(suggestionListSelector)).toHaveCount(0)
+  await expect(page.locator(SUGGESTION_LIST_SELECTOR)).toHaveCount(0)
 })
 
 test("used chip is gone but unused chips still appear on home after session creation", async ({
@@ -115,8 +116,8 @@ test("used chip is gone but unused chips still appear on home after session crea
   await project.open()
   await assistant.reply("unused chips remain reply")
 
-  const list = page.locator(suggestionListSelector)
-  const rows = list.locator(rowSelector)
+  const list = page.locator(SUGGESTION_LIST_SELECTOR)
+  const rows = list.locator(ROW_SELECTOR)
   await expect(rows).toHaveCount(3)
 
   const firstChipID = await rows.first().getAttribute("data-chip-id")
@@ -128,9 +129,9 @@ test("used chip is gone but unused chips still appear on home after session crea
 
   // Back to home: chips are NOT gated by sessionCount, so the unused two remain.
   await project.open()
-  await expect(list.locator(rowSelector)).toHaveCount(2)
+  await expect(list.locator(ROW_SELECTOR)).toHaveCount(2)
   const remainingIDs = await list
-    .locator(rowSelector)
+    .locator(ROW_SELECTOR)
     .evaluateAll((els) => els.map((el) => el.getAttribute("data-chip-id")))
   expect(remainingIDs).not.toContain(firstChipID)
 })
@@ -140,7 +141,7 @@ test("editing a prefilled suggestion preserves the user's edit on send", async (
   await assistant.reply("edited reply")
 
   const editor = page.locator(promptSelector)
-  await page.locator(suggestionListSelector).locator(rowSelector).first().click()
+  await page.locator(SUGGESTION_LIST_SELECTOR).locator(ROW_SELECTOR).first().click()
   await expect(editor).toBeFocused()
 
   await page.keyboard.type(" please be concise")
@@ -153,9 +154,9 @@ test("editing a prefilled suggestion preserves the user's edit on send", async (
 test("clicking another suggestion replaces the previous prefill", async ({ page, project }) => {
   await project.open()
 
-  const list = page.locator(suggestionListSelector)
+  const list = page.locator(SUGGESTION_LIST_SELECTOR)
   const editor = page.locator(promptSelector)
-  const rows = list.locator(rowSelector)
+  const rows = list.locator(ROW_SELECTOR)
 
   const firstText = (await rows.first().innerText()).trim()
   const secondText = (await rows.nth(1).innerText()).trim()
@@ -172,7 +173,7 @@ test("using a chip via send auto-dismisses it for capability discovery", async (
   await project.open()
   await assistant.reply("auto-dismiss reply")
 
-  const firstRow = page.locator(suggestionListSelector).locator(rowSelector).first()
+  const firstRow = page.locator(SUGGESTION_LIST_SELECTOR).locator(ROW_SELECTOR).first()
   const firstChipID = await firstRow.getAttribute("data-chip-id")
   expect(firstChipID).toBeTruthy()
 
@@ -188,7 +189,7 @@ test("switching chips before send dismisses only the last selection", async ({ p
   await project.open()
   await assistant.reply("only-last reply")
 
-  const rows = page.locator(suggestionListSelector).locator(rowSelector)
+  const rows = page.locator(SUGGESTION_LIST_SELECTOR).locator(ROW_SELECTOR)
   const firstChipID = await rows.first().getAttribute("data-chip-id")
   const secondChipID = await rows.nth(1).getAttribute("data-chip-id")
 
@@ -207,7 +208,7 @@ test("clicking a chip then sending any content dismisses it (sticky source)", as
   await assistant.reply("sticky source reply")
 
   const editor = page.locator(promptSelector)
-  const firstRow = page.locator(suggestionListSelector).locator(rowSelector).first()
+  const firstRow = page.locator(SUGGESTION_LIST_SELECTOR).locator(ROW_SELECTOR).first()
   const firstChipID = await firstRow.getAttribute("data-chip-id")
   expect(firstChipID).toBeTruthy()
 
@@ -218,9 +219,7 @@ test("clicking a chip then sending any content dismisses it (sticky source)", as
   // sticky once clicked — sending any prompt afterwards still dismisses it
   // (the user engaged with the suggestion and chose a direction, no need to
   // keep pitching it).
-  await page.evaluate(() => {
-    document.execCommand("selectAll")
-  })
+  await page.keyboard.press(`${modKey}+A`)
   await page.keyboard.press("Backspace")
   await page.keyboard.type("my own prompt content")
   await page.keyboard.press("Enter")
