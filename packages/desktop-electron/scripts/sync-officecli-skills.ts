@@ -110,9 +110,26 @@ export function computeContentSha(files: Map<string, Buffer>): string {
 
 export type ExtractedFiles = Map<string, Buffer>
 
+async function walkFiles(rootDir: string, relPrefix: string, out: Map<string, Buffer>) {
+  const entries = await readdir(rootDir, { withFileTypes: true })
+  for (const entry of entries) {
+    const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name
+    const abs = path.join(rootDir, entry.name)
+    if (entry.isDirectory()) {
+      await walkFiles(abs, rel, out)
+    } else if (entry.isFile()) {
+      out.set(rel, await readFile(abs))
+    }
+    // Symlinks and other entry types are intentionally skipped — upstream officecli
+    // does not ship them, and pulling them in would expand the trust surface.
+  }
+}
+
 /**
- * Extract a local tarball at `tarballPath`. Returns a map of "<skill-name>/SKILL.md" → file contents
- * (paths relative to skills/ inside the tarball).
+ * Extract a local tarball at `tarballPath`. Returns a map of "<skill-name>/<rel-path>" → file contents
+ * (paths relative to skills/ inside the tarball). Includes SKILL.md plus every companion file
+ * (editing.md, creating.md, reference/*, etc.) so packaged bundles can resolve the cross-doc
+ * links that upstream SKILL.md uses for progressive disclosure.
  */
 export async function extractTarball(tarballPath: string): Promise<ExtractedFiles> {
   const extractDir = await mkdtemp(path.join(tmpdir(), "officecli-skills-"))
@@ -132,9 +149,10 @@ export async function extractTarball(tarballPath: string): Promise<ExtractedFile
     const result: ExtractedFiles = new Map()
     for (const entry of skillDirs) {
       if (!entry.isDirectory()) continue
-      const skillFile = path.join(skillsRoot, entry.name, "SKILL.md")
-      const content = await readFile(skillFile).catch(() => null)
-      if (!content) {
+      const skillDir = path.join(skillsRoot, entry.name)
+      const skillFile = path.join(skillDir, "SKILL.md")
+      const skillStat = await stat(skillFile).catch(() => null)
+      if (!skillStat?.isFile()) {
         // Bundle-prefixed dir without SKILL.md = upstream layout drift inside the bundle we
         // care about → hard-fail so the diff gets human review.
         // Non-prefix dir without SKILL.md = upstream organizational subdir (README/, assets/,
@@ -147,7 +165,7 @@ export async function extractTarball(tarballPath: string): Promise<ExtractedFile
         }
         continue
       }
-      result.set(`${entry.name}/SKILL.md`, content)
+      await walkFiles(skillDir, entry.name, result)
     }
     return result
   } finally {
@@ -196,6 +214,8 @@ export interface SyncOptions {
   tarballPathOverride?: string
   /** Override for testing: read/write the manifest at this path instead of the repo manifest */
   manifestPathOverride?: string
+  /** Override for testing: write skills into this directory instead of the repo `skills/` */
+  skillsDirOverride?: string
 }
 
 export async function syncSkills(opts: SyncOptions): Promise<void> {
@@ -209,6 +229,7 @@ export async function syncSkills(opts: SyncOptions): Promise<void> {
   const { repo, version } = officecli
   const dryRun = opts.dryRun ?? false
   const computeSha = opts.computeSha ?? false
+  const skillsDir = opts.skillsDirOverride ?? SKILLS_DIR
 
   // 1. Obtain tarball: either via override (tests) or real download
   let tarballPath: string
@@ -231,8 +252,11 @@ export async function syncSkills(opts: SyncOptions): Promise<void> {
   try {
     // 2. Extract
     const files = await extractTarball(tarballPath)
-    const upstreamNames = [...files.keys()].map((k) => k.split("/")[0]).sort()
-    console.log(`[sync-skills] extracted ${upstreamNames.length} skills: ${upstreamNames.join(", ")}`)
+    // Each map key is "<skill-name>/<rel-path>"; collapse to the set of skill names.
+    const upstreamNames = [...new Set([...files.keys()].map((k) => k.split("/")[0]))].sort()
+    console.log(
+      `[sync-skills] extracted ${upstreamNames.length} skills (${files.size} files): ${upstreamNames.join(", ")}`,
+    )
 
     // Safety guard: pruneSkillsDir will delete every officecli-*/morph-ppt* dir that is NOT
     // in upstreamNames. If the extracted tarball contains zero bundle-prefix skills (either
@@ -279,26 +303,42 @@ export async function syncSkills(opts: SyncOptions): Promise<void> {
       )
     }
 
-    // 6. Inject override + write each SKILL.md
+    // 6. Inject override into each SKILL.md + write every file (companion docs included).
+    //    Non-SKILL.md files (editing.md, creating.md, reference/*, etc.) are written byte-for-byte
+    //    so the skill tool's <skill_files> sampling can surface them to the model.
     if (dryRun) {
-      console.log(`[sync-skills] (dry-run) would write ${upstreamNames.length} files under ${SKILLS_DIR}`)
+      console.log(`[sync-skills] (dry-run) would write ${files.size} files under ${skillsDir}`)
     } else {
-      for (const [relPath, content] of files) {
-        const transformed = injectOverride(content.toString("utf8"))
-        const destPath = path.join(SKILLS_DIR, relPath)
-        await mkdir(path.dirname(destPath), { recursive: true })
-        await writeFile(destPath, transformed, "utf8")
+      // Wipe each upstream skill dir first so stale companion files (e.g. an upstream rename
+      // from editing.md → edit.md) do not linger alongside the freshly written ones.
+      for (const name of upstreamNames) {
+        await rm(path.join(skillsDir, name), { recursive: true, force: true })
       }
-      console.log(`[sync-skills] wrote ${upstreamNames.length} SKILL.md files`)
+      let skillMdCount = 0
+      for (const [relPath, content] of files) {
+        const destPath = path.join(skillsDir, relPath)
+        await mkdir(path.dirname(destPath), { recursive: true })
+        if (relPath.endsWith("/SKILL.md")) {
+          const transformed = injectOverride(content.toString("utf8"))
+          await writeFile(destPath, transformed, "utf8")
+          skillMdCount += 1
+        } else {
+          await writeFile(destPath, content)
+        }
+      }
+      console.log(
+        `[sync-skills] wrote ${files.size} files across ${upstreamNames.length} skills ` +
+          `(${skillMdCount} SKILL.md with override + ${files.size - skillMdCount} companion files)`,
+      )
     }
 
     // 7. Prune stale directories
-    const skillsDirExists = await stat(SKILLS_DIR).then((s) => s.isDirectory()).catch(() => false)
+    const skillsDirExists = await stat(skillsDir).then((s) => s.isDirectory()).catch(() => false)
     if (skillsDirExists) {
       if (dryRun) {
         console.log(`[sync-skills] (dry-run) skipping prune`)
       } else {
-        const result = await pruneSkillsDir(SKILLS_DIR, upstreamNames)
+        const result = await pruneSkillsDir(skillsDir, upstreamNames)
         console.log(`[sync-skills] pruned ${result.deleted.length} stale dirs; kept ${result.kept.length}; warned ${result.warned.length}`)
       }
     }

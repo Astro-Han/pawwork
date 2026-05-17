@@ -229,6 +229,33 @@ describe("extractTarball", () => {
     expect(keys).toEqual(["morph-ppt/SKILL.md", "officecli-good/SKILL.md"])
     await rm(path.dirname(tarball), { recursive: true, force: true })
   })
+
+  test("includes companion docs and nested reference assets alongside SKILL.md", async () => {
+    // upstream skills/<name>/ ships SKILL.md + sibling editing.md/creating.md and a
+    // reference/ subtree — the packaged bundle must surface them so the model can
+    // follow the cross-doc links in SKILL.md.
+    const tarball = await buildFixtureTarball("repo-sha", {
+      "skills/officecli-docx/SKILL.md": "---\nname: docx\n---\n",
+      "skills/officecli-docx/editing.md": "edit guide",
+      "skills/officecli-docx/creating.md": "create guide",
+      "skills/morph-ppt/SKILL.md": "---\nname: morph\n---\n",
+      "skills/morph-ppt/reference/decision-rules.md": "rules",
+      "skills/morph-ppt/reference/styles/INDEX.md": "styles",
+    })
+    const files = await extractTarball(tarball)
+    const keys = [...files.keys()].sort()
+    expect(keys).toEqual([
+      "morph-ppt/SKILL.md",
+      "morph-ppt/reference/decision-rules.md",
+      "morph-ppt/reference/styles/INDEX.md",
+      "officecli-docx/SKILL.md",
+      "officecli-docx/creating.md",
+      "officecli-docx/editing.md",
+    ])
+    expect(files.get("officecli-docx/editing.md")!.toString("utf8")).toBe("edit guide")
+    expect(files.get("morph-ppt/reference/styles/INDEX.md")!.toString("utf8")).toBe("styles")
+    await rm(path.dirname(tarball), { recursive: true, force: true })
+  })
 })
 
 describe("syncSkills (integration, fixture-driven)", () => {
@@ -292,5 +319,109 @@ describe("syncSkills (integration, fixture-driven)", () => {
       syncSkills({ dryRun: true, tarballPathOverride: fixturePath, manifestPathOverride: manifestPath }),
     ).rejects.toThrow(/sha256 mismatch/i)
     await rm(path.dirname(manifestPath), { recursive: true, force: true })
+  })
+
+  test("default mode writes companion docs byte-identical and injects override only into SKILL.md", async () => {
+    // Build a fixture with one bundle-prefix skill that has companion docs + a reference subtree.
+    const tarball = await buildFixtureTarball("repo-sha", {
+      "skills/officecli-foo/SKILL.md": "---\nname: officecli-foo\ndescription: t\n---\n\n# Body\n",
+      "skills/officecli-foo/editing.md": "edit guide body",
+      "skills/officecli-foo/reference/styles/INDEX.md": "styles index",
+    })
+    const manifestPath = await makeTempManifest({
+      repo: "iOfficeAI/OfficeCLI",
+      version: "v0.0.0-fixture",
+    })
+    const skillsDir = await mkdtemp(path.join(tmpdir(), "sync-dest-"))
+
+    try {
+      // Bootstrap the SHA first.
+      await syncSkills({
+        computeSha: true,
+        tarballPathOverride: tarball,
+        manifestPathOverride: manifestPath,
+        skillsDirOverride: skillsDir,
+      })
+
+      // Default mode writes files. SKILL.md gets the override blockquote; companion files are
+      // written byte-for-byte from the tarball.
+      await syncSkills({
+        tarballPathOverride: tarball,
+        manifestPathOverride: manifestPath,
+        skillsDirOverride: skillsDir,
+      })
+
+      const skillMd = await readFile(path.join(skillsDir, "officecli-foo", "SKILL.md"), "utf8")
+      expect(skillMd).toContain("PawWork-specific note")
+      expect(skillMd).toContain("# Body")
+
+      const editing = await readFile(path.join(skillsDir, "officecli-foo", "editing.md"), "utf8")
+      expect(editing).toBe("edit guide body")
+
+      const styles = await readFile(
+        path.join(skillsDir, "officecli-foo", "reference", "styles", "INDEX.md"),
+        "utf8",
+      )
+      expect(styles).toBe("styles index")
+    } finally {
+      await rm(skillsDir, { recursive: true, force: true })
+      await rm(path.dirname(manifestPath), { recursive: true, force: true })
+      await rm(path.dirname(tarball), { recursive: true, force: true })
+    }
+  })
+
+  test("default mode removes stale companion docs left over from a previous sync", async () => {
+    // First sync ships one companion file; second sync drops it from the tarball.
+    const skillsDir = await mkdtemp(path.join(tmpdir(), "sync-dest-stale-"))
+    const manifestPath = await makeTempManifest({
+      repo: "iOfficeAI/OfficeCLI",
+      version: "v0.0.0-fixture",
+    })
+
+    const firstTarball = await buildFixtureTarball("repo-sha", {
+      "skills/officecli-foo/SKILL.md": "---\nname: foo\n---\n",
+      "skills/officecli-foo/old-companion.md": "stale",
+    })
+
+    try {
+      await syncSkills({
+        computeSha: true,
+        tarballPathOverride: firstTarball,
+        manifestPathOverride: manifestPath,
+        skillsDirOverride: skillsDir,
+      })
+      await syncSkills({
+        tarballPathOverride: firstTarball,
+        manifestPathOverride: manifestPath,
+        skillsDirOverride: skillsDir,
+      })
+      // confirm baseline
+      expect((await readFile(path.join(skillsDir, "officecli-foo", "old-companion.md"), "utf8"))).toBe("stale")
+
+      const secondTarball = await buildFixtureTarball("repo-sha", {
+        "skills/officecli-foo/SKILL.md": "---\nname: foo\n---\n",
+        // old-companion.md intentionally removed
+      })
+      await syncSkills({
+        computeSha: true,
+        tarballPathOverride: secondTarball,
+        manifestPathOverride: manifestPath,
+        skillsDirOverride: skillsDir,
+      })
+      await syncSkills({
+        tarballPathOverride: secondTarball,
+        manifestPathOverride: manifestPath,
+        skillsDirOverride: skillsDir,
+      })
+
+      await expect(
+        readFile(path.join(skillsDir, "officecli-foo", "old-companion.md"), "utf8"),
+      ).rejects.toThrow(/ENOENT/)
+      await rm(path.dirname(secondTarball), { recursive: true, force: true })
+    } finally {
+      await rm(skillsDir, { recursive: true, force: true })
+      await rm(path.dirname(manifestPath), { recursive: true, force: true })
+      await rm(path.dirname(firstTarball), { recursive: true, force: true })
+    }
   })
 })
