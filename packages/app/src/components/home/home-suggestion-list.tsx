@@ -76,16 +76,18 @@ export const HomeSuggestionList: Component = () => {
   }
 
   const prefill = (text: string) => {
-    markSeen()
     // If the user has already started typing (or @-mentioned a file), do not
     // overwrite their work. Just focus the editor and leave the composer
     // untouched. They can clear it and click the chip again if they really
     // want the suggestion. Naively merging would lose non-text parts like
     // file/agent mentions, which is a worse failure mode than no-op here.
+    // We also do NOT mark seen in this no-op path: the user hasn't actually
+    // engaged with onboarding, so flipping seen would silently exit them.
     if (prompt.dirty()) {
       requestAnimationFrame(() => focusComposerEditor(promptLength(prompt.current())))
       return
     }
+    markSeen()
     prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
     requestAnimationFrame(() => focusComposerEditor(text.length))
   }

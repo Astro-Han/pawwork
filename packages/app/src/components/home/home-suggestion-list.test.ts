@@ -45,10 +45,17 @@ describe("HomeSuggestionList source contract", () => {
     expect(match![0]).toContain("markSeen()")
   })
 
-  test("chip click (prefill) DOES mark seen", () => {
+  test("chip click (prefill) DOES mark seen, but only AFTER the dirty no-op branch", () => {
     const match = source.match(/const prefill = [\s\S]*?\n  \}/)
     expect(match).not.toBeNull()
     expect(match![0]).toContain("markSeen()")
+    // Order: prompt.dirty() check must come before markSeen() so a chip click
+    // that becomes a no-op (because the composer was already dirty) does not
+    // silently exit onboarding.
+    const dirtyIndex = match![0].indexOf("prompt.dirty()")
+    const seenIndex = match![0].indexOf("markSeen()")
+    expect(dirtyIndex).toBeGreaterThan(-1)
+    expect(seenIndex).toBeGreaterThan(dirtyIndex)
   })
 
   test("exposes the documented data-component and data-action hooks for E2E", () => {
