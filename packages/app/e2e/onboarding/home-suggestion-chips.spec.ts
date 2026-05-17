@@ -67,12 +67,19 @@ test("@smoke composer placeholder is the static home string", async ({ page, pro
   const editor = page.locator(promptSelector)
   await expect(editor).toBeVisible()
 
-  // Persistence key is "language", shape is { locale: "zh" | "en" }, confirmed
-  // via packages/app/src/context/language.tsx.
+  // LanguageProvider persists under "pawwork.global.dat:language" with shape
+  // { locale: "zh" | "en" } (see packages/app/src/context/language.tsx). Falls
+  // back to "en" when unset, matching detectLocale()'s final return in a
+  // CI runner where navigator.language is "en-US".
   const locale = await page.evaluate(() => {
-    const raw = localStorage.getItem("language")
-    const parsed = raw ? JSON.parse(raw) : { locale: "zh" }
-    return parsed.locale?.startsWith?.("zh") ? "zh" : "en"
+    const raw = localStorage.getItem("pawwork.global.dat:language")
+    if (!raw) return "en"
+    try {
+      const parsed = JSON.parse(raw) as { locale?: string }
+      return parsed.locale?.startsWith?.("zh") ? "zh" : "en"
+    } catch {
+      return "en"
+    }
   })
   const label = await editor.getAttribute("aria-label")
   // i18n source: packages/app/src/i18n/{zh,en}.ts → prompt.placeholder.home
