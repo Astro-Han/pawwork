@@ -87,10 +87,9 @@ type Evict = { key: string; size: number }
 
 function evict(storage: Storage, keep: string, value: string) {
   const total = storage.length
-  const indexes = Array.from({ length: total }, (_, index) => index)
   const items: Evict[] = []
 
-  for (const index of indexes) {
+  for (let index = 0; index < total; index++) {
     const name = storage.key(index)
     if (!name) continue
     if (!EVICT_PREFIXES.some((prefix) => name.startsWith(prefix))) continue
