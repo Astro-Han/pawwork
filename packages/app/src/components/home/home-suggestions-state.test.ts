@@ -8,23 +8,17 @@ import {
 describe("resolveVisibleHomeSuggestions", () => {
   const allIDs = HOME_SUGGESTION_CHIPS.map((chip) => chip.id)
 
-  test("returns all chips for a first-time visitor with nothing dismissed", () => {
-    expect(resolveVisibleHomeSuggestions({ firstTimeVisitor: true, dismissed: [] })).toEqual(allIDs)
-  })
-
-  test("returns empty when not a first-time visitor", () => {
-    expect(resolveVisibleHomeSuggestions({ firstTimeVisitor: false, dismissed: [] })).toEqual([])
+  test("returns all chips when nothing is dismissed", () => {
+    expect(resolveVisibleHomeSuggestions({ dismissed: [] })).toEqual(allIDs)
   })
 
   test("filters dismissed chips while preserving original order", () => {
     const dismissed: HomeSuggestionChipID[] = ["excel-analysis"]
-    expect(resolveVisibleHomeSuggestions({ firstTimeVisitor: true, dismissed })).toEqual(
-      allIDs.filter((id) => id !== "excel-analysis"),
-    )
+    expect(resolveVisibleHomeSuggestions({ dismissed })).toEqual(allIDs.filter((id) => id !== "excel-analysis"))
   })
 
   test("returns empty when all three chips are dismissed", () => {
-    expect(resolveVisibleHomeSuggestions({ firstTimeVisitor: true, dismissed: allIDs })).toEqual([])
+    expect(resolveVisibleHomeSuggestions({ dismissed: allIDs })).toEqual([])
   })
 
   test("HOME_SUGGESTION_CHIPS has stable IDs and three entries", () => {

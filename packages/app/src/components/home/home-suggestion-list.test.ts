@@ -12,10 +12,13 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toContain("useLanguage")
   })
 
-  test("computes firstTimeVisitor from sync.data.session.length and sync.ready", () => {
+  test("observes sessionCount only for the auto-dismiss effect, not as visibility gate", () => {
     expect(source).toContain("sync.data.session")
     expect(source).toMatch(/sync\.data\.session\??\.length/)
+    // sync.ready stays as a hydration guard so dismissed isn't read as [] mid-load.
     expect(source).toContain("sync.ready")
+    // No per-project gate: visibility no longer derives from sessionCount === 0.
+    expect(source).not.toMatch(/firstTimeVisitor/)
   })
 
   test("exposes the documented data-component and data-action hooks for E2E", () => {

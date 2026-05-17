@@ -30,12 +30,13 @@ export const HOME_SUGGESTION_CHIPS: readonly HomeSuggestionChip[] = [
 ]
 
 export interface ResolveHomeSuggestionsInput {
-  firstTimeVisitor: boolean
   dismissed: readonly HomeSuggestionChipID[]
 }
 
+// Pure capability-discovery: chips show until each is individually dismissed
+// (user-X'd or auto-marked after use). No per-project gating — switching
+// workspaces does not reset what the user has already engaged with.
 export function resolveVisibleHomeSuggestions(input: ResolveHomeSuggestionsInput): HomeSuggestionChipID[] {
-  if (!input.firstTimeVisitor) return []
   const dismissedSet = new Set(input.dismissed)
   return HOME_SUGGESTION_CHIPS.map((chip) => chip.id).filter((id) => !dismissedSet.has(id))
 }

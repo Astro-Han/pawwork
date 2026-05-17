@@ -100,17 +100,32 @@ test("dismissing all 3 rows hides the section entirely", async ({ page, project 
   await expect(page.locator(suggestionListSelector)).toHaveCount(0)
 })
 
-test("returning visitor (sessions > 0) sees no suggestion list", async ({ page, project, assistant }) => {
+test("used chip is gone but unused chips still appear on home after session creation", async ({
+  page,
+  project,
+  assistant,
+}) => {
   await project.open()
+  await assistant.reply("unused chips remain reply")
 
-  await assistant.reply("reply to trigger a session")
-  await page.locator(promptSelector).click()
-  await page.keyboard.type("first prompt")
+  const list = page.locator(suggestionListSelector)
+  const rows = list.locator(rowSelector)
+  await expect(rows).toHaveCount(3)
+
+  const firstChipID = await rows.first().getAttribute("data-chip-id")
+  expect(firstChipID).toBeTruthy()
+
+  await rows.first().click()
   await page.keyboard.press("Enter")
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
 
+  // Back to home: chips are NOT gated by sessionCount, so the unused two remain.
   await project.open()
-  await expect(page.locator(suggestionListSelector)).toHaveCount(0)
+  await expect(list.locator(rowSelector)).toHaveCount(2)
+  const remainingIDs = await list
+    .locator(rowSelector)
+    .evaluateAll((els) => els.map((el) => el.getAttribute("data-chip-id")))
+  expect(remainingIDs).not.toContain(firstChipID)
 })
 
 test("editing a prefilled suggestion preserves the user's edit on send", async ({ page, project, assistant }) => {

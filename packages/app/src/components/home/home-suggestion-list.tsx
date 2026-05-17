@@ -39,17 +39,20 @@ export const HomeSuggestionList: Component = () => {
   const settings = useSettings()
   const sync = useSync()
 
+  // sessionCount is observed only for the auto-dismiss side effect below —
+  // it does NOT gate visibility. Chips are pure capability discovery: shown
+  // until each is individually dismissed, regardless of current workspace.
   const sessionCount = createMemo(() => sync.data.session?.length ?? 0)
-  // sync.ready guards the brief hydration window where session is empty and
-  // every user looks new. sync.ready is a reactive getter on the context.
-  const firstTimeVisitor = createMemo(() => sync.ready && sessionCount() === 0)
 
-  const visibleIDs = createMemo(() =>
-    resolveVisibleHomeSuggestions({
-      firstTimeVisitor: firstTimeVisitor(),
+  const visibleIDs = createMemo(() => {
+    // sync.ready guards the brief hydration window where settings may not be
+    // fully loaded yet. Without this, the dismissed list may read as [] for a
+    // frame before its real value, causing chips to flash.
+    if (!sync.ready) return []
+    return resolveVisibleHomeSuggestions({
       dismissed: filterKnownIDs(settings.general.homeSuggestionsDismissed()),
-    }),
-  )
+    })
+  })
 
   const visibleChips = createMemo(() => {
     const ids = new Set(visibleIDs())
