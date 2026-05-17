@@ -9,20 +9,20 @@ const labelerWorkflowPath = path.join(repoRoot, ".github", "workflows", "labeler
 const triageWorkflowPath = path.join(repoRoot, ".github", "workflows", "pr-priority-triage.yml")
 
 describe("pr routing workflows", () => {
-  test("defines labeler routing on current repo labels", () => {
+  test("defines labeler routing without automatic type labels", () => {
     const config = readWorkflow(labelerConfigPath)
     expect(config).toContain("ci:")
     expect(config).toContain("platform:")
     expect(config).toContain("app:")
     expect(config).toContain("ui:")
     expect(config).toContain("harness:")
-    expect(config).toContain("documentation:")
+    expect(config).not.toContain("documentation:")
     expect(config).toContain(".github/workflows/**")
     expect(config).toContain("packages/desktop-electron/**")
     expect(config).toContain("packages/app/**")
     expect(config).toContain("packages/opencode/**")
     expect(config).toContain("**/*.tsx")
-    expect(config).toContain("**/*.md")
+    expect(config).not.toContain("**/*.md")
   })
 
   test("pins labeler and triage workflow contracts", () => {
