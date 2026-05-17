@@ -146,6 +146,9 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
 type ModelSelectorTriggerProps = Omit<ComponentProps<typeof Kobalte.Trigger>, "as" | "ref">
 type Dismiss = "escape" | "outside" | "select"
 
+const isPickerContentTarget = (target: EventTarget | null) =>
+  target instanceof Element && !!target.closest("[data-picker-content]")
+
 export function ModelSelectorPopover(props: {
   provider?: string
   model?: ModelState
@@ -170,8 +173,6 @@ export function ModelSelectorPopover(props: {
     setStore("open", false)
     setExternalOpen(false)
   }
-  const isPickerContentTarget = (target: EventTarget | null) =>
-    target instanceof Element && !!target.closest("[data-picker-content]")
   let ignoreFocusOutsideForPointerInside = false
 
   const handlePointerDownInside = () => {
