@@ -13,25 +13,23 @@ describe("settings-general home suggestions row", () => {
     expect(source).toContain("settings.general.setHomeSuggestionsEnabled(")
   })
 
-  test("restore button is visible whenever any chip is dismissed OR seen was set", () => {
-    // Either source slot indicates "chips are currently hidden because of past
-    // user action" and a restore should be offered. Gating only on dismissed
-    // would leave the button hidden after a section dismiss (which writes seen).
+  test("restore button is gated on dismissed-non-empty (no useSync coupling)", () => {
+    // dismissAll writes all chip ids, so dismissed-non-empty is true exactly
+    // when chips were hidden via either path (per-row or section). For a
+    // returning user the createEffect auto-latches seen=true but leaves
+    // dismissed empty, so the button stays hidden and we never surface a
+    // no-op recovery. This keeps Settings independent of the Sync provider,
+    // which is critical because the Settings page renders outside it.
     expect(source).toContain("homeSuggestionsDismissed().length > 0")
-    expect(source).toContain("homeSuggestionsSeen()")
-  })
-
-  test("restore button is hidden when sessions already exist (no-op recovery)", () => {
-    // Once any session is present, firstTimeVisitor is false regardless of
-    // dismissed/seen, so restoring would be a silent no-op. Settings must
-    // therefore consult sync.data.session length to decide whether to render.
-    expect(source).toContain("sync.data.session")
-    expect(source).toContain("sync.ready")
+    // Settings page renders outside the Sync provider; importing useSync
+    // throws "Sync context must be used within a context provider".
+    expect(source).not.toContain("useSync")
   })
 
   test("restore action resets BOTH dismissed and seen", () => {
     // The single most important invariant: clicking restore must clear BOTH
-    // state slots, otherwise the button is a silent no-op after section X.
+    // state slots, otherwise the button is a silent no-op after section X
+    // (which writes both dismissed and seen).
     expect(source).toContain("setHomeSuggestionsDismissed([])")
     expect(source).toContain("setHomeSuggestionsSeen(false)")
   })

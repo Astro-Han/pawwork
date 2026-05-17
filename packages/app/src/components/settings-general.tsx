@@ -18,7 +18,6 @@ import {
   sansInput,
   useSettings,
 } from "@/context/settings"
-import { useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
@@ -40,7 +39,6 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const params = useParams()
   const settings = useSettings()
-  const sync = useSync()
 
   onMount(() => {
     void theme.loadThemes()
@@ -130,23 +128,20 @@ export const SettingsGeneral: Component = () => {
             <Show
               when={
                 settings.general.homeSuggestionsEnabled() &&
-                // Only meaningful while there are no sessions yet: that's the
-                // only state where chips can actually re-appear on home. Once
-                // any session exists, firstTimeVisitor is false regardless of
-                // dismissed/seen, so restoring would be a silent no-op.
-                sync.ready &&
-                (sync.data.session?.length ?? 0) === 0 &&
-                (settings.general.homeSuggestionsDismissed().length > 0 ||
-                  settings.general.homeSuggestionsSeen())
+                settings.general.homeSuggestionsDismissed().length > 0
               }
             >
+              {/* Gate on dismissed only: this is non-empty in exactly the two
+                  paths a Restore would actually help (per-row dismissal and
+                  section dismiss, since dismissAll writes all ids). For a
+                  returning user the createEffect auto-latches seen=true but
+                  leaves dismissed empty, so the button stays hidden and we
+                  do not surface a no-op recovery. Restore still resets BOTH
+                  state slots so the section dismiss path actually unwinds. */}
               <button
                 type="button"
                 class="text-fg-muted hover:text-fg-strong text-sm"
                 onClick={() => {
-                  // Restore must reset BOTH state slots. Dismissed alone won't
-                  // bring chips back if section dismiss already flipped seen,
-                  // since firstTimeVisitor would still be false.
                   settings.general.setHomeSuggestionsDismissed([])
                   settings.general.setHomeSuggestionsSeen(false)
                 }}
