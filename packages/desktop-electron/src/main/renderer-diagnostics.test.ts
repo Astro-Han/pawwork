@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -168,6 +168,31 @@ describe("renderer diagnostics recorder", () => {
     const content = await readFile(recorder.path, "utf8")
     expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(Math.floor(maxBytes * 0.8))
     expect(content).toContain("msg_11")
+  })
+
+  test("retention keeps the log intact when the existing file cannot be read", async () => {
+    const root = await tempRoot()
+    const recorder = createRendererDiagnosticsRecorder({
+      root,
+      appLaunchID: "launch_1",
+      maxBytes: 120,
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+    })
+    const existing = `${JSON.stringify({
+      time: "2026-05-02T10:30:12.123Z",
+      level: "info",
+      "event.name": "session.action.submit",
+      app_launch_id: "launch_1",
+      window_id: "1",
+      data: { action: "submit_prompt" },
+    })}\n`
+    await writeFile(recorder.path, existing, "utf8")
+    await chmod(recorder.path, 0)
+
+    await recorder.flushRetention()
+
+    await chmod(recorder.path, 0o600)
+    expect(await readFile(recorder.path, "utf8")).toBe(existing)
   })
 
   test("slice drains queued writes before reading", async () => {

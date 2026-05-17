@@ -114,7 +114,9 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
   const readEvents = async () => (await readEventReport()).events
 
   const flushRetentionNow = async () => {
-    const events = await readEvents()
+    const report = await readEventReport()
+    if (report.status === "corrupt") return
+    const events = report.events
     const cutoff = now().getTime() - retentionMs
     const retained = events.filter((event) => eventTime(event) >= cutoff)
     const lines = retained.map((event) => JSON.stringify(event))
