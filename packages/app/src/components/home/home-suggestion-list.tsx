@@ -5,7 +5,6 @@ import { usePrompt } from "@/context/prompt"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
-import { promptLength } from "@/components/prompt-input/history"
 import {
   HOME_SUGGESTION_CHIPS,
   resolveVisibleHomeSuggestions,
@@ -60,12 +59,10 @@ export const HomeSuggestionList: Component = () => {
   type I18nKey = Parameters<typeof language.t>[0]
 
   const prefill = (text: string) => {
-    // Dirty composer: do not overwrite user-typed content (including @-mentions).
-    // Just focus the editor and leave it alone.
-    if (prompt.dirty()) {
-      requestAnimationFrame(() => focusComposerEditor(promptLength(prompt.current())))
-      return
-    }
+    // Always replace. First-time visitor's home composer has no ownership
+    // semantics: chip content is a system suggestion, not user-authored.
+    // Letting subsequent chip clicks swap freely makes the "try A, then B"
+    // exploration that onboarding chips invite actually work.
     prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
     requestAnimationFrame(() => focusComposerEditor(text.length))
   }

@@ -112,15 +112,20 @@ test("editing a prefilled suggestion preserves the user's edit on send", async (
   await expect(page.getByText(/please be concise/)).toBeVisible()
 })
 
-test("clicking a chip with user-typed content does NOT overwrite the user content", async ({ page, project }) => {
+test("clicking another suggestion replaces the previous prefill", async ({ page, project }) => {
   await project.open()
 
+  const list = page.locator(suggestionListSelector)
   const editor = page.locator(promptSelector)
-  await editor.click()
-  await page.keyboard.type("my own draft text")
-  await expect(editor).toContainText("my own draft text")
+  const rows = list.locator(rowSelector)
 
-  await page.locator(suggestionListSelector).locator(rowSelector).first().click()
-  await expect(editor).toBeFocused()
-  await expect(editor).toContainText("my own draft text")
+  const firstText = (await rows.first().innerText()).trim()
+  const secondText = (await rows.nth(1).innerText()).trim()
+
+  await rows.first().click()
+  await expect(editor).toContainText(firstText)
+
+  await rows.nth(1).click()
+  await expect(editor).toContainText(secondText)
+  await expect(editor).not.toContainText(firstText)
 })
