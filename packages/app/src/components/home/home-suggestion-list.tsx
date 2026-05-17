@@ -132,11 +132,14 @@ export const HomeSuggestionList: Component = () => {
                 </button>
                 <button
                   type="button"
-                  tabIndex={-1}
                   // 30×30 ghost icon button per DESIGN.md L334: hover overlay is
                   // --row-active-overlay (6%), "one tier deeper than the row to
                   // read separately" (DESIGN.md L401, session-row action).
-                  class="-mr-1 flex size-[30px] shrink-0 items-center justify-center rounded-md text-fg-weak opacity-0 pointer-events-none transition-opacity hover:bg-row-active-overlay hover:text-fg-strong group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+                  // Keyboard-reachable via Tab so a keyboard-only user can
+                  // dismiss a chip without a pointer; visually hidden at rest
+                  // and revealed only when the row is hovered or anything inside
+                  // the row has focus.
+                  class="-mr-1 flex size-[30px] shrink-0 items-center justify-center rounded-md text-fg-weak opacity-0 pointer-events-none transition-opacity hover:bg-row-active-overlay hover:text-fg-strong focus-visible:opacity-100 focus-visible:pointer-events-auto group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
                   aria-label={language.t("home.suggestion.row.dismiss")}
                   onClick={() => dismissRow(chip.id)}
                   data-action="home-suggestion-row-dismiss"

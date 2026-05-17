@@ -73,10 +73,13 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).not.toContain("settings.setStore(")
   })
 
-  test("rest-state dismiss button is not clickable (pointer-events-none) and not in tab order", () => {
+  test("rest-state dismiss button is not clickable (pointer-events-none) but stays keyboard-reachable", () => {
     expect(source).toContain("pointer-events-none")
     expect(source).toContain("group-hover:pointer-events-auto")
-    expect(source).toContain("tabIndex={-1}")
+    expect(source).toContain("focus-visible:pointer-events-auto")
+    // Must NOT be excluded from the tab order: keyboard-only users need a path
+    // to dismiss a chip. Reveal-on-focus handles the visual hiding.
+    expect(source).not.toContain("tabIndex={-1}")
   })
 
   test("renders nothing when there are no visible chips", () => {
