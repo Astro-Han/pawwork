@@ -13,23 +13,28 @@ function error(message, labels) {
   return { message, labels }
 }
 
-export function validateLabelPolicy({ itemType, labels }) {
+function labelList(labels) {
+  if (labels.length <= 1) return labels.join("")
+  return `${labels.slice(0, -1).join(", ")}, or ${labels[labels.length - 1]}`
+}
+
+export function validateLabelPolicy({ itemType, labels = [] }) {
   const labelSet = new Set(labels)
   const errors = []
 
   const priorities = intersection(labelSet, POLICY.priorities)
   if (priorities.length !== 1) {
-    errors.push(error(`${itemType} must have exactly one priority label: P0, P1, P2, or P3`, priorities))
+    errors.push(error(`${itemType} must have exactly one priority label: ${labelList(POLICY.priorities)}`, priorities))
   }
 
   const types = intersection(labelSet, POLICY.types)
   if (types.length !== 1) {
-    errors.push(error(`${itemType} must have exactly one type label: bug, enhancement, task, or documentation`, types))
+    errors.push(error(`${itemType} must have exactly one type label: ${labelList(POLICY.types)}`, types))
   }
 
   const routing = intersection(labelSet, POLICY.routing)
   if (routing.length < 1) {
-    errors.push(error(`${itemType} must have at least one primary routing label: app, ui, platform, harness, or ci`, routing))
+    errors.push(error(`${itemType} must have at least one primary routing label: ${labelList(POLICY.routing)}`, routing))
   }
 
   if (labelSet.has("tech-debt") && !labelSet.has("task")) {
@@ -40,7 +45,7 @@ export function validateLabelPolicy({ itemType, labels }) {
     itemType === "issue" ? intersection(labelSet, POLICY.issueForbiddenLabels) : []
   if (forbiddenIssueLabels.length > 0) {
     errors.push(
-      error("issue must not use PR automation labels: dependencies, github_actions, or javascript", forbiddenIssueLabels),
+      error(`issue must not use PR automation labels: ${labelList(POLICY.issueForbiddenLabels)}`, forbiddenIssueLabels),
     )
   }
 

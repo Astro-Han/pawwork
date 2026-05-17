@@ -43,6 +43,18 @@ test("rejects missing priority labels", () => {
   assert.deepEqual(messages(result), ["issue must have exactly one priority label: P0, P1, P2, or P3"])
 })
 
+test("treats missing labels input as an empty label set", () => {
+  const result = validateLabelPolicy({
+    itemType: "issue",
+  })
+
+  assert.deepEqual(messages(result), [
+    "issue must have exactly one priority label: P0, P1, P2, or P3",
+    "issue must have exactly one type label: bug, enhancement, task, or documentation",
+    "issue must have at least one primary routing label: app, ui, platform, harness, or ci",
+  ])
+})
+
 test("rejects multiple priority labels", () => {
   const result = validateLabelPolicy({
     itemType: "issue",
