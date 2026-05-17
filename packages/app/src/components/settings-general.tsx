@@ -18,6 +18,7 @@ import {
   sansInput,
   useSettings,
 } from "@/context/settings"
+import { useSync } from "@/context/sync"
 import { decode64 } from "@/utils/base64"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
@@ -39,6 +40,7 @@ export const SettingsGeneral: Component = () => {
   const platform = usePlatform()
   const params = useParams()
   const settings = useSettings()
+  const sync = useSync()
 
   onMount(() => {
     void theme.loadThemes()
@@ -128,6 +130,12 @@ export const SettingsGeneral: Component = () => {
             <Show
               when={
                 settings.general.homeSuggestionsEnabled() &&
+                // Only meaningful while there are no sessions yet: that's the
+                // only state where chips can actually re-appear on home. Once
+                // any session exists, firstTimeVisitor is false regardless of
+                // dismissed/seen, so restoring would be a silent no-op.
+                sync.ready &&
+                (sync.data.session?.length ?? 0) === 0 &&
                 (settings.general.homeSuggestionsDismissed().length > 0 ||
                   settings.general.homeSuggestionsSeen())
               }

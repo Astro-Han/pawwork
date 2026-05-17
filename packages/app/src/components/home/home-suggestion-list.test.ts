@@ -14,7 +14,7 @@ describe("HomeSuggestionList source contract", () => {
 
   test("computes firstTimeVisitor from sync.data.session count", () => {
     expect(source).toContain("sync.data.session")
-    expect(source).toMatch(/Object\.keys\([^)]*session[^)]*\)\.length/)
+    expect(source).toMatch(/sync\.data\.session\??\.length/)
   })
 
   test("guards firstTimeVisitor on sync.ready to avoid flashing during hydration", () => {
@@ -67,8 +67,14 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toContain("setCursorPosition")
   })
 
-  test("respects user-typed content via prompt.dirty() before overwriting", () => {
+  test("respects user-typed content via prompt.dirty() (does not overwrite)", () => {
+    // Behavior: if prompt is dirty, do NOT call prompt.set with the suggestion
+    // text. Just focus the editor. Otherwise, prefill normally. We verify the
+    // dirty-branch body does NOT contain prompt.set(.
     expect(source).toContain("prompt.dirty()")
+    const dirtyBranch = source.match(/if \(prompt\.dirty\(\)\)\s*\{[\s\S]*?\}/)
+    expect(dirtyBranch).not.toBeNull()
+    expect(dirtyBranch![0]).not.toContain("prompt.set(")
   })
 
   test("filters dismissed IDs against known chip IDs (no bare type cast)", () => {

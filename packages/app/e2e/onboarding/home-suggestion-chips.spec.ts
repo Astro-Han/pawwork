@@ -133,6 +133,20 @@ test("editing a prefilled suggestion preserves the user's edit on send", async (
   await expect(page.getByText(/please be concise/)).toBeVisible()
 })
 
+test("clicking a chip with user-typed content does NOT overwrite the user content", async ({ page, project }) => {
+  await project.open()
+
+  const editor = page.locator(promptSelector)
+  await editor.click()
+  await page.keyboard.type("my own draft text")
+  await expect(editor).toContainText("my own draft text")
+
+  // click first chip — user content should be preserved (no merge, no overwrite)
+  await page.locator(suggestionListSelector).locator(rowSelector).first().click()
+  await expect(editor).toBeFocused()
+  await expect(editor).toContainText("my own draft text")
+})
+
 test("settings toggle hides and restores the suggestion section via the real Settings UI", async ({
   page,
   project,

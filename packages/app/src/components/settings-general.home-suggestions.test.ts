@@ -21,6 +21,14 @@ describe("settings-general home suggestions row", () => {
     expect(source).toContain("homeSuggestionsSeen()")
   })
 
+  test("restore button is hidden when sessions already exist (no-op recovery)", () => {
+    // Once any session is present, firstTimeVisitor is false regardless of
+    // dismissed/seen, so restoring would be a silent no-op. Settings must
+    // therefore consult sync.data.session length to decide whether to render.
+    expect(source).toContain("sync.data.session")
+    expect(source).toContain("sync.ready")
+  })
+
   test("restore action resets BOTH dismissed and seen", () => {
     // The single most important invariant: clicking restore must clear BOTH
     // state slots, otherwise the button is a silent no-op after section X.

@@ -5,6 +5,7 @@ import { usePrompt } from "@/context/prompt"
 import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { setCursorPosition } from "@/components/prompt-input/editor-dom"
+import { promptLength } from "@/components/prompt-input/history"
 import {
   HOME_SUGGESTION_CHIPS,
   resolveVisibleHomeSuggestions,
@@ -39,7 +40,7 @@ export const HomeSuggestionList: Component = () => {
   const settings = useSettings()
   const sync = useSync()
 
-  const sessionCount = createMemo(() => Object.keys(sync.data.session ?? {}).length)
+  const sessionCount = createMemo(() => sync.data.session?.length ?? 0)
   const seen = createMemo(() => settings.general.homeSuggestionsSeen())
 
   // Flip seen=true on first hydrated state with sessions. Returning users
@@ -76,17 +77,13 @@ export const HomeSuggestionList: Component = () => {
 
   const prefill = (text: string) => {
     markSeen()
-    // Respect user-typed content. If they've already started a message, append
-    // the suggestion text with a space; otherwise replace.
+    // If the user has already started typing (or @-mentioned a file), do not
+    // overwrite their work. Just focus the editor and leave the composer
+    // untouched. They can clear it and click the chip again if they really
+    // want the suggestion. Naively merging would lose non-text parts like
+    // file/agent mentions, which is a worse failure mode than no-op here.
     if (prompt.dirty()) {
-      const existing = prompt
-        .current()
-        .map((part) => ("content" in part ? part.content : ""))
-        .join("")
-      const suffix = existing.endsWith(" ") || existing.length === 0 ? "" : " "
-      const merged = `${existing}${suffix}${text}`
-      prompt.set([{ type: "text", content: merged, start: 0, end: merged.length }], merged.length)
-      requestAnimationFrame(() => focusComposerEditor(merged.length))
+      requestAnimationFrame(() => focusComposerEditor(promptLength(prompt.current())))
       return
     }
     prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
