@@ -8,6 +8,7 @@ import {
 } from "./renderer-diagnostics"
 
 let roots: string[] = []
+const posixPermissionsTest = process.platform === "win32" ? test.skip : test
 
 async function tempRoot() {
   const root = await mkdtemp(join(tmpdir(), "pawwork-renderer-diagnostics-"))
@@ -170,7 +171,7 @@ describe("renderer diagnostics recorder", () => {
     expect(content).toContain("msg_11")
   })
 
-  test("retention keeps the log intact when the existing file cannot be read", async () => {
+  posixPermissionsTest("retention keeps the log intact when the existing file cannot be read", async () => {
     const root = await tempRoot()
     const recorder = createRendererDiagnosticsRecorder({
       root,
