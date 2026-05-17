@@ -33,6 +33,7 @@ export interface Settings {
     editToolPartsExpanded: boolean
     lspEnabled: boolean
     webSearchEnabled: boolean
+    homeSuggestionsDismissed: string[]
   }
   updates: {
     startup: boolean
@@ -114,6 +115,7 @@ const defaultSettings: Settings = {
     editToolPartsExpanded: false,
     lspEnabled: false,
     webSearchEnabled: true,
+    homeSuggestionsDismissed: [],
   },
   updates: {
     startup: true,
@@ -284,6 +286,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         webSearchEnabled: withFallback(() => store.general?.webSearchEnabled, defaultSettings.general.webSearchEnabled),
         setWebSearchEnabled(value: boolean) {
           setStore("general", "webSearchEnabled", value)
+        },
+        homeSuggestionsDismissed: withFallback(
+          () => store.general?.homeSuggestionsDismissed,
+          defaultSettings.general.homeSuggestionsDismissed,
+        ),
+        setHomeSuggestionsDismissed(value: string[]) {
+          setStore("general", "homeSuggestionsDismissed", value)
         },
       },
       updates: {
