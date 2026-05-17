@@ -10,7 +10,7 @@ registerCustomTheme("OpenCode", () => {
   return Promise.resolve({
     name: "OpenCode",
     colors: {
-      "editor.background": "var(--code-surface)",
+      "editor.background": "var(--bg-base)",
       "editor.foreground": "var(--fg-base)",
       "gitDecoration.addedResourceForeground": "var(--syntax-diff-add)",
       "gitDecoration.deletedResourceForeground": "var(--syntax-diff-delete)",
