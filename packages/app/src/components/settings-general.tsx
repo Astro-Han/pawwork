@@ -22,7 +22,6 @@ import { decode64 } from "@/utils/base64"
 import { Link } from "./link"
 import { SettingsList } from "./settings-list"
 import { SettingsNotificationsSection } from "./settings-notifications-section"
-import { HOME_SUGGESTION_CHIPS } from "./home/home-suggestions-state"
 import { SettingsRow } from "./settings-row"
 import { SettingsSoundsSection } from "./settings-sounds-section"
 import { SettingsUpdatesSection } from "./settings-updates-section"
@@ -129,28 +128,27 @@ export const SettingsGeneral: Component = () => {
             <Show
               when={
                 settings.general.homeSuggestionsEnabled() &&
-                settings.general.homeSuggestionsDismissed().length > 0
+                (settings.general.homeSuggestionsDismissed().length > 0 ||
+                  settings.general.homeSuggestionsSeen())
               }
             >
               <button
                 type="button"
                 class="text-fg-muted hover:text-fg-strong text-sm"
-                onClick={() => settings.general.setHomeSuggestionsDismissed([])}
+                onClick={() => {
+                  // Restore must reset BOTH state slots. Dismissed alone won't
+                  // bring chips back if section dismiss already flipped seen,
+                  // since firstTimeVisitor would still be false.
+                  settings.general.setHomeSuggestionsDismissed([])
+                  settings.general.setHomeSuggestionsSeen(false)
+                }}
               >
                 {language.t("settings.general.homeSuggestions.reset")}
               </button>
             </Show>
             <Switch
               checked={settings.general.homeSuggestionsEnabled()}
-              onChange={(checked) => {
-                settings.general.setHomeSuggestionsEnabled(checked)
-                if (
-                  checked &&
-                  settings.general.homeSuggestionsDismissed().length >= HOME_SUGGESTION_CHIPS.length
-                ) {
-                  settings.general.setHomeSuggestionsDismissed([])
-                }
-              }}
+              onChange={(checked) => settings.general.setHomeSuggestionsEnabled(checked)}
             />
           </div>
         </SettingsRow>

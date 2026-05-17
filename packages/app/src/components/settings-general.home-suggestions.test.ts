@@ -13,17 +13,25 @@ describe("settings-general home suggestions row", () => {
     expect(source).toContain("settings.general.setHomeSuggestionsEnabled(")
   })
 
-  test("exposes a restore button whenever any chip is dismissed (not only all-dismissed)", () => {
+  test("restore button is visible whenever any chip is dismissed OR seen was set", () => {
+    // Either source slot indicates "chips are currently hidden because of past
+    // user action" and a restore should be offered. Gating only on dismissed
+    // would leave the button hidden after a section dismiss (which writes seen).
     expect(source).toContain("homeSuggestionsDismissed().length > 0")
-    expect(source).toContain("settings.general.setHomeSuggestionsDismissed([])")
+    expect(source).toContain("homeSuggestionsSeen()")
   })
 
-  test("uses HOME_SUGGESTION_CHIPS.length for the all-dismissed gate (not a hardcoded count)", () => {
-    expect(source).toContain("HOME_SUGGESTION_CHIPS.length")
-    expect(source).not.toMatch(/homeSuggestionsDismissed\(\)\.length\s*>=\s*3\b/)
+  test("restore action resets BOTH dismissed and seen", () => {
+    // The single most important invariant: clicking restore must clear BOTH
+    // state slots, otherwise the button is a silent no-op after section X.
+    expect(source).toContain("setHomeSuggestionsDismissed([])")
+    expect(source).toContain("setHomeSuggestionsSeen(false)")
   })
 
-  test("clears dismissed list when re-enabling and previously all-dismissed", () => {
-    expect(source).toMatch(/setHomeSuggestionsEnabled\(checked\)[\s\S]{0,400}setHomeSuggestionsDismissed\(\[\]\)/)
+  test("switch toggle is a plain on/off without auto-clear side effects", () => {
+    // The previous auto-clear-on-re-enable branch was dead code under the seen
+    // flag (clearing dismissed did not restore chips). The dedicated restore
+    // button now owns that responsibility; toggle stays simple.
+    expect(source).not.toMatch(/setHomeSuggestionsEnabled\(checked\)[\s\S]{0,200}setHomeSuggestionsDismissed\(\[\]\)/)
   })
 })
