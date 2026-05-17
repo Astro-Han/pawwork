@@ -540,6 +540,12 @@ export const dict = {
 
   "home.recentProjects": "最近项目",
   "home.hero.title": "今天我们做点什么？",
+  "home.suggestion.section.label": "提示词建议",
+  "home.suggestion.section.dismiss": "关闭所有提示词建议",
+  "home.suggestion.row.dismiss": "关闭该提示词",
+  "home.suggestion.analyze-spreadsheet": "帮我分析一份表格，找出关键数据和异常",
+  "home.suggestion.news-brief": "查一下今天值得关注的新闻，整理一份简报",
+  "home.suggestion.draft-email": "帮我起草一封工作邮件",
 
   "session.tab.session": "会话",
   "session.tab.review": "审查",

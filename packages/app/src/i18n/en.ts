@@ -570,6 +570,12 @@ export const dict = {
 
   "home.recentProjects": "Recent projects",
   "home.hero.title": "What should we work on?",
+  "home.suggestion.section.label": "Prompt suggestions",
+  "home.suggestion.section.dismiss": "Dismiss all prompt suggestions",
+  "home.suggestion.row.dismiss": "Dismiss this prompt",
+  "home.suggestion.analyze-spreadsheet": "Analyze a spreadsheet — surface key data and anomalies",
+  "home.suggestion.news-brief": "Summarize today's news worth following into a brief",
+  "home.suggestion.draft-email": "Draft a work email for me",
 
   "session.tab.session": "Session",
   "session.tab.review": "Review",
