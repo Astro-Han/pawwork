@@ -119,11 +119,12 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     const retained = events.filter((event) => eventTime(event) >= cutoff)
     const lines = retained.map((event) => JSON.stringify(event))
     let totalBytes = lines.reduce((sum, line) => sum + Buffer.byteLength(line, "utf8") + 1, 0)
-    while (totalBytes > targetBytes && lines.length > 0) {
-      const line = lines.shift()
-      if (line) totalBytes -= Buffer.byteLength(line, "utf8") + 1
+    let firstRetainedIndex = 0
+    while (totalBytes > targetBytes && firstRetainedIndex < lines.length) {
+      totalBytes -= Buffer.byteLength(lines[firstRetainedIndex], "utf8") + 1
+      firstRetainedIndex++
     }
-    const content = lines.length > 0 ? `${lines.join("\n")}\n` : ""
+    const content = firstRetainedIndex < lines.length ? `${lines.slice(firstRetainedIndex).join("\n")}\n` : ""
     await mkdir(options.root, { recursive: true })
     const temp = join(options.root, `.${basename(path)}.${process.pid}.${Date.now()}.tmp`)
     await writeFile(temp, content, "utf8")

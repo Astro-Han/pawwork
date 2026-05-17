@@ -55,19 +55,27 @@ export function capEvents(events: RendererDiagnosticEvent[], maxBytes: number) {
   const selected = events.map((event) => ({
     event,
     bytes: jsonBytes(event),
+    removed: false,
   }))
   let totalBytes =
     selected.length === 0 ? Buffer.byteLength("[]", "utf8") : 2 + selected.reduce((sum, item) => sum + item.bytes, 0) + selected.length - 1
   let omitted = 0
-  while (selected.length > 0 && totalBytes > maxBytes) {
-    const removable = selected.findIndex((item) => !isProtectedSliceContext(item.event))
-    const index = removable >= 0 ? removable : 0
-    const [removed] = selected.splice(index, 1)
-    if (removed) totalBytes -= removed.bytes + (selected.length > 0 ? 1 : 0)
+  let selectedCount = selected.length
+  const removeAt = (index: number) => {
+    const item = selected[index]
+    if (!item || item.removed) return
+    totalBytes -= item.bytes + (selectedCount > 1 ? 1 : 0)
+    item.removed = true
+    selectedCount--
     omitted++
   }
+  for (let index = 0; index < selected.length && totalBytes > maxBytes; index++) {
+    if (!isProtectedSliceContext(selected[index].event)) removeAt(index)
+  }
+  for (let index = 0; index < selected.length && totalBytes > maxBytes; index++) removeAt(index)
+  const retained = selected.filter((item) => !item.removed)
   return {
-    events: selected.map((item) => item.event),
+    events: retained.map((item) => item.event),
     omittedEventCount: omitted,
     omittedBytes: Math.max(0, jsonBytes(events) - totalBytes),
   }
