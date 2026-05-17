@@ -1,4 +1,4 @@
-import { For, Show, createMemo, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { usePrompt } from "@/context/prompt"
@@ -58,19 +58,50 @@ export const HomeSuggestionList: Component = () => {
 
   type I18nKey = Parameters<typeof language.t>[0]
 
-  const prefill = (text: string) => {
-    // Always replace. First-time visitor's home composer has no ownership
-    // semantics: chip content is a system suggestion, not user-authored.
-    // Letting subsequent chip clicks swap freely makes the "try A, then B"
-    // exploration that onboarding chips invite actually work.
-    prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
-    requestAnimationFrame(() => focusComposerEditor(text.length))
-  }
+  // ─── Chip lifecycle state machine (see spec § Chip Lifecycle) ───
+  // currentChipSource tracks "the chip this composer content came from."
+  //   null  → composer is empty, or content was typed by user with no chip origin
+  //   X     → composer was prefilled by chip X (user edits don't reset — "edited
+  //           still counts as using chip X")
+  // Transitions:
+  //   chip X click          → setSource(X)
+  //   composer becomes empty → setSource(null)   (handled in the lifecycle effect)
+  //   user edits non-empty   → no change (sticky through edits)
+  // Side effect: when sessionCount transitions upward with source set, the chip
+  // graduated into a real task — dismiss it globally so capability discovery
+  // doesn't re-pitch it on the next visit or workspace.
+  // ────────────────────────────────────────────────────────────────
+  const [currentChipSource, setCurrentChipSource] = createSignal<HomeSuggestionChipID | null>(null)
 
   const dismissRow = (id: HomeSuggestionChipID) => {
     const current = filterKnownIDs(settings.general.homeSuggestionsDismissed())
     if (current.includes(id)) return
     settings.general.setHomeSuggestionsDismissed([...current, id])
+  }
+
+  type LifecycleSnapshot = { count: number; dirty: boolean }
+  // Combined effect so session-create and composer-empty observed in the same
+  // tick resolve in a defined order: session-create wins (dismiss before clear).
+  createEffect<LifecycleSnapshot | undefined>((prev) => {
+    const count = sessionCount()
+    const dirty = prompt.dirty()
+    if (prev !== undefined) {
+      if (count > prev.count) {
+        const source = currentChipSource()
+        if (source) dismissRow(source)
+        setCurrentChipSource(null)
+      } else if (prev.dirty && !dirty) {
+        // Composer drained without a new session (user discarded the prefill).
+        setCurrentChipSource(null)
+      }
+    }
+    return { count, dirty }
+  }, undefined)
+
+  const prefill = (chipID: HomeSuggestionChipID, text: string) => {
+    prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+    setCurrentChipSource(chipID)
+    requestAnimationFrame(() => focusComposerEditor(text.length))
   }
 
   return (
@@ -90,7 +121,7 @@ export const HomeSuggestionList: Component = () => {
                 <button
                   type="button"
                   class="flex h-full flex-1 items-center text-left text-fg-weak transition-colors group-hover:text-fg-strong group-focus-within:text-fg-strong focus:outline-none"
-                  onClick={() => prefill(language.t(chip.promptKey as I18nKey))}
+                  onClick={() => prefill(chip.id, language.t(chip.promptKey as I18nKey))}
                   data-action="home-suggestion-row"
                   data-chip-id={chip.id}
                 >

@@ -1,9 +1,25 @@
+import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { promptSelector } from "../selectors"
 
 const suggestionListSelector = '[data-component="home-suggestion-list"]'
 const rowSelector = '[data-action="home-suggestion-row"]'
 const rowDismissSelector = '[data-action="home-suggestion-row-dismiss"]'
+
+async function readDismissedFromStorage(page: Page): Promise<string[]> {
+  // settings.v3 is persisted via the settings store (utils/persist.ts) — in the
+  // e2e web context this hits localStorage directly with key "settings.v3".
+  return await page.evaluate(() => {
+    try {
+      const raw = localStorage.getItem("settings.v3")
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return parsed?.general?.homeSuggestionsDismissed ?? []
+    } catch {
+      return []
+    }
+  })
+}
 
 test("@smoke home shows 3 suggestion rows for a first-time visitor", async ({ page, project }) => {
   await project.open()
@@ -128,4 +144,61 @@ test("clicking another suggestion replaces the previous prefill", async ({ page,
   await rows.nth(1).click()
   await expect(editor).toContainText(secondText)
   await expect(editor).not.toContainText(firstText)
+})
+
+test("using a chip via send auto-dismisses it for capability discovery", async ({ page, project, assistant }) => {
+  await project.open()
+  await assistant.reply("auto-dismiss reply")
+
+  const firstRow = page.locator(suggestionListSelector).locator(rowSelector).first()
+  const firstChipID = await firstRow.getAttribute("data-chip-id")
+  expect(firstChipID).toBeTruthy()
+
+  await firstRow.click()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
+
+  const dismissed = await readDismissedFromStorage(page)
+  expect(dismissed).toContain(firstChipID!)
+})
+
+test("switching chips before send dismisses only the last selection", async ({ page, project, assistant }) => {
+  await project.open()
+  await assistant.reply("only-last reply")
+
+  const rows = page.locator(suggestionListSelector).locator(rowSelector)
+  const firstChipID = await rows.first().getAttribute("data-chip-id")
+  const secondChipID = await rows.nth(1).getAttribute("data-chip-id")
+
+  await rows.first().click()
+  await rows.nth(1).click()
+  await page.keyboard.press("Enter")
+  await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
+
+  const dismissed = await readDismissedFromStorage(page)
+  expect(dismissed).toContain(secondChipID!)
+  expect(dismissed).not.toContain(firstChipID!)
+})
+
+test("discarding chip prefill and typing own prompt does not auto-dismiss", async ({ page, project, assistant }) => {
+  await project.open()
+  await assistant.reply("discard reply")
+
+  const editor = page.locator(promptSelector)
+  await page.locator(suggestionListSelector).locator(rowSelector).first().click()
+  await expect(editor).toBeFocused()
+
+  // Drain composer so the lifecycle effect clears currentChipSource.
+  await page.evaluate(() => {
+    document.execCommand("selectAll")
+  })
+  await page.keyboard.press("Backspace")
+
+  // Type fresh user content — source stays null (typing into empty does not set it).
+  await page.keyboard.type("my own prompt content")
+  await page.keyboard.press("Enter")
+  await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
+
+  const dismissed = await readDismissedFromStorage(page)
+  expect(dismissed).toEqual([])
 })

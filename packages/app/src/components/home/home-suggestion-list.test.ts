@@ -44,11 +44,18 @@ describe("HomeSuggestionList source contract", () => {
     expect(source).toContain("setCursorPosition")
   })
 
-  test("respects user-typed content via prompt.dirty() (does not overwrite)", () => {
-    expect(source).toContain("prompt.dirty()")
-    const dirtyBranch = source.match(/if \(prompt\.dirty\(\)\)\s*\{[\s\S]*?\}/)
-    expect(dirtyBranch).not.toBeNull()
-    expect(dirtyBranch![0]).not.toContain("prompt.set(")
+  test("prefill unconditionally replaces composer content (no dirty-guard skip)", () => {
+    // Chip clicks must always overwrite so the click-A-then-B exploration works.
+    // The previous "respect user-typed content" guard was replaced by per-chip
+    // currentChipSource tracking + auto-dismiss on send (see spec § Chip Lifecycle).
+    expect(source).not.toMatch(/if \(prompt\.dirty\(\)\)\s*\{[\s\S]{0,200}return/)
+  })
+
+  test("tracks chip source and auto-dismisses on session create", () => {
+    expect(source).toContain("currentChipSource")
+    expect(source).toContain("setCurrentChipSource")
+    expect(source).toMatch(/sessionCount\(\)/)
+    expect(source).toMatch(/dismissRow\(source\)/)
   })
 
   test("filters dismissed IDs against known chip IDs (no bare type cast)", () => {
