@@ -218,7 +218,7 @@ export async function syncSkills(opts: SyncOptions): Promise<void> {
   } else {
     const url = `https://github.com/${repo}/archive/refs/tags/${version}.tar.gz`
     console.log(`[sync-skills] downloading ${url}`)
-    const response = await fetch(url, { redirect: "follow" })
+    const response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(30000) })
     if (!response.ok) {
       throw new Error(`Failed to download ${url}: HTTP ${response.status}`)
     }
@@ -259,10 +259,8 @@ export async function syncSkills(opts: SyncOptions): Promise<void> {
         console.log(`[sync-skills] (dry-run) would write skillsTarballSha256=${contentSha} to manifest`)
         return
       }
-      const raw = await readFile(manifestPath, "utf8")
-      const m = JSON.parse(raw) as { officecli: Record<string, unknown> }
-      m.officecli.skillsTarballSha256 = contentSha
-      await writeFile(manifestPath, JSON.stringify(m, null, 2) + "\n")
+      manifestParsed.officecli.skillsTarballSha256 = contentSha
+      await writeFile(manifestPath, JSON.stringify(manifestParsed, null, 2) + "\n")
       console.log(`[sync-skills] wrote skillsTarballSha256 to ${manifestPath}`)
       return
     }

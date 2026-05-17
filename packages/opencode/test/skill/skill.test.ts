@@ -456,10 +456,22 @@ test("discovers bundled skills from the repo skills directory in dev", async () 
       directory: tmp.path,
       fn: async () => {
         const skills = await Skill.all()
-        // Positive: core officecli bundle members present (descriptions are issue #697's key)
-        expect(skills.find((item) => item.name === "officecli-docx")).toBeDefined()
-        expect(skills.find((item) => item.name === "officecli-xlsx")).toBeDefined()
-        expect(skills.find((item) => item.name === "officecli-pptx")).toBeDefined()
+        // Positive: every vendored officecli/morph skill must be present. Missing entries
+        // signal upstream layout drift or a broken sync that ships an incomplete bundle.
+        const vendoredNames = [
+          "morph-ppt",
+          "morph-ppt-3d",
+          "officecli-academic-paper",
+          "officecli-data-dashboard",
+          "officecli-docx",
+          "officecli-financial-model",
+          "officecli-pitch-deck",
+          "officecli-pptx",
+          "officecli-xlsx",
+        ]
+        for (const name of vendoredNames) {
+          expect(skills.find((item) => item.name === name)).toBeDefined()
+        }
         // Negative: legacy three are gone (spec measurement: "旧的三个技能名在 model tool list 里完全消失")
         expect(skills.find((item) => item.name === "data-analysis")).toBeUndefined()
         expect(skills.find((item) => item.name === "document-processing")).toBeUndefined()
