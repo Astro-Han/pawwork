@@ -17,9 +17,9 @@ describe("resolveVisibleHomeSuggestions", () => {
   })
 
   test("filters dismissed chips while preserving original order", () => {
-    const dismissed: HomeSuggestionChipID[] = ["news-brief"]
+    const dismissed: HomeSuggestionChipID[] = ["excel-analysis"]
     expect(resolveVisibleHomeSuggestions({ firstTimeVisitor: true, dismissed })).toEqual(
-      allIDs.filter((id) => id !== "news-brief"),
+      allIDs.filter((id) => id !== "excel-analysis"),
     )
   })
 
@@ -29,12 +29,13 @@ describe("resolveVisibleHomeSuggestions", () => {
 
   test("HOME_SUGGESTION_CHIPS has stable IDs and three entries", () => {
     expect(HOME_SUGGESTION_CHIPS).toHaveLength(3)
-    expect(allIDs).toEqual(["analyze-spreadsheet", "news-brief", "draft-email"])
+    expect(allIDs).toEqual(["folder-organize", "excel-analysis", "ppt-outline"])
   })
 
-  test("each chip exposes a stable i18n key", () => {
+  test("each chip exposes stable label and prompt i18n keys", () => {
     for (const chip of HOME_SUGGESTION_CHIPS) {
-      expect(chip.i18nKey).toMatch(/^home\.suggestion\./)
+      expect(chip.labelKey).toMatch(/^home\.suggestion\..+\.label$/)
+      expect(chip.promptKey).toMatch(/^home\.suggestion\..+\.prompt$/)
     }
   })
 })

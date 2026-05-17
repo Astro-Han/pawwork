@@ -93,11 +93,11 @@ export const HomeSuggestionList: Component = () => {
                 <button
                   type="button"
                   class="flex h-full flex-1 items-center text-left text-fg-weak transition-colors group-hover:text-fg-strong group-focus-within:text-fg-strong focus:outline-none"
-                  onClick={() => prefill(language.t(chip.i18nKey as I18nKey))}
+                  onClick={() => prefill(language.t(chip.promptKey as I18nKey))}
                   data-action="home-suggestion-row"
                   data-chip-id={chip.id}
                 >
-                  {language.t(chip.i18nKey as I18nKey)}
+                  {language.t(chip.labelKey as I18nKey)}
                 </button>
                 <button
                   type="button"

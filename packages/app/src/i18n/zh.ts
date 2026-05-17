@@ -541,9 +541,15 @@ export const dict = {
   "home.recentProjects": "最近项目",
   "home.hero.title": "今天我们做点什么？",
   "home.suggestion.row.dismiss": "关闭该提示词",
-  "home.suggestion.analyze-spreadsheet": "帮我分析一份表格，找出关键数据和异常",
-  "home.suggestion.news-brief": "查一下今天值得关注的新闻，整理一份简报",
-  "home.suggestion.draft-email": "帮我起草一封工作邮件",
+  "home.suggestion.folder-organize.label": "整理一个文件夹",
+  "home.suggestion.folder-organize.prompt":
+    "帮我整理一个文件夹：把同类文件归到子目录、标记重复或过时的文件、给命名乱的提新名字。先扫描内容，输出一份方案让我确认再动手。",
+  "home.suggestion.excel-analysis.label": "分析一份 Excel 表格",
+  "home.suggestion.excel-analysis.prompt":
+    "帮我分析一份 Excel 表格：找出关键数据点、异常值和趋势，给我一条清晰的下一步建议。用 officecli 读取。",
+  "home.suggestion.ppt-outline.label": "从一份资料生成 PPT 大纲",
+  "home.suggestion.ppt-outline.prompt":
+    "帮我从一份资料生成 PPT 大纲：章节结构、每页标题和 3-5 条要点、关键图表或数据建议。用 officecli 读取 Word/PDF/Markdown。",
 
   "session.tab.session": "会话",
   "session.tab.review": "审查",

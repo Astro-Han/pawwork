@@ -571,9 +571,15 @@ export const dict = {
   "home.recentProjects": "Recent projects",
   "home.hero.title": "What should we work on?",
   "home.suggestion.row.dismiss": "Dismiss this prompt",
-  "home.suggestion.analyze-spreadsheet": "Analyze a spreadsheet and surface key data",
-  "home.suggestion.news-brief": "Summarize today's news worth following into a brief",
-  "home.suggestion.draft-email": "Draft a work email for me",
+  "home.suggestion.folder-organize.label": "Organize a folder",
+  "home.suggestion.folder-organize.prompt":
+    "Organize a folder: group similar files into subfolders, flag duplicates and stale files, rename messy names. Scan first and propose a plan for me to approve.",
+  "home.suggestion.excel-analysis.label": "Analyze an Excel spreadsheet",
+  "home.suggestion.excel-analysis.prompt":
+    "Analyze an Excel spreadsheet: surface key data points, outliers, trends worth noting, and a clear next step. Use officecli to read the file.",
+  "home.suggestion.ppt-outline.label": "Generate a PPT outline",
+  "home.suggestion.ppt-outline.prompt":
+    "Generate a PPT outline from a source doc: sections, each slide's title and 3-5 bullets, plus key chart/data suggestions. Use officecli for Word/PDF/Markdown.",
 
   "session.tab.session": "Session",
   "session.tab.review": "Review",
