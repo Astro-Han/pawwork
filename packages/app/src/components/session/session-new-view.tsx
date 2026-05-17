@@ -1,5 +1,6 @@
 import { Show, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
+import { HomeSuggestionList } from "@/components/home/home-suggestion-list"
 
 type ComposerCtx = {
   onModeChange: (mode: "normal" | "shell") => void
@@ -23,6 +24,7 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
           <div class="mt-20 flex w-full max-w-[640px] flex-col items-center">
             {props.composer!({ onModeChange: () => {} })}
           </div>
+          <HomeSuggestionList />
         </Show>
       </div>
     </div>
