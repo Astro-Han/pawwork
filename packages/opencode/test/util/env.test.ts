@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
-import { bundledToolsDir, prependBundledTools, withoutInternalServerAuthEnv } from "../../src/util/env"
+import { bundledToolsDir, prependBundledTools, stripPathKeys, withoutInternalServerAuthEnv } from "../../src/util/env"
 
 type ResourcesPathBag = { resourcesPath?: string }
 
@@ -83,5 +83,30 @@ describe("util.env.bundledTools", () => {
     // file in cwd shadow officecli. The helper must drop the delimiter.
     setResourcesPath("/r")
     expect(prependBundledTools("")).toBe(path.join("/r", "tools"))
+  })
+})
+
+describe("util.env.stripPathKeys", () => {
+  test("removes every case-variant of PATH while leaving the rest untouched", () => {
+    // Windows ships `Path`, some shells emit `path`, our code adds `PATH`.
+    // After spreading process.env into a child env all three can co-exist,
+    // and spawn forwards them with implementation-defined precedence.
+    const env: Record<string, string | undefined> = {
+      Path: "/system/path",
+      PATH: "/our/override",
+      path: "/lowercase",
+      TERM: "xterm",
+      OFFICECLI_SKIP_UPDATE: "1",
+    }
+
+    stripPathKeys(env)
+
+    expect(env).toEqual({ TERM: "xterm", OFFICECLI_SKIP_UPDATE: "1" })
+  })
+
+  test("is safe on an env that has no path keys at all", () => {
+    const env: Record<string, string | undefined> = { TERM: "xterm" }
+    stripPathKeys(env)
+    expect(env).toEqual({ TERM: "xterm" })
   })
 })

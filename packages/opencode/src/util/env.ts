@@ -36,3 +36,14 @@ export function prependBundledTools(currentPath: string): string {
   // command-resolution safety (cwd-shadowing of system commands).
   return currentPath ? `${dir}${path.delimiter}${currentPath}` : dir
 }
+
+// Removes every case-variant of the PATH key from an env record in place.
+// Use before writing back a canonical `PATH` to a merged env, otherwise on
+// Windows the result can carry both `Path` (inherited from process.env) and
+// `PATH` (added explicitly); spawn then forwards both to the child with
+// implementation-defined precedence.
+export function stripPathKeys(env: Record<string, string | undefined>): void {
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === "path") delete env[key]
+  }
+}
