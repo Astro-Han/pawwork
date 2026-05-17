@@ -107,6 +107,7 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
       <Kobalte modal={false} placement="right-start" gutter={4}>
         <Kobalte.Trigger
           disabled={!supported()}
+          data-action="prompt-model-thinking-trigger"
           class="group/think w-full h-[30px] px-2 gap-3 flex items-center rounded-[6px] text-body text-fg-base text-left hover:bg-row-hover-overlay hover:text-fg-strong data-[expanded]:bg-row-hover-overlay data-[expanded]:text-fg-strong disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-fg-base"
         >
           <span>{language.t("dialog.model.variant")}</span>
@@ -124,6 +125,8 @@ const ThinkingLevelSection: Component<{ model?: ModelState }> = (props) => {
                   <button
                     type="button"
                     data-picker-item=""
+                    data-action="prompt-model-thinking-option"
+                    data-variant={opt}
                     data-selected={opt === current() ? "" : undefined}
                     class="w-full"
                     onClick={() => model.variant.set(opt === "default" ? undefined : opt)}
@@ -167,6 +170,8 @@ export function ModelSelectorPopover(props: {
     setStore("open", false)
     setExternalOpen(false)
   }
+  const isPickerContentTarget = (target: EventTarget | null) =>
+    target instanceof Element && !!target.closest("[data-picker-content]")
   let ignoreFocusOutsideForPointerInside = false
 
   const handlePointerDownInside = () => {
@@ -179,6 +184,10 @@ export function ModelSelectorPopover(props: {
   const handleFocusOutside = (
     event: Parameters<NonNullable<ComponentProps<typeof Kobalte.Content>["onFocusOutside"]>>[0],
   ) => {
+    if (isPickerContentTarget(event.target)) {
+      event.preventDefault()
+      return
+    }
     if (ignoreFocusOutsideForPointerInside) {
       ignoreFocusOutsideForPointerInside = false
       event.preventDefault()
@@ -216,11 +225,9 @@ export function ModelSelectorPopover(props: {
             // The nested ThinkingLevel popover renders into Kobalte.Portal, so
             // its Content sits outside this outer Content's DOM subtree. Without
             // this guard, clicks inside the inner picker satisfy "outside" for
-            // the outer popover and dismiss the model picker. Both popovers tag
-            // their content with data-picker-content, so a closest() hit means
-            // the click landed inside a nested picker — keep the outer open.
-            const target = event.target
-            if (target instanceof Element && target.closest("[data-picker-content]")) {
+            // the outer popover and dismiss the model picker before the inner
+            // button click runs.
+            if (isPickerContentTarget(event.target)) {
               event.preventDefault()
               return
             }
