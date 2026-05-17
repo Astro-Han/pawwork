@@ -113,7 +113,7 @@ const getBase = (): Configuration => ({
     {
       from: path.join(rootDir, "skills"),
       to: "skills",
-      filter: ["**/*"],
+      filter: ["**/SKILL.md"],
     },
     {
       from: path.join(rootDir, "THIRD_PARTY_NOTICES.md"),
