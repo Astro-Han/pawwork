@@ -80,12 +80,13 @@ export const HomeSuggestionList: Component = () => {
     <Show when={visibleChips().length > 0}>
       <section
         data-component="home-suggestion-list"
-        // Aligned with composer (max-w-[640px] in session-new-view.tsx:24) so
-        // rows live inside the composer's bounding box, matching the DESIGN.md
-        // picker-family / session-row idiom (DESIGN.md L399, L415, L595).
-        class="mx-auto mt-6 flex w-full max-w-[640px] flex-col"
+        // Composer is max-w-[640px] with 1px border + 16px inner padding, so
+        // its text frame starts 17px inside the container. Inset 16px on each
+        // side (640 - 32 = 608) so row hover-overlay lands inside the composer's
+        // visible text frame instead of overshooting it.
+        class="mx-auto mt-6 flex w-full max-w-[608px] flex-col"
       >
-        <ul class="flex flex-col">
+        <ul class="flex flex-col gap-1">
           <For each={visibleChips()}>
             {(chip) => (
               <li class="group flex h-[30px] items-center gap-2 rounded-sm px-2 transition-colors hover:bg-row-hover-overlay focus-within:bg-row-hover-overlay">
