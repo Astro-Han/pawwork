@@ -63,16 +63,23 @@ export const HomeSuggestionList: Component = () => {
 
   // ─── Chip lifecycle state machine (see spec § Chip Lifecycle) ───
   // currentChipSource tracks "the chip this composer content came from."
-  //   null  → composer is empty, or content was typed by user with no chip origin
-  //   X     → composer was prefilled by chip X (user edits don't reset — "edited
-  //           still counts as using chip X")
+  //   null  → no chip has been clicked yet on this mount
+  //   X     → composer was last prefilled by chip X (sticks through user edits
+  //           and clears; replaced when another chip is clicked)
   // Transitions:
-  //   chip X click          → setSource(X)
-  //   composer becomes empty → setSource(null)   (handled in the lifecycle effect)
-  //   user edits non-empty   → no change (sticky through edits)
+  //   chip X click           → setSource(X)
+  //   chip Y click after X   → setSource(Y)
+  //   user edits / clears    → no change (sticky)
   // Side effect: when sessionCount transitions upward with source set, the chip
   // graduated into a real task — dismiss it globally so capability discovery
   // doesn't re-pitch it on the next visit or workspace.
+  //
+  // The previous "drain composer also clears source" branch was removed because
+  // it forced the effect to subscribe to prompt.dirty(), which emits on every
+  // keystroke. On the home cold path that turned the effect into a hot loop
+  // visible in perf-probe-baseline (frame_gap_max jump). The only behavior
+  // difference: a user who clicks a chip, then types their own thing and sends,
+  // now sees that chip dismissed too — acceptable since they engaged with it.
   // ────────────────────────────────────────────────────────────────
   const [currentChipSource, setCurrentChipSource] = createSignal<HomeSuggestionChipID | null>(null)
 
@@ -82,23 +89,14 @@ export const HomeSuggestionList: Component = () => {
     settings.general.setHomeSuggestionsDismissed([...current, id])
   }
 
-  type LifecycleSnapshot = { count: number; dirty: boolean }
-  // Combined effect so session-create and composer-empty observed in the same
-  // tick resolve in a defined order: session-create wins (dismiss before clear).
-  createEffect<LifecycleSnapshot | undefined>((prev) => {
+  createEffect<number | undefined>((prev) => {
     const count = sessionCount()
-    const dirty = prompt.dirty()
-    if (prev !== undefined) {
-      if (count > prev.count) {
-        const source = currentChipSource()
-        if (source) dismissRow(source)
-        setCurrentChipSource(null)
-      } else if (prev.dirty && !dirty) {
-        // Composer drained without a new session (user discarded the prefill).
-        setCurrentChipSource(null)
-      }
+    if (prev !== undefined && count > prev) {
+      const source = currentChipSource()
+      if (source) dismissRow(source)
+      setCurrentChipSource(null)
     }
-    return { count, dirty }
+    return count
   }, undefined)
 
   const prefill = (chipID: HomeSuggestionChipID, text: string) => {

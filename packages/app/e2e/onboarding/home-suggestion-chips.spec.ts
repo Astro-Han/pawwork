@@ -202,25 +202,30 @@ test("switching chips before send dismisses only the last selection", async ({ p
   expect(dismissed).not.toContain(firstChipID!)
 })
 
-test("discarding chip prefill and typing own prompt does not auto-dismiss", async ({ page, project, assistant }) => {
+test("clicking a chip then sending any content dismisses it (sticky source)", async ({ page, project, assistant }) => {
   await project.open()
-  await assistant.reply("discard reply")
+  await assistant.reply("sticky source reply")
 
   const editor = page.locator(promptSelector)
-  await page.locator(suggestionListSelector).locator(rowSelector).first().click()
+  const firstRow = page.locator(suggestionListSelector).locator(rowSelector).first()
+  const firstChipID = await firstRow.getAttribute("data-chip-id")
+  expect(firstChipID).toBeTruthy()
+
+  await firstRow.click()
   await expect(editor).toBeFocused()
 
-  // Drain composer so the lifecycle effect clears currentChipSource.
+  // Drain the prefill, then type user-authored content. The chip source is
+  // sticky once clicked — sending any prompt afterwards still dismisses it
+  // (the user engaged with the suggestion and chose a direction, no need to
+  // keep pitching it).
   await page.evaluate(() => {
     document.execCommand("selectAll")
   })
   await page.keyboard.press("Backspace")
-
-  // Type fresh user content — source stays null (typing into empty does not set it).
   await page.keyboard.type("my own prompt content")
   await page.keyboard.press("Enter")
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
 
   const dismissed = await readDismissedFromStorage(page)
-  expect(dismissed).toEqual([])
+  expect(dismissed).toContain(firstChipID!)
 })

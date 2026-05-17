@@ -1,6 +1,14 @@
-import { Show, type JSX } from "solid-js"
+import { Show, Suspense, lazy, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
-import { HomeSuggestionList } from "@/components/home/home-suggestion-list"
+
+// Lazy-loaded so the module + its reactive setup (4 contexts, createEffect with
+// prompt.dirty + sessionCount tracking, For-loop chip render) doesn't run on
+// the home's cold paint path. perf-probe-baseline showed +183ms frame_gap_max
+// on homepage-cold and +267ms on tool-default-open-heavy-bash (both go through
+// project.open() → home first) when this was mounted eagerly.
+const HomeSuggestionList = lazy(() =>
+  import("@/components/home/home-suggestion-list").then((module) => ({ default: module.HomeSuggestionList })),
+)
 
 type ComposerCtx = {
   onModeChange: (mode: "normal" | "shell") => void
@@ -24,7 +32,9 @@ export function NewSessionView(props: { composer?: (ctx: ComposerCtx) => JSX.Ele
           <div class="mt-20 flex w-full max-w-[640px] flex-col items-center">
             {props.composer!({ onModeChange: () => {} })}
           </div>
-          <HomeSuggestionList />
+          <Suspense>
+            <HomeSuggestionList />
+          </Suspense>
         </Show>
       </div>
     </div>
