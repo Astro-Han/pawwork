@@ -570,7 +570,7 @@ export const dict = {
 
   "home.recentProjects": "Recent projects",
   "home.hero.title": "What should we work on?",
-  "home.suggestion.row.dismiss": "Dismiss this prompt",
+  "home.suggestion.row.dismiss": "Dismiss this suggestion",
   "home.suggestion.folder-organize.label": "Organize a folder",
   "home.suggestion.folder-organize.prompt":
     "Organize a folder: group similar files into subfolders, flag duplicates and stale files, rename messy names. Scan first and propose a plan for me to approve.",

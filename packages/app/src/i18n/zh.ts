@@ -540,7 +540,7 @@ export const dict = {
 
   "home.recentProjects": "最近项目",
   "home.hero.title": "今天我们做点什么？",
-  "home.suggestion.row.dismiss": "关闭该提示词",
+  "home.suggestion.row.dismiss": "关闭该建议",
   "home.suggestion.folder-organize.label": "整理一个文件夹",
   "home.suggestion.folder-organize.prompt":
     "帮我整理一个文件夹：把同类文件归到子目录、标记重复或过时的文件、给命名乱的提新名字。先扫描内容，输出一份方案让我确认再动手。",
