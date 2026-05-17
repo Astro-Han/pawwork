@@ -137,6 +137,39 @@ describe("renderer diagnostics recorder", () => {
     expect(content).toContain("three")
   })
 
+  test("retention leaves headroom below the byte cap", async () => {
+    const root = await tempRoot()
+    const maxBytes = 1200
+    const recorder = createRendererDiagnosticsRecorder({
+      root,
+      appLaunchID: "launch_1",
+      maxBytes,
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+      retentionMs: DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_MS,
+    })
+
+    for (const index of Array.from({ length: 12 }, (_, value) => value)) {
+      await recorder.record(
+        {
+          name: "session.action.submit",
+          trace_id: `msg_${index}`,
+          data: {
+            action: "submit_prompt",
+            provider: `provider-${index}`,
+            model: "deepseek.v4",
+            prompt_length: index,
+          },
+        },
+        { windowID: 1 },
+      )
+    }
+    await recorder.flushRetention()
+
+    const content = await readFile(recorder.path, "utf8")
+    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(Math.floor(maxBytes * 0.8))
+    expect(content).toContain("msg_11")
+  })
+
   test("slice drains queued writes before reading", async () => {
     const root = await tempRoot()
     const recorder = createRendererDiagnosticsRecorder({

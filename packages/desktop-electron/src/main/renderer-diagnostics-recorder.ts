@@ -5,6 +5,7 @@ import {
   DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_CHECK_MS,
   DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_MS,
   GLOBAL_RENDERER_DIAGNOSTICS_EXPORT_MAX_BYTES,
+  RENDERER_DIAGNOSTICS_RETENTION_TARGET_RATIO,
   type RecordContext,
   type RecorderOptions,
   type RendererDiagnosticEvent,
@@ -73,8 +74,13 @@ export async function exportRendererDiagnosticsLog(input: {
   await writeFile(input.destination, `${JSON.stringify(output, null, 2)}\n`, "utf8")
 }
 
+function retentionTargetBytes(maxBytes: number) {
+  return Math.max(0, Math.floor(maxBytes * RENDERER_DIAGNOSTICS_RETENTION_TARGET_RATIO))
+}
+
 export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
   const maxBytes = options.maxBytes ?? DEFAULT_RENDERER_DIAGNOSTICS_MAX_BYTES
+  const targetBytes = retentionTargetBytes(maxBytes)
   const retentionMs = options.retentionMs ?? DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_MS
   const retentionCheckIntervalMs = options.retentionCheckIntervalMs ?? DEFAULT_RENDERER_DIAGNOSTICS_RETENTION_CHECK_MS
   const highFrequencyIntervalMs = options.highFrequencyIntervalMs ?? 250
@@ -113,7 +119,7 @@ export function createRendererDiagnosticsRecorder(options: RecorderOptions) {
     const retained = events.filter((event) => eventTime(event) >= cutoff)
     const lines = retained.map((event) => JSON.stringify(event))
     let totalBytes = lines.reduce((sum, line) => sum + Buffer.byteLength(line, "utf8") + 1, 0)
-    while (totalBytes > maxBytes && lines.length > 0) {
+    while (totalBytes > targetBytes && lines.length > 0) {
       const line = lines.shift()
       if (line) totalBytes -= Buffer.byteLength(line, "utf8") + 1
     }
