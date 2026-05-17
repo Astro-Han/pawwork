@@ -41,8 +41,8 @@ export const HomeSuggestionList: Component = () => {
   const sync = useSync()
 
   const sessionCount = createMemo(() => sync.data.session?.length ?? 0)
-  // sync.ready guards against the brief hydration window where session is
-  // empty and every user looks new. sync.ready is a reactive getter.
+  // sync.ready guards the brief hydration window where session is empty and
+  // every user looks new. sync.ready is a reactive getter on the context.
   const firstTimeVisitor = createMemo(() => sync.ready && sessionCount() === 0)
 
   const visibleIDs = createMemo(() =>
@@ -60,6 +60,8 @@ export const HomeSuggestionList: Component = () => {
   type I18nKey = Parameters<typeof language.t>[0]
 
   const prefill = (text: string) => {
+    // Dirty composer: do not overwrite user-typed content (including @-mentions).
+    // Just focus the editor and leave it alone.
     if (prompt.dirty()) {
       requestAnimationFrame(() => focusComposerEditor(promptLength(prompt.current())))
       return
@@ -78,15 +80,18 @@ export const HomeSuggestionList: Component = () => {
     <Show when={visibleChips().length > 0}>
       <section
         data-component="home-suggestion-list"
-        class="mx-auto mt-6 flex w-full max-w-[520px] flex-col"
+        // Aligned with composer (max-w-[640px] in session-new-view.tsx:24) so
+        // rows live inside the composer's bounding box, matching the DESIGN.md
+        // picker-family / session-row idiom (DESIGN.md L399, L415, L595).
+        class="mx-auto mt-6 flex w-full max-w-[640px] flex-col"
       >
         <ul class="flex flex-col">
           <For each={visibleChips()}>
             {(chip) => (
-              <li class="group flex items-center justify-between gap-2 py-1.5">
+              <li class="group flex h-[30px] items-center gap-2 rounded-sm px-2 transition-colors hover:bg-row-hover-overlay focus-within:bg-row-hover-overlay">
                 <button
                   type="button"
-                  class="flex-1 text-left text-fg-muted hover:text-fg-strong transition-colors"
+                  class="flex h-full flex-1 items-center text-left text-fg-weak transition-colors group-hover:text-fg-strong group-focus-within:text-fg-strong focus:outline-none"
                   onClick={() => prefill(language.t(chip.i18nKey as I18nKey))}
                   data-action="home-suggestion-row"
                   data-chip-id={chip.id}
@@ -96,13 +101,16 @@ export const HomeSuggestionList: Component = () => {
                 <button
                   type="button"
                   tabIndex={-1}
-                  class="flex size-5 items-center justify-center rounded text-fg-muted opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:bg-row-hover-overlay hover:text-fg-strong transition-opacity"
+                  // 30×30 ghost icon button per DESIGN.md L334: hover overlay is
+                  // --row-active-overlay (6%), "one tier deeper than the row to
+                  // read separately" (DESIGN.md L401, session-row action).
+                  class="-mr-1 flex size-[30px] shrink-0 items-center justify-center rounded-md text-fg-weak opacity-0 pointer-events-none transition-opacity hover:bg-row-active-overlay hover:text-fg-strong group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
                   aria-label={language.t("home.suggestion.row.dismiss")}
                   onClick={() => dismissRow(chip.id)}
                   data-action="home-suggestion-row-dismiss"
                   data-chip-id={chip.id}
                 >
-                  <Icon name="close" class="size-3" />
+                  <Icon name="close" class="size-4" />
                 </button>
               </li>
             )}
