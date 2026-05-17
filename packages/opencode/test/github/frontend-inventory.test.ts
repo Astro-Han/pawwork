@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { execFileSync, spawnSync } from "node:child_process"
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { cpSync, mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
+import { tmpdir } from "../fixture/fixture"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const inventoryScript = path.join(repoRoot, "script", "frontend-inventory.mjs")
@@ -19,14 +19,11 @@ function writeLines(filePath: string, count: number) {
 }
 
 describe("frontend inventory", () => {
-  test("reports touched oversized production frontend files as warn-only baseline output", () => {
-    const workspace = mkdtempSync(path.join(tmpdir(), "pawwork-frontend-inventory-"))
+  test("reports touched oversized production frontend files as warn-only baseline output", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const workspace = tmp.path
     cpSync(inventoryScript, path.join(workspace, "frontend-inventory.mjs"))
     mkdirSync(path.join(workspace, "packages", "app", "src"), { recursive: true })
-
-    git(workspace, ["init"])
-    git(workspace, ["config", "user.email", "codex@example.com"])
-    git(workspace, ["config", "user.name", "Codex"])
 
     const largeFile = path.join(workspace, "packages", "app", "src", "large-view.ts")
     writeLines(largeFile, 205)
