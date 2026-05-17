@@ -78,15 +78,15 @@ export const HomeSuggestionList: Component = () => {
     <Show when={visibleChips().length > 0}>
       <section
         data-component="home-suggestion-list"
-        class="mx-auto mt-6 flex w-full max-w-[640px] flex-col"
+        class="mx-auto mt-6 flex w-full max-w-[520px] flex-col"
       >
         <ul class="flex flex-col">
           <For each={visibleChips()}>
             {(chip) => (
-              <li class="group flex items-center justify-between px-1 py-2 hover:bg-row-hover-overlay">
+              <li class="group flex items-center justify-between gap-2 py-1.5">
                 <button
                   type="button"
-                  class="flex-1 text-left text-fg-base hover:text-fg-strong"
+                  class="flex-1 text-left text-fg-muted hover:text-fg-strong transition-colors"
                   onClick={() => prefill(language.t(chip.i18nKey as I18nKey))}
                   data-action="home-suggestion-row"
                   data-chip-id={chip.id}
@@ -96,13 +96,13 @@ export const HomeSuggestionList: Component = () => {
                 <button
                   type="button"
                   tabIndex={-1}
-                  class="ml-3 text-fg-muted opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:text-fg-strong transition-opacity"
+                  class="flex size-5 items-center justify-center rounded text-fg-muted opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:bg-row-hover-overlay hover:text-fg-strong transition-opacity"
                   aria-label={language.t("home.suggestion.row.dismiss")}
                   onClick={() => dismissRow(chip.id)}
                   data-action="home-suggestion-row-dismiss"
                   data-chip-id={chip.id}
                 >
-                  <Icon name="close" class="size-4" />
+                  <Icon name="close" class="size-3" />
                 </button>
               </li>
             )}
