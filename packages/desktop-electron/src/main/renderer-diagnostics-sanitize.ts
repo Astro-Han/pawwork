@@ -93,6 +93,7 @@ const eventDataFields = {
 } as const
 
 export const highFrequencyDiagnosticEvents = new Set([
+  "session.timeline.scroll_controller",
   "session.scroll.sample",
   "renderer.perf.sample",
 ])

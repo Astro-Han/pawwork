@@ -40,6 +40,39 @@ describe("renderer diagnostics recorder", () => {
     expect(JSON.parse(lines[1])["event.name"]).toBe("session.action.submit")
   })
 
+  test("drops high-frequency duplicate scroll controller diagnostics", async () => {
+    const root = await tempRoot()
+    const recorder = createRendererDiagnosticsRecorder({
+      root,
+      appLaunchID: "launch_1",
+      now: () => new Date("2026-05-02T10:30:12.123Z"),
+      highFrequencyIntervalMs: 250,
+    })
+
+    await recorder.record(
+      {
+        name: "session.timeline.scroll_controller",
+        monotonic_ms: 1,
+        data: { intent_type: "wheel_scroll", reason: "weak_scroll_observed" },
+      },
+      { windowID: 1 },
+    )
+    await recorder.record(
+      {
+        name: "session.timeline.scroll_controller",
+        monotonic_ms: 2,
+        data: { intent_type: "wheel_scroll", reason: "weak_scroll_observed" },
+      },
+      { windowID: 1 },
+    )
+    await recorder.record({ name: "session.action.submit", monotonic_ms: 3, data: { action: "submit_prompt" } }, { windowID: 1 })
+
+    const lines = (await readFile(recorder.path, "utf8")).trim().split("\n")
+    expect(lines).toHaveLength(2)
+    expect(JSON.parse(lines[0])["event.name"]).toBe("session.timeline.scroll_controller")
+    expect(JSON.parse(lines[1])["event.name"]).toBe("session.action.submit")
+  })
+
   test("rate limit uses main-process time, not renderer-provided monotonic time", async () => {
     const root = await tempRoot()
     const recorder = createRendererDiagnosticsRecorder({
