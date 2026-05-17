@@ -14,6 +14,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/app/session.spec.ts:@smoke session composer matches home structure without docktray or agent control",
   "packages/app/e2e/app/shell-frame.spec.ts:@smoke shell frame exposes stable desktop hooks",
   "packages/app/e2e/files/file-tree.spec.ts:@smoke review tab no longer renders the legacy file-tree sub-panel",
+  "packages/app/e2e/models/model-picker-thinking.spec.ts:@smoke thinking option click updates variant from nested model picker",
   "packages/app/e2e/prompt/first-message-reply.spec.ts:@smoke first replied message in a new session renders without page errors",
   "packages/app/e2e/prompt/prompt.spec.ts:@smoke can send a prompt and receive a reply",
   "packages/app/e2e/release-notes/release-notes-toast.spec.ts:@smoke shows subtle toast when stored version is older than current",

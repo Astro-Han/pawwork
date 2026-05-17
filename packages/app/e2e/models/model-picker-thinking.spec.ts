@@ -84,7 +84,7 @@ async function chooseModelWithVariants(page: Page): Promise<string[] | undefined
   return undefined
 }
 
-test("thinking option click updates variant from nested model picker", async ({ page, project }) => {
+test("@smoke thinking option click updates variant from nested model picker", async ({ page, project }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await project.open()
 
