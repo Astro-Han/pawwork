@@ -121,6 +121,37 @@ export const SettingsGeneral: Component = () => {
         <SettingsWebSearchRow />
 
         <SettingsRow
+          title={language.t("settings.general.homeSuggestions")}
+          description={language.t("settings.general.homeSuggestions.description")}
+        >
+          <div class="flex items-center gap-3" data-action="settings-home-suggestions">
+            <Show
+              when={
+                settings.general.homeSuggestionsEnabled() &&
+                settings.general.homeSuggestionsDismissed().length >= 3
+              }
+            >
+              <button
+                type="button"
+                class="text-fg-muted hover:text-fg-strong text-sm"
+                onClick={() => settings.general.setHomeSuggestionsDismissed([])}
+              >
+                {language.t("settings.general.homeSuggestions.reset")}
+              </button>
+            </Show>
+            <Switch
+              checked={settings.general.homeSuggestionsEnabled()}
+              onChange={(checked) => {
+                settings.general.setHomeSuggestionsEnabled(checked)
+                if (checked && settings.general.homeSuggestionsDismissed().length >= 3) {
+                  settings.general.setHomeSuggestionsDismissed([])
+                }
+              }}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.row.reasoningSummaries.title")}
           description={language.t("settings.general.row.reasoningSummaries.description")}
         >
