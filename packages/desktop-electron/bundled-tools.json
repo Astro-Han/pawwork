@@ -7,6 +7,7 @@
       "darwin-x64": "officecli-mac-x64",
       "win32-x64": "officecli-win-x64.exe",
       "win32-arm64": "officecli-win-arm64.exe"
-    }
+    },
+    "skillsTarballSha256": "d4401b6698697cc534fa14bb4da05e56bda9e94b9d1b8304dd692ffb8c12d464"
   }
 }
