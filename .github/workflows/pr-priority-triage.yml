@@ -55,13 +55,23 @@ jobs:
             })
             const labelPlan = planPriorityLabels(paths, currentLabels.map((label) => label.name))
 
-            if (labelPlan.addLabels.length > 0 || labelPlan.removeLabels.length > 0) {
-              await github.rest.issues.setLabels({
+            if (labelPlan.addLabels.length > 0) {
+              await github.rest.issues.addLabels({
                 owner,
                 repo,
                 issue_number: pull_number,
-                labels: labelPlan.labels,
+                labels: labelPlan.addLabels,
               })
+            }
+
+            for (const name of labelPlan.removeLabels) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: pull_number, name })
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error
+                }
+              }
             }
 
             core.info(

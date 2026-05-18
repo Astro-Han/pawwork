@@ -110,9 +110,9 @@ describe("pr routing workflows", () => {
     expect(triageWorkflow).toContain("TRIAGE_MARKER")
     expect(triageWorkflow).toContain("github.rest.pulls.listFiles")
     expect(triageWorkflow).toContain("github.rest.issues.listLabelsOnIssue")
-    expect(triageWorkflow).toContain("github.rest.issues.setLabels")
-    expect(triageWorkflow).not.toContain("github.rest.issues.removeLabel")
-    expect(triageWorkflow).not.toContain("github.rest.issues.addLabels")
+    expect(triageWorkflow).toContain("github.rest.issues.addLabels")
+    expect(triageWorkflow).toContain("github.rest.issues.removeLabel")
+    expect(triageWorkflow).not.toContain("github.rest.issues.setLabels")
     expect(triageWorkflow).toContain("planPriorityLabels")
     expect(triageWorkflow).toContain("github.rest.pulls.listReviews")
     expect(triageWorkflow).toContain("pathToFileURL")
@@ -159,7 +159,13 @@ describe("pr priority triage helper", () => {
     expect(planPriorityLabels([".github/workflows/labeler.yml"], ["ci", "task"])).toEqual({
       suggestedPriority: "P3",
       desiredPriority: "P3",
-      labels: ["ci", "task", "P3"],
+      addLabels: ["P3"],
+      removeLabels: [],
+    })
+
+    expect(planPriorityLabels([".github/workflows/labeler.yml"], [])).toEqual({
+      suggestedPriority: "P3",
+      desiredPriority: "P3",
       addLabels: ["P3"],
       removeLabels: [],
     })
@@ -174,7 +180,6 @@ describe("pr priority triage helper", () => {
     ).toEqual({
       suggestedPriority: "P2",
       desiredPriority: "P2",
-      labels: ["ci", "task", "app", "P2"],
       addLabels: ["P2"],
       removeLabels: ["P3"],
     })
@@ -182,7 +187,6 @@ describe("pr priority triage helper", () => {
     expect(planPriorityLabels([".github/workflows/labeler.yml"], ["ci", "task", "P2", "P3"])).toEqual({
       suggestedPriority: "P3",
       desiredPriority: "P2",
-      labels: ["ci", "task", "P2"],
       addLabels: [],
       removeLabels: ["P3"],
     })

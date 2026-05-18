@@ -106,13 +106,10 @@ export function planPriorityLabels(paths, labels = []) {
   const existingPriorities = PRIORITY_LABELS.filter((label) => labelSet.has(label))
   const manualPriority = PRIORITY_LABELS.find((label) => label !== "P3" && labelSet.has(label))
   const desiredPriority = manualPriority ?? priority
-  const nextLabels = labels.filter((label) => !PRIORITY_LABELS.includes(label))
-  nextLabels.push(desiredPriority)
 
   return {
     suggestedPriority: priority,
     desiredPriority,
-    labels: nextLabels,
     addLabels: labelSet.has(desiredPriority) ? [] : [desiredPriority],
     removeLabels: existingPriorities.filter((label) => label !== desiredPriority),
   }
