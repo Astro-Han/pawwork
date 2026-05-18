@@ -7,20 +7,29 @@ async function main() {
     throw new Error("Usage: bun script/list-failing-scenarios.ts <perf-compare.json>")
   }
 
-  const payload = JSON.parse(await fs.readFile(inputPath, "utf8")) as PerfBaselineComparison
   const failingByProfile = new Map<"default" | "low_end", string[]>([
     ["default", []],
     ["low_end", []],
   ])
 
-  for (const scenario of payload.scenarios) {
-    if (scenario.failures.length === 0) continue
-    const key = scenario.profile === "low-end" ? "low_end" : "default"
-    failingByProfile.get(key)!.push(scenario.scenario)
+  try {
+    const payload = JSON.parse(await fs.readFile(inputPath, "utf8")) as PerfBaselineComparison
+    for (const scenario of payload.scenarios) {
+      if (scenario.failures.length === 0) continue
+      const key = scenario.profile === "low-end" ? "low_end" : "default"
+      failingByProfile.get(key)!.push(scenario.scenario)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`::warning::Failed to read failing scenarios from ${inputPath}: ${message}\n`)
   }
 
-  for (const [key, names] of failingByProfile) {
-    process.stdout.write(`${key}=${names.join(",")}\n`)
+  const output = Array.from(failingByProfile, ([key, names]) => `${key}=${names.join(",")}`).join("\n") + "\n"
+  const githubOutput = process.env.GITHUB_OUTPUT
+  if (githubOutput) {
+    await fs.appendFile(githubOutput, output)
+  } else {
+    process.stdout.write(output)
   }
 }
 

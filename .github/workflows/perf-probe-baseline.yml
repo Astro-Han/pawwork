@@ -11,6 +11,7 @@ on:
       - "packages/app/package.json"
       - "packages/app/playwright.config.ts"
       - "packages/app/script/compare-perf.ts"
+      - "packages/app/script/list-failing-scenarios.ts"
       - "packages/app/script/merge-perf-artifacts.ts"
       - "packages/app/script/e2e-local.ts"
       - "packages/app/src/testing/perf-metrics*"
@@ -294,7 +295,7 @@ jobs:
       - name: Resolve failing scenarios for trace capture
         id: failing_scenarios
         if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
-        run: bun head/packages/app/script/list-failing-scenarios.ts "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json" >> "$GITHUB_OUTPUT"
+        run: bun head/packages/app/script/list-failing-scenarios.ts "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
 
       - name: Capture perf diagnostic trace (base)
         if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
@@ -339,7 +340,7 @@ jobs:
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Upload perf trace artifact
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        if: always() && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && (steps.failing_scenarios.outputs.default != '' || steps.failing_scenarios.outputs.low_end != '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
         with:
           name: perf-probe-trace-${{ github.run_attempt }}
@@ -350,7 +351,7 @@ jobs:
             base/packages/app/e2e/test-results/**/trace.zip
 
       - name: Print perf trace artifact pointer
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        if: always() && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && (steps.failing_scenarios.outputs.default != '' || steps.failing_scenarios.outputs.low_end != '')
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## Perf trace artifact
