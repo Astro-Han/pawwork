@@ -131,6 +131,37 @@ describe("renderer diagnostics sanitizer", () => {
     })
   })
 
+  test("keeps session abort diagnostics and drops unrelated fields", () => {
+    const event = sanitizeRendererDiagnosticEvent(
+      {
+        name: "session.action.abort",
+        route_session_id: "ses_route",
+        visible_session_id: "ses_visible",
+        timeline_session_id: "ses_timeline",
+        data: {
+          source: "emptyEnter",
+          mode: "soft",
+          result: "aborted",
+          prompt_text: "do not keep me",
+        },
+      },
+      { appLaunchID: "launch_1", now: () => new Date("2026-05-02T10:30:12.123Z"), windowID: 1 },
+    )
+
+    expect(event).toMatchObject({
+      "event.name": "session.action.abort",
+      route_session_id: "ses_route",
+      visible_session_id: "ses_visible",
+      timeline_session_id: "ses_timeline",
+      data: {
+        source: "emptyEnter",
+        mode: "soft",
+        result: "aborted",
+      },
+    })
+    expect(JSON.stringify(event)).not.toContain("do not keep me")
+  })
+
   test("accepts typed session timeline scroll controller diagnostics", () => {
     const event = sanitizeRendererDiagnosticEvent(
       {

@@ -100,6 +100,21 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Sync officecli skills bundle
+        if: ${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Computing skills tarball SHA256 for new version"
+          bun --cwd packages/desktop-electron run sync-skills -- --compute-sha
+
+          echo "Syncing vendored skills with PawWork override"
+          bun --cwd packages/desktop-electron run sync-skills
+
+          echo "Sync complete. Diff summary:"
+          git --no-pager diff --stat skills/ packages/desktop-electron/bundled-tools.json
+
       - name: Create bump pull request
         if: ${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version }}
         shell: bash
@@ -159,15 +174,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           gh auth setup-git
           git switch -c "$branch"
-          git add packages/desktop-electron/bundled-tools.json
-          git commit -m "$title"
+          git add packages/desktop-electron/bundled-tools.json skills/
+          git commit -m "$title and sync skills"
           git push --set-upstream origin "$branch"
 
           body_file="$(mktemp)"
           cat > "$body_file" <<EOF
           ## Summary
 
-          Bump the bundled OfficeCLI version in \`packages/desktop-electron/bundled-tools.json\` from \`${{ steps.versions.outputs.current_version }}\` to \`${LATEST_VERSION}\`.
+          Bump the bundled OfficeCLI version in \`packages/desktop-electron/bundled-tools.json\` from \`${{ steps.versions.outputs.current_version }}\` to \`${LATEST_VERSION}\`, refresh \`officecli.skillsTarballSha256\`, and re-sync vendored \`skills/\` (PawWork override blockquote re-injected after the upstream frontmatter).
 
           ## Why
 
@@ -184,7 +199,8 @@ jobs:
           ## Review Focus
 
           - Confirm the new pinned version matches the intended upstream release.
-          - Confirm the bundled manifest is the only repo change.
+          - Confirm \`skills/\` diff shows only upstream byte-equivalent content plus the fixed PawWork override blockquote.
+          - Confirm \`officecli.skillsTarballSha256\` matches the computed content SHA shown in the workflow log.
           - Confirm the verification summary covers all four bundled desktop assets.
 
           ## Risk Notes
