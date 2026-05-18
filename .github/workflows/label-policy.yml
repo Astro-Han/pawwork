@@ -40,7 +40,13 @@ jobs:
             const item =
               context.eventName === "issues" ? context.payload.issue : context.payload.pull_request
             const itemType = context.eventName === "issues" ? "issue" : "pull_request"
-            const labels = item.labels.map((label) => label.name)
+            const currentLabels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: item.number,
+              per_page: 100,
+            })
+            const labels = currentLabels.map((label) => label.name)
             const result = policy.validateLabelPolicy({ itemType, labels })
 
             if (!result.ok) {
