@@ -215,7 +215,7 @@ export function ModelSelectorPopover(props: {
       <Kobalte.Portal>
         <Kobalte.Content
           data-picker-content=""
-          class="w-[240px] h-[400px] flex flex-col z-50 outline-none overflow-hidden"
+          class="w-[240px] max-h-[400px] flex flex-col z-50 outline-none overflow-hidden"
           onEscapeKeyDown={(event) => {
             close("escape")
             event.preventDefault()
