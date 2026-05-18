@@ -5,7 +5,14 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
-import { computeContentSha, extractTarball, injectOverride, pruneSkillsDir, syncSkills } from "./sync-officecli-skills"
+import {
+  computeContentSha,
+  extractTarball,
+  injectOverride,
+  localTarArchive,
+  pruneSkillsDir,
+  syncSkills,
+} from "./sync-officecli-skills"
 
 const execFileAsync = promisify(execFile)
 
@@ -114,6 +121,15 @@ describe("computeContentSha", () => {
   })
 })
 
+describe("localTarArchive", () => {
+  test("keeps Windows drive letters out of tar archive arguments", () => {
+    const archive = localTarArchive("D:\\a\\pawwork\\bundle.tar.gz", "win32")
+    expect(archive.cwd).toBe("D:\\a\\pawwork")
+    expect(archive.archiveArg).toBe("./bundle.tar.gz")
+    expect(archive.archiveArg).not.toContain(":")
+  })
+})
+
 async function setupSkillsFixture(names: string[]): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), "prune-test-"))
   for (const n of names) {
@@ -194,7 +210,8 @@ async function buildFixtureTarball(rootName: string, layout: Record<string, stri
     }
   }
   const tarballPath = path.join(stagingDir, `${rootName}.tar.gz`)
-  await execFileAsync("tar", ["-czf", tarballPath, "-C", stagingDir, rootName])
+  const archive = localTarArchive(tarballPath)
+  await execFileAsync("tar", ["-czf", archive.archiveArg, "-C", stagingDir, rootName], { cwd: archive.cwd })
   return tarballPath
 }
 

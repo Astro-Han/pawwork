@@ -108,6 +108,18 @@ export function computeContentSha(files: Map<string, Buffer>): string {
   return outer.digest("hex")
 }
 
+export function localTarArchive(
+  tarballPath: string,
+  platform: NodeJS.Platform = process.platform,
+): { cwd: string; archiveArg: string } {
+  const pathApi = platform === "win32" ? path.win32 : path
+  const archiveName = pathApi.basename(tarballPath)
+  return {
+    cwd: pathApi.dirname(tarballPath),
+    archiveArg: `./${archiveName}`,
+  }
+}
+
 export type ExtractedFiles = Map<string, Buffer>
 
 async function walkFiles(rootDir: string, relPrefix: string, out: Map<string, Buffer>) {
@@ -134,7 +146,8 @@ async function walkFiles(rootDir: string, relPrefix: string, out: Map<string, Bu
 export async function extractTarball(tarballPath: string): Promise<ExtractedFiles> {
   const extractDir = await mkdtemp(path.join(tmpdir(), "officecli-skills-"))
   try {
-    await execFileAsync("tar", ["-xzf", tarballPath, "-C", extractDir])
+    const archive = localTarArchive(tarballPath)
+    await execFileAsync("tar", ["-xzf", archive.archiveArg, "-C", extractDir], { cwd: archive.cwd })
     // The tarball root is `<repo-name>-<sha>` (GitHub convention). Find the single top-level dir.
     const topEntries = await readdir(extractDir, { withFileTypes: true })
     const topDirs = topEntries.filter((e) => e.isDirectory())
