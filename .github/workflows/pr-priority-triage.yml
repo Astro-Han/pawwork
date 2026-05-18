@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
   pull-requests: write
 
 jobs:
@@ -33,7 +34,7 @@ jobs:
             const triage = await import(
               pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github/scripts/pr-priority-triage.js")).href,
             )
-            const { buildPriorityReview, TRIAGE_MARKER } = triage
+            const { buildPriorityReview, planPriorityLabels, TRIAGE_MARKER } = triage
             const pull_number = Number(process.env.PR_NUMBER)
             const owner = context.repo.owner
             const repo = context.repo.repo
@@ -45,6 +46,37 @@ jobs:
               per_page: 100,
             })
             const paths = files.map((file) => file.filename)
+
+            const currentLabels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner,
+              repo,
+              issue_number: pull_number,
+              per_page: 100,
+            })
+            const labelPlan = planPriorityLabels(paths, currentLabels.map((label) => label.name))
+
+            for (const name of labelPlan.removeLabels) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: pull_number, name })
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error
+                }
+              }
+            }
+
+            if (labelPlan.addLabels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pull_number,
+                labels: labelPlan.addLabels,
+              })
+            }
+
+            core.info(
+              `Synced priority label: suggested=${labelPlan.suggestedPriority}, desired=${labelPlan.desiredPriority}`,
+            )
 
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               owner,

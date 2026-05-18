@@ -1,5 +1,7 @@
 export const TRIAGE_MARKER = "<!-- pawwork-pr-priority-triage-v1 -->"
 
+export const PRIORITY_LABELS = ["P0", "P1", "P2", "P3"]
+
 const LOW_RISK_GLOBS = [
   "docs/**",
   "**/*.md",
@@ -91,5 +93,24 @@ export function buildPriorityReview(paths) {
 Suggested priority: ${verdict.priority} (${verdict.reason}).
 
 ${manualOverride}`,
+  }
+}
+
+/**
+ * @param {string[]} paths
+ * @param {string[]} labels
+ */
+export function planPriorityLabels(paths, labels = []) {
+  const { priority } = classifyPriority(paths)
+  const labelSet = new Set(labels)
+  const existingPriorities = PRIORITY_LABELS.filter((label) => labelSet.has(label))
+  const manualPriority = PRIORITY_LABELS.find((label) => label !== "P3" && labelSet.has(label))
+  const desiredPriority = manualPriority ?? priority
+
+  return {
+    suggestedPriority: priority,
+    desiredPriority,
+    addLabels: labelSet.has(desiredPriority) ? [] : [desiredPriority],
+    removeLabels: existingPriorities.filter((label) => label !== desiredPriority),
   }
 }
