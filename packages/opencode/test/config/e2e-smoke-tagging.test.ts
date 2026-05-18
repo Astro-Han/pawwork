@@ -14,6 +14,7 @@ const expectedSmokeTests = [
   "packages/app/e2e/app/session.spec.ts:@smoke session composer matches home structure without docktray or agent control",
   "packages/app/e2e/app/shell-frame.spec.ts:@smoke shell frame exposes stable desktop hooks",
   "packages/app/e2e/files/file-tree.spec.ts:@smoke review tab no longer renders the legacy file-tree sub-panel",
+  "packages/app/e2e/model-picker-height.spec.ts:@smoke model picker height fits content, no empty bottom space",
   "packages/app/e2e/models/model-picker-thinking.spec.ts:@smoke session re-entry restores thinking variant from the last user message",
   "packages/app/e2e/models/model-picker-thinking.spec.ts:@smoke thinking option click updates variant from nested model picker",
   "packages/app/e2e/onboarding/home-suggestion-chips.spec.ts:@smoke clicking a suggestion row prefills the composer",
