@@ -3,7 +3,6 @@ import { createSimpleContext } from "@opencode-ai/ui/context"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { batch, onCleanup, onMount } from "solid-js"
-import z from "zod"
 import type { E2EWindow } from "@/testing/terminal"
 import { createSdkForServer } from "@/utils/server"
 import { coalesceQueuedEvents, type QueuedGlobalEvent } from "./global-sdk-event-queue"
@@ -11,10 +10,7 @@ import { useLanguage } from "./language"
 import { usePlatform } from "./platform"
 import { useServer } from "./server"
 import { createSseCursor } from "./global-sdk/sse-cursor"
-
-const abortError = z.object({
-  name: z.literal("AbortError"),
-})
+import { isRecoverableSseDisconnect } from "./global-sdk/sse-error"
 
 export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleContext({
   name: "GlobalSDK",
@@ -85,7 +81,6 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
 
     let streamErrorLogged = false
     const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-    const aborted = (error: unknown) => abortError.safeParse(error).success
 
     let attempt: AbortController | undefined
     let run: Promise<void> | undefined
@@ -127,7 +122,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
                 replayCursor.update(event.id)
               },
               onSseError: (error) => {
-                if (aborted(error)) return
+                if (isRecoverableSseDisconnect(error)) return
                 if (streamErrorLogged) return
                 streamErrorLogged = true
                 console.error("[global-sdk] event stream error", {
@@ -155,7 +150,7 @@ export const { use: useGlobalSDK, provider: GlobalSDKProvider } = createSimpleCo
               await wait(0)
             }
           } catch (error) {
-            if (!aborted(error) && !streamErrorLogged) {
+            if (!isRecoverableSseDisconnect(error) && !streamErrorLogged) {
               streamErrorLogged = true
               console.error("[global-sdk] event stream failed", {
                 url: currentServer.http.url,
