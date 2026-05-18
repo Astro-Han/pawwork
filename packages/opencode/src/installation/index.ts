@@ -8,7 +8,11 @@ import z from "zod"
 import { BusEvent } from "@/bus/bus-event"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Log } from "@opencode-ai/core/util/log"
-import { InstallationChannel as channel, InstallationVersion as version } from "@opencode-ai/core/installation/version"
+import {
+  InstallationChannel as channel,
+  InstallationUpstreamVersion as upstreamVersion,
+  InstallationVersion as version,
+} from "@opencode-ai/core/installation/version"
 
 import semver from "semver"
 
@@ -56,6 +60,7 @@ export namespace Installation {
   export type Info = z.infer<typeof Info>
 
   export const VERSION = version
+  export const UPSTREAM_VERSION = upstreamVersion
   export const CHANNEL = channel
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
 

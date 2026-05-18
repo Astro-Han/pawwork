@@ -388,7 +388,7 @@ const live: Layer.Layer<
                 "x-opencode-session": input.sessionID,
                 "x-opencode-request": input.user.id,
                 "x-opencode-client": Flag.OPENCODE_CLIENT,
-                "User-Agent": `opencode/${Installation.VERSION}`,
+                "User-Agent": `opencode/${Installation.UPSTREAM_VERSION}`,
               }
             : {
                 "x-session-affinity": input.sessionID,

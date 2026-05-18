@@ -605,7 +605,7 @@ describe("session.llm.stream", () => {
         })
 
         const capture = await request
-        expect(capture.headers.get("User-Agent")?.startsWith(`opencode/${Installation.VERSION}`)).toBe(true)
+        expect(capture.headers.get("User-Agent")?.startsWith(`opencode/${Installation.UPSTREAM_VERSION} `)).toBe(true)
         expect(capture.headers.get("x-opencode-client")).toBeTruthy()
         expect(capture.headers.get("x-opencode-project")).toBeTruthy()
         expect(capture.headers.get("x-opencode-session")).toBe(sessionID)

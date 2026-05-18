@@ -200,6 +200,7 @@ for (const item of targets) {
     entrypoints: ["./src/index.ts", ...(embeddedFileMap ? ["opencode-web-ui.gen.ts"] : [])],
     define: {
       OPENCODE_VERSION: `'${Script.version}'`,
+      OPENCODE_UPSTREAM_VERSION: `'${Script.upstreamVersion}'`,
       OPENCODE_MIGRATIONS: JSON.stringify(migrations),
       OPENCODE_CHANNEL: `'${Script.channel}'`,
       OPENCODE_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "",
