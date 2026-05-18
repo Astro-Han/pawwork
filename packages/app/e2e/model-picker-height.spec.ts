@@ -11,7 +11,11 @@ test("model picker height fits content, no empty bottom space", async ({ page, g
   await expect(chip).toBeVisible()
   await chip.click()
 
-  const picker = page.locator(pickerContentSelector).first()
+  // Variant (Thinking) sub-popover also uses [data-picker-content]; scope by the
+  // model list scroll container so the locator stays unambiguous if both render.
+  const picker = page
+    .locator(pickerContentSelector)
+    .filter({ has: page.locator('[data-slot="list-scroll"]') })
   await expect(picker).toBeVisible()
 
   const thinking = page.locator(thinkingTriggerSelector)
