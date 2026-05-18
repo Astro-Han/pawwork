@@ -112,7 +112,7 @@ export function localTarArchive(
   tarballPath: string,
   platform: NodeJS.Platform = process.platform,
 ): { cwd: string; archiveArg: string } {
-  const pathApi = platform === "win32" ? path.win32 : path
+  const pathApi = platform === "win32" ? path.win32 : path.posix
   const archiveName = pathApi.basename(tarballPath)
   return {
     cwd: pathApi.dirname(tarballPath),

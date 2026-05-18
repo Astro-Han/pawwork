@@ -128,6 +128,12 @@ describe("localTarArchive", () => {
     expect(archive.archiveArg).toBe("./bundle.tar.gz")
     expect(archive.archiveArg).not.toContain(":")
   })
+
+  test("uses POSIX path semantics for non-Windows platform simulations", () => {
+    const archive = localTarArchive("/tmp/pawwork/bundle.tar.gz", "linux")
+    expect(archive.cwd).toBe("/tmp/pawwork")
+    expect(archive.archiveArg).toBe("./bundle.tar.gz")
+  })
 })
 
 async function setupSkillsFixture(names: string[]): Promise<string> {
