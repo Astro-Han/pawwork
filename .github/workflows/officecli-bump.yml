@@ -192,7 +192,7 @@ jobs:
           git commit -m "$title and sync skills"
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
             echo "Updating existing bump branch: $branch"
-            git fetch origin "$branch"
+            git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"
             git push --force-with-lease=refs/heads/"$branch" --set-upstream origin "$branch"
           else
             git push --set-upstream origin "$branch"
@@ -257,18 +257,17 @@ jobs:
           - [x] I am targeting \`dev\`, and my PR title and commit messages use Conventional Commits in English
           EOF
 
-          if existing_pr="$(gh pr list --state open --base dev --head "$branch" --json url --jq '.[0].url // empty')"; then
-            if [ -n "$existing_pr" ]; then
-              echo "Open bump PR already exists: $existing_pr"
-              echo "Updating PR title and body instead of creating a duplicate."
-              gh pr edit "$existing_pr" \
-                --title "$title" \
-                --body-file "$body_file" \
-                --add-label enhancement \
-                --add-label ci \
-                --add-label upstream
-              exit 0
-            fi
+          existing_pr="$(gh pr list --state open --base dev --head "$branch" --json url --jq '.[0].url // empty')"
+          if [ -n "$existing_pr" ]; then
+            echo "Open bump PR already exists: $existing_pr"
+            echo "Updating PR title and body instead of creating a duplicate."
+            gh pr edit "$existing_pr" \
+              --title "$title" \
+              --body-file "$body_file" \
+              --add-label enhancement \
+              --add-label ci \
+              --add-label upstream
+            exit 0
           fi
 
           gh pr create \

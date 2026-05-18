@@ -55,9 +55,16 @@ describe("officecli bump workflow", () => {
     expect(workflow).toContain("Dry run requested; skipping branch push and PR creation.")
     expect(workflow).toContain("gh auth setup-git")
     expect(workflow).toContain('git ls-remote --exit-code --heads origin "$branch"')
-    expect(workflow).toContain('git fetch origin "$branch"')
+    expect(workflow).toContain('git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"')
     expect(workflow).toContain('git push --force-with-lease=refs/heads/"$branch" --set-upstream origin "$branch"')
+    expect(workflow).toContain(
+      'existing_pr="$(gh pr list --state open --base dev --head "$branch" --json url --jq \'.[0].url // empty\')"',
+    )
+    expect(workflow).not.toContain('if existing_pr="$(gh pr list')
     expect(workflow).toContain("gh pr edit")
+    expect(workflow).toContain("--add-label enhancement")
+    expect(workflow).toContain("--add-label ci")
+    expect(workflow).toContain("--add-label upstream")
     expect(workflow).toContain("--label enhancement")
     expect(workflow).toContain("--label ci")
     expect(workflow).toContain("--label upstream")
