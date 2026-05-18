@@ -472,6 +472,11 @@ test("discovers bundled skills from the repo skills directory in dev", async () 
         for (const name of vendoredNames) {
           expect(skills.find((item) => item.name === name)).toBeDefined()
         }
+        // Scope-drift guard: if a future sync silently vendors a new upstream skill matching
+        // these prefixes (e.g. a hypothetical `officecli-photoshop`), this assertion fails so
+        // the addition cannot land without an explicit update to vendoredNames.
+        const vendoredPrefix = /^(officecli-|morph-ppt)/
+        expect(skills.filter((item) => vendoredPrefix.test(item.name)).length).toBe(vendoredNames.length)
         // Negative: legacy three are gone (spec measurement: "旧的三个技能名在 model tool list 里完全消失")
         expect(skills.find((item) => item.name === "data-analysis")).toBeUndefined()
         expect(skills.find((item) => item.name === "document-processing")).toBeUndefined()
