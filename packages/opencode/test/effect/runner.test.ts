@@ -155,6 +155,44 @@ describe("Runner", () => {
   )
 
   it.live(
+    "cancel without metadata annotates the interrupt source",
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const runner = Runner.make<string>(s, {
+        onInterrupt: (meta) => Effect.succeed(`${meta?.source}:${meta?.reason}:${typeof meta?.recordedAt}`),
+      })
+      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("never"))).pipe(Effect.forkChild)
+      yield* Effect.sleep("10 millis")
+
+      yield* runner.cancel
+
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isSuccess(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) expect(exit.value).toBe("runner.cancel_without_meta:cancel_without_meta:number")
+    }),
+  )
+
+  it.live(
+    "scope interruption without metadata annotates the interrupt source",
+    Effect.gen(function* () {
+      const s = yield* Scope.make()
+      const runner = Runner.make<string>(s, {
+        onInterrupt: (meta) => Effect.succeed(`${meta?.source}:${meta?.reason}:${typeof meta?.recordedAt}`),
+      })
+      const fiber = yield* runner.ensureRunning(Effect.never.pipe(Effect.as("never"))).pipe(Effect.forkChild)
+      yield* Effect.sleep("10 millis")
+
+      yield* Scope.close(s, Exit.void)
+
+      const exit = yield* Fiber.await(fiber)
+      expect(Exit.isSuccess(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) {
+        expect(exit.value).toBe("runner.interrupt_without_meta:fiber_interrupt_without_meta:number")
+      }
+    }),
+  )
+
+  it.live(
     "cancel with queued callers resolves all",
     Effect.gen(function* () {
       const s = yield* Scope.Scope

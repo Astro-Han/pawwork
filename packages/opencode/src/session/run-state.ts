@@ -35,10 +35,18 @@ export const layer = Layer.effect(
         const runners = new Map<SessionID, Runner<MessageV2.WithParts>>()
         yield* Effect.addFinalizer(
           Effect.fnUntraced(function* () {
-            yield* Effect.forEach(runners.values(), (runner) => runner.cancel, {
-              concurrency: "unbounded",
-              discard: true,
-            })
+            yield* Effect.forEach(
+              runners.values(),
+              (runner) =>
+                runner.cancelWith({
+                  source: "session.run_state.finalizer",
+                  reason: "scope_finalizer",
+                }),
+              {
+                concurrency: "unbounded",
+                discard: true,
+              },
+            )
             runners.clear()
           }),
         )
@@ -60,6 +68,10 @@ export const layer = Layer.effect(
         }),
         onBusy: status.set(sessionID, { type: "busy" }),
         onInterrupt,
+        interruptFallback: {
+          source: "session.run_state.scope",
+          reason: "scope_closed_without_cancel_meta",
+        },
         busy: () => {
           throw new Session.BusyError(sessionID)
         },
