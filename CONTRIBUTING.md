@@ -27,6 +27,16 @@ Please open an issue first for larger feature proposals or changes that affect p
 - Optimize for non-technical users, not developer convenience alone.
 - Do not rewrite broad areas of the fork without prior discussion.
 
+## Agent Quickstart
+
+AI coding agents should use the same public contribution contract as human contributors.
+
+- Use GitHub issues, pull requests, and CI as the public sources of truth for scope, review state, and merge readiness.
+- Do not rely on private local notes, local coordination boards, or personal agent rules to build, test, review, or merge a contribution.
+- Start from the smallest issue or task boundary that can be reviewed independently.
+- Before changing code, identify the affected product layer and the smallest relevant verification path.
+- For visible UI changes, manually check the desktop app and include screenshots or a short recording in the pull request.
+
 ## Development Setup
 
 PawWork uses Bun and requires Node 24 in CI.
@@ -38,8 +48,7 @@ bun install --frozen-lockfile
 For local development:
 
 ```bash
-cd packages/desktop-electron
-bun run dev
+bun run dev:desktop
 ```
 
 ## Branches and Commits
