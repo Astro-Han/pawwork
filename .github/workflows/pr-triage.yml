@@ -1,4 +1,4 @@
-name: pr-priority-triage
+name: pr-triage
 
 on:
   pull_request_target:
@@ -6,7 +6,7 @@ on:
     branches: [dev]
 
 concurrency:
-  group: pr-priority-triage-${{ github.event.pull_request.number }}
+  group: pr-triage-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -15,10 +15,14 @@ permissions:
   pull-requests: write
 
 jobs:
-  pr-priority-triage:
+  pr-triage:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/labeler@f27b608878404679385c85cfa523b85ccb86e213 # actions/labeler@v6.1.0
+        with:
+          sync-labels: true
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
         with:
           persist-credentials: false
@@ -33,6 +37,9 @@ jobs:
             const { pathToFileURL } = require("node:url")
             const triage = await import(
               pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github/scripts/pr-priority-triage.js")).href,
+            )
+            const policy = await import(
+              pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github/scripts/label-policy-check.js")).href,
             )
             const { buildPriorityReview, planPriorityLabels, TRIAGE_MARKER } = triage
             const pull_number = Number(process.env.PR_NUMBER)
@@ -85,18 +92,34 @@ jobs:
               per_page: 100,
             })
 
-            if (reviews.some((review) => typeof review.body === "string" && review.body.includes(TRIAGE_MARKER))) {
+            if (!reviews.some((review) => typeof review.body === "string" && review.body.includes(TRIAGE_MARKER))) {
+              const review = buildPriorityReview(paths)
+              await github.rest.pulls.createReview({
+                owner,
+                repo,
+                pull_number,
+                event: "COMMENT",
+                body: review.body,
+              })
+              core.info(`Posted priority recommendation: ${review.priority}`)
+            } else {
               core.info("Priority recommendation comment already exists; skipping.")
+            }
+
+            const finalLabels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner,
+              repo,
+              issue_number: pull_number,
+              per_page: 100,
+            })
+            const labels = finalLabels.map((label) => label.name)
+            const result = policy.validateLabelPolicy({ itemType: "pull_request", labels })
+
+            if (!result.ok) {
+              const labelText = labels.length > 0 ? labels.join(", ") : "(none)"
+              const errorText = result.errors.map((error) => `- ${error.message}`).join("\n")
+              core.setFailed(`Label policy failed for pull_request #${pull_number}.\n\nLabels: ${labelText}\n\n${errorText}`)
               return
             }
 
-            const review = buildPriorityReview(paths)
-            await github.rest.pulls.createReview({
-              owner,
-              repo,
-              pull_number,
-              event: "COMMENT",
-              body: review.body,
-            })
-
-            core.info(`Posted priority recommendation: ${review.priority}`)
+            core.info(`Label policy passed for pull_request #${pull_number}: ${labels.join(", ")}`)
