@@ -27,7 +27,7 @@ jobs:
       # and runs on fork PRs too (exactly where advisory coverage is
       # most useful). Upgrading to fail-on-severity: high is a separate
       # decision.
-      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # actions/dependency-review-action@v4.9.0
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # actions/dependency-review-action@v5.0.0
         with:
           comment-summary-in-pr: never
           warn-only: true
