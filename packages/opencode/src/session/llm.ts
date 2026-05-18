@@ -494,12 +494,17 @@ const live: Layer.Layer<
                       })
                   }, currentTimeoutMs())
                 }
-                arm()
                 return {
                   ctrl,
                   timeoutFailure,
                   timeoutError() {
                     return timeoutError
+                  },
+                  // Start the connect timeout. Called after run() returns so the
+                  // timer only measures actual network/provider wait time, not
+                  // the internal setup work (provider lookup, config, plugins).
+                  startTimeout() {
+                    arm()
                   },
                   resetTimeout(event: Event) {
                     if (!providerProgressed && !isProviderProgressEvent(event)) return
@@ -518,6 +523,12 @@ const live: Layer.Layer<
             )
 
             const result = yield* run({ ...input, abort: request.ctrl.signal })
+
+            // Arm the connect timeout now that the HTTP request has been sent.
+            // Previously this was called during request object creation, which
+            // meant setup time (provider lookup, config, plugin hooks) ate into
+            // the 30s window, causing premature timeouts.
+            request.startTimeout()
 
             // This is a silent-stream timeout: it limits how long we wait for
             // the next provider event, not the total model runtime.

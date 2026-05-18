@@ -11,6 +11,7 @@ on:
       - "packages/app/package.json"
       - "packages/app/playwright.config.ts"
       - "packages/app/script/compare-perf.ts"
+      - "packages/app/script/list-failing-scenarios.ts"
       - "packages/app/script/merge-perf-artifacts.ts"
       - "packages/app/script/e2e-local.ts"
       - "packages/app/src/testing/perf-metrics*"
@@ -95,7 +96,7 @@ jobs:
 
           is_low_end_path() {
             case "$1" in
-              packages/app/src/pages/session/*|packages/app/src/pages/session/**|packages/app/src/pages/session.tsx|packages/ui/src/components/message-part.tsx|packages/ui/src/components/session-turn.tsx|packages/ui/src/components/markdown.tsx|packages/ui/src/components/text-shimmer.css|packages/ui/src/components/text-shimmer.tsx|packages/ui/src/components/basic-tool.tsx|packages/ui/src/components/tool-status-title.tsx|packages/ui/src/styles/animations.css|packages/app/e2e/perf/*|packages/app/e2e/perf/**|packages/app/src/testing/perf-metrics*|packages/app/script/compare-perf.ts|packages/app/script/merge-perf-artifacts.ts|.github/workflows/perf-probe-baseline.yml)
+              packages/app/src/pages/session/*|packages/app/src/pages/session/**|packages/app/src/pages/session.tsx|packages/ui/src/components/message-part.tsx|packages/ui/src/components/session-turn.tsx|packages/ui/src/components/markdown.tsx|packages/ui/src/components/text-shimmer.css|packages/ui/src/components/text-shimmer.tsx|packages/ui/src/components/basic-tool.tsx|packages/ui/src/components/tool-status-title.tsx|packages/ui/src/styles/animations.css|packages/app/e2e/perf/*|packages/app/e2e/perf/**|packages/app/src/testing/perf-metrics*|packages/app/script/compare-perf.ts|packages/app/script/list-failing-scenarios.ts|packages/app/script/merge-perf-artifacts.ts|.github/workflows/perf-probe-baseline.yml)
                 return 0
                 ;;
               *)
@@ -291,43 +292,79 @@ jobs:
             })
             core.info("Created perf delta comment")
 
-      - name: Capture perf diagnostic trace (base)
+      - name: Resolve failing scenarios for trace capture
+        id: failing_scenarios
         if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        run: bun head/packages/app/script/list-failing-scenarios.ts "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json"
+
+      - name: Capture perf diagnostic trace (base)
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture perf diagnostic trace (head)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (base)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (head)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd head/packages/app test:e2e:local:perf
+
+      - name: Upload perf trace artifact
+        if: always() && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && (steps.failing_scenarios.outputs.default != '' || steps.failing_scenarios.outputs.low_end != '')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
+        with:
+          name: perf-probe-trace-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            head/packages/app/e2e/test-results/**/trace.zip
+            base/packages/app/e2e/test-results/**/trace.zip
+
+      - name: Print perf trace artifact pointer
+        if: always() && steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && (steps.failing_scenarios.outputs.default != '' || steps.failing_scenarios.outputs.low_end != '')
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Perf trace artifact
+
+          The comparator failed twice. Playwright traces from the diagnostic re-run are uploaded as a separate small artifact so you do not have to download the full perf bundle.
+
+          Download **perf-probe-trace-${{ github.run_attempt }}** from the "Artifacts" section of this run summary, then open a trace with:
+
+          ```
+          npx playwright show-trace path/to/trace.zip
+          ```
+          EOF
+          echo "::notice::Perf comparator failed. Download artifact 'perf-probe-trace-${{ github.run_attempt }}' from this run and open trace.zip with 'npx playwright show-trace'."
 
       - name: Fail job on comparator regression
         if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'

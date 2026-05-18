@@ -11,8 +11,7 @@ import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
 const labelerConfigPath = path.join(repoRoot, ".github", "labeler.yml")
-const labelerWorkflowPath = path.join(repoRoot, ".github", "workflows", "labeler.yml")
-const triageWorkflowPath = path.join(repoRoot, ".github", "workflows", "pr-priority-triage.yml")
+const triageWorkflowPath = path.join(repoRoot, ".github", "workflows", "pr-triage.yml")
 
 type LabelerRule = {
   "changed-files"?: Array<{
@@ -35,7 +34,7 @@ function labelerLabelsForGlob(glob: string) {
     .map(([label]) => label)
 }
 
-describe("pr routing workflows", () => {
+describe("pr triage workflow", () => {
   test("defines labeler routing for repo areas and workflow policy labels", () => {
     const config = readWorkflow(labelerConfigPath)
     expect(config).toContain("ci:")
@@ -61,32 +60,15 @@ describe("pr routing workflows", () => {
     expect(validateLabelPolicy({ itemType: "pull_request", labels: [...labels, "P3"] }).ok).toBe(true)
   })
 
-  test("pins labeler and triage workflow contracts", () => {
-    const labelerWorkflow = readWorkflow(labelerWorkflowPath)
-    const labelerParsed = parseWorkflow(labelerWorkflowPath)
-    const labelerSteps = labelerParsed.jobs?.labeler?.steps ?? []
-    const labelerStep = labelerSteps[0]
-
-    expect(labelerParsed.name).toBe("labeler")
-    expect(labelerParsed.on?.pull_request_target).toEqual({
-      types: ["opened", "synchronize", "reopened"],
-      branches: ["dev"],
-    })
-    expect(labelerParsed.permissions).toEqual({
-      contents: "read",
-      "pull-requests": "write",
-    })
-    expect(labelerStep?.uses).toBe("actions/labeler@f27b608878404679385c85cfa523b85ccb86e213")
-    expect(labelerStep?.with).toEqual({ "sync-labels": true })
-    expect(labelerWorkflow).not.toContain("persist-credentials: true")
-
+  test("pins pr-triage workflow contract: labeler, priority, and policy run serially", () => {
     const triageWorkflow = readWorkflow(triageWorkflowPath)
     const triageParsed = parseWorkflow(triageWorkflowPath)
-    const triageSteps = triageParsed.jobs?.["pr-priority-triage"]?.steps ?? []
+    const triageSteps = triageParsed.jobs?.["pr-triage"]?.steps ?? []
+    const labelerStep = triageSteps.find((step) => step.uses?.startsWith("actions/labeler@"))
     const checkout = triageSteps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const script = triageSteps.find((step) => step.uses?.startsWith("actions/github-script@"))
 
-    expect(triageParsed.name).toBe("pr-priority-triage")
+    expect(triageParsed.name).toBe("pr-triage")
     expect(triageParsed.on?.pull_request_target).toEqual({
       types: ["opened", "synchronize", "reopened"],
       branches: ["dev"],
@@ -96,14 +78,19 @@ describe("pr routing workflows", () => {
       issues: "write",
       "pull-requests": "write",
     })
-    expect(triageParsed.concurrency?.group).toBe("pr-priority-triage-${{ github.event.pull_request.number }}")
+    expect(triageParsed.concurrency?.group).toBe("pr-triage-${{ github.event.pull_request.number }}")
     expect(triageParsed.concurrency?.["cancel-in-progress"]).toBe(true)
-    expect(checkout?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+
+    const stepUses = triageSteps.map((step) => step.uses).filter((value): value is string => Boolean(value))
+    expect(stepUses[0]).toBe("actions/labeler@f27b608878404679385c85cfa523b85ccb86e213")
+    expect(stepUses[1]).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
+    expect(stepUses[2]).toBe("actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3")
+
+    expect(labelerStep?.with).toEqual({ "sync-labels": true })
     expect(checkout?.with).toEqual({
       "persist-credentials": false,
       ref: "${{ github.event.pull_request.base.sha }}",
     })
-    expect(script?.uses).toBe("actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3")
     expect(script?.env).toEqual({ PR_NUMBER: "${{ github.event.pull_request.number }}" })
     expect(script?.run).toBeUndefined()
     expect(triageWorkflow).toContain('event: "COMMENT"')
@@ -114,11 +101,13 @@ describe("pr routing workflows", () => {
     expect(triageWorkflow).toContain("github.rest.issues.removeLabel")
     expect(triageWorkflow).not.toContain("github.rest.issues.setLabels")
     expect(triageWorkflow).toContain("planPriorityLabels")
+    expect(triageWorkflow).toContain("validateLabelPolicy")
     expect(triageWorkflow).toContain("github.rest.pulls.listReviews")
     expect(triageWorkflow).toContain("pathToFileURL")
     expect(triageWorkflow).toContain("process.env.GITHUB_WORKSPACE")
     expect(triageWorkflow).toContain("await import(")
     expect(triageWorkflow).not.toContain('require("./.github/scripts/pr-priority-triage.js")')
+    expect(triageWorkflow).not.toContain("persist-credentials: true")
   })
 })
 
