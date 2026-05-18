@@ -84,6 +84,19 @@ async function chooseModelWithVariants(page: Page): Promise<string[] | undefined
   return undefined
 }
 
+async function chooseThinkingVariantFromPicker(page: Page, target: string) {
+  await page.locator('[data-action="prompt-model"]').first().click()
+
+  const thinkingTrigger = page.locator('[data-action="prompt-model-thinking-trigger"]').first()
+  await expect(thinkingTrigger).toBeVisible()
+  await expect(thinkingTrigger).toBeEnabled()
+  await thinkingTrigger.click()
+
+  const option = page.locator(`[data-action="prompt-model-thinking-option"][data-variant="${target}"]`).first()
+  await expect(option).toBeVisible()
+  await option.click()
+}
+
 test("@smoke thinking option click updates variant from nested model picker", async ({ page, project }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await project.open()
@@ -97,17 +110,34 @@ test("@smoke thinking option click updates variant from nested model picker", as
   await setVariant(page, undefined)
   await expect.poll(() => probe(page).then((state) => state?.variant ?? null), { timeout: 30_000 }).toBe(null)
 
-  await page.locator('[data-action="prompt-model"]').first().click()
-
-  const thinkingTrigger = page.locator('[data-action="prompt-model-thinking-trigger"]').first()
-  await expect(thinkingTrigger).toBeVisible()
-  await expect(thinkingTrigger).toBeEnabled()
-  await thinkingTrigger.click()
-
-  const option = page.locator(`[data-action="prompt-model-thinking-option"][data-variant="${target}"]`).first()
-  await expect(option).toBeVisible()
-  await option.click()
+  await chooseThinkingVariantFromPicker(page, target)
 
   await expect.poll(() => probe(page).then((state) => state?.selected ?? null), { timeout: 30_000 }).toBe(target)
+  await expect.poll(() => probe(page).then((state) => state?.variant ?? null), { timeout: 30_000 }).toBe(target)
+})
+
+test("session re-entry restores thinking variant from the last user message", async ({ page, project }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await project.open()
+
+  const variants = await chooseModelWithVariants(page)
+  test.skip(!variants, "no visible e2e model with thinking variants")
+  if (!variants) return
+  const target = variants.includes("xhigh") ? "xhigh" : variants[0]
+  if (!target) throw new Error("Expected at least one thinking variant")
+
+  await setVariant(page, undefined)
+  await expect.poll(() => probe(page).then((state) => state?.variant ?? null), { timeout: 30_000 }).toBe(null)
+
+  await chooseThinkingVariantFromPicker(page, target)
+  await expect.poll(() => probe(page).then((state) => state?.variant ?? null), { timeout: 30_000 }).toBe(target)
+
+  const sessionID = await project.user(`session thinking variant ${Date.now()}`)
+
+  await expect.poll(() => probe(page).then((state) => state?.sessionID), { timeout: 30_000 }).toBe(sessionID)
+  await expect.poll(() => probe(page).then((state) => state?.variant ?? null), { timeout: 30_000 }).toBe(target)
+
+  await project.gotoSession()
+  await project.gotoSession(sessionID)
   await expect.poll(() => probe(page).then((state) => state?.variant ?? null), { timeout: 30_000 }).toBe(target)
 })
