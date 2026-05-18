@@ -13,6 +13,8 @@ describe("officecli bump workflow", () => {
     const checkout = steps.find((step) => step.uses?.startsWith("actions/checkout@"))
     const setupNode = steps.find((step) => step.uses?.startsWith("actions/setup-node@"))
     const setupBun = steps.find((step) => step.uses?.startsWith("oven-sh/setup-bun@"))
+    const validateToken = steps.find((step) => step.name === "Validate bump pull request token")
+    const createPr = steps.find((step) => step.name === "Create bump pull request")
 
     expect(parsed.name).toBe("officecli-bump")
     expect(parsed.on?.workflow_dispatch).toEqual({
@@ -27,9 +29,7 @@ describe("officecli bump workflow", () => {
     })
     expect(parsed.on?.schedule).toEqual([{ cron: "17 3 * * 1" }])
     expect(parsed.permissions).toEqual({
-      contents: "write",
-      "pull-requests": "write",
-      issues: "write",
+      contents: "read",
     })
 
     expect(checkout?.uses).toBe("actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd")
@@ -45,11 +45,23 @@ describe("officecli bump workflow", () => {
     expect(workflow).toContain(
       "bun packages/desktop-electron/scripts/prepare-officecli.ts --platform \"$platform\" --arch \"$arch\"",
     )
+    expect(validateToken?.if).toBe(
+      "${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version && inputs.dry_run != true }}",
+    )
+    expect(validateToken?.env?.OFFICECLI_BUMP_TOKEN).toBe("${{ secrets.OFFICECLI_BUMP_TOKEN }}")
+    expect(validateToken?.run).toContain("Missing OFFICECLI_BUMP_TOKEN")
+    expect(createPr?.env?.OFFICECLI_BUMP_TOKEN).toBe("${{ secrets.OFFICECLI_BUMP_TOKEN }}")
+    expect(createPr?.env).not.toHaveProperty("GH_TOKEN")
     expect(workflow).toContain("Dry run requested; skipping branch push and PR creation.")
     expect(workflow).toContain("gh auth setup-git")
+    expect(workflow).toContain('git ls-remote --exit-code --heads origin "$branch"')
+    expect(workflow).toContain('git fetch origin "$branch"')
+    expect(workflow).toContain('git push --force-with-lease=refs/heads/"$branch" --set-upstream origin "$branch"')
+    expect(workflow).toContain("gh pr edit")
     expect(workflow).toContain("--label enhancement")
     expect(workflow).toContain("--label ci")
     expect(workflow).toContain("--label upstream")
-    expect(workflow).toContain("Closes #330.")
+    expect(workflow).toContain("Follow-up to #330.")
+    expect(workflow).not.toContain("Closes #330.")
   })
 })

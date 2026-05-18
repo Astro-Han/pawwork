@@ -12,9 +12,7 @@ on:
     - cron: "17 3 * * 1"
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
 
 jobs:
   officecli-bump:
@@ -69,6 +67,19 @@ jobs:
         if: ${{ steps.versions.outputs.current_version == steps.versions.outputs.latest_version }}
         run: echo "Bundled OfficeCLI is already at ${{ steps.versions.outputs.current_version }}."
 
+      - name: Validate bump pull request token
+        if: ${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version && inputs.dry_run != true }}
+        shell: bash
+        env:
+          OFFICECLI_BUMP_TOKEN: ${{ secrets.OFFICECLI_BUMP_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${OFFICECLI_BUMP_TOKEN:-}" ]; then
+            echo "::error title=Missing OFFICECLI_BUMP_TOKEN::Set repository secret OFFICECLI_BUMP_TOKEN to a bot token allowed to push ci/officecli-bump-* branches and create pull requests."
+            exit 1
+          fi
+
       - name: Bump manifest and verify all bundled assets
         if: ${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version }}
         id: verify
@@ -119,7 +130,7 @@ jobs:
         if: ${{ steps.versions.outputs.current_version != steps.versions.outputs.latest_version }}
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          OFFICECLI_BUMP_TOKEN: ${{ secrets.OFFICECLI_BUMP_TOKEN }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           LATEST_VERSION: ${{ steps.versions.outputs.latest_version }}
           RELEASE_URL: ${{ steps.versions.outputs.release_url }}
@@ -138,14 +149,6 @@ jobs:
           if [ "$dry_run" = false ] && [ "$GITHUB_REF_NAME" != "dev" ]; then
             echo "Non-dry bump runs must start from dev, got $GITHUB_REF_NAME"
             exit 1
-          fi
-
-          if existing_pr="$(gh pr list --state open --base dev --head "$branch" --json url --jq '.[0].url // empty')"; then
-            if [ -n "$existing_pr" ]; then
-              echo "Open bump PR already exists: $existing_pr"
-              echo "Skipping duplicate OfficeCLI bump."
-              exit 0
-            fi
           fi
 
           echo "Verified targets:"
@@ -170,13 +173,30 @@ jobs:
             exit 0
           fi
 
+          if [ -z "${OFFICECLI_BUMP_TOKEN:-}" ]; then
+            echo "::error title=Missing OFFICECLI_BUMP_TOKEN::Set repository secret OFFICECLI_BUMP_TOKEN to a bot token allowed to push ci/officecli-bump-* branches and create pull requests."
+            exit 1
+          fi
+
+          export GH_TOKEN="$OFFICECLI_BUMP_TOKEN"
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           gh auth setup-git
           git switch -c "$branch"
           git add packages/desktop-electron/bundled-tools.json skills/
+          if git diff --cached --quiet; then
+            echo "No OfficeCLI bump changes were produced after verification; skipping branch and PR update."
+            exit 0
+          fi
           git commit -m "$title and sync skills"
-          git push --set-upstream origin "$branch"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Updating existing bump branch: $branch"
+            git fetch origin "$branch"
+            git push --force-with-lease=refs/heads/"$branch" --set-upstream origin "$branch"
+          else
+            git push --set-upstream origin "$branch"
+          fi
 
           body_file="$(mktemp)"
           cat > "$body_file" <<EOF
@@ -190,7 +210,7 @@ jobs:
 
           ## Related Issue
 
-          Closes #330.
+          Follow-up to #330. The issue is already closed; this PR is the generated OfficeCLI version bump from the scheduled maintenance workflow.
 
           ## Human Review Status
 
@@ -236,6 +256,20 @@ jobs:
           - [x] I reviewed the final diff for unrelated changes and suspicious dependency changes
           - [x] I am targeting \`dev\`, and my PR title and commit messages use Conventional Commits in English
           EOF
+
+          if existing_pr="$(gh pr list --state open --base dev --head "$branch" --json url --jq '.[0].url // empty')"; then
+            if [ -n "$existing_pr" ]; then
+              echo "Open bump PR already exists: $existing_pr"
+              echo "Updating PR title and body instead of creating a duplicate."
+              gh pr edit "$existing_pr" \
+                --title "$title" \
+                --body-file "$body_file" \
+                --add-label enhancement \
+                --add-label ci \
+                --add-label upstream
+              exit 0
+            fi
+          fi
 
           gh pr create \
             --base dev \
