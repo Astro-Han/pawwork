@@ -14,9 +14,13 @@ describe("label policy workflow", () => {
     const scriptStep = steps.find((step) => step.uses?.startsWith("actions/github-script@"))
 
     expect(parsed.name).toBe("label-policy")
+    expect(parsed.on?.pull_request_target).toEqual({
+      types: ["opened", "labeled", "unlabeled", "reopened"],
+      branches: ["dev"],
+    })
+    expect(parsed.on?.issues).toBeUndefined()
     expect(parsed.permissions).toEqual({
       contents: "read",
-      issues: "read",
       "pull-requests": "read",
     })
     expect(scriptStep?.uses).toBe("actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3")

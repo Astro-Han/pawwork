@@ -1,15 +1,12 @@
 name: label-policy
 
 on:
-  issues:
-    types: [opened, edited, labeled, unlabeled, reopened]
   pull_request_target:
-    types: [opened, edited, labeled, unlabeled, synchronize, reopened]
+    types: [opened, labeled, unlabeled, reopened]
     branches: [dev]
 
 permissions:
   contents: read
-  issues: read
   pull-requests: read
 
 jobs:
@@ -18,15 +15,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
-        if: github.event_name == 'pull_request_target'
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha }}
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6
-        if: github.event_name == 'issues'
-        with:
-          persist-credentials: false
 
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # actions/github-script@v9.0.0
         with:
@@ -37,9 +28,8 @@ jobs:
               pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github/scripts/label-policy-check.js")).href,
             )
 
-            const item =
-              context.eventName === "issues" ? context.payload.issue : context.payload.pull_request
-            const itemType = context.eventName === "issues" ? "issue" : "pull_request"
+            const item = context.payload.pull_request
+            const itemType = "pull_request"
             const currentLabels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
               owner: context.repo.owner,
               repo: context.repo.repo,
