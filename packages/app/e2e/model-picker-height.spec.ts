@@ -4,7 +4,7 @@ import { promptModelSelector } from "./selectors"
 const pickerContentSelector = '[data-picker-content=""]'
 const thinkingTriggerSelector = '[data-action="prompt-model-thinking-trigger"]'
 
-test("model picker height fits content, no empty bottom space", async ({ page, gotoSession }, testInfo) => {
+test("@smoke model picker height fits content, no empty bottom space", async ({ page, gotoSession }, testInfo) => {
   await gotoSession()
 
   const chip = page.locator(promptModelSelector).locator('[data-action="prompt-model"]').first()
