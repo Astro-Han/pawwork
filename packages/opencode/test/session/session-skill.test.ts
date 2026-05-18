@@ -12,13 +12,13 @@ describe("session.skill", () => {
       fn: async () => {
         const created = await Session.create({
           title: "Document workflow",
-          skill: "document-processing",
+          skill: "officecli-docx",
         })
 
-        expect(created.skill).toBe("document-processing")
+        expect(created.skill).toBe("officecli-docx")
 
         const loaded = await Session.get(created.id)
-        expect(loaded.skill).toBe("document-processing")
+        expect(loaded.skill).toBe("officecli-docx")
       },
     })
   })

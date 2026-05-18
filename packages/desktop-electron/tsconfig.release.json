@@ -1,7 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "types": ["vite/client", "node", "electron", "bun"]
   },
-  "include": ["electron-builder.config.ts", "scripts/write-app-update-config.ts"]
+  "include": [
+    "electron-builder.config.ts",
+    "scripts/write-app-update-config.ts",
+    "scripts/sync-officecli-skills.ts"
+  ]
 }
