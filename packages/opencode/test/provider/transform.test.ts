@@ -479,8 +479,8 @@ describe("ProviderTransform.options - Kimi anthropic thinking", () => {
       headers: {},
     }) as any
 
-  test("enables thinking for the supported Kimi K2.5 anthropic variants", () => {
-    for (const apiId of ["kimi-k2.5", "kimi-k2p5", "k2p5"]) {
+  test("enables thinking for supported Kimi K2.x anthropic variants", () => {
+    for (const apiId of ["kimi-k2.5", "kimi-k2p5", "k2p5", "kimi-k2.6", "kimi-k2p6", "k2p6"]) {
       const result = ProviderTransform.options({
         model: createModel(apiId),
         sessionID,
@@ -493,8 +493,8 @@ describe("ProviderTransform.options - Kimi anthropic thinking", () => {
     }
   })
 
-  test("does not broaden thinking to unrelated Kimi K2 or K2P variants", () => {
-    for (const apiId of ["kimi-k2.6", "kimi-k2-preview", "kimi-k2p6", "k2p6"]) {
+  test("does not enable thinking for Kimi variants that lack a K2 dot or K2P tag", () => {
+    for (const apiId of ["kimi-k2-preview", "kimi-k2", "kimi-k2-thinking"]) {
       const result = ProviderTransform.options({
         model: createModel(apiId),
         sessionID,
