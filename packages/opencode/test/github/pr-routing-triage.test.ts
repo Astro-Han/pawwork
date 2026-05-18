@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
+import { validateLabelPolicy } from "../../../../.github/scripts/label-policy-check.js"
 import { buildPriorityReview, classifyPriority, TRIAGE_MARKER } from "../../../../.github/scripts/pr-priority-triage.js"
 import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
@@ -8,10 +9,33 @@ const labelerConfigPath = path.join(repoRoot, ".github", "labeler.yml")
 const labelerWorkflowPath = path.join(repoRoot, ".github", "workflows", "labeler.yml")
 const triageWorkflowPath = path.join(repoRoot, ".github", "workflows", "pr-priority-triage.yml")
 
+type LabelerRule = {
+  "changed-files"?: Array<{
+    "any-glob-to-any-file"?: string[]
+  }>
+}
+
+type LabelerConfig = Record<string, LabelerRule[]>
+
+function labelerLabelsForGlob(glob: string) {
+  const config = parseWorkflow(labelerConfigPath) as unknown as LabelerConfig
+  return Object.entries(config)
+    .filter(([, rules]) =>
+      rules.some((rule) =>
+        rule["changed-files"]?.some((changedFilesRule) =>
+          changedFilesRule["any-glob-to-any-file"]?.includes(glob),
+        ),
+      ),
+    )
+    .map(([label]) => label)
+}
+
 describe("pr routing workflows", () => {
-  test("defines labeler routing without automatic type labels", () => {
+  test("defines labeler routing for repo areas and workflow policy labels", () => {
     const config = readWorkflow(labelerConfigPath)
     expect(config).toContain("ci:")
+    expect(config).toContain("task:")
+    expect(config).toContain("P3:")
     expect(config).toContain("platform:")
     expect(config).toContain("app:")
     expect(config).toContain("ui:")
@@ -23,6 +47,13 @@ describe("pr routing workflows", () => {
     expect(config).toContain("packages/opencode/**")
     expect(config).toContain("**/*.tsx")
     expect(config).not.toContain("**/*.md")
+  })
+
+  test("labels workflow PRs with the full pull request policy set", () => {
+    const labels = labelerLabelsForGlob(".github/workflows/**")
+
+    expect(new Set(labels)).toEqual(new Set(["ci", "task", "P3"]))
+    expect(validateLabelPolicy({ itemType: "pull_request", labels }).ok).toBe(true)
   })
 
   test("pins labeler and triage workflow contracts", () => {
@@ -40,7 +71,7 @@ describe("pr routing workflows", () => {
       contents: "read",
       "pull-requests": "write",
     })
-    expect(labelerStep?.uses).toBe("actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9")
+    expect(labelerStep?.uses).toBe("actions/labeler@f27b608878404679385c85cfa523b85ccb86e213")
     expect(labelerStep?.with).toEqual({ "sync-labels": true })
     expect(labelerWorkflow).not.toContain("persist-credentials: true")
 
@@ -66,7 +97,7 @@ describe("pr routing workflows", () => {
       "persist-credentials": false,
       ref: "${{ github.event.pull_request.base.sha }}",
     })
-    expect(script?.uses).toBe("actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b")
+    expect(script?.uses).toBe("actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3")
     expect(script?.env).toEqual({ PR_NUMBER: "${{ github.event.pull_request.number }}" })
     expect(script?.run).toBeUndefined()
     expect(triageWorkflow).toContain('event: "COMMENT"')

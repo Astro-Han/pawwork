@@ -3,6 +3,16 @@ ci:
       - any-glob-to-any-file:
           - ".github/workflows/**"
 
+task:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+
+P3:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/workflows/**"
+
 platform:
   - changed-files:
       - any-glob-to-any-file:
