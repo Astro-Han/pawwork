@@ -35,7 +35,7 @@ AI coding agents should use the same public contribution contract as human contr
 - Do not rely on private local notes, local coordination boards, or personal agent rules to build, test, review, or merge a contribution.
 - Start from the smallest issue or task boundary that can be reviewed independently.
 - Before changing code, identify the affected product layer and the smallest relevant verification path.
-- For visible UI changes, manually check the desktop app and include screenshots or a short recording in the pull request.
+- For visible UI changes, follow the verification and reporting steps in the [Verification](#verification) section.
 
 ## Development Setup
 
