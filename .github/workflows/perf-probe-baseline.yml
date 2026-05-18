@@ -291,40 +291,49 @@ jobs:
             })
             core.info("Created perf delta comment")
 
-      - name: Capture perf diagnostic trace (base)
+      - name: Resolve failing scenarios for trace capture
+        id: failing_scenarios
         if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        run: bun head/packages/app/script/list-failing-scenarios.ts "${PERF_ARTIFACT_DIR}/perf-compare-confirm.json" >> "$GITHUB_OUTPUT"
+
+      - name: Capture perf diagnostic trace (base)
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture perf diagnostic trace (head)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.failing_scenarios.outputs.default != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.default }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd head/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (base)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: base
           PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-base-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd base/packages/app test:e2e:local:perf
 
       - name: Capture low-end perf diagnostic trace (head)
-        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true'
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure' && steps.low_end_scope.outputs.run_low_end == 'true' && steps.failing_scenarios.outputs.low_end != ''
         env:
           CI: "true"
           PAWWORK_PERF_BRANCH: head
           PAWWORK_PERF_PROFILE: low-end
+          PAWWORK_PERF_SCENARIOS: ${{ steps.failing_scenarios.outputs.low_end }}
           PAWWORK_PERF_OUTPUT: ${{ github.workspace }}/perf-artifacts/perf-head-low-end-trace.json
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd head/packages/app test:e2e:local:perf
