@@ -329,6 +329,33 @@ jobs:
           PAWWORK_PERF_TRACE: "1"
         run: bun --cwd head/packages/app test:e2e:local:perf
 
+      - name: Upload perf trace artifact
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # actions/upload-artifact@v7
+        with:
+          name: perf-probe-trace-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+          path: |
+            head/packages/app/e2e/test-results/**/trace.zip
+            base/packages/app/e2e/test-results/**/trace.zip
+
+      - name: Print perf trace artifact pointer
+        if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Perf trace artifact
+
+          The comparator failed twice. Playwright traces from the diagnostic re-run are uploaded as a separate small artifact so you do not have to download the full perf bundle.
+
+          Download **perf-probe-trace-${{ github.run_attempt }}** from the "Artifacts" section of this run summary, then open a trace with:
+
+          ```
+          npx playwright show-trace path/to/trace.zip
+          ```
+          EOF
+          echo "::notice::Perf comparator failed. Download artifact 'perf-probe-trace-${{ github.run_attempt }}' from this run and open trace.zip with 'npx playwright show-trace'."
+
       - name: Fail job on comparator regression
         if: steps.compare.outcome == 'failure' && steps.compare_confirmed.outcome == 'failure'
         run: exit 1
