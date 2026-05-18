@@ -35,6 +35,7 @@ const eventDataFields = {
     "image_count",
     "comment_count",
   ],
+  "session.action.abort": ["source", "mode", "result"],
   "session.timeline.mount": ["rendered_count", "visible_first_message_id", "visible_last_message_id"],
   "session.timeline.unmount": ["rendered_count", "visible_first_message_id", "visible_last_message_id"],
   "session.timeline.visible": ["rendered_count", "visible_first_message_id", "visible_last_message_id"],

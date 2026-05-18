@@ -56,6 +56,7 @@ export const make = <A, E = never>(
     onIdle?: Effect.Effect<void>
     onBusy?: Effect.Effect<void>
     onInterrupt?: (meta?: InterruptMeta) => Effect.Effect<A, E>
+    interruptFallback?: InterruptMeta
     busy?: () => never
   },
 ): Runner<A, E> => {
@@ -69,6 +70,15 @@ export const make = <A, E = never>(
   const next = () => {
     ids += 1
     return ids
+  }
+  const withRecordedInterruptMeta = (meta: InterruptMeta | undefined, fallback: InterruptMeta): InterruptMeta => ({
+    ...fallback,
+    ...meta,
+    recordedAt: meta?.recordedAt ?? Date.now(),
+  })
+  const interruptFallback = opts?.interruptFallback ?? {
+    source: "runner.interrupt_without_meta",
+    reason: "fiber_interrupt_without_meta",
   }
 
   const complete = (done: Deferred.Deferred<A, E | Cancelled>, exit: Exit.Exit<A, E>) =>
@@ -108,7 +118,7 @@ export const make = <A, E = never>(
 
   const resolveInterrupt = (interruptMeta: Ref.Ref<InterruptMeta | undefined>): Effect.Effect<A, E> =>
     Effect.gen(function* () {
-      const meta = yield* Ref.get(interruptMeta)
+      const meta = withRecordedInterruptMeta(yield* Ref.get(interruptMeta), interruptFallback)
       if (onInterrupt) return yield* onInterrupt(meta)
       return yield* Effect.die(new Cancelled())
     })
@@ -218,14 +228,10 @@ export const make = <A, E = never>(
     SynchronizedRef.modifyEffect(
       ref,
       Effect.fnUntraced(function* (st) {
-        const snapshot = meta
-          ? {
-              ...meta,
-              recordedAt: meta.recordedAt ?? Date.now(),
-            }
-          : {
-              recordedAt: Date.now(),
-            }
+        const snapshot = withRecordedInterruptMeta(meta, {
+          source: "runner.cancel_without_meta",
+          reason: "cancel_without_meta",
+        })
         switch (st._tag) {
           case "Idle":
             return [Effect.void, st] as const
