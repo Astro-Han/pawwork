@@ -17,24 +17,26 @@ export type DiffProps<T = {}> = FileDiffOptions<T> & {
 const unsafeCSS = `
 [data-diff],
 [data-file] {
-  --diffs-bg: light-dark(var(--diffs-light-bg), var(--diffs-dark-bg));
-  --diffs-bg-buffer: var(--diffs-bg-buffer-override, light-dark( color-mix(in lab, var(--diffs-bg) 92%, var(--diffs-mixer)), color-mix(in lab, var(--diffs-bg) 92%, var(--diffs-mixer))));
-  --diffs-bg-hover: var(--diffs-bg-hover-override, light-dark( color-mix(in lab, var(--diffs-bg) 97%, var(--diffs-mixer)), color-mix(in lab, var(--diffs-bg) 91%, var(--diffs-mixer))));
-  --diffs-bg-context: var(--diffs-bg-context-override, light-dark( color-mix(in lab, var(--diffs-bg) 98.5%, var(--diffs-mixer)), color-mix(in lab, var(--diffs-bg) 92.5%, var(--diffs-mixer))));
-  --diffs-bg-separator: var(--diffs-bg-separator-override, light-dark( color-mix(in lab, var(--diffs-bg) 96%, var(--diffs-mixer)), color-mix(in lab, var(--diffs-bg) 85%, var(--diffs-mixer))));
-  --diffs-fg: light-dark(var(--diffs-light), var(--diffs-dark));
-  --diffs-fg-number: var(--diffs-fg-number-override, light-dark(color-mix(in lab, var(--diffs-fg) 65%, var(--diffs-bg)), color-mix(in lab, var(--diffs-fg) 65%, var(--diffs-bg))));
-  --diffs-deletion-base: var(--syntax-diff-delete);
-  --diffs-addition-base: var(--syntax-diff-add);
-  --diffs-modified-base: var(--syntax-diff-unknown);
-  --diffs-bg-deletion: var(--diffs-bg-deletion-override, light-dark( color-mix(in lab, var(--diffs-bg) 98%, var(--diffs-deletion-base)), color-mix(in lab, var(--diffs-bg) 92%, var(--diffs-deletion-base))));
-  --diffs-bg-deletion-number: var(--diffs-bg-deletion-number-override, light-dark( color-mix(in lab, var(--diffs-bg) 91%, var(--diffs-deletion-base)), color-mix(in lab, var(--diffs-bg) 85%, var(--diffs-deletion-base))));
-  --diffs-bg-deletion-hover: var(--diffs-bg-deletion-hover-override, light-dark( color-mix(in lab, var(--diffs-bg) 80%, var(--diffs-deletion-base)), color-mix(in lab, var(--diffs-bg) 75%, var(--diffs-deletion-base))));
-  --diffs-bg-deletion-emphasis: var(--diffs-bg-deletion-emphasis-override, light-dark(rgb(from var(--diffs-deletion-base) r g b / 0.7), rgb(from var(--diffs-deletion-base) r g b / 0.1)));
-  --diffs-bg-addition: var(--diffs-bg-addition-override, light-dark( color-mix(in lab, var(--diffs-bg) 98%, var(--diffs-addition-base)), color-mix(in lab, var(--diffs-bg) 92%, var(--diffs-addition-base))));
-  --diffs-bg-addition-number: var(--diffs-bg-addition-number-override, light-dark( color-mix(in lab, var(--diffs-bg) 91%, var(--diffs-addition-base)), color-mix(in lab, var(--diffs-bg) 85%, var(--diffs-addition-base))));
-  --diffs-bg-addition-hover: var(--diffs-bg-addition-hover-override, light-dark( color-mix(in lab, var(--diffs-bg) 80%, var(--diffs-addition-base)), color-mix(in lab, var(--diffs-bg) 70%, var(--diffs-addition-base))));
-  --diffs-bg-addition-emphasis: var(--diffs-bg-addition-emphasis-override, light-dark(rgb(from var(--diffs-addition-base) r g b / 0.07), rgb(from var(--diffs-addition-base) r g b / 0.1)));
+  /* pierre renders diffs through codeToHtml with the PawWorkDiff theme (see */
+  /* context/marked.tsx), so the inline <pre> background is var(--bg-base). */
+  /* pierre's own color-mix formulas derive context/separator off that base. */
+  /* We point add/del at the PawWork semantic alpha tokens, which carry their */
+  /* own light/dark values (see packages/ui/src/styles/theme.css and */
+  /* themes/pawwork.json), so no :host([data-color-scheme='dark']) branch is */
+  /* needed for the row tints. Issue #705. */
+  --diffs-bg-addition-override: var(--diff-add);
+  --diffs-bg-addition-number-override: var(--diff-add);
+  --diffs-bg-deletion-override: var(--diff-del);
+  --diffs-bg-deletion-number-override: var(--diff-del);
+
+  /* Buffer, context rows, and hunk separators ("N unmodified lines") stay flat */
+  /* over --bg-base. The chevron expand button shares --diffs-bg-separator */
+  /* (pierre dist/style.js L672), so transparent here also kills the gray */
+  /* raised-block look. */
+  --diffs-bg-buffer-override: transparent;
+  --diffs-bg-context-override: transparent;
+  --diffs-bg-separator-override: transparent;
+
   --diffs-selection-base: var(--warning-bg);
   --diffs-selection-border: var(--warning);
   --diffs-selection-number-fg: #1c1917;
@@ -138,7 +140,6 @@ const unsafeCSS = `
     height: 24px;
   }
   [data-column-number] {
-    background-color: var(--bg-base);
     cursor: default !important;
   }
 
@@ -161,12 +162,15 @@ ${lineCommentStyles}
 
 export function createDefaultOptions<T>(style: FileDiffOptions<T>["diffStyle"]) {
   return {
-    theme: "OpenCode",
+    theme: "PawWorkDiff",
     themeType: "system",
     disableLineNumbers: false,
     overflow: "wrap",
     diffStyle: style ?? "unified",
-    diffIndicators: "bars",
+    /* "classic" renders +/− char markers (matches DESIGN.md L482 marker column intent). */
+    /* "bars" would draw a 4px solid side stripe per row, which collides with the */
+    /* side-stripe ban in our design principles. Issue #705. */
+    diffIndicators: "classic",
     lineHoverHighlight: "both",
     disableBackground: false,
     expansionLineCount: 20,
@@ -188,4 +192,9 @@ export const styleVariables = {
   "--diffs-header-font-family": "var(--font-family-sans)",
   "--diffs-gap-block": 0,
   "--diffs-min-number-column-width": "4ch",
+  /* pierre's default --diffs-gap-style ("2px solid var(--diffs-bg)") paints a visible */
+  /* seam between the number column and the code column. Keep the 2px width for spacing */
+  /* but make the color transparent so the row's --diffs-line-bg (which already matches */
+  /* --diffs-bg-addition / --diffs-bg-deletion) shows through. Issue #705. */
+  "--diffs-gap-style": "2px solid transparent",
 }
