@@ -1124,18 +1124,27 @@ const rawLayer = Layer.effect(
       const dir = yield* InstanceState.directory
       const file = projectConfigFile(dir)
       const input = writable(config)
+      let changed: boolean
 
       if (!file.endsWith(".jsonc")) {
         const existing = yield* loadFile(file)
-        yield* fs
-          .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), input), null, 2))
-          .pipe(Effect.orDie)
+        // Re-read after loadFile so we see any auto-added $schema, otherwise
+        // the first call would always write and tear instances down.
+        const before = (yield* readConfigFile(file)) ?? "{}"
+        const serialized = JSON.stringify(mergeDeep(writable(existing), input), null, 2)
+        changed = serialized !== before
+        if (changed) yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
       } else {
         const before = (yield* readConfigFile(file)) ?? "{}"
-        yield* fs.writeFileString(file, patchJsonc(before, input)).pipe(Effect.orDie)
+        const updated = patchJsonc(before, input)
+        changed = updated !== before
+        if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)
       }
 
-      yield* Effect.promise(() => Instance.dispose())
+      // Only tear down running instances if config actually changed on disk.
+      // No-op writes from UI mounts (see upstream PR #25114) would otherwise
+      // abort any in-flight assistant turn.
+      if (changed) yield* Effect.promise(() => Instance.dispose())
     })
 
     const invalidate = Effect.fn("Config.invalidate")(function* (wait?: boolean) {
@@ -1160,6 +1169,7 @@ const rawLayer = Layer.effect(
       const file = globalConfigFile()
       const lock = yield* Effect.promise(() => Flock.acquire(configFileLockKey(file)))
       let next: Info
+      let changed: boolean
       try {
         if (!Runtime.isPawWork()) yield* Effect.promise(() => fsNode.mkdir(path.dirname(file), { recursive: true }))
         const existingText = yield* readConfigFile(file)
@@ -1186,26 +1196,34 @@ const rawLayer = Layer.effect(
               }
             : undefined
         const before = existingText ?? seed?.text ?? "{}"
+        const fileExisted = existingText !== undefined
         const writeOptions =
           existingText === undefined && Runtime.isPawWork() ? { mode: seed?.mode ?? 0o600 } : undefined
 
         if (!file.endsWith(".jsonc")) {
           const existing = ConfigParse.schema(Info.zod, ConfigParse.jsonc(before, file), file)
           const merged = mergeDeep(writable(existing), writable(config))
-          yield* Effect.promise(() => writeConfigTextAtomic(file, JSON.stringify(merged, null, 2), writeOptions)).pipe(
-            Effect.orDie,
-          )
+          const serialized = JSON.stringify(merged, null, 2)
+          // Always materialize on first run (seed migration), otherwise only
+          // when bytes change. See upstream PR #25114.
+          changed = !fileExisted || serialized !== before
+          if (changed)
+            yield* Effect.promise(() => writeConfigTextAtomic(file, serialized, writeOptions)).pipe(Effect.orDie)
           next = merged
         } else {
           const updated = patchJsonc(before, writable(config))
           next = ConfigParse.schema(Info.zod, ConfigParse.jsonc(updated, file), file)
-          yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
+          changed = !fileExisted || updated !== before
+          if (changed) yield* Effect.promise(() => writeConfigTextAtomic(file, updated, writeOptions)).pipe(Effect.orDie)
         }
       } finally {
         yield* Effect.promise(() => lock.release())
       }
 
-      yield* invalidate()
+      // Only invalidate (which calls Instance.disposeAll) if config actually
+      // changed on disk. No-op writes from UI mounts would otherwise abort
+      // any in-flight assistant turn across all instances.
+      if (changed) yield* invalidate()
       return next
     })
 

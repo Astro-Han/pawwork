@@ -1270,6 +1270,44 @@ home command`,
     }
   })
 
+  test("no-op global config write does not rewrite the file", async () => {
+    await using project = await tmpdir({ git: true })
+    await using global = await tmpdir()
+    const globalDir = global.path
+    const previousConfig = Global.Path.config
+    process.env.PAWWORK_HOME = globalDir
+    ;(Global.Path as { config: string }).config = globalDir
+
+    try {
+      await Instance.provide({
+        directory: project.path,
+        fn: async () => {
+          // Materialize and canonicalize the file via a real write.
+          await saveGlobal({ model: "stable/model" })
+          // Default first-write target when neither pawwork.json nor pawwork.jsonc
+          // exists yet (see PawWorkHome.configFileForWrite).
+          const filePath = path.join(globalDir, "pawwork.json")
+          const stableText = await Bun.file(filePath).text()
+
+          // Sentinel mtime — if the gate works, the second saveGlobal must
+          // skip the write and leave this timestamp intact. Any rewrite
+          // (atomic temp+rename or in-place) bumps mtime past this date.
+          const sentinel = new Date(2000, 0, 1)
+          await fs.utimes(filePath, sentinel, sentinel)
+
+          await saveGlobal({ model: "stable/model" })
+
+          const afterText = await Bun.file(filePath).text()
+          const afterStat = await fs.stat(filePath)
+          expect(afterText).toBe(stableText)
+          expect(afterStat.mtime.getTime()).toBe(sentinel.getTime())
+        },
+      })
+    } finally {
+      ;(Global.Path as { config: string }).config = previousConfig
+    }
+  })
+
   test("managed config defaults use PawWork-owned locations", () => {
     const previous = process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
     delete process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR
