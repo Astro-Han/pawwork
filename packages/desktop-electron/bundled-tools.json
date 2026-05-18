@@ -8,6 +8,6 @@
       "win32-x64": "officecli-win-x64.exe",
       "win32-arm64": "officecli-win-arm64.exe"
     },
-    "skillsTarballSha256": "4797152b826fa8c1ee31dcb1291cd2dcbcb7931ccabe75751bdebff78ce0d485"
+    "skillsTarballSha256": "74e89a265b8ba1aec8e995972613857e395bcadec0cd919d5884f3da97630193"
   }
 }
