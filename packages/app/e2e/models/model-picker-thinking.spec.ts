@@ -7,6 +7,7 @@ type ModelKey = {
 }
 
 type Probe = {
+  sessionID?: string
   model?: ModelKey
   variant?: string | null
   selected?: string | null
@@ -116,7 +117,7 @@ test("@smoke thinking option click updates variant from nested model picker", as
   await expect.poll(() => probe(page).then((state) => state?.variant ?? null), { timeout: 30_000 }).toBe(target)
 })
 
-test("session re-entry restores thinking variant from the last user message", async ({ page, project }) => {
+test("@smoke session re-entry restores thinking variant from the last user message", async ({ page, project }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await project.open()
 
