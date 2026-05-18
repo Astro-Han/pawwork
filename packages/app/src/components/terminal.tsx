@@ -16,6 +16,7 @@ import { isTerminalGoneError } from "@/context/terminal"
 import type { RuntimePTY, TerminalSnapshot, TerminalTab } from "@/context/terminal-types"
 import { terminalAttr, terminalProbe } from "@/testing/terminal"
 import { disposeIfDisposable, getHoveredLinkText, setOptionIfSupported } from "@/utils/runtime-adapters"
+import { attachKeyHandler } from "@/utils/terminal-key-handler"
 import { terminalWebSocketURL } from "@/utils/terminal-websocket-url"
 import { terminalWriter } from "@/utils/terminal-writer"
 
@@ -392,12 +393,12 @@ export const Terminal = (props: TerminalProps) => {
         }),
       )
 
-      t.attachCustomKeyEventHandler((event) => {
+      attachKeyHandler(t, (event) => {
         const key = event.key.toLowerCase()
 
         if (event.ctrlKey && event.shiftKey && !event.metaKey && key === "c") {
           document.execCommand("copy")
-          return true
+          return "block"
         }
 
         // Dispatch terminal toggles ourselves because Ghostty focus can swallow
@@ -405,12 +406,14 @@ export const Terminal = (props: TerminalProps) => {
         const config = settings.keybinds.get(TOGGLE_TERMINAL_ID) ?? DEFAULT_TOGGLE_TERMINAL_KEYBIND
         const keybinds = parseKeybind(config)
 
-        if (!matchKeybind(keybinds, event)) return true
+        if (matchKeybind(keybinds, event)) {
+          event.preventDefault()
+          event.stopPropagation()
+          queueMicrotask(() => command.trigger(TOGGLE_TERMINAL_ID, "keybind"))
+          return "block"
+        }
 
-        event.preventDefault()
-        event.stopPropagation()
-        queueMicrotask(() => command.trigger(TOGGLE_TERMINAL_ID, "keybind"))
-        return false
+        return "passthrough"
       })
 
       const fit = new mod.FitAddon()
