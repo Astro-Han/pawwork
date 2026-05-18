@@ -17,11 +17,11 @@ export type DiffProps<T = {}> = FileDiffOptions<T> & {
 const unsafeCSS = `
 [data-diff],
 [data-file] {
-  /* pierre's OpenCode theme writes --diffs-bg as inline style on <pre> via */
-  /* editor.background = var(--bg-base) (see context/marked.tsx). pierre's own */
-  /* color-mix formulas then derive context/separator off that base. We only */
-  /* point add/del at the PawWork semantic alpha tokens, which carry their own */
-  /* light/dark values (see packages/ui/src/styles/theme.css and */
+  /* pierre renders diffs through codeToHtml with the PawWorkDiff theme (see */
+  /* context/marked.tsx), so the inline <pre> background is var(--bg-base). */
+  /* pierre's own color-mix formulas derive context/separator off that base. */
+  /* We point add/del at the PawWork semantic alpha tokens, which carry their */
+  /* own light/dark values (see packages/ui/src/styles/theme.css and */
   /* themes/pawwork.json), so no :host([data-color-scheme='dark']) branch is */
   /* needed for the row tints. Issue #705. */
   --diffs-bg-addition-override: var(--diff-add);
@@ -162,7 +162,7 @@ ${lineCommentStyles}
 
 export function createDefaultOptions<T>(style: FileDiffOptions<T>["diffStyle"]) {
   return {
-    theme: "OpenCode",
+    theme: "PawWorkDiff",
     themeType: "system",
     disableLineNumbers: false,
     overflow: "wrap",
