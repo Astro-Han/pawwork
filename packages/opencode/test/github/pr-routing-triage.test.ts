@@ -66,7 +66,7 @@ describe("pr routing workflows", () => {
       "persist-credentials": false,
       ref: "${{ github.event.pull_request.base.sha }}",
     })
-    expect(script?.uses).toBe("actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b")
+    expect(script?.uses).toBe("actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3")
     expect(script?.env).toEqual({ PR_NUMBER: "${{ github.event.pull_request.number }}" })
     expect(script?.run).toBeUndefined()
     expect(triageWorkflow).toContain('event: "COMMENT"')
