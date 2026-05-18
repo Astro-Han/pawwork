@@ -467,6 +467,7 @@ test("discovers bundled skills from the repo skills directory in dev", async () 
           "officecli-financial-model",
           "officecli-pitch-deck",
           "officecli-pptx",
+          "officecli-word-form",
           "officecli-xlsx",
         ]
         for (const name of vendoredNames) {
