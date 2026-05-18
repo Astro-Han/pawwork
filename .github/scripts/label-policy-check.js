@@ -18,6 +18,9 @@ function labelList(labels) {
   return `${labels.slice(0, -1).join(", ")}, or ${labels[labels.length - 1]}`
 }
 
+/**
+ * @param {{ itemType: string, labels?: string[] }} input
+ */
 export function validateLabelPolicy({ itemType, labels = [] }) {
   const labelSet = new Set(labels)
   const errors = []
