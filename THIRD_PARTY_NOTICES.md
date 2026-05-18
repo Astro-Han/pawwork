@@ -4,7 +4,7 @@
 
 PawWork bundles OfficeCLI by iOfficeAI to read and edit Word, Excel, and PowerPoint files locally.
 
-PawWork also bundles OfficeCLI's `officecli-*` and `morph-ppt*` SKILL.md files, vendored from the same repository under the same Apache-2.0 license. Each vendored file has a PawWork override blockquote injected after the frontmatter; upstream content is otherwise unmodified. Vendored content is synced via `packages/desktop-electron/scripts/sync-officecli-skills.ts`.
+PawWork also bundles OfficeCLI's `officecli-*` and `morph-ppt*` skill directories, vendored from the same repository under the same Apache-2.0 license. Each vendored directory includes its `SKILL.md` plus any companion files (for example `editing.md`, `creating.md`, and assets under `reference/**` such as decision rules, helper scripts, and style templates). Each `SKILL.md` has a PawWork override blockquote injected after the frontmatter; companion files and the rest of each `SKILL.md`'s upstream content are otherwise byte-for-byte unmodified. Vendored content is synced via `packages/desktop-electron/scripts/sync-officecli-skills.ts`.
 
 - Project: https://github.com/iOfficeAI/OfficeCLI
 - License: Apache License 2.0
