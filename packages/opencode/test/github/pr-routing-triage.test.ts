@@ -40,7 +40,7 @@ describe("pr routing workflows", () => {
       contents: "read",
       "pull-requests": "write",
     })
-    expect(labelerStep?.uses).toBe("actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9")
+    expect(labelerStep?.uses).toBe("actions/labeler@f27b608878404679385c85cfa523b85ccb86e213")
     expect(labelerStep?.with).toEqual({ "sync-labels": true })
     expect(labelerWorkflow).not.toContain("persist-credentials: true")
 
