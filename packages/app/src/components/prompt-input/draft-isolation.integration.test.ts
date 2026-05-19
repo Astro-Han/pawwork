@@ -12,6 +12,8 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
 import { createPortableDraftOwner } from "./portable-draft"
 import { createPinnedDraftOwner } from "./pinned-draft"
+import { buildRequestParts } from "./build-request-parts"
+import { captureCommentMentions } from "./mention-metadata"
 
 let detectSubmitOwnership: typeof import("./submit").detectSubmitOwnership
 
@@ -183,5 +185,75 @@ describe("draft isolation invariants (cross-owner chain)", () => {
     expect(pinned.clearAll(capturedRev)).toBe(false)
     expect(pinned.current()).not.toBeNull()
     expect(pinned.current()!.prompt[0]).toMatchObject({ content: "user typed more" })
+  })
+
+  // ------------------------------------------------------------------
+  // Path-anchoring across A→B carry (P1 #1 regression guard)
+  // ------------------------------------------------------------------
+
+  test("portable carry from A→B: relative context path resolves to A's directory, not B's", () => {
+    // Record an A-workspace draft that picks src/app.ts (relative).
+    portable.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: payload("look at this").prompt,
+      context: [{ key: "ctx:1", type: "file", path: "src/app.ts" }],
+      images: [],
+      resolvedMentions: {},
+    })
+    const moved = portable.consumeForHomepage("/repo-B", true)
+    expect(moved).not.toBeNull()
+
+    // Submit happens on /repo-B but the carried context must still point to A's file.
+    const result = buildRequestParts({
+      prompt: moved!.prompt,
+      context: moved!.context as { key: string; type: "file"; path: string }[],
+      images: [],
+      text: "look at this",
+      messageID: "msg_carry",
+      sessionID: "ses_carry",
+      sessionDirectory: "/repo-B",
+    })
+
+    const files = result.requestParts.filter((p) => p.type === "file")
+    expect(files.some((p) => p.type === "file" && p.url === "file:///repo-A/src/app.ts")).toBe(true)
+    expect(files.every((p) => !(p.type === "file" && p.url.startsWith("file:///repo-B/src/app")))).toBe(true)
+  })
+
+  test("portable carry from A→B: comment @mention resolves to A even when submitted from B", () => {
+    const comment = "compare with @src/shared.ts"
+    const resolvedMentions = captureCommentMentions({ comment, sourceFilesystemDirectory: "/repo-A" })
+
+    portable.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: payload("review").prompt,
+      context: [
+        {
+          key: "ctx:c1",
+          type: "file",
+          path: "src/main.ts",
+          comment,
+          commentID: "c1",
+          resolvedMentions,
+        },
+      ],
+      images: [],
+      resolvedMentions: { "ctx:c1": resolvedMentions },
+    })
+    const moved = portable.consumeForHomepage("/repo-B", true)!
+
+    const result = buildRequestParts({
+      prompt: moved.prompt,
+      context: moved.context as { key: string; type: "file"; path: string; comment?: string; resolvedMentions?: typeof resolvedMentions }[],
+      images: [],
+      text: "review",
+      messageID: "msg_carry_mention",
+      sessionID: "ses_carry_mention",
+      sessionDirectory: "/repo-B",
+    })
+
+    const files = result.requestParts.filter((p) => p.type === "file")
+    // Comment mention must stay anchored to /repo-A even though submit is on /repo-B
+    expect(files.some((p) => p.type === "file" && p.url === "file:///repo-A/src/shared.ts")).toBe(true)
+    expect(files.every((p) => !(p.type === "file" && p.url.startsWith("file:///repo-B/src/shared")))).toBe(true)
   })
 })

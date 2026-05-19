@@ -15,6 +15,7 @@
 import { createSignal } from "solid-js"
 import type { Prompt, ContextItem, ImageAttachmentPart } from "@/context/prompt"
 import type { ResolvedMention } from "./mention-metadata"
+import { toAbsoluteFilePath } from "./path-canonical"
 
 export interface PortableDraftPayload {
   prompt: Prompt
@@ -99,6 +100,17 @@ export function createPortableDraftOwner(): PortableDraftOwner {
       return
     }
 
+    // Canonicalize relative file-bearing paths against the source filesystem
+    // directory so the snapshot is portable across workspaces. After a move,
+    // build-request-parts will receive absolute paths and won't re-anchor them
+    // to the destination workspace's sessionDirectory.
+    const canonicalPrompt: Prompt = input.prompt.map((part) =>
+      part.type === "file" ? { ...part, path: toAbsoluteFilePath(input.sourceFilesystemDirectory, part.path) } : part,
+    )
+    const canonicalContext = input.context.map((item) =>
+      item.type === "file" ? { ...item, path: toAbsoluteFilePath(input.sourceFilesystemDirectory, item.path) } : item,
+    )
+
     const current = snapshot()
     const nextRevision = (current?.revision ?? 0) + 1
 
@@ -113,8 +125,8 @@ export function createPortableDraftOwner(): PortableDraftOwner {
         resolvedMentions: current.resolvedMentions,
       }) ===
         JSON.stringify({
-          prompt: input.prompt,
-          context: input.context,
+          prompt: canonicalPrompt,
+          context: canonicalContext,
           images: input.images,
           resolvedMentions: input.resolvedMentions,
         })
@@ -123,8 +135,8 @@ export function createPortableDraftOwner(): PortableDraftOwner {
     }
 
     setSnapshot({
-      prompt: input.prompt,
-      context: input.context,
+      prompt: canonicalPrompt,
+      context: canonicalContext,
       images: input.images,
       resolvedMentions: input.resolvedMentions,
       sourceFilesystemDirectory: input.sourceFilesystemDirectory,

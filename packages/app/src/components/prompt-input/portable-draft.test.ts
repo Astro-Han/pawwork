@@ -252,3 +252,62 @@ describe("PortableDraftOwner.clear", () => {
     expect(owner.clear(0)).toBe(true)
   })
 })
+
+describe("PortableDraftOwner canonicalizes file paths against the source directory", () => {
+  let owner: ReturnType<typeof createPortableDraftOwner>
+
+  beforeEach(() => {
+    owner = createPortableDraftOwner()
+  })
+
+  test("record rewrites relative context file paths to absolute", () => {
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: DEFAULT_PROMPT,
+      context: [{ key: "k1", type: "file", path: "src/app.ts" }],
+      images: [],
+      resolvedMentions: {},
+    })
+    expect(owner.snapshot()?.context[0]?.path).toBe("/repo-A/src/app.ts")
+  })
+
+  test("record rewrites relative prompt file parts to absolute", () => {
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: [
+        { type: "text", content: "see ", start: 0, end: 4 },
+        { type: "file", content: "@src/app.ts", path: "src/app.ts", start: 4, end: 15 },
+      ],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    const filePart = owner.snapshot()?.prompt.find((p) => p.type === "file")
+    expect(filePart && "path" in filePart ? filePart.path : undefined).toBe("/repo-A/src/app.ts")
+  })
+
+  test("record leaves already-absolute paths untouched", () => {
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: DEFAULT_PROMPT,
+      context: [{ key: "k1", type: "file", path: "/home/elsewhere/file.ts" }],
+      images: [],
+      resolvedMentions: {},
+    })
+    expect(owner.snapshot()?.context[0]?.path).toBe("/home/elsewhere/file.ts")
+  })
+
+  test("A→B carry preserves the source workspace's absolute path", () => {
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: DEFAULT_PROMPT,
+      context: [{ key: "k1", type: "file", path: "src/app.ts" }],
+      images: [],
+      resolvedMentions: {},
+    })
+    const moved = owner.consumeForHomepage("/repo-B", true)
+    expect(moved?.sourceFilesystemDirectory).toBe("/repo-B")
+    // Path stays anchored to /repo-A — this is the whole point of canonicalization
+    expect(moved?.context[0]?.path).toBe("/repo-A/src/app.ts")
+  })
+})
