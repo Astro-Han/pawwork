@@ -29,6 +29,14 @@ export function createSessionBlockers(input: {
   })
 
   const questionRequest = createMemo(() => {
+    // Legacy paths (sync.data.blocker + sync.data.question). When the
+    // PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT flag is on, neither is populated
+    // and the dock will be empty. Full dock wire-up (synthesise a
+    // QuestionRequest from running question tool parts in sync.data.message
+    // with metadata.externalResultReady, route submissions through
+    // POST /session/:sessionID/tool/respond) lands in PR B alongside SDK
+    // regeneration. Until then flag-on UX is API-only; PR A's E2E exercises
+    // the route via fetch.
     return (
       sessionQuestionBlockerRequest(sync.data.session, sync.data.blocker, activeSessionID()) ??
       sessionQuestionRequest(sync.data.session, sync.data.question, activeSessionID())
