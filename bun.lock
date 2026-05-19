@@ -63,6 +63,7 @@
         "@types/luxon": "catalog:",
         "@types/node": "catalog:",
         "@typescript/native-preview": "catalog:",
+        "sharp": "0.34.5",
         "typescript": "catalog:",
         "vite": "catalog:",
         "vite-plugin-icons-spritesheet": "3.0.1",
@@ -100,7 +101,7 @@
     },
     "packages/desktop-electron": {
       "name": "@opencode-ai/desktop-electron",
-      "version": "2026.5.15",
+      "version": "2026.5.19",
       "dependencies": {
         "@opencode-ai/util": "workspace:*",
         "electron-context-menu": "4.1.2",

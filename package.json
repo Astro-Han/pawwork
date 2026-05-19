@@ -9,6 +9,7 @@
     "dev": "bun run dev:desktop",
     "dev:desktop": "bun --cwd packages/desktop-electron dev",
     "dev:web": "bun --cwd packages/app dev",
+    "snap": "bun packages/app/script/snap.ts",
     "dev:opencode": "bun run --cwd packages/opencode --conditions=browser src/index.ts",
     "frontend:inventory": "node script/frontend-inventory.mjs",
     "frontend:inventory:json": "node script/frontend-inventory.mjs --format json",

@@ -111,6 +111,7 @@ export function Titlebar() {
               onClick={layout.sidebar.toggle}
               aria-label={language.t("command.sidebar.toggle")}
               aria-expanded={layout.sidebar.opened()}
+              data-action="pawwork-sidebar-toggle"
             >
               <Icon name={layout.sidebar.opened() ? "sidebar-active" : "sidebar"} />
             </Button>
