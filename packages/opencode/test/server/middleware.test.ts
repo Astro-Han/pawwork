@@ -70,6 +70,7 @@ describe("server error middleware", () => {
 
   test("does not error-log expected not found responses", async () => {
     await Log.init({ print: false })
+    const before = await readLogFile()
     const app = new Hono().get("/missing", () => {
       throw new NotFoundError({ message: "Session not found: ses_missing" })
     })
@@ -77,7 +78,8 @@ describe("server error middleware", () => {
 
     const response = await app.request("/missing")
     const body = await response.json()
-    const logs = await readLogFile()
+    const after = await readLogFile()
+    const logs = after.slice(before.length)
 
     expect(response.status).toBe(404)
     expect(body.name).toBe("NotFoundError")
@@ -87,13 +89,15 @@ describe("server error middleware", () => {
 
   test("still error-logs unexpected server failures", async () => {
     await Log.init({ print: false })
+    const before = await readLogFile()
     const app = new Hono().get("/boom", () => {
       throw new Error("boom")
     })
     app.onError(ErrorMiddleware)
 
     const response = await app.request("/boom")
-    const logs = await readLogFile()
+    const after = await readLogFile()
+    const logs = after.slice(before.length)
 
     expect(response.status).toBe(500)
     expect(logs).toContain("ERROR")

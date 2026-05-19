@@ -182,7 +182,7 @@ test("clearSession - rejects pending questions and removes associated blockers",
       })
 
       await waitForPending()
-      expect(await listBlockers()).toHaveLength(1)
+      await waitFor(async () => (await listBlockers()).length === 1)
 
       await clearQuestionsForSession(sessionID)
 
