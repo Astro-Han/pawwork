@@ -50,7 +50,7 @@ export function createRecorder(input: RecorderInput): Recorder {
       streamMonotonicStart = next.monotonicMs
       stream = {
         schema_version: 2,
-        legacy_v1_counters: "terminal_attempt",
+        legacy_v1_counters: "aggregate",
         timeline: {
           collector_created_at: next.collectorCreatedAt,
         },

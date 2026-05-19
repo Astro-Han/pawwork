@@ -329,4 +329,43 @@ describe("LLMTrace", () => {
     const summary = recorder.finalize({ completedAt: 21, storedParts: [], streamError: true })
     expect(summary.stream?.timeline.durations_ms?.total).toBe(0)
   })
+
+  test("labels legacy v1 counters as aggregate when stream diagnostics track the terminal attempt", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_retry_trace"),
+      sessionID: SessionID.make("ses_retry_trace"),
+      messageID: MessageID.make("msg_retry_trace"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.observeEvent({ type: "text-delta", text: "first attempt progress" })
+    recorder.beginStream({
+      collectorCreatedAt: 20,
+      monotonicMs: 200,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordStreamFailure({
+      error: new Error("terminated"),
+      boundary: "sdk_transport",
+      confidence: "low",
+      evidence: ["iterator_error"],
+      failedAt: 30,
+      monotonicMs: 230,
+    })
+
+    const summary = recorder.finalize({ completedAt: 31, storedParts: [], streamError: true })
+    expect(summary.stream_events.text_delta).toBe(1)
+    expect(summary.stream?.legacy_v1_counters).toBe("aggregate")
+    expect(summary.stream?.timeline.collector_created_at).toBe(20)
+  })
 })

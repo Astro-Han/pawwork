@@ -1014,6 +1014,11 @@ export namespace Export {
   }
 
   function sanitizeStreamDiagnostics(stream: Record<string, unknown>) {
+    const timeline = isRecord(stream.timeline) ? stream.timeline : undefined
+    const durations = timeline && isRecord(timeline.durations_ms) ? timeline.durations_ms : undefined
+    const watchdog = isRecord(stream.watchdog) ? stream.watchdog : undefined
+    const attempt = isRecord(stream.attempt) ? stream.attempt : undefined
+    const abort = isRecord(stream.abort) ? stream.abort : undefined
     const rawError = isRecord(stream.error) ? stream.error : undefined
     const safeError = rawError
       ? compactObject({
@@ -1027,11 +1032,121 @@ export namespace Export {
       : undefined
     const rawProvider = isRecord(stream.provider) ? stream.provider : undefined
     const safeProvider = rawProvider ? safeProviderCorrelation(rawProvider) : undefined
-    return {
-      ...stream,
+    return compactObject({
+      ...(stream.schema_version === 2 ? { schema_version: 2 } : {}),
+      ...(attempt
+        ? {
+            attempt: compactObject({
+              ...(typeof attempt.attempt_index === "number" ? { attempt_index: attempt.attempt_index } : {}),
+              ...(typeof attempt.attempt_id === "string" ? { attempt_id: attempt.attempt_id } : {}),
+              ...(typeof attempt.terminal_attempt === "boolean" ? { terminal_attempt: attempt.terminal_attempt } : {}),
+              ...(attempt.note === "terminal_attempt_only" || attempt.note === "per_attempt_recorded"
+                ? { note: attempt.note }
+                : {}),
+            }),
+          }
+        : {}),
+      ...(stream.legacy_v1_counters === "terminal_attempt" || stream.legacy_v1_counters === "aggregate"
+        ? { legacy_v1_counters: stream.legacy_v1_counters }
+        : {}),
+      ...(timeline
+        ? {
+            timeline: compactObject({
+              ...(typeof timeline.collector_created_at === "number"
+                ? { collector_created_at: timeline.collector_created_at }
+                : {}),
+              ...(typeof timeline.sdk_stream_returned_at === "number"
+                ? { sdk_stream_returned_at: timeline.sdk_stream_returned_at }
+                : {}),
+              ...(typeof timeline.watchdog_armed_at === "number"
+                ? { watchdog_armed_at: timeline.watchdog_armed_at }
+                : {}),
+              ...(typeof timeline.first_event_at === "number" ? { first_event_at: timeline.first_event_at } : {}),
+              ...(typeof timeline.first_provider_progress_at === "number"
+                ? { first_provider_progress_at: timeline.first_provider_progress_at }
+                : {}),
+              ...(typeof timeline.last_event_at === "number" ? { last_event_at: timeline.last_event_at } : {}),
+              ...(typeof timeline.last_provider_progress_at === "number"
+                ? { last_provider_progress_at: timeline.last_provider_progress_at }
+                : {}),
+              ...(typeof timeline.completed_at === "number" ? { completed_at: timeline.completed_at } : {}),
+              ...(typeof timeline.failed_at === "number" ? { failed_at: timeline.failed_at } : {}),
+              ...(durations
+                ? {
+                    durations_ms: compactObject({
+                      ...(typeof durations.created_to_sdk_stream_returned === "number"
+                        ? { created_to_sdk_stream_returned: durations.created_to_sdk_stream_returned }
+                        : {}),
+                      ...(typeof durations.watchdog_armed_to_first_event === "number"
+                        ? { watchdog_armed_to_first_event: durations.watchdog_armed_to_first_event }
+                        : {}),
+                      ...(typeof durations.watchdog_armed_to_first_provider_progress === "number"
+                        ? {
+                            watchdog_armed_to_first_provider_progress:
+                              durations.watchdog_armed_to_first_provider_progress,
+                          }
+                        : {}),
+                      ...(typeof durations.first_to_last_provider_progress === "number"
+                        ? { first_to_last_provider_progress: durations.first_to_last_provider_progress }
+                        : {}),
+                      ...(typeof durations.last_provider_progress_to_failure === "number"
+                        ? { last_provider_progress_to_failure: durations.last_provider_progress_to_failure }
+                        : {}),
+                      ...(typeof durations.total === "number" ? { total: durations.total } : {}),
+                    }),
+                  }
+                : {}),
+            }),
+          }
+        : {}),
+      ...(watchdog
+        ? {
+            watchdog: compactObject({
+              ...(typeof watchdog.connect_timeout_ms === "number"
+                ? { connect_timeout_ms: watchdog.connect_timeout_ms }
+                : {}),
+              ...(typeof watchdog.stream_timeout_ms === "number"
+                ? { stream_timeout_ms: watchdog.stream_timeout_ms }
+                : {}),
+              ...(typeof watchdog.provider_progressed === "boolean"
+                ? { provider_progressed: watchdog.provider_progressed }
+                : {}),
+              ...(watchdog.phase_at_end === "before_first_provider_progress" ||
+              watchdog.phase_at_end === "between_provider_events" ||
+              watchdog.phase_at_end === "completed" ||
+              watchdog.phase_at_end === "unknown"
+                ? { phase_at_end: watchdog.phase_at_end }
+                : {}),
+              ...(typeof watchdog.fired === "boolean" ? { fired: watchdog.fired } : {}),
+              ...(watchdog.fired_phase === "connect" || watchdog.fired_phase === "silent_stream"
+                ? { fired_phase: watchdog.fired_phase }
+                : {}),
+            }),
+          }
+        : {}),
+      ...(abort
+        ? {
+            abort: compactObject({
+              ...(typeof abort.signal_aborted_at_error === "boolean"
+                ? { signal_aborted_at_error: abort.signal_aborted_at_error }
+                : {}),
+              ...(typeof abort.provenance_source === "string" ? { provenance_source: abort.provenance_source } : {}),
+              ...(typeof abort.provenance_reason === "string" ? { provenance_reason: abort.provenance_reason } : {}),
+              ...(abort.provenance_mode === "soft" || abort.provenance_mode === "hard"
+                ? { provenance_mode: abort.provenance_mode }
+                : {}),
+              ...(typeof abort.provenance_recorded_at === "number"
+                ? { provenance_recorded_at: abort.provenance_recorded_at }
+                : {}),
+              ...(typeof abort.provenance_missing === "boolean"
+                ? { provenance_missing: abort.provenance_missing }
+                : {}),
+            }),
+          }
+        : {}),
       ...(safeError && Object.keys(safeError).length > 0 ? { error: safeError } : {}),
       ...(safeProvider ? { provider: safeProvider } : {}),
-    }
+    })
   }
 
   function compactObject<T extends Record<string, unknown>>(input: T): T {

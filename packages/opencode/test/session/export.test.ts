@@ -1498,6 +1498,11 @@ describe("redactPart", () => {
             cookie: "session=secret",
           },
         },
+        prompt: "private prompt should not export",
+        tool_args: { command: "cat /Users/alice/.env" },
+        raw_body: "raw provider body should not export",
+        url: "https://secret.example.invalid/top-level",
+        local_path: "/Users/alice/project/private.txt",
       },
     } satisfies LLMTrace.Summary
 
@@ -1561,7 +1566,14 @@ describe("redactPart", () => {
     expect(serialized).not.toContain("session=secret")
     expect(serialized).not.toContain("private response body should not export")
     expect(serialized).not.toContain("private_raw_body")
+    expect(serialized).not.toContain("private prompt should not export")
+    expect(serialized).not.toContain("raw provider body should not export")
+    expect(serialized).not.toContain("top-level")
+    expect(serialized).not.toContain("private.txt")
+    expect(serialized).not.toContain("tool_args")
     expect(sanitized.diagnostics.llm_traces?.[0]?.stream?.error).not.toHaveProperty("url")
+    expect(sanitized.diagnostics.llm_traces?.[0]?.stream).not.toHaveProperty("prompt")
+    expect(sanitized.diagnostics.llm_traces?.[0]?.stream).not.toHaveProperty("raw_body")
     expect(sanitized.diagnostics.llm_traces?.[0]?.stream?.provider?.safe_headers).toEqual({
       "x-request-id": "req_123",
     })
