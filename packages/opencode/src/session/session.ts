@@ -557,19 +557,35 @@ const backfillExecutionContextEffect = Effect.fn("Session.backfillExecutionConte
 
 export const backfillExecutionContext = backfillExecutionContextEffect()
 
-export const layer: Layer.Layer<
-  Service,
-  never,
-  Bus.Service | Storage.Service | Question.Service | Permission.Service | SessionBlocker.Service
-> = Layer.effect(
+export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> = Layer.effect(
   Service,
   Effect.gen(function* () {
     const bus = yield* Bus.Service
     const storage = yield* Storage.Service
-    const questions = yield* Question.Service
-    const permissions = yield* Permission.Service
-    const blockers = yield* SessionBlocker.Service
     yield* backfillExecutionContextEffect()
+
+    const hasInstanceContext = Effect.fn("Session.hasInstanceContext")(function* () {
+      return yield* InstanceState.directory.pipe(
+        Effect.as(true),
+        Effect.catchCause(() => Effect.succeed(false)),
+      )
+    })
+
+    const clearPendingInteractions = Effect.fn("Session.clearPendingInteractions")(function* (
+      sessionID: SessionID,
+      reason: "session_deleted" | "session_archived",
+    ) {
+      if (!(yield* hasInstanceContext())) return
+      yield* Question.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
+        Effect.provide(Question.defaultLayer),
+      )
+      yield* Permission.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
+        Effect.provide(Permission.defaultLayer),
+      )
+      yield* SessionBlocker.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
+        Effect.provide(SessionBlocker.defaultLayer),
+      )
+    })
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
@@ -664,9 +680,7 @@ export const layer: Layer.Layer<
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
       try {
         const session = yield* get(sessionID)
-        yield* questions.clearSession(sessionID, "session_deleted")
-        yield* permissions.clearSession(sessionID, "session_deleted")
-        yield* blockers.clearSession(sessionID, "session_deleted")
+        yield* clearPendingInteractions(sessionID, "session_deleted")
         const kids = yield* children(sessionID)
         for (const child of kids) {
           yield* remove(child.id)
@@ -835,9 +849,7 @@ export const layer: Layer.Layer<
 
     const setArchived = Effect.fn("Session.setArchived")(function* (input: { sessionID: SessionID; time?: number }) {
       if (input.time !== undefined) {
-        yield* questions.clearSession(input.sessionID, "session_archived")
-        yield* permissions.clearSession(input.sessionID, "session_archived")
-        yield* blockers.clearSession(input.sessionID, "session_archived")
+        yield* clearPendingInteractions(input.sessionID, "session_archived")
       }
       yield* patch(input.sessionID, { time: { archived: input.time } })
     })
@@ -1036,9 +1048,6 @@ export const layer: Layer.Layer<
 )
 
 export const defaultLayer: Layer.Layer<Service, never, never> = layer.pipe(
-  Layer.provide(Question.defaultLayer),
-  Layer.provide(Permission.defaultLayer),
-  Layer.provide(SessionBlocker.defaultLayer),
   Layer.provide(Bus.layer),
   Layer.provide(Storage.defaultLayer),
 )
