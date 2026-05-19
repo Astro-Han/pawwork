@@ -132,6 +132,22 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     ),
   )
 
+  // Centralized "is the homepage draft empty" check.
+  // The prompt store, the context-item store, AND the imageAttachments accessor
+  // are three independent surfaces. A homepage with chips or images is NOT
+  // empty even if the text part is whitespace — using a text-only check would
+  // overwrite those surfaces on pinned/portable hydration (Bug 4).
+  const isHomepageDraftEmpty = () => {
+    const parts = prompt.current()
+    const textIsEmpty =
+      parts.length === 0 ||
+      (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
+    if (!textIsEmpty) return false
+    if (prompt.context.items().length > 0) return false
+    if (imageAttachments().length > 0) return false
+    return true
+  }
+
   createEffect(
     on(
       () => [sdk.directory, prompt.ready(), params.id] as const,
@@ -148,11 +164,11 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         // displayed prompt and suppress portable consumption for this homepage.
         const pinnedSlot = pinned.current()
         if (pinnedSlot && pinnedSlot.directory === dir) {
-          const parts = prompt.current()
-          const isEmpty =
-            parts.length === 0 ||
-            (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
+          const isEmpty = isHomepageDraftEmpty()
           if (isEmpty) {
+            // Replay the full Prompt array (file/agent/text parts) directly.
+            // The snapshot already stored a well-formed Prompt; reconstructing
+            // from text-only would silently drop attachment parts (Bug 6).
             prompt.set(pinnedSlot.prompt, undefined)
             prompt.context.replaceAll(pinnedSlot.context.map(({ key: _omit, ...rest }) => rest))
           }
@@ -161,26 +177,21 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         }
 
         // Homepage route: attempt to consume a snapshot that moved here from another homepage.
-        const parts = prompt.current()
-        const isEmpty =
-          parts.length === 0 ||
-          (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
+        const isEmpty = isHomepageDraftEmpty()
         const carry = portable.consumeForHomepage(dir, isEmpty)
         if (!carry) return
-        // Hydrate prompt text.
-        const text = carry.prompt
-          .filter((p) => p.type === "text")
-          .map((p) => p.content)
-          .join("")
-        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+        // Replay the full Prompt array from the snapshot, preserving file/agent
+        // attachment parts (Bug 6). Previously this filtered to text-only and
+        // joined into a single text part, which dropped attachments.
+        prompt.set(carry.prompt, undefined)
         // Hydrate context items atomically. Strip keys so contextItemKey regenerates
         // them for the target route, avoiding collisions with pre-existing items.
         prompt.context.replaceAll(
           carry.context.map(({ key: _omitKey, ...rest }) => rest),
         )
         // Image hydration: imageAttachments is fed by an external signal in the
-        // parent component and does not expose a setter here. Image carryover is
-        // deferred to a follow-up task (no write path available in this layer).
+        // parent component and does not expose a setter here. File/agent parts
+        // hydrate via prompt.set above; image parts remain a follow-up.
       },
     ),
   )
@@ -205,6 +216,35 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         prompt.set(DEFAULT_PROMPT, 0)
       }
       imperatives.queueScroll()
+
+      // Homepage route: clearing all input must also clear the active owner
+      // (Bug 3). Without this, navigating away later carries the stale
+      // snapshot — the user thinks they cleared the draft but the portable
+      // owner still has it.
+      if (!params.id) {
+        const pinnedSlot = pinned.current()
+        if (pinnedSlot && pinnedSlot.directory === sdk.directory) {
+          // Don't release the pinned binding. Recording an empty payload keeps
+          // the slot bound for future edits while signaling that the user
+          // cleared the prefill.
+          pinned.recordEdit({
+            directory: sdk.directory,
+            prompt: DEFAULT_PROMPT,
+            context: [],
+            images: [],
+            resolvedMentions: {},
+          })
+        } else {
+          // Portable owner: record({empty}) tears down the snapshot.
+          portable.record({
+            sourceFilesystemDirectory: sdk.directory,
+            prompt: DEFAULT_PROMPT,
+            context: [],
+            images: [],
+            resolvedMentions: {},
+          })
+        }
+      }
       return
     }
 

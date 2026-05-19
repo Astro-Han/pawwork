@@ -418,6 +418,14 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.resetHistoryNavigation()
     promptProbe.start()
 
+    // Capture context items and the "isHomepage" route bit BEFORE any await.
+    // navigate() lands the new session route mid-await and switches params.id
+    // from undefined to the created id; reading these after navigate() would
+    // observe an EMPTY new-session store and a "session route" verdict, which
+    // breaks ownership detection (Bug 1) and the comment-restore path.
+    const submittedContext = prompt.context.items().slice()
+    const submittedIsHomepage = !params.id
+
     const projectDirectory = sdk.directory
     // Capture the source scope before any await so navigate() cannot change params.id under us
     const sourcePromptScope: PromptRouteScope = {
@@ -504,7 +512,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
     const locale = language.intl()
     const agent = creatingNewSession ? "build" : currentAgent!.name
-    const context = prompt.context.items().slice()
+    // Use the pre-await capture; reading prompt.context.items() here would land
+    // in the freshly-created session's empty context store after navigate().
+    const context = submittedContext
     const draft: FollowupDraft = {
       sessionID: session.id,
       sessionDirectory,
@@ -521,7 +531,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     // Ownership is frozen here; clear/restore below check this captured revision
     // against the owner's current revision so a user typing during the await is
     // never trampled.
-    const isHomepage = !params.id
+    const isHomepage = submittedIsHomepage
     const ownership: SubmitOwnership = detectSubmitOwnership({
       isHomepage,
       pinned,
@@ -537,29 +547,45 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       sessionID: session.id,
     })
 
+    // Two-phase clear (Bug 2):
+    //   1) clearInput(owned) runs SYNCHRONOUSLY before the await. It resets the
+    //      visible UI only; the owner snapshot is intentionally preserved so
+    //      restoreInput() can push it back on async failure.
+    //   2) confirmOwnerCleared(owned) runs in each success path AFTER the await
+    //      resolves. It tears down the owner snapshot under the captured revision
+    //      so a user who typed during the await is never trampled.
+    //   restoreInput(owned) (failure path) reads from the still-intact owner.
     const clearInput = (owned: SubmitOwnership) => {
       switch (owned.kind) {
-        case "portable": {
-          const cleared = portable.clear(owned.revision)
-          // Revision diverged: user typed new content during the submit. Leave the
-          // UI alone so the new draft remains visible.
-          if (!cleared) return
+        case "portable":
+        case "pinned":
+          // Reset the visible UI to homepage source scope. The owner snapshot
+          // stays put for now; confirmOwnerCleared/restoreInput own its fate.
           prompt.reset(sourcePromptScope)
           break
-        }
-        case "pinned": {
-          const cleared = pinned.clearAll(owned.revision)
-          if (!cleared) return
-          prompt.reset(sourcePromptScope)
-          break
-        }
-        case "route": {
+        case "route":
           prompt.reset(owned.scope)
           break
-        }
       }
       input.setMode("normal")
       input.setPopover(null)
+    }
+
+    const confirmOwnerCleared = (owned: SubmitOwnership) => {
+      // Owner-backed cases: clear under the captured revision. If the user typed
+      // during the await the revision diverged and clear() returns false; we
+      // leave their fresh content in place.
+      switch (owned.kind) {
+        case "portable":
+          portable.clear(owned.revision)
+          break
+        case "pinned":
+          pinned.clearAll(owned.revision)
+          break
+        case "route":
+          // route store was reset synchronously by clearInput; no owner snapshot.
+          break
+      }
     }
 
     const restoreInput = (owned: SubmitOwnership) => {
@@ -614,6 +640,10 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       input.onQueue?.(draft)
       clearContext()
       clearInput(ownership)
+      // Queue path is synchronous; tear down owner snapshot immediately.
+      // ownership.kind is "route" here (see comment above), so this is a no-op
+      // for the only kind reachable, but the call is kept for parity.
+      confirmOwnerCleared(ownership)
       return
     }
 
@@ -628,6 +658,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           agent,
           model,
           command: text,
+        })
+        .then(() => {
+          confirmOwnerCleared(ownership)
         })
         .catch((err) => {
           showToast({
@@ -661,6 +694,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
               url: attachment.dataUrl,
               filename: attachment.filename,
             })),
+          })
+          .then(() => {
+            confirmOwnerCleared(ownership)
           })
           .catch((err) => {
             showToast({
@@ -769,6 +805,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       messageID,
       optimisticBusy: sessionDirectory === projectDirectory,
       before: waitForWorktree,
+    }).then((ok) => {
+      // Only tear down the owner snapshot if the send actually went through.
+      // sendFollowupDraft returns false when `before` (worktree wait) bailed; in
+      // that case the cleanup path already restored the input via the pending
+      // controller's cleanup() handler.
+      if (ok) confirmOwnerCleared(ownership)
     }).catch((err) => {
       pending.delete(session.id)
       if (sessionDirectory === projectDirectory) {
