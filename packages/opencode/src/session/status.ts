@@ -78,6 +78,14 @@ export const layer = Layer.effect(
 
     const set = Effect.fn("SessionStatus.set")(function* (sessionID: SessionID, status: Info) {
       const data = yield* InstanceState.get(state)
+      // rate_limit_blocked is a sticky terminal state. The runner's onIdle hook
+      // (run-state.ts) fires after the processor returns "stop", which would
+      // otherwise clobber the blocked status back to idle and the UI would
+      // never see the RateLimitCard. Only an explicit non-idle transition
+      // (e.g. user sends a new prompt → busy) is allowed to leave the state.
+      if (status.type === "idle" && data.get(sessionID)?.type === "rate_limit_blocked") {
+        return
+      }
       yield* bus.publish(Event.Status, { sessionID, status })
       if (status.type === "idle") {
         yield* bus.publish(Event.Idle, { sessionID })
