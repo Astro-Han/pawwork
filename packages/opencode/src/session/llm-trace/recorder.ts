@@ -11,6 +11,8 @@ import type {
   Tokens,
 } from "./types"
 import { SCHEMA_VERSION } from "./types"
+import type { StreamDiagnostics } from "./types"
+import { classifyBoundary, safeErrorFingerprint, safeProviderCorrelation } from "./stream-diagnostics"
 
 export function requestSummary(input: RequestSummaryInput): RequestSummary {
   const options = safeOptions(input.options)
@@ -30,6 +32,8 @@ export function createRecorder(input: RecorderInput): Recorder {
   let request: RequestSummary | undefined
   let finishReason: string | undefined
   let tokens: MessageV2.Assistant["tokens"] | undefined
+  let stream: StreamDiagnostics | undefined
+  let streamMonotonicStart: number | undefined
 
   return {
     request(summary) {
@@ -41,6 +45,113 @@ export function createRecorder(input: RecorderInput): Recorder {
     finish(reason, nextTokens) {
       finishReason = reason
       tokens = nextTokens
+    },
+    beginStream(next) {
+      streamMonotonicStart = next.monotonicMs
+      stream = {
+        schema_version: 2,
+        legacy_v1_counters: "aggregate",
+        timeline: {
+          collector_created_at: next.collectorCreatedAt,
+        },
+        watchdog: {
+          connect_timeout_ms: next.connectTimeoutMs,
+          stream_timeout_ms: next.streamTimeoutMs,
+          provider_progressed: false,
+          phase_at_end: "before_first_provider_progress",
+          fired: false,
+        },
+      }
+    },
+    recordStreamFailure(next) {
+      if (!stream) return
+      if (stream.error?.boundary === "watchdog" && stream.error.confidence === "high") return
+      const boundary = localAbortBoundary(stream) ?? {
+        boundary: next.boundary,
+        confidence: next.confidence,
+        evidence: next.evidence,
+      }
+      stream.timeline.failed_at = next.failedAt
+      stream.timeline.durations_ms = {
+        ...(stream.timeline.durations_ms ?? {}),
+        total: durationSince(streamMonotonicStart, next.monotonicMs),
+      }
+      stream.error = {
+        ...safeErrorFingerprint(next.error),
+        boundary: boundary.boundary,
+        confidence: boundary.confidence,
+        evidence: boundary.evidence,
+      }
+    },
+    recordProviderProgress(next) {
+      if (!stream) return
+      stream.watchdog.provider_progressed = true
+      stream.watchdog.phase_at_end = "between_provider_events"
+      if (stream.timeline.first_provider_progress_at === undefined) {
+        stream.timeline.first_provider_progress_at = next.eventAt
+        stream.timeline.durations_ms = {
+          ...(stream.timeline.durations_ms ?? {}),
+          watchdog_armed_to_first_provider_progress: durationSince(streamMonotonicStart, next.monotonicMs),
+        }
+      }
+      stream.timeline.last_provider_progress_at = next.eventAt
+    },
+    recordWatchdogFired(next) {
+      if (!stream) return
+      stream.watchdog.fired = true
+      stream.watchdog.fired_phase = next.phase
+      if (next.phase === "connect") stream.watchdog.phase_at_end = "before_first_provider_progress"
+    },
+    recordStreamCompleted(next) {
+      if (!stream) return
+      stream.timeline.completed_at = next.completedAt
+      stream.watchdog.phase_at_end = "completed"
+      stream.timeline.durations_ms = {
+        ...(stream.timeline.durations_ms ?? {}),
+        total: durationSince(streamMonotonicStart, next.monotonicMs),
+      }
+    },
+    recordAbortState(next) {
+      if (!stream) return
+      stream.abort = {
+        ...(stream.abort ?? {}),
+        ...(typeof next.signalAbortedAtError === "boolean"
+          ? { signal_aborted_at_error: next.signalAbortedAtError }
+          : {}),
+        ...(next.provenanceSource ? { provenance_source: next.provenanceSource } : {}),
+        ...(next.provenanceReason ? { provenance_reason: next.provenanceReason } : {}),
+        ...(next.provenanceMode ? { provenance_mode: next.provenanceMode } : {}),
+        ...(typeof next.provenanceRecordedAt === "number" ? { provenance_recorded_at: next.provenanceRecordedAt } : {}),
+        ...(typeof next.provenanceMissing === "boolean" ? { provenance_missing: next.provenanceMissing } : {}),
+      }
+      refreshLocalAbortBoundary(stream)
+    },
+    recordProviderErrorEvent(next) {
+      if (!stream) return
+      if (stream.error?.boundary === "watchdog" && stream.error.confidence === "high") return
+      const provider = safeProviderCorrelation(next.provider)
+      stream.provider = provider
+      const boundary = classifyBoundary({
+        providerErrorEvent: true,
+        iteratorError: true,
+        requestIdPresent: provider?.request_id !== undefined || provider?.response_id !== undefined,
+        providerCorrelationUnavailable: provider?.unavailable_reason !== undefined,
+      })
+      stream.timeline.failed_at = next.failedAt
+      stream.timeline.durations_ms = {
+        ...(stream.timeline.durations_ms ?? {}),
+        total: durationSince(streamMonotonicStart, next.monotonicMs),
+      }
+      stream.error = {
+        ...safeErrorFingerprint(next.error),
+        boundary: boundary.boundary,
+        confidence: boundary.confidence,
+        evidence: boundary.evidence,
+      }
+    },
+    recordProviderCorrelation(input) {
+      if (!stream) return
+      stream.provider = safeProviderCorrelation(input)
     },
     finalize(final: FinalizeInput) {
       const finalFinishReason = final.finishReason ?? finishReason
@@ -71,8 +182,36 @@ export function createRecorder(input: RecorderInput): Recorder {
         flags,
         created_at: input.createdAt,
         completed_at: final.completedAt,
+        ...(stream ? { stream } : {}),
       }
     },
+  }
+}
+
+function durationSince(start: number | undefined, end: number) {
+  if (start === undefined) return undefined
+  return Math.max(0, end - start)
+}
+
+function hasAbortProvenance(stream: StreamDiagnostics) {
+  return !!stream.abort?.provenance_source
+}
+
+function localAbortBoundary(stream: StreamDiagnostics) {
+  if (!stream.abort?.signal_aborted_at_error || !hasAbortProvenance(stream)) return undefined
+  return classifyBoundary({ abortSignalAborted: true, abortProvenancePresent: true, iteratorError: true })
+}
+
+function refreshLocalAbortBoundary(stream: StreamDiagnostics) {
+  if (stream.error?.boundary === "watchdog" && stream.error.confidence === "high") return
+  if (!stream.error || stream.error.boundary !== "unknown") return
+  const boundary = localAbortBoundary(stream)
+  if (!boundary) return
+  stream.error = {
+    ...stream.error,
+    boundary: boundary.boundary,
+    confidence: boundary.confidence,
+    evidence: boundary.evidence,
   }
 }
 
@@ -158,5 +297,7 @@ function tokenSummary(tokens: MessageV2.Assistant["tokens"]): Tokens {
 }
 
 function isEmptyCompletion(finishReason: string | undefined, stored: StoredParts) {
-  return finishReason === "stop" && stored.text === 0 && stored.reasoning === 0 && stored.tool === 0 && stored.file === 0
+  return (
+    finishReason === "stop" && stored.text === 0 && stored.reasoning === 0 && stored.tool === 0 && stored.file === 0
+  )
 }

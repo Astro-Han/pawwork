@@ -47,7 +47,16 @@ export type StreamInput = {
   connectTimeoutMs?: number
   streamTimeoutMs?: number
   toolChoice?: "auto" | "required" | "none"
-  trace?: Pick<LLMTrace.Recorder, "request">
+  trace?: Pick<
+    LLMTrace.Recorder,
+    | "request"
+    | "beginStream"
+    | "recordProviderProgress"
+    | "recordWatchdogFired"
+    | "recordStreamFailure"
+    | "recordStreamCompleted"
+    | "recordAbortState"
+  >
 }
 
 export type StreamRequest = StreamInput & {
@@ -449,6 +458,12 @@ const live: Layer.Layer<
             const request = yield* Effect.acquireRelease(
               Effect.sync(() => {
                 const ctrl = new AbortController()
+                input.trace?.beginStream({
+                  collectorCreatedAt: Date.now(),
+                  monotonicMs: performance.now(),
+                  connectTimeoutMs,
+                  streamTimeoutMs,
+                })
                 let disposed = false
                 let providerProgressed = false
                 let sequence = 0
@@ -466,11 +481,27 @@ const live: Layer.Layer<
                   timeoutError = new Error(
                     `LLM stream connection timed out after ${connectTimeoutMs}ms without provider progress`,
                   )
+                  const now = Date.now()
+                  const monotonicMs = performance.now()
+                  input.trace?.recordWatchdogFired({ phase: "connect", firedAt: now, monotonicMs })
+                  input.trace?.recordStreamFailure({
+                    error: timeoutError,
+                    boundary: "watchdog",
+                    confidence: "high",
+                    evidence: ["watchdog_fired", "watchdog_error"],
+                    failedAt: now,
+                    monotonicMs,
+                  })
                   rejectTimeout?.(timeoutError)
                   ctrl.abort()
                 }
                 const timeoutStream = () => {
                   if (providerProgressed) {
+                    input.trace?.recordWatchdogFired({
+                      phase: "silent_stream",
+                      firedAt: Date.now(),
+                      monotonicMs: performance.now(),
+                    })
                     ctrl.abort()
                     return
                   }
@@ -509,6 +540,32 @@ const live: Layer.Layer<
                   timeoutError() {
                     return timeoutError
                   },
+                  recordIteratorError(error: unknown) {
+                    input.trace?.recordAbortState({
+                      signalAbortedAtError: ctrl.signal.aborted,
+                      provenanceMissing: ctrl.signal.aborted,
+                    })
+                    const boundary = input.trace
+                      ? LLMTrace.classifyBoundary({
+                          iteratorError: true,
+                          providerProgressSeen: providerProgressed,
+                          abortSignalAborted: ctrl.signal.aborted,
+                          abortProvenancePresent: false,
+                        })
+                      : undefined
+                    if (!boundary) return
+                    input.trace?.recordStreamFailure({
+                      error,
+                      boundary: boundary.boundary,
+                      confidence: boundary.confidence,
+                      evidence: boundary.evidence,
+                      failedAt: Date.now(),
+                      monotonicMs: performance.now(),
+                    })
+                  },
+                  recordCompleted() {
+                    input.trace?.recordStreamCompleted({ completedAt: Date.now(), monotonicMs: performance.now() })
+                  },
                   // Start the connect timeout. Called after run() returns so the
                   // timer only measures actual network/provider wait time, not
                   // the internal setup work (provider lookup, config, plugins).
@@ -518,6 +575,7 @@ const live: Layer.Layer<
                   resetTimeout(event: Event) {
                     if (!providerProgressed && !isProviderProgressEvent(event)) return
                     providerProgressed = true
+                    input.trace?.recordProviderProgress({ eventAt: Date.now(), monotonicMs: performance.now() })
                     if (timeout) clearTimeout(timeout)
                     arm()
                   },
@@ -574,6 +632,8 @@ function failOnTimeout<T>(
   request: {
     timeoutFailure: Promise<never>
     timeoutError: () => Error | undefined
+    recordIteratorError?: (error: unknown) => void
+    recordCompleted?: () => void
   },
 ): AsyncIterable<T> {
   return {
@@ -585,9 +645,16 @@ function failOnTimeout<T>(
           if (timeoutError) throw timeoutError
           const nextPromise = iterator.next()
           void nextPromise.catch(() => {})
-          const next = await Promise.race([nextPromise, request.timeoutFailure])
+          let next
+          try {
+            next = await Promise.race([nextPromise, request.timeoutFailure])
+          } catch (error) {
+            request.recordIteratorError?.(error)
+            throw error
+          }
           const nextTimeoutError = request.timeoutError()
           if (nextTimeoutError) throw nextTimeoutError
+          if (next.done) request.recordCompleted?.()
           return next
         },
         async return(value?: unknown) {

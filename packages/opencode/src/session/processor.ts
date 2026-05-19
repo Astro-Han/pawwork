@@ -700,6 +700,12 @@ export const layer: Layer.Layer<
           }
 
           case "error":
+            ctx.trace.recordProviderErrorEvent({
+              error: value.error,
+              provider: "providerMetadata" in value ? value.providerMetadata : undefined,
+              failedAt: Date.now(),
+              monotonicMs: performance.now(),
+            })
             throw value.error
 
           case "start-step":
@@ -950,6 +956,12 @@ export const layer: Layer.Layer<
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
+                ctx.trace.recordAbortState({
+                  provenanceSource: "session.processor.onInterrupt",
+                  provenanceReason: "aborted",
+                  provenanceMode: "hard",
+                  provenanceRecordedAt: Date.now(),
+                })
                 if (!ctx.assistantMessage.error) {
                   yield* halt(new DOMException("Aborted", "AbortError"))
                 }

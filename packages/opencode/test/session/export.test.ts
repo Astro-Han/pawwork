@@ -1438,6 +1438,152 @@ describe("redactPart", () => {
     )
   })
 
+  test("sanitizeSnapshot redacts llm stream diagnostics in top-level and session tree copies", () => {
+    const rawTrace = {
+      schema_version: 1 as const,
+      trace_id: MessageID.make("msg_trace_sensitive"),
+      session_id: SessionID.make("ses_trace_sensitive"),
+      message_id: MessageID.make("msg_trace_sensitive"),
+      provider: "test",
+      model: "model",
+      agent: "build",
+      stream_events: {
+        start: 0,
+        start_step: 0,
+        finish_step: 0,
+        finish: 0,
+        text_start: 0,
+        text_delta: 0,
+        text_end: 0,
+        reasoning_start: 0,
+        reasoning_delta: 0,
+        reasoning_end: 0,
+        tool_input_start: 0,
+        tool_input_delta: 0,
+        tool_input_end: 0,
+        tool_call: 0,
+        tool_result: 0,
+        tool_error: 0,
+        error: 1,
+      },
+      stored_parts: { text: 0, reasoning: 0, tool: 0, step_start: 0, step_finish: 0, patch: 0, file: 0, other: 0 },
+      flags: { empty_completion: true, stream_error: true },
+      created_at: 1,
+      stream: {
+        schema_version: 2,
+        legacy_v1_counters: "terminal_attempt",
+        timeline: { collector_created_at: 1 },
+        watchdog: {
+          connect_timeout_ms: 30_000,
+          stream_timeout_ms: 600_000,
+          provider_progressed: true,
+          phase_at_end: "between_provider_events",
+          fired: false,
+        },
+        error: {
+          boundary: "sdk_transport",
+          confidence: "low",
+          evidence: ["iterator_error"],
+          name: "TypeError",
+          message: "failed https://secret.example.invalid/body token sk-private /Users/alice/project/file.ts",
+          cause_message: "Authorization: Bearer secret",
+          stack_hint: "at /Users/alice/project/file.ts:1:1",
+          private_raw_body: "private response body should not export",
+          url: "https://secret.example.invalid/raw",
+        },
+        provider: {
+          safe_headers: {
+            "x-request-id": "req_123",
+            authorization: "Bearer secret",
+            cookie: "session=secret",
+          },
+        },
+        prompt: "private prompt should not export",
+        tool_args: { command: "cat /Users/alice/.env" },
+        raw_body: "raw provider body should not export",
+        url: "https://secret.example.invalid/top-level",
+        local_path: "/Users/alice/project/private.txt",
+      },
+    } satisfies LLMTrace.Summary
+
+    const fakeSnapshot: Export.Snapshot = {
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_trace_sensitive"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: { llm_trace_schema_version: 1, llm_traces: [rawTrace] },
+      session: {
+        info: {
+          id: SessionID.make("ses_trace_sensitive"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [
+          {
+            info: {
+              id: MessageID.make("msg_trace_sensitive"),
+              role: "assistant",
+              sessionID: SessionID.make("ses_trace_sensitive"),
+              parentID: MessageID.make("msg_parent_sensitive"),
+              mode: "build",
+              agent: "build",
+              path: { cwd: "/tmp/project", root: "/tmp/project" },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: "model",
+              providerID: "test",
+              time: { created: 1 },
+              diagnostics: { llm_trace: rawTrace },
+            } as MessageV2.Assistant,
+            parts: [],
+          },
+        ],
+        children: [],
+      },
+    }
+
+    const sanitized = Export.sanitizeSnapshot(fakeSnapshot)
+    const serialized = JSON.stringify(sanitized)
+    expect(serialized).not.toContain("secret.example.invalid")
+    expect(serialized).not.toContain("sk-private")
+    expect(serialized).not.toContain("/Users/alice")
+    expect(serialized).not.toContain("Bearer secret")
+    expect(serialized).not.toContain("session=secret")
+    expect(serialized).not.toContain("private response body should not export")
+    expect(serialized).not.toContain("private_raw_body")
+    expect(serialized).not.toContain("private prompt should not export")
+    expect(serialized).not.toContain("raw provider body should not export")
+    expect(serialized).not.toContain("top-level")
+    expect(serialized).not.toContain("private.txt")
+    expect(serialized).not.toContain("tool_args")
+    expect(sanitized.diagnostics.llm_traces?.[0]?.stream?.error).not.toHaveProperty("url")
+    expect(sanitized.diagnostics.llm_traces?.[0]?.stream).not.toHaveProperty("prompt")
+    expect(sanitized.diagnostics.llm_traces?.[0]?.stream).not.toHaveProperty("raw_body")
+    expect(sanitized.diagnostics.llm_traces?.[0]?.stream?.provider?.safe_headers).toEqual({
+      "x-request-id": "req_123",
+    })
+    expect(
+      sanitized.session.messages[0].info.role === "assistant"
+        ? sanitized.session.messages[0].info.diagnostics?.llm_trace?.stream?.provider?.safe_headers
+        : undefined,
+    ).toEqual({ "x-request-id": "req_123" })
+  })
+
   test("redacts data: url inside completed tool attachments", () => {
     const ctx = { count: { omitted: 0 } }
     const part: MessageV2.ToolPart = {
