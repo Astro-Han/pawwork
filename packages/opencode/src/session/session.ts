@@ -46,6 +46,7 @@ import { Runtime } from "@opencode-ai/core/runtime"
 import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
 import { Question } from "@/question"
+import { ExternalResult } from "@/tool/external-result"
 import { SessionBlocker } from "@/session/blocker"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
@@ -585,6 +586,13 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       yield* SessionBlocker.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
         Effect.provide(SessionBlocker.defaultLayer),
       )
+      // Tear down external-result Deferreds held for this session. Pending
+      // entries' Deferreds are rejected with ExternalResultError({reason:
+      // "shutdown"}) so the running tool transitions to error state with the
+      // right durable reason. This hook fires on session delete / archive
+      // only — NOT on turn abort (that path runs through ctx.abort →
+      // failIfPending with reason: "aborted"). The two paths never overlap.
+      yield* ExternalResult.onSessionDestroyed(sessionID)
     })
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
