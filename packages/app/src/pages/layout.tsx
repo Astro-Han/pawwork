@@ -317,7 +317,15 @@ export default function Layout(props: ParentProps) {
   const useSDKNotificationToasts = () =>
     onMount(() => {
       const alertedAtBySession = new Map<string, number>()
+      const alertedQuestionCalls = new Set<string>()
       const cooldownMs = 5000
+
+      const isCurrentSessionOrChild = (directory: string, sessionID: string, parentID?: string) => {
+        const currentSession = params.id
+        if (!currentSession) return false
+        if (workspaceKey(directory) !== workspaceKey(currentDir())) return false
+        return sessionID === currentSession || parentID === currentSession
+      }
 
       const unsub = globalSDK.event.listen((e) => {
         if (e.details?.type === "worktree.ready") {
@@ -336,6 +344,39 @@ export default function Layout(props: ParentProps) {
           const props = e.details.properties as { sessionID: string }
           const sessionKey = `${e.name}:${props.sessionID}`
           alertedAtBySession.delete(sessionKey)
+          return
+        }
+
+        if (e.details?.type === "message.part.updated") {
+          const directory = e.name
+          const { sessionID, part } = e.details.properties
+          if (part.type !== "tool" || part.tool !== "question") return
+          // The tool runner sets metadata.externalResultReady AFTER the
+          // Deferred is registered. Only notify once the route can resolve.
+          if (part.state.status !== "running" || part.state.metadata?.externalResultReady !== true) return
+
+          const callKey = `${directory}:${sessionID}:${part.id}`
+          if (alertedQuestionCalls.has(callKey)) return
+          alertedQuestionCalls.add(callKey)
+
+          const [store] = globalSync.child(directory, { bootstrap: false })
+          const session = store.session.find((s) => s.id === sessionID)
+          if (isCurrentSessionOrChild(directory, sessionID, session?.parentID)) return
+
+          if (!settings.notifications.agent()) return
+          const sessionTitle = session?.title ?? language.t("command.session.new")
+          const projectName = getFilename(directory)
+          void platform.notify(
+            language.t("notification.question.title"),
+            language.t("notification.question.description", { sessionTitle, projectName }),
+            `/${base64Encode(directory)}/session/${sessionID}`,
+          )
+          return
+        }
+
+        if (e.details?.type === "message.part.removed") {
+          const { sessionID, partID } = e.details.properties
+          alertedQuestionCalls.delete(`${e.name}:${sessionID}:${partID}`)
           return
         }
 
@@ -363,13 +404,7 @@ export default function Layout(props: ParentProps) {
           void playSoundById(settings.sounds.permissions())
         }
         if (settings.notifications.permissions()) {
-          // Only notify for background sessions, not the one the user is currently viewing
-          const currentSession = params.id
-          const isCurrentSession =
-            !!currentSession &&
-            workspaceKey(directory) === workspaceKey(currentDir()) &&
-            (props.sessionID === currentSession || session?.parentID === currentSession)
-          if (!isCurrentSession) {
+          if (!isCurrentSessionOrChild(directory, props.sessionID, session?.parentID)) {
             void platform.notify(title, description, href)
           }
         }
