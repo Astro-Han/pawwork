@@ -60,6 +60,7 @@ import {
   type LegacyHomepagePromptStore,
 } from "@/components/prompt-input/homepage-migration"
 import { usePortableDraft } from "@/components/prompt-input/portable-draft"
+import { createMigrationStorageIO } from "@/components/prompt-input/homepage-migration-storage"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1731,29 +1732,7 @@ export default function Layout(props: ParentProps) {
 
     const portable = usePortableDraft()
     const sentinelTarget = Persist.global(HOMEPAGE_MIGRATION_SENTINEL_KEY)
-    const workspaceTarget = Persist.workspace(directory, "prompt")
-
-    // Build real implementations of the injectable deps against Persist APIs.
-    const isDesktop = platform.platform === "desktop" && !!platform.storage
-
-    const readRaw = async (target: { storage?: string; key: string }): Promise<string | null> => {
-      if (isDesktop) {
-        return platform.storage?.(target.storage)?.getItem(target.key) ?? null
-      }
-      const { localStorageWithPrefix, localStorageDirect } = await import("@/utils/persist-local-storage")
-      const store = target.storage ? localStorageWithPrefix(target.storage) : localStorageDirect()
-      return store.getItem(target.key)
-    }
-
-    const writeRaw = async (target: { storage?: string; key: string }, value: string): Promise<void> => {
-      if (isDesktop) {
-        await platform.storage?.(target.storage)?.setItem(target.key, value)
-        return
-      }
-      const { localStorageWithPrefix, localStorageDirect } = await import("@/utils/persist-local-storage")
-      const store = target.storage ? localStorageWithPrefix(target.storage) : localStorageDirect()
-      store.setItem(target.key, value)
-    }
+    const { read: readRaw, write: writeRaw } = createMigrationStorageIO(platform)
 
     void runHomepageMigration({
       portable,
