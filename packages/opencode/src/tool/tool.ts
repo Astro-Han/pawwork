@@ -41,6 +41,14 @@ export interface Def<
   parameters: Parameters
   execute(args: Schema.Schema.Type<Parameters>, ctx: Context): Effect.Effect<ExecuteResult<M>, unknown>
   formatValidationError?(error: unknown): string
+  // When true, this tool's `execute` invokes `ctx.externalResult` and must
+  // wait for an external POST to resolve before returning. The runner /
+  // renderer can read this declaration (via `info.externalResult` once the
+  // tool is materialised) to scope behaviour that should only apply to
+  // external-result tools — e.g. the "preparing..." placeholder while
+  // the registry registers the Deferred. Plain tools without this flag
+  // are unaffected.
+  externalResult?: boolean
 }
 export type DefWithoutID<
   Parameters extends Schema.Decoder<unknown> = Schema.Decoder<unknown>,

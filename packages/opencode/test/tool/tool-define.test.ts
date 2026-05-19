@@ -174,6 +174,30 @@ describe("Tool.define", () => {
     }
   })
 
+  test("preserves externalResult: true declaration through define/init", async () => {
+    const info = await runtime.runPromise(
+      Tool.define(
+        "test-external-flag",
+        Effect.succeed({
+          description: "asks user",
+          parameters: params,
+          externalResult: true as const,
+          execute() {
+            return Effect.succeed({ title: "t", output: "o", metadata: { truncated: false } })
+          },
+        }),
+      ),
+    )
+    const tool = await Effect.runPromise(info.init())
+    expect(tool.externalResult).toBe(true)
+  })
+
+  test("plain tools without externalResult retain undefined declaration", async () => {
+    const info = await runtime.runPromise(Tool.define("test-no-flag", Effect.succeed(makeTool("test"))))
+    const tool = await Effect.runPromise(info.init())
+    expect(tool.externalResult).toBeUndefined()
+  })
+
   test("wrapper passes through successful results", async () => {
     const info = await runtime.runPromise(
       Tool.define(
