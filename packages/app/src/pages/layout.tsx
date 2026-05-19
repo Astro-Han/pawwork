@@ -53,6 +53,7 @@ import { playSoundById } from "@/utils/sound"
 import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
+import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1677,6 +1678,9 @@ export default function Layout(props: ParentProps) {
     if (shouldNavigate) return navigateToProject(directory)
   }
 
+  // Singleton; same instance returned every call.
+  const pinned = usePinnedDraft()
+
   const handleDeepLinks = (urls: string[]) => {
     if (!server.isLocal()) return
 
@@ -1688,9 +1692,16 @@ export default function Layout(props: ParentProps) {
       openProject(link.directory, false)
       const slug = base64Encode(link.directory)
       if (link.prompt) {
+        // Pin the prompt to this directory so it is NOT carried portably to
+        // other homepages. The pinned slot is consumed by editor-input.ts when
+        // the user lands on the /repo homepage.
+        pinned.adopt({ directory: link.directory, prompt: link.prompt })
+        // Also keep the session handoff for the new-session composer region
+        // that shows the prefill text before the session is created (T7 will
+        // decide whether to clear it on submit).
         setSessionHandoff(slug, { prompt: link.prompt })
       }
-      const href = link.prompt ? `/${slug}/session?prompt=${encodeURIComponent(link.prompt)}` : `/${slug}/session`
+      const href = `/${slug}/session`
       navigate(href)
     }
   }

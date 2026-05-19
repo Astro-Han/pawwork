@@ -16,6 +16,7 @@ import {
 import type { useSDK } from "@/context/sdk"
 import { useParams } from "@solidjs/router"
 import { usePortableDraft } from "./portable-draft"
+import { usePinnedDraft } from "./pinned-draft"
 import {
   createTextFragment,
   getCursorPosition,
@@ -81,6 +82,8 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
 
   const params = useParams()
   const portable = usePortableDraft()
+  // Pinned owner is created once per factory call (not inside handleInput).
+  const pinned = usePinnedDraft()
 
   const [composing, setComposing] = createSignal(false)
   const isImeComposing = (event: KeyboardEvent) =>
@@ -139,6 +142,24 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
           portable.hide()
           return
         }
+
+        // Homepage route: check pinned scope BEFORE portable.
+        // If a pinned slot is bound to this directory, project it into the
+        // displayed prompt and suppress portable consumption for this homepage.
+        const pinnedSlot = pinned.current()
+        if (pinnedSlot && pinnedSlot.directory === dir) {
+          const parts = prompt.current()
+          const isEmpty =
+            parts.length === 0 ||
+            (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
+          if (isEmpty) {
+            prompt.set(pinnedSlot.prompt, undefined)
+            prompt.context.replaceAll(pinnedSlot.context.map(({ key: _omit, ...rest }) => rest))
+          }
+          // Do NOT fall through to portable consumption while pinned is active.
+          return
+        }
+
         // Homepage route: attempt to consume a snapshot that moved here from another homepage.
         const parts = prompt.current()
         const isEmpty =
@@ -211,7 +232,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     mirror.input = true
     prompt.set([...rawParts, ...images], cursorPosition)
     if (!params.id) {
-      // Homepage route: mirror edit into portable owner after prompt.set.
+      // Homepage route: mirror edit into pinned or portable owner after prompt.set.
       // Build resolvedMentions from current context items.
       const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
       for (const item of prompt.context.items()) {
@@ -219,13 +240,27 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
           resolvedMentionsMap[item.key] = item.resolvedMentions
         }
       }
-      portable.record({
-        sourceFilesystemDirectory: sdk.directory,
-        prompt: prompt.current(),
-        context: prompt.context.items().slice(),
-        images: imageAttachments(),
-        resolvedMentions: resolvedMentionsMap,
-      })
+      const currentPinnedSlot = pinned.current()
+      if (currentPinnedSlot && currentPinnedSlot.directory === sdk.directory) {
+        // Pinned scope is active for this directory: route edits to pinned owner.
+        // This ensures "clearing pinned prefill and typing fresh text remains pinned-scope".
+        pinned.recordEdit({
+          directory: sdk.directory,
+          prompt: prompt.current(),
+          context: prompt.context.items().slice(),
+          images: imageAttachments(),
+          resolvedMentions: resolvedMentionsMap,
+        })
+      } else {
+        // No active pinned slot for this directory: route edits to portable owner.
+        portable.record({
+          sourceFilesystemDirectory: sdk.directory,
+          prompt: prompt.current(),
+          context: prompt.context.items().slice(),
+          images: imageAttachments(),
+          resolvedMentions: resolvedMentionsMap,
+        })
+      }
     }
     // Session routes do not mirror into the portable owner.
     imperatives.queueScroll()
