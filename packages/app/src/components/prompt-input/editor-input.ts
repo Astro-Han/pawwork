@@ -14,7 +14,8 @@ import {
   type usePrompt,
 } from "@/context/prompt"
 import type { useSDK } from "@/context/sdk"
-import { recordDraftEdit, consumeCarryOver } from "./draft-carryover"
+import { useParams } from "@solidjs/router"
+import { usePortableDraft } from "./portable-draft"
 import {
   createTextFragment,
   getCursorPosition,
@@ -77,6 +78,9 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     resetHistoryNavigation,
   } = deps
 
+  const params = useParams()
+  const portable = usePortableDraft()
+
   const [composing, setComposing] = createSignal(false)
   const isImeComposing = (event: KeyboardEvent) =>
     event.isComposing || composing() || event.keyCode === 229
@@ -126,16 +130,27 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
 
   createEffect(
     on(
-      () => [sdk.directory, prompt.ready()] as const,
-      ([dir, ready]) => {
+      () => [sdk.directory, prompt.ready(), params.id] as const,
+      ([dir, ready, sessionID]) => {
         if (!ready || !dir) return
+        if (sessionID) {
+          // Concrete session route: do nothing with the portable owner.
+          portable.hide()
+          return
+        }
+        // Homepage route: attempt to consume a snapshot that moved here from another homepage.
         const parts = prompt.current()
         const isEmpty =
           parts.length === 0 ||
           (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
-        const carry = consumeCarryOver(dir, isEmpty)
+        const carry = portable.consumeForHomepage(dir, isEmpty)
         if (!carry) return
-        const text = carry.text
+        // Hydrate this homepage's text from the moved snapshot.
+        // Context + image hydration is deferred to Task 5 (portable comments).
+        const text = carry.prompt
+          .filter((p) => p.type === "text")
+          .map((p) => p.content)
+          .join("")
         prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
       },
     ),
@@ -187,7 +202,18 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
 
     mirror.input = true
     prompt.set([...rawParts, ...images], cursorPosition)
-    recordDraftEdit(sdk.directory, { text: rawText })
+    if (!params.id) {
+      // Homepage route: mirror edit into portable owner after prompt.set.
+      // T5 will start populating resolvedMentions; PR1 leaves it empty.
+      portable.record({
+        sourceFilesystemDirectory: sdk.directory,
+        prompt: prompt.current(),
+        context: prompt.context.items().slice(),
+        images: imageAttachments(),
+        resolvedMentions: {},
+      })
+    }
+    // Session routes do not mirror into the portable owner.
     imperatives.queueScroll()
   }
 
