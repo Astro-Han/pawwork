@@ -113,8 +113,7 @@ export const QuestionTool = Tool.define(
       description: DESCRIPTION,
       parameters: Parameters,
       // Declared statically so the renderer / dock can scope behavior to
-      // tools that suspend on a user reply. The actual flag-on branch is
-      // selected per-execute via PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT.
+      // tools that suspend on a user reply.
       externalResult: true,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
