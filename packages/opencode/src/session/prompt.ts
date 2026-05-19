@@ -323,7 +323,14 @@ export const layer = Layer.effect(
     ) {
       const mode = options?.mode ?? "hard"
       yield* elog.info("cancel", { sessionID, mode })
-      if (mode === "soft" && (yield* blockers.hasAwaitingQuestion(sessionID))) {
+      // Soft cancel must not abort sessions where the user is mid-answer.
+      // OR both signals: legacy `hasAwaitingQuestion` (flag-off path) and
+      // `ExternalResult.hasPending` (flag-on path). Mirrors llm.ts silent-
+      // timeout re-arm — see llm.ts:486.
+      if (
+        mode === "soft" &&
+        ((yield* blockers.hasAwaitingQuestion(sessionID)) || ExternalResult.hasPending(sessionID))
+      ) {
         yield* elog.info("cancel ignored", { sessionID, mode, reason: "awaiting_question" })
         return false
       }
