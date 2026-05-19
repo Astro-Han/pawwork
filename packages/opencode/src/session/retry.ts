@@ -2,12 +2,13 @@ import type { NamedError } from "@opencode-ai/util/error"
 import { Cause, Clock, Duration, Effect, Schedule } from "effect"
 import { MessageV2 } from "./message-v2"
 import { iife } from "@/util/iife"
+import { ProviderID } from "@/provider/schema"
+import { type RetryClassification, retryAction } from "./retry-classification"
 
 export type Err = ReturnType<NamedError["toObject"]>
 
-// This exported message is shared with the TUI upsell detector. Matching on a
-// literal error string kind of sucks, but it is the simplest for now.
-export const GO_UPSELL_MESSAGE = "Free usage exceeded, subscribe to Go https://opencode.ai/go"
+export { retryAction } from "./retry-classification"
+export type { RetryAction } from "./retry-classification"
 
 export const RETRY_INITIAL_DELAY = 2000
 export const RETRY_BACKOFF_FACTOR = 2
@@ -52,7 +53,7 @@ export function delay(attempt: number, error?: MessageV2.APIError) {
   return cap(Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS))
 }
 
-export function retryable(error: Err) {
+export function classifyRetry(error: Err): RetryClassification | undefined {
   // context overflow errors should not be retried
   if (MessageV2.ContextOverflowError.isInstance(error)) return undefined
   if (MessageV2.APIError.isInstance(error)) {
@@ -60,8 +61,46 @@ export function retryable(error: Err) {
     // 5xx errors are transient server failures and should always be retried,
     // even when the provider SDK doesn't explicitly mark them as retryable.
     if (!error.data.isRetryable && !(status !== undefined && status >= 500)) return undefined
-    if (error.data.responseBody?.includes("FreeUsageLimitError")) return GO_UPSELL_MESSAGE
-    return error.data.message.includes("Overloaded") ? "Provider is overloaded" : error.data.message
+
+    // Strict 3-way AND: opencode provider + FreeUsageLimitError marker in body
+    if (
+      error.data.providerID === ProviderID.opencode &&
+      error.data.responseBody?.includes("FreeUsageLimitError")
+    ) {
+      const headers = error.data.responseHeaders
+      const retryAfterRaw = headers?.["retry-after"]
+      let retryAfterMs: number | undefined
+      let resetAt: number | undefined
+      if (retryAfterRaw) {
+        const secs = Number.parseFloat(retryAfterRaw)
+        if (!Number.isNaN(secs)) {
+          retryAfterMs = Math.ceil(secs * 1000)
+          resetAt = Date.now() + retryAfterMs
+        } else {
+          const parsedDate = Date.parse(retryAfterRaw)
+          if (!Number.isNaN(parsedDate)) {
+            resetAt = parsedDate
+            retryAfterMs = Math.max(0, parsedDate - Date.now())
+          }
+        }
+      }
+      return {
+        kind: "free_quota_exhausted",
+        // We already checked === ProviderID.opencode above; cast to satisfy Brand type
+        providerID: ProviderID.opencode,
+        raw: error.data.message,
+        statusCode: error.data.statusCode,
+        retryAfterMs,
+        resetAt,
+      }
+    }
+
+    // All other APIError retryable paths fall to unknown
+    return {
+      kind: "unknown",
+      raw: error.data.message.includes("Overloaded") ? "Provider is overloaded" : error.data.message,
+      statusCode: error.data.statusCode,
+    }
   }
 
   // Check for rate limit patterns in plain text error messages
@@ -73,7 +112,7 @@ export function retryable(error: Err) {
       lower.includes("rate limit") ||
       lower.includes("too many requests")
     ) {
-      return msg
+      return { kind: "unknown", raw: msg }
     }
   }
 
@@ -93,13 +132,13 @@ export function retryable(error: Err) {
   const code = typeof json.code === "string" ? json.code : ""
 
   if (json.type === "error" && json.error?.type === "too_many_requests") {
-    return "Too Many Requests"
+    return { kind: "unknown", raw: "Too Many Requests" }
   }
   if (code.includes("exhausted") || code.includes("unavailable")) {
-    return "Provider is overloaded"
+    return { kind: "unknown", raw: "Provider is overloaded" }
   }
   if (json.type === "error" && typeof json.error?.code === "string" && json.error.code.includes("rate_limit")) {
-    return "Rate Limited"
+    return { kind: "unknown", raw: "Rate Limited" }
   }
   return undefined
 }
@@ -107,17 +146,29 @@ export function retryable(error: Err) {
 export function policy(opts: {
   parse: (error: unknown) => Err
   set: (input: { attempt: number; message: string; next: number }) => Effect.Effect<void>
+  /**
+   * Required. Called once when policy reaches a terminal classification
+   * (currently: free_quota_exhausted) so the caller can persist it to ctx for
+   * halt() to read. Sync callback — Schedule.fromStepWithMetadata's step return
+   * union does not include Effect<Cause>, so terminal signaling has to be a side
+   * effect we can invoke synchronously before returning Cause.done.
+   */
+  signalTerminal: (classification: RetryClassification) => void
 }) {
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       const error = opts.parse(meta.input)
-      const message = retryable(error)
-      if (!message) return Cause.done(meta.attempt)
+      const classification = classifyRetry(error)
+      if (!classification) return Cause.done(meta.attempt)
+      if (retryAction(classification) === "stop") {
+        opts.signalTerminal(classification)
+        return Cause.done(meta.attempt)
+      }
       if (meta.attempt >= RETRY_MAX_ATTEMPTS) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
         const wait = delay(meta.attempt, MessageV2.APIError.isInstance(error) ? error : undefined)
         const now = yield* Clock.currentTimeMillis
-        yield* opts.set({ attempt: meta.attempt, message, next: now + wait })
+        yield* opts.set({ attempt: meta.attempt, message: classification.raw, next: now + wait })
         return [meta.attempt, Duration.millis(wait)] as [number, Duration.Duration]
       })
     }),

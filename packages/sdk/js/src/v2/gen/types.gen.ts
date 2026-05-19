@@ -47,51 +47,6 @@ export type EventLspClientDiagnostics = {
   }
 }
 
-export type EventLspUpdated = {
-  type: "lsp.updated"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventLspServerInstallFailed = {
-  type: "lsp.server.install.failed"
-  properties: {
-    add: Array<string>
-    dir: string
-    error: string
-  }
-}
-
-export type PermissionRequest = {
-  id: string
-  sessionID: string
-  permission: string
-  patterns: Array<string>
-  metadata: {
-    [key: string]: unknown
-  }
-  always: Array<string>
-  tool?: {
-    messageID: string
-    callID: string
-  }
-}
-
-export type EventPermissionAsked = {
-  type: "permission.asked"
-  properties: PermissionRequest
-}
-
-export type EventPermissionReplied = {
-  type: "permission.replied"
-  properties: {
-    sessionID: string
-    requestID: string
-    reply: "once" | "always" | "reject"
-  }
-}
-
 export type EventSessionBlockerUpserted = {
   type: "session.blocker.upserted"
   properties: {
@@ -214,6 +169,101 @@ export type EventQuestionRejected = {
   properties: QuestionRejected
 }
 
+export type RetryClassification =
+  | {
+      kind: "free_quota_exhausted"
+      providerID: string
+      raw: string
+      statusCode?: number
+      retryAfterMs?: number
+      resetAt?: number
+    }
+  | {
+      kind: "unknown"
+      raw: string
+      statusCode?: number
+      retryAfterMs?: number
+    }
+
+export type SessionStatus =
+  | {
+      type: "idle"
+    }
+  | {
+      type: "retry"
+      attempt: number
+      message: string
+      next: number
+      classification?: RetryClassification
+    }
+  | {
+      type: "busy"
+    }
+  | {
+      type: "rate_limit_blocked"
+      classification: RetryClassification
+    }
+
+export type EventSessionStatus = {
+  type: "session.status"
+  properties: {
+    sessionID: string
+    status: SessionStatus
+  }
+}
+
+export type EventSessionIdle = {
+  type: "session.idle"
+  properties: {
+    sessionID: string
+  }
+}
+
+export type EventLspUpdated = {
+  type: "lsp.updated"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventLspServerInstallFailed = {
+  type: "lsp.server.install.failed"
+  properties: {
+    add: Array<string>
+    dir: string
+    error: string
+  }
+}
+
+export type PermissionRequest = {
+  id: string
+  sessionID: string
+  permission: string
+  patterns: Array<string>
+  metadata: {
+    [key: string]: unknown
+  }
+  always: Array<string>
+  tool?: {
+    messageID: string
+    callID: string
+  }
+}
+
+export type EventPermissionAsked = {
+  type: "permission.asked"
+  properties: PermissionRequest
+}
+
+export type EventPermissionReplied = {
+  type: "permission.replied"
+  properties: {
+    sessionID: string
+    requestID: string
+    reply: "once" | "always" | "reject"
+  }
+}
+
 export type EventMessagePartDelta = {
   type: "message.part.delta"
   properties: {
@@ -299,6 +349,7 @@ export type ApiError = {
     metadata?: {
       [key: string]: string
     }
+    providerID?: string
   }
 }
 
@@ -382,35 +433,6 @@ export type EventTodoUpdated = {
   properties: {
     sessionID: string
     todos: Array<Todo>
-  }
-}
-
-export type SessionStatus =
-  | {
-      type: "idle"
-    }
-  | {
-      type: "retry"
-      attempt: number
-      message: string
-      next: number
-    }
-  | {
-      type: "busy"
-    }
-
-export type EventSessionStatus = {
-  type: "session.status"
-  properties: {
-    sessionID: string
-    status: SessionStatus
-  }
-}
-
-export type EventSessionIdle = {
-  type: "session.idle"
-  properties: {
-    sessionID: string
   }
 }
 
@@ -684,6 +706,27 @@ export type AssistantMessage = {
       created_at: number
       completed_at?: number
     }
+    abort?: {
+      source?: string
+      reason?: string
+      mode?: "soft" | "hard"
+      title_generation_state?: "not_started" | "in_flight" | "completed_before_abort" | "completed_after_abort"
+      propagation_point?: string
+      error_name?: string
+      error_message?: string
+      via_ctx_abort?: boolean
+      recorded_at?: number
+    }
+    title_generation?: {
+      source?: string
+      parent_message_id?: string
+      started_at: number
+      completed_at?: number
+      success: boolean
+      applied?: boolean
+      error_name?: string
+      error_message?: string
+    }
   }
 }
 
@@ -911,6 +954,7 @@ export type ToolStateError = {
     [key: string]: unknown
   }
   error: string
+  reason?: "aborted" | "shutdown" | "tool_failure"
   metadata?: {
     [key: string]: unknown
   }
@@ -1138,15 +1182,17 @@ export type Event =
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
   | EventLspClientDiagnostics
-  | EventLspUpdated
-  | EventLspServerInstallFailed
-  | EventPermissionAsked
-  | EventPermissionReplied
   | EventSessionBlockerUpserted
   | EventSessionBlockerRemoved
   | EventQuestionAsked
   | EventQuestionReplied
   | EventQuestionRejected
+  | EventSessionStatus
+  | EventSessionIdle
+  | EventLspUpdated
+  | EventLspServerInstallFailed
+  | EventPermissionAsked
+  | EventPermissionReplied
   | EventMessagePartDelta
   | EventSessionDiff
   | EventSessionError
@@ -1154,8 +1200,6 @@ export type Event =
   | EventFileEdited
   | EventFileWatcherUpdated
   | EventTodoUpdated
-  | EventSessionStatus
-  | EventSessionIdle
   | EventSessionCompacted
   | EventWorktreeReady
   | EventWorktreeFailed
@@ -2972,6 +3016,10 @@ export type PtyUpdateErrors = {
    * Bad request
    */
   400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
 }
 
 export type PtyUpdateError = PtyUpdateErrors[keyof PtyUpdateErrors]
@@ -3498,6 +3546,37 @@ export type SessionStatusResponses = {
 
 export type SessionStatusResponse = SessionStatusResponses[keyof SessionStatusResponses]
 
+export type PostSessionE2eUpdateTodosData = {
+  body?: {
+    sessionID: string
+    todos: Array<{
+      id?: string
+      /**
+       * Brief description of the task
+       */
+      content: string
+      /**
+       * Current status of the task: pending, in_progress, completed, cancelled
+       */
+      status: string
+      /**
+       * Priority level of the task: high, medium, low
+       */
+      priority: string
+    }>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/__e2e/update-todos"
+}
+
+export type PostSessionE2eUpdateTodosResponses = {
+  200: unknown
+}
+
 export type SessionDeleteData = {
   body?: never
   path: {
@@ -3735,6 +3814,53 @@ export type SessionForkResponses = {
 
 export type SessionForkResponse = SessionForkResponses[keyof SessionForkResponses]
 
+export type SessionToolRespondData = {
+  body?:
+    | {
+        kind: "submit"
+        messageID: string
+        callID: string
+        payload: unknown
+      }
+    | {
+        kind: "dismiss"
+        messageID: string
+        callID: string
+      }
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/tool/respond"
+}
+
+export type SessionToolRespondErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionToolRespondError = SessionToolRespondErrors[keyof SessionToolRespondErrors]
+
+export type SessionToolRespondResponses = {
+  /**
+   * Resolved
+   */
+  200: {
+    status: "ok"
+  }
+}
+
+export type SessionToolRespondResponse = SessionToolRespondResponses[keyof SessionToolRespondResponses]
+
 export type SessionAbortData = {
   body?: never
   path: {
@@ -3742,9 +3868,9 @@ export type SessionAbortData = {
   }
   query?: {
     directory?: string
+    workspace?: string
     mode?: "soft" | "hard"
     source?: string
-    workspace?: string
   }
   url: "/session/{sessionID}/abort"
 }
@@ -4946,6 +5072,28 @@ export type PermissionRespondResponses = {
 }
 
 export type PermissionRespondResponse = PermissionRespondResponses[keyof PermissionRespondResponses]
+
+export type PostPermissionE2eAskData = {
+  body?: {
+    sessionID: string
+    permission: string
+    patterns: Array<string>
+    metadata?: {
+      [key: string]: unknown
+    }
+    always?: Array<string>
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/permission/__e2e/ask"
+}
+
+export type PostPermissionE2eAskResponses = {
+  200: unknown
+}
 
 export type PermissionReplyData = {
   body?: {

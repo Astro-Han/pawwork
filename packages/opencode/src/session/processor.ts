@@ -128,6 +128,9 @@ interface ProcessorContext extends Input {
   reasoningMap: Record<string, MessageV2.ReasoningPart>
   trace: LLMTrace.Recorder
   streamError: boolean
+  /** Set by policy() signalTerminal when free_quota_exhausted is detected. Read
+   *  and reset to undefined at the start of halt() to avoid cross-call staling. */
+  terminalClassification: import("./retry-classification").RetryClassification | undefined
 }
 
 type StreamEvent = Event
@@ -191,6 +194,7 @@ export const layer: Layer.Layer<
           createdAt: input.assistantMessage.time.created,
         }),
         streamError: false,
+        terminalClassification: undefined,
       }
       let aborted = false
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -915,6 +919,23 @@ export const layer: Layer.Layer<
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         ctx.streamError = true
+
+        // Read-then-reset: free_quota path leaves a value here; all other paths
+        // leave it undefined. Resetting at entry guards against "previous halt
+        // set free_quota → next halt generic" cross-call staling.
+        const cls = ctx.terminalClassification
+        ctx.terminalClassification = undefined
+
+        if (cls?.kind === "free_quota_exhausted") {
+          // Terminal rate-limit path: write blocked status and set ctx.blocked so
+          // process() returns "stop". Intentionally does NOT publish
+          // Session.Event.Error (would trigger the OS notification toast) and does
+          // NOT write ctx.assistantMessage.error (would render the generic error card).
+          yield* status.set(ctx.sessionID, { type: "rate_limit_blocked", classification: cls })
+          ctx.blocked = true
+          return
+        }
+
         const error = parse(e)
         if (MessageV2.ContextOverflowError.isInstance(error)) {
           ctx.needsCompaction = true
@@ -981,6 +1002,9 @@ export const layer: Layer.Layer<
                     message: info.message,
                     next: info.next,
                   }),
+                signalTerminal: (classification) => {
+                  ctx.terminalClassification = classification
+                },
               }),
             ),
             Effect.catch(halt),

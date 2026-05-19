@@ -77,6 +77,9 @@ export const APIError = NamedError.create(
     responseHeaders: z.record(z.string(), z.string()).optional(),
     responseBody: z.string().optional(),
     metadata: z.record(z.string(), z.string()).optional(),
+    // Optional for backwards compat with historical JSON; classifyRetry guards on
+    // providerID === ProviderID.opencode and falls to `unknown` when absent.
+    providerID: z.string().optional(),
   }),
 )
 export type APIError = z.infer<typeof APIError.Schema>
@@ -1182,6 +1185,7 @@ export function fromError(
           responseHeaders: parsed.responseHeaders,
           responseBody: parsed.responseBody,
           metadata: parsed.metadata,
+          providerID: ctx.providerID,
         },
         { cause: e },
       ).toObject()
@@ -1205,6 +1209,7 @@ export function fromError(
               message: parsed.message,
               isRetryable: parsed.isRetryable,
               responseBody: parsed.responseBody,
+              providerID: ctx.providerID,
             },
             {
               cause: e,

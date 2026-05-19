@@ -1,5 +1,6 @@
 import type { Message, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from "solid-js"
+import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 
 const idle = { type: "idle" as const }
 // Server status should arrive quickly after a message is created. A longer window keeps stale turns visually active longer.
@@ -11,7 +12,7 @@ export function isSessionRunning(
   messages: readonly Message[] | undefined,
   options: { now?: number } = {},
 ): boolean {
-  if ((status ?? idle).type !== "idle") return true
+  if (isWorkInFlightStatus(status)) return true
 
   return runningFallbackExpiresAt(status, messages, options) !== undefined
 }
@@ -22,7 +23,7 @@ export function runningFallbackExpiresAt(
   messages: readonly Message[] | undefined,
   options: { now?: number } = {},
 ): number | undefined {
-  if ((status ?? idle).type !== "idle") return
+  if (isWorkInFlightStatus(status)) return
 
   const latest = messages?.at(-1)
   if (latest?.role !== "assistant") return

@@ -2,6 +2,8 @@ import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX }
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
+import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
+import { RateLimitCardWiring } from "@/components/rate-limit-card-wiring"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -231,7 +233,10 @@ export function MessageTimeline(props: {
     }
 
     const status = sessionStatus() ?? idle
-    if (status.type !== "idle") {
+    // rate_limit_blocked is terminal (not "work in flight") but the RateLimitCard
+    // still renders inside the latest turn — so keep the latest user message
+    // marked active so SessionTurn receives the status and dispatches to the slot.
+    if (isWorkInFlightStatus(status) || status.type === "rate_limit_blocked") {
       const messages = sessionMessages()
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role === "user") return messages[i].id
@@ -437,6 +442,7 @@ export function MessageTimeline(props: {
                         actions={props.actions}
                         active={active()}
                         status={active() ? sessionStatus() : undefined}
+                        rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
                         showReasoningSummaries={settings.general.showReasoningSummaries()}
                         shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
                         editToolDefaultOpen={settings.general.editToolPartsExpanded()}

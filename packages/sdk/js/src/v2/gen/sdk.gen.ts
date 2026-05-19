@@ -88,8 +88,10 @@ import type {
   PermissionRespondErrors,
   PermissionRespondResponses,
   PermissionRuleset,
+  PostPermissionE2eAskResponses,
   PostQuestionE2eAskResponses,
   PostQuestionE2ePublishAskedResponses,
+  PostSessionE2eUpdateTodosResponses,
   ProjectCurrentResponses,
   ProjectInitGitResponses,
   ProjectListResponses,
@@ -162,6 +164,8 @@ import type {
   SessionSummarizeResponses,
   SessionTodoErrors,
   SessionTodoResponses,
+  SessionToolRespondErrors,
+  SessionToolRespondResponses,
   SessionTurnChangeErrors,
   SessionTurnChangeRedoErrors,
   SessionTurnChangeRedoResponses,
@@ -1923,17 +1927,27 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
-   * Abort session
+   * Respond to an external-result tool call
    *
-   * Abort an active session and stop any ongoing AI processing or command execution.
+   * Resolve a pending external-result Deferred (e.g. question tool) with the user's submitted payload or a dismiss action.
    */
-  public abort<ThrowOnError extends boolean = false>(
+  public toolRespond<ThrowOnError extends boolean = false>(
     parameters: {
       sessionID: string
       directory?: string
-      mode?: "soft" | "hard"
-      source?: string
       workspace?: string
+      body?:
+        | {
+            kind: "submit"
+            messageID: string
+            callID: string
+            payload: unknown
+          }
+        | {
+            kind: "dismiss"
+            messageID: string
+            callID: string
+          }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1944,9 +1958,49 @@ export class Session2 extends HeyApiClient {
           args: [
             { in: "path", key: "sessionID" },
             { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "body", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionToolRespondResponses, SessionToolRespondErrors, ThrowOnError>({
+      url: "/session/{sessionID}/tool/respond",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Abort session
+   *
+   * Abort an active session and stop any ongoing AI processing or command execution.
+   */
+  public abort<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+      mode?: "soft" | "hard"
+      source?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
             { in: "query", key: "mode" },
             { in: "query", key: "source" },
-            { in: "query", key: "workspace" },
           ],
         },
       ],
@@ -4196,6 +4250,96 @@ export class OpencodeClient extends HeyApiClient {
   constructor(args?: { client?: Client; key?: string }) {
     super(args)
     OpencodeClient.__registry.set(this, args?.key)
+  }
+
+  public postSessionE2eUpdateTodos<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      todos?: Array<{
+        id?: string
+        /**
+         * Brief description of the task
+         */
+        content: string
+        /**
+         * Current status of the task: pending, in_progress, completed, cancelled
+         */
+        status: string
+        /**
+         * Priority level of the task: high, medium, low
+         */
+        priority: string
+      }>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "todos" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PostSessionE2eUpdateTodosResponses, unknown, ThrowOnError>({
+      url: "/session/__e2e/update-todos",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  public postPermissionE2eAsk<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+      permission?: string
+      patterns?: Array<string>
+      metadata?: {
+        [key: string]: unknown
+      }
+      always?: Array<string>
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+            { in: "body", key: "permission" },
+            { in: "body", key: "patterns" },
+            { in: "body", key: "metadata" },
+            { in: "body", key: "always" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<PostPermissionE2eAskResponses, unknown, ThrowOnError>({
+      url: "/permission/__e2e/ask",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
   }
 
   public postQuestionE2eAsk<ThrowOnError extends boolean = false>(
