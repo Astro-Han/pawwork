@@ -5,6 +5,7 @@ import { encodeFilePath } from "@/context/file/path"
 import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
+import { toAbsoluteFilePath } from "./path-canonical"
 
 type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 
@@ -27,13 +28,6 @@ type BuildRequestPartsInput = {
   messageID: string
   sessionID: string
   sessionDirectory: string
-}
-
-const absolute = (directory: string, path: string) => {
-  if (path.startsWith("/")) return path
-  if (/^[A-Za-z]:[\\/]/.test(path) || /^[A-Za-z]:$/.test(path)) return path
-  if (path.startsWith("\\\\") || path.startsWith("//")) return path
-  return `${directory.replace(/[\\/]+$/, "")}/${path}`
 }
 
 const fileQuery = (selection: FileSelection | undefined) =>
@@ -104,7 +98,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
   ]
 
   const files = input.prompt.filter(isFileAttachment).map((attachment) => {
-    const path = absolute(input.sessionDirectory, attachment.path)
+    const path = toAbsoluteFilePath(input.sessionDirectory, attachment.path)
     return {
       id: Identifier.ascending("part"),
       type: "file",
@@ -138,7 +132,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
 
   const used = new Set(files.map((part) => part.url))
   const context = input.context.flatMap((item) => {
-    const path = absolute(input.sessionDirectory, item.path)
+    const path = toAbsoluteFilePath(input.sessionDirectory, item.path)
     const url = fileURL(path, item.selection)
     const comment = item.comment?.trim()
     if (!comment && used.has(url)) return []
@@ -155,7 +149,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     if (!comment) return [filePart]
 
     const mentions = parseCommentMentions(comment).flatMap((path) => {
-      const url = fileURL(absolute(input.sessionDirectory, path))
+      const url = fileURL(toAbsoluteFilePath(input.sessionDirectory, path))
       if (used.has(url)) return []
       used.add(url)
       return [
