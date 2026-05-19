@@ -176,6 +176,8 @@ type PromptBindingSession = {
     removeComment: (path: string, commentID: string) => void
     updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) => void
     replaceComments: (items: FileContextItem[]) => void
+    /** Atomic full-replace: swaps ALL context items at once. Used by carry hydration. */
+    replaceAll: (items: ContextItem[]) => void
   }
   set: (prompt: Prompt, cursorPosition?: number) => void
   reset: () => void
@@ -205,6 +207,7 @@ export function createPromptBinding(
       updateComment: (path: string, commentID: string, next: Partial<FileContextItem> & { comment?: string }) =>
         session()?.context.updateComment(path, commentID, next),
       replaceComments: (items: FileContextItem[]) => session()?.context.replaceComments(items),
+      replaceAll: (items: ContextItem[]) => session()?.context.replaceAll(items),
     },
     set: (prompt: Prompt, cursorPosition?: number, target?: Scope) => pick(target)?.set(prompt, cursorPosition),
     reset: (target?: Scope) => pick(target)?.reset(),
@@ -267,6 +270,11 @@ function createPromptSession(dir: string, id: string | undefined) {
           ...current.filter((item) => !isCommentItem(item)),
           ...items.map((item) => ({ ...item, key: contextItemKey(item) })),
         ])
+      },
+      replaceAll(items: ContextItem[]) {
+        // Atomic full-replace used by carry hydration (portable snapshot).
+        // Regenerates keys so snapshot keys do not collide with the target route.
+        setStore("context", "items", items.map((item) => ({ ...item, key: contextItemKey(item) })))
       },
     },
     set: actions.set,

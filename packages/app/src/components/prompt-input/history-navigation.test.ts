@@ -12,6 +12,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { Persist, PersistTesting } from "@/utils/persist"
+import { buildCommentByIDMap } from "./history-comment-map"
 
 /** Mirrors the target-building logic in createDirectoryHistoryStore. */
 function buildHistoryTarget(directory: string, mode: "normal" | "shell") {
@@ -70,5 +71,41 @@ describe("directory-scoped prompt history targets", () => {
     const t2 = buildHistoryTarget("/same/dir", "shell")
     expect(t1.storage).toBe(t2.storage)
     expect(t1.key).toBe(t2.key)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildCommentByIDMap — portable-active gate (Task 5 of PR #750)
+// ---------------------------------------------------------------------------
+//
+// When portable is active (the homepage received a carried snapshot from
+// another workspace), the byID cross-reference to route-scoped useComments()
+// must be skipped so that wrong-workspace comment metadata is never used.
+
+type FakeComment = { file: string; id: string; selection: { start: number; end: number }; time: number; comment: string }
+
+describe("buildCommentByIDMap — portable-active gate", () => {
+  const comments: FakeComment[] = [
+    { file: "/a/foo.ts", id: "c-1", selection: { start: 1, end: 5 }, time: 1000, comment: "hello" },
+    { file: "/a/bar.ts", id: "c-2", selection: { start: 2, end: 3 }, time: 2000, comment: "world" },
+  ]
+
+  test("returns empty map when portableActive is true", () => {
+    const map = buildCommentByIDMap(comments, true)
+    expect(map.size).toBe(0)
+  })
+
+  test("returns populated map when portableActive is false and comments exist", () => {
+    const map = buildCommentByIDMap(comments, false)
+    expect(map.size).toBe(2)
+    // Key format: "${file}\n${id}"
+    expect(map.has("/a/foo.ts\nc-1")).toBe(true)
+    expect(map.has("/a/bar.ts\nc-2")).toBe(true)
+    expect(map.get("/a/foo.ts\nc-1")?.selection.start).toBe(1)
+  })
+
+  test("returns empty map when portableActive is false but no comments given", () => {
+    const map = buildCommentByIDMap([], false)
+    expect(map.size).toBe(0)
   })
 })

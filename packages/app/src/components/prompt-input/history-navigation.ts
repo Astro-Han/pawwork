@@ -23,6 +23,8 @@ import {
 } from "./history"
 import type { HistoryStore, PromptStore } from "./store-types"
 import { createDirectoryHistoryStore, MAX_DIRECTORY_CACHE } from "./history-store-factory"
+import { buildCommentByIDMap } from "./history-comment-map"
+import { usePortableDraft } from "./portable-draft"
 
 // --- Per-directory cache types ---
 
@@ -55,6 +57,7 @@ export interface HistoryNavigation {
 export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNavigation {
   const { store, setStore, prompt, comments, editorRef, queueScroll } = deps
   const sdk = useSDK()
+  const portable = usePortableDraft()
 
   // --- Per-directory store cache (LRU, capped at MAX_DIRECTORY_CACHE) ---
 
@@ -119,7 +122,10 @@ export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNav
   // --- Comment helpers ---
 
   const historyComments = () => {
-    const byID = new Map(comments.all().map((item) => [`${item.file}\n${item.id}`, item] as const))
+    // When portable has an active snapshot the route-scoped useComments() store
+    // belongs to a potentially different workspace; gate the cross-reference to
+    // prevent wrong-workspace metadata from leaking into comment history.
+    const byID = buildCommentByIDMap(comments.all(), portable.snapshot() !== null)
     return prompt.context.items().flatMap((item) => {
       if (item.type !== "file") return []
       const comment = item.comment?.trim()

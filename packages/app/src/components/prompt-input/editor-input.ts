@@ -31,6 +31,7 @@ import { promptLength } from "./history"
 import type { EditorImperatives } from "./editor-imperatives"
 import type { PopoverControllers } from "./popover-controllers"
 import type { PromptStore } from "./store-types"
+import type { ResolvedMention } from "./mention-metadata"
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
 
@@ -145,13 +146,20 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
           (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
         const carry = portable.consumeForHomepage(dir, isEmpty)
         if (!carry) return
-        // Hydrate this homepage's text from the moved snapshot.
-        // Context + image hydration is deferred to Task 5 (portable comments).
+        // Hydrate prompt text.
         const text = carry.prompt
           .filter((p) => p.type === "text")
           .map((p) => p.content)
           .join("")
         prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+        // Hydrate context items atomically. Strip keys so contextItemKey regenerates
+        // them for the target route, avoiding collisions with pre-existing items.
+        prompt.context.replaceAll(
+          carry.context.map(({ key: _omitKey, ...rest }) => rest),
+        )
+        // Image hydration: imageAttachments is fed by an external signal in the
+        // parent component and does not expose a setter here. Image carryover is
+        // deferred to a follow-up task (no write path available in this layer).
       },
     ),
   )
@@ -204,13 +212,19 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     prompt.set([...rawParts, ...images], cursorPosition)
     if (!params.id) {
       // Homepage route: mirror edit into portable owner after prompt.set.
-      // T5 will start populating resolvedMentions; PR1 leaves it empty.
+      // Build resolvedMentions from current context items.
+      const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
+      for (const item of prompt.context.items()) {
+        if (item.type === "file" && item.resolvedMentions?.length) {
+          resolvedMentionsMap[item.key] = item.resolvedMentions
+        }
+      }
       portable.record({
         sourceFilesystemDirectory: sdk.directory,
         prompt: prompt.current(),
         context: prompt.context.items().slice(),
         images: imageAttachments(),
-        resolvedMentions: {},
+        resolvedMentions: resolvedMentionsMap,
       })
     }
     // Session routes do not mirror into the portable owner.

@@ -64,4 +64,74 @@ describe("portable homepage owner — integration scenarios", () => {
     })
     expect(owner.snapshot()).toBeNull()
   })
+
+  test("homepage A with context items: snapshot moves with context preserved", () => {
+    const owner = createPortableDraftOwner()
+    const contextItems = [
+      {
+        type: "file" as const,
+        path: "/a/readme.md",
+        key: "file:/a/readme.md:undefined:undefined",
+        comment: "review this section",
+        commentID: "c-1",
+      },
+    ]
+
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "draft text", start: 0, end: 10 }],
+      context: contextItems,
+      images: [],
+      resolvedMentions: {},
+    })
+
+    const moved = owner.consumeForHomepage("/b", true)
+    expect(moved).not.toBeNull()
+    // Context items must survive the move intact.
+    expect(moved?.context).toEqual(contextItems)
+    expect(moved?.sourceFilesystemDirectory).toBe("/b")
+  })
+
+  test("homepage A with resolvedMentions: metadata carries through", () => {
+    const owner = createPortableDraftOwner()
+    const resolvedMentions = {
+      "file:/a/readme.md:undefined:undefined:c=c-1": [
+        { displayText: "@readme.md", resolvedPath: "/a/readme.md", fingerprint: "fp1", start: 0, end: 10 },
+      ],
+    }
+
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "draft text", start: 0, end: 10 }],
+      context: [
+        { type: "file" as const, path: "/a/readme.md", key: "file:/a/readme.md:undefined:undefined" },
+      ],
+      images: [],
+      resolvedMentions,
+    })
+
+    const moved = owner.consumeForHomepage("/b", true)
+    expect(moved).not.toBeNull()
+    expect(moved?.resolvedMentions).toEqual(resolvedMentions)
+  })
+
+  test("homepage A → homepage A: no self-consume even with context present", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "draft text", start: 0, end: 10 }],
+      context: [
+        { type: "file" as const, path: "/a/file.ts", key: "file:/a/file.ts:undefined:undefined" },
+      ],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    // Self-consume attempt must return null — context or not.
+    const result = owner.consumeForHomepage("/a", true)
+    expect(result).toBeNull()
+    // Snapshot is still alive.
+    expect(owner.snapshot()).not.toBeNull()
+    expect(owner.snapshot()?.sourceFilesystemDirectory).toBe("/a")
+  })
 })

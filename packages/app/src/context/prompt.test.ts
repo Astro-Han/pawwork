@@ -49,6 +49,7 @@ function promptSession() {
       removeComment: () => markDirty(),
       updateComment: () => markDirty(),
       replaceComments: () => markDirty(),
+      replaceAll: () => markDirty(),
     },
     set: (next: Prompt, nextCursor?: number) => {
       prompt = next

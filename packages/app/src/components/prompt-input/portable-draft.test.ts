@@ -105,6 +105,35 @@ describe("PortableDraftOwner.record", () => {
     owner.record({ sourceFilesystemDirectory: "/a", ...emptyPayload() })
     expect(owner.snapshot()).toBeNull()
   })
+
+  test("bumps revision when image attachment list changes", () => {
+    const base = makePayload("hello")
+    owner.record({ sourceFilesystemDirectory: "/a", ...base })
+    expect(owner.snapshot()?.revision).toBe(1)
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      ...base,
+      images: [{ type: "image", id: "img2", filename: "b.png", mime: "image/png", dataUrl: "data:b" }],
+    })
+    expect(owner.snapshot()?.revision).toBe(2)
+  })
+
+  test("does not bump revision when context items are reordered identically", () => {
+    // Same content in same order => no bump (JSON.stringify order-sensitive)
+    const base = makePayload("hello")
+    const ctx = [
+      { type: "file" as const, path: "/a/x.ts", key: "file:/a/x.ts:undefined:undefined" },
+      { type: "file" as const, path: "/a/y.ts", key: "file:/a/y.ts:undefined:undefined" },
+    ]
+    owner.record({ sourceFilesystemDirectory: "/a", ...base, context: ctx })
+    expect(owner.snapshot()?.revision).toBe(1)
+    // Same items in same order — revision must not bump.
+    owner.record({ sourceFilesystemDirectory: "/a", ...base, context: [...ctx] })
+    expect(owner.snapshot()?.revision).toBe(1)
+    // Reversed order is treated as different (JSON.stringify is order-sensitive).
+    owner.record({ sourceFilesystemDirectory: "/a", ...base, context: [...ctx].reverse() })
+    expect(owner.snapshot()?.revision).toBe(2)
+  })
 })
 
 describe("PortableDraftOwner.consumeForHomepage", () => {
@@ -143,6 +172,49 @@ describe("PortableDraftOwner.consumeForHomepage", () => {
     owner.consumeForHomepage("/b", true)
     // Now snapshot is at /b; trying to consume to /b again is self-move
     expect(owner.consumeForHomepage("/b", true)).toBeNull()
+  })
+})
+
+describe("PortableDraftOwner consumption hydrates context items", () => {
+  let owner: ReturnType<typeof createPortableDraftOwner>
+
+  beforeEach(() => {
+    owner = createPortableDraftOwner()
+  })
+
+  test("consumeForHomepage returns the full payload including context, images, resolvedMentions", () => {
+    const contextItems = [
+      {
+        type: "file" as const,
+        path: "/a/foo.ts",
+        key: "file:/a/foo.ts:undefined:undefined",
+        comment: "check this",
+        commentID: "cmt-1",
+      },
+    ]
+    const images = [{ type: "image" as const, id: "img1", filename: "a.png", mime: "image/png", dataUrl: "data:a" }]
+    const resolvedMentions = {
+      "file:/a/foo.ts:undefined:undefined:c=cmt-1": [
+        { displayText: "@foo.ts", resolvedPath: "/a/foo.ts", fingerprint: "f1", start: 0, end: 7 },
+      ],
+    }
+
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "check this", start: 0, end: 10 }],
+      context: contextItems,
+      images,
+      resolvedMentions,
+    })
+
+    const snap = owner.consumeForHomepage("/b", true)
+    expect(snap).not.toBeNull()
+    // Full payload must be present in the returned snapshot.
+    expect(snap?.context).toEqual(contextItems)
+    expect(snap?.images).toEqual(images)
+    expect(snap?.resolvedMentions).toEqual(resolvedMentions)
+    // sourceFilesystemDirectory must be updated to target.
+    expect(snap?.sourceFilesystemDirectory).toBe("/b")
   })
 })
 
