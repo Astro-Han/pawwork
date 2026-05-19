@@ -159,29 +159,19 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   const targetHash = targetSummaryRes.isFallback ? undefined : SessionDiagnostics.hash(targetSummaryRes.summary)
 
   const parentLoopState = SessionDiagnostics.deriveParentLoopState({
-    successRecords: loopCtx.successRecords,
     errorRecords: loopCtx.errorRecords,
     syntheticBlockSigKeys: loopCtx.syntheticBlockSigKeys,
     parentID,
     currentStepIndex: loopCtx.currentStepIndex,
-    currentMutationEpoch: loopCtx.currentMutationEpoch,
   })
 
-  const failureDecision = SessionDiagnostics.queryGateAction({
+  const decision = SessionDiagnostics.queryGateAction({
     parentLoopState,
     tool: toolId,
     inputHash: inputHashRes.hash,
     targetHash,
     outcome: "failure",
   })
-  const successDecision = SessionDiagnostics.queryGateAction({
-    parentLoopState,
-    tool: toolId,
-    inputHash: inputHashRes.hash,
-    targetHash,
-    outcome: "success",
-  })
-  const decision = SessionDiagnostics.chooseGateDecision(failureDecision, successDecision)
 
   if (decision.action === "observe") return { kind: "observe" } satisfies GateOutcome
 
@@ -189,10 +179,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   if (!sigState) return { kind: "observe" } satisfies GateOutcome
 
   if (decision.action === "block") {
-    const userFacing =
-      decision.outcome === "success"
-        ? `${LOOP_GATE_BLOCK_PREFIX}: repeated tool request blocked before occurrence ${decision.nextOccurrenceCount}`
-        : `${LOOP_GATE_BLOCK_PREFIX}: repeated failed tool request blocked before occurrence ${decision.nextOccurrenceCount}`
+    const userFacing = `${LOOP_GATE_BLOCK_PREFIX}: repeated failed tool request blocked before occurrence ${decision.nextOccurrenceCount}`
     yield* processor.recordSyntheticBlock({
       toolCallId,
       tool: toolId,
@@ -209,10 +196,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   }
 
   const renderedText = LoopRenderer.render({ tool: toolId, state: sigState, locale })
-  const toolErrorMessage =
-    decision.outcome === "success"
-      ? `${LOOP_GATE_STOP_PREFIX}: stop after repeated successful tool request (${decision.nextOccurrenceCount})`
-      : `${LOOP_GATE_STOP_PREFIX}: stop after repeated failures (${decision.nextOccurrenceCount})`
+  const toolErrorMessage = `${LOOP_GATE_STOP_PREFIX}: stop after repeated failures (${decision.nextOccurrenceCount})`
   yield* processor.recordSyntheticStop({
     toolCallId,
     tool: toolId,

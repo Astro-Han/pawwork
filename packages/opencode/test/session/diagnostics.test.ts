@@ -71,14 +71,59 @@ describe("SessionDiagnostics.observeToolCall", () => {
       })
       records = [...records, observed.record]
     }
-    const reminder = observed?.record.metadata.diagnostics?.loop?.reminders?.[0]
-    expect(reminder).toMatchObject({
-      key: `success:input:webfetch:${inputHashFor(input)}`,
+    const inputSigKey = `success:input:webfetch:${inputHashFor(input)}`
+    const targetSigKey = `success:target:webfetch:${targetHashFor(input.url)}`
+    const reminders = observed?.record.metadata.diagnostics?.loop?.reminders ?? []
+    const inputReminder = reminders.find((r) => r.type === "input_repeat")
+    const targetReminder = reminders.find((r) => r.type === "target_repeat")
+    expect(inputReminder).toMatchObject({
+      key: inputSigKey,
       type: "input_repeat",
       status: "pending",
       count: 3,
     })
+    // Non-fallback recognized target (webfetch URL) also emits a target_repeat
+    // reminder on the third identical call, and both sigKeys land in
+    // loopRecoverFiredFor on the record that fired them.
+    expect(targetReminder).toMatchObject({
+      key: targetSigKey,
+      type: "target_repeat",
+      status: "pending",
+      count: 3,
+    })
     expect(observed?.record.metadata.diagnostics?.loop?.outcome).toBe("success")
+    expect(observed?.record.metadata.diagnostics?.loop?.loopRecoverFiredFor).toEqual(
+      expect.arrayContaining([inputSigKey, targetSigKey]),
+    )
+  })
+
+  test("fallback-target successful repeats fire input_repeat reminder but no target_repeat", () => {
+    // Tools without a recognized target field (`isFallback === true`) skip the
+    // target_repeat reminder at diagnostics.ts:278. This is the last assertion
+    // in the suite that pins the fallback-target guard after the success-side
+    // hard gate teardown (#767) removed the gate-path fallback assertions.
+    let records: SessionDiagnostics.ToolCallRecord[] = []
+    const input = { payload: "same opaque request" }
+    let observed: ReturnType<typeof SessionDiagnostics.observeToolCall> | undefined
+    for (let i = 0; i < 3; i++) {
+      observed = SessionDiagnostics.observeToolCall({
+        records,
+        sessionID,
+        parentID,
+        tool: "unknown_mcp",
+        input,
+        agent: "build",
+        modelID,
+        providerID,
+      })
+      records = [...records, observed.record]
+    }
+    const inputSigKey = `success:input:unknown_mcp:${inputHashFor(input)}`
+    const reminders = observed?.record.metadata.diagnostics?.loop?.reminders ?? []
+    expect(reminders.map((r) => r.type)).toEqual(["input_repeat"])
+    expect(reminders[0].key).toBe(inputSigKey)
+    expect(observed?.record.metadata.diagnostics?.loop?.targetHashIsFallback).toBe(true)
+    expect(observed?.record.metadata.diagnostics?.loop?.loopRecoverFiredFor).toEqual([inputSigKey])
   })
 
   test("does not count the same input across different user blocks", () => {
