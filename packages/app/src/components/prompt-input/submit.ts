@@ -22,6 +22,48 @@ import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
 import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
 import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/prompt-route-scope"
+import { type PortableDraftOwner, usePortableDraft } from "./portable-draft"
+import { type PinnedDraftOwner, usePinnedDraft } from "./pinned-draft"
+
+/**
+ * Submit ownership identifies which draft owner a given submit attempt operates on.
+ * Captured once at the top of handleSubmit and frozen for the lifetime of that submit.
+ * Used by clearInput/restoreInput so a successful clear or failure restore only
+ * touches the owner whose revision matches the captured value at submit time.
+ */
+export type SubmitOwnership =
+  | { kind: "portable"; revision: number; sourceFilesystemDirectory: string }
+  | { kind: "pinned"; revision: number; directory: string }
+  | { kind: "route"; scope: PromptRouteScope }
+
+/**
+ * Decide which owner owns this submit. Pinned beats portable when both match the
+ * current homepage directory. When on a concrete session route (id present),
+ * ownership is always the route-scoped prompt store.
+ */
+export function detectSubmitOwnership(params: {
+  isHomepage: boolean
+  pinned: PinnedDraftOwner
+  portable: PortableDraftOwner
+  sourceFilesystemDirectory: string
+  routeScope: PromptRouteScope
+}): SubmitOwnership {
+  if (params.isHomepage) {
+    const pinnedSlot = params.pinned.current()
+    if (pinnedSlot && pinnedSlot.directory === params.sourceFilesystemDirectory) {
+      return { kind: "pinned", revision: pinnedSlot.revision, directory: pinnedSlot.directory }
+    }
+    const portableSnapshot = params.portable.snapshot()
+    if (portableSnapshot && portableSnapshot.sourceFilesystemDirectory === params.sourceFilesystemDirectory) {
+      return {
+        kind: "portable",
+        revision: portableSnapshot.revision,
+        sourceFilesystemDirectory: portableSnapshot.sourceFilesystemDirectory,
+      }
+    }
+  }
+  return { kind: "route", scope: params.routeScope }
+}
 
 type PendingPrompt = {
   abort: AbortController
@@ -229,6 +271,8 @@ export function createPromptSubmit(input: PromptSubmitInput) {
   const layout = useLayout()
   const language = useLanguage()
   const params = useParams()
+  const portable = usePortableDraft()
+  const pinned = usePinnedDraft()
   const sessionID = input.sessionID ?? (() => params.id)
   const isNewSession = input.isNewSession ?? (() => !sessionID())
   const actionReady = input.actionReady ?? (() => true)
@@ -472,11 +516,19 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       variant,
     }
 
-    const clearInput = () => {
-      prompt.reset(sourcePromptScope)
-      input.setMode("normal")
-      input.setPopover(null)
-    }
+    // Capture submit ownership BEFORE any clear. isHomepage uses the route at submit
+    // start (params.id can change once navigate() lands the new session route).
+    // Ownership is frozen here; clear/restore below check this captured revision
+    // against the owner's current revision so a user typing during the await is
+    // never trampled.
+    const isHomepage = !params.id
+    const ownership: SubmitOwnership = detectSubmitOwnership({
+      isHomepage,
+      pinned,
+      portable,
+      sourceFilesystemDirectory: projectDirectory,
+      routeScope: sourcePromptScope,
+    })
 
     const promptScope = promptScopeForSession({
       routeDir: params.dir,
@@ -485,23 +537,83 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       sessionID: session.id,
     })
 
-    const restoreInput = () => {
-      prompt.set(currentPrompt, input.promptLength(currentPrompt), promptScope)
+    const clearInput = (owned: SubmitOwnership) => {
+      switch (owned.kind) {
+        case "portable": {
+          const cleared = portable.clear(owned.revision)
+          // Revision diverged: user typed new content during the submit. Leave the
+          // UI alone so the new draft remains visible.
+          if (!cleared) return
+          prompt.reset(sourcePromptScope)
+          break
+        }
+        case "pinned": {
+          const cleared = pinned.clearAll(owned.revision)
+          if (!cleared) return
+          prompt.reset(sourcePromptScope)
+          break
+        }
+        case "route": {
+          prompt.reset(owned.scope)
+          break
+        }
+      }
+      input.setMode("normal")
+      input.setPopover(null)
+    }
+
+    const restoreInput = (owned: SubmitOwnership) => {
+      // Revision-guarded restore: only push the captured draft back if the user
+      // has not typed new content since submit. For owner-backed cases this means
+      // the owner's current revision still matches the captured revision (the
+      // owner is the source of truth). For route, the prompt store is a UI
+      // mirror with no separate owner, so we always re-push the captured value.
+      switch (owned.kind) {
+        case "portable": {
+          const current = portable.snapshot()
+          if (!current || current.revision !== owned.revision) return
+          prompt.set(current.prompt, input.promptLength(current.prompt), promptScope)
+          prompt.context.replaceAll(current.context.map(({ key: _omit, ...rest }) => rest))
+          break
+        }
+        case "pinned": {
+          const current = pinned.current()
+          if (!current || current.revision !== owned.revision) return
+          prompt.set(current.prompt, input.promptLength(current.prompt), promptScope)
+          prompt.context.replaceAll(current.context.map(({ key: _omit, ...rest }) => rest))
+          break
+        }
+        case "route": {
+          prompt.set(currentPrompt, input.promptLength(currentPrompt), promptScope)
+          restoreCommentItems(commentItems)
+          break
+        }
+      }
       input.setMode(mode)
       input.setPopover(null)
       requestAnimationFrame(() => {
         const editor = input.editor()
         if (!editor) return
         editor.focus()
-        setCursorPosition(editor, input.promptLength(currentPrompt))
+        const cursorPrompt = owned.kind === "route" ? currentPrompt : prompt.current()
+        setCursorPosition(editor, input.promptLength(cursorPrompt))
         input.queueScroll()
       })
     }
 
+    // commentItems is referenced by restoreInput (route case) and by the prompt
+    // path below. Compute it before the queue branch so both can use it.
+    // Note: it is only meaningful for the prompt-submit path (where comment
+    // context items exist); the queue branch ignores it.
+    const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())
+
     if (!creatingNewSession && mode === "normal" && input.shouldQueue?.()) {
+      // Queue path is unreachable for portable/pinned homepage submits because
+      // shouldQueue only fires when !creatingNewSession — homepage submits always
+      // create a new session. SubmitOwnership.kind is always "route" here.
       input.onQueue?.(draft)
       clearContext()
-      clearInput()
+      clearInput(ownership)
       return
     }
 
@@ -509,7 +621,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     input.onSubmit?.()
 
     if (mode === "shell") {
-      clearInput()
+      clearInput(ownership)
       client.session
         .shell({
           sessionID: session.id,
@@ -522,7 +634,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             title: language.t("prompt.toast.shellSendFailed.title"),
             description: errorMessage(err),
           })
-          restoreInput()
+          restoreInput(ownership)
         })
       return
     }
@@ -532,7 +644,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       const commandName = cmdName.slice(1)
       const customCommand = sync.data.command.find((c) => c.name === commandName)
       if (customCommand) {
-        clearInput()
+        clearInput(ownership)
         client.session
           .command({
             sessionID: session.id,
@@ -555,13 +667,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
               title: language.t("prompt.toast.commandSendFailed.title"),
               description: formatServerError(err, language.t, language.t("common.requestFailed")),
             })
-            restoreInput()
+            restoreInput(ownership)
           })
         return
       }
     }
 
-    const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())
     const messageID = Identifier.ascending("message")
     const submittedPromptLength = input.promptLength(currentPrompt)
     const submittedImageCount = images.length
@@ -576,7 +687,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     removeCommentItems(commentItems)
-    clearInput()
+    clearInput(ownership)
     void emitRendererDiagnostic({
       name: "session.action.submit",
       trace_id: messageID,
@@ -608,8 +719,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           sync.set("session_status", session.id, { type: "idle" })
         }
         removeOptimisticMessage()
-        restoreCommentItems(commentItems)
-        restoreInput()
+        // restoreInput handles route-case comment items internally; owner-backed
+        // cases re-push context from the snapshot via replaceAll.
+        restoreInput(ownership)
       }
 
       pending.set(session.id, { abort: controller, cleanup })
@@ -667,8 +779,9 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         description: errorMessage(err),
       })
       removeOptimisticMessage()
-      restoreCommentItems(commentItems)
-      restoreInput()
+      // restoreInput handles route-case comment items internally; owner-backed
+      // cases re-push context from the snapshot via replaceAll.
+      restoreInput(ownership)
     })
   }
 
