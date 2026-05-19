@@ -756,11 +756,26 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             // "preparing..." placeholder transitions to active input controls.
             // The dock / inline marker key on `metadata.externalResultReady`.
             yield* input.processor.updateToolCall(callID, (match) => {
-              if (match.state.status !== "running") return match
+              if (!["running", "pending"].includes(match.state.status)) return match
               const existing =
                 "metadata" in match.state && match.state.metadata && typeof match.state.metadata === "object"
                   ? match.state.metadata
                   : {}
+              // Mirror ctx.metadata: pending parts are upgraded to running
+              // (status / input / time.start). Today's stream order flips the
+              // part to running before execute() is invoked, but keeping the
+              // two helpers symmetric guards against future re-orderings.
+              if (match.state.status === "pending") {
+                return {
+                  ...match,
+                  state: {
+                    status: "running",
+                    input: args,
+                    time: { start: Date.now() },
+                    metadata: { ...existing, externalResultReady: true },
+                  },
+                }
+              }
               return {
                 ...match,
                 state: {
