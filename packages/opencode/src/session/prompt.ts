@@ -452,15 +452,27 @@ export const layer = Layer.effect(
       const subtasks = firstUser.parts.filter((p): p is MessageV2.SubtaskPart => p.type === "subtask")
       const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
 
+      const commandTitleSeed = (() => {
+        const firstText = firstUser.parts.find((p): p is MessageV2.TextPart => p.type === "text")
+        const meta = (firstText as { metadata?: { commandInvocation?: { name?: unknown; args?: unknown } } } | undefined)
+          ?.metadata
+        const name = meta?.commandInvocation?.name
+        if (typeof name !== "string" || name.length === 0) return null
+        const args = typeof meta?.commandInvocation?.args === "string" ? meta.commandInvocation.args : ""
+        return "Command: /" + name + (args.length > 0 ? " " + args : "")
+      })()
+
       const ag = yield* agents.get("title")
       if (!ag) return
       const mdl = ag.model
         ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
         : ((yield* provider.getSmallModel(input.providerID)) ??
           (yield* provider.getModel(input.providerID, input.modelID)))
-      const msgs = onlySubtasks
-        ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
-        : yield* MessageV2.toModelMessagesEffect(context, mdl)
+      const msgs = commandTitleSeed
+        ? [{ role: "user" as const, content: commandTitleSeed }]
+        : onlySubtasks
+          ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
+          : yield* MessageV2.toModelMessagesEffect(context, mdl)
       titleGenerationProgress.set(input.session.id, { startedAt })
       const titleExit = yield* llm
         .stream({
@@ -2202,6 +2214,36 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       const templateParts = yield* resolvePromptParts(template)
       const isSubtask = (agent.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
+
+      const stampedTemplate = (() => {
+        const trimmedArgs = (input.arguments ?? "").trim()
+        const displayArgs = trimmedArgs.length > 80 ? trimmedArgs.slice(0, 79) + "…" : trimmedArgs
+        const invocation: Record<string, unknown> = {
+          name: cmd.name,
+          source: cmd.source ?? "command",
+          icon: "command",
+        }
+        if (trimmedArgs.length > 0) invocation.args = trimmedArgs
+        if (displayArgs.length > 0) invocation.displayArgs = displayArgs
+        let stampedFirstText = false
+        return templateParts.map((part) => {
+          if (part.type === "text") {
+            const prevMeta = (part as { metadata?: Record<string, unknown> }).metadata ?? {}
+            const nextMeta: Record<string, unknown> = { ...prevMeta, commandTemplate: true }
+            if (!stampedFirstText) {
+              nextMeta.commandInvocation = invocation
+              stampedFirstText = true
+            }
+            return { ...part, metadata: nextMeta }
+          }
+          if (part.type === "file") {
+            const prevMeta = (part as { metadata?: Record<string, unknown> }).metadata ?? {}
+            return { ...part, metadata: { ...prevMeta, commandTemplate: true } }
+          }
+          return part
+        })
+      })()
+
       const parts = isSubtask
         ? [
             {
@@ -2215,7 +2257,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               recent_events: [],
             },
           ]
-        : [...templateParts, ...(input.parts ?? [])]
+        : [...stampedTemplate, ...(input.parts ?? [])]
 
       const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultAgent())) : agentName
       const userModel = isSubtask
