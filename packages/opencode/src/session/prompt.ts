@@ -40,6 +40,7 @@ import { SessionProcessor } from "./processor"
 import { SessionDiagnostics } from "./diagnostics"
 import { LoopRenderer } from "./loop-renderer"
 import * as Tool from "@/tool/tool"
+import { ExternalResult } from "@/tool/external-result"
 import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
@@ -732,6 +733,62 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
             })
             .pipe(Effect.orDie),
+        externalResult: ({ inputSnapshot }) =>
+          Effect.gen(function* () {
+            const sessionID = input.session.id
+            const messageID = input.processor.message.id
+            const callID = options.toolCallId
+            const deferred = yield* ExternalResult.register({
+              sessionID,
+              messageID,
+              callID,
+              inputSnapshot,
+            })
+            // Flip the running tool part's metadata flag so the renderer's
+            // "preparing..." placeholder transitions to active input controls.
+            // The dock / inline marker key on `metadata.externalResultReady`.
+            yield* input.processor.updateToolCall(callID, (match) => {
+              if (match.state.status !== "running") return match
+              const existing =
+                "metadata" in match.state && match.state.metadata && typeof match.state.metadata === "object"
+                  ? match.state.metadata
+                  : {}
+              return {
+                ...match,
+                state: {
+                  ...match.state,
+                  metadata: { ...existing, externalResultReady: true },
+                },
+              }
+            })
+            // Wire the AbortSignal: a turn abort flips the pending Deferred
+            // to ExternalResultError({reason: "aborted"}). Session destroy is
+            // handled separately by ExternalResult.onSessionDestroyed.
+            const abortHandler = () => {
+              run.promise(
+                ExternalResult.failIfPending({
+                  sessionID,
+                  messageID,
+                  callID,
+                  error: new ExternalResult.Error({ reason: "aborted" }),
+                }),
+              ).catch(() => {})
+            }
+            const signal = options.abortSignal
+            if (signal) {
+              if (signal.aborted) {
+                abortHandler()
+              } else {
+                signal.addEventListener("abort", abortHandler, { once: true })
+              }
+            }
+            try {
+              const result = yield* Deferred.await(deferred)
+              return result as Tool.ExternalResultOutcome
+            } finally {
+              if (signal) signal.removeEventListener("abort", abortHandler)
+            }
+          }),
       })
 
       for (const item of yield* registry.tools({

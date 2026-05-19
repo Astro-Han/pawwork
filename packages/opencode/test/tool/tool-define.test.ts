@@ -114,6 +114,9 @@ describe("Tool.define", () => {
     ask() {
       return Effect.void
     },
+    externalResult() {
+      return Effect.die(new Error("externalResult is not wired in tool-define tests"))
+    },
   })
 
   test("wrapper lets ExternalResultError propagate as typed failure (not a defect)", async () => {

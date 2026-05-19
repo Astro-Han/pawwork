@@ -23,7 +23,30 @@ export type Context<M extends Metadata = Metadata> = {
   messages: MessageV2.WithParts[]
   metadata(input: { title?: string; metadata?: M }): Effect.Effect<void>
   ask(input: Omit<Permission.Request, "id" | "sessionID" | "tool">): Effect.Effect<void>
+  // Registers an external-result Deferred for this tool call and suspends
+  // the tool's execute until either:
+  //   - POST /session/:sessionID/tool/respond resolves with the user's
+  //     payload (returns `{kind: "submitted", value}`)
+  //   - the same route resolves with a dismiss (returns `{kind: "dismissed"}`)
+  //   - ctx.abort fires (typed failure `ExternalResultError({reason: "aborted"})`)
+  //   - the session is destroyed via onSessionDestroyed (typed failure
+  //     `ExternalResultError({reason: "shutdown"})`)
+  // The `inputSnapshot` is captured at registration so the route can run
+  // shape-specific validation against the same input the LLM emitted, even
+  // if the tool's input field is mutated later. Validation itself runs at
+  // the route, not here — this primitive only ferries values.
+  // Returns `unknown` because the resolved value's shape is tool-specific;
+  // the calling tool narrows by convention (e.g. the question tool knows
+  // the discriminated-union shape its server route produces).
+  externalResult?(input: { inputSnapshot: unknown }): Effect.Effect<ExternalResultOutcome, ExternalResultError>
 }
+
+// Re-exported types so consumers can refer to the surface shape without
+// importing the underlying module. The runtime values live in
+// `./external-result.ts`.
+import type { ExternalResult as ExternalResultModule } from "./external-result"
+export type ExternalResultError = ExternalResultModule.Error
+export type ExternalResultOutcome = { kind: "submitted"; value: unknown } | { kind: "dismissed" }
 
 export interface ExecuteResult<M extends Metadata = Metadata> {
   title: string
