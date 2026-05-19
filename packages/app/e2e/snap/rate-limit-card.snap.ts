@@ -14,29 +14,17 @@ test("rate-limit-card", async ({ page, project, assistant }) => {
     localStorage.setItem(key, JSON.stringify({ locale: "zh" }))
   }, LANGUAGE_KEY)
 
-  // Seed a successful turn so provider registry + local-ready signals settle
-  // before the rate-limit turn (otherwise the UI stays on "loading prompt").
-  await assistant.reply("seed ok")
-  await project.open()
-  await project.prompt("Seed prompt to warm provider registry.")
-  await expect(page.locator('[data-slot="user-message-text"]').first()).toBeVisible({ timeout: 30_000 })
-
   await assistant.error(429, { error: { type: "FreeUsageLimitError" } })
-  const sessionID = await page.evaluate(() => {
-    const match = /\/session\/([^/?#]+)/.exec(window.location.pathname)
-    return match?.[1] ?? ""
-  })
-  if (!sessionID) throw new Error("could not derive sessionID from page url")
-
-  await project.sdk.session.prompt({
-    sessionID,
-    parts: [{ type: "text", text: "Trigger rate limit for snap." }],
-  })
+  await project.open()
+  await project.prompt("First turn that should hit rate limit.")
 
   const card = page.locator('[data-slot="rate-limit-card"]').first()
   await card.waitFor({ state: "visible", timeout: 30_000 })
 
-  const shots: Shot[] = [{ name: "zh", buf: await card.screenshot() }]
+  const shots: Shot[] = [
+    { name: "zh-card", buf: await card.screenshot() },
+    { name: "zh-page", buf: await page.screenshot({ fullPage: false }) },
+  ]
   const out = snapOutputPath("rate-limit-card")
   await composeGrid(shots, out)
   process.stdout.write(`\n[snap] rate-limit-card grid -> ${out}\n\n`)
