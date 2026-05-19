@@ -1408,6 +1408,7 @@ describe("session.message-v2.fromError", () => {
           message: item.message,
           isRetryable: false,
           responseBody: JSON.stringify(input),
+          providerID,
         },
       })
     })
@@ -1433,6 +1434,7 @@ describe("session.message-v2.fromError", () => {
         message: body.error.message,
         isRetryable: true,
         responseBody: JSON.stringify(body),
+        providerID,
       },
     })
   })

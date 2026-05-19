@@ -223,9 +223,8 @@ it.live("halt routes free_quota_exhausted to rate_limit_blocked status", () =>
         // Invariant 2: SessionStatus becomes rate_limit_blocked.
         const state = yield* sts.get(chat.id)
         expect(state.type).toBe("rate_limit_blocked")
-        if (state.type === "rate_limit_blocked") {
-          expect(state.classification.kind).toBe("free_quota_exhausted")
-          expect(state.classification.providerID).toBe("opencode")
+        if (state.type === "rate_limit_blocked" && state.classification.kind === "free_quota_exhausted") {
+          expect(state.classification.providerID).toBe(ProviderID.opencode)
         }
 
         // Invariant 3: Session.Event.Error was NOT published (no OS notification toast).

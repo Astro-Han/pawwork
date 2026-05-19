@@ -111,6 +111,7 @@ describe("session.retry.delay", () => {
                       ),
                     ),
                   ),
+                signalTerminal: () => {},
               }),
             )
             yield* step(error)
@@ -144,6 +145,7 @@ describe("session.retry.delay", () => {
           SessionRetry.policy({
             parse: (err) => err as MessageV2.APIError,
             set: (info) => Effect.sync(() => attempts.push(info.attempt)),
+            signalTerminal: () => {},
           }),
         ),
       ),
