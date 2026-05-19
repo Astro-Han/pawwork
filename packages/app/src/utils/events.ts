@@ -6,6 +6,5 @@
  * sub-issue landing first.
  */
 export function trackEvent(name: string, payload?: Record<string, unknown>): void {
-  // eslint-disable-next-line no-console
   console.info("[pawwork:event]", name, payload ?? {})
 }
