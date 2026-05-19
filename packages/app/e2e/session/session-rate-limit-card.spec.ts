@@ -25,42 +25,12 @@ test("rate_limit_blocked renders RateLimitCard, keeps composer unlocked, BYO ope
     }
   })
 
-  // Seed a successful turn first so the session, provider registry, and the
-  // app's local-session-ready signal all reach a known-good state. Without it,
-  // submitting a brand-new session whose only LLM response is a 429 leaves the
-  // UI stuck on "loading prompt" (provider/local-ready never settle).
-  await assistant.reply("seed ok")
-  await project.open()
-  await project.prompt("Seed prompt to warm provider registry.")
-
-  // Sanity: seed turn must render before we trigger the second turn.
-  const seedUserText = page.locator('[data-slot="user-message-text"]')
-  await expect(seedUserText.first()).toBeVisible({ timeout: 30_000 })
-
-  // Queue the 429 and trigger a second turn via SDK so we don't depend on the
-  // UI submit polling the rate-limit response.
+  // Brand-new session: only LLM response is a 429 FreeUsageLimitError.
+  // Verifies the §5.5 invariant that rate_limit_blocked unlocks composer and
+  // renders RateLimitCard even on first-turn (no prior successful turn).
   await assistant.error(429, { error: { type: "FreeUsageLimitError" } })
-  const sessionID = await page.evaluate(() => {
-    const match = /\/session\/([^/?#]+)/.exec(window.location.pathname)
-    return match?.[1] ?? ""
-  })
-  if (!sessionID) throw new Error("could not derive sessionID from page url")
-
-  await project.sdk.session.prompt({
-    sessionID,
-    parts: [{ type: "text", text: "Trigger rate limit on second turn." }],
-  })
-
-  await expect
-    .poll(
-      async () =>
-        project.sdk.session
-          .status()
-          .then((res) => res.data?.[sessionID]?.type ?? "")
-          .catch(() => ""),
-      { timeout: 30_000 },
-    )
-    .toBe("rate_limit_blocked")
+  await project.open()
+  await project.prompt("First turn that should hit rate limit.")
 
   const card = page.locator('[data-slot="rate-limit-card"]')
   await expect(card).toBeVisible({ timeout: 30_000 })
