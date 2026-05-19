@@ -143,4 +143,111 @@ describe("extractPromptFromParts", () => {
       .join("")
     expect(text).toContain("@bot")
   })
+
+  test("command mode: restores `/<cmd> <args>` and preserves user attachments", () => {
+    // A command invocation produces a TextPart carrying commandInvocation
+    // metadata (its body is the expanded template) plus any template-side files
+    // tagged commandTemplate=true. The user can also attach a markerless image
+    // alongside. Restore must drop the expanded body, drop the template file,
+    // and keep the user's image so undo replays the same input.
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Brainstorming methodology\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "brainstorming", args: "fold the bubble", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_template",
+        type: "file",
+        mime: "text/plain",
+        url: "data:text/plain;base64,VEVNUExBVEU=",
+        filename: "template.md",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: { commandTemplate: true },
+      },
+      {
+        id: "file_user",
+        type: "file",
+        mime: "image/png",
+        url: "data:image/png;base64,VVNFUg==",
+        filename: "screenshot.png",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(2)
+    expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming fold the bubble" })
+    expect(result[1]).toMatchObject({
+      type: "image",
+      filename: "screenshot.png",
+      mime: "image/png",
+      dataUrl: "data:image/png;base64,VVNFUg==",
+    })
+  })
+
+  test("command mode without args: restores `/<cmd> ` with trailing space and no body", () => {
+    // restoreText keeps a trailing space when args are empty so the editor
+    // caret lands ready for typing without re-triggering completion.
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# Brainstorming methodology\n\n...body...",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "brainstorming", source: "command" },
+          commandTemplate: true,
+        },
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming " })
+  })
+
+  test("command mode: suppresses commandTemplate-tagged file even when alone", () => {
+    // Without a markerless companion the restore output is text-only — the
+    // template file must not leak through as an attachment.
+    const parts = [
+      {
+        id: "text_1",
+        type: "text",
+        text: "# template body",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: {
+          commandInvocation: { name: "explain", args: "this", source: "command" },
+          commandTemplate: true,
+        },
+      },
+      {
+        id: "file_template",
+        type: "file",
+        mime: "text/plain",
+        url: "data:text/plain;base64,VEVNUExBVEU=",
+        filename: "template.md",
+        sessionID: "ses_1",
+        messageID: "msg_1",
+        metadata: { commandTemplate: true },
+      },
+    ] satisfies Part[]
+
+    const result = extractPromptFromParts(parts)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ type: "text", content: "/explain this" })
+  })
 })
