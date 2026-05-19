@@ -1,0 +1,64 @@
+.rate-limit-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  border-left: 2px solid var(--warning);
+  background: transparent;
+  border-radius: 0;
+}
+
+.rate-limit-card__icon {
+  display: inline-flex;
+  align-items: flex-start;
+  color: var(--warning);
+  padding-top: 1px;
+}
+
+.rate-limit-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rate-limit-card__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-strong);
+  line-height: 1.4;
+}
+
+.rate-limit-card__description {
+  margin: 0;
+  font: var(--type-body);
+  color: var(--fg-base);
+}
+
+.rate-limit-card__actions {
+  display: flex;
+  gap: 20px;
+  margin-top: 4px;
+}
+
+.rate-limit-card__action {
+  font: var(--type-body);
+  color: var(--fg-muted);
+  text-decoration: none;
+}
+
+.rate-limit-card__action:hover {
+  text-decoration: underline;
+}
+
+.rate-limit-card__action--primary {
+  color: var(--warning);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rate-limit-card__external {
+  font-size: 11px;
+  opacity: 0.8;
+}
