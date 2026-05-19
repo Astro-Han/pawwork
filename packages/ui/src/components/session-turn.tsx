@@ -7,6 +7,7 @@ import {
 } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
+import { isWorkInFlightStatus } from "../util/session-status"
 
 import { Binary } from "@opencode-ai/core/util/binary"
 import { createEffect, createMemo, createSignal, ParentProps, Show } from "solid-js"
@@ -311,7 +312,7 @@ export function SessionTurn(
     if (typeof props.active === "boolean" && !props.active) return idle
     return data.store.session_status[props.sessionID] ?? idle
   })
-  const working = createMemo(() => status().type !== "idle" && active())
+  const working = createMemo(() => isWorkInFlightStatus(status()) && active())
   const visibleTurnChange = createMemo(() => {
     const current = turnChange()
     if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return
