@@ -156,12 +156,43 @@ test("session composer is docked outside the scroll-clipped timeline region", ()
   const messageTimeline = read("./pages/session/message-timeline.tsx")
 
   expect(session).toContain("const renderComposerRegion = (")
-  expect(session).toContain('variant: "session" | "home"')
+  expect(session).toContain("const renderHomeComposerRegion = (")
+  expect(session).toContain('variant="session"')
+  expect(session).not.toContain('| "home"')
   expect(sessionMainView).toContain('<div class="flex-1 min-h-0 overflow-hidden">')
   expect(sessionMainView).toContain(
     "</div>\n          <Show when={props.activeSessionID && !showSessionOpeningState()}>",
   )
   expect(messageTimeline).toContain('"padding-bottom": "calc(var(--composer-dock-height, 0px) + 32px)"')
+})
+
+test("home composer region does not import session-only docks or composer state", () => {
+  const src = stripComments(read("./pages/session/composer/home-composer-region.tsx"))
+  const importDeclMatches = [
+    ...src.matchAll(/^\s*import[\s\S]+?from\s+["'][^"']+["']\s*;?/gm),
+    ...src.matchAll(/^\s*import\s+["'][^"']+["']\s*;?/gm),
+  ]
+  const importsOnly = importDeclMatches.map((m) => m[0]).join("\n")
+
+  const bannedSymbols = [
+    "SessionTodoDock",
+    "SessionQuestionDock",
+    "SessionPermissionContent",
+    "SessionRevertDock",
+    "SessionFollowupDock",
+    "SessionComposerState",
+  ]
+  const bannedPaths = [
+    "session-todo-dock",
+    "session-question-dock",
+    "session-permission-dock",
+    "session-revert-dock",
+    "session-followup-dock",
+    "session-composer-state",
+  ]
+  for (const token of [...bannedSymbols, ...bannedPaths]) {
+    expect(importsOnly, `home-composer-region must not import ${token}`).not.toContain(token)
+  }
 })
 
 test("session header uses a view title on home and breadcrumb title in sessions", () => {

@@ -8,7 +8,14 @@ import {
   type ComposerStateProbeState,
   type ComposerWindow,
 } from "../../src/testing/session-composer"
-import { cleanupSession, clearSessionDockSeed, closeSettingsPanel, openSettings, seedSessionQuestion } from "../actions"
+import {
+  cleanupSession,
+  clearSessionDockSeed,
+  closeSettingsPanel,
+  openSettings,
+  openSidebar,
+  seedSessionQuestion,
+} from "../actions"
 import {
   permissionDockSelector,
   promptSelector,
@@ -1676,6 +1683,69 @@ test("todo dock stays hidden after same-count terminal session switch", async ({
         },
         { trackSession: project.trackSession },
       )
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
+test("todo dock does not flash on home after navigating from a session", async ({ page, project }) => {
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock no home flash",
+    async (session) => {
+      const dock = await todoDock(page, session.id)
+      await project.gotoSession(session.id)
+      await expect(page.locator(sessionComposerDockSelector)).toBeVisible()
+
+      try {
+        await dock.open([
+          { content: "first task", status: "pending", priority: "high" },
+          { content: "second task", status: "in_progress", priority: "medium" },
+        ])
+        await dock.expectCollapsed(["pending", "in_progress"])
+        await expect(page.locator('[data-component="session-todo-dock"]')).toBeVisible()
+
+        await page.evaluate(() => {
+          const SELECTOR = '[data-component="session-todo-dock"]'
+          const records: string[] = []
+          const observer = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+              for (const node of Array.from(m.addedNodes)) {
+                if (node.nodeType !== Node.ELEMENT_NODE) continue
+                const el = node as Element
+                if (el.matches(SELECTOR) || el.querySelector(SELECTOR)) {
+                  records.push(el.outerHTML.slice(0, 200))
+                }
+              }
+            }
+          })
+          observer.observe(document.body, { childList: true, subtree: true })
+          ;(window as unknown as {
+            __todoDockObserver: { observer: MutationObserver; records: string[] }
+          }).__todoDockObserver = { observer, records }
+        })
+
+        await openSidebar(page)
+        await page.locator('[data-action="pawwork-session-new"]').click()
+        await expect(page.locator('[data-component="session-new-home"]')).toBeVisible()
+
+        const flashes = await page.evaluate(() => {
+          const w = window as unknown as {
+            __todoDockObserver?: { observer: MutationObserver; records: string[] }
+          }
+          const o = w.__todoDockObserver
+          if (!o) return null
+          o.observer.disconnect()
+          delete w.__todoDockObserver
+          return o.records
+        })
+
+        expect(flashes, "session-todo-dock must not appear on home during the transition").toEqual([])
+        await expect(page.locator('[data-component="session-todo-dock"]')).toHaveCount(0)
+      } finally {
+        await dock.clear()
+      }
     },
     { trackSession: project.trackSession },
   )

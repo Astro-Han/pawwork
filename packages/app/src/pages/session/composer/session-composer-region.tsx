@@ -18,7 +18,7 @@ import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 
 export function SessionComposerRegion(props: {
-  variant?: "session" | "home"
+  variant?: "session"
   state: SessionComposerState
   ready: boolean
   actionReady?: boolean
@@ -56,10 +56,8 @@ export function SessionComposerRegion(props: {
   const language = useLanguage()
   const route = useSessionRouteKey()
   const sync = useSync()
-  const displaySessionID = createMemo(() => (props.variant === "session" ? props.displaySessionID : route.params.id))
-  const displaySessionKey = createMemo(() =>
-    props.variant === "session" ? props.displaySessionKey : route.layoutRouteKey(),
-  )
+  const displaySessionID = () => props.displaySessionID
+  const displaySessionKey = () => props.displaySessionKey
 
   const handoffPrompt = createMemo(() => {
     const key = displaySessionKey()
@@ -68,7 +66,6 @@ export function SessionComposerRegion(props: {
   const info = createMemo(() => (displaySessionID() ? sync.session.get(displaySessionID()!) : undefined))
   const parentID = createMemo(() => info()?.parentID)
   const child = createMemo(() => !!parentID())
-  const home = createMemo(() => props.variant === "home")
   const showComposer = createMemo(() => !!props.state.permissionRequest() || !props.state.blocked() || child())
 
   const previewPrompt = () =>
@@ -120,22 +117,15 @@ export function SessionComposerRegion(props: {
     <div
       ref={props.setPromptDockRef}
       data-component="session-prompt-dock"
-      data-variant={home() ? "home" : "session"}
+      data-variant="session"
       data-dock-kind={dockKind()}
-      classList={{
-        "w-full flex flex-col justify-center items-center pointer-events-none": true,
-        "absolute inset-x-0 bottom-0 pb-6": !home(),
-        "py-0 bg-transparent": home(),
-        "text-left": home(),
-      }}
+      class="w-full flex flex-col justify-center items-center pointer-events-none absolute inset-x-0 bottom-0 pb-6"
     >
       <div
         data-component="session-composer-column"
         classList={{
-          "w-full pointer-events-auto": true,
-          "px-4 md:px-3": !home(),
-          "px-3": home(),
-          "md:max-w-[720px] md:mx-auto 2xl:max-w-[920px]": props.centered || home(),
+          "w-full pointer-events-auto px-4 md:px-3": true,
+          "md:max-w-[720px] md:mx-auto 2xl:max-w-[920px]": props.centered,
         }}
       >
         <Show when={props.state.questionRequest()} keyed>
@@ -226,9 +216,8 @@ export function SessionComposerRegion(props: {
                         <Show when={!props.state.blocked()}>
                           <PromptInput
                             ref={props.inputRef}
-                            homeMode={home()}
                             sessionID={displaySessionID()}
-                            sessionIDControlled={!home()}
+                            sessionIDControlled={true}
                             newSessionWorktree={props.newSessionWorktree}
                             onNewSessionWorktreeReset={props.onNewSessionWorktreeReset}
                             edit={props.followup?.edit}
