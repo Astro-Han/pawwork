@@ -78,10 +78,15 @@ export function deriveCommandInvocation(parts: readonly Part[]): CommandInvocati
   const args = normaliseArgs(raw.args)
   const displayArgs = normaliseDisplayArgs(raw.displayArgs, args)
 
-  const displayLabel = "/" + name
-  const copyText = args.length > 0 ? displayLabel + " " + args : displayLabel
-  const restoreText = args.length > 0 ? displayLabel + " " + args : displayLabel + " "
-  const forkPreviewText = displayArgs.length > 0 ? displayLabel + " " + displayArgs : displayLabel
+  // displayLabel is the in-bubble rendered text. The icon visually replaces the slash,
+  // so the bubble shows `<icon> <name>` (no leading `/`). Copy / restore / fork-preview
+  // keep the `/` because those are plain-text contexts where the slash carries semantic
+  // meaning (re-trigger the command, identify it in a text-only list).
+  const displayLabel = name
+  const slashLiteral = "/" + name
+  const copyText = args.length > 0 ? slashLiteral + " " + args : slashLiteral
+  const restoreText = args.length > 0 ? slashLiteral + " " + args : slashLiteral + " "
+  const forkPreviewText = displayArgs.length > 0 ? slashLiteral + " " + displayArgs : slashLiteral
 
   const suppressTextPartIds: string[] = [host.id]
   const suppressFilePartIds: string[] = []

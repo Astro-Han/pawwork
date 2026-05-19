@@ -50,7 +50,7 @@ describe("deriveCommandInvocation", () => {
     expect(inv!.source).toBe("skill")
     expect(inv!.markIcon).toBe("command")
     expect(inv!.args).toBe("fold cards")
-    expect(inv!.displayLabel).toBe("/brainstorming")
+    expect(inv!.displayLabel).toBe("brainstorming")
     expect(inv!.copyText).toBe("/brainstorming fold cards")
     expect(inv!.restoreText).toBe("/brainstorming fold cards")
     expect(inv!.forkPreviewText).toBe("/brainstorming fold cards")
@@ -96,8 +96,9 @@ describe("deriveCommandInvocation", () => {
     const longArg = "a".repeat(150)
     const inv = deriveCommandInvocation([textPart({ metadata: { commandInvocation: { name: "x", args: longArg } } })])
     expect(inv!.args).toBe(longArg)
-    expect(inv!.copyText.length).toBe(2 + longArg.length + 1)
-    expect(inv!.forkPreviewText.length).toBeLessThanOrEqual(2 + 80 + 1)
+    // copyText = "/x " + longArg → 2 + 1 + 150 = 153
+    expect(inv!.copyText.length).toBe(2 + 1 + longArg.length)
+    expect(inv!.forkPreviewText.length).toBeLessThanOrEqual(2 + 1 + 80)
   })
 
   test("trims whitespace in args", () => {
