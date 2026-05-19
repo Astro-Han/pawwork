@@ -1,7 +1,7 @@
 import { test } from "../fixtures"
 import { composeGrid, snapOutputPath, type Shot } from "./_compose"
 
-test.use({ viewport: { width: 1440, height: 900 } })
+test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
 
 const TEMPLATE_BODY = [
   "# Brainstorming methodology",

@@ -206,10 +206,11 @@
     align-items: baseline;
     gap: 4px;
     white-space: nowrap;
+    color: var(--brand-primary);
   }
 
   .user-message-command-label {
-    color: var(--brand-primary);
+    color: inherit;
     font-weight: var(--font-weight-body);
   }
 
