@@ -4755,10 +4755,14 @@ describe("ProviderTransform.streamTimeouts", () => {
   }
   const nonReasoningModel = baseModel
 
-  test("policy floor: reasoning model connect timeout strictly exceeds default", () => {
+  // Floor of 90_000ms guards against a regression like 31s that would still
+  // exceed the 30s default but defeat the purpose of the widened ceiling.
+  // 90s is the lowest value considered for reasoning models in #755.
+  test("policy floor: reasoning model connect timeout meets minimum ceiling", () => {
     const result = ProviderTransform.streamTimeouts(reasoningModel)
     expect(result.connectTimeoutMs).toBeDefined()
     expect(result.connectTimeoutMs!).toBeGreaterThan(LLM.CONNECT_STREAM_TIMEOUT_MS)
+    expect(result.connectTimeoutMs!).toBeGreaterThanOrEqual(90_000)
   })
 
   test("routing contract: reasoning model emits override, non-reasoning model emits empty", () => {
