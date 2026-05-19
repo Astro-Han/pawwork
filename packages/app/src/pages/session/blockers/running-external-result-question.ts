@@ -49,11 +49,15 @@ export function findRunningExternalResultQuestion(input: {
       const metadata = part.state.metadata
       if (!metadata || metadata.externalResultReady !== true) continue
       const partInput = part.state.input as { questions?: QuestionInfo[] } | undefined
-      const questions: QuestionInfo[] = Array.isArray(partInput?.questions) ? partInput!.questions : []
+      // Skip malformed snapshots: an empty questions array would render an
+      // empty dock that can only submit `payload.answers: []`, which the
+      // server decoder rejects as count mismatch. Ignore until the snapshot
+      // arrives intact.
+      if (!Array.isArray(partInput?.questions) || partInput!.questions.length === 0) continue
       return {
         id: `${part.messageID}:${part.callID}`,
         sessionID,
-        questions,
+        questions: partInput!.questions,
         messageID: part.messageID,
         callID: part.callID,
       }

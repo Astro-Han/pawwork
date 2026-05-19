@@ -310,7 +310,10 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
       focus(pickFocus(pending))
       return
     }
-    void reply(questions().map((_, i) => store.answers[i] ?? []))
+    // mutateAsync rethrows after onError(fail) handles the toast; swallow
+    // the rejection here so the void-call site doesn't leak an unhandled
+    // promise rejection on 404/409/422/network failures.
+    reply(questions().map((_, i) => store.answers[i] ?? [])).catch(() => {})
   }
 
   const picked = (answer: string) => store.answers[store.tab]?.includes(answer) ?? false
@@ -380,7 +383,7 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
 
     if (event.key === "Escape") {
       event.preventDefault()
-      void reject()
+      reject().catch(() => {})
       return
     }
 
