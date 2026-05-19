@@ -6,6 +6,8 @@ import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from 
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
 import { toAbsoluteFilePath } from "./path-canonical"
+import type { ResolvedMention } from "./mention-metadata"
+import { resolveCommentMentions } from "./mention-metadata"
 
 type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 
@@ -18,6 +20,7 @@ type ContextFile = {
   commentID?: string
   commentOrigin?: "review" | "file"
   preview?: string
+  resolvedMentions?: ResolvedMention[]
 }
 
 type BuildRequestPartsInput = {
@@ -37,16 +40,6 @@ const fileURL = (path: string, selection?: FileSelection) => {
   const encoded = encodeFilePath(path)
   const body = path.startsWith("\\\\") || path.startsWith("//") ? encoded.replace(/^\/+/, "") : encoded
   return `file://${body}${fileQuery(selection)}`
-}
-
-const mention = /(^|[\s([{"'])@(\S+)/g
-
-const parseCommentMentions = (comment: string) => {
-  return Array.from(comment.matchAll(mention)).flatMap((match) => {
-    const path = (match[2] ?? "").replace(/[.,!?;:)}\]"']+$/, "")
-    if (!path) return []
-    return [path]
-  })
 }
 
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
@@ -148,8 +141,13 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
 
     if (!comment) return [filePart]
 
-    const mentions = parseCommentMentions(comment).flatMap((path) => {
-      const url = fileURL(toAbsoluteFilePath(input.sessionDirectory, path))
+    // resolveCommentMentions returns [] when resolvedMentions is undefined —
+    // free-text @mentions without metadata are intentionally dropped.
+    const mentions = resolveCommentMentions({
+      comment,
+      metadata: item.resolvedMentions,
+    }).flatMap((match) => {
+      const url = fileURL(match.resolvedPath)
       if (used.has(url)) return []
       used.add(url)
       return [
@@ -158,7 +156,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
           type: "file",
           mime: "text/plain",
           url,
-          filename: getFilename(path),
+          filename: getFilename(match.resolvedPath),
         } satisfies PromptRequestPart,
       ]
     })

@@ -1,5 +1,6 @@
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { checksum } from "@opencode-ai/util/encode"
+import type { ResolvedMention } from "@/components/prompt-input/mention-metadata"
 import { useParams } from "@solidjs/router"
 import { batch, createMemo, createRoot, getOwner, onCleanup } from "solid-js"
 import { createStore, type SetStoreFunction } from "solid-js/store"
@@ -46,6 +47,8 @@ export type FileContextItem = {
   commentID?: string
   commentOrigin?: "review" | "file"
   preview?: string
+  /** Resolved mention metadata captured at the moment the comment text was committed */
+  resolvedMentions?: ResolvedMention[]
 }
 
 export type ContextItem = FileContextItem

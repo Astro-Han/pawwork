@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Prompt } from "@/context/prompt"
 import { buildRequestParts } from "./build-request-parts"
+import { captureCommentMentions } from "./mention-metadata"
 
 describe("buildRequestParts", () => {
   test("builds typed request and optimistic parts without cast path", () => {
@@ -101,6 +102,9 @@ describe("buildRequestParts", () => {
   })
 
   test("adds file parts for @mentions inside comment text", () => {
+    const comment = "Compare with @src/shared.ts and @src/review.ts."
+    const resolvedMentions = captureCommentMentions({ comment, sourceFilesystemDirectory: "/repo" })
+
     const result = buildRequestParts({
       prompt: [{ type: "text", content: "look", start: 0, end: 4 }],
       context: [
@@ -108,7 +112,8 @@ describe("buildRequestParts", () => {
           key: "ctx:comment-mention",
           type: "file",
           path: "src/review.ts",
-          comment: "Compare with @src/shared.ts and @src/review.ts.",
+          comment,
+          resolvedMentions,
         },
       ],
       images: [],
@@ -122,6 +127,59 @@ describe("buildRequestParts", () => {
     expect(files).toHaveLength(2)
     expect(files.some((part) => part.type === "file" && part.url === "file:///repo/src/review.ts")).toBe(true)
     expect(files.some((part) => part.type === "file" && part.url === "file:///repo/src/shared.ts")).toBe(true)
+  })
+
+  test("attaches mention with resolved metadata pointing outside sessionDirectory", () => {
+    const comment = "compare with @src/shared.ts"
+    // Metadata was captured against repo-A, but submit happens in repo-B context
+    const resolvedMentions = captureCommentMentions({ comment, sourceFilesystemDirectory: "/repo-A" })
+
+    const result = buildRequestParts({
+      prompt: [{ type: "text", content: "compare", start: 0, end: 7 }],
+      context: [
+        {
+          key: "ctx:cross-workspace",
+          type: "file",
+          path: "/repo-A/src/a.ts",
+          comment,
+          resolvedMentions,
+        },
+      ],
+      images: [],
+      text: "compare",
+      messageID: "msg_cross",
+      sessionID: "ses_cross",
+      sessionDirectory: "/repo-B",
+    })
+
+    const files = result.requestParts.filter((part) => part.type === "file")
+    // The mention should resolve to /repo-A/src/shared.ts, NOT /repo-B/src/shared.ts
+    expect(files.some((part) => part.type === "file" && part.url === "file:///repo-A/src/shared.ts")).toBe(true)
+    expect(files.every((part) => !(part.type === "file" && part.url.startsWith("file:///repo-B/src/shared")))).toBe(true)
+  })
+
+  test("free-text @ in comment without resolvedMentions is not attached", () => {
+    const result = buildRequestParts({
+      prompt: [{ type: "text", content: "look", start: 0, end: 4 }],
+      context: [
+        {
+          key: "ctx:no-metadata",
+          type: "file",
+          path: "src/main.ts",
+          comment: "see @src/lost.ts for details",
+          // resolvedMentions deliberately omitted (undefined)
+        },
+      ],
+      images: [],
+      text: "look",
+      messageID: "msg_no_meta",
+      sessionID: "ses_no_meta",
+      sessionDirectory: "/repo",
+    })
+
+    const files = result.requestParts.filter((part) => part.type === "file")
+    // Only src/main.ts should appear — @src/lost.ts has no metadata so it is dropped
+    expect(files.every((part) => !(part.type === "file" && part.url.includes("lost.ts")))).toBe(true)
   })
 
   test("handles Windows paths correctly (simulated on macOS)", () => {
