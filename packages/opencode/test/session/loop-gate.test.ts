@@ -87,51 +87,6 @@ describe("SessionDiagnostics.deriveParentLoopState", () => {
 })
 
 describe("SessionDiagnostics.queryGateAction", () => {
-  test("chooses stop over block across success and failure decisions", () => {
-    const successStop = {
-      action: "stop",
-      sigKey: "success:input:webfetch:aaa",
-      outcome: "success",
-      kind: "input",
-      completedCount: 3,
-      nextOccurrenceCount: 5,
-    } satisfies SessionDiagnostics.GateDecision
-    const failureBlock = {
-      action: "block",
-      sigKey: "failure:input:webfetch:aaa",
-      outcome: "failure",
-      kind: "input",
-      completedCount: 3,
-      completedFailures: 3,
-      nextOccurrenceCount: 4,
-    } satisfies SessionDiagnostics.GateDecision
-
-    expect(SessionDiagnostics.chooseGateDecision(failureBlock, successStop)).toBe(successStop)
-    expect(SessionDiagnostics.chooseGateDecision(successStop, failureBlock)).toBe(successStop)
-  })
-
-  test("chooses failure block over success block when neither outcome stops", () => {
-    const successBlock = {
-      action: "block",
-      sigKey: "success:input:webfetch:aaa",
-      outcome: "success",
-      kind: "input",
-      completedCount: 3,
-      nextOccurrenceCount: 4,
-    } satisfies SessionDiagnostics.GateDecision
-    const failureBlock = {
-      action: "block",
-      sigKey: "failure:input:webfetch:aaa",
-      outcome: "failure",
-      kind: "input",
-      completedCount: 3,
-      completedFailures: 3,
-      nextOccurrenceCount: 4,
-    } satisfies SessionDiagnostics.GateDecision
-
-    expect(SessionDiagnostics.chooseGateDecision(failureBlock, successBlock)).toBe(failureBlock)
-  })
-
   test("does not gate successful repeats even when prior state would have blocked or stopped (#767)", () => {
     // Reproduces the false-positive from #767: in the broken pre-fix code, a parent
     // turn with 5 identical successful `bash` invocations and zero `part.type === "patch"`

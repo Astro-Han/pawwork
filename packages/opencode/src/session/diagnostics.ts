@@ -580,14 +580,6 @@ export namespace SessionDiagnostics {
     return { action: "observe" }
   }
 
-  export function chooseGateDecision(failureDecision: GateDecision, successDecision: GateDecision): GateDecision {
-    if (failureDecision.action === "stop") return failureDecision
-    if (successDecision.action === "stop") return successDecision
-    if (failureDecision.action === "block") return failureDecision
-    if (successDecision.action === "block") return successDecision
-    return failureDecision
-  }
-
   export function mergeMetadata<T extends Record<string, any> | undefined>(current: T, update: Metadata): NonNullable<T> & Metadata {
     if (!current?.diagnostics && !update.diagnostics) {
       return { ...(current ?? {}), ...update } as NonNullable<T> & Metadata
