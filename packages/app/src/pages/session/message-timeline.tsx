@@ -2,6 +2,7 @@ import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX }
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
+import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -231,7 +232,7 @@ export function MessageTimeline(props: {
     }
 
     const status = sessionStatus() ?? idle
-    if (status.type !== "idle") {
+    if (isWorkInFlightStatus(status)) {
       const messages = sessionMessages()
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role === "user") return messages[i].id
