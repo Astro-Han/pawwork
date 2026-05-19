@@ -3743,6 +3743,7 @@ export type SessionAbortData = {
   query?: {
     directory?: string
     mode?: "soft" | "hard"
+    source?: string
     workspace?: string
   }
   url: "/session/{sessionID}/abort"

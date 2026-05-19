@@ -31,6 +31,7 @@ type PendingPrompt = {
 const pending = new Map<string, PendingPrompt>()
 type AbortMode = "soft" | "hard"
 type AbortSource = "stopButton" | "emptyEnter" | "ctrlG" | "escape"
+const abortSourceDiagnostic = (source: AbortSource) => `renderer.${source}`
 
 export type FollowupDraft = {
   sessionID: string
@@ -281,6 +282,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       .abort({
         sessionID: activeSessionID,
         mode,
+        source: abortSourceDiagnostic(source),
       })
       .then((result) => {
         emitAbortDiagnostic({

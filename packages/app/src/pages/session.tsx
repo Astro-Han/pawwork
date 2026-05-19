@@ -141,7 +141,7 @@ export default function Page() {
   const emitAbortDiagnostic = diagnostics.emitAbortDiagnostic
   const haltAbort = (sessionID: string, source: "revert" | "autoHeal" = "autoHeal") =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
-      ? sdk.client.session.abort({ sessionID, mode: "hard" }).then((result) => {
+      ? sdk.client.session.abort({ sessionID, mode: "hard", source: `renderer.${source}` }).then((result) => {
           emitAbortDiagnostic(sessionID, source, result.data === false ? "ignored_awaiting_question" : "aborted")
           return result
         })
@@ -151,7 +151,7 @@ export default function Page() {
     sessionID: string,
   ) =>
     isSessionRunning(snapshot.store.session_status[sessionID], snapshot.store.message[sessionID])
-      ? snapshot.client.session.abort({ sessionID, mode: "hard" }).then((result) => {
+      ? snapshot.client.session.abort({ sessionID, mode: "hard", source: "renderer.revert" }).then((result) => {
           emitAbortDiagnostic(sessionID, "revert", result.data === false ? "ignored_awaiting_question" : "aborted")
           return result
         })

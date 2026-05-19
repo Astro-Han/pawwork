@@ -236,7 +236,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
     if (status().type !== "idle") {
       await sdk.client.session
-        .abort({ sessionID, mode: "hard" })
+        .abort({ sessionID, mode: "hard", source: "renderer.undo" })
         .then((result) => {
           void emitRendererDiagnostic(
             sessionAbortDiagnosticEvent({
