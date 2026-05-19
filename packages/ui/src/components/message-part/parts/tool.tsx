@@ -18,11 +18,18 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
   const part = () => props.part as ToolPart
   if (part().tool === TOOL_TODOWRITE) return null
 
+  const emptyInput: Record<string, any> = {}
+  const emptyMetadata: Record<string, any> = {}
+
+  const input = () => part().state?.input ?? emptyInput
+  const partMetadata = () => toolStateMetadata(part().state)
   // The dock surfaces pending / running question parts as the active input
   // surface (D1 = B, dock projection of running question tool parts). The
   // inline timeline either hides (flag-off legacy: dock is the only render
   // path) or shows a thin marker (flag-on: rendered by the Match below).
   // We detect flag-on via the new metadata flag set by ctx.externalResult.
+  // These must follow partMetadata() so the eager createMemo below does not
+  // hit a TDZ on partMetadata when running questions render at mount.
   const isQuestion = () => part().tool === TOOL_QUESTION
   const isQuestionRunning = () =>
     isQuestion() && (part().state.status === "pending" || part().state.status === "running")
@@ -33,12 +40,6 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
   // Flag-off (legacy): hide running questions in timeline so only the dock
   // renders. Flag-on: render the thin marker (no hide).
   const hideQuestion = createMemo(() => isQuestionRunning() && !newQuestionPath())
-
-  const emptyInput: Record<string, any> = {}
-  const emptyMetadata: Record<string, any> = {}
-
-  const input = () => part().state?.input ?? emptyInput
-  const partMetadata = () => toolStateMetadata(part().state)
   // Hide synthetic stop tool parts while keeping metadata available for exported diagnostics.
   const hideSyntheticStop = createMemo(
     () => partMetadata().diagnostics?.loop?.loopAction === "stop",
