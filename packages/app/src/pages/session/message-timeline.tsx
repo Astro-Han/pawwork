@@ -233,7 +233,10 @@ export function MessageTimeline(props: {
     }
 
     const status = sessionStatus() ?? idle
-    if (isWorkInFlightStatus(status)) {
+    // rate_limit_blocked is terminal (not "work in flight") but the RateLimitCard
+    // still renders inside the latest turn — so keep the latest user message
+    // marked active so SessionTurn receives the status and dispatches to the slot.
+    if (isWorkInFlightStatus(status) || status.type === "rate_limit_blocked") {
       const messages = sessionMessages()
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role === "user") return messages[i].id
