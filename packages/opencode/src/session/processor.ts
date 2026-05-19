@@ -19,6 +19,7 @@ import { classifyToolFailure } from "./tool-failure"
 import type { Provider } from "@/provider"
 import { ProviderTransform } from "@/provider"
 import { Question } from "@/question"
+import { ExternalResult } from "@/tool/external-result"
 import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
@@ -566,12 +567,19 @@ export const layer: Layer.Layer<
         // an explicit user dismissal — only the former is "interrupted". See #419.
         const questionInterrupted =
           match.part.tool === "question" && error instanceof Question.RejectedError && error.cancelled === true
+        // Narrow writer wiring (v10 P2 #4): only `ExternalResult.Error`
+        // carries a typed `reason` that survives to ToolStateError.reason.
+        // Legacy `Question.RejectedError` and every other thrown/defect
+        // intentionally leave `reason` undefined so the renderer's substring
+        // fallback for non-question tool errors continues to fire.
+        const reason = error instanceof ExternalResult.Error ? error.reason : undefined
         yield* session.updatePart({
           ...match.part,
           state: {
             status: "error",
             input: match.part.state.input,
             error: errorMessage(error),
+            ...(reason !== undefined ? { reason } : {}),
             metadata: SessionDiagnostics.mergeMetadata(toolStateMetadata(match.part), {
               diagnostics: {
                 ...(diagnostics ?? {}),
