@@ -77,11 +77,15 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
           </Match>
           {/* Flag-on question, completed dismiss: keyed on metadata.dismissed
               (NOT on answers.length, since all-blank submit is a legitimate
-              non-dismiss case). */}
+              non-dismiss case). Do NOT also gate on newQuestionPath() — the
+              `externalResultReady` flag lives on the running tool part's
+              state.metadata and is replaced when the writer flips state to
+              "completed", so this branch would otherwise be unreachable.
+              `metadata.dismissed === true` is unique to the new path (the
+              legacy dismiss flow routes through the error branch). */}
           <Match
             when={
               isQuestion() &&
-              newQuestionPath() &&
               part().state.status === "completed" &&
               partMetadata()?.dismissed === true
             }

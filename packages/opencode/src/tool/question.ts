@@ -67,8 +67,19 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
                 metadata: { answers: [], dismissed: true },
               }
             }
-            const submitted = outcome.value as ExternalSubmitValue
-            const answers = submitted.answers
+            // Validate the submitted shape: the route accepts payload as
+            // z.unknown() so we cannot trust the structure here. Malformed
+            // submits coerce to empty answers (semantically equivalent to a
+            // dismiss with skipped slots) rather than crashing formatAnswers.
+            const submitted = outcome.value as Partial<ExternalSubmitValue> | null | undefined
+            const answers: ReadonlyArray<ReadonlyArray<string>> =
+              submitted &&
+              Array.isArray(submitted.answers) &&
+              submitted.answers.every(
+                (row) => Array.isArray(row) && row.every((s) => typeof s === "string"),
+              )
+                ? (submitted.answers as ReadonlyArray<ReadonlyArray<string>>)
+                : params.questions.map(() => [] as ReadonlyArray<string>)
             const formatted = formatAnswers(params.questions, answers)
             return {
               title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
