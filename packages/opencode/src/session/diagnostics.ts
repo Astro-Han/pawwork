@@ -617,13 +617,16 @@ export namespace SessionDiagnostics {
   }): GateDecision {
     const { parentLoopState: state, tool, inputHash, targetHash } = input
     const outcome = input.outcome ?? "failure"
+    // Success-side hard gate removed (#767). Snapshot patch parts (the mutation-epoch
+    // signal source) silently disappear in real sessions, so successful TDD verify-edit
+    // cycles look identical to a no-op loop and were getting hard-stopped. Reminders at
+    // reminderAt still fire via observeToolCall; tool-layer protections handle stable-
+    // success side-effecting tools (idempotency keys, permission prompts, rate limits).
+    if (outcome === "success") return { action: "observe" }
     const inputKey = signatureKey({ outcome, kind: "input", tool, hash: inputHash })
     const targetKey = targetHash ? signatureKey({ outcome, kind: "target", tool, hash: targetHash }) : null
 
-    // Successful same_target repeats are weak evidence: reading different ranges of the same
-    // file or fetching the same URL after context changes can be normal progress. Keep hard
-    // gating for successful exact-input repeats, while failed repeats still check target first.
-    const candidates = outcome === "success" ? [inputKey] as const : [targetKey, inputKey] as const
+    const candidates = [targetKey, inputKey] as const
     for (const sigKey of candidates) {
       if (!sigKey) continue
       const s = state.signatures[sigKey]

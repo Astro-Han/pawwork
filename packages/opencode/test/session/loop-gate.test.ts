@@ -234,38 +234,6 @@ describe("SessionDiagnostics.queryGateAction", () => {
     expect(decision.action).toBe("observe")
   })
 
-  test("blocks successful exact-input repeats by signature", () => {
-    const input = { pattern: "**/*.txt" }
-    const inputHash = inputHashFor(input)
-    const inputSigKey = `success:input:glob:${inputHash}`
-    const state = SessionDiagnostics.deriveParentLoopState({
-      successRecords: [
-        successfulToolCallRecord("glob", input),
-        successfulToolCallRecord("glob", input),
-        successfulToolCallRecord("glob", input, [inputSigKey]),
-      ],
-      errorRecords: [],
-      syntheticBlockSigKeys: [],
-      parentID,
-    })
-
-    const decision = SessionDiagnostics.queryGateAction({
-      parentLoopState: state,
-      tool: "glob",
-      inputHash,
-      targetHash: targetHashForInput("glob", input),
-      outcome: "success",
-    })
-
-    expect(decision.action).toBe("block")
-    if (decision.action === "block") {
-      expect(decision.kind).toBe("input")
-      expect(decision.completedCount).toBe(3)
-      expect(decision.completedFailures).toBeUndefined()
-      expect(decision.nextOccurrenceCount).toBe(4)
-    }
-  })
-
   test("does not block successful exact-input repeats when output changes", () => {
     const input = { command: "bun test" }
     const inputHash = inputHashFor(input)
@@ -471,6 +439,55 @@ describe("SessionDiagnostics.queryGateAction", () => {
 
     expect(state.signatures[inputSigKey]?.completedCount).toBe(3)
     expect(Object.keys(state.signatures).some((key) => key.startsWith("success:target:unknown_mcp:"))).toBe(false)
+  })
+
+  test("does not gate successful repeats even when prior state would have blocked or stopped (#767)", () => {
+    // Reproduces the false-positive from #767: in the broken pre-fix code, a parent
+    // turn with 5 identical successful `bash` invocations and zero `part.type === "patch"`
+    // parts (snapshot system silent) produced a same-input signature bucket with
+    // completedCount=3 + recoverEmitted=true at call #4 (block) and completedCount=3 +
+    // blockEmitted=true + autoResumeSpent=true at call #5 (stop). We hand-construct the
+    // ParentLoopState shape that the pre-fix code would have built and assert observe
+    // on both stages. Construction is direct to keep this test stable across the
+    // upcoming deriveParentLoopState surface shrink (commit 3).
+    const command = { command: "bun run typecheck" }
+    const inputHash = inputHashFor(command)
+    const inputSigKey = `success:input:bash:${inputHash}`
+
+    const blockShape: SessionDiagnostics.SignatureState = {
+      outcome: "success",
+      kind: "input",
+      completedCount: 3,
+      recoverEmitted: true,
+      blockEmitted: false,
+    }
+    const stopShape: SessionDiagnostics.SignatureState = {
+      outcome: "success",
+      kind: "input",
+      completedCount: 3,
+      recoverEmitted: true,
+      blockEmitted: true,
+    }
+
+    const wouldHaveBlocked: SessionDiagnostics.ParentLoopState = {
+      autoResumeSpent: false,
+      signatures: { [inputSigKey]: blockShape },
+    }
+    const wouldHaveStopped: SessionDiagnostics.ParentLoopState = {
+      autoResumeSpent: true,
+      signatures: { [inputSigKey]: stopShape },
+    }
+
+    for (const state of [wouldHaveBlocked, wouldHaveStopped]) {
+      const decision = SessionDiagnostics.queryGateAction({
+        parentLoopState: state,
+        tool: "bash",
+        inputHash,
+        targetHash: targetHashForInput("bash", command),
+        outcome: "success",
+      })
+      expect(decision.action).toBe("observe")
+    }
   })
 
   test("observe when no failures", () => {
