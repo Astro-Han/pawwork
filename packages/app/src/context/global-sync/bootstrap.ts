@@ -60,6 +60,14 @@ function errors(list: PromiseSettledResult<unknown>[]) {
   return list.filter((item): item is PromiseRejectedResult => item.status === "rejected").map((item) => item.reason)
 }
 
+function isNotFoundError(error: unknown) {
+  if (!error || typeof error !== "object") return false
+  const value = error as { name?: unknown; status?: unknown; statusCode?: unknown; response?: { status?: unknown } }
+  if (value.name === "NotFoundError") return true
+  if (value.status === 404 || value.statusCode === 404) return true
+  return value.response?.status === 404
+}
+
 const providerRev = new Map<string, number>()
 
 export function clearProviderRev(directory: string) {
@@ -179,7 +187,10 @@ export function activeSessionStatuses(input: State["session_status"]) {
   )
 }
 
-function sameSessionStatus(a: State["session_status"][string] | undefined, b: State["session_status"][string] | undefined) {
+function sameSessionStatus(
+  a: State["session_status"][string] | undefined,
+  b: State["session_status"][string] | undefined,
+) {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
@@ -206,16 +217,30 @@ function warmSessions(input: {
 }) {
   const known = new Set(input.store.session.map((item) => item.id))
   const ids = [...new Set(input.ids)].filter((id) => !!id && !known.has(id))
-  if (ids.length === 0) return Promise.resolve()
+  const warmed = new Set(input.store.session.map((item) => item.id))
+  const missing = new Set<string>()
+  if (ids.length === 0) return Promise.resolve({ warmed, missing })
   return Promise.all(
     ids.map((sessionID) =>
-      retry(() => input.sdk.session.get({ sessionID })).then((x) => {
-        const session = x.data
-        if (!session?.id) return
-        mergeSession(input.setStore, session)
-      }),
+      retry(() => input.sdk.session.get({ sessionID }))
+        .then((x) => {
+          const session = x.data
+          if (!session?.id) return
+          warmed.add(session.id)
+          mergeSession(input.setStore, session)
+        })
+        .catch((err) => {
+          if (!isNotFoundError(err)) throw err
+          missing.add(sessionID)
+        }),
     ),
-  ).then(() => undefined)
+  ).then(() => ({ warmed, missing }))
+}
+
+function filterGroupedByWarmSessions<T>(grouped: Record<string, T[]>, result: { missing: Set<string> }) {
+  const filtered = { ...grouped }
+  for (const sessionID of result.missing) delete filtered[sessionID]
+  return filtered
 }
 
 const inactiveQueryFn = async () => null
@@ -373,11 +398,14 @@ export async function bootstrapDirectory(input: {
         retry(() =>
           input.sdk.permission.list().then((x) => {
             const ids = (x.data ?? []).map((perm) => perm?.sessionID).filter((id): id is string => !!id)
-            const grouped = groupBySession(
-              (x.data ?? []).filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID),
-            )
-            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then(() =>
-              batch(() => {
+            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then((warm) => {
+              const grouped = filterGroupedByWarmSessions(
+                groupBySession(
+                  (x.data ?? []).filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID),
+                ),
+                warm,
+              )
+              return batch(() => {
                 for (const sessionID of Object.keys(input.store.permission)) {
                   if (grouped[sessionID]) continue
                   input.setStore("permission", sessionID, [])
@@ -392,17 +420,20 @@ export async function bootstrapDirectory(input: {
                     ),
                   )
                 }
-              }),
-            )
+              })
+            })
           }),
         ),
       () =>
         retry(() =>
           input.sdk.question.list().then((x) => {
             const ids = (x.data ?? []).map((question) => question?.sessionID).filter((id): id is string => !!id)
-            const grouped = groupBySession((x.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID))
-            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then(() =>
-              batch(() => {
+            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then((warm) => {
+              const grouped = filterGroupedByWarmSessions(
+                groupBySession((x.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID)),
+                warm,
+              )
+              return batch(() => {
                 for (const sessionID of Object.keys(input.store.question)) {
                   if (grouped[sessionID]) continue
                   input.setStore("question", sessionID, [])
@@ -417,17 +448,17 @@ export async function bootstrapDirectory(input: {
                     ),
                   )
                 }
-              }),
-            )
+              })
+            })
           }),
         ),
       () =>
         retry(() =>
           input.sdk.blocker.list().then((x) => {
             const ids = (x.data ?? []).map((blocker) => blocker?.sessionID).filter((id): id is string => !!id)
-            const grouped = groupBlockersBySession(x.data ?? [])
-            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then(() =>
-              batch(() => {
+            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then((warm) => {
+              const grouped = filterGroupedByWarmSessions(groupBlockersBySession(x.data ?? []), warm)
+              return batch(() => {
                 for (const sessionID of Object.keys(input.store.blocker)) {
                   if (grouped[sessionID]) continue
                   input.setStore("blocker", sessionID, [])
@@ -436,11 +467,14 @@ export async function bootstrapDirectory(input: {
                   input.setStore(
                     "blocker",
                     sessionID,
-                    reconcile(blockers.sort((a, b) => cmp(a.requestID, b.requestID)), { key: "requestID" }),
+                    reconcile(
+                      blockers.sort((a, b) => cmp(a.requestID, b.requestID)),
+                      { key: "requestID" },
+                    ),
                   )
                 }
-              }),
-            )
+              })
+            })
           }),
         ),
       () => Promise.resolve(input.loadSessions(input.directory)),
@@ -466,6 +500,5 @@ export async function bootstrapDirectory(input: {
     }
 
     if (loading && errs.length === 0 && slowErrs.length === 0) input.setStore("status", "complete")
-
   })()
 }

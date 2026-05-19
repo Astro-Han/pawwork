@@ -45,10 +45,18 @@ import { Runtime } from "@opencode-ai/core/runtime"
 
 import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
+import { Question } from "@/question"
+import { SessionBlocker } from "@/session/blocker"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
 import { SubagentRunWriterContext, SubagentRunGuardViolation, lifecycleFieldsChanged } from "./subagent-run-context"
-import { ActiveWorktree, SessionExecutionContext, canonicalDirectory, rootContext, sameDirectory } from "./execution-context"
+import {
+  ActiveWorktree,
+  SessionExecutionContext,
+  canonicalDirectory,
+  rootContext,
+  sameDirectory,
+} from "./execution-context"
 import { backfillExecutionContextRows } from "./execution-context-store"
 
 const log = Log.create({ service: "session" })
@@ -556,6 +564,29 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     const storage = yield* Storage.Service
     yield* backfillExecutionContextEffect()
 
+    const hasInstanceContext = Effect.fn("Session.hasInstanceContext")(function* () {
+      return yield* InstanceState.directory.pipe(
+        Effect.as(true),
+        Effect.catchCause(() => Effect.succeed(false)),
+      )
+    })
+
+    const clearPendingInteractions = Effect.fn("Session.clearPendingInteractions")(function* (
+      sessionID: SessionID,
+      reason: "session_deleted" | "session_archived",
+    ) {
+      if (!(yield* hasInstanceContext())) return
+      yield* Question.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
+        Effect.provide(Question.defaultLayer),
+      )
+      yield* Permission.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
+        Effect.provide(Permission.defaultLayer),
+      )
+      yield* SessionBlocker.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
+        Effect.provide(SessionBlocker.defaultLayer),
+      )
+    })
+
     const createNext = Effect.fn("Session.createNext")(function* (input: {
       id?: SessionID
       title?: string
@@ -649,6 +680,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
       try {
         const session = yield* get(sessionID)
+        yield* clearPendingInteractions(sessionID, "session_deleted")
         const kids = yield* children(sessionID)
         for (const child of kids) {
           yield* remove(child.id)
@@ -816,6 +848,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
     })
 
     const setArchived = Effect.fn("Session.setArchived")(function* (input: { sessionID: SessionID; time?: number }) {
+      if (input.time !== undefined) {
+        yield* clearPendingInteractions(input.sessionID, "session_archived")
+      }
       yield* patch(input.sessionID, { time: { archived: input.time } })
     })
 
@@ -1222,11 +1257,8 @@ export function* listGlobal(input?: {
             .select(sort === "activity" ? activitySelect : getTableColumns(SessionTable))
             .from(SessionTable)
             .where(and(...conditions))
-        : db
-            .select(sort === "activity" ? activitySelect : getTableColumns(SessionTable))
-            .from(SessionTable)
-    const order =
-      sort === "activity" ? [desc(activityAtExpr), asc(SessionTable.id)] : sessionOrder(sort)
+        : db.select(sort === "activity" ? activitySelect : getTableColumns(SessionTable)).from(SessionTable)
+    const order = sort === "activity" ? [desc(activityAtExpr), asc(SessionTable.id)] : sessionOrder(sort)
     return query
       .orderBy(...order)
       .limit(limit)
@@ -1267,8 +1299,7 @@ export function* listGlobal(input?: {
       sort === "activity"
         ? (row.lastUserMessageAt ?? (row.activityAt !== row.time_created ? row.activityAt : undefined))
         : undefined
-    const lastUserMessage =
-      lastUserMessageAt !== null && lastUserMessageAt !== undefined ? { lastUserMessageAt } : {}
+    const lastUserMessage = lastUserMessageAt !== null && lastUserMessageAt !== undefined ? { lastUserMessageAt } : {}
     yield { ...fromRow(row, projectFallbacks.get(row.project_id)), project, ...activity, ...lastUserMessage }
   }
 }

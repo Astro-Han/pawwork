@@ -264,6 +264,173 @@ describe("bootstrapDirectory", () => {
     }
   })
 
+  test("skips pending interaction entries when warm session lookup returns 404", async () => {
+    const directory = "/tmp/project"
+    const queryClient = new QueryClient()
+    const [store, setStore] = createStore(createState())
+    setStore("permission", "ses_missing", [
+      {
+        id: "perm_old",
+        sessionID: "ses_missing",
+        permission: "edit",
+        patterns: ["/tmp/old.txt"],
+        metadata: {},
+        always: ["/tmp/old.txt"],
+      } as any,
+    ])
+    setStore("question", "ses_missing", [
+      {
+        id: "que_old",
+        sessionID: "ses_missing",
+        questions: [{ question: "Old?", header: "Old", options: [{ label: "Old", description: "old" }] }],
+      } as any,
+    ])
+    setStore("blocker", "ses_missing", [
+      {
+        kind: "question",
+        status: "awaiting_user",
+        sessionID: "ses_missing",
+        requestID: "que_old",
+        request: {
+          id: "que_old",
+          sessionID: "ses_missing",
+          questions: [{ question: "Old?", header: "Old", options: [{ label: "Old", description: "old" }] }],
+        },
+        armedAt: 1,
+        updatedAt: 1,
+      } as any,
+    ])
+
+    const notFound = { name: "NotFoundError", response: { status: 404 } }
+    const validSession = {
+      id: "ses_valid",
+      title: "Valid session",
+      directory,
+      version: "test",
+      time: { created: 1, updated: 1 },
+    }
+    const sdk = {
+      app: { agents: async () => ({ data: [] }) },
+      config: { get: async () => ({ data: {} as Config }) },
+      session: {
+        status: async () => ({ data: {} }),
+        get: async ({ sessionID }: { sessionID: string }) => {
+          if (sessionID === "ses_missing") throw notFound
+          return { data: validSession }
+        },
+      },
+      project: { current: async () => ({ data: { id: "project-1" } }) },
+      path: { get: async () => ({ data: { state: "", config: "", worktree: "", directory, home: "" } as Path }) },
+      vcs: { get: async () => ({ data: undefined }) },
+      command: { list: async () => ({ data: [] }) },
+      permission: {
+        list: async () => ({
+          data: [
+            {
+              id: "perm_missing",
+              sessionID: "ses_missing",
+              permission: "edit",
+              patterns: ["/tmp/missing.txt"],
+              metadata: {},
+              always: ["/tmp/missing.txt"],
+            },
+            {
+              id: "perm_valid",
+              sessionID: "ses_valid",
+              permission: "edit",
+              patterns: ["/tmp/valid.txt"],
+              metadata: {},
+              always: ["/tmp/valid.txt"],
+            },
+          ],
+        }),
+      },
+      question: {
+        list: async () => ({
+          data: [
+            {
+              id: "que_missing",
+              sessionID: "ses_missing",
+              questions: [
+                { question: "Missing?", header: "Missing", options: [{ label: "No", description: "missing" }] },
+              ],
+            },
+            {
+              id: "que_valid",
+              sessionID: "ses_valid",
+              questions: [{ question: "Valid?", header: "Valid", options: [{ label: "Yes", description: "valid" }] }],
+            },
+          ],
+        }),
+      },
+      blocker: {
+        list: async () => ({
+          data: [
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID: "ses_missing",
+              requestID: "que_missing",
+              request: {
+                id: "que_missing",
+                sessionID: "ses_missing",
+                questions: [
+                  { question: "Missing?", header: "Missing", options: [{ label: "No", description: "missing" }] },
+                ],
+              },
+              armedAt: 1,
+              updatedAt: 1,
+            },
+            {
+              kind: "question",
+              status: "awaiting_user",
+              sessionID: "ses_valid",
+              requestID: "que_valid",
+              request: {
+                id: "que_valid",
+                sessionID: "ses_valid",
+                questions: [{ question: "Valid?", header: "Valid", options: [{ label: "Yes", description: "valid" }] }],
+              },
+              armedAt: 2,
+              updatedAt: 2,
+            },
+          ],
+        }),
+      },
+      mcp: { status: async () => ({ data: {} }) },
+      provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    } as any
+
+    await bootstrapDirectory({
+      directory,
+      sdk,
+      store,
+      setStore,
+      vcsCache: createVcsCache(),
+      loadSessions: () => undefined,
+      translate: (key) => key,
+      global: {
+        config: {} as Config,
+        path: { state: "", config: "", worktree: "", directory: "", home: "" } as Path,
+        project: [] as Project[],
+        provider: { all: [], connected: [], default: {} },
+      },
+      queryClient,
+    })
+
+    await waitFor(() => store.session.some((session) => session.id === "ses_valid"))
+    await waitFor(() => store.permission.ses_valid?.length === 1)
+    await waitFor(() => store.question.ses_valid?.length === 1)
+    await waitFor(() => store.blocker.ses_valid?.length === 1)
+
+    expect(store.permission.ses_missing ?? []).toEqual([])
+    expect(store.question.ses_missing ?? []).toEqual([])
+    expect(store.blocker.ses_missing ?? []).toEqual([])
+    expect(store.permission.ses_valid?.map((entry) => entry.id)).toEqual(["perm_valid"])
+    expect(store.question.ses_valid?.map((entry) => entry.id)).toEqual(["que_valid"])
+    expect(store.blocker.ses_valid?.map((entry) => entry.requestID)).toEqual(["que_valid"])
+  })
+
   test("keeps active status events that arrive before the status snapshot resolves", async () => {
     const directory = "/tmp/project"
     const queryClient = new QueryClient()

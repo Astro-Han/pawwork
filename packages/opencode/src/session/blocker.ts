@@ -9,6 +9,7 @@ import { QuestionID } from "@/question/schema"
 export namespace SessionBlocker {
   export const TerminalReason = z.enum(["replied", "cancelled", "dismissed", "shutdown", "rejected"])
   export type TerminalReason = z.infer<typeof TerminalReason>
+  export type CleanupReason = TerminalReason | "session_deleted" | "session_archived" | "dangling_session"
 
   export const QuestionRequest = z.object({
     id: QuestionID.zod,
@@ -73,10 +74,8 @@ export namespace SessionBlocker {
 
   export interface Interface {
     readonly upsertQuestion: (request: QuestionRequest) => Effect.Effect<void>
-    readonly removeQuestion: (input: {
-      requestID: QuestionID
-      reason: TerminalReason
-    }) => Effect.Effect<void>
+    readonly removeQuestion: (input: { requestID: QuestionID; reason: TerminalReason }) => Effect.Effect<void>
+    readonly clearSession: (sessionID: SessionID, reason: CleanupReason) => Effect.Effect<void>
     readonly list: () => Effect.Effect<ReadonlyArray<Entry>>
     readonly hasAwaitingQuestion: (sessionID: SessionID) => Effect.Effect<boolean>
   }
@@ -122,6 +121,30 @@ export namespace SessionBlocker {
         })
       })
 
+      const clearReason = (reason: CleanupReason): TerminalReason => {
+        if (reason === "session_deleted" || reason === "session_archived" || reason === "dangling_session")
+          return "shutdown"
+        return reason
+      }
+
+      const clearSession = Effect.fn("SessionBlocker.clearSession")(function* (
+        sessionID: SessionID,
+        reason: CleanupReason,
+      ) {
+        const pending = questionState(yield* InstanceState.directory)
+        const terminalReason = clearReason(reason)
+        for (const entry of Array.from(pending.values())) {
+          if (entry.sessionID !== sessionID) continue
+          pending.delete(entry.requestID)
+          yield* bus.publish(Event.Removed, {
+            kind: "question",
+            sessionID: entry.sessionID,
+            requestID: entry.requestID,
+            reason: terminalReason,
+          })
+        }
+      })
+
       const list = Effect.fn("SessionBlocker.list")(function* () {
         const pending = questionState(yield* InstanceState.directory)
         return Array.from(pending.values(), (entry) => structuredClone(entry))
@@ -135,7 +158,7 @@ export namespace SessionBlocker {
         return false
       })
 
-      return Service.of({ upsertQuestion, removeQuestion, list, hasAwaitingQuestion })
+      return Service.of({ upsertQuestion, removeQuestion, clearSession, list, hasAwaitingQuestion })
     }),
   )
 

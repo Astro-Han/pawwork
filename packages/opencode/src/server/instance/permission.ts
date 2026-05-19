@@ -9,10 +9,11 @@ import { lazy } from "../../util/lazy"
 import { Env } from "@/env"
 import { AppRuntime } from "@/effect/app-runtime"
 import { Log } from "@opencode-ai/core/util/log"
+import { SessionLiveness } from "@/session/liveness"
+import { Effect } from "effect"
 
 const log = Log.create({ service: "server" })
-const e2ePermissionRoutesEnabled = () =>
-  Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+const e2ePermissionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 export const PermissionRoutes = lazy(() =>
   new Hono()
@@ -104,7 +105,17 @@ export const PermissionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const permissions = await Permission.list()
+        const permissions = await AppRuntime.runPromise(
+          Permission.Service.use((svc) =>
+            svc
+              .list()
+              .pipe(
+                Effect.flatMap((items) =>
+                  SessionLiveness.pruneDangling(items, (sessionID) => svc.clearSession(sessionID, "dangling_session")),
+                ),
+              ),
+          ),
+        )
         return c.json(permissions)
       },
     ),

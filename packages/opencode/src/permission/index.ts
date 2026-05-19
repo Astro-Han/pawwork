@@ -120,6 +120,10 @@ export namespace Permission {
   export interface Interface {
     readonly ask: (input: z.infer<typeof AskInput>) => Effect.Effect<void, Error>
     readonly reply: (input: z.infer<typeof ReplyInput>) => Effect.Effect<void>
+    readonly clearSession: (
+      sessionID: SessionID,
+      reason: "session_deleted" | "session_archived" | "dangling_session",
+    ) => Effect.Effect<void>
     readonly list: () => Effect.Effect<Request[]>
   }
 
@@ -285,12 +289,29 @@ export namespace Permission {
         }
       })
 
+      const clearSession = Effect.fn("Permission.clearSession")(function* (
+        sessionID: SessionID,
+        _reason: "session_deleted" | "session_archived" | "dangling_session",
+      ) {
+        const { pending } = yield* InstanceState.get(state)
+        for (const [id, item] of Array.from(pending.entries())) {
+          if (item.info.sessionID !== sessionID) continue
+          pending.delete(id)
+          yield* bus.publish(Event.Replied, {
+            sessionID: item.info.sessionID,
+            requestID: item.info.id,
+            reply: "reject",
+          })
+          yield* Deferred.fail(item.deferred, new RejectedError())
+        }
+      })
+
       const list = Effect.fn("Permission.list")(function* () {
         const pending = (yield* InstanceState.get(state)).pending
         return Array.from(pending.values(), (item) => item.info)
       })
 
-      return Service.of({ ask, reply, list })
+      return Service.of({ ask, reply, clearSession, list })
     }),
   )
 

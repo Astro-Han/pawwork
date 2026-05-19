@@ -8,6 +8,7 @@ import { zod } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import { QuestionID } from "./schema"
 import { SessionBlocker } from "@/session/blocker"
+import type z from "zod"
 
 export namespace Question {
   const log = Log.create({ service: "question" })
@@ -27,8 +28,7 @@ export namespace Question {
   export class Option extends Schema.Class<Option>("QuestionOption")({
     label: TrimmedString(50, {
       emptyMsg: "Option label cannot be empty.",
-      tooLongMsg:
-        "Option label is too long (max 50 chars). Keep labels to 1–5 words; put detail in description.",
+      tooLongMsg: "Option label is too long (max 50 chars). Keep labels to 1–5 words; put detail in description.",
     }).annotate({ description: "Display text (1–5 words, max 50 chars)" }),
     description: TrimmedString(50, {
       emptyMsg: "Option description cannot be empty.",
@@ -49,8 +49,7 @@ export namespace Question {
     }),
     header: TrimmedString(30, {
       emptyMsg: "Header cannot be empty.",
-      tooLongMsg:
-        "Header is too long (max 30 chars). Use a chip-sized label like 'Auth method' or 'Approach'.",
+      tooLongMsg: "Header is too long (max 30 chars). Use a chip-sized label like 'Auth method' or 'Approach'.",
     }).annotate({ description: "Very short label (max 30 chars)" }),
     options: Schema.mutable(Schema.Array(Option))
       .check(Schema.isMinLength(2, { message: "Each question needs at least 2 options." }))
@@ -197,6 +196,7 @@ export namespace Question {
     }) => Effect.Effect<ReadonlyArray<Answer>, RejectedError>
     readonly reply: (input: { requestID: QuestionID; answers: ReadonlyArray<Answer> }) => Effect.Effect<void>
     readonly reject: (requestID: QuestionID) => Effect.Effect<void>
+    readonly clearSession: (sessionID: SessionID, reason: SessionBlocker.CleanupReason) => Effect.Effect<void>
     readonly list: () => Effect.Effect<ReadonlyArray<Request>>
   }
 
@@ -471,6 +471,32 @@ export namespace Question {
         yield* Deferred.fail(existing.deferred, new RejectedError({ reason: "dismissed" }))
       })
 
+      const rejectedReason = (reason: SessionBlocker.CleanupReason): z.infer<typeof Rejected.zod>["reason"] => {
+        if (reason === "session_deleted" || reason === "session_archived" || reason === "dangling_session")
+          return "shutdown"
+        if (reason === "replied") return "shutdown"
+        return reason
+      }
+
+      const clearSession = Effect.fn("Question.clearSession")(function* (
+        sessionID: SessionID,
+        reason: SessionBlocker.CleanupReason,
+      ) {
+        const pending = (yield* InstanceState.get(state)).pending
+        const terminalReason = rejectedReason(reason)
+        for (const [requestID, entry] of Array.from(pending.entries())) {
+          if (entry.info.sessionID !== sessionID) continue
+          pending.delete(requestID)
+          yield* blockers.removeQuestion({ requestID, reason: terminalReason })
+          yield* bus.publish(Event.Rejected, {
+            sessionID: entry.info.sessionID,
+            requestID: entry.info.id,
+            reason: terminalReason,
+          })
+          yield* Deferred.fail(entry.deferred, new RejectedError({ cancelled: true, reason: terminalReason }))
+        }
+      })
+
       const list = Effect.fn("Question.list")(function* () {
         const pending = (yield* InstanceState.get(state)).pending
         // Hand callers a clone so they can't mutate the stored snapshot
@@ -478,7 +504,7 @@ export namespace Question {
         return Array.from(pending.values(), (x) => structuredClone(x.info))
       })
 
-      return Service.of({ ask, reply, reject, list })
+      return Service.of({ ask, reply, reject, clearSession, list })
     }),
   )
 
