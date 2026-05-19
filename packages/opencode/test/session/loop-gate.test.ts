@@ -577,6 +577,113 @@ describe("SessionDiagnostics.queryGateAction", () => {
     expect(decision.action).toBe("stop")
   })
 
+  test("preserves cross-step failure gate across mutationEpoch removal (#767)", () => {
+    // Pin failure-side gate behavior so the upcoming mutationEpoch removal (commit 3)
+    // and the wider success-gate teardown around it cannot drift the failure path.
+    // The signature key is `failure:input|target:<tool>:<inputHash|targetHash>`
+    // (diagnostics.ts:565-566); `errorFingerprint` is a record field but not part of
+    // the signature key. Block requires `recoverEmitted === true`, set from a prior
+    // record carrying the sigKey in `loopRecoverFiredFor`. The gate only counts
+    // records from prior completed steps (`stepIndex < currentStepIndex`).
+    const url = "https://x.com/a"
+    const targetSigKey = `failure:target:webfetch:${targetHashFor(url)}`
+    const inputSigKey = `failure:input:webfetch:${inputHashFor({ url })}`
+    const withStep = (
+      record: SessionDiagnostics.ToolErrorRecord,
+      stepIndex: number,
+    ): SessionDiagnostics.ToolErrorRecord => ({
+      ...record,
+      metadata: {
+        diagnostics: {
+          loop: {
+            ...record.metadata.diagnostics?.loop,
+            stepIndex,
+          },
+        },
+      },
+    })
+
+    const priorRecords = [
+      withStep(failingErrorRecord(url), 1),
+      withStep(failingErrorRecord(url), 2),
+      withStep(failingErrorRecord(url, [targetSigKey, inputSigKey]), 3),
+    ]
+
+    // currentStepIndex = 4 simulates the gate-eval moment of the fourth attempted
+    // call, after three prior-step failures have completed and the recover reminder
+    // has fired on the third.
+    const blockState = SessionDiagnostics.deriveParentLoopState({
+      errorRecords: priorRecords,
+      syntheticBlockSigKeys: [],
+      parentID,
+      currentStepIndex: 4,
+    })
+    const blockDecision = SessionDiagnostics.queryGateAction({
+      parentLoopState: blockState,
+      tool: "webfetch",
+      inputHash: inputHashFor({ url }),
+      targetHash: targetHashFor(url),
+      outcome: "failure",
+    })
+    expect(blockDecision.action).toBe("block")
+    if (blockDecision.action === "block") {
+      expect(blockDecision.kind).toBe("target")
+      expect(blockDecision.completedCount).toBe(3)
+      expect(blockDecision.nextOccurrenceCount).toBe(4)
+    }
+
+    // After the synthetic block records the sigKey, `autoResumeSpent` flips and the
+    // next occurrence (#5) reaches stop.
+    const stopState = SessionDiagnostics.deriveParentLoopState({
+      errorRecords: priorRecords,
+      syntheticBlockSigKeys: [targetSigKey],
+      parentID,
+      currentStepIndex: 4,
+    })
+    const stopDecision = SessionDiagnostics.queryGateAction({
+      parentLoopState: stopState,
+      tool: "webfetch",
+      inputHash: inputHashFor({ url }),
+      targetHash: targetHashFor(url),
+      outcome: "failure",
+    })
+    expect(stopDecision.action).toBe("stop")
+
+    // Negative control: a different inputHash + targetHash returns observe. This
+    // proves the test is measuring signature aggregation, not just record count.
+    const otherUrl = "https://x.com/b"
+    const observeDecision = SessionDiagnostics.queryGateAction({
+      parentLoopState: blockState,
+      tool: "webfetch",
+      inputHash: inputHashFor({ url: otherUrl }),
+      targetHash: targetHashFor(otherUrl),
+      outcome: "failure",
+    })
+    expect(observeDecision.action).toBe("observe")
+
+    // Same-step parallel: a fourth record at stepIndex === currentStepIndex is
+    // filtered out by `isFromPreviousStep`, so the gate sees only the original
+    // three and the decision is unchanged. This guards against the test accidentally
+    // measuring active-step behavior instead of cross-step gating.
+    const sameStepState = SessionDiagnostics.deriveParentLoopState({
+      errorRecords: [...priorRecords, withStep(failingErrorRecord(url, [targetSigKey, inputSigKey]), 4)],
+      syntheticBlockSigKeys: [],
+      parentID,
+      currentStepIndex: 4,
+    })
+    const sameStepDecision = SessionDiagnostics.queryGateAction({
+      parentLoopState: sameStepState,
+      tool: "webfetch",
+      inputHash: inputHashFor({ url }),
+      targetHash: targetHashFor(url),
+      outcome: "failure",
+    })
+    expect(sameStepDecision.action).toBe("block")
+    if (sameStepDecision.action === "block") {
+      expect(sameStepDecision.completedCount).toBe(3)
+    }
+  })
+
   test("stop when blockEmitted on this same signature", () => {
     const url = "https://x.com/a"
     const sigKey = `failure:target:webfetch:${targetHashFor(url)}`
