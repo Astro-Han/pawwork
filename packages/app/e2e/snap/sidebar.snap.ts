@@ -15,7 +15,7 @@ test("sidebar", async ({ page, sdk, gotoSession }) => {
       await gotoSession(a.id)
       await openSidebar(page)
 
-      const sidebar = page.locator(pawworkSidebarSelector).first()
+      const sidebar = page.locator(pawworkSidebarSelector)
       const sortTrigger = sidebar.locator('[data-action="pawwork-sort-trigger"]')
       await sortTrigger.waitFor({ state: "visible" })
 
@@ -38,7 +38,7 @@ test("sidebar", async ({ page, sdk, gotoSession }) => {
       // After close the sidebar container collapses to ~0 width, so locator screenshot
       // is useless. The toggle button is always present — anchor a clip around its
       // bounding box so we capture the rail wherever it ends up.
-      const toggle = page.locator('[data-action="pawwork-sidebar-toggle"]').first()
+      const toggle = page.locator('[data-action="pawwork-sidebar-toggle"]')
       await toggle.waitFor({ state: "visible" })
       const box = await toggle.boundingBox()
       if (!box) throw new Error("snap: toggle button has no bounding box; closed-state shot would be empty")

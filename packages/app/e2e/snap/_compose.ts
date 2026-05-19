@@ -14,14 +14,13 @@ const LABEL_BG = "#ffffff"
 const LABEL_FG = "#333333"
 
 export function snapOutputPath(target: string): string {
-  // Local-date filename — UTC would jump to "tomorrow" during CN evening hours
-  // and silently overwrite the same-day grid.
-  const d = new Date()
-  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  // Deterministic filename — agents and humans both want "the latest grid for
+  // this target". Dated filenames accumulate clutter and force consumers to
+  // resolve which file is current.
   const here = path.dirname(fileURLToPath(import.meta.url))
   // here = packages/app/e2e/snap → repoRoot four levels up
   const repoRoot = path.resolve(here, "../../../..")
-  return path.join(repoRoot, "docs/design/preview/screenshots", `${target}-${date}.png`)
+  return path.join(repoRoot, "docs/design/preview/screenshots", `${target}.png`)
 }
 
 function escapeXml(value: string): string {
