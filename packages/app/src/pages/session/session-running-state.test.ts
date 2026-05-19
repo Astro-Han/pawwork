@@ -98,3 +98,33 @@ describe("isSessionRunning", () => {
     expect(isSessionRunning(idle, [user("msg_user", 1)])).toBe(false)
   })
 })
+
+const rateLimitBlocked: SessionStatus = {
+  type: "rate_limit_blocked",
+  classification: {
+    kind: "free_quota_exhausted",
+    providerID: "opencode" as never, // branded ProviderID — narrow type is enforced server-side
+    raw: "x",
+  },
+}
+
+describe("isSessionRunning — rate_limit_blocked is terminal-visible, not running", () => {
+  test("rate_limit_blocked → false", () => {
+    expect(isSessionRunning(rateLimitBlocked, [])).toBe(false)
+  })
+  test("busy → true (control)", () => {
+    expect(isSessionRunning(busy, [])).toBe(true)
+  })
+  test("retry → true (control)", () => {
+    expect(isSessionRunning(retry, [])).toBe(true)
+  })
+  test("idle → false (control)", () => {
+    expect(isSessionRunning(idle, [])).toBe(false)
+  })
+})
+
+describe("runningFallbackExpiresAt — rate_limit_blocked never expects a fallback timer", () => {
+  test("rate_limit_blocked → undefined", () => {
+    expect(runningFallbackExpiresAt(rateLimitBlocked, [])).toBeUndefined()
+  })
+})
