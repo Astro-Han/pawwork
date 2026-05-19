@@ -17,6 +17,7 @@ import { SessionSummary } from "./summary"
 import { SessionDiagnostics } from "./diagnostics"
 import { classifyToolFailure } from "./tool-failure"
 import type { Provider } from "@/provider"
+import { ProviderTransform } from "@/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
@@ -949,7 +950,11 @@ export const layer: Layer.Layer<
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
             ctx.reasoningMap = {}
-            const stream = llm.stream({ ...streamInput, trace: ctx.trace })
+            const stream = llm.stream({
+              ...ProviderTransform.streamTimeouts(streamInput.model),
+              ...streamInput,
+              trace: ctx.trace,
+            })
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),

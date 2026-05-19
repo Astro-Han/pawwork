@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { ProviderTransform } from "../../src/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { LLM } from "../../src/session/llm"
 
 describe("ProviderTransform.options - setCacheKey", () => {
   const sessionID = "test-session-123"
@@ -4718,5 +4719,58 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(result).toEqual({})
     })
+  })
+})
+
+describe("ProviderTransform.streamTimeouts", () => {
+  const baseModel = {
+    id: "test/test-model",
+    providerID: "test",
+    api: {
+      id: "test-model",
+      url: "https://api.test.com",
+      npm: "@ai-sdk/openai",
+    },
+    name: "Test Model",
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 100_000, output: 8_192 },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2024-01-01",
+  } as any
+
+  const reasoningModel = {
+    ...baseModel,
+    capabilities: { ...baseModel.capabilities, reasoning: true },
+  }
+  const nonReasoningModel = baseModel
+
+  test("policy floor: reasoning model connect timeout strictly exceeds default", () => {
+    const result = ProviderTransform.streamTimeouts(reasoningModel)
+    expect(result.connectTimeoutMs).toBeDefined()
+    expect(result.connectTimeoutMs!).toBeGreaterThan(LLM.CONNECT_STREAM_TIMEOUT_MS)
+  })
+
+  test("routing contract: reasoning model emits override, non-reasoning model emits empty", () => {
+    expect(ProviderTransform.streamTimeouts(reasoningModel).connectTimeoutMs).toBeGreaterThan(0)
+    expect(ProviderTransform.streamTimeouts(nonReasoningModel).connectTimeoutMs).toBeUndefined()
+  })
+
+  // Mirrors the helper-first spread order at the production call sites so a
+  // caller-provided override on StreamInput still wins after the helper is applied.
+  test("caller override precedence: explicit connectTimeoutMs wins over helper", () => {
+    const callerInput = { connectTimeoutMs: 5_000 }
+    const merged = { ...ProviderTransform.streamTimeouts(reasoningModel), ...callerInput }
+    expect(merged.connectTimeoutMs).toBe(5_000)
   })
 })
