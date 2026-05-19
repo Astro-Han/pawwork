@@ -6,6 +6,7 @@ import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import { Log } from "@opencode-ai/core/util/log"
 import { SessionRevert } from "./revert"
+import { inheritMetadata } from "./inherit-metadata"
 import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
@@ -1528,13 +1529,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     })
                     if (attachments.length) {
                       pieces.push(
-                        ...attachments.map((a) => ({
-                          ...a,
-                          synthetic: true,
-                          filename: a.filename ?? part.filename,
-                          messageID: info.id,
-                          sessionID: input.sessionID,
-                        })),
+                        ...attachments.map((a) =>
+                          inheritMetadata(part, {
+                            ...a,
+                            synthetic: true,
+                            filename: a.filename ?? part.filename,
+                            messageID: info.id,
+                            sessionID: input.sessionID,
+                          }),
+                        ),
                       )
                     }
                     if (attachments.length < result.attachments.length) {
@@ -1613,18 +1616,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   synthetic: true,
                   text: `Called the Read tool with the following input: {"filePath":"${filepath}"}`,
                 },
-                {
+                inheritMetadata(part, {
                   id: part.id,
                   messageID: info.id,
                   sessionID: input.sessionID,
-                  type: "file",
+                  type: "file" as const,
                   url:
                     `data:${part.mime};base64,` +
                     Buffer.from(yield* fsys.readFile(filepath).pipe(Effect.catch(Effect.die))).toString("base64"),
                   mime: part.mime,
                   filename: part.filename!,
                   source: part.source,
-                },
+                }),
               ]
             }
           }
