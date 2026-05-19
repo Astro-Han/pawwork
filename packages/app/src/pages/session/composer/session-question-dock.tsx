@@ -5,7 +5,8 @@ import { Button } from "@opencode-ai/ui/button"
 import { DockPrompt } from "@opencode-ai/ui/dock-prompt"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
+import type { QuestionAnswer } from "@opencode-ai/sdk/v2"
+import type { DockQuestionRequest } from "@/pages/session/blockers/use-session-blockers"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
@@ -98,7 +99,7 @@ function Option(props: {
   )
 }
 
-export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit: () => void }> = (props) => {
+export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSubmit: () => void }> = (props) => {
   const sdk = useSDK()
   const language = useLanguage()
 
@@ -202,14 +203,64 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     })
   })
 
+  const isExternalResultPath = () =>
+    typeof props.request.messageID === "string" && typeof props.request.callID === "string"
+
   const fail = (err: unknown) => {
+    // External-result path: route handler returns typed status codes. Surface a
+    // dedicated copy so the user understands whether to retry, reload, or
+    // accept that another client answered.
+    const status = (err as { response?: { status?: number } } | undefined)?.response?.status
+    if (isExternalResultPath() && typeof status === "number") {
+      if (status === 404) {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: language.t("session.question.error.staleSession"),
+        })
+        return
+      }
+      if (status === 409) {
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: language.t("session.question.error.alreadyAnswered"),
+        })
+        return
+      }
+      if (status === 422 || status === 400) {
+        const body = (err as { error?: unknown } | undefined)?.error
+        const detail =
+          typeof body === "object" && body !== null && "error" in body
+            ? String((body as { error?: unknown }).error ?? "")
+            : err instanceof Error
+              ? err.message
+              : String(err)
+        showToast({
+          title: language.t("common.requestFailed"),
+          description: detail || language.t("session.question.error.invalidPayload"),
+        })
+        return
+      }
+    }
     const message = err instanceof Error ? err.message : String(err)
     showToast({ title: language.t("common.requestFailed"), description: message })
   }
 
   const replyMutation = useMutation(() => ({
-    mutationFn: (answers: QuestionAnswer[]) =>
-      sdk.client.question.reply({ requestID: props.request.id, questionReply: { answers } }),
+    mutationFn: async (answers: QuestionAnswer[]): Promise<void> => {
+      if (isExternalResultPath()) {
+        await sdk.client.session.toolRespond({
+          sessionID: props.request.sessionID,
+          body: {
+            kind: "submit",
+            messageID: props.request.messageID!,
+            callID: props.request.callID!,
+            payload: { answers },
+          },
+        })
+        return
+      }
+      await sdk.client.question.reply({ requestID: props.request.id, questionReply: { answers } })
+    },
     onMutate: () => {
       props.onSubmit()
     },
@@ -221,7 +272,20 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   }))
 
   const rejectMutation = useMutation(() => ({
-    mutationFn: () => sdk.client.question.reject({ requestID: props.request.id }),
+    mutationFn: async (): Promise<void> => {
+      if (isExternalResultPath()) {
+        await sdk.client.session.toolRespond({
+          sessionID: props.request.sessionID,
+          body: {
+            kind: "dismiss",
+            messageID: props.request.messageID!,
+            callID: props.request.callID!,
+          },
+        })
+        return
+      }
+      await sdk.client.question.reject({ requestID: props.request.id })
+    },
     onMutate: () => {
       props.onSubmit()
     },

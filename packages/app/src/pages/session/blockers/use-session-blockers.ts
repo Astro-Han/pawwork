@@ -13,6 +13,12 @@ import { resolveQuestionRecoverySnapshot } from "./question-recovery-snapshot"
 import { createQuestionRefetchRunner } from "./question-refetch-runner"
 import { refetchPendingQuestionsForSession } from "./question-reconcile"
 import { sessionPermissionRequest, sessionQuestionBlockerRequest, sessionQuestionRequest } from "./request-tree"
+import {
+  type DockQuestionRequest,
+  findRunningExternalResultQuestion,
+} from "./running-external-result-question"
+
+export type { DockQuestionRequest }
 
 export function createSessionBlockers(input: {
   sessionID: () => string | undefined
@@ -28,15 +34,22 @@ export function createSessionBlockers(input: {
     responding: undefined as string | undefined,
   })
 
-  const questionRequest = createMemo(() => {
-    // Legacy paths (sync.data.blocker + sync.data.question). When the
-    // PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT flag is on, neither is populated
-    // and the dock will be empty. Full dock wire-up (synthesise a
-    // QuestionRequest from running question tool parts in sync.data.message
-    // with metadata.externalResultReady, route submissions through
-    // POST /session/:sessionID/tool/respond) lands in PR B alongside SDK
-    // regeneration. Until then flag-on UX is API-only; PR A's E2E exercises
-    // the route via fetch.
+  const questionRequest = createMemo<DockQuestionRequest | undefined>(() => {
+    const sid = activeSessionID()
+    if (sid) {
+      // New external-result path: tool-part driven, no separate registry. When
+      // the flag is on, this selector returns a synthesised dock request; the
+      // dock branches its submit handler on the presence of messageID/callID.
+      const external = findRunningExternalResultQuestion({
+        sessionID: sid,
+        messages: sync.data.message[sid],
+        partsByMessageID: sync.data.part,
+      })
+      if (external) return external
+    }
+    // Legacy paths (sync.data.blocker + sync.data.question). Stages 5 and 6
+    // delete these data sources entirely; until then they remain the flag-off
+    // fallback so a feature-flag flip back is bit-for-bit safe.
     return (
       sessionQuestionBlockerRequest(sync.data.session, sync.data.blocker, activeSessionID()) ??
       sessionQuestionRequest(sync.data.session, sync.data.question, activeSessionID())
