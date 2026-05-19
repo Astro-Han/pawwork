@@ -17,7 +17,7 @@ import { makeEventListener } from "@solid-primitives/event-listener"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
-import { persisted } from "@/utils/persist"
+import { Persist, persisted, removePersisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -54,6 +54,12 @@ import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
 import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
+import {
+  runHomepageMigration,
+  HOMEPAGE_MIGRATION_SENTINEL_KEY,
+  type LegacyHomepagePromptStore,
+} from "@/components/prompt-input/homepage-migration"
+import { usePortableDraft } from "@/components/prompt-input/portable-draft"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1716,6 +1722,72 @@ export default function Layout(props: ParentProps) {
 
     handleDeepLinks(drainPendingDeepLinks(window))
     makeEventListener(window, deepLinkEvent, handler as EventListener)
+  })
+
+  // Run the v7 homepage-draft migration once at app boot (fire-and-forget).
+  onMount(() => {
+    const directory = currentDir()
+    if (!directory) return
+
+    const portable = usePortableDraft()
+    const sentinelTarget = Persist.global(HOMEPAGE_MIGRATION_SENTINEL_KEY)
+    const workspaceTarget = Persist.workspace(directory, "prompt")
+
+    // Build real implementations of the injectable deps against Persist APIs.
+    const isDesktop = platform.platform === "desktop" && !!platform.storage
+
+    const readRaw = async (target: { storage?: string; key: string }): Promise<string | null> => {
+      if (isDesktop) {
+        return platform.storage?.(target.storage)?.getItem(target.key) ?? null
+      }
+      const { localStorageWithPrefix, localStorageDirect } = await import("@/utils/persist-local-storage")
+      const store = target.storage ? localStorageWithPrefix(target.storage) : localStorageDirect()
+      return store.getItem(target.key)
+    }
+
+    const writeRaw = async (target: { storage?: string; key: string }, value: string): Promise<void> => {
+      if (isDesktop) {
+        await platform.storage?.(target.storage)?.setItem(target.key, value)
+        return
+      }
+      const { localStorageWithPrefix, localStorageDirect } = await import("@/utils/persist-local-storage")
+      const store = target.storage ? localStorageWithPrefix(target.storage) : localStorageDirect()
+      store.setItem(target.key, value)
+    }
+
+    void runHomepageMigration({
+      portable,
+      currentDirectory: directory,
+      readSentinel: async () => {
+        const raw = await readRaw(sentinelTarget)
+        if (!raw) return null
+        try {
+          return JSON.parse(raw) as import("@/components/prompt-input/homepage-migration").MigrationSentinel
+        } catch {
+          return null
+        }
+      },
+      writeSentinel: async (sentinel) => {
+        await writeRaw(sentinelTarget, JSON.stringify(sentinel))
+      },
+      loadLegacyHomepage: async (dir) => {
+        const target = Persist.workspace(dir, "prompt")
+        const raw = await readRaw(target)
+        if (!raw) return null
+        try {
+          return JSON.parse(raw) as LegacyHomepagePromptStore
+        } catch {
+          return null
+        }
+      },
+      clearLegacyHomepage: async (dir) => {
+        const target = Persist.workspace(dir, "prompt")
+        removePersisted(target, platform)
+      },
+    }).catch((err) => {
+      // Log diagnostic; migration retries automatically on next boot.
+      console.warn("[homepage-migration] unexpected failure", err)
+    })
   })
 
   async function renameProject(project: LocalProject, next: string) {
