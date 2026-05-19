@@ -61,10 +61,10 @@ body:
     id: execution_mode
     attributes:
       label: Execution mode
-      description: Pick the safest starting mode.
+      description: Pick the safest starting mode. Each option defines exactly what the agent must do next on this issue.
       options:
-        - Human review required before code changes
-        - Agent should investigate and propose a plan first
-        - Agent can implement directly
+        - Wait for human approval — the agent must not write code or open a PR until a human leaves an explicit "approved" comment on this issue
+        - Investigate and propose a plan first — the agent must post the plan as an issue comment and wait for an explicit "approved" comment before writing code or opening a PR
+        - Implement and open a PR — the agent makes the requested changes on a feature branch and opens a PR following the standard PR template without requiring prior issue-comment approval. The agent must not push directly to dev, and the resulting PR still requires human approval to merge.
     validations:
       required: true
