@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { Question } from "../question"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import DESCRIPTION from "./question.txt"
 
 export const Parameters = Schema.Struct({
@@ -17,6 +18,26 @@ export const Parameters = Schema.Struct({
 
 type Metadata = {
   answers: ReadonlyArray<Question.Answer>
+  dismissed?: boolean
+}
+
+// Shape of the value the route resolves the Deferred with on submit.
+// Mirrors the legacy Question.Reply payload — the route forwards
+// validated answers as-is.
+type ExternalSubmitValue = {
+  answers: ReadonlyArray<ReadonlyArray<string>>
+}
+
+function formatAnswers(
+  questions: Schema.Schema.Type<typeof Parameters>["questions"],
+  answers: ReadonlyArray<ReadonlyArray<string>>,
+) {
+  return questions
+    .map((q, i) => {
+      const answer = answers[i] ?? []
+      return `"${q.question}"="${answer.length ? answer.join(", ") : "Skipped by user"}"`
+    })
+    .join(", ")
 }
 
 export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Service>(
@@ -27,8 +48,36 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
     return {
       description: DESCRIPTION,
       parameters: Parameters,
+      // Declared statically so the renderer / dock can scope behavior to
+      // tools that suspend on a user reply. The actual flag-on branch is
+      // selected per-execute via PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT.
+      externalResult: true,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
+          if (Flag.PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT && ctx.externalResult) {
+            // Flag-on path: suspend on the external-result Deferred. The
+            // route resolves with a discriminated union we narrow here.
+            // ExternalResultError (abort/shutdown) propagates as a typed
+            // failure to the runner's writer; we do NOT catch it.
+            const outcome = yield* ctx.externalResult({ inputSnapshot: params })
+            if (outcome.kind === "dismissed") {
+              return {
+                title: "Question dismissed",
+                output: "User dismissed the question.",
+                metadata: { answers: [], dismissed: true },
+              }
+            }
+            const submitted = outcome.value as ExternalSubmitValue
+            const answers = submitted.answers
+            const formatted = formatAnswers(params.questions, answers)
+            return {
+              title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
+              output: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`,
+              metadata: { answers },
+            }
+          }
+
+          // Legacy path (flag off). Bit-for-bit identical to pre-PR-A.
           const answers = yield* question.ask({
             sessionID: ctx.sessionID,
             questions: params.questions,
@@ -38,21 +87,14 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
             signal: ctx.abort,
           })
 
-          const formatted = params.questions
-            .map((q, i) => {
-              const answer = answers[i] ?? []
-              return `"${q.question}"="${answer.length ? answer.join(", ") : "Skipped by user"}"`
-            })
-            .join(", ")
+          const formatted = formatAnswers(params.questions, answers)
 
           return {
             title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
             output: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`,
-            metadata: {
-              answers,
-            },
+            metadata: { answers },
           }
-        }).pipe(Effect.orDie),
+        }),
     }
   }),
 )
