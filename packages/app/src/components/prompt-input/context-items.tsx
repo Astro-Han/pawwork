@@ -62,7 +62,6 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                   data-component="prompt-context-chip"
                   data-selected={selected ? "" : undefined}
                   data-external={external ? "" : undefined}
-                  aria-disabled={external ? "true" : undefined}
                   classList={{
                     "group inline-flex shrink-0 items-center gap-1 transition-colors": true,
                     "h-[26px] rounded-full pl-2 pr-1 max-w-[200px]": true,

@@ -3,9 +3,11 @@ import { isExternalChip } from "./path-canonical"
 
 // isExternalChip is the pure helper that backs the external-chip guard in
 // context-items.tsx and the defensive short-circuit in comment-routing.ts.
-// Component-level rendering tests (aria-disabled attribute, click no-op) are
+// Component-level rendering tests (data-external attribute, click no-op) are
 // deferred to T10 E2E because Bun's SolidJS harness requires non-trivial mock
 // scaffolding; the logic tested here covers the decision boundary completely.
+// (aria-disabled was dropped from the chip wrapper — its inner remove button
+// stays operable, so advertising the container as disabled was misleading.)
 
 describe("isExternalChip", () => {
   test("relative path returns false (never external)", () => {
