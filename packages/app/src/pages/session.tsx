@@ -375,7 +375,6 @@ export default function Page() {
     onModeChange: (mode: "normal" | "shell") => void
   }) => (
     <SessionPageComposerRegion
-      variant="session"
       state={composer}
       ready={!deferRender() && sessionActionReady()}
       actionReady={submitReady()}
@@ -494,7 +493,7 @@ export default function Page() {
       onRetryOpenSession={retryOpenRouteSession}
       onOpenNewSession={openNewRouteSession}
       composerSession={renderComposerRegion()}
-      composerHome={(ctx) => renderHomeComposerRegion(ctx)}
+      composerHome={renderHomeComposerRegion}
       canReview={canReview}
       reviewDiffs={reviewPanel.diffs}
       hasReview={reviewPanel.hasReview}

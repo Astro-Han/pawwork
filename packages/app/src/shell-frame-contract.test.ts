@@ -157,8 +157,7 @@ test("session composer is docked outside the scroll-clipped timeline region", ()
 
   expect(session).toContain("const renderComposerRegion = (")
   expect(session).toContain("const renderHomeComposerRegion = (")
-  expect(session).toContain('variant="session"')
-  expect(session).not.toContain('| "home"')
+  expect(session).toMatch(/composerHome=\{[^}]*renderHomeComposerRegion/)
   expect(sessionMainView).toContain('<div class="flex-1 min-h-0 overflow-hidden">')
   expect(sessionMainView).toContain(
     "</div>\n          <Show when={props.activeSessionID && !showSessionOpeningState()}>",

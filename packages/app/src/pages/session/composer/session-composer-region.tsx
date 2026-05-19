@@ -18,7 +18,6 @@ import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
 
 export function SessionComposerRegion(props: {
-  variant?: "session"
   state: SessionComposerState
   ready: boolean
   actionReady?: boolean
