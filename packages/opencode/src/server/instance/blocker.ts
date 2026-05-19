@@ -5,22 +5,21 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { SessionBlocker } from "@/session/blocker"
 import { lazy } from "../../util/lazy"
 import { Env } from "@/env"
+import { SessionLiveness } from "@/session/liveness"
+import { Effect } from "effect"
 
 const e2eBlockerRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 export const BlockerRoutes = lazy(() =>
   new Hono()
-    .post(
-      "/__e2e/publish-upserted",
-      async (c) => {
-        if (!e2eBlockerRoutesEnabled()) return c.notFound()
-        const json = await c.req.json()
-        await AppRuntime.runPromise(
-          SessionBlocker.Service.use((svc) => svc.upsertQuestion(SessionBlocker.QuestionRequest.parse(json.request))),
-        )
-        return c.body(null, 204)
-      },
-    )
+    .post("/__e2e/publish-upserted", async (c) => {
+      if (!e2eBlockerRoutesEnabled()) return c.notFound()
+      const json = await c.req.json()
+      await AppRuntime.runPromise(
+        SessionBlocker.Service.use((svc) => svc.upsertQuestion(SessionBlocker.QuestionRequest.parse(json.request))),
+      )
+      return c.body(null, 204)
+    })
     .get(
       "/",
       describeRoute({
@@ -39,7 +38,24 @@ export const BlockerRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const blockers = await AppRuntime.runPromise(SessionBlocker.Service.use((svc) => svc.list()))
+        const blockers = await AppRuntime.runPromise(
+          SessionBlocker.Service.use((svc) =>
+            svc.list().pipe(
+              Effect.flatMap((items) => {
+                const active = SessionLiveness.activeSessionIDs(items.map((item) => item.sessionID))
+                const inactiveSessionIDs = new Set(
+                  items.filter((item) => !active.has(item.sessionID)).map((item) => item.sessionID),
+                )
+                return Effect.gen(function* () {
+                  for (const sessionID of inactiveSessionIDs) {
+                    yield* svc.clearSession(sessionID, "dangling_session")
+                  }
+                  return items.filter((item) => active.has(item.sessionID))
+                })
+              }),
+            ),
+          ),
+        )
         return c.json(blockers)
       },
     ),

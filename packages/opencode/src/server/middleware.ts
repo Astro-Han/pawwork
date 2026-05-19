@@ -15,9 +15,6 @@ import { ServerAuth } from "./auth"
 const log = Log.create({ service: "server" })
 
 export const ErrorMiddleware: ErrorHandler = (err, c) => {
-  log.error("failed", {
-    error: err,
-  })
   if (err instanceof NamedError) {
     let status: ContentfulStatusCode
     if (err instanceof NotFoundError) status = 404
@@ -25,8 +22,16 @@ export const ErrorMiddleware: ErrorHandler = (err, c) => {
     else if (err.name === "ProviderAuthValidationFailed") status = 400
     else if (err.name.startsWith("Worktree")) status = 400
     else status = 500
+    if (!(err instanceof NotFoundError)) {
+      log.error("failed", {
+        error: err,
+      })
+    }
     return c.json(err.toObject(), { status })
   }
+  log.error("failed", {
+    error: err,
+  })
   if (err instanceof Session.BusyError) {
     return c.json(new NamedError.Unknown({ message: err.message }).toObject(), { status: 400 })
   }

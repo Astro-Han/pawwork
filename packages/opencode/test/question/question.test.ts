@@ -11,7 +11,11 @@ import { AppRuntime } from "../../src/effect/app-runtime"
 const ask = (
   input: { sessionID: SessionID; questions: Question.Info[]; tool?: { messageID: any; callID: string } },
   options?: { signal?: AbortSignal },
-) => AppRuntime.runPromise(Question.Service.use((svc) => svc.ask(input)), options)
+) =>
+  AppRuntime.runPromise(
+    Question.Service.use((svc) => svc.ask(input)),
+    options,
+  )
 
 const list = () => AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))
 
@@ -20,7 +24,13 @@ const reply = (input: { requestID: QuestionID; answers: Question.Answer[] }) =>
 
 const reject = (id: QuestionID) => AppRuntime.runPromise(Question.Service.use((svc) => svc.reject(id)))
 
+const clearQuestionsForSession = (sessionID: SessionID) =>
+  AppRuntime.runPromise(Question.Service.use((svc) => svc.clearSession(sessionID, "session_deleted")))
+
 const listBlockers = () => AppRuntime.runPromise(SessionBlocker.Service.use((svc) => svc.list()))
+
+const clearBlockersForSession = (sessionID: SessionID) =>
+  AppRuntime.runPromise(SessionBlocker.Service.use((svc) => svc.clearSession(sessionID, "session_deleted")))
 
 afterEach(async () => {
   await Instance.disposeAll()
@@ -45,6 +55,15 @@ async function waitForPending(timeoutMs = 1000) {
   }
   expect(await list(), "expected exactly one pending question before continuing").toHaveLength(1)
   throw new Error("unreachable: assertion above always throws on miss")
+}
+
+async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 1000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (await check()) return
+    await Bun.sleep(10)
+  }
+  throw new Error("timed out waiting for condition")
 }
 
 test("ask - returns pending promise", async () => {
@@ -137,6 +156,86 @@ test("ask - records an awaiting question blocker", async () => {
 
       await rejectAll()
       await promise.catch(() => {})
+    },
+  })
+})
+
+test("clearSession - rejects pending questions and removes associated blockers", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const sessionID = SessionID.make("ses_question_cleanup")
+      const promise = ask({
+        sessionID,
+        questions: [
+          {
+            question: "Continue?",
+            header: "Confirm",
+            options: [
+              { label: "Yes", description: "continue" },
+              { label: "No", description: "stop" },
+            ],
+          },
+        ],
+        tool: { messageID: MessageID.make("msg_question_cleanup"), callID: "call_question_cleanup" },
+      })
+
+      await waitForPending()
+      expect(await listBlockers()).toHaveLength(1)
+
+      await clearQuestionsForSession(sessionID)
+
+      await expect(promise).rejects.toThrow("Question cancelled before the user answered it.")
+      expect(await list()).toEqual([])
+      expect(await listBlockers()).toEqual([])
+    },
+  })
+})
+
+test("SessionBlocker.clearSession removes only blockers for that session", async () => {
+  await using tmp = await tmpdir({ git: true })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const first = ask({
+        sessionID: SessionID.make("ses_blocker_cleanup_a"),
+        questions: [
+          {
+            question: "A?",
+            header: "A",
+            options: [
+              { label: "A", description: "first" },
+              { label: "Skip", description: "skip" },
+            ],
+          },
+        ],
+        tool: { messageID: MessageID.make("msg_blocker_cleanup_a"), callID: "call_a" },
+      })
+      const second = ask({
+        sessionID: SessionID.make("ses_blocker_cleanup_b"),
+        questions: [
+          {
+            question: "B?",
+            header: "B",
+            options: [
+              { label: "B", description: "second" },
+              { label: "Skip", description: "skip" },
+            ],
+          },
+        ],
+        tool: { messageID: MessageID.make("msg_blocker_cleanup_b"), callID: "call_b" },
+      })
+
+      await waitFor(async () => (await listBlockers()).length === 2)
+      await clearBlockersForSession(SessionID.make("ses_blocker_cleanup_a"))
+
+      const blockers = await listBlockers()
+      expect(blockers).toHaveLength(1)
+      expect(blockers[0]!.sessionID).toBe(SessionID.make("ses_blocker_cleanup_b"))
+
+      await rejectAll()
+      await Promise.all([first.catch(() => {}), second.catch(() => {})])
     },
   })
 })
@@ -465,7 +564,10 @@ test("list - returns all pending requests", async () => {
           {
             question: "Question 1?",
             header: "Q1",
-            options: [{ label: "A", description: "A" }, { label: "B", description: "B" }],
+            options: [
+              { label: "A", description: "A" },
+              { label: "B", description: "B" },
+            ],
           },
         ],
       })
@@ -476,7 +578,10 @@ test("list - returns all pending requests", async () => {
           {
             question: "Question 2?",
             header: "Q2",
-            options: [{ label: "B", description: "B" }, { label: "C", description: "C" }],
+            options: [
+              { label: "B", description: "B" },
+              { label: "C", description: "C" },
+            ],
           },
         ],
       })
@@ -514,7 +619,10 @@ test("questions stay isolated by directory", async () => {
           {
             question: "Question 1?",
             header: "Q1",
-            options: [{ label: "A", description: "A" }, { label: "B", description: "B" }],
+            options: [
+              { label: "A", description: "A" },
+              { label: "B", description: "B" },
+            ],
           },
         ],
       }),
@@ -529,7 +637,10 @@ test("questions stay isolated by directory", async () => {
           {
             question: "Question 2?",
             header: "Q2",
-            options: [{ label: "B", description: "B" }, { label: "C", description: "C" }],
+            options: [
+              { label: "B", description: "B" },
+              { label: "C", description: "C" },
+            ],
           },
         ],
       }),
@@ -769,7 +880,10 @@ test("pending question rejects on instance dispose", async () => {
           {
             question: "Dispose me?",
             header: "Dispose",
-            options: [{ label: "Yes", description: "Yes" }, { label: "No", description: "No" }],
+            options: [
+              { label: "Yes", description: "Yes" },
+              { label: "No", description: "No" },
+            ],
           },
         ],
       })
@@ -804,7 +918,10 @@ test("pending question rejects on instance reload", async () => {
           {
             question: "Reload me?",
             header: "Reload",
-            options: [{ label: "Yes", description: "Yes" }, { label: "No", description: "No" }],
+            options: [
+              { label: "Yes", description: "Yes" },
+              { label: "No", description: "No" },
+            ],
           },
         ],
       })

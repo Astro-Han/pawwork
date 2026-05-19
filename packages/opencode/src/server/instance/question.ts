@@ -11,10 +11,11 @@ import { Log } from "@opencode-ai/core/util/log"
 import z from "zod"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { SessionLiveness } from "@/session/liveness"
+import { Effect } from "effect"
 
 const log = Log.create({ service: "server" })
-const e2eQuestionRoutesEnabled = () =>
-  Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
+const e2eQuestionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 export const QuestionRoutes = lazy(() =>
   new Hono()
@@ -81,7 +82,24 @@ export const QuestionRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const questions = await AppRuntime.runPromise(Question.Service.use((svc) => svc.list()))
+        const questions = await AppRuntime.runPromise(
+          Question.Service.use((svc) =>
+            svc.list().pipe(
+              Effect.flatMap((items) => {
+                const active = SessionLiveness.activeSessionIDs(items.map((item) => item.sessionID))
+                const inactiveSessionIDs = new Set(
+                  items.filter((item) => !active.has(item.sessionID)).map((item) => item.sessionID),
+                )
+                return Effect.gen(function* () {
+                  for (const sessionID of inactiveSessionIDs) {
+                    yield* svc.clearSession(sessionID, "dangling_session")
+                  }
+                  return items.filter((item) => active.has(item.sessionID))
+                })
+              }),
+            ),
+          ),
+        )
         return c.json(questions)
       },
     )
