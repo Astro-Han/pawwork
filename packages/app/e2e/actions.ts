@@ -749,32 +749,44 @@ export async function seedSessionQuestion(
     "After calling the tool, wait for the user response.",
   ].join("\n")
 
+  // Poll session messages for a running `question` tool part with
+  // externalResultReady=true; the new tool flow drives the dock via
+  // session messages, not a separate Question.ask state machine.
   const result = await seed({
     sdk,
     sessionID: input.sessionID,
     prompt: text,
     timeout: 30_000,
     probe: async () => {
-      const list = await sdk.question.list().then((x) => x.data ?? [])
-      return list.find((item) => item.sessionID === input.sessionID && item.questions[0]?.header === first.header)
+      const messages = await sdk.session.messages({ sessionID: input.sessionID, limit: 50 }).then((x) => x.data ?? [])
+      for (const message of messages) {
+        for (const part of message.parts) {
+          if (part.type !== "tool") continue
+          if (part.tool !== "question") continue
+          if (!("state" in part) || !part.state || typeof part.state !== "object") continue
+          const state = part.state as { status?: string; input?: { questions?: Array<{ header?: string }> }; metadata?: { externalResultReady?: boolean } }
+          if (state.status !== "running") continue
+          if (state.metadata?.externalResultReady !== true) continue
+          const header = state.input?.questions?.[0]?.header
+          if (header !== first.header) continue
+          return { id: `${part.messageID}:${part.callID}`, messageID: part.messageID, callID: part.callID }
+        }
+      }
+      return undefined
     },
   })
 
   if (!result) {
-    const [questions, status] = await Promise.all([
-      sdk.question.list().then((x) => x.data ?? []).catch((error) => ({ error: String(error) })),
-      sdk.session.status().then((x) => x.data ?? {}).catch((error) => ({ error: String(error) })),
-    ])
+    const status = await sdk.session.status().then((x) => x.data ?? {}).catch((error) => ({ error: String(error) }))
     throw new Error(
       `Timed out seeding question request: ${JSON.stringify({
         sessionID: input.sessionID,
         wantedHeader: first.header,
-        questions,
         status,
       })}`,
     )
   }
-  return { id: result.id }
+  return result
 }
 
 export async function seedSessionTask(
@@ -836,19 +848,16 @@ export async function seedSessionTask(
 }
 
 export async function clearSessionDockSeed(sdk: ReturnType<typeof createSdk>, sessionID: string) {
-  const [questions, permissions] = await Promise.all([
-    sdk.question.list().then((x) => x.data ?? []),
-    sdk.permission.list().then((x) => x.data ?? []),
-  ])
-
-  await Promise.all([
-    ...questions
-      .filter((item) => item.sessionID === sessionID)
-      .map((item) => sdk.question.reject({ requestID: item.id }).catch(() => undefined)),
-    ...permissions
+  const permissions = await sdk.permission.list().then((x) => x.data ?? [])
+  await Promise.all(
+    permissions
       .filter((item) => item.sessionID === sessionID)
       .map((item) => sdk.permission.reply({ requestID: item.id, reply: "reject" }).catch(() => undefined)),
-  ])
+  )
+
+  // The question tool resolves naturally when its session is aborted (the
+  // ExternalResult Deferred is rejected). Cleanup runs from withDockSession
+  // which removes the session — no extra dismiss call needed.
 
   return true
 }
