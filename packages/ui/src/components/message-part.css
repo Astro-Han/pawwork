@@ -198,11 +198,14 @@
   }
 
   .user-message-command-mark {
+    display: inline;
+  }
+
+  .user-message-command-prefix {
     display: inline-flex;
     align-items: baseline;
     gap: 4px;
-    white-space: normal;
-    word-break: break-word;
+    white-space: nowrap;
   }
 
   .user-message-command-label {
@@ -212,6 +215,7 @@
 
   .user-message-command-args {
     color: var(--fg-strong);
+    overflow-wrap: anywhere;
   }
 
 }

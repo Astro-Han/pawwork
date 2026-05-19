@@ -231,8 +231,10 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
             <div data-slot="user-message-body">
               <div data-slot="user-message-text">
                 <span data-slot="user-message-command-mark" class="user-message-command-mark">
-                  <CommandIcon icon={inv().markIcon} />
-                  <span class="user-message-command-label">{inv().displayLabel}</span>
+                  <span class="user-message-command-prefix">
+                    <CommandIcon icon={inv().markIcon} />
+                    <span class="user-message-command-label">{inv().displayLabel}</span>
+                  </span>
                   <Show when={inv().args}>
                     <span class="user-message-command-args"> {inv().args}</span>
                   </Show>
