@@ -146,13 +146,24 @@ export function classifyRetry(error: Err): RetryClassification | undefined {
 export function policy(opts: {
   parse: (error: unknown) => Err
   set: (input: { attempt: number; message: string; next: number }) => Effect.Effect<void>
+  /**
+   * Required. Called once when policy reaches a terminal classification
+   * (currently: free_quota_exhausted) so the caller can persist it to ctx for
+   * halt() to read. Sync callback — Schedule.fromStepWithMetadata's step return
+   * union does not include Effect<Cause>, so terminal signaling has to be a side
+   * effect we can invoke synchronously before returning Cause.done.
+   */
+  signalTerminal: (classification: RetryClassification) => void
 }) {
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       const error = opts.parse(meta.input)
       const classification = classifyRetry(error)
       if (!classification) return Cause.done(meta.attempt)
-      if (retryAction(classification) === "stop") return Cause.done(meta.attempt)
+      if (retryAction(classification) === "stop") {
+        opts.signalTerminal(classification)
+        return Cause.done(meta.attempt)
+      }
       if (meta.attempt >= RETRY_MAX_ATTEMPTS) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
         const wait = delay(meta.attempt, MessageV2.APIError.isInstance(error) ? error : undefined)
