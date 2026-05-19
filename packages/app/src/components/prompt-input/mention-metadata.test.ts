@@ -138,11 +138,13 @@ describe("resolveCommentMentions", () => {
     // Remove the first occurrence; now only the second remains
     const modified = "gone first then @src/a.ts second"
     const result = resolveCommentMentions({ comment: modified, metadata })
+    // At most one resolves; both metadata entries are same-name so a sloppy
+    // implementation could double-emit. Lock that down.
+    expect(result.length).toBeLessThanOrEqual(1)
     // metadata[0] was first occurrence — its range no longer matches, occurrence 0 gone
     // metadata[1] was second occurrence — now occurrence 0 in modified; fingerprint won't match
     // either metadata[0] or [1] may match depending on context window; the key assertion
     // is that at most one resolves (the second entry's fingerprint matches the sole occurrence)
-    // We mainly assert no crash and correct resolved path when there is a match
     for (const match of result) {
       expect(match.resolvedPath).toBe("/repo/src/a.ts")
     }
