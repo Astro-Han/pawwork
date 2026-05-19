@@ -31,6 +31,7 @@ import type {
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
   ExperimentalWorkspaceStatusResponses,
+  ExternalResultListResponses,
   FileListResponses,
   FilePartInput,
   FilePartSource,
@@ -3044,6 +3045,38 @@ export class Permission extends HeyApiClient {
   }
 }
 
+export class ExternalResult extends HeyApiClient {
+  /**
+   * List pending external-result tool calls
+   *
+   * Return the (session, message, part) trio for every external-result Deferred currently awaiting a user response. Used by the app to hydrate the dock after reload / cold-open.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<ExternalResultListResponses, unknown, ThrowOnError>({
+      url: "/external-result",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Oauth extends HeyApiClient {
   /**
    * OAuth authorize
@@ -4252,6 +4285,11 @@ export class OpencodeClient extends HeyApiClient {
   private _permission?: Permission
   get permission(): Permission {
     return (this._permission ??= new Permission({ client: this.client }))
+  }
+
+  private _externalResult?: ExternalResult
+  get externalResult(): ExternalResult {
+    return (this._externalResult ??= new ExternalResult({ client: this.client }))
   }
 
   private _provider?: Provider

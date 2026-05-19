@@ -883,6 +883,69 @@ test("child session question request blocks parent dock and unblocks after submi
   )
 })
 
+test("child question dock survives parent-page reload via external-result hydrate", async ({ page, llm, project }) => {
+  // Regression: deleting question.asked / replied / rejected from the SSE
+  // replay buffer (Stage 6) made the new message.part.updated path the only
+  // signal that a question is pending. SSE message.part.updated is not in
+  // the replay list, so a parent-page reload (or any cold open) would lose
+  // the child agent's question dock. The fix is the GET /external-result/
+  // pending hydrate fetched during bootstrap; this test guards that path.
+  const questions = [
+    {
+      header: "Reload check",
+      question: "Pick after reload",
+      options: [
+        { label: "Continue", description: "Continue child" },
+        { label: "Stop", description: "Stop child" },
+      ],
+    },
+  ]
+  await project.open()
+  await withDockSession(
+    project.sdk,
+    "e2e composer dock child question reload",
+    async (session) => {
+      await project.gotoSession(session.id)
+
+      const child = await project.sdk.session
+        .create({
+          title: "e2e composer dock child question reload",
+          parentID: session.id,
+        })
+        .then((r) => r.data)
+      if (!child?.id) throw new Error("Child session create did not return an id")
+      project.trackSession(child.id)
+
+      try {
+        await withDockSeed(project.sdk, child.id, async () => {
+          await llm.toolMatch(inputMatch({ questions }), "question", { questions })
+          await seedSessionQuestion(project.sdk, {
+            sessionID: child.id,
+            questions,
+          })
+
+          const dock = page.locator(questionDockSelector)
+          await expectQuestionBlocked(page)
+
+          // Hard reload: clears the in-memory SolidJS store and starts a
+          // fresh SSE connection (no replay cursor). The dock can only come
+          // back via the bootstrap GET /external-result/pending fetch.
+          await page.goto(page.url())
+          await expectQuestionBlocked(page)
+
+          await dock.locator('[data-slot="question-option"]').first().click()
+          await dock.getByRole("button", { name: /submit/i }).click()
+
+          await expectQuestionOpen(page)
+        })
+      } finally {
+        await cleanupSession({ sdk: project.sdk, sessionID: child.id })
+      }
+    },
+    { trackSession: project.trackSession },
+  )
+})
+
 test("child session permission request blocks parent dock and supports allow once", async ({ page, project }) => {
   await project.open()
   await withDockSession(

@@ -175,6 +175,45 @@ describe("tool.external-result.Registry shutdown semantics", () => {
   })
 })
 
+describe("tool.external-result.Registry pending snapshot list", () => {
+  test("list returns every pending entry with its identifying keys + snapshot", async () => {
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID: "m1", callID: "c1", inputSnapshot: { questions: ["q1"] } }),
+    )
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionB, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } }),
+    )
+    const snapshots = ExternalResult.list()
+    expect(snapshots.length).toBe(2)
+    expect(snapshots).toEqual(
+      expect.arrayContaining([
+        { sessionID: sessionA, messageID: "m1", callID: "c1", inputSnapshot: { questions: ["q1"] } },
+        { sessionID: sessionB, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } },
+      ]),
+    )
+  })
+
+  test("list excludes resolved tombstones and not_found entries", async () => {
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID: "m1", callID: "c1", inputSnapshot: { questions: ["q1"] } }),
+    )
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } }),
+    )
+    await runEffect(
+      ExternalResult.resolveIfPending({ sessionID: sessionA, messageID: "m1", callID: "c1", value: {} }),
+    )
+    const snapshots = ExternalResult.list()
+    expect(snapshots).toEqual([
+      { sessionID: sessionA, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } },
+    ])
+  })
+
+  test("list returns an empty array when there is nothing pending", () => {
+    expect(ExternalResult.list()).toEqual([])
+  })
+})
+
 describe("tool.external-result.Registry parallel sessions", () => {
   test("two sessions each have their own pending entry; independent lifecycle", async () => {
     await runEffect(

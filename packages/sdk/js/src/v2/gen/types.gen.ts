@@ -4993,6 +4993,29 @@ export type PermissionListResponses = {
 
 export type PermissionListResponse = PermissionListResponses[keyof PermissionListResponses]
 
+export type ExternalResultListData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/external-result"
+}
+
+export type ExternalResultListResponses = {
+  /**
+   * Pending external-result tool calls
+   */
+  200: Array<{
+    session: Session
+    message: Message
+    part: Part
+  }>
+}
+
+export type ExternalResultListResponse = ExternalResultListResponses[keyof ExternalResultListResponses]
+
 export type ProviderListData = {
   body?: never
   path?: never
