@@ -332,25 +332,18 @@ export default function Layout(props: ParentProps) {
           return
         }
 
-        if (
-          e.details?.type === "question.replied" ||
-          e.details?.type === "question.rejected" ||
-          e.details?.type === "permission.replied"
-        ) {
+        if (e.details?.type === "permission.replied") {
           const props = e.details.properties as { sessionID: string }
           const sessionKey = `${e.name}:${props.sessionID}`
           alertedAtBySession.delete(sessionKey)
           return
         }
 
-        if (e.details?.type !== "permission.asked" && e.details?.type !== "question.asked") return
-        const title =
-          e.details.type === "permission.asked"
-            ? language.t("notification.permission.title")
-            : language.t("notification.question.title")
+        if (e.details?.type !== "permission.asked") return
+        const title = language.t("notification.permission.title")
         const directory = e.name
         const props = e.details.properties
-        if (e.details.type === "permission.asked" && permission.autoResponds(e.details.properties, directory)) return
+        if (permission.autoResponds(e.details.properties, directory)) return
 
         const [store] = globalSync.child(directory, { bootstrap: false })
         const session = store.session.find((s) => s.id === props.sessionID)
@@ -358,10 +351,7 @@ export default function Layout(props: ParentProps) {
 
         const sessionTitle = session?.title ?? language.t("command.session.new")
         const projectName = getFilename(directory)
-        const description =
-          e.details.type === "permission.asked"
-            ? language.t("notification.permission.description", { sessionTitle, projectName })
-            : language.t("notification.question.description", { sessionTitle, projectName })
+        const description = language.t("notification.permission.description", { sessionTitle, projectName })
         const href = `/${base64Encode(directory)}/session/${props.sessionID}`
 
         const now = Date.now()
@@ -369,34 +359,18 @@ export default function Layout(props: ParentProps) {
         if (now - lastAlerted < cooldownMs) return
         alertedAtBySession.set(sessionKey, now)
 
-        if (e.details.type === "permission.asked") {
-          if (settings.sounds.permissionsEnabled()) {
-            void playSoundById(settings.sounds.permissions())
-          }
-          if (settings.notifications.permissions()) {
-            // Only notify for background sessions, not the one the user is currently viewing
-            const currentSession = params.id
-            const isCurrentSession =
-              !!currentSession &&
-              workspaceKey(directory) === workspaceKey(currentDir()) &&
-              (props.sessionID === currentSession || session?.parentID === currentSession)
-            if (!isCurrentSession) {
-              void platform.notify(title, description, href)
-            }
-          }
+        if (settings.sounds.permissionsEnabled()) {
+          void playSoundById(settings.sounds.permissions())
         }
-
-        if (e.details.type === "question.asked") {
-          if (settings.notifications.agent()) {
-            // Only notify for background sessions, not the one the user is currently viewing
-            const currentSession = params.id
-            const isCurrentSession =
-              !!currentSession &&
-              workspaceKey(directory) === workspaceKey(currentDir()) &&
-              (props.sessionID === currentSession || session?.parentID === currentSession)
-            if (!isCurrentSession) {
-              void platform.notify(title, description, href)
-            }
+        if (settings.notifications.permissions()) {
+          // Only notify for background sessions, not the one the user is currently viewing
+          const currentSession = params.id
+          const isCurrentSession =
+            !!currentSession &&
+            workspaceKey(directory) === workspaceKey(currentDir()) &&
+            (props.sessionID === currentSession || session?.parentID === currentSession)
+          if (!isCurrentSession) {
+            void platform.notify(title, description, href)
           }
         }
       })

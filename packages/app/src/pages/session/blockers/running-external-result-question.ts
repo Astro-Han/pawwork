@@ -1,14 +1,27 @@
-import type { Message, Part, QuestionInfo, QuestionRequest } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, Session } from "@opencode-ai/sdk/v2/client"
+
+// QuestionInfo / QuestionRequest used to live in @opencode-ai/sdk/v2 when the
+// question tool was driven by a dedicated server route. The external-result
+// migration deleted those exports; define the dock-facing shapes locally.
+export type QuestionInfo = {
+  question: string
+  header?: string
+  options?: ReadonlyArray<{ label: string; description?: string }>
+  multiple?: boolean
+  custom?: boolean
+}
 
 /**
- * Dock request shape: extends the legacy `QuestionRequest` with optional
- * `messageID` / `callID` for the new external-result path. Presence of those
- * fields means "respond via POST /session/:sessionID/tool/respond"; absence
- * means "legacy `sdk.client.question.reply` / `.reject`".
+ * Dock request shape: a synthetic representation of a running question tool
+ * part. The dock branches its submit handler on the presence of messageID and
+ * callID; this matches the route at POST /session/:sessionID/tool/respond.
  */
-export type DockQuestionRequest = QuestionRequest & {
-  messageID?: string
-  callID?: string
+export type DockQuestionRequest = {
+  id: string
+  sessionID: string
+  questions: QuestionInfo[]
+  messageID: string
+  callID: string
 }
 
 /**
@@ -47,4 +60,46 @@ export function findRunningExternalResultQuestion(input: {
     }
   }
   return undefined
+}
+
+/**
+ * Sidebar helper: returns true when the given session OR any descendant session
+ * has a running external-result question part. Mirrors the dock selector used
+ * by use-session-blockers; the sidebar "asking" pip must match dock visibility
+ * across child agent sessions.
+ */
+export function anyDescendantExternalResultQuestion(input: {
+  sessions: Session[]
+  rootSessionID: string
+  messages: { [sessionID: string]: Message[] | undefined }
+  partsByMessageID: { [messageID: string]: Part[] | undefined }
+}): boolean {
+  const { sessions, rootSessionID, messages, partsByMessageID } = input
+  const childMap = sessions.reduce((acc, item) => {
+    if (!item.parentID) return acc
+    const list = acc.get(item.parentID)
+    if (list) list.push(item.id)
+    else acc.set(item.parentID, [item.id])
+    return acc
+  }, new Map<string, string[]>())
+
+  const seen = new Set([rootSessionID])
+  const stack = [rootSessionID]
+  while (stack.length > 0) {
+    const sid = stack.pop()!
+    const found = findRunningExternalResultQuestion({
+      sessionID: sid,
+      messages: messages[sid],
+      partsByMessageID,
+    })
+    if (found) return true
+    const children = childMap.get(sid)
+    if (!children) continue
+    for (const child of children) {
+      if (seen.has(child)) continue
+      seen.add(child)
+      stack.push(child)
+    }
+  }
+  return false
 }

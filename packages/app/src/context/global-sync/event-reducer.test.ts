@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part, PermissionRequest, Project, QuestionRequest, Session, Todo } from "@opencode-ai/sdk/v2/client"
+import type { Message, Part, PermissionRequest, Project, Session, Todo } from "@opencode-ai/sdk/v2/client"
 import { createStore } from "solid-js/store"
 import type { State } from "./types"
 import { createBlockerTerminalCache } from "./blocker-terminal-cache"
@@ -45,18 +45,6 @@ const permissionRequest = (id: string, sessionID: string, title = id) =>
     always: [],
   }) as PermissionRequest
 
-const questionRequest = (id: string, sessionID: string, title = id) =>
-  ({
-    id,
-    sessionID,
-    questions: [
-      {
-        question: title,
-        header: title,
-        options: [{ label: title, description: title }],
-      },
-    ],
-  }) as QuestionRequest
 
 const baseState = (input: Partial<State> = {}) =>
   ({
@@ -78,8 +66,6 @@ const baseState = (input: Partial<State> = {}) =>
     session_diff: {},
     todo: {},
     permission: {},
-    question: {},
-    blocker: {},
     mcp: {},
     lsp: [],
     vcs: undefined,
@@ -292,7 +278,6 @@ describe("applyDirectoryEvent", () => {
         session_diff: { ses_1: [] },
         todo: { ses_1: [] },
         permission: { ses_1: [] },
-        question: { ses_1: [] },
         session_status: { ses_1: { type: "busy" } },
       }),
     )
@@ -313,7 +298,6 @@ describe("applyDirectoryEvent", () => {
     expect(store.session_diff.ses_1).toBeUndefined()
     expect(store.todo.ses_1).toBeUndefined()
     expect(store.permission.ses_1).toBeUndefined()
-    expect(store.question.ses_1).toBeUndefined()
     expect(store.session_status.ses_1).toBeUndefined()
   })
 
@@ -338,7 +322,6 @@ describe("applyDirectoryEvent", () => {
           session_diff: { [item.info.id]: [] },
           todo: { [item.info.id]: [] },
           permission: { [item.info.id]: [] },
-          question: { [item.info.id]: [] },
           session_status: { [item.info.id]: { type: "busy" } },
         }),
       )
@@ -359,7 +342,6 @@ describe("applyDirectoryEvent", () => {
       expect(store.session_diff[item.info.id]).toBeUndefined()
       expect(store.todo[item.info.id]).toBeUndefined()
       expect(store.permission[item.info.id]).toBeUndefined()
-      expect(store.question[item.info.id]).toBeUndefined()
       expect(store.session_status[item.info.id]).toBeUndefined()
     }
   })
@@ -378,7 +360,6 @@ describe("applyDirectoryEvent", () => {
         session_diff: { [existing.id]: [] },
         todo: { [existing.id]: [] },
         permission: { [existing.id]: [] },
-        question: { [existing.id]: [] },
         session_status: { [existing.id]: { type: "busy" } },
       }),
     )
@@ -402,7 +383,6 @@ describe("applyDirectoryEvent", () => {
     expect(store.session_diff[existing.id]).toEqual([])
     expect(store.todo[existing.id]).toEqual([])
     expect(store.permission[existing.id]).toEqual([])
-    expect(store.question[existing.id]).toEqual([])
     expect(store.session_status[existing.id]).toEqual({ type: "busy" })
     expect(todos).toEqual([])
   })
@@ -539,12 +519,11 @@ describe("applyDirectoryEvent", () => {
     expect(store.part[messageID]).toBeUndefined()
   })
 
-  test("tracks permission and question request lifecycles", () => {
+  test("tracks permission request lifecycle", () => {
     const sessionID = "ses_1"
     const [store, setStore] = createStore(
       baseState({
         permission: { [sessionID]: [permissionRequest("perm_1", sessionID), permissionRequest("perm_3", sessionID)] },
-        question: { [sessionID]: [questionRequest("q_1", sessionID), questionRequest("q_3", sessionID)] },
       }),
     )
 
@@ -577,216 +556,6 @@ describe("applyDirectoryEvent", () => {
       loadLsp() {},
     })
     expect(store.permission[sessionID]?.map((x) => x.id)).toEqual(["perm_1", "perm_3"])
-
-    applyDirectoryEvent({
-      event: { type: "question.asked", properties: questionRequest("q_2", sessionID) },
-      store,
-      setStore,
-      push() {},
-      directory: "/tmp",
-      loadLsp() {},
-    })
-    expect(store.question[sessionID]?.map((x) => x.id)).toEqual(["q_1", "q_2", "q_3"])
-
-    applyDirectoryEvent({
-      event: { type: "question.asked", properties: questionRequest("q_2", sessionID, "updated") },
-      store,
-      setStore,
-      push() {},
-      directory: "/tmp",
-      loadLsp() {},
-    })
-    expect(store.question[sessionID]?.find((x) => x.id === "q_2")?.questions[0]?.header).toBe("updated")
-
-    applyDirectoryEvent({
-      event: { type: "question.rejected", properties: { sessionID, requestID: "q_2" } },
-      store,
-      setStore,
-      push() {},
-      directory: "/tmp",
-      loadLsp() {},
-    })
-    expect(store.question[sessionID]?.map((x) => x.id)).toEqual(["q_1", "q_3"])
-  })
-
-  test("question.replied before question.asked prevents stale ask from reopening", () => {
-    const blockerTerminals = createBlockerTerminalCache({ now: () => 1000 })
-    const [store, setStore] = createStore(baseState())
-
-    applyDirectoryEvent({
-      event: { type: "question.replied", properties: { sessionID: "ses_1", requestID: "q1" } },
-      directory: "/repo",
-      store,
-      setStore,
-      push() {},
-      loadLsp() {},
-      blockerTerminals,
-    })
-
-    applyDirectoryEvent({
-      event: {
-        type: "question.asked",
-        properties: questionRequest("q1", "ses_1"),
-      },
-      directory: "/repo",
-      store,
-      setStore,
-      push() {},
-      loadLsp() {},
-      blockerTerminals,
-    })
-
-    expect(store.question.ses_1).toBeUndefined()
-  })
-
-  test("tracks question blocker lifecycle", () => {
-    const sessionID = "ses_1"
-    const [store, setStore] = createStore(
-      baseState({
-        blocker: {
-          [sessionID]: [
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID,
-              requestID: "q_1",
-              request: questionRequest("q_1", sessionID),
-              armedAt: 1,
-              updatedAt: 1,
-            },
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID,
-              requestID: "q_3",
-              request: questionRequest("q_3", sessionID),
-              armedAt: 1,
-              updatedAt: 1,
-            },
-          ],
-        },
-      }),
-    )
-
-    applyDirectoryEvent({
-      event: {
-        type: "session.blocker.upserted",
-        properties: {
-          kind: "question",
-          status: "awaiting_user",
-          sessionID,
-          requestID: "q_2",
-          request: questionRequest("q_2", sessionID),
-          armedAt: 1,
-          updatedAt: 1,
-        },
-      },
-      store,
-      setStore,
-      push() {},
-      directory: "/tmp",
-      loadLsp() {},
-    })
-    expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_1", "q_2", "q_3"])
-
-    applyDirectoryEvent({
-      event: { type: "session.blocker.removed", properties: { kind: "question", sessionID, requestID: "q_2", reason: "replied" } },
-      store,
-      setStore,
-      push() {},
-      directory: "/tmp",
-      loadLsp() {},
-    })
-    expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_1", "q_3"])
-  })
-
-  test("question terminal events clear matching stale question blockers", () => {
-    const sessionID = "ses_1"
-    const [store, setStore] = createStore(
-      baseState({
-        blocker: {
-          [sessionID]: [
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID,
-              requestID: "q_1",
-              request: questionRequest("q_1", sessionID),
-              armedAt: 1,
-              updatedAt: 1,
-            },
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID,
-              requestID: "q_2",
-              request: questionRequest("q_2", sessionID),
-              armedAt: 1,
-              updatedAt: 1,
-            },
-          ],
-        },
-      }),
-    )
-
-    applyDirectoryEvent({
-      event: { type: "question.replied", properties: { sessionID, requestID: "q_1" } },
-      store,
-      setStore,
-      push() {},
-      directory: "/tmp",
-      loadLsp() {},
-    })
-    expect(store.blocker[sessionID]?.map((x) => x.requestID)).toEqual(["q_2"])
-
-    applyDirectoryEvent({
-      event: { type: "question.rejected", properties: { sessionID, requestID: "q_2", reason: "dismissed" } },
-      store,
-      setStore,
-      push() {},
-      directory: "/tmp",
-      loadLsp() {},
-    })
-    expect(store.blocker[sessionID]).toEqual([])
-  })
-
-  test("question.replied before blocker.upserted prevents stale blocker from reopening", () => {
-    const blockerTerminals = createBlockerTerminalCache({ now: () => 1000 })
-    const [store, setStore] = createStore(baseState())
-    const sessionID = "ses_1"
-
-    applyDirectoryEvent({
-      event: { type: "question.replied", properties: { sessionID, requestID: "q1" } },
-      directory: "/repo",
-      store,
-      setStore,
-      push() {},
-      loadLsp() {},
-      blockerTerminals,
-    })
-
-    applyDirectoryEvent({
-      event: {
-        type: "session.blocker.upserted",
-        properties: {
-          kind: "question",
-          status: "awaiting_user",
-          sessionID,
-          requestID: "q1",
-          request: questionRequest("q1", sessionID),
-          armedAt: 1,
-          updatedAt: 1,
-        },
-      },
-      directory: "/repo",
-      store,
-      setStore,
-      push() {},
-      loadLsp() {},
-      blockerTerminals,
-    })
-
-    expect(store.blocker[sessionID]).toBeUndefined()
   })
 
   test("permission.replied before permission.asked prevents stale ask from reopening", () => {

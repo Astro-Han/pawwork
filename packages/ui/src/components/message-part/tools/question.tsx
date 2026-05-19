@@ -1,8 +1,20 @@
 import { createMemo, For, Show } from "solid-js"
-import type { QuestionAnswer, QuestionInfo } from "@opencode-ai/sdk/v2"
 import { useI18n } from "../../../context/i18n"
 import { BasicTool } from "../../basic-tool"
 import { ToolRegistry } from "../registry"
+
+// QuestionInfo / QuestionAnswer used to live in @opencode-ai/sdk/v2 when the
+// question tool was driven by a dedicated server route. After the
+// external-result migration the SDK no longer surfaces these types; declare
+// the renderer-facing shape locally to keep the timeline render contract.
+type QuestionInfo = {
+  question: string
+  header?: string
+  options?: ReadonlyArray<{ label: string; description?: string }>
+  multiple?: boolean
+  custom?: boolean
+}
+type QuestionAnswer = ReadonlyArray<string>
 
 ToolRegistry.register({
   name: "question",

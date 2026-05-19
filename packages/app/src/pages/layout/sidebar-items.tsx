@@ -10,7 +10,8 @@ import { useNotification } from "@/context/notification"
 import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
-import { sessionPermissionRequest, sessionQuestionBlockerRequest, sessionQuestionRequest } from "../session/blockers/request-tree"
+import { sessionPermissionRequest } from "../session/blockers/request-tree"
+import { anyDescendantExternalResultQuestion } from "../session/blockers/running-external-result-question"
 import { createSessionRunning } from "../session/session-running-state"
 import { childSessionOnPath } from "./helpers"
 import { sidebarStatusKind } from "./sidebar-status-kind"
@@ -73,9 +74,9 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
   const language = useLanguage()
   const hasError = createMemo(() => notification.session.unseenHasError(props.session.id))
   const [sessionStore] = globalSync.child(props.session.directory)
-  // 4-state right-slot "asking" must mirror the main-region blocker semantics
-  // (permission || question-blocker || question), not just permission. Otherwise
-  // an agent ask() pause shows as busy in the sidebar while the main region
+  // Sidebar "asking" must mirror the main-region blocker semantics (permission
+  // || running external-result question), not just permission. Otherwise an
+  // agent question() pause shows as busy in the sidebar while the main region
   // shows the question. See use-session-blockers.ts for the canonical OR set.
   const isAsking = createMemo(() => {
     if (
@@ -84,9 +85,12 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       })
     )
       return true
-    if (sessionQuestionBlockerRequest(sessionStore.session, sessionStore.blocker, props.session.id)) return true
-    if (sessionQuestionRequest(sessionStore.session, sessionStore.question, props.session.id)) return true
-    return false
+    return anyDescendantExternalResultQuestion({
+      sessions: sessionStore.session,
+      rootSessionID: props.session.id,
+      messages: sessionStore.message,
+      partsByMessageID: sessionStore.part,
+    })
   })
   const sessionRunning = createSessionRunning(
     () => sessionStore.session_status[props.session.id],

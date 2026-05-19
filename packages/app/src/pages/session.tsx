@@ -161,14 +161,9 @@ export default function Page() {
             return result
           })
       : Promise.resolve()
-  // sessionRevert chains halt with .then(), so its existing outer .catch
-  // already handles abort failures. The auto-heal clock wants to see the
-  // error so it can structured-warn — pass haltAbort directly there.
-  const halt = (sessionID: string) => haltAbort(sessionID, "autoHeal").catch(() => {})
   const composer = createSessionComposerState({
     sessionID: timelineSessionID,
     fallbackSessionID: () => params.id,
-    halt: haltAbort,
   })
   createEffect(() => {
     const tab = activeFileTab()

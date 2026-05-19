@@ -5,8 +5,12 @@ import { Button } from "@opencode-ai/ui/button"
 import { DockPrompt } from "@opencode-ai/ui/dock-prompt"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { QuestionAnswer } from "@opencode-ai/sdk/v2"
 import type { DockQuestionRequest } from "@/pages/session/blockers/use-session-blockers"
+
+// One question's selected labels. Mirrors the per-row shape of the
+// `payload.answers: string[][]` body sent to POST /session/:id/tool/respond
+// (validated by questionDecoder in packages/opencode/src/tool/question.ts).
+type QuestionAnswer = readonly string[]
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
@@ -203,43 +207,38 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
     })
   })
 
-  const isExternalResultPath = () =>
-    typeof props.request.messageID === "string" && typeof props.request.callID === "string"
-
   const fail = (err: unknown) => {
-    // External-result path: route handler returns typed status codes. Surface a
-    // dedicated copy so the user understands whether to retry, reload, or
-    // accept that another client answered.
+    // The route handler returns typed status codes. Surface a dedicated copy
+    // so the user understands whether to retry, reload, or accept that
+    // another client answered.
     const status = (err as { response?: { status?: number } } | undefined)?.response?.status
-    if (isExternalResultPath() && typeof status === "number") {
-      if (status === 404) {
-        showToast({
-          title: language.t("common.requestFailed"),
-          description: language.t("session.question.error.staleSession"),
-        })
-        return
-      }
-      if (status === 409) {
-        showToast({
-          title: language.t("common.requestFailed"),
-          description: language.t("session.question.error.alreadyAnswered"),
-        })
-        return
-      }
-      if (status === 422 || status === 400) {
-        const body = (err as { error?: unknown } | undefined)?.error
-        const detail =
-          typeof body === "object" && body !== null && "error" in body
-            ? String((body as { error?: unknown }).error ?? "")
-            : err instanceof Error
-              ? err.message
-              : String(err)
-        showToast({
-          title: language.t("common.requestFailed"),
-          description: detail || language.t("session.question.error.invalidPayload"),
-        })
-        return
-      }
+    if (status === 404) {
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t("session.question.error.staleSession"),
+      })
+      return
+    }
+    if (status === 409) {
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t("session.question.error.alreadyAnswered"),
+      })
+      return
+    }
+    if (status === 422 || status === 400) {
+      const body = (err as { error?: unknown } | undefined)?.error
+      const detail =
+        typeof body === "object" && body !== null && "error" in body
+          ? String((body as { error?: unknown }).error ?? "")
+          : err instanceof Error
+            ? err.message
+            : String(err)
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: detail || language.t("session.question.error.invalidPayload"),
+      })
+      return
     }
     const message = err instanceof Error ? err.message : String(err)
     showToast({ title: language.t("common.requestFailed"), description: message })
@@ -247,19 +246,15 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
 
   const replyMutation = useMutation(() => ({
     mutationFn: async (answers: QuestionAnswer[]): Promise<void> => {
-      if (isExternalResultPath()) {
-        await sdk.client.session.toolRespond({
-          sessionID: props.request.sessionID,
-          body: {
-            kind: "submit",
-            messageID: props.request.messageID!,
-            callID: props.request.callID!,
-            payload: { answers },
-          },
-        })
-        return
-      }
-      await sdk.client.question.reply({ requestID: props.request.id, questionReply: { answers } })
+      await sdk.client.session.toolRespond({
+        sessionID: props.request.sessionID,
+        body: {
+          kind: "submit",
+          messageID: props.request.messageID,
+          callID: props.request.callID,
+          payload: { answers },
+        },
+      })
     },
     onMutate: () => {
       props.onSubmit()
@@ -273,18 +268,14 @@ export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSu
 
   const rejectMutation = useMutation(() => ({
     mutationFn: async (): Promise<void> => {
-      if (isExternalResultPath()) {
-        await sdk.client.session.toolRespond({
-          sessionID: props.request.sessionID,
-          body: {
-            kind: "dismiss",
-            messageID: props.request.messageID!,
-            callID: props.request.callID!,
-          },
-        })
-        return
-      }
-      await sdk.client.question.reject({ requestID: props.request.id })
+      await sdk.client.session.toolRespond({
+        sessionID: props.request.sessionID,
+        body: {
+          kind: "dismiss",
+          messageID: props.request.messageID,
+          callID: props.request.callID,
+        },
+      })
     },
     onMutate: () => {
       props.onSubmit()

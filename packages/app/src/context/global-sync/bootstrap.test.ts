@@ -27,8 +27,6 @@ function createState(): State {
     session_diff: {},
     todo: {},
     permission: {},
-    question: {},
-    blocker: {},
     mcp_ready: false,
     mcp: {},
     lsp_ready: false,
@@ -145,8 +143,6 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: {
         list: async () => {
@@ -230,8 +226,6 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -276,28 +270,6 @@ describe("bootstrapDirectory", () => {
         patterns: ["/tmp/old.txt"],
         metadata: {},
         always: ["/tmp/old.txt"],
-      } as any,
-    ])
-    setStore("question", "ses_missing", [
-      {
-        id: "que_old",
-        sessionID: "ses_missing",
-        questions: [{ question: "Old?", header: "Old", options: [{ label: "Old", description: "old" }] }],
-      } as any,
-    ])
-    setStore("blocker", "ses_missing", [
-      {
-        kind: "question",
-        status: "awaiting_user",
-        sessionID: "ses_missing",
-        requestID: "que_old",
-        request: {
-          id: "que_old",
-          sessionID: "ses_missing",
-          questions: [{ question: "Old?", header: "Old", options: [{ label: "Old", description: "old" }] }],
-        },
-        armedAt: 1,
-        updatedAt: 1,
       } as any,
     ])
 
@@ -345,58 +317,6 @@ describe("bootstrapDirectory", () => {
           ],
         }),
       },
-      question: {
-        list: async () => ({
-          data: [
-            {
-              id: "que_missing",
-              sessionID: "ses_missing",
-              questions: [
-                { question: "Missing?", header: "Missing", options: [{ label: "No", description: "missing" }] },
-              ],
-            },
-            {
-              id: "que_valid",
-              sessionID: "ses_valid",
-              questions: [{ question: "Valid?", header: "Valid", options: [{ label: "Yes", description: "valid" }] }],
-            },
-          ],
-        }),
-      },
-      blocker: {
-        list: async () => ({
-          data: [
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID: "ses_missing",
-              requestID: "que_missing",
-              request: {
-                id: "que_missing",
-                sessionID: "ses_missing",
-                questions: [
-                  { question: "Missing?", header: "Missing", options: [{ label: "No", description: "missing" }] },
-                ],
-              },
-              armedAt: 1,
-              updatedAt: 1,
-            },
-            {
-              kind: "question",
-              status: "awaiting_user",
-              sessionID: "ses_valid",
-              requestID: "que_valid",
-              request: {
-                id: "que_valid",
-                sessionID: "ses_valid",
-                questions: [{ question: "Valid?", header: "Valid", options: [{ label: "Yes", description: "valid" }] }],
-              },
-              armedAt: 2,
-              updatedAt: 2,
-            },
-          ],
-        }),
-      },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -420,15 +340,9 @@ describe("bootstrapDirectory", () => {
 
     await waitFor(() => store.session.some((session) => session.id === "ses_valid"))
     await waitFor(() => store.permission.ses_valid?.length === 1)
-    await waitFor(() => store.question.ses_valid?.length === 1)
-    await waitFor(() => store.blocker.ses_valid?.length === 1)
 
     expect(store.permission.ses_missing ?? []).toEqual([])
-    expect(store.question.ses_missing ?? []).toEqual([])
-    expect(store.blocker.ses_missing ?? []).toEqual([])
     expect(store.permission.ses_valid?.map((entry) => entry.id)).toEqual(["perm_valid"])
-    expect(store.question.ses_valid?.map((entry) => entry.id)).toEqual(["que_valid"])
-    expect(store.blocker.ses_valid?.map((entry) => entry.requestID)).toEqual(["que_valid"])
   })
 
   test("keeps active status events that arrive before the status snapshot resolves", async () => {
@@ -453,8 +367,6 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -509,8 +421,6 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => permission.promise },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: providers }) },
     } as any
@@ -563,8 +473,6 @@ describe("bootstrapDirectory", () => {
         },
       },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -622,8 +530,6 @@ describe("bootstrapDirectory", () => {
         },
       },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
     } as any
@@ -690,8 +596,6 @@ describe("bootstrapDirectory", () => {
       vcs: { get: async () => ({ data: undefined }) },
       command: { list: async () => ({ data: [] }) },
       permission: { list: async () => ({ data: [] }) },
-      question: { list: async () => ({ data: [] }) },
-      blocker: { list: async () => ({ data: [] }) },
       mcp: { status: async () => ({ data: {} }) },
       provider: {
         list: async () => {

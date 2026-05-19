@@ -6,7 +6,6 @@ import type {
   Project,
   ProviderAuthResponse,
   ProviderListResponse,
-  QuestionRequest,
   Session,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
@@ -15,7 +14,7 @@ import { getFilename } from "@opencode-ai/util/path"
 import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
 import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
-import type { SessionBlockerEntry, State, VcsCache } from "./types"
+import type { State, VcsCache } from "./types"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
@@ -149,16 +148,6 @@ function groupBySession<T extends { id: string; sessionID: string }>(input: T[])
     const list = acc[item.sessionID]
     if (list) list.push(item)
     if (!list) acc[item.sessionID] = [item]
-    return acc
-  }, {})
-}
-
-function groupBlockersBySession(input: SessionBlockerEntry[]) {
-  return input.reduce<Record<string, SessionBlockerEntry[]>>((acc, item) => {
-    if (!item?.requestID || !item.sessionID) return acc
-    const list = acc[item.sessionID]
-    if (list) list.push(item)
-    else acc[item.sessionID] = [item]
     return acc
   }, {})
 }
@@ -417,59 +406,6 @@ export async function bootstrapDirectory(input: {
                     reconcile(
                       permissions.filter((p) => !!p?.id).sort((a, b) => cmp(a.id, b.id)),
                       { key: "id" },
-                    ),
-                  )
-                }
-              })
-            })
-          }),
-        ),
-      () =>
-        retry(() =>
-          input.sdk.question.list().then((x) => {
-            const ids = (x.data ?? []).map((question) => question?.sessionID).filter((id): id is string => !!id)
-            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then((warm) => {
-              const grouped = filterGroupedByWarmSessions(
-                groupBySession((x.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID)),
-                warm,
-              )
-              return batch(() => {
-                for (const sessionID of Object.keys(input.store.question)) {
-                  if (grouped[sessionID]) continue
-                  input.setStore("question", sessionID, [])
-                }
-                for (const [sessionID, questions] of Object.entries(grouped)) {
-                  input.setStore(
-                    "question",
-                    sessionID,
-                    reconcile(
-                      questions.filter((q) => !!q?.id).sort((a, b) => cmp(a.id, b.id)),
-                      { key: "id" },
-                    ),
-                  )
-                }
-              })
-            })
-          }),
-        ),
-      () =>
-        retry(() =>
-          input.sdk.blocker.list().then((x) => {
-            const ids = (x.data ?? []).map((blocker) => blocker?.sessionID).filter((id): id is string => !!id)
-            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then((warm) => {
-              const grouped = filterGroupedByWarmSessions(groupBlockersBySession(x.data ?? []), warm)
-              return batch(() => {
-                for (const sessionID of Object.keys(input.store.blocker)) {
-                  if (grouped[sessionID]) continue
-                  input.setStore("blocker", sessionID, [])
-                }
-                for (const [sessionID, blockers] of Object.entries(grouped)) {
-                  input.setStore(
-                    "blocker",
-                    sessionID,
-                    reconcile(
-                      blockers.sort((a, b) => cmp(a.requestID, b.requestID)),
-                      { key: "requestID" },
                     ),
                   )
                 }
