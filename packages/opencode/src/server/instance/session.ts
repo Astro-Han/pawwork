@@ -37,7 +37,6 @@ import { LSP } from "@/lsp"
 import { Env } from "@/env"
 
 const log = Log.create({ service: "server" })
-const AbortMode = z.enum(["soft", "hard"])
 const AbortSource = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
 const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
@@ -541,14 +540,12 @@ export const SessionRoutes = lazy(() =>
       validator(
         "query",
         z.object({
-          mode: AbortMode.optional(),
           source: AbortSource.optional(),
         }),
       ),
       async (c) => {
         const query = c.req.valid("query")
         const aborted = await SessionPrompt.cancel(c.req.valid("param").sessionID, {
-          mode: query.mode ?? "hard",
           source: query.source,
         })
         return c.json(aborted)

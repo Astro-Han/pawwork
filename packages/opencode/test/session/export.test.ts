@@ -722,8 +722,7 @@ describe("Export.session", () => {
             diagnostics: {
               abort: {
                 source: "session.prompt.cancel",
-                reason: "hard_cancel",
-                mode: "hard",
+                reason: "cancel",
                 title_generation_state: "completed_after_abort",
                 propagation_point: "session.prompt.loop.onInterrupt",
                 error_name: "MessageAbortedError",
@@ -749,8 +748,7 @@ describe("Export.session", () => {
               message_id: assistantID,
               parent_id: userID,
               source: "session.prompt.cancel",
-              reason: "hard_cancel",
-              mode: "hard",
+              reason: "cancel",
               title_generation_state: "completed_after_abort",
               propagation_point: "session.prompt.loop.onInterrupt",
               error_name: "MessageAbortedError",

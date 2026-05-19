@@ -1405,19 +1405,19 @@ it.live(
 )
 
 it.live(
-  "soft cancel without a pending question still interrupts the running loop",
+  "cancel interrupts the running loop",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
         const prompt = yield* SessionPrompt.Service
         const sessions = yield* Session.Service
-        const chat = yield* sessions.create({ title: "No question" })
+        const chat = yield* sessions.create({ title: "Cancel" })
         yield* llm.hang
         yield* user(chat.id, "hello")
 
         const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
         yield* llm.wait(1)
-        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft" })
+        const cancelled = yield* prompt.cancel(chat.id)
         expect(cancelled).toBe(true)
 
         const exit = yield* Fiber.await(fiber)
@@ -1426,8 +1426,7 @@ it.live(
           expect(exit.value.info.error?.name).toBe("MessageAbortedError")
           expect(exit.value.info.diagnostics?.abort).toMatchObject({
             source: "session.prompt.cancel",
-            reason: "soft_cancel",
-            mode: "soft",
+            reason: "cancel",
             propagation_point: "session.prompt.loop.onInterrupt",
             error_name: "MessageAbortedError",
             via_ctx_abort: false,
@@ -1439,7 +1438,7 @@ it.live(
 )
 
 it.live(
-  "soft cancel preserves explicit caller source in abort diagnostics",
+  "cancel preserves explicit caller source in abort diagnostics",
   () =>
     provideTmpdirServer(
       Effect.fnUntraced(function* ({ llm }) {
@@ -1451,7 +1450,7 @@ it.live(
 
         const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
         yield* llm.wait(1)
-        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft", source: "renderer.emptyEnter" })
+        const cancelled = yield* prompt.cancel(chat.id, { source: "renderer.emptyEnter" })
         expect(cancelled).toBe(true)
 
         const exit = yield* Fiber.await(fiber)
@@ -1459,8 +1458,7 @@ it.live(
         if (Exit.isSuccess(exit) && exit.value.info.role === "assistant") {
           expect(exit.value.info.diagnostics?.abort).toMatchObject({
             source: "renderer.emptyEnter",
-            reason: "soft_cancel",
-            mode: "soft",
+            reason: "cancel",
             propagation_point: "session.prompt.loop.onInterrupt",
           })
         }

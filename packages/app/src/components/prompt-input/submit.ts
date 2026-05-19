@@ -30,7 +30,6 @@ type PendingPrompt = {
 }
 
 const pending = new Map<string, PendingPrompt>()
-type AbortMode = "soft" | "hard"
 type AbortSource = Extract<RendererAbortSource, "ctrlG" | "emptyEnter" | "escape" | "stopButton">
 
 export type FollowupDraft = {
@@ -249,13 +248,12 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     visibleSessionID?: string
     timelineSessionID?: string
     source: AbortSource
-    mode: AbortMode
     result: "aborted" | "ignored_awaiting_question"
   }) => {
     void emitRendererDiagnostic(sessionAbortDiagnosticEvent(input)).catch(() => undefined)
   }
 
-  const abort = async (source: AbortSource = "stopButton", mode: AbortMode = "soft") => {
+  const abort = async (source: AbortSource = "stopButton") => {
     if (!abortReady()) return Promise.resolve()
 
     const activeSessionID = sessionID()
@@ -273,7 +271,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         visibleSessionID: activeSessionID,
         timelineSessionID: activeSessionID,
         source,
-        mode,
         result: "aborted",
       })
       return Promise.resolve()
@@ -281,7 +278,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     return sdk.client.session
       .abort({
         sessionID: activeSessionID,
-        mode,
         source: rendererAbortDiagnosticSource({ sessionID: activeSessionID, source }),
       })
       .then((result) => {
@@ -290,7 +286,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           visibleSessionID: activeSessionID,
           timelineSessionID: activeSessionID,
           source,
-          mode,
           result: result.data === false ? "ignored_awaiting_question" : "aborted",
         })
       })

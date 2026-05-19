@@ -1975,7 +1975,6 @@ export class Session2 extends HeyApiClient {
       sessionID: string
       directory?: string
       workspace?: string
-      mode?: "soft" | "hard"
       source?: string
     },
     options?: Options<never, ThrowOnError>,
@@ -1988,7 +1987,6 @@ export class Session2 extends HeyApiClient {
             { in: "path", key: "sessionID" },
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
-            { in: "query", key: "mode" },
             { in: "query", key: "source" },
           ],
         },

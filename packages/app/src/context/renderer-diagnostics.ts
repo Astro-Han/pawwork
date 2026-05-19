@@ -210,7 +210,6 @@ export function sessionAbortDiagnosticEvent(input: {
   visibleSessionID?: string
   timelineSessionID?: string
   source: string
-  mode: "soft" | "hard"
   result: "aborted" | "ignored_awaiting_question"
 }): RendererDiagnosticInput {
   return {
@@ -220,7 +219,6 @@ export function sessionAbortDiagnosticEvent(input: {
     timeline_session_id: input.timelineSessionID,
     data: {
       source: input.source,
-      mode: input.mode,
       result: input.result,
     },
   }

@@ -254,7 +254,7 @@ function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
 }
 
 export interface Interface {
-  readonly cancel: (sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) => Effect.Effect<boolean>
+  readonly cancel: (sessionID: SessionID, options?: { source?: string }) => Effect.Effect<boolean>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
   readonly loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts>
@@ -317,15 +317,13 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (
       sessionID: SessionID,
-      options?: { mode?: "soft" | "hard"; source?: string },
+      options?: { source?: string },
     ) {
-      const mode = options?.mode ?? "hard"
       const source = options?.source ?? "session.prompt.cancel"
-      yield* elog.info("cancel", { sessionID, mode, source })
+      yield* elog.info("cancel", { sessionID, source })
       yield* state.cancel(sessionID, {
         source,
-        reason: mode === "soft" ? "soft_cancel" : "hard_cancel",
-        mode,
+        reason: "cancel",
         viaCtxAbort: false,
       })
       return true
@@ -2142,7 +2140,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>) {
-      const onInterrupt = (meta?: { source?: string; reason?: string; mode?: "soft" | "hard"; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
+      const onInterrupt = (meta?: { source?: string; reason?: string; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
         Effect.gen(function* () {
           interruptedSessions.add(input.sessionID)
           const assistant = yield* currentTurnTarget(input.sessionID)
@@ -2161,7 +2159,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   ...(assistant.info.diagnostics?.abort ?? {}),
                   source: meta?.source,
                   reason: meta?.reason,
-                  mode: meta?.mode,
                   title_generation_state: titleGenerationStateAtAbort(
                     titleGenerationProgress.get(input.sessionID),
                     recordedAt,
@@ -2429,7 +2426,7 @@ export async function resolvePromptParts(template: string) {
   return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
 }
 
-export async function cancel(sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) {
+export async function cancel(sessionID: SessionID, options?: { source?: string }) {
   return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
 }
 

@@ -565,7 +565,6 @@ export type AssistantMessage = {
     abort?: {
       source?: string
       reason?: string
-      mode?: "soft" | "hard"
       title_generation_state?: "not_started" | "in_flight" | "completed_before_abort" | "completed_after_abort"
       propagation_point?: string
       error_name?: string
@@ -3713,7 +3712,6 @@ export type SessionAbortData = {
   query?: {
     directory?: string
     workspace?: string
-    mode?: "soft" | "hard"
     source?: string
   }
   url: "/session/{sessionID}/abort"
