@@ -49,4 +49,45 @@ describe("session action routes", () => {
       },
     })
   })
+
+  test("abort route forwards token source", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const cancel = spyOn(SessionPrompt, "cancel").mockResolvedValue(true)
+        const app = Server.Default().app
+
+        const res = await app.request(`/session/${session.id}/abort?mode=soft&source=renderer.stopButton`, {
+          method: "POST",
+        })
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toBe(true)
+        expect(cancel).toHaveBeenCalledWith(session.id, { mode: "soft", source: "renderer.stopButton" })
+
+        await svc.remove(session.id)
+      },
+    })
+  })
+
+  test("abort route rejects non-token source", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await svc.create({})
+        const cancel = spyOn(SessionPrompt, "cancel").mockResolvedValue(true)
+        const app = Server.Default().app
+
+        const res = await app.request(`/session/${session.id}/abort?source=renderer%20stop`, { method: "POST" })
+
+        expect(res.status).toBe(400)
+        expect(cancel).not.toHaveBeenCalled()
+
+        await svc.remove(session.id)
+      },
+    })
+  })
 })

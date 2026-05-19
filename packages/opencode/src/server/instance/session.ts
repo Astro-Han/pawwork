@@ -37,7 +37,7 @@ import { Env } from "@/env"
 
 const log = Log.create({ service: "server" })
 const AbortMode = z.enum(["soft", "hard"])
-const AbortSource = z.string().trim().min(1).max(80)
+const AbortSource = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
 const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
