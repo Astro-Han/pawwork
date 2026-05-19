@@ -157,6 +157,7 @@ export const Summary = z.object({
   flags: Flags,
   created_at: z.number(),
   completed_at: z.number().optional(),
+  // Keep nested stream diagnostics permissive so older readers can parse exports as the v2 payload evolves.
   stream: z.any().optional(),
 })
 export type Summary = z.infer<typeof Summary>

@@ -1488,6 +1488,8 @@ describe("redactPart", () => {
           message: "failed https://secret.example.invalid/body token sk-private /Users/alice/project/file.ts",
           cause_message: "Authorization: Bearer secret",
           stack_hint: "at /Users/alice/project/file.ts:1:1",
+          private_raw_body: "private response body should not export",
+          url: "https://secret.example.invalid/raw",
         },
         provider: {
           safe_headers: {
@@ -1557,6 +1559,9 @@ describe("redactPart", () => {
     expect(serialized).not.toContain("/Users/alice")
     expect(serialized).not.toContain("Bearer secret")
     expect(serialized).not.toContain("session=secret")
+    expect(serialized).not.toContain("private response body should not export")
+    expect(serialized).not.toContain("private_raw_body")
+    expect(sanitized.diagnostics.llm_traces?.[0]?.stream?.error).not.toHaveProperty("url")
     expect(sanitized.diagnostics.llm_traces?.[0]?.stream?.provider?.safe_headers).toEqual({
       "x-request-id": "req_123",
     })

@@ -295,9 +295,7 @@ export namespace Export {
     const title_generations = collectTitleGenerations(node)
     return {
       ...(last ? { loop: { last } } : {}),
-      ...(llm_traces.length
-        ? { llm_trace_schema_version: LLMTrace.SCHEMA_VERSION, llm_traces }
-        : {}),
+      ...(llm_traces.length ? { llm_trace_schema_version: LLMTrace.SCHEMA_VERSION, llm_traces } : {}),
       ...(aborts.length ? { aborts } : {}),
       ...(title_generations.length ? { title_generations } : {}),
     }
@@ -1018,16 +1016,20 @@ export namespace Export {
   function sanitizeStreamDiagnostics(stream: Record<string, unknown>) {
     const rawError = isRecord(stream.error) ? stream.error : undefined
     const safeError = rawError
-      ? {
-          ...rawError,
+      ? compactObject({
+          ...(typeof rawError.boundary === "string" ? { boundary: rawError.boundary } : {}),
+          ...(typeof rawError.confidence === "string" ? { confidence: rawError.confidence } : {}),
+          ...(Array.isArray(rawError.evidence)
+            ? { evidence: rawError.evidence.filter((item): item is string => typeof item === "string") }
+            : {}),
           ...safeErrorFingerprint(rawError),
-        }
+        })
       : undefined
     const rawProvider = isRecord(stream.provider) ? stream.provider : undefined
     const safeProvider = rawProvider ? safeProviderCorrelation(rawProvider) : undefined
     return {
       ...stream,
-      ...(safeError ? { error: compactObject(safeError) } : {}),
+      ...(safeError && Object.keys(safeError).length > 0 ? { error: safeError } : {}),
       ...(safeProvider ? { provider: safeProvider } : {}),
     }
   }

@@ -70,7 +70,7 @@ export function classifyBoundary(input: BoundaryInput): BoundaryResult {
   return { boundary: "unknown", confidence: "low", evidence }
 }
 
-export function safeProviderCorrelation(input: unknown): ProviderCorrelation | undefined {
+export function safeProviderCorrelation(input: unknown): ProviderCorrelation {
   if (!isRecord(input)) return { unavailable_reason: "provider_correlation_unavailable" }
   const requestID = safeIdentifier(input.request_id ?? input.requestId ?? input["x-request-id"])
   const responseID = safeIdentifier(input.response_id ?? input.responseId)
@@ -89,7 +89,7 @@ export function safeErrorFingerprint(error: unknown) {
   const record = isRecord(error) ? error : undefined
   const cause = record && isRecord(record.cause) ? record.cause : undefined
   return {
-    constructor_name: safeLowCardinality(record?.constructor?.name ?? constructorName(error)),
+    constructor_name: safeLowCardinality(record?.constructor?.name),
     name: safeLowCardinality(record?.name),
     message: safeMessage(record?.message ?? (typeof error === "string" ? error : undefined)),
     code: safeLowCardinality(record?.code),
@@ -140,6 +140,7 @@ function safeMessage(value: unknown) {
   result = result.replace(/Bearer\s+[a-zA-Z0-9._~+/-]+/gi, "Bearer [redacted:secret]")
   result = result.replace(/\/Users\/[^\s)]+/g, "[redacted:path]")
   result = result.replace(/\\Users\\[^\s)]+/g, "[redacted:path]")
+  result = result.replace(/\/home\/[^\s)]+/g, "[redacted:path]")
   return result.slice(0, 1024)
 }
 
@@ -148,10 +149,6 @@ function safeStackHint(value: unknown) {
   const line = value.split("\n").find((entry) => entry.includes(" at "))
   if (!line) return undefined
   return safeMessage(line)?.slice(0, 160)
-}
-
-function constructorName(value: unknown) {
-  return isRecord(value) ? value.constructor?.name : undefined
 }
 
 function number(value: unknown) {

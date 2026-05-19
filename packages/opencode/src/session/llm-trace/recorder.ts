@@ -108,6 +108,7 @@ export function createRecorder(input: RecorderInput): Recorder {
     },
     recordProviderErrorEvent(next) {
       if (!stream) return
+      if (stream.error?.boundary === "watchdog" && stream.error.confidence === "high") return
       const provider = safeProviderCorrelation(next.provider)
       stream.provider = provider
       const boundary = classifyBoundary({
@@ -254,5 +255,7 @@ function tokenSummary(tokens: MessageV2.Assistant["tokens"]): Tokens {
 }
 
 function isEmptyCompletion(finishReason: string | undefined, stored: StoredParts) {
-  return finishReason === "stop" && stored.text === 0 && stored.reasoning === 0 && stored.tool === 0 && stored.file === 0
+  return (
+    finishReason === "stop" && stored.text === 0 && stored.reasoning === 0 && stored.tool === 0 && stored.file === 0
+  )
 }

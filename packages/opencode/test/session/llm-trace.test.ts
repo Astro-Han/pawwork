@@ -161,7 +161,7 @@ describe("LLMTrace", () => {
       error: {
         name: "ProviderError",
         message:
-          "request failed for https://secret.example.invalid/body with token sk-private and path /Users/alice/project/file.ts",
+          "request failed for https://secret.example.invalid/body with token sk-private and paths /Users/alice/project/file.ts /home/bob/project/file.ts",
         code: "terminated",
         cause: { name: "CauseError", message: "Authorization: Bearer secret" },
         stack: "ProviderError: boom\n    at /Users/alice/project/file.ts:1:1",
@@ -187,6 +187,7 @@ describe("LLMTrace", () => {
     expect(serialized).not.toContain("secret.example.invalid")
     expect(serialized).not.toContain("sk-private")
     expect(serialized).not.toContain("/Users/alice")
+    expect(serialized).not.toContain("/home/bob")
     expect(serialized).not.toContain("Bearer secret")
   })
 
@@ -256,6 +257,47 @@ describe("LLMTrace", () => {
     expect(serialized).not.toContain("secret.example.invalid")
     expect(serialized).not.toContain("sk-private")
     expect(serialized).not.toContain("private response body")
+  })
+
+  test("keeps high-confidence watchdog diagnostics when a provider error follows", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_watchdog_provider_overlap"),
+      sessionID: SessionID.make("ses_watchdog_provider_overlap"),
+      messageID: MessageID.make("msg_watchdog_provider_overlap"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordStreamFailure({
+      error: new Error("LLM stream connection timed out after 30000ms"),
+      boundary: "watchdog",
+      confidence: "high",
+      evidence: ["watchdog_fired", "watchdog_error"],
+      failedAt: 20,
+      monotonicMs: 130,
+    })
+    recorder.recordProviderErrorEvent({
+      error: { name: "ProviderError", message: "late provider error" },
+      provider: { request_id: "req_late" },
+      failedAt: 21,
+      monotonicMs: 140,
+    })
+
+    const summary = recorder.finalize({ completedAt: 22, storedParts: [], streamError: true })
+    expect(summary.stream?.error).toMatchObject({
+      boundary: "watchdog",
+      confidence: "high",
+      evidence: ["watchdog_fired", "watchdog_error"],
+    })
+    expect(summary.stream?.provider).toBeUndefined()
   })
 
   test("keeps monotonic durations non-negative when sampled clocks move backward", () => {
