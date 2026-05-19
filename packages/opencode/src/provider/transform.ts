@@ -1085,6 +1085,17 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
   return {}
 }
 
+const REASONING_CONNECT_TIMEOUT_MS = 120_000
+
+/**
+ * Returns watchdog timeout overrides for reasoning-capable models.
+ * Apply at every llm.stream() call site to keep coverage uniform.
+ */
+export function streamTimeouts(model: Provider.Model): { connectTimeoutMs?: number } {
+  if (!model.capabilities.reasoning) return {}
+  return { connectTimeoutMs: REASONING_CONNECT_TIMEOUT_MS }
+}
+
 export function options(input: {
   model: Provider.Model
   sessionID: string
@@ -1497,6 +1508,7 @@ const ProviderTransformTemperatureValue = temperature
 const ProviderTransformTopPValue = topP
 const ProviderTransformTopKValue = topK
 const ProviderTransformSmallOptionsValue = smallOptions
+const ProviderTransformStreamTimeoutsValue = streamTimeouts
 
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = ProviderTransformOutputTokenMaxValue
@@ -1512,4 +1524,5 @@ export namespace ProviderTransform {
   export const topP = ProviderTransformTopPValue
   export const topK = ProviderTransformTopKValue
   export const smallOptions = ProviderTransformSmallOptionsValue
+  export const streamTimeouts = ProviderTransformStreamTimeoutsValue
 }

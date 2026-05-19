@@ -462,6 +462,7 @@ export const layer = Layer.effect(
       titleGenerationProgress.set(input.session.id, { startedAt })
       const titleExit = yield* llm
         .stream({
+          ...ProviderTransform.streamTimeouts(mdl),
           agent: ag,
           user: firstInfo,
           system: [],
