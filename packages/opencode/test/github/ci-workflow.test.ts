@@ -51,7 +51,7 @@ const windowsOpencodeShards = [
     suffix: "opencode-session",
     usesTurbo: false,
     command:
-      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-session.xml test/session test/plugin test/permission test/util test/skill test/index-runtime-namespace.test.ts test/permission-agent.test.ts",
+      "cd packages/opencode && bun test --timeout 30000 --reporter=junit --reporter-outfile=.artifacts/unit/junit-windows-session.xml test/session test/plugin test/permission test/util test/skill test/index-runtime-namespace.test.ts test/permission-agent.test.ts test/permission-cleanup.test.ts",
     reportPath: "packages/opencode/.artifacts/unit/junit-windows-session.xml",
   },
   {

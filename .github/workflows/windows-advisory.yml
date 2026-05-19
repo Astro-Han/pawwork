@@ -124,6 +124,7 @@ jobs:
               test/skill
               test/index-runtime-namespace.test.ts
               test/permission-agent.test.ts
+              test/permission-cleanup.test.ts
             report_path: packages/opencode/.artifacts/unit/junit-windows-session.xml
           # Config and project cover configuration, project discovery, file,
           # and GitHub workflow tests.
