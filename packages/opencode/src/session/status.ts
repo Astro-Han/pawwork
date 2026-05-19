@@ -2,11 +2,12 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { InstanceState } from "@/effect"
 import { SessionID } from "./schema"
+import { RetryClassification } from "./retry-classification"
 import { Effect, Layer, Context } from "effect"
 import z from "zod"
 
 export const Info = z
-  .union([
+  .discriminatedUnion("type", [
     z.object({
       type: z.literal("idle"),
     }),
@@ -15,9 +16,16 @@ export const Info = z
       attempt: z.number(),
       message: z.string(),
       next: z.number(),
+      // optional: populated when the retry is caused by a classifiable rate-limit error
+      classification: RetryClassification.optional(),
     }),
     z.object({
       type: z.literal("busy"),
+    }),
+    z.object({
+      // terminal state: rate limit cannot be retried (e.g. free_quota_exhausted)
+      type: z.literal("rate_limit_blocked"),
+      classification: RetryClassification,
     }),
   ])
   .meta({
