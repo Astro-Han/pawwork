@@ -1725,10 +1725,17 @@ export default function Layout(props: ParentProps) {
     makeEventListener(window, deepLinkEvent, handler as EventListener)
   })
 
-  // Run the v7 homepage-draft migration once at app boot (fire-and-forget).
-  onMount(() => {
+  // Run the v7 homepage-draft migration as soon as a directory becomes
+  // available (fire-and-forget). currentDir() can be empty during the initial
+  // autoselect phase, so onMount alone would skip migration for that session.
+  // The migration writes a sentinel internally and is idempotent, so subsequent
+  // effect ticks are no-ops once it has run.
+  let homepageMigrationStarted = false
+  createEffect(() => {
+    if (homepageMigrationStarted) return
     const directory = currentDir()
     if (!directory) return
+    homepageMigrationStarted = true
 
     const portable = usePortableDraft()
     const sentinelTarget = Persist.global(HOMEPAGE_MIGRATION_SENTINEL_KEY)
