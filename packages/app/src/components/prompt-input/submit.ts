@@ -24,6 +24,7 @@ import { canSubmitPrompt } from "@/pages/session/session-action-readiness"
 import { type PromptRouteScope, promptScopeForSession } from "@/pages/session/prompt-route-scope"
 import { type PortableDraftOwner, usePortableDraft } from "./portable-draft"
 import { type PinnedDraftOwner, usePinnedDraft } from "./pinned-draft"
+import type { ResolvedMention } from "./mention-metadata"
 
 /**
  * Submit ownership identifies which draft owner a given submit attempt operates on.
@@ -258,6 +259,7 @@ type CommentItem = {
   commentID?: string
   commentOrigin?: "review" | "file"
   preview?: string
+  resolvedMentions?: ResolvedMention[]
 }
 
 export function createPromptSubmit(input: PromptSubmitInput) {
@@ -349,6 +351,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
         commentID: item.commentID,
         commentOrigin: item.commentOrigin,
         preview: item.preview,
+        resolvedMentions: item.resolvedMentions,
       })
     }
   }
