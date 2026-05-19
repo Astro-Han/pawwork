@@ -100,6 +100,12 @@ export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNav
   const history = () => currentStores().history.store
   const shellHistory = () => currentStores().shellHistory.store
 
+  // Pre-warm the cache for the current directory while we are still inside
+  // Solid setup (where useContext works). createDirectoryHistoryStore reaches
+  // persisted() which calls usePlatform(); calling that lazily from a submit
+  // async tail would land outside the reactive root and throw.
+  ensureStores(sdk.directory)
+
   // --- Directory-change token for rAF stale guard ---
   //
   // Increments every time sdk.directory changes.  The rAF callback compares
@@ -110,7 +116,10 @@ export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNav
   createEffect(
     on(
       () => sdk.directory,
-      () => {
+      (dir) => {
+        // Pre-warm the cache for the new directory inside the reactive root
+        // so later cache reads from outside the root are guaranteed hits.
+        ensureStores(dir)
         setDirectoryToken((t) => t + 1)
         // Also reset navigation state so ArrowUp in the new workspace
         // doesn't resume mid-navigation from the previous workspace.
