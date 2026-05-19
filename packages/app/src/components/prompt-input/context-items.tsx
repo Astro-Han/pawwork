@@ -40,18 +40,18 @@ export const PromptContextItems: Component<ContextItemsProps> = (props) => {
                 value={
                   <span class="flex flex-col gap-0.5 max-w-[300px]">
                     <Show when={external}>
-                      <span class="text-fg-on-brand opacity-80 text-xs">
+                      <span class="opacity-80 text-xs">
                         {props.t("prompt.context.externalFile")} · {item.path}
                       </span>
                     </Show>
                     <Show when={!external}>
                       <span class="flex">
-                        <span class="text-fg-on-brand truncate-start [unicode-bidi:plaintext] min-w-0">{directory}</span>
+                        <span class="truncate-start [unicode-bidi:plaintext] min-w-0">{directory}</span>
                         <span class="shrink-0">{filename}</span>
                       </span>
                     </Show>
                     <Show when={item.comment}>
-                      {(comment) => <span class="text-fg-on-brand opacity-80 break-words">{comment()}</span>}
+                      {(comment) => <span class="opacity-80 break-words">{comment()}</span>}
                     </Show>
                   </span>
                 }
