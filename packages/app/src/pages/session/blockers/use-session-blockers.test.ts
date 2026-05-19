@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test"
-import type { Message, Part, ToolState } from "@opencode-ai/sdk/v2"
-import { findRunningExternalResultQuestion } from "./running-external-result-question"
+import type { Message, Part, Session, ToolState } from "@opencode-ai/sdk/v2"
+import {
+  findDescendantExternalResultQuestion,
+  findRunningExternalResultQuestion,
+} from "./running-external-result-question"
 
 const message = (id: string): Message => ({ id }) as Message
+
+const session = (id: string, parentID?: string): Session => ({ id, parentID }) as Session
 
 const toolState = (
   status: ToolState["status"],
@@ -123,5 +128,99 @@ describe("findRunningExternalResultQuestion", () => {
       },
     })
     expect(result?.callID).toBe("c-first")
+  })
+})
+
+describe("findDescendantExternalResultQuestion", () => {
+  test("returns the request from the active session when present", () => {
+    const result = findDescendantExternalResultQuestion({
+      sessions: [session("parent"), session("child", "parent")],
+      rootSessionID: "parent",
+      messages: {
+        parent: [message("m1")],
+        child: [message("m2")],
+      },
+      partsByMessageID: {
+        m1: [
+          toolPart(
+            "p1",
+            "question",
+            toolState("running", { externalResultReady: true }, { questions }),
+            { messageID: "m1", callID: "c-parent" },
+          ),
+        ],
+        m2: [
+          toolPart(
+            "p2",
+            "question",
+            toolState("running", { externalResultReady: true }, { questions }),
+            { messageID: "m2", callID: "c-child" },
+          ),
+        ],
+      },
+    })
+    expect(result?.sessionID).toBe("parent")
+    expect(result?.callID).toBe("c-parent")
+  })
+
+  test("falls back to a child session question when the active session has none", () => {
+    const result = findDescendantExternalResultQuestion({
+      sessions: [session("parent"), session("child", "parent")],
+      rootSessionID: "parent",
+      messages: {
+        parent: [message("m1")],
+        child: [message("m2")],
+      },
+      partsByMessageID: {
+        m1: [],
+        m2: [
+          toolPart(
+            "p2",
+            "question",
+            toolState("running", { externalResultReady: true }, { questions }),
+            { messageID: "m2", callID: "c-child" },
+          ),
+        ],
+      },
+    })
+    expect(result?.sessionID).toBe("child")
+    expect(result?.callID).toBe("c-child")
+  })
+
+  test("returns undefined when neither session has a running question", () => {
+    expect(
+      findDescendantExternalResultQuestion({
+        sessions: [session("parent"), session("child", "parent")],
+        rootSessionID: "parent",
+        messages: { parent: [message("m1")], child: [message("m2")] },
+        partsByMessageID: {
+          m1: [toolPart("p1", "bash", toolState("running"))],
+          m2: [toolPart("p2", "bash", toolState("running"))],
+        },
+      }),
+    ).toBeUndefined()
+  })
+
+  test("walks grandchildren transitively", () => {
+    const result = findDescendantExternalResultQuestion({
+      sessions: [
+        session("root"),
+        session("child", "root"),
+        session("grand", "child"),
+      ],
+      rootSessionID: "root",
+      messages: { grand: [message("m3")] },
+      partsByMessageID: {
+        m3: [
+          toolPart(
+            "p3",
+            "question",
+            toolState("running", { externalResultReady: true }, { questions }),
+            { messageID: "m3", callID: "c-grand" },
+          ),
+        ],
+      },
+    })
+    expect(result?.sessionID).toBe("grand")
   })
 })

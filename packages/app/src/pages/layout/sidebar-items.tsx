@@ -11,7 +11,7 @@ import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { sessionPermissionRequest } from "../session/blockers/request-tree"
-import { anyDescendantExternalResultQuestion } from "../session/blockers/running-external-result-question"
+import { findDescendantExternalResultQuestion } from "../session/blockers/running-external-result-question"
 import { createSessionRunning } from "../session/session-running-state"
 import { childSessionOnPath } from "./helpers"
 import { sidebarStatusKind } from "./sidebar-status-kind"
@@ -85,12 +85,14 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
       })
     )
       return true
-    return anyDescendantExternalResultQuestion({
-      sessions: sessionStore.session,
-      rootSessionID: props.session.id,
-      messages: sessionStore.message,
-      partsByMessageID: sessionStore.part,
-    })
+    return (
+      findDescendantExternalResultQuestion({
+        sessions: sessionStore.session,
+        rootSessionID: props.session.id,
+        messages: sessionStore.message,
+        partsByMessageID: sessionStore.part,
+      }) !== undefined
+    )
   })
   const sessionRunning = createSessionRunning(
     () => sessionStore.session_status[props.session.id],

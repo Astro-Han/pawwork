@@ -67,17 +67,19 @@ export function findRunningExternalResultQuestion(input: {
 }
 
 /**
- * Sidebar helper: returns true when the given session OR any descendant session
- * has a running external-result question part. Mirrors the dock selector used
- * by use-session-blockers; the sidebar "asking" pip must match dock visibility
- * across child agent sessions.
+ * Walks the session tree (root + descendants) and returns the first running
+ * external-result question. Used by both the dock (so a parent session page
+ * surfaces a child agent question) and the sidebar "asking" pip (so the two
+ * stay in lock-step). The returned `sessionID` points at the session that
+ * actually owns the running tool part, so /tool/respond hits the correct
+ * Deferred.
  */
-export function anyDescendantExternalResultQuestion(input: {
+export function findDescendantExternalResultQuestion(input: {
   sessions: Session[]
   rootSessionID: string
   messages: { [sessionID: string]: Message[] | undefined }
   partsByMessageID: { [messageID: string]: Part[] | undefined }
-}): boolean {
+}): DockQuestionRequest | undefined {
   const { sessions, rootSessionID, messages, partsByMessageID } = input
   const childMap = sessions.reduce((acc, item) => {
     if (!item.parentID) return acc
@@ -96,7 +98,7 @@ export function anyDescendantExternalResultQuestion(input: {
       messages: messages[sid],
       partsByMessageID,
     })
-    if (found) return true
+    if (found) return found
     const children = childMap.get(sid)
     if (!children) continue
     for (const child of children) {
@@ -105,5 +107,5 @@ export function anyDescendantExternalResultQuestion(input: {
       stack.push(child)
     }
   }
-  return false
+  return undefined
 }

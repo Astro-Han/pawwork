@@ -8,7 +8,7 @@ import { useSync } from "@/context/sync"
 import { sessionPermissionRequest } from "./request-tree"
 import {
   type DockQuestionRequest,
-  findRunningExternalResultQuestion,
+  findDescendantExternalResultQuestion,
 } from "./running-external-result-question"
 
 export type { DockQuestionRequest }
@@ -29,9 +29,13 @@ export function createSessionBlockers(input: {
   const questionRequest = createMemo<DockQuestionRequest | undefined>(() => {
     const sid = activeSessionID()
     if (!sid) return undefined
-    return findRunningExternalResultQuestion({
-      sessionID: sid,
-      messages: sync.data.message[sid],
+    // Walk the session tree so a parent session page surfaces a question
+    // asked by a child agent. Mirrors sessionPermissionRequest, which has
+    // walked the tree since #419.
+    return findDescendantExternalResultQuestion({
+      sessions: sync.data.session,
+      rootSessionID: sid,
+      messages: sync.data.message,
       partsByMessageID: sync.data.part,
     })
   })
