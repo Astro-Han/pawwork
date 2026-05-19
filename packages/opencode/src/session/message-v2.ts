@@ -381,6 +381,7 @@ export const ToolStateError = z
     status: z.literal("error"),
     input: z.record(z.string(), z.any()),
     error: z.string(),
+    reason: z.enum(["aborted", "shutdown", "tool_failure"]).optional(),
     metadata: z.record(z.string(), z.any()).optional(),
     time: z.object({
       start: z.number(),

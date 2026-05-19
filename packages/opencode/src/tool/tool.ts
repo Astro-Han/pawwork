@@ -3,6 +3,7 @@ import type { MessageV2 } from "../session/message-v2"
 import type { Permission } from "../permission"
 import type { SessionID, MessageID } from "../session/schema"
 import * as Truncate from "./truncate"
+import { ExternalResult } from "./external-result"
 import { Agent } from "@/agent/agent"
 
 interface Metadata {
@@ -22,7 +23,41 @@ export type Context<M extends Metadata = Metadata> = {
   messages: MessageV2.WithParts[]
   metadata(input: { title?: string; metadata?: M }): Effect.Effect<void>
   ask(input: Omit<Permission.Request, "id" | "sessionID" | "tool">): Effect.Effect<void>
+  // Registers an external-result Deferred for this tool call and suspends
+  // the tool's execute until either:
+  //   - POST /session/:sessionID/tool/respond resolves with the user's
+  //     payload (returns `{kind: "submitted", value}`)
+  //   - the same route resolves with a dismiss (returns `{kind: "dismissed"}`)
+  //   - ctx.abort fires (typed failure `ExternalResultError({reason: "aborted"})`)
+  //   - the session is destroyed via onSessionDestroyed (typed failure
+  //     `ExternalResultError({reason: "shutdown"})`)
+  // The `inputSnapshot` is captured at registration so the route can run
+  // shape-specific validation against the same input the LLM emitted, even
+  // if the tool's input field is mutated later.
+  // Optional `decoder`: tool-owned validator that runs at the route before
+  // the Deferred is resolved. The route handler is intentionally generic
+  // and only invokes decoders supplied here — it never imports tool-
+  // specific semantics. Decoder failure returns 422 to the client and
+  // leaves the entry pending so the client can retry with a corrected
+  // payload. Tools without a decoder forward any payload through (back-
+  // compat for non-question external-result tools that may exist later).
+  // Returns `unknown` because the resolved value's shape is tool-specific;
+  // the calling tool narrows by convention (e.g. the question tool knows
+  // the discriminated-union shape its server route produces).
+  externalResult?(input: {
+    inputSnapshot: unknown
+    decoder?: ResponseDecoder
+  }): Effect.Effect<ExternalResultOutcome, ExternalResultError>
 }
+
+// Re-exported types so consumers can refer to the surface shape without
+// importing the underlying module. The runtime values live in
+// `./external-result.ts`.
+import type { ExternalResult as ExternalResultModule } from "./external-result"
+export type ExternalResultError = ExternalResultModule.Error
+export type ExternalResultOutcome = { kind: "submitted"; value: unknown } | { kind: "dismissed" }
+export type ResponseDecoder = ExternalResultModule.ResponseDecoder
+export type DecodeResult = ExternalResultModule.DecodeResult
 
 export interface ExecuteResult<M extends Metadata = Metadata> {
   title: string
@@ -40,6 +75,14 @@ export interface Def<
   parameters: Parameters
   execute(args: Schema.Schema.Type<Parameters>, ctx: Context): Effect.Effect<ExecuteResult<M>, unknown>
   formatValidationError?(error: unknown): string
+  // When true, this tool's `execute` invokes `ctx.externalResult` and must
+  // wait for an external POST to resolve before returning. The runner /
+  // renderer can read this declaration (via `info.externalResult` once the
+  // tool is materialised) to scope behaviour that should only apply to
+  // external-result tools — e.g. the "preparing..." placeholder while
+  // the registry registers the Deferred. Plain tools without this flag
+  // are unaffected.
+  externalResult?: boolean
 }
 export type DefWithoutID<
   Parameters extends Schema.Decoder<unknown> = Schema.Decoder<unknown>,
@@ -121,7 +164,18 @@ function wrap<Parameters extends Schema.Decoder<unknown>, Result extends Metadat
               ...(truncated.truncated && { outputPath: truncated.outputPath }),
             },
           }
-        }).pipe(Effect.orDie, Effect.withSpan("Tool.execute", { attributes: attrs }))
+        }).pipe(
+          // Narrow catch (replaces blanket .orDie). ExternalResultError
+          // (turn abort / session shutdown) survives as a typed failure so
+          // the processor's failToolCall can read .reason and persist it as
+          // ToolStateError.reason. All other typed errors continue to
+          // defectify, matching the prior .orDie behavior so existing tool
+          // error paths are unchanged.
+          Effect.catch((err: unknown) =>
+            err instanceof ExternalResult.Error ? Effect.fail(err) : Effect.die(err),
+          ),
+          Effect.withSpan("Tool.execute", { attributes: attrs }),
+        )
       }
       return toolInfo
     })

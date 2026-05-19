@@ -48,6 +48,10 @@ export namespace Flag {
   export const OPENCODE_SERVER_PASSWORD = process.env["OPENCODE_SERVER_PASSWORD"]
   export const OPENCODE_SERVER_USERNAME = process.env["OPENCODE_SERVER_USERNAME"]
   export const OPENCODE_ENABLE_QUESTION_TOOL = truthy("OPENCODE_ENABLE_QUESTION_TOOL")
+  // When true, the question tool uses the new external-result primitive
+  // (PR A flag-gated branch); when false (default), it uses the legacy
+  // Question.ask path. See docs/architecture/2026-05-19-question-as-tool-call.md.
+  export declare const PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT: boolean
 
   // Experimental
   export const OPENCODE_EXPERIMENTAL = truthy("OPENCODE_EXPERIMENTAL")
@@ -153,6 +157,17 @@ Object.defineProperty(Flag, "OPENCODE_PURE", {
 Object.defineProperty(Flag, "OPENCODE_PLUGIN_META_FILE", {
   get() {
     return process.env["OPENCODE_PLUGIN_META_FILE"]
+  },
+  enumerable: true,
+  configurable: false,
+})
+
+// Dynamic getter for PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT
+// Must be evaluated at access time, not module load time, so tests
+// can toggle this without restarting the runtime.
+Object.defineProperty(Flag, "PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT", {
+  get() {
+    return truthy("PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT")
   },
   enumerable: true,
   configurable: false,

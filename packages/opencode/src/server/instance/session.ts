@@ -24,6 +24,7 @@ import { Command } from "../../command"
 import { Log } from "@opencode-ai/core/util/log"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
+import { ExternalResult } from "@/tool/external-result"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
@@ -446,6 +447,71 @@ export const SessionRoutes = lazy(() =>
         const body = c.req.valid("json")
         const result = await Session.fork({ ...body, sessionID })
         return c.json(result)
+      },
+    )
+    .post(
+      "/:sessionID/tool/respond",
+      describeRoute({
+        summary: "Respond to an external-result tool call",
+        description:
+          "Resolve a pending external-result Deferred (e.g. question tool) with the user's submitted payload or a dismiss action.",
+        operationId: "session.toolRespond",
+        responses: {
+          200: {
+            description: "Resolved",
+            content: { "application/json": { schema: resolver(z.object({ status: z.literal("ok") })) } },
+          },
+          ...errors(400, 404, 409, 422),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator(
+        "json",
+        z.discriminatedUnion("kind", [
+          z.object({
+            kind: z.literal("submit"),
+            messageID: MessageID.zod,
+            callID: z.string(),
+            payload: z.unknown(),
+          }),
+          z.object({
+            kind: z.literal("dismiss"),
+            messageID: MessageID.zod,
+            callID: z.string(),
+          }),
+        ]),
+      ),
+      async (c) => {
+        const { sessionID } = c.req.valid("param")
+        const body = c.req.valid("json")
+        const { messageID, callID } = body
+        const lookup = ExternalResult.lookup({ sessionID, messageID, callID })
+        if (lookup.state === "not_found") return c.json({ error: "no_pending_tool_call" }, 404)
+        if (lookup.state === "resolved") return c.json({ error: "already_resolved" }, 409)
+        let value: { kind: "dismissed" } | { kind: "submitted"; value: unknown }
+        if (body.kind === "dismiss") {
+          value = { kind: "dismissed" as const }
+        } else {
+          // Run the tool-owned decoder (if any) before settling the Deferred.
+          // On failure the entry stays pending so the client can correct
+          // and resubmit. Route stays tool-agnostic — decoder lives with
+          // the tool that registered it (see e.g. question.ts).
+          if (lookup.decoder) {
+            const decoded = lookup.decoder(body.payload, lookup.inputSnapshot)
+            if (!decoded.ok) {
+              return c.json({ error: decoded.error, details: decoded.details }, 422)
+            }
+            value = { kind: "submitted" as const, value: decoded.value }
+          } else {
+            value = { kind: "submitted" as const, value: body.payload }
+          }
+        }
+        const outcome = await AppRuntime.runPromise(
+          ExternalResult.resolveIfPending({ sessionID, messageID, callID, value }),
+        )
+        if (outcome === "resolved") return c.json({ status: "ok" })
+        if (outcome === "already_resolved") return c.json({ error: "already_resolved" }, 409)
+        return c.json({ error: "no_pending_tool_call" }, 404)
       },
     )
     .post(

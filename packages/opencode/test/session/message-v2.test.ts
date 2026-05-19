@@ -1546,3 +1546,37 @@ describe("session.message-v2.fromError", () => {
     expect(result.name).toBe("MessageAbortedError")
   })
 })
+
+describe("session.message-v2.ToolStateError.reason", () => {
+  const baseErrorPart = {
+    status: "error" as const,
+    input: { foo: "bar" },
+    error: "Something went wrong",
+    time: { start: 1, end: 2 },
+  }
+
+  test("decodes legacy fixture without reason field; parsed.reason is undefined", () => {
+    const parsed = MessageV2.ToolStateError.parse(baseErrorPart)
+    expect(parsed.reason).toBeUndefined()
+  })
+
+  test("decodes new fixture with reason: aborted", () => {
+    const parsed = MessageV2.ToolStateError.parse({ ...baseErrorPart, reason: "aborted" })
+    expect(parsed.reason).toBe("aborted")
+  })
+
+  test("decodes new fixture with reason: shutdown", () => {
+    const parsed = MessageV2.ToolStateError.parse({ ...baseErrorPart, reason: "shutdown" })
+    expect(parsed.reason).toBe("shutdown")
+  })
+
+  test("decodes new fixture with reason: tool_failure", () => {
+    const parsed = MessageV2.ToolStateError.parse({ ...baseErrorPart, reason: "tool_failure" })
+    expect(parsed.reason).toBe("tool_failure")
+  })
+
+  test("rejects unknown reason value", () => {
+    const result = MessageV2.ToolStateError.safeParse({ ...baseErrorPart, reason: "bogus" })
+    expect(result.success).toBe(false)
+  })
+})
