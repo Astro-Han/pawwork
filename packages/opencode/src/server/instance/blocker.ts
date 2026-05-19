@@ -40,20 +40,13 @@ export const BlockerRoutes = lazy(() =>
       async (c) => {
         const blockers = await AppRuntime.runPromise(
           SessionBlocker.Service.use((svc) =>
-            svc.list().pipe(
-              Effect.flatMap((items) => {
-                const active = SessionLiveness.activeSessionIDs(items.map((item) => item.sessionID))
-                const inactiveSessionIDs = new Set(
-                  items.filter((item) => !active.has(item.sessionID)).map((item) => item.sessionID),
-                )
-                return Effect.gen(function* () {
-                  for (const sessionID of inactiveSessionIDs) {
-                    yield* svc.clearSession(sessionID, "dangling_session")
-                  }
-                  return items.filter((item) => active.has(item.sessionID))
-                })
-              }),
-            ),
+            svc
+              .list()
+              .pipe(
+                Effect.flatMap((items) =>
+                  SessionLiveness.pruneDangling(items, (sessionID) => svc.clearSession(sessionID, "dangling_session")),
+                ),
+              ),
           ),
         )
         return c.json(blockers)
