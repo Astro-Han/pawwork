@@ -33,12 +33,21 @@ export type Context<M extends Metadata = Metadata> = {
   //     `ExternalResultError({reason: "shutdown"})`)
   // The `inputSnapshot` is captured at registration so the route can run
   // shape-specific validation against the same input the LLM emitted, even
-  // if the tool's input field is mutated later. Validation itself runs at
-  // the route, not here — this primitive only ferries values.
+  // if the tool's input field is mutated later.
+  // Optional `decoder`: tool-owned validator that runs at the route before
+  // the Deferred is resolved. The route handler is intentionally generic
+  // and only invokes decoders supplied here — it never imports tool-
+  // specific semantics. Decoder failure returns 422 to the client and
+  // leaves the entry pending so the client can retry with a corrected
+  // payload. Tools without a decoder forward any payload through (back-
+  // compat for non-question external-result tools that may exist later).
   // Returns `unknown` because the resolved value's shape is tool-specific;
   // the calling tool narrows by convention (e.g. the question tool knows
   // the discriminated-union shape its server route produces).
-  externalResult?(input: { inputSnapshot: unknown }): Effect.Effect<ExternalResultOutcome, ExternalResultError>
+  externalResult?(input: {
+    inputSnapshot: unknown
+    decoder?: ResponseDecoder
+  }): Effect.Effect<ExternalResultOutcome, ExternalResultError>
 }
 
 // Re-exported types so consumers can refer to the surface shape without
@@ -47,6 +56,8 @@ export type Context<M extends Metadata = Metadata> = {
 import type { ExternalResult as ExternalResultModule } from "./external-result"
 export type ExternalResultError = ExternalResultModule.Error
 export type ExternalResultOutcome = { kind: "submitted"; value: unknown } | { kind: "dismissed" }
+export type ResponseDecoder = ExternalResultModule.ResponseDecoder
+export type DecodeResult = ExternalResultModule.DecodeResult
 
 export interface ExecuteResult<M extends Metadata = Metadata> {
   title: string

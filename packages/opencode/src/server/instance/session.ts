@@ -487,10 +487,24 @@ export const SessionRoutes = lazy(() =>
         const lookup = ExternalResult.lookup({ sessionID, messageID, callID })
         if (lookup.state === "not_found") return c.json({ error: "no_pending_tool_call" }, 404)
         if (lookup.state === "resolved") return c.json({ error: "already_resolved" }, 409)
-        const value =
-          body.kind === "dismiss"
-            ? { kind: "dismissed" as const }
-            : { kind: "submitted" as const, value: body.payload }
+        let value: { kind: "dismissed" } | { kind: "submitted"; value: unknown }
+        if (body.kind === "dismiss") {
+          value = { kind: "dismissed" as const }
+        } else {
+          // Run the tool-owned decoder (if any) before settling the Deferred.
+          // On failure the entry stays pending so the client can correct
+          // and resubmit. Route stays tool-agnostic — decoder lives with
+          // the tool that registered it (see e.g. question.ts).
+          if (lookup.decoder) {
+            const decoded = lookup.decoder(body.payload, lookup.inputSnapshot)
+            if (!decoded.ok) {
+              return c.json({ error: decoded.error, details: decoded.details }, 422)
+            }
+            value = { kind: "submitted" as const, value: decoded.value }
+          } else {
+            value = { kind: "submitted" as const, value: body.payload }
+          }
+        }
         const outcome = await AppRuntime.runPromise(
           ExternalResult.resolveIfPending({ sessionID, messageID, callID, value }),
         )

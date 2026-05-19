@@ -740,7 +740,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
             })
             .pipe(Effect.orDie),
-        externalResult: ({ inputSnapshot }) =>
+        externalResult: ({ inputSnapshot, decoder }) =>
           Effect.gen(function* () {
             const sessionID = input.session.id
             const messageID = input.processor.message.id
@@ -750,6 +750,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               messageID,
               callID,
               inputSnapshot,
+              decoder,
             })
             // Flip the running tool part's metadata flag so the renderer's
             // "preparing..." placeholder transitions to active input controls.
