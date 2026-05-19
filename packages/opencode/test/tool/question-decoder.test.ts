@@ -90,4 +90,22 @@ describe("questionDecoder semantic rules", () => {
     const result = questionDecoder({ answers: [["A", "C"]] }, multiSelectSnapshot)
     expect(result).toEqual({ ok: true, value: { answers: [["A", "C"]] } })
   })
+
+  test("option labels with incidental whitespace match trimmed answers", () => {
+    // Regression: validLabels was previously built from raw option.label,
+    // while answers are trimmed during decode. A label like " yes " would
+    // become "yes" on the answer side and fail membership forever (422).
+    const paddedLabelSnapshot = {
+      questions: [
+        {
+          question: "Pick one",
+          options: [{ label: " yes " }, { label: "no" }],
+          multiple: false,
+          custom: false,
+        },
+      ],
+    }
+    const result = questionDecoder({ answers: [["yes"]] }, paddedLabelSnapshot)
+    expect(result).toEqual({ ok: true, value: { answers: [["yes"]] } })
+  })
 })

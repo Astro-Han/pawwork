@@ -88,7 +88,10 @@ export function questionDecoder(payload: unknown, snapshot: unknown): DecodeResu
       }
     }
     if (q.custom === false) {
-      const validLabels = new Set(q.options.map((o) => o.label))
+      // Normalize both sides: answers were trimmed above, so option labels
+      // must match. Otherwise an option declared as " yes " becomes "yes"
+      // after decode and the membership check returns 422 forever.
+      const validLabels = new Set(q.options.map((o) => o.label.trim()))
       for (const label of answer) {
         if (!validLabels.has(label)) {
           return {
