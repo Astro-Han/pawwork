@@ -23,6 +23,7 @@ import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 import { shareSessionCommand, unshareSessionCommand } from "@/pages/session/session-share-command"
+import { rendererAbortDiagnosticSource } from "@/session/abort-source"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -236,7 +237,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
 
     if (status().type !== "idle") {
       await sdk.client.session
-        .abort({ sessionID, mode: "hard", source: "renderer.undo" })
+        .abort({ sessionID, mode: "hard", source: rendererAbortDiagnosticSource({ sessionID, source: "undo" }) })
         .then((result) => {
           void emitRendererDiagnostic(
             sessionAbortDiagnosticEvent({
