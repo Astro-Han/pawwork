@@ -31,7 +31,8 @@
 
 .rate-limit-card__description {
   margin: 0;
-  font: var(--type-body);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
   color: var(--fg-base);
 }
 
@@ -42,7 +43,8 @@
 }
 
 .rate-limit-card__action {
-  font: var(--type-body);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
   color: var(--fg-muted);
   text-decoration: none;
 }

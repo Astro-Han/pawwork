@@ -105,8 +105,9 @@ describe("RateLimitCard: CSS token contract", () => {
     expect(css).toContain("color: var(--fg-strong)")
   })
 
-  test("description font uses var(--type-body)", () => {
-    expect(css).toContain("font: var(--type-body)")
+  test("description font uses body typography tokens", () => {
+    expect(css).toContain("font-size: var(--font-size-body)")
+    expect(css).toContain("font-weight: var(--font-weight-body)")
   })
 
   test("actions gap is 20px", () => {
