@@ -5,6 +5,9 @@ import { encodeFilePath } from "@/context/file/path"
 import type { AgentPart, FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 import { Identifier } from "@/utils/id"
 import { createCommentMetadata, formatCommentNote } from "@/utils/comment-note"
+import { toAbsoluteFilePath } from "./path-canonical"
+import type { ResolvedMention } from "./mention-metadata"
+import { resolveCommentMentions } from "./mention-metadata"
 
 type PromptRequestPart = (TextPartInput | FilePartInput | AgentPartInput) & { id: string }
 
@@ -17,6 +20,7 @@ type ContextFile = {
   commentID?: string
   commentOrigin?: "review" | "file"
   preview?: string
+  resolvedMentions?: ResolvedMention[]
 }
 
 type BuildRequestPartsInput = {
@@ -29,13 +33,6 @@ type BuildRequestPartsInput = {
   sessionDirectory: string
 }
 
-const absolute = (directory: string, path: string) => {
-  if (path.startsWith("/")) return path
-  if (/^[A-Za-z]:[\\/]/.test(path) || /^[A-Za-z]:$/.test(path)) return path
-  if (path.startsWith("\\\\") || path.startsWith("//")) return path
-  return `${directory.replace(/[\\/]+$/, "")}/${path}`
-}
-
 const fileQuery = (selection: FileSelection | undefined) =>
   selection ? `?start=${selection.startLine}&end=${selection.endLine}` : ""
 
@@ -43,16 +40,6 @@ const fileURL = (path: string, selection?: FileSelection) => {
   const encoded = encodeFilePath(path)
   const body = path.startsWith("\\\\") || path.startsWith("//") ? encoded.replace(/^\/+/, "") : encoded
   return `file://${body}${fileQuery(selection)}`
-}
-
-const mention = /(^|[\s([{"'])@(\S+)/g
-
-const parseCommentMentions = (comment: string) => {
-  return Array.from(comment.matchAll(mention)).flatMap((match) => {
-    const path = (match[2] ?? "").replace(/[.,!?;:)}\]"']+$/, "")
-    if (!path) return []
-    return [path]
-  })
 }
 
 const isFileAttachment = (part: Prompt[number]): part is FileAttachmentPart => part.type === "file"
@@ -104,7 +91,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
   ]
 
   const files = input.prompt.filter(isFileAttachment).map((attachment) => {
-    const path = absolute(input.sessionDirectory, attachment.path)
+    const path = toAbsoluteFilePath(input.sessionDirectory, attachment.path)
     return {
       id: Identifier.ascending("part"),
       type: "file",
@@ -138,7 +125,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
 
   const used = new Set(files.map((part) => part.url))
   const context = input.context.flatMap((item) => {
-    const path = absolute(input.sessionDirectory, item.path)
+    const path = toAbsoluteFilePath(input.sessionDirectory, item.path)
     const url = fileURL(path, item.selection)
     const comment = item.comment?.trim()
     if (!comment && used.has(url)) return []
@@ -154,8 +141,13 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
 
     if (!comment) return [filePart]
 
-    const mentions = parseCommentMentions(comment).flatMap((path) => {
-      const url = fileURL(absolute(input.sessionDirectory, path))
+    // resolveCommentMentions returns [] when resolvedMentions is undefined —
+    // free-text @mentions without metadata are intentionally dropped.
+    const mentions = resolveCommentMentions({
+      comment,
+      metadata: item.resolvedMentions,
+    }).flatMap((match) => {
+      const url = fileURL(match.resolvedPath)
       if (used.has(url)) return []
       used.add(url)
       return [
@@ -164,7 +156,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
           type: "file",
           mime: "text/plain",
           url,
-          filename: getFilename(path),
+          filename: getFilename(match.resolvedPath),
         } satisfies PromptRequestPart,
       ]
     })

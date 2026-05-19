@@ -6,8 +6,10 @@ import { createMemo } from "solid-js"
 import { useFile } from "@/context/file"
 import { useComments } from "@/context/comments"
 import { useSync } from "@/context/sync"
+import { useSDK } from "@/context/sdk"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { isAbsoluteLike, isUnderDirectory } from "./path-canonical"
 
 export interface CommentRoutingDeps {
   activeSessionID: () => string | undefined
@@ -24,6 +26,7 @@ export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
   const files = useFile()
   const comments = useComments()
   const sync = useSync()
+  const sdk = useSDK()
 
   const activeFileTab = createSessionTabs({
     tabs,
@@ -41,6 +44,10 @@ export function createCommentRouting(deps: CommentRoutingDeps): CommentRouting {
   }
 
   const openComment = (item: { path: string; commentID?: string; commentOrigin?: "review" | "file" }) => {
+    // Belt-and-suspenders: reject external absolute paths so we never try to
+    // open a same-named file that happens to live inside the current workspace.
+    if (isAbsoluteLike(item.path) && !isUnderDirectory(item.path, sdk.directory)) return
+
     if (!item.commentID) return
 
     const focus = { file: item.path, id: item.commentID }

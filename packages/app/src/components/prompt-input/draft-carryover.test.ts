@@ -1,40 +1,137 @@
-import { describe, expect, test, beforeEach } from "bun:test"
-import { recordDraftEdit, consumeCarryOver, clearCarryOver, _peekLastTouched } from "./draft-carryover"
+/**
+ * Integration-style tests for v7 portable homepage owner semantics,
+ * exercised via the shim re-export from draft-carryover.ts.
+ */
 
-describe("draft carry-over", () => {
-  beforeEach(() => clearCarryOver())
+import { describe, expect, test } from "bun:test"
+import { createPortableDraftOwner } from "./portable-draft"
+import type { PortableDraftPayload } from "./portable-draft"
 
-  test("recording empty text clears the pointer", () => {
-    recordDraftEdit("/a", { text: "hi" })
-    recordDraftEdit("/a", { text: "" })
-    expect(_peekLastTouched()).toBeNull()
+function makePayload(text: string): PortableDraftPayload {
+  return {
+    prompt: [{ type: "text", content: text, start: 0, end: text.length }],
+    context: [],
+    images: [],
+    resolvedMentions: {},
+  }
+}
+
+describe("portable homepage owner — integration scenarios", () => {
+  test("homepage A → homepage B: snapshot moves", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({ sourceFilesystemDirectory: "/a", ...makePayload("draft text") })
+    expect(owner.snapshot()?.sourceFilesystemDirectory).toBe("/a")
+
+    // Navigate to empty homepage B — snapshot moves
+    const moved = owner.consumeForHomepage("/b", true)
+    expect(moved).not.toBeNull()
+    expect(moved?.sourceFilesystemDirectory).toBe("/b")
+    expect(moved?.revision).toBeGreaterThan(1) // bumped on move
+    expect(owner.snapshot()?.sourceFilesystemDirectory).toBe("/b")
   })
 
-  test("consume returns the previous dir's snapshot when target is empty", () => {
-    recordDraftEdit("/a", { text: "hello" })
-    const carry = consumeCarryOver("/b", true)
-    expect(carry?.text).toBe("hello")
+  test("homepage A → homepage A: no self-consume", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({ sourceFilesystemDirectory: "/a", ...makePayload("draft text") })
+    const result = owner.consumeForHomepage("/a", true)
+    expect(result).toBeNull()
+    // Snapshot still exists
+    expect(owner.snapshot()).not.toBeNull()
   })
 
-  test("consume returns null when target is non-empty (no overwrite of existing draft)", () => {
-    recordDraftEdit("/a", { text: "hello" })
-    const carry = consumeCarryOver("/b", false)
-    expect(carry).toBeNull()
+  test("homepage A → homepage B when B already has draft: no overwrite", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({ sourceFilesystemDirectory: "/a", ...makePayload("draft text") })
+    // B is NOT empty (targetIsEmpty = false)
+    const result = owner.consumeForHomepage("/b", false)
+    expect(result).toBeNull()
+    // Snapshot still anchored to A
+    expect(owner.snapshot()?.sourceFilesystemDirectory).toBe("/a")
   })
 
-  test("consume returns null when target dir matches the source dir (no self-carry)", () => {
-    recordDraftEdit("/a", { text: "hello" })
-    expect(consumeCarryOver("/a", true)).toBeNull()
+  test("record with empty payload clears", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({ sourceFilesystemDirectory: "/a", ...makePayload("draft text") })
+    expect(owner.snapshot()).not.toBeNull()
+
+    // Record empty content
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "", start: 0, end: 0 }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    expect(owner.snapshot()).toBeNull()
   })
 
-  test("consume is one-shot: second call does not re-deliver", () => {
-    recordDraftEdit("/a", { text: "hello" })
-    expect(consumeCarryOver("/b", true)?.text).toBe("hello")
-    expect(consumeCarryOver("/c", true)).toBeNull()
+  test("homepage A with context items: snapshot moves with context preserved", () => {
+    const owner = createPortableDraftOwner()
+    const contextItems = [
+      {
+        type: "file" as const,
+        path: "/a/readme.md",
+        key: "file:/a/readme.md:undefined:undefined",
+        comment: "review this section",
+        commentID: "c-1",
+      },
+    ]
+
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "draft text", start: 0, end: 10 }],
+      context: contextItems,
+      images: [],
+      resolvedMentions: {},
+    })
+
+    const moved = owner.consumeForHomepage("/b", true)
+    expect(moved).not.toBeNull()
+    // Context items must survive the move intact.
+    expect(moved?.context).toEqual(contextItems)
+    expect(moved?.sourceFilesystemDirectory).toBe("/b")
   })
 
-  test("recordDraftEdit ignores empty directory", () => {
-    recordDraftEdit("", { text: "hi" })
-    expect(_peekLastTouched()).toBeNull()
+  test("homepage A with resolvedMentions: metadata carries through", () => {
+    const owner = createPortableDraftOwner()
+    const resolvedMentions = {
+      "file:/a/readme.md:undefined:undefined:c=c-1": [
+        { displayText: "@readme.md", resolvedPath: "/a/readme.md", fingerprint: "fp1", start: 0, end: 10 },
+      ],
+    }
+
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "draft text", start: 0, end: 10 }],
+      context: [
+        { type: "file" as const, path: "/a/readme.md", key: "file:/a/readme.md:undefined:undefined" },
+      ],
+      images: [],
+      resolvedMentions,
+    })
+
+    const moved = owner.consumeForHomepage("/b", true)
+    expect(moved).not.toBeNull()
+    expect(moved?.resolvedMentions).toEqual(resolvedMentions)
+  })
+
+  test("homepage A → homepage A: no self-consume even with context present", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({
+      sourceFilesystemDirectory: "/a",
+      prompt: [{ type: "text", content: "draft text", start: 0, end: 10 }],
+      context: [
+        { type: "file" as const, path: "/a/file.ts", key: "file:/a/file.ts:undefined:undefined" },
+      ],
+      images: [],
+      resolvedMentions: {},
+    })
+
+    // Self-consume attempt must return null — context or not.
+    const result = owner.consumeForHomepage("/a", true)
+    expect(result).toBeNull()
+    // Snapshot is still alive.
+    expect(owner.snapshot()).not.toBeNull()
+    expect(owner.snapshot()?.sourceFilesystemDirectory).toBe("/a")
   })
 })

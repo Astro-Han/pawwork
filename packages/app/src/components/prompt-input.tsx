@@ -484,6 +484,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             prompt.context.remove(item.key)
           }}
           t={(key) => language.t(key as Parameters<typeof language.t>[0])}
+          sourceFilesystemDirectory={sdk.directory}
         />
         <PromptImageAttachments
           attachments={imageAttachments()}
