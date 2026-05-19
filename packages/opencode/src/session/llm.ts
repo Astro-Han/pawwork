@@ -24,6 +24,7 @@ import { EffectBridge } from "@/effect"
 import * as Option from "effect/Option"
 import { LLMTrace } from "./llm-trace"
 import { SessionBlocker } from "./blocker"
+import { ExternalResult } from "@/tool/external-result"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -478,11 +479,19 @@ const live: Layer.Layer<
                 const arm = () => {
                   const current = ++sequence
                   timeout = setTimeout(() => {
+                    // Silent-timeout re-arm guard. We OR two sources:
+                    // (1) the legacy `blockers.hasAwaitingQuestion` (used by
+                    //     the flag-off question path, deleted in PR B), and
+                    // (2) `ExternalResult.hasPending` (used by the new
+                    //     flag-on path; PR B switches fully). Either path
+                    //     re-arms instead of aborting so user-answering-a-
+                    //     question sessions are never silently killed.
                     Effect.runPromise(
                       Effect.provide(blockers.hasAwaitingQuestion(SessionID.make(input.sessionID)), ctx),
                     )
-                      .then((blocked) => {
+                      .then((legacyBlocked) => {
                         if (disposed || current !== sequence) return
+                        const blocked = legacyBlocked || ExternalResult.hasPending(input.sessionID)
                         if (blocked) {
                           arm()
                           return
