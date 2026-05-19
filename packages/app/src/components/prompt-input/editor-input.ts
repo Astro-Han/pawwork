@@ -206,7 +206,13 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         ? rawParts[0].content
         : rawParts.map((p) => ("content" in p ? p.content : "")).join("")
     const hasNonText = rawParts.some((part) => part.type !== "text")
-    const shouldReset = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
+    // Context chips (drag/drop, picker, hand-off draft, comment hydration) live
+    // in prompt.context.items() and don't appear as editor parts, so we have to
+    // include them — otherwise an empty textarea with existing chips would hit
+    // the reset branch and record {empty} into the owner, clearing ownership
+    // while the chips are still rendered.
+    const shouldReset =
+      !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0 && prompt.context.items().length === 0
 
     if (shouldReset) {
       closePopover()
