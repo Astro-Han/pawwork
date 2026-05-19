@@ -56,6 +56,18 @@ export function isUnderDirectory(absolutePath: string, sourceFilesystemDirectory
 }
 
 /**
+ * Returns true iff the chip item's path is absolute AND outside the given
+ * workspace directory. Relative paths (workspace-relative) always return false.
+ * An empty or missing sourceFilesystemDirectory also returns false (no workspace
+ * root known, so we cannot judge externality).
+ */
+export function isExternalChip(path: string, sourceFilesystemDirectory: string | undefined): boolean {
+  if (!sourceFilesystemDirectory) return false
+  if (!isAbsoluteLike(path)) return false
+  return !isUnderDirectory(path, sourceFilesystemDirectory)
+}
+
+/**
  * Returns a compact display label for a file path.
  *
  * - If `sourceFilesystemDirectory` is provided and the path is under it:
