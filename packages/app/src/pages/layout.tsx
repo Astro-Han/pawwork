@@ -369,7 +369,9 @@ export default function Layout(props: ParentProps) {
           // Drop the dedup entry once the part settles. Without this the
           // running-question dedup set grows unbounded across the app's
           // lifetime, since terminal parts are not always followed by a
-          // message.part.removed event.
+          // message.part.removed event. The tool runner never transitions
+          // a question part out of `running` and back; if that ever changes
+          // the dedup will need to gate on a "first-ready" boolean instead.
           if (part.state.status !== "running") {
             alertedQuestionCalls.delete(callKey)
             return
