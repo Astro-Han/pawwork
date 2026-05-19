@@ -21,7 +21,7 @@ export function HomeComposerRegion(props: HomeComposerRegionProps) {
   const language = useLanguage()
   const route = useSessionRouteKey()
 
-  const handoffKey = createMemo(() => route.layoutRouteKey())
+  const handoffKey = route.layoutRouteKey
   const handoffPrompt = createMemo(() => {
     const key = handoffKey()
     return key ? getSessionHandoff(key)?.prompt : undefined
