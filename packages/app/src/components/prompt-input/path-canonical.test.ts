@@ -96,6 +96,20 @@ describe("isUnderDirectory", () => {
     expect(isUnderDirectory("/Repo/file.ts", "/repo")).toBe(false)
   })
 
+  test("true when source dir has a trailing slash", () => {
+    expect(isUnderDirectory("/repo/foo", "/repo/")).toBe(true)
+    expect(isUnderDirectory("/repo", "/repo/")).toBe(true)
+  })
+
+  test("true for anything under POSIX root", () => {
+    expect(isUnderDirectory("/a", "/")).toBe(true)
+    expect(isUnderDirectory("/", "/")).toBe(true)
+  })
+
+  test("UNC forward-slash root is recognised as case-insensitive", () => {
+    expect(isUnderDirectory("//Server/Share/foo", "//server/share")).toBe(true)
+  })
+
   test("handles backslashes in inputs by normalizing for comparison", () => {
     expect(isUnderDirectory("C:\\project\\src\\file.ts", "C:\\project")).toBe(true)
   })
@@ -125,5 +139,10 @@ describe("compactFilePath", () => {
 
   test("handles backslash-separated path", () => {
     expect(compactFilePath("C:\\project\\src\\component.tsx")).toBe("component.tsx")
+  })
+
+  test("falls back to directory basename when path equals source dir", () => {
+    expect(compactFilePath("/repo/foo", "/repo/foo")).toBe("foo")
+    expect(compactFilePath("/repo/foo/", "/repo/foo")).toBe("foo")
   })
 })

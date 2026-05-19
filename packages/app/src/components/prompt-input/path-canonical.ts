@@ -38,12 +38,15 @@ export function isUnderDirectory(absolutePath: string, sourceFilesystemDirectory
   const isWindowsRoot =
     /^[A-Za-z]:[\\/]/.test(sourceFilesystemDirectory) ||
     /^[A-Za-z]:$/.test(sourceFilesystemDirectory) ||
-    sourceFilesystemDirectory.startsWith("\\\\")
+    sourceFilesystemDirectory.startsWith("\\\\") ||
+    sourceFilesystemDirectory.startsWith("//")
 
-  // Normalize backslashes for comparison only
+  // Normalize backslashes for comparison only, then trim trailing separators
+  // off the directory so "/repo" and "/repo/" behave identically and a
+  // root-only directory ("/") doesn't compare against "//".
   const normalize = (p: string) => p.replace(/\\/g, "/")
   let normPath = normalize(absolutePath)
-  let normDir = normalize(sourceFilesystemDirectory)
+  let normDir = normalize(sourceFilesystemDirectory).replace(/\/+$/, "")
 
   if (isWindowsRoot) {
     normPath = normPath.toLowerCase()
@@ -51,7 +54,8 @@ export function isUnderDirectory(absolutePath: string, sourceFilesystemDirectory
   }
 
   if (normPath === normDir) return true
-  // Must start with dir + "/" or dir + "\"  (after normalization, always "/")
+  // After trimming, an empty normDir means the root; everything is under it.
+  if (normDir === "") return normPath.startsWith("/")
   return normPath.startsWith(normDir + "/")
 }
 
@@ -85,14 +89,20 @@ export function compactFilePath(
 ): string {
   let label: string
 
+  const basename = (p: string) => {
+    const lastSep = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"))
+    return lastSep >= 0 ? p.slice(lastSep + 1) : p
+  }
+
   if (sourceFilesystemDirectory !== undefined && isUnderDirectory(absolutePath, sourceFilesystemDirectory)) {
     // Strip directory prefix and any leading separator
     const trimmedDir = sourceFilesystemDirectory.replace(/[\\/]+$/, "")
     label = absolutePath.slice(trimmedDir.length).replace(/^[\\/]+/, "")
+    // When absolutePath equals the directory the strip leaves "" — fall back
+    // to the directory's basename so the chip never renders empty.
+    if (label === "") label = basename(trimmedDir) || trimmedDir
   } else {
-    // Basename: last segment after / or \
-    const lastSep = Math.max(absolutePath.lastIndexOf("/"), absolutePath.lastIndexOf("\\"))
-    label = lastSep >= 0 ? absolutePath.slice(lastSep + 1) : absolutePath
+    label = basename(absolutePath)
   }
 
   if (label.length <= maxSegmentLen) return label
