@@ -320,11 +320,25 @@ export default function Layout(props: ParentProps) {
       const alertedQuestionCalls = new Set<string>()
       const cooldownMs = 5000
 
-      const isCurrentSessionOrChild = (directory: string, sessionID: string, parentID?: string) => {
+      const isCurrentOrDescendant = (directory: string, sessionID: string) => {
         const currentSession = params.id
         if (!currentSession) return false
         if (workspaceKey(directory) !== workspaceKey(currentDir())) return false
-        return sessionID === currentSession || parentID === currentSession
+        if (sessionID === currentSession) return true
+        // Walk up the parent chain so a great-grandchild question is also
+        // recognized as visible in-app whenever an ancestor session page is
+        // open — matches the dock, which walks descendants from currentSession.
+        const [store] = globalSync.child(directory, { bootstrap: false })
+        const byID = new Map(store.session.map((s) => [s.id, s]))
+        let cursor: string | undefined = byID.get(sessionID)?.parentID
+        const seen = new Set<string>([sessionID])
+        while (cursor) {
+          if (cursor === currentSession) return true
+          if (seen.has(cursor)) break
+          seen.add(cursor)
+          cursor = byID.get(cursor)?.parentID
+        }
+        return false
       }
 
       const unsub = globalSDK.event.listen((e) => {
@@ -351,17 +365,25 @@ export default function Layout(props: ParentProps) {
           const directory = e.name
           const { sessionID, part } = e.details.properties
           if (part.type !== "tool" || part.tool !== "question") return
+          const callKey = `${directory}:${sessionID}:${part.id}`
+          // Drop the dedup entry once the part settles. Without this the
+          // running-question dedup set grows unbounded across the app's
+          // lifetime, since terminal parts are not always followed by a
+          // message.part.removed event.
+          if (part.state.status !== "running") {
+            alertedQuestionCalls.delete(callKey)
+            return
+          }
           // The tool runner sets metadata.externalResultReady AFTER the
           // Deferred is registered. Only notify once the route can resolve.
-          if (part.state.status !== "running" || part.state.metadata?.externalResultReady !== true) return
+          if (part.state.metadata?.externalResultReady !== true) return
 
-          const callKey = `${directory}:${sessionID}:${part.id}`
           if (alertedQuestionCalls.has(callKey)) return
           alertedQuestionCalls.add(callKey)
 
           const [store] = globalSync.child(directory, { bootstrap: false })
           const session = store.session.find((s) => s.id === sessionID)
-          if (isCurrentSessionOrChild(directory, sessionID, session?.parentID)) return
+          if (isCurrentOrDescendant(directory, sessionID)) return
 
           if (!settings.notifications.agent()) return
           const sessionTitle = session?.title ?? language.t("command.session.new")
@@ -404,7 +426,7 @@ export default function Layout(props: ParentProps) {
           void playSoundById(settings.sounds.permissions())
         }
         if (settings.notifications.permissions()) {
-          if (!isCurrentSessionOrChild(directory, props.sessionID, session?.parentID)) {
+          if (!isCurrentOrDescendant(directory, props.sessionID)) {
             void platform.notify(title, description, href)
           }
         }

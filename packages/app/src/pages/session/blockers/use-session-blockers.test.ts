@@ -50,13 +50,25 @@ describe("findRunningExternalResultQuestion", () => {
     ).toBeUndefined()
   })
 
-  test("returns undefined when the running question part has no externalResultReady metadata (preparing window)", () => {
+  test("returns undefined when externalResultReady is explicitly false (preparing window)", () => {
     expect(
       findRunningExternalResultQuestion({
         sessionID: "s",
         messages: [message("m1")],
         partsByMessageID: {
           m1: [toolPart("p1", "question", toolState("running", { externalResultReady: false }, { questions }))],
+        },
+      }),
+    ).toBeUndefined()
+  })
+
+  test("returns undefined when externalResultReady metadata key is missing", () => {
+    expect(
+      findRunningExternalResultQuestion({
+        sessionID: "s",
+        messages: [message("m1")],
+        partsByMessageID: {
+          m1: [toolPart("p1", "question", toolState("running", {}, { questions }))],
         },
       }),
     ).toBeUndefined()
