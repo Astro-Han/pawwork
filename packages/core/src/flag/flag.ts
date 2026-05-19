@@ -162,12 +162,14 @@ Object.defineProperty(Flag, "OPENCODE_PLUGIN_META_FILE", {
   configurable: false,
 })
 
-// Dynamic getter for PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT
-// Must be evaluated at access time, not module load time, so tests
-// can toggle this without restarting the runtime.
+// Dynamic getter for PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT.
+// Default is now ON. Set PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT=false (or 0)
+// to roll back to the legacy Question.ask/reply state machine.
+// Must be evaluated at access time, not module load time, so tests can toggle
+// this without restarting the runtime.
 Object.defineProperty(Flag, "PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT", {
   get() {
-    return truthy("PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT")
+    return !falsy("PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT")
   },
   enumerable: true,
   configurable: false,
