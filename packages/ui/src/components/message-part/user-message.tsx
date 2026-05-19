@@ -241,8 +241,8 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
                 </span>
               </div>
             </div>
-            {renderMetaAndActions()}
             {renderAttachments()}
+            {renderMetaAndActions()}
           </>
         )}
       </Show>
