@@ -1087,6 +1087,10 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
 
 const REASONING_CONNECT_TIMEOUT_MS = 120_000
 
+/**
+ * Returns watchdog timeout overrides for reasoning-capable models.
+ * Apply at every llm.stream() call site to keep coverage uniform.
+ */
 export function streamTimeouts(model: Provider.Model): { connectTimeoutMs?: number } {
   if (!model.capabilities.reasoning) return {}
   return { connectTimeoutMs: REASONING_CONNECT_TIMEOUT_MS }
