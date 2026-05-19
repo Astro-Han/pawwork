@@ -4,7 +4,6 @@ import { SessionComposerRegion, type createSessionComposerState } from "@/pages/
 type ComposerRegionProps = ComponentProps<typeof SessionComposerRegion>
 
 export function SessionPageComposerRegion(props: {
-  variant: "session" | "home"
   state: ReturnType<typeof createSessionComposerState>
   ready: boolean
   actionReady?: boolean

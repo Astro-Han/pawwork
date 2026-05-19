@@ -1500,6 +1500,37 @@ it.live(
 )
 
 it.live(
+  "soft cancel preserves explicit caller source in abort diagnostics",
+  () =>
+    provideTmpdirServer(
+      Effect.fnUntraced(function* ({ llm }) {
+        const prompt = yield* SessionPrompt.Service
+        const sessions = yield* Session.Service
+        const chat = yield* sessions.create({ title: "Caller source" })
+        yield* llm.hang
+        yield* user(chat.id, "hello")
+
+        const fiber = yield* prompt.loop({ sessionID: chat.id }).pipe(Effect.forkChild)
+        yield* llm.wait(1)
+        const cancelled = yield* prompt.cancel(chat.id, { mode: "soft", source: "renderer.emptyEnter" })
+        expect(cancelled).toBe(true)
+
+        const exit = yield* Fiber.await(fiber)
+        expect(Exit.isSuccess(exit)).toBe(true)
+        if (Exit.isSuccess(exit) && exit.value.info.role === "assistant") {
+          expect(exit.value.info.diagnostics?.abort).toMatchObject({
+            source: "renderer.emptyEnter",
+            reason: "soft_cancel",
+            mode: "soft",
+            propagation_point: "session.prompt.loop.onInterrupt",
+          })
+        }
+      }),
+      { git: true, config: providerCfg },
+    ),
+)
+
+it.live(
   "cancel finalizes subtask tool state",
   () =>
     provideTmpdirInstance(

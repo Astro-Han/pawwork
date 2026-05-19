@@ -1548,6 +1548,7 @@ export namespace ACP {
         {
           sessionID: params.sessionId,
           directory: session.cwd,
+          source: "acp.cancel",
         },
         { throwOnError: true },
       )

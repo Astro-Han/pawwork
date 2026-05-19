@@ -255,7 +255,7 @@ function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
 }
 
 export interface Interface {
-  readonly cancel: (sessionID: SessionID, options?: { mode?: "soft" | "hard" }) => Effect.Effect<boolean>
+  readonly cancel: (sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) => Effect.Effect<boolean>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
   readonly loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts>
@@ -319,10 +319,11 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (
       sessionID: SessionID,
-      options?: { mode?: "soft" | "hard" },
+      options?: { mode?: "soft" | "hard"; source?: string },
     ) {
       const mode = options?.mode ?? "hard"
-      yield* elog.info("cancel", { sessionID, mode })
+      const source = options?.source ?? "session.prompt.cancel"
+      yield* elog.info("cancel", { sessionID, mode, source })
       // Soft cancel must not abort sessions where the user is mid-answer.
       // OR both signals: legacy `hasAwaitingQuestion` (flag-off path) and
       // `ExternalResult.hasPending` (flag-on path). Mirrors llm.ts silent-
@@ -331,11 +332,11 @@ export const layer = Layer.effect(
         mode === "soft" &&
         ((yield* blockers.hasAwaitingQuestion(sessionID)) || ExternalResult.hasPending(sessionID))
       ) {
-        yield* elog.info("cancel ignored", { sessionID, mode, reason: "awaiting_question" })
+        yield* elog.info("cancel ignored", { sessionID, mode, source, reason: "awaiting_question" })
         return false
       }
       yield* state.cancel(sessionID, {
-        source: "session.prompt.cancel",
+        source,
         reason: mode === "soft" ? "soft_cancel" : "hard_cancel",
         mode,
         viaCtxAbort: false,
@@ -2442,7 +2443,7 @@ export async function resolvePromptParts(template: string) {
   return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
 }
 
-export async function cancel(sessionID: SessionID, options?: { mode?: "soft" | "hard" }) {
+export async function cancel(sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) {
   return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
 }
 
