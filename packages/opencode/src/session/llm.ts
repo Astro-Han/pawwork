@@ -55,6 +55,7 @@ export type StreamInput = {
     | "recordWatchdogFired"
     | "recordStreamFailure"
     | "recordStreamCompleted"
+    | "recordAbortState"
   >
 }
 
@@ -540,6 +541,10 @@ const live: Layer.Layer<
                     return timeoutError
                   },
                   recordIteratorError(error: unknown) {
+                    input.trace?.recordAbortState({
+                      signalAbortedAtError: ctrl.signal.aborted,
+                      provenanceMissing: ctrl.signal.aborted,
+                    })
                     const boundary = input.trace
                       ? LLMTrace.classifyBoundary({
                           iteratorError: true,

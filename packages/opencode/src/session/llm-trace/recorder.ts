@@ -66,6 +66,11 @@ export function createRecorder(input: RecorderInput): Recorder {
     recordStreamFailure(next) {
       if (!stream) return
       if (stream.error?.boundary === "watchdog" && stream.error.confidence === "high") return
+      const boundary = localAbortBoundary(stream) ?? {
+        boundary: next.boundary,
+        confidence: next.confidence,
+        evidence: next.evidence,
+      }
       stream.timeline.failed_at = next.failedAt
       stream.timeline.durations_ms = {
         ...(stream.timeline.durations_ms ?? {}),
@@ -73,9 +78,9 @@ export function createRecorder(input: RecorderInput): Recorder {
       }
       stream.error = {
         ...safeErrorFingerprint(next.error),
-        boundary: next.boundary,
-        confidence: next.confidence,
-        evidence: next.evidence,
+        boundary: boundary.boundary,
+        confidence: boundary.confidence,
+        evidence: boundary.evidence,
       }
     },
     recordProviderProgress(next) {
@@ -105,6 +110,21 @@ export function createRecorder(input: RecorderInput): Recorder {
         ...(stream.timeline.durations_ms ?? {}),
         total: durationSince(streamMonotonicStart, next.monotonicMs),
       }
+    },
+    recordAbortState(next) {
+      if (!stream) return
+      stream.abort = {
+        ...(stream.abort ?? {}),
+        ...(typeof next.signalAbortedAtError === "boolean"
+          ? { signal_aborted_at_error: next.signalAbortedAtError }
+          : {}),
+        ...(next.provenanceSource ? { provenance_source: next.provenanceSource } : {}),
+        ...(next.provenanceReason ? { provenance_reason: next.provenanceReason } : {}),
+        ...(next.provenanceMode ? { provenance_mode: next.provenanceMode } : {}),
+        ...(typeof next.provenanceRecordedAt === "number" ? { provenance_recorded_at: next.provenanceRecordedAt } : {}),
+        ...(typeof next.provenanceMissing === "boolean" ? { provenance_missing: next.provenanceMissing } : {}),
+      }
+      refreshLocalAbortBoundary(stream)
     },
     recordProviderErrorEvent(next) {
       if (!stream) return
@@ -171,6 +191,28 @@ export function createRecorder(input: RecorderInput): Recorder {
 function durationSince(start: number | undefined, end: number) {
   if (start === undefined) return undefined
   return Math.max(0, end - start)
+}
+
+function hasAbortProvenance(stream: StreamDiagnostics) {
+  return !!stream.abort?.provenance_source
+}
+
+function localAbortBoundary(stream: StreamDiagnostics) {
+  if (!stream.abort?.signal_aborted_at_error || !hasAbortProvenance(stream)) return undefined
+  return classifyBoundary({ abortSignalAborted: true, abortProvenancePresent: true, iteratorError: true })
+}
+
+function refreshLocalAbortBoundary(stream: StreamDiagnostics) {
+  if (stream.error?.boundary === "watchdog" && stream.error.confidence === "high") return
+  if (!stream.error || stream.error.boundary !== "unknown") return
+  const boundary = localAbortBoundary(stream)
+  if (!boundary) return
+  stream.error = {
+    ...stream.error,
+    boundary: boundary.boundary,
+    confidence: boundary.confidence,
+    evidence: boundary.evidence,
+  }
 }
 
 export function storedPartCounts(parts: MessageV2.Part[]): StoredParts {

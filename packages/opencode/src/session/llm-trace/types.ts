@@ -215,6 +215,14 @@ export type Recorder = {
   recordProviderProgress(input: { eventAt: number; monotonicMs: number }): void
   recordWatchdogFired(input: { phase: "connect" | "silent_stream"; firedAt: number; monotonicMs: number }): void
   recordStreamCompleted(input: { completedAt: number; monotonicMs: number }): void
+  recordAbortState(input: {
+    signalAbortedAtError?: boolean
+    provenanceSource?: string
+    provenanceReason?: string
+    provenanceMode?: "soft" | "hard"
+    provenanceRecordedAt?: number
+    provenanceMissing?: boolean
+  }): void
   recordProviderErrorEvent(input: { error: unknown; provider?: unknown; failedAt: number; monotonicMs: number }): void
   recordProviderCorrelation(input: unknown): void
   finalize(input: FinalizeInput): Summary

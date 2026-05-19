@@ -956,6 +956,12 @@ export const layer: Layer.Layer<
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
+                ctx.trace.recordAbortState({
+                  provenanceSource: "session.processor.onInterrupt",
+                  provenanceReason: "aborted",
+                  provenanceMode: "hard",
+                  provenanceRecordedAt: Date.now(),
+                })
                 if (!ctx.assistantMessage.error) {
                   yield* halt(new DOMException("Aborted", "AbortError"))
                 }

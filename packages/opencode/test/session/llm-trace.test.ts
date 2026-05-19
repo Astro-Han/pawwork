@@ -368,4 +368,133 @@ describe("LLMTrace", () => {
     expect(summary.stream?.legacy_v1_counters).toBe("aggregate")
     expect(summary.stream?.timeline.collector_created_at).toBe(20)
   })
+
+  test("classifies local abort as high confidence when abort provenance is present", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_local_abort_trace"),
+      sessionID: SessionID.make("ses_local_abort_trace"),
+      messageID: MessageID.make("msg_local_abort_trace"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordAbortState({
+      signalAbortedAtError: true,
+      provenanceSource: "session.processor.onInterrupt",
+      provenanceReason: "aborted",
+      provenanceMode: "hard",
+      provenanceRecordedAt: 20,
+    })
+    recorder.recordStreamFailure({
+      error: new DOMException("Aborted", "AbortError"),
+      boundary: "unknown",
+      confidence: "low",
+      evidence: ["abort_signal_aborted", "abort_provenance_missing", "iterator_error"],
+      failedAt: 21,
+      monotonicMs: 130,
+    })
+
+    const summary = recorder.finalize({ completedAt: 22, storedParts: [], streamError: true, aborted: true })
+    expect(summary.stream?.abort).toMatchObject({
+      signal_aborted_at_error: true,
+      provenance_source: "session.processor.onInterrupt",
+      provenance_reason: "aborted",
+      provenance_mode: "hard",
+      provenance_recorded_at: 20,
+    })
+    expect(summary.stream?.error).toMatchObject({
+      boundary: "local_abort",
+      confidence: "high",
+      evidence: expect.arrayContaining(["abort_signal_aborted", "abort_provenance_present", "iterator_error"]),
+    })
+  })
+
+  test("keeps watchdog boundary when local abort provenance overlaps watchdog failure", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_watchdog_abort_overlap"),
+      sessionID: SessionID.make("ses_watchdog_abort_overlap"),
+      messageID: MessageID.make("msg_watchdog_abort_overlap"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordStreamFailure({
+      error: new Error("LLM stream connection timed out after 30000ms"),
+      boundary: "watchdog",
+      confidence: "high",
+      evidence: ["watchdog_fired", "watchdog_error"],
+      failedAt: 20,
+      monotonicMs: 130,
+    })
+    recorder.recordAbortState({
+      signalAbortedAtError: true,
+      provenanceSource: "session.processor.onInterrupt",
+      provenanceReason: "aborted",
+      provenanceMode: "hard",
+      provenanceRecordedAt: 21,
+    })
+
+    const summary = recorder.finalize({ completedAt: 22, storedParts: [], streamError: true, aborted: true })
+    expect(summary.stream?.error).toMatchObject({
+      boundary: "watchdog",
+      confidence: "high",
+      evidence: ["watchdog_fired", "watchdog_error"],
+    })
+    expect(summary.stream?.abort?.provenance_source).toBe("session.processor.onInterrupt")
+  })
+
+  test("keeps aborted iterator failures unknown without abort provenance", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_abort_missing_provenance"),
+      sessionID: SessionID.make("ses_abort_missing_provenance"),
+      messageID: MessageID.make("msg_abort_missing_provenance"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordAbortState({ signalAbortedAtError: true, provenanceMissing: true })
+    recorder.recordStreamFailure({
+      error: new DOMException("Aborted", "AbortError"),
+      boundary: "unknown",
+      confidence: "low",
+      evidence: ["abort_signal_aborted", "abort_provenance_missing", "iterator_error"],
+      failedAt: 20,
+      monotonicMs: 130,
+    })
+
+    const summary = recorder.finalize({ completedAt: 21, storedParts: [], streamError: true, aborted: true })
+    expect(summary.stream?.abort).toMatchObject({
+      signal_aborted_at_error: true,
+      provenance_missing: true,
+    })
+    expect(summary.stream?.error).toMatchObject({
+      boundary: "unknown",
+      confidence: "low",
+      evidence: ["abort_signal_aborted", "abort_provenance_missing", "iterator_error"],
+    })
+  })
 })
