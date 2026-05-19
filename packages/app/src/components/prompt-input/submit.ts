@@ -432,6 +432,20 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       dir: params.dir ?? base64Encode(projectDirectory),
       id: params.id,
     }
+
+    // Capture submit ownership BEFORE any await. Reading pinned.current() and
+    // portable.snapshot() here freezes the revision at submit time; if the user
+    // types into the editor during the await, the owner's live revision bumps
+    // past this value and confirmOwnerCleared will refuse to wipe under that
+    // mismatch — preserving the post-submit typing.
+    const ownership: SubmitOwnership = detectSubmitOwnership({
+      isHomepage: submittedIsHomepage,
+      pinned,
+      portable,
+      sourceFilesystemDirectory: projectDirectory,
+      routeScope: sourcePromptScope,
+    })
+
     const shouldAutoAccept = creatingNewSession && input.autoAccept()
     const worktreeSelection = input.newSessionWorktree?.() || "main"
 
@@ -525,20 +539,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       locale,
       variant,
     }
-
-    // Capture submit ownership BEFORE any clear. isHomepage uses the route at submit
-    // start (params.id can change once navigate() lands the new session route).
-    // Ownership is frozen here; clear/restore below check this captured revision
-    // against the owner's current revision so a user typing during the await is
-    // never trampled.
-    const isHomepage = submittedIsHomepage
-    const ownership: SubmitOwnership = detectSubmitOwnership({
-      isHomepage,
-      pinned,
-      portable,
-      sourceFilesystemDirectory: projectDirectory,
-      routeScope: sourcePromptScope,
-    })
 
     const promptScope = promptScopeForSession({
       routeDir: params.dir,
