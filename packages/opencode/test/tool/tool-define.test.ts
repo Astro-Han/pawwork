@@ -1,9 +1,10 @@
 import { describe, test, expect } from "bun:test"
-import { Effect, Layer, ManagedRuntime, Schema } from "effect"
+import { Effect, Exit, Layer, ManagedRuntime, Schema } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { MessageID, SessionID } from "../../src/session/schema"
 import * as Tool from "../../src/tool/tool"
 import { Truncate } from "../../src/tool"
+import { ExternalResult } from "../../src/tool/external-result"
 
 const runtime = ManagedRuntime.make(Layer.mergeAll(Truncate.defaultLayer, Agent.defaultLayer))
 
@@ -99,5 +100,101 @@ describe("Tool.define", () => {
     await Effect.runPromise(execute({ count: "7" }, ctx))
 
     expect(calls).toEqual([{ count: 5 }, { count: 7 }])
+  })
+
+  const buildCtx = (): Tool.Context => ({
+    sessionID: SessionID.descending(),
+    messageID: MessageID.ascending(),
+    agent: "build",
+    abort: new AbortController().signal,
+    messages: [],
+    metadata() {
+      return Effect.void
+    },
+    ask() {
+      return Effect.void
+    },
+  })
+
+  test("wrapper lets ExternalResultError propagate as typed failure (not a defect)", async () => {
+    const info = await runtime.runPromise(
+      Tool.define(
+        "test-external-result-fail",
+        Effect.succeed({
+          description: "raises ExternalResultError",
+          parameters: params,
+          execute() {
+            return Effect.fail(new ExternalResult.Error({ reason: "aborted" }))
+          },
+        }),
+      ),
+    )
+    const tool = await Effect.runPromise(info.init())
+    const execute = tool.execute as unknown as (
+      args: unknown,
+      ctx: Tool.Context,
+    ) => Effect.Effect<unknown, unknown>
+
+    const exit = await Effect.runPromiseExit(execute({ input: "x" }, buildCtx()))
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const causeStr = JSON.stringify(exit.cause, null, 2)
+      expect(causeStr).toContain("ExternalResultError")
+      expect(causeStr).toContain("aborted")
+      // The cause should NOT be a Die — typed ExternalResultError must propagate as Fail.
+      expect(causeStr).not.toContain('"_tag": "Die"')
+    }
+  })
+
+  test("wrapper defectifies generic typed errors (back-compat)", async () => {
+    const info = await runtime.runPromise(
+      Tool.define(
+        "test-generic-fail",
+        Effect.succeed({
+          description: "raises generic Error",
+          parameters: params,
+          execute() {
+            return Effect.fail(new Error("boom"))
+          },
+        }),
+      ),
+    )
+    const tool = await Effect.runPromise(info.init())
+    const execute = tool.execute as unknown as (
+      args: unknown,
+      ctx: Tool.Context,
+    ) => Effect.Effect<unknown, unknown>
+
+    const exit = await Effect.runPromiseExit(execute({ input: "x" }, buildCtx()))
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const causeStr = JSON.stringify(exit.cause, null, 2)
+      // Generic errors should be defects (Die), not typed failures (Fail).
+      expect(causeStr).toContain('"_tag": "Die"')
+    }
+  })
+
+  test("wrapper passes through successful results", async () => {
+    const info = await runtime.runPromise(
+      Tool.define(
+        "test-success",
+        Effect.succeed({
+          description: "succeeds",
+          parameters: params,
+          execute() {
+            return Effect.succeed({ title: "ok", output: "done", metadata: { truncated: false } })
+          },
+        }),
+      ),
+    )
+    const tool = await Effect.runPromise(info.init())
+    const execute = tool.execute as unknown as (
+      args: unknown,
+      ctx: Tool.Context,
+    ) => Effect.Effect<{ title: string; output: string; metadata: { truncated: boolean } }, unknown>
+
+    const result = await Effect.runPromise(execute({ input: "x" }, buildCtx()))
+    expect(result.title).toBe("ok")
+    expect(result.output).toBe("done")
   })
 })

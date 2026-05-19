@@ -3,6 +3,7 @@ import type { MessageV2 } from "../session/message-v2"
 import type { Permission } from "../permission"
 import type { SessionID, MessageID } from "../session/schema"
 import * as Truncate from "./truncate"
+import { ExternalResult } from "./external-result"
 import { Agent } from "@/agent/agent"
 
 interface Metadata {
@@ -121,7 +122,18 @@ function wrap<Parameters extends Schema.Decoder<unknown>, Result extends Metadat
               ...(truncated.truncated && { outputPath: truncated.outputPath }),
             },
           }
-        }).pipe(Effect.orDie, Effect.withSpan("Tool.execute", { attributes: attrs }))
+        }).pipe(
+          // Narrow catch (replaces blanket .orDie). ExternalResultError
+          // (turn abort / session shutdown) survives as a typed failure so
+          // the processor's failToolCall can read .reason and persist it as
+          // ToolStateError.reason. All other typed errors continue to
+          // defectify, matching the prior .orDie behavior so existing tool
+          // error paths are unchanged.
+          Effect.catch((err: unknown) =>
+            err instanceof ExternalResult.Error ? Effect.fail(err) : Effect.die(err),
+          ),
+          Effect.withSpan("Tool.execute", { attributes: attrs }),
+        )
       }
       return toolInfo
     })
