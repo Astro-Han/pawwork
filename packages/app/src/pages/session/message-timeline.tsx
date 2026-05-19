@@ -422,10 +422,6 @@ export function MessageTimeline(props: {
                         "min-w-0 w-full max-w-full": true,
                         "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
                       }}
-                      style={{
-                        "content-visibility": active() ? undefined : "auto",
-                        "contain-intrinsic-size": active() ? undefined : "auto 500px",
-                      }}
                     >
                       <SessionMessageComments comments={comments()} />
                       <SessionTurn
