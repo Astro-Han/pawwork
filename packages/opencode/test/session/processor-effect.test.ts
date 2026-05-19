@@ -184,30 +184,6 @@ const boot = Effect.fn("test.boot")(function* () {
   return { processors, session, provider }
 })
 
-const completedLoopToolPart = (
-  input: Record<string, any>,
-  loop: SessionDiagnostics.LoopMetadata,
-): MessageV2.ToolPart => ({
-  id: PartID.ascending(),
-  messageID: MessageID.make("placeholder"),
-  sessionID: SessionID.make("placeholder"),
-  type: "tool",
-  tool: "glob",
-  callID: PartID.ascending(),
-  state: {
-    status: "completed",
-    input,
-    output: "same result",
-    title: "glob",
-    metadata: {
-      diagnostics: {
-        loop,
-      },
-    },
-    time: { start: 1, end: 2 },
-  },
-})
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -272,84 +248,6 @@ it.live("session.processor effect tests capture llm input cleanly", () =>
         expect(trace?.stored_parts.reasoning).toBe(0)
         expect(trace?.tokens?.output).toBeGreaterThan(0)
         expect(trace?.flags.empty_completion).toBe(false)
-      }),
-    { git: true, config: (url) => providerCfg(url) },
-  ),
-)
-
-it.live("session.processor builds mutation epoch across assistant messages under one parent", () =>
-  provideTmpdirServer(
-    ({ dir }) =>
-      Effect.gen(function* () {
-        const { processors, session, provider } = yield* boot()
-        const chat = yield* session.create({})
-        const parent = yield* user(chat.id, "repeat after edit")
-        const prior = yield* assistant(chat.id, parent.id, path.resolve(dir))
-        const current = yield* assistant(chat.id, parent.id, path.resolve(dir))
-
-        const input = { pattern: "**/*.txt" }
-        const inputHash = SessionDiagnostics.normalizeInput(input).hash
-        const target = SessionDiagnostics.targetSummary("glob", input)
-        if (target.isFallback) throw new Error("expected glob target")
-        const targetHash = SessionDiagnostics.hash(target.summary)
-        const outputHash = SessionDiagnostics.outputHash("same result")
-        const inputSigKey = SessionDiagnostics.signatureKey({
-          outcome: "success",
-          kind: "input",
-          tool: "glob",
-          hash: inputHash,
-        })
-
-        for (let i = 0; i < 3; i++) {
-          const part = completedLoopToolPart(input, {
-            inputHash,
-            targetHash,
-            outputHash,
-            outcome: "success",
-            loopRecoverFiredFor: i === 2 ? [inputSigKey] : undefined,
-          })
-          yield* session.updatePart({
-            ...part,
-            id: PartID.ascending(),
-            messageID: prior.id,
-            sessionID: chat.id,
-            callID: `call-${i}`,
-          })
-        }
-        yield* session.updatePart({
-          id: PartID.ascending(),
-          messageID: prior.id,
-          sessionID: chat.id,
-          type: "patch",
-          hash: "patch-hash",
-          files: [path.join(dir, "changed.txt")],
-        })
-
-        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
-        const handle = yield* processors.create({
-          assistantMessage: current,
-          sessionID: chat.id,
-          model: mdl,
-        })
-        const loopCtx = handle.buildLoopContext(parent.id)
-        const state = SessionDiagnostics.deriveParentLoopState({
-          successRecords: loopCtx.successRecords,
-          errorRecords: loopCtx.errorRecords,
-          syntheticBlockSigKeys: loopCtx.syntheticBlockSigKeys,
-          parentID: parent.id,
-          currentMutationEpoch: loopCtx.currentMutationEpoch,
-        })
-        const decision = SessionDiagnostics.queryGateAction({
-          parentLoopState: state,
-          tool: "glob",
-          inputHash,
-          targetHash,
-          outcome: "success",
-        })
-
-        expect(loopCtx.currentMutationEpoch).toBe(1)
-        expect(loopCtx.successRecords.map((record) => record.mutationEpoch)).toEqual([0, 0, 0])
-        expect(decision.action).toBe("observe")
       }),
     { git: true, config: (url) => providerCfg(url) },
   ),

@@ -158,12 +158,10 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   const targetHash = targetSummaryRes.isFallback ? undefined : SessionDiagnostics.hash(targetSummaryRes.summary)
 
   const parentLoopState = SessionDiagnostics.deriveParentLoopState({
-    successRecords: loopCtx.successRecords,
     errorRecords: loopCtx.errorRecords,
     syntheticBlockSigKeys: loopCtx.syntheticBlockSigKeys,
     parentID,
     currentStepIndex: loopCtx.currentStepIndex,
-    currentMutationEpoch: loopCtx.currentMutationEpoch,
   })
 
   const failureDecision = SessionDiagnostics.queryGateAction({

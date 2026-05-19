@@ -52,12 +52,10 @@ export interface Handle {
   readonly syntheticBlockSigKeys: (parentID: MessageV2.Assistant["parentID"]) => string[]
   readonly hasStopped: (parentID: MessageV2.Assistant["parentID"]) => boolean
   readonly buildLoopContext: (parentID: MessageV2.Assistant["parentID"]) => {
-    successRecords: SessionDiagnostics.ToolCallRecord[]
     errorRecords: SessionDiagnostics.ToolErrorRecord[]
     syntheticBlockSigKeys: string[]
     hasStopped: boolean
     currentStepIndex?: number
-    currentMutationEpoch?: number
   }
   readonly recordSyntheticBlock: (input: {
     toolCallId: string
@@ -270,20 +268,18 @@ export const layer: Layer.Layer<
       const loopRecords = (parentID: MessageV2.Assistant["parentID"]) => {
         if (!parentID) return []
         const out: SessionDiagnostics.ToolCallRecord[] = []
-        let mutationEpoch = 0
         for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           for (const part of message.parts) {
-            if (part.type === "patch") {
-              mutationEpoch += 1
-              continue
-            }
+            // patch parts are skipped so they cannot consume the tool-record path or
+            // affect failure-side same-step gating downstream; the success-side gate
+            // that previously consumed a mutation epoch was removed for #767.
+            if (part.type === "patch") continue
             if (part.type !== "tool") continue
             if (part.state.status !== "completed") continue
             const loop = toolDiagnostics(part)?.loop
             if (!loop?.inputHash) continue
             if (loop.errorFingerprint || loop.loopAction) continue
-            const loopWithEpoch = { ...loop, mutationEpoch: loop.mutationEpoch ?? mutationEpoch }
             out.push({
               sessionID: ctx.sessionID,
               parentID,
@@ -291,8 +287,7 @@ export const layer: Layer.Layer<
               inputHash: loop.inputHash,
               targetHash: loop.targetHash ?? "",
               outputHash: loop.outputHash,
-              mutationEpoch: loopWithEpoch.mutationEpoch,
-              metadata: { diagnostics: { loop: loopWithEpoch } },
+              metadata: { diagnostics: { loop } },
             } satisfies SessionDiagnostics.ToolCallRecord)
           }
         }
@@ -364,21 +359,16 @@ export const layer: Layer.Layer<
       // call errorRecords + syntheticBlockSigKeys + hasStopped (three full O(n) scans of the message
       // stream); this helper folds them into one scan.
       const buildLoopContext = (parentID: MessageV2.Assistant["parentID"]) => {
-        const successRecordsOut: SessionDiagnostics.ToolCallRecord[] = []
         const errorRecordsOut: SessionDiagnostics.ToolErrorRecord[] = []
         const syntheticBlockSigKeysOut: string[] = []
         let hasStoppedOut = false
         let currentStepIndex: number | undefined
-        let mutationEpoch = 0
-        let currentMutationEpoch = 0
         if (!parentID) {
           return {
-            successRecords: successRecordsOut,
             errorRecords: errorRecordsOut,
             syntheticBlockSigKeys: syntheticBlockSigKeysOut,
             hasStopped: hasStoppedOut,
             currentStepIndex,
-            currentMutationEpoch,
           }
         }
         for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
@@ -387,13 +377,12 @@ export const layer: Layer.Layer<
           let sawStepStart = false
           let afterStepFinish = false
           const currentMessage = message.info.id === ctx.assistantMessage.id
-          if (currentMessage) currentMutationEpoch = mutationEpoch
           for (const part of message.parts) {
-            if (part.type === "patch") {
-              mutationEpoch += 1
-              if (currentMessage) currentMutationEpoch = mutationEpoch
-              continue
-            }
+            // patch parts are skipped before currentStepIndex / tool-record processing
+            // so failure-side same-step gating semantics are preserved exactly as before.
+            // The success-side gate that previously consumed a mutation epoch was removed
+            // for #767.
+            if (part.type === "patch") continue
             if (part.type === "step-start") {
               sawStepStart = true
               afterStepFinish = false
@@ -413,22 +402,9 @@ export const layer: Layer.Layer<
             const loopWithStep = {
               ...loop,
               stepIndex: loop.stepIndex ?? observedStepIndex,
-              mutationEpoch: loop.mutationEpoch ?? mutationEpoch,
             }
             if (loop.loopAction === "stop") hasStoppedOut = true
             if (loop.loopAction === "block" && loop.loopSigKey) syntheticBlockSigKeysOut.push(loop.loopSigKey)
-            if (part.state.status === "completed" && loop.inputHash && !loop.errorFingerprint && !loop.loopAction) {
-              successRecordsOut.push({
-                sessionID: ctx.sessionID,
-                parentID,
-                tool: part.tool,
-                inputHash: loop.inputHash,
-                targetHash: loop.targetHash ?? "",
-                outputHash: loop.outputHash,
-                mutationEpoch: loopWithStep.mutationEpoch,
-                metadata: { diagnostics: { loop: loopWithStep } },
-              } satisfies SessionDiagnostics.ToolCallRecord)
-            }
             if (loop.errorFingerprint || loop.loopAction === "block" || loop.loopAction === "stop") {
               const targetHash = loop.targetHashIsFallback ? undefined : loop.targetHash
               errorRecordsOut.push({
@@ -446,12 +422,10 @@ export const layer: Layer.Layer<
           }
         }
         return {
-          successRecords: successRecordsOut,
           errorRecords: errorRecordsOut,
           syntheticBlockSigKeys: syntheticBlockSigKeysOut,
           hasStopped: hasStoppedOut,
           currentStepIndex,
-          currentMutationEpoch,
         }
       }
 
