@@ -30,7 +30,7 @@ const TOOLTIP_HTML = `
         </div>
         <div class="grid min-w-0 grid-cols-[64px_minmax(0,1fr)] items-start gap-3">
           <span class="text-caption">Location</span>
-          <span class="text-body min-w-0 break-all leading-[1.45]">/Users/yuhan/workspace/dev/pawwork/.claude/worktrees/fix-tooltip-dark-mode</span>
+          <span class="text-body min-w-0 break-all leading-[1.45]">~/pawwork/.claude/worktrees/fix-tooltip-dark-mode</span>
         </div>
       </div>
     </div>
