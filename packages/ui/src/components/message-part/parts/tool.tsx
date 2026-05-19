@@ -106,16 +106,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
                 part().state.status === "error" && "reason" in part().state
                   ? ((part().state as { reason?: "aborted" | "shutdown" | "tool_failure" }).reason)
                   : undefined
-              if (isQuestion() && reason === "aborted") {
-                return (
-                  <div style="width: 100%; display: flex; justify-content: flex-end;">
-                    <span class="text-body text-fg-weak cursor-default">
-                      {i18n.t("ui.messagePart.questions.interrupted")}
-                    </span>
-                  </div>
-                )
-              }
-              if (isQuestion() && reason === "shutdown") {
+              if (isQuestion() && (reason === "aborted" || reason === "shutdown")) {
                 return (
                   <div style="width: 100%; display: flex; justify-content: flex-end;">
                     <span class="text-body text-fg-weak cursor-default">
