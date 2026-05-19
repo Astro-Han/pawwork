@@ -8,6 +8,8 @@ test.use({ viewport: { width: 1440, height: 900 } })
 test("sidebar", async ({ page, sdk, gotoSession }) => {
   test.setTimeout(180_000)
 
+  // Two sessions so the sidebar list isn't empty; the sort trigger only
+  // renders when there is something to sort.
   await withSession(sdk, "snap sidebar a", async (a) => {
     await withSession(sdk, "snap sidebar b", async () => {
       await gotoSession(a.id)
@@ -36,14 +38,15 @@ test("sidebar", async ({ page, sdk, gotoSession }) => {
       // After close the sidebar container collapses to ~0 width, so locator screenshot
       // is useless. The toggle button is always present — anchor a clip around its
       // bounding box so we capture the rail wherever it ends up.
-      const toggle = page.getByRole("button", { name: /toggle sidebar/i }).first()
+      const toggle = page.locator('[data-action="pawwork-sidebar-toggle"]').first()
       await toggle.waitFor({ state: "visible" })
       const box = await toggle.boundingBox()
       if (!box) throw new Error("snap: toggle button has no bounding box; closed-state shot would be empty")
       const railWidth = Math.max(96, Math.ceil(box.x + box.width + 24))
+      const viewportH = page.viewportSize()?.height ?? 900
       shots.push({
         name: "closed",
-        buf: await page.screenshot({ clip: { x: 0, y: 0, width: railWidth, height: 900 } }),
+        buf: await page.screenshot({ clip: { x: 0, y: 0, width: railWidth, height: viewportH } }),
       })
 
       const out = snapOutputPath("sidebar")

@@ -14,7 +14,10 @@ const LABEL_BG = "#ffffff"
 const LABEL_FG = "#333333"
 
 export function snapOutputPath(target: string): string {
-  const date = new Date().toISOString().slice(0, 10)
+  // Local-date filename — UTC would jump to "tomorrow" during CN evening hours
+  // and silently overwrite the same-day grid.
+  const d = new Date()
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
   const here = path.dirname(fileURLToPath(import.meta.url))
   // here = packages/app/e2e/snap → repoRoot four levels up
   const repoRoot = path.resolve(here, "../../../..")
@@ -56,18 +59,43 @@ export async function composeGrid(
     }),
   )
 
-  const cellW = Math.max(...metas.map((m) => m.width))
-  const cellH = Math.max(...metas.map((m) => m.height))
   const rows = Math.ceil(metas.length / cols)
-  const canvasW = cols * cellW + (cols + 1) * CELL_GAP
-  const canvasH = rows * (cellH + LABEL_HEIGHT) + (rows + 1) * CELL_GAP
+  // Per-column widths and per-row heights — using a single uniform max would
+  // make a wide full-viewport shot blow up every cell and leave narrow shots
+  // (e.g. sidebar at 320px next to sort-menu at 1440px) as tiny corners.
+  const colWidths: number[] = []
+  for (let c = 0; c < cols; c++) {
+    let maxW = 0
+    for (let r = 0; r < rows; r++) {
+      const idx = r * cols + c
+      if (idx < metas.length) maxW = Math.max(maxW, metas[idx].width)
+    }
+    colWidths.push(maxW)
+  }
+  const rowShotHeights: number[] = []
+  for (let r = 0; r < rows; r++) {
+    let maxH = 0
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c
+      if (idx < metas.length) maxH = Math.max(maxH, metas[idx].height)
+    }
+    rowShotHeights.push(maxH)
+  }
+  const canvasW = colWidths.reduce((a, b) => a + b, 0) + (cols + 1) * CELL_GAP
+  const canvasH = rowShotHeights.reduce((a, b) => a + b + LABEL_HEIGHT, 0) + (rows + 1) * CELL_GAP
+
+  const colX: number[] = [CELL_GAP]
+  for (let c = 0; c < cols; c++) colX.push(colX[c] + colWidths[c] + CELL_GAP)
+  const rowY: number[] = [CELL_GAP]
+  for (let r = 0; r < rows; r++) rowY.push(rowY[r] + rowShotHeights[r] + LABEL_HEIGHT + CELL_GAP)
 
   const overlays: sharp.OverlayOptions[] = []
   for (let i = 0; i < metas.length; i++) {
     const row = Math.floor(i / cols)
     const col = i % cols
-    const x = CELL_GAP + col * (cellW + CELL_GAP)
-    const y = CELL_GAP + row * (cellH + LABEL_HEIGHT + CELL_GAP)
+    const x = colX[col]
+    const y = rowY[row]
+    const cellW = colWidths[col]
 
     overlays.push({ input: metas[i].buf, left: x, top: y })
 
@@ -75,7 +103,7 @@ export async function composeGrid(
       <rect width="${cellW}" height="${LABEL_HEIGHT}" fill="${LABEL_BG}"/>
       <text x="${LABEL_PAD_X}" y="${LABEL_HEIGHT / 2 + LABEL_FONT_SIZE / 3}" font-family="system-ui, -apple-system, sans-serif" font-size="${LABEL_FONT_SIZE}" fill="${LABEL_FG}">${escapeXml(metas[i].name)}</text>
     </svg>`
-    overlays.push({ input: Buffer.from(labelSvg), left: x, top: y + cellH })
+    overlays.push({ input: Buffer.from(labelSvg), left: x, top: y + rowShotHeights[row] })
   }
 
   await fs.mkdir(path.dirname(outputPath), { recursive: true })
