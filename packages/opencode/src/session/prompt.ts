@@ -229,6 +229,26 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   return { kind: "stop", toolErrorMessage } satisfies GateOutcome
 })
 
+// Title generation reads a single user-side seed. When the user message comes
+// from a command template the first text part may not be the one carrying the
+// invocation metadata — resolvePart can prepend synthetic text in front of a
+// `@file` reference, and the stamper only writes commandInvocation onto the
+// first text part of the *template*, not the first text part of the assembled
+// message. Scan for the part that actually owns the invocation so the title
+// model always sees `Command: /<name> <args>` instead of the expanded body.
+export function deriveCommandTitleSeed(parts: ReadonlyArray<MessageV2.Part>): string | null {
+  const carrier = parts.find((p): p is MessageV2.TextPart => {
+    if (p.type !== "text") return false
+    const meta = (p as { metadata?: { commandInvocation?: { name?: unknown } } }).metadata
+    return typeof meta?.commandInvocation?.name === "string" && meta.commandInvocation.name.length > 0
+  })
+  if (!carrier) return null
+  const meta = (carrier as { metadata?: { commandInvocation?: { name?: unknown; args?: unknown } } }).metadata
+  const name = meta?.commandInvocation?.name as string
+  const args = typeof meta?.commandInvocation?.args === "string" ? meta.commandInvocation.args : ""
+  return "Command: /" + name + (args.length > 0 ? " " + args : "")
+}
+
 function officePathOnly(filepath: string) {
   return OFFICE_EXTS.has(pathSuffix(filepath))
 }
@@ -452,15 +472,7 @@ export const layer = Layer.effect(
       const subtasks = firstUser.parts.filter((p): p is MessageV2.SubtaskPart => p.type === "subtask")
       const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
 
-      const commandTitleSeed = (() => {
-        const firstText = firstUser.parts.find((p): p is MessageV2.TextPart => p.type === "text")
-        const meta = (firstText as { metadata?: { commandInvocation?: { name?: unknown; args?: unknown } } } | undefined)
-          ?.metadata
-        const name = meta?.commandInvocation?.name
-        if (typeof name !== "string" || name.length === 0) return null
-        const args = typeof meta?.commandInvocation?.args === "string" ? meta.commandInvocation.args : ""
-        return "Command: /" + name + (args.length > 0 ? " " + args : "")
-      })()
+      const commandTitleSeed = deriveCommandTitleSeed(firstUser.parts)
 
       const ag = yield* agents.get("title")
       if (!ag) return
