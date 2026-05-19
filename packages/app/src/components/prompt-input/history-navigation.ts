@@ -165,6 +165,7 @@ export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNav
           time: item.commentID ? (byID.get(`${item.path}\n${item.commentID}`)?.time ?? Date.now()) : Date.now(),
           origin: item.commentOrigin,
           preview: item.preview,
+          resolvedMentions: item.resolvedMentions,
         } satisfies PromptHistoryComment,
       ]
     })
@@ -189,6 +190,7 @@ export function createHistoryNavigation(deps: HistoryNavigationDeps): HistoryNav
         commentID: item.id,
         commentOrigin: item.origin,
         preview: item.preview,
+        resolvedMentions: item.resolvedMentions,
       })),
     )
   }

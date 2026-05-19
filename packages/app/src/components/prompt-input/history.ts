@@ -1,5 +1,6 @@
 import type { Prompt } from "@/context/prompt"
 import type { SelectedLineRange } from "@/context/file"
+import type { ResolvedMention } from "./mention-metadata"
 
 const DEFAULT_PROMPT: Prompt = [{ type: "text", content: "", start: 0, end: 0 }]
 
@@ -13,6 +14,12 @@ export type PromptHistoryComment = {
   time: number
   origin?: "review" | "file"
   preview?: string
+  /**
+   * Mention metadata captured when the comment text was committed. Stored on
+   * the history entry so ArrowUp recall can replay the same file attachments
+   * the original submit would have produced.
+   */
+  resolvedMentions?: ResolvedMention[]
 }
 
 export type PromptHistoryEntry = {
@@ -56,6 +63,7 @@ export function clonePromptHistoryComments(comments: PromptHistoryComment[]) {
   return comments.map((comment) => ({
     ...comment,
     selection: cloneSelection(comment.selection),
+    resolvedMentions: comment.resolvedMentions ? comment.resolvedMentions.map((m) => ({ ...m })) : undefined,
   }))
 }
 
