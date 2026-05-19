@@ -17,16 +17,21 @@ const toolPart = (
   id: string,
   tool: string,
   status: ToolState["status"] = "running",
-  attrs?: { messageID?: string; callID?: string },
-): Part =>
-  ({
+  attrs?: { messageID?: string; callID?: string; stateMetadata?: Record<string, unknown> },
+): Part => {
+  const state = toolState(status)
+  if (attrs?.stateMetadata) {
+    ;(state as { metadata?: Record<string, unknown> }).metadata = attrs.stateMetadata
+  }
+  return {
     id,
     type: "tool",
     tool,
-    state: toolState(status),
+    state,
     messageID: attrs?.messageID,
     callID: attrs?.callID,
-  }) as Part
+  } as Part
+}
 
 const syncQ = (id: string, sessionID: string, tool?: { messageID: string; callID: string }): QuestionRequest =>
   ({
@@ -130,6 +135,30 @@ describe("findRunningQuestionFallbackSession", () => {
         },
       }),
     ).toBe("s")
+  })
+
+  // New-path (PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT) guard: a running
+  // question part with metadata.externalResultReady is self-managed by the
+  // external-result registry. Legacy fallback recovery must skip it,
+  // otherwise the auto-heal clock would arm on every flag-on session and
+  // halt good runs.
+  test("skips running question parts whose state metadata flags external-result", () => {
+    expect(
+      findRunningQuestionFallbackSession({
+        sessionID: "s",
+        syncQuestions: [],
+        messages: [message("m1")],
+        partsByMessageID: {
+          m1: [
+            toolPart("p1", "question", "running", {
+              messageID: "m1",
+              callID: "c1",
+              stateMetadata: { externalResultReady: true },
+            }),
+          ],
+        },
+      }),
+    ).toBeUndefined()
   })
 
   // Mixed-state guard for #419: when a sync entry lacks tool identity but a

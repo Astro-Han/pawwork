@@ -43,6 +43,14 @@ export function findRunningQuestionFallbackSession(input: {
     if (!parts) continue
     for (const part of parts) {
       if (part.type !== "tool" || part.tool !== TOOL_QUESTION || part.state.status !== "running") continue
+      // New-path question (PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT flag on):
+      // the tool part itself is the source of truth and the registry manages
+      // lifecycle. Legacy fallback recovery does not apply, so skip these
+      // parts so the recovery clock does not arm on every flag-on session.
+      const stateMeta = (part.state as { metadata?: Record<string, unknown> }).metadata
+      if (stateMeta && Object.prototype.hasOwnProperty.call(stateMeta, "externalResultReady")) {
+        continue
+      }
       const callID = part.callID
       const messageID = part.messageID
       if (!callID || !messageID || !coveredKeys.has(`${messageID}:${callID}`)) {
