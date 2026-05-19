@@ -700,6 +700,12 @@ export const layer: Layer.Layer<
           }
 
           case "error":
+            ctx.trace.recordProviderErrorEvent({
+              error: value.error,
+              provider: "providerMetadata" in value ? value.providerMetadata : undefined,
+              failedAt: Date.now(),
+              monotonicMs: performance.now(),
+            })
             throw value.error
 
           case "start-step":

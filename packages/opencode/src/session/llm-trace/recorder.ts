@@ -11,6 +11,8 @@ import type {
   Tokens,
 } from "./types"
 import { SCHEMA_VERSION } from "./types"
+import type { StreamDiagnostics } from "./types"
+import { classifyBoundary, safeErrorFingerprint, safeProviderCorrelation } from "./stream-diagnostics"
 
 export function requestSummary(input: RequestSummaryInput): RequestSummary {
   const options = safeOptions(input.options)
@@ -30,6 +32,8 @@ export function createRecorder(input: RecorderInput): Recorder {
   let request: RequestSummary | undefined
   let finishReason: string | undefined
   let tokens: MessageV2.Assistant["tokens"] | undefined
+  let stream: StreamDiagnostics | undefined
+  let streamMonotonicStart: number | undefined
 
   return {
     request(summary) {
@@ -41,6 +45,92 @@ export function createRecorder(input: RecorderInput): Recorder {
     finish(reason, nextTokens) {
       finishReason = reason
       tokens = nextTokens
+    },
+    beginStream(next) {
+      streamMonotonicStart = next.monotonicMs
+      stream = {
+        schema_version: 2,
+        legacy_v1_counters: "terminal_attempt",
+        timeline: {
+          collector_created_at: next.collectorCreatedAt,
+        },
+        watchdog: {
+          connect_timeout_ms: next.connectTimeoutMs,
+          stream_timeout_ms: next.streamTimeoutMs,
+          provider_progressed: false,
+          phase_at_end: "before_first_provider_progress",
+          fired: false,
+        },
+      }
+    },
+    recordStreamFailure(next) {
+      if (!stream) return
+      if (stream.error?.boundary === "watchdog" && stream.error.confidence === "high") return
+      stream.timeline.failed_at = next.failedAt
+      stream.timeline.durations_ms = {
+        ...(stream.timeline.durations_ms ?? {}),
+        total: durationSince(streamMonotonicStart, next.monotonicMs),
+      }
+      stream.error = {
+        ...safeErrorFingerprint(next.error),
+        boundary: next.boundary,
+        confidence: next.confidence,
+        evidence: next.evidence,
+      }
+    },
+    recordProviderProgress(next) {
+      if (!stream) return
+      stream.watchdog.provider_progressed = true
+      stream.watchdog.phase_at_end = "between_provider_events"
+      if (stream.timeline.first_provider_progress_at === undefined) {
+        stream.timeline.first_provider_progress_at = next.eventAt
+        stream.timeline.durations_ms = {
+          ...(stream.timeline.durations_ms ?? {}),
+          watchdog_armed_to_first_provider_progress: durationSince(streamMonotonicStart, next.monotonicMs),
+        }
+      }
+      stream.timeline.last_provider_progress_at = next.eventAt
+    },
+    recordWatchdogFired(next) {
+      if (!stream) return
+      stream.watchdog.fired = true
+      stream.watchdog.fired_phase = next.phase
+      if (next.phase === "connect") stream.watchdog.phase_at_end = "before_first_provider_progress"
+    },
+    recordStreamCompleted(next) {
+      if (!stream) return
+      stream.timeline.completed_at = next.completedAt
+      stream.watchdog.phase_at_end = "completed"
+      stream.timeline.durations_ms = {
+        ...(stream.timeline.durations_ms ?? {}),
+        total: durationSince(streamMonotonicStart, next.monotonicMs),
+      }
+    },
+    recordProviderErrorEvent(next) {
+      if (!stream) return
+      const provider = safeProviderCorrelation(next.provider)
+      stream.provider = provider
+      const boundary = classifyBoundary({
+        providerErrorEvent: true,
+        iteratorError: true,
+        requestIdPresent: provider?.request_id !== undefined || provider?.response_id !== undefined,
+        providerCorrelationUnavailable: provider?.unavailable_reason !== undefined,
+      })
+      stream.timeline.failed_at = next.failedAt
+      stream.timeline.durations_ms = {
+        ...(stream.timeline.durations_ms ?? {}),
+        total: durationSince(streamMonotonicStart, next.monotonicMs),
+      }
+      stream.error = {
+        ...safeErrorFingerprint(next.error),
+        boundary: boundary.boundary,
+        confidence: boundary.confidence,
+        evidence: boundary.evidence,
+      }
+    },
+    recordProviderCorrelation(input) {
+      if (!stream) return
+      stream.provider = safeProviderCorrelation(input)
     },
     finalize(final: FinalizeInput) {
       const finalFinishReason = final.finishReason ?? finishReason
@@ -71,9 +161,15 @@ export function createRecorder(input: RecorderInput): Recorder {
         flags,
         created_at: input.createdAt,
         completed_at: final.completedAt,
+        ...(stream ? { stream } : {}),
       }
     },
   }
+}
+
+function durationSince(start: number | undefined, end: number) {
+  if (start === undefined) return undefined
+  return Math.max(0, end - start)
 }
 
 export function storedPartCounts(parts: MessageV2.Part[]): StoredParts {

@@ -17,6 +17,7 @@ import type { Agent } from "../../src/agent/agent"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { AppRuntime } from "../../src/effect/app-runtime"
+import { LLMTrace } from "../../src/session/llm-trace"
 
 async function getModel(providerID: ProviderID, modelID: ModelID) {
   return AppRuntime.runPromise(
@@ -663,6 +664,15 @@ describe("session.llm.stream", () => {
           agent: agent.name,
           model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
         } satisfies MessageV2.User
+        const trace = LLMTrace.createRecorder({
+          traceID: MessageID.make("trace-silent-timeout"),
+          sessionID,
+          messageID: MessageID.make("assistant-silent-timeout"),
+          providerID,
+          modelID: resolved.id,
+          agent: agent.name,
+          createdAt: Date.now(),
+        })
 
         const exit = await llm.runPromiseExit((svc) =>
           svc
@@ -676,6 +686,7 @@ describe("session.llm.stream", () => {
               tools: {},
               connectTimeoutMs: 1_000,
               streamTimeoutMs: 20,
+              trace,
             })
             .pipe(Stream.runDrain),
         )
@@ -684,6 +695,13 @@ describe("session.llm.stream", () => {
         await Promise.race([pending.requestAborted, timeout(500)]).catch(() => undefined)
         await pending.request
         expect(Exit.isFailure(exit)).toBe(false)
+        const summary = trace.finalize({ completedAt: Date.now(), storedParts: [] })
+        expect(summary.stream?.watchdog).toMatchObject({
+          fired: true,
+          fired_phase: "silent_stream",
+          provider_progressed: true,
+        })
+        expect(summary.stream?.error).toBeUndefined()
       },
     })
   })
@@ -737,6 +755,15 @@ describe("session.llm.stream", () => {
           agent: agent.name,
           model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
         } satisfies MessageV2.User
+        const trace = LLMTrace.createRecorder({
+          traceID: MessageID.make("trace-connect-timeout"),
+          sessionID,
+          messageID: MessageID.make("assistant-connect-timeout"),
+          providerID,
+          modelID: resolved.id,
+          agent: agent.name,
+          createdAt: Date.now(),
+        })
 
         const exit = await llm.runPromiseExit((svc) =>
           svc
@@ -750,6 +777,7 @@ describe("session.llm.stream", () => {
               tools: {},
               connectTimeoutMs: 20,
               streamTimeoutMs: 1_000,
+              trace,
             })
             .pipe(Stream.runDrain),
         )
@@ -758,6 +786,17 @@ describe("session.llm.stream", () => {
         await Promise.race([pending.requestAborted, timeout(500)]).catch(() => undefined)
         await pending.request
         expect(Exit.isFailure(exit)).toBe(true)
+        const summary = trace.finalize({ completedAt: Date.now(), storedParts: [], streamError: true })
+        expect(summary.stream?.watchdog).toMatchObject({
+          fired: true,
+          fired_phase: "connect",
+          provider_progressed: false,
+        })
+        expect(summary.stream?.error).toMatchObject({
+          boundary: "watchdog",
+          confidence: "high",
+          evidence: expect.arrayContaining(["watchdog_fired", "watchdog_error"]),
+        })
       },
     })
   })

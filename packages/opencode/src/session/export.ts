@@ -25,6 +25,7 @@ import { isRecord } from "@/util/record"
 import { Glob } from "@/util/glob"
 import { safeToolFailureMetadata } from "./tool-failure"
 import { LLMTrace } from "./llm-trace"
+import { safeErrorFingerprint, safeProviderCorrelation } from "./llm-trace/stream-diagnostics"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -942,6 +943,14 @@ export namespace Export {
                 structured:
                   msg.info.structured === undefined ? undefined : { redacted: `assistant-structured:${msg.info.id}` },
                 error: namedError("assistant-error", msg.info.id, msg.info.error),
+                diagnostics: !msg.info.diagnostics
+                  ? msg.info.diagnostics
+                  : {
+                      ...msg.info.diagnostics,
+                      llm_trace: msg.info.diagnostics.llm_trace
+                        ? sanitizeLLMTrace(msg.info.diagnostics.llm_trace)
+                        : undefined,
+                    },
               },
         parts: msg.parts.map(partFn),
       })),
@@ -993,7 +1002,38 @@ export namespace Export {
             ? undefined
             : redact("title-generation-error-message", String(index), trace.error_message),
       })),
+      llm_traces: diagnostics.llm_traces?.map(sanitizeLLMTrace),
     }
+  }
+
+  function sanitizeLLMTrace(trace: LLMTrace.Summary): LLMTrace.Summary {
+    const stream = trace.stream as Record<string, unknown> | undefined
+    if (!stream) return trace
+    return {
+      ...trace,
+      stream: sanitizeStreamDiagnostics(stream),
+    } as LLMTrace.Summary
+  }
+
+  function sanitizeStreamDiagnostics(stream: Record<string, unknown>) {
+    const rawError = isRecord(stream.error) ? stream.error : undefined
+    const safeError = rawError
+      ? {
+          ...rawError,
+          ...safeErrorFingerprint(rawError),
+        }
+      : undefined
+    const rawProvider = isRecord(stream.provider) ? stream.provider : undefined
+    const safeProvider = rawProvider ? safeProviderCorrelation(rawProvider) : undefined
+    return {
+      ...stream,
+      ...(safeError ? { error: compactObject(safeError) } : {}),
+      ...(safeProvider ? { provider: safeProvider } : {}),
+    }
+  }
+
+  function compactObject<T extends Record<string, unknown>>(input: T): T {
+    return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as T
   }
 
   // Snapshot-level sanitize. Wraps sanitizeTree (the conversation tree) AND redacts top-level

@@ -112,4 +112,179 @@ describe("LLMTrace", () => {
     const empty = recorder.finalize({ completedAt: 3, finishReason: "stop", storedParts: [] })
     expect(empty.flags.empty_completion).toBe(true)
   })
+
+  test("classifies overlapping watchdog abort evidence without treating signal state as local abort", () => {
+    expect(
+      LLMTrace.classifyBoundary({
+        watchdogFired: true,
+        watchdogError: true,
+        abortSignalAborted: true,
+        iteratorError: true,
+      }),
+    ).toEqual({
+      boundary: "watchdog",
+      confidence: "high",
+      evidence: ["watchdog_fired", "watchdog_error", "abort_signal_aborted", "iterator_error"],
+    })
+
+    expect(
+      LLMTrace.classifyBoundary({
+        abortSignalAborted: true,
+        abortProvenancePresent: false,
+        iteratorError: true,
+      }),
+    ).toEqual({
+      boundary: "unknown",
+      confidence: "low",
+      evidence: ["abort_signal_aborted", "abort_provenance_missing", "iterator_error"],
+    })
+  })
+
+  test("records safe error fingerprints before persistence", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_trace"),
+      sessionID: SessionID.make("ses_trace"),
+      messageID: MessageID.make("msg_trace"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordStreamFailure({
+      error: {
+        name: "ProviderError",
+        message:
+          "request failed for https://secret.example.invalid/body with token sk-private and path /Users/alice/project/file.ts",
+        code: "terminated",
+        cause: { name: "CauseError", message: "Authorization: Bearer secret" },
+        stack: "ProviderError: boom\n    at /Users/alice/project/file.ts:1:1",
+      },
+      boundary: "sdk_transport",
+      confidence: "low",
+      evidence: ["iterator_error", "provider_progress_seen"],
+      failedAt: 20,
+      monotonicMs: 150,
+    })
+
+    const summary = recorder.finalize({ completedAt: 21, storedParts: [] })
+    const serialized = JSON.stringify(summary)
+    expect(summary.stream?.error).toMatchObject({
+      name: "ProviderError",
+      message: expect.stringContaining("[redacted:url]"),
+      code: "terminated",
+      cause_name: "CauseError",
+      cause_message: expect.stringContaining("[redacted:secret]"),
+      boundary: "sdk_transport",
+      confidence: "low",
+    })
+    expect(serialized).not.toContain("secret.example.invalid")
+    expect(serialized).not.toContain("sk-private")
+    expect(serialized).not.toContain("/Users/alice")
+    expect(serialized).not.toContain("Bearer secret")
+  })
+
+  test("extracts provider correlation only from reviewed safe keys", () => {
+    const correlation = LLMTrace.safeProviderCorrelation({
+      request_id: "req_123",
+      responseId: "resp_456",
+      status_code: 529,
+      headers: {
+        "x-request-id": "req_header",
+        authorization: "Bearer secret",
+        cookie: "session=secret",
+        "x-provider-body": "raw private body",
+        "x-trace-id": "trace_789",
+      },
+      url: "https://secret.example.invalid/path?token=secret",
+      body: "private response body",
+    })
+
+    expect(correlation).toEqual({
+      request_id: "req_123",
+      response_id: "resp_456",
+      status_code: 529,
+      safe_headers: {
+        "x-request-id": "req_header",
+        "x-trace-id": "trace_789",
+      },
+    })
+    expect(JSON.stringify(correlation)).not.toContain("Bearer")
+    expect(JSON.stringify(correlation)).not.toContain("private response body")
+    expect(JSON.stringify(correlation)).not.toContain("secret.example.invalid")
+  })
+
+  test("records explicit provider error events as safe provider stream failures", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_provider_error_trace"),
+      sessionID: SessionID.make("ses_provider_error_trace"),
+      messageID: MessageID.make("msg_provider_error_trace"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordProviderErrorEvent({
+      error: { name: "ProviderError", message: "raw body https://secret.example.invalid sk-private" },
+      provider: { request_id: "req_provider", body: "private response body" },
+      failedAt: 20,
+      monotonicMs: 130,
+    })
+
+    const summary = recorder.finalize({ completedAt: 21, storedParts: [], streamError: true })
+    expect(summary.stream?.error).toMatchObject({
+      boundary: "provider_stream",
+      confidence: "high",
+      evidence: expect.arrayContaining(["provider_error_event", "request_id_present"]),
+      name: "ProviderError",
+    })
+    expect(summary.stream?.provider?.request_id).toBe("req_provider")
+    const serialized = JSON.stringify(summary)
+    expect(serialized).not.toContain("secret.example.invalid")
+    expect(serialized).not.toContain("sk-private")
+    expect(serialized).not.toContain("private response body")
+  })
+
+  test("keeps monotonic durations non-negative when sampled clocks move backward", () => {
+    const recorder = LLMTrace.createRecorder({
+      traceID: MessageID.make("msg_duration_trace"),
+      sessionID: SessionID.make("ses_duration_trace"),
+      messageID: MessageID.make("msg_duration_trace"),
+      providerID: "test",
+      modelID: "model",
+      agent: "build",
+      createdAt: 1,
+    })
+
+    recorder.beginStream({
+      collectorCreatedAt: 10,
+      monotonicMs: 100,
+      connectTimeoutMs: 30_000,
+      streamTimeoutMs: 600_000,
+    })
+    recorder.recordStreamFailure({
+      error: new Error("terminated"),
+      boundary: "sdk_transport",
+      confidence: "low",
+      evidence: ["iterator_error"],
+      failedAt: 20,
+      monotonicMs: 90,
+    })
+
+    const summary = recorder.finalize({ completedAt: 21, storedParts: [], streamError: true })
+    expect(summary.stream?.timeline.durations_ms?.total).toBe(0)
+  })
 })

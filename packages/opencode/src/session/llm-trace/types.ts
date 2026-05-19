@@ -1,6 +1,13 @@
 import type { MessageV2 } from "../message-v2"
 import { MessageID, SessionID } from "../schema"
 import z from "zod"
+import type {
+  BoundaryResult,
+  ProviderCorrelation,
+  StreamConfidence,
+  StreamEvidence,
+  StreamBoundary,
+} from "./stream-diagnostics"
 
 export const SCHEMA_VERSION = 1
 
@@ -72,6 +79,67 @@ export const Flags = z.object({
 })
 export type Flags = z.infer<typeof Flags>
 
+export type StreamDiagnostics = {
+  schema_version: 2
+  attempt?: {
+    attempt_index?: number
+    attempt_id?: string
+    terminal_attempt?: boolean
+    note?: "terminal_attempt_only" | "per_attempt_recorded"
+  }
+  legacy_v1_counters?: "terminal_attempt" | "aggregate"
+  timeline: {
+    collector_created_at: number
+    sdk_stream_returned_at?: number
+    watchdog_armed_at?: number
+    first_event_at?: number
+    first_provider_progress_at?: number
+    last_event_at?: number
+    last_provider_progress_at?: number
+    completed_at?: number
+    failed_at?: number
+    durations_ms?: {
+      created_to_sdk_stream_returned?: number
+      watchdog_armed_to_first_event?: number
+      watchdog_armed_to_first_provider_progress?: number
+      first_to_last_provider_progress?: number
+      last_provider_progress_to_failure?: number
+      total?: number
+    }
+  }
+  watchdog: {
+    connect_timeout_ms: number
+    stream_timeout_ms: number
+    provider_progressed: boolean
+    phase_at_end: "before_first_provider_progress" | "between_provider_events" | "completed" | "unknown"
+    fired: boolean
+    fired_phase?: "connect" | "silent_stream"
+  }
+  abort?: {
+    signal_aborted_at_error?: boolean
+    provenance_source?: string
+    provenance_reason?: string
+    provenance_mode?: "soft" | "hard"
+    provenance_recorded_at?: number
+    provenance_missing?: boolean
+  }
+  error?: {
+    boundary: StreamBoundary
+    confidence?: StreamConfidence
+    evidence?: StreamEvidence[]
+    constructor_name?: string
+    name?: string
+    message?: string
+    code?: string
+    cause_constructor_name?: string
+    cause_name?: string
+    cause_message?: string
+    cause_code?: string
+    stack_hint?: string
+  }
+  provider?: ProviderCorrelation
+}
+
 export const Summary = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
   trace_id: MessageID.zod,
@@ -89,6 +157,7 @@ export const Summary = z.object({
   flags: Flags,
   created_at: z.number(),
   completed_at: z.number().optional(),
+  stream: z.any().optional(),
 })
 export type Summary = z.infer<typeof Summary>
 
@@ -128,5 +197,24 @@ export type Recorder = {
   request(summary: RequestSummary): void
   observeEvent(event: { type: string } & Record<string, unknown>): void
   finish(reason: string | undefined, tokens?: MessageV2.Assistant["tokens"]): void
+  beginStream(input: {
+    collectorCreatedAt: number
+    monotonicMs: number
+    connectTimeoutMs: number
+    streamTimeoutMs: number
+  }): void
+  recordStreamFailure(input: {
+    error: unknown
+    boundary: BoundaryResult["boundary"]
+    confidence: BoundaryResult["confidence"]
+    evidence: BoundaryResult["evidence"]
+    failedAt: number
+    monotonicMs: number
+  }): void
+  recordProviderProgress(input: { eventAt: number; monotonicMs: number }): void
+  recordWatchdogFired(input: { phase: "connect" | "silent_stream"; firedAt: number; monotonicMs: number }): void
+  recordStreamCompleted(input: { completedAt: number; monotonicMs: number }): void
+  recordProviderErrorEvent(input: { error: unknown; provider?: unknown; failedAt: number; monotonicMs: number }): void
+  recordProviderCorrelation(input: unknown): void
   finalize(input: FinalizeInput): Summary
 }
