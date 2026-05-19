@@ -18,9 +18,21 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
   const part = () => props.part as ToolPart
   if (part().tool === TOOL_TODOWRITE) return null
 
-  const hideQuestion = createMemo(
-    () => part().tool === TOOL_QUESTION && (part().state.status === "pending" || part().state.status === "running"),
-  )
+  // The dock surfaces pending / running question parts as the active input
+  // surface (D1 = B, dock projection of running question tool parts). The
+  // inline timeline either hides (flag-off legacy: dock is the only render
+  // path) or shows a thin marker (flag-on: rendered by the Match below).
+  // We detect flag-on via the new metadata flag set by ctx.externalResult.
+  const isQuestion = () => part().tool === TOOL_QUESTION
+  const isQuestionRunning = () =>
+    isQuestion() && (part().state.status === "pending" || part().state.status === "running")
+  const newQuestionPath = () => {
+    const meta = partMetadata()
+    return meta != null && Object.prototype.hasOwnProperty.call(meta, "externalResultReady")
+  }
+  // Flag-off (legacy): hide running questions in timeline so only the dock
+  // renders. Flag-on: render the thin marker (no hide).
+  const hideQuestion = createMemo(() => isQuestionRunning() && !newQuestionPath())
 
   const emptyInput: Record<string, any> = {}
   const emptyMetadata: Record<string, any> = {}
@@ -53,8 +65,60 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
     <Show when={!hideQuestion() && !hideSyntheticStop()}>
       <div data-component="tool-part-wrapper">
         <Switch>
+          {/* Flag-on question, running: thin marker pointing to dock (D1 = B
+              two-surface rule). The dock holds the active input controls; the
+              inline timeline only signals "there is a pending question". */}
+          <Match when={isQuestion() && newQuestionPath() && isQuestionRunning()}>
+            <div data-component="question-inline-marker" style="width: 100%; display: flex; justify-content: flex-end;">
+              <span class="text-body text-fg-weak cursor-default">
+                {i18n.t("ui.messagePart.questions.pendingMarker")}
+              </span>
+            </div>
+          </Match>
+          {/* Flag-on question, completed dismiss: keyed on metadata.dismissed
+              (NOT on answers.length, since all-blank submit is a legitimate
+              non-dismiss case). */}
+          <Match
+            when={
+              isQuestion() &&
+              newQuestionPath() &&
+              part().state.status === "completed" &&
+              partMetadata()?.dismissed === true
+            }
+          >
+            <div style="width: 100%; display: flex; justify-content: flex-end;">
+              <span class="text-body text-fg-weak cursor-default">
+                {i18n.t("ui.messagePart.questions.dismissed")}
+              </span>
+            </div>
+          </Match>
           <Match when={part().state.status === "error" && toolStateError(part().state)}>
             {(error) => {
+              // Typed reason branches (set when the new path's writer wiring
+              // populates ToolStateError.reason). Legacy parts without reason
+              // fall through to the substring fallback below for back-compat.
+              const reason =
+                part().state.status === "error" && "reason" in part().state
+                  ? ((part().state as { reason?: "aborted" | "shutdown" | "tool_failure" }).reason)
+                  : undefined
+              if (isQuestion() && reason === "aborted") {
+                return (
+                  <div style="width: 100%; display: flex; justify-content: flex-end;">
+                    <span class="text-body text-fg-weak cursor-default">
+                      {i18n.t("ui.messagePart.questions.interrupted")}
+                    </span>
+                  </div>
+                )
+              }
+              if (isQuestion() && reason === "shutdown") {
+                return (
+                  <div style="width: 100%; display: flex; justify-content: flex-end;">
+                    <span class="text-body text-fg-weak cursor-default">
+                      {i18n.t("ui.messagePart.questions.interrupted")}
+                    </span>
+                  </div>
+                )
+              }
               const cleaned = error().replace("Error: ", "")
               if (part().tool === TOOL_QUESTION && cleaned.includes("dismissed this question")) {
                 return (
