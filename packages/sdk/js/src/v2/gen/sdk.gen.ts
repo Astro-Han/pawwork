@@ -13,7 +13,6 @@ import type {
   AuthRemoveResponses,
   AuthSetErrors,
   AuthSetResponses,
-  BlockerListResponses,
   CommandListResponses,
   Config as Config3,
   ConfigGetResponses,
@@ -89,8 +88,6 @@ import type {
   PermissionRespondResponses,
   PermissionRuleset,
   PostPermissionE2eAskResponses,
-  PostQuestionE2eAskResponses,
-  PostQuestionE2ePublishAskedResponses,
   PostSessionE2eUpdateTodosResponses,
   ProjectCurrentResponses,
   ProjectInitGitResponses,
@@ -114,14 +111,6 @@ import type {
   PtyRemoveResponses,
   PtyUpdateErrors,
   PtyUpdateResponses,
-  QuestionInfo,
-  QuestionListResponses,
-  QuestionRejectErrors,
-  QuestionRejectResponses,
-  QuestionReply,
-  QuestionReplyErrors,
-  QuestionReplyResponses,
-  QuestionRequest,
   SessionAbortErrors,
   SessionAbortResponses,
   SessionArtifactsResponses,
@@ -3057,141 +3046,6 @@ export class Permission extends HeyApiClient {
   }
 }
 
-export class Question extends HeyApiClient {
-  /**
-   * List pending questions
-   *
-   * Get all pending question requests across all sessions.
-   */
-  public list<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<QuestionListResponses, unknown, ThrowOnError>({
-      url: "/question",
-      ...options,
-      ...params,
-    })
-  }
-
-  /**
-   * Reply to question request
-   *
-   * Provide answers to a question request from the AI assistant.
-   */
-  public reply<ThrowOnError extends boolean = false>(
-    parameters: {
-      requestID: string
-      directory?: string
-      workspace?: string
-      questionReply?: QuestionReply
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "requestID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { key: "questionReply", map: "body" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<QuestionReplyResponses, QuestionReplyErrors, ThrowOnError>({
-      url: "/question/{requestID}/reply",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  /**
-   * Reject question request
-   *
-   * Reject a question request from the AI assistant.
-   */
-  public reject<ThrowOnError extends boolean = false>(
-    parameters: {
-      requestID: string
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "path", key: "requestID" },
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<QuestionRejectResponses, QuestionRejectErrors, ThrowOnError>({
-      url: "/question/{requestID}/reject",
-      ...options,
-      ...params,
-    })
-  }
-}
-
-export class Blocker extends HeyApiClient {
-  /**
-   * List active session blockers
-   *
-   * Get active session blockers across all sessions.
-   */
-  public list<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).get<BlockerListResponses, unknown, ThrowOnError>({
-      url: "/blocker",
-      ...options,
-      ...params,
-    })
-  }
-}
-
 export class Oauth extends HeyApiClient {
   /**
    * OAuth authorize
@@ -4342,72 +4196,6 @@ export class OpencodeClient extends HeyApiClient {
     })
   }
 
-  public postQuestionE2eAsk<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      sessionID?: string
-      questions?: Array<QuestionInfo>
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "sessionID" },
-            { in: "body", key: "questions" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<PostQuestionE2eAskResponses, unknown, ThrowOnError>({
-      url: "/question/__e2e/ask",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
-  public postQuestionE2ePublishAsked<ThrowOnError extends boolean = false>(
-    parameters?: {
-      directory?: string
-      workspace?: string
-      request?: QuestionRequest
-    },
-    options?: Options<never, ThrowOnError>,
-  ) {
-    const params = buildClientParams(
-      [parameters],
-      [
-        {
-          args: [
-            { in: "query", key: "directory" },
-            { in: "query", key: "workspace" },
-            { in: "body", key: "request" },
-          ],
-        },
-      ],
-    )
-    return (options?.client ?? this.client).post<PostQuestionE2ePublishAskedResponses, unknown, ThrowOnError>({
-      url: "/question/__e2e/publish-asked",
-      ...options,
-      ...params,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-        ...params.headers,
-      },
-    })
-  }
-
   private _global?: Global
   get global(): Global {
     return (this._global ??= new Global({ client: this.client }))
@@ -4466,16 +4254,6 @@ export class OpencodeClient extends HeyApiClient {
   private _permission?: Permission
   get permission(): Permission {
     return (this._permission ??= new Permission({ client: this.client }))
-  }
-
-  private _question?: Question
-  get question(): Question {
-    return (this._question ??= new Question({ client: this.client }))
-  }
-
-  private _blocker?: Blocker
-  get blocker(): Blocker {
-    return (this._blocker ??= new Blocker({ client: this.client }))
   }
 
   private _provider?: Provider

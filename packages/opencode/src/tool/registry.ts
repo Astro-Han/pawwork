@@ -45,7 +45,6 @@ import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Env } from "../env"
-import { Question } from "../question"
 import { Todo } from "../session/todo"
 import { TurnChange } from "../session/turn-change"
 import { LSP } from "../lsp"
@@ -93,7 +92,6 @@ export namespace ToolRegistry {
     never,
     | Config.Service
     | Plugin.Service
-    | Question.Service
     | Todo.Service
     | TurnChange.Service
     | Agent.Service
@@ -411,7 +409,6 @@ export namespace ToolRegistry {
     layer.pipe(
       Layer.provide(Config.defaultLayer),
       Layer.provide(Plugin.defaultLayer),
-      Layer.provide(Question.defaultLayer),
       Layer.provide(Layer.mergeAll(Todo.defaultLayer, TurnChange.defaultLayer)),
       Layer.provide(Skill.defaultLayer),
       Layer.provide(Agent.defaultLayer),

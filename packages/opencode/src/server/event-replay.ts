@@ -37,11 +37,6 @@ const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000
 // Keep this list intentionally small. These events are low-volume and session
 // or blocker critical; high-volume streaming events recover through bootstrap.
 const REPLAYABLE_EVENT_TYPES = new Set([
-  "question.asked",
-  "question.replied",
-  "question.rejected",
-  "session.blocker.upserted",
-  "session.blocker.removed",
   "permission.asked",
   "permission.replied",
   "session.created",

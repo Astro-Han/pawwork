@@ -18,7 +18,6 @@ import { SessionDiagnostics } from "./diagnostics"
 import { classifyToolFailure } from "./tool-failure"
 import type { Provider } from "@/provider"
 import { ProviderTransform } from "@/provider"
-import { Question } from "@/question"
 import { ExternalResult } from "@/tool/external-result"
 import { errorMessage } from "@/util/error"
 import { Log } from "@opencode-ai/core/util/log"
@@ -559,19 +558,11 @@ export const layer: Layer.Layer<
               error,
             }).record.metadata.diagnostics
           : toolDiagnostics(match.part)
-        // The UI's interrupted-hint variant is gated on metadata.interrupted,
-        // so when a question tool errors out via session cancel (Question.ask
-        // routed RejectedError through here, not via the cleanup path at the
-        // bottom of the stream), we must mark it the same way the cleanup
-        // path does. The `cancelled` flag distinguishes a session cancel from
-        // an explicit user dismissal — only the former is "interrupted". See #419.
-        const questionInterrupted =
-          match.part.tool === "question" && error instanceof Question.RejectedError && error.cancelled === true
         // Narrow writer wiring (v10 P2 #4): only `ExternalResult.Error`
         // carries a typed `reason` that survives to ToolStateError.reason.
-        // Legacy `Question.RejectedError` and every other thrown/defect
-        // intentionally leave `reason` undefined so the renderer's substring
-        // fallback for non-question tool errors continues to fire.
+        // Every other thrown/defect intentionally leaves `reason` undefined
+        // so the renderer's substring fallback for non-question tool errors
+        // continues to fire.
         const reason = error instanceof ExternalResult.Error ? error.reason : undefined
         yield* session.updatePart({
           ...match.part,
@@ -585,12 +576,11 @@ export const layer: Layer.Layer<
                 ...(diagnostics ?? {}),
                 failure: classifyToolFailure({ tool: match.part.tool, error }),
               },
-              ...(questionInterrupted ? { interrupted: true } : {}),
             }),
             time: { start: match.part.state.time.start, end: Date.now() },
           },
         })
-        if (error instanceof Permission.RejectedError || error instanceof Question.RejectedError) {
+        if (error instanceof Permission.RejectedError) {
           ctx.blocked = ctx.shouldBreak
         }
         yield* settleToolCall(toolCallID)

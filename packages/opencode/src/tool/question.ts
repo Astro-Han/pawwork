@@ -1,7 +1,6 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
 import { Question } from "../question"
-import { Flag } from "@opencode-ai/core/flag/flag"
 import type { DecodeResult } from "./tool"
 import DESCRIPTION from "./question.txt"
 
@@ -107,11 +106,9 @@ export function questionDecoder(payload: unknown, snapshot: unknown): DecodeResu
   return { ok: true, value }
 }
 
-export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Service>(
+export const QuestionTool = Tool.define(
   "question",
   Effect.gen(function* () {
-    const question = yield* Question.Service
-
     return {
       description: DESCRIPTION,
       parameters: Parameters,
@@ -121,60 +118,40 @@ export const QuestionTool = Tool.define<typeof Parameters, Metadata, Question.Se
       externalResult: true,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
-          if (Flag.PAWWORK_QUESTION_TOOL_EXTERNAL_RESULT && ctx.externalResult) {
-            // Flag-on path: suspend on the external-result Deferred. The
-            // route runs questionDecoder before resolving, so by the time
-            // we read outcome.value the answers are already validated and
-            // shape-correct. ExternalResultError (abort/shutdown) propagates
-            // as a typed failure to the runner's writer; we do NOT catch it.
-            //
-            // Snapshot self-check: duplicate option labels are an LLM-prompt
-            // bug, not a user-submission bug. The decoder cannot fix them.
-            // Reject early so the route never registers a snapshot that
-            // would later produce ambiguous answers.
-            for (const q of params.questions) {
-              const labels = q.options.map((o) => o.label.trim())
-              if (new Set(labels).size !== labels.length) {
-                return yield* Effect.die(
-                  new Error(
-                    `Question "${q.question}" has duplicate option labels (${labels.join(", ")}). Labels must be unique within a question.`,
-                  ),
-                )
-              }
-            }
-            const outcome = yield* ctx.externalResult({ inputSnapshot: params, decoder: questionDecoder })
-            if (outcome.kind === "dismissed") {
-              return {
-                title: "Question dismissed",
-                output: "User dismissed the question.",
-                metadata: { answers: [], dismissed: true },
-              }
-            }
-            const submitted = outcome.value as ExternalSubmitValue
-            const formatted = formatAnswers(params.questions, submitted.answers)
-            return {
-              title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
-              output: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`,
-              metadata: { answers: submitted.answers },
+          // Suspend on the external-result Deferred. The route runs
+          // questionDecoder before resolving, so by the time we read
+          // outcome.value the answers are already validated and shape-correct.
+          // ExternalResultError (abort/shutdown) propagates as a typed failure
+          // to the runner's writer; we do NOT catch it.
+          //
+          // Snapshot self-check: duplicate option labels are an LLM-prompt
+          // bug, not a user-submission bug. The decoder cannot fix them.
+          // Reject early so the route never registers a snapshot that
+          // would later produce ambiguous answers.
+          for (const q of params.questions) {
+            const labels = q.options.map((o) => o.label.trim())
+            if (new Set(labels).size !== labels.length) {
+              return yield* Effect.die(
+                new Error(
+                  `Question "${q.question}" has duplicate option labels (${labels.join(", ")}). Labels must be unique within a question.`,
+                ),
+              )
             }
           }
-
-          // Legacy path (flag off). Bit-for-bit identical to pre-PR-A.
-          const answers = yield* question.ask({
-            sessionID: ctx.sessionID,
-            questions: params.questions,
-            tool: ctx.callID ? { messageID: ctx.messageID, callID: ctx.callID } : undefined,
-            // ctx.abort is the only signal that survives the EffectBridge
-            // promise wrapper around tool execution. See Question.ask doc.
-            signal: ctx.abort,
-          })
-
-          const formatted = formatAnswers(params.questions, answers)
-
+          const outcome = yield* ctx.externalResult!({ inputSnapshot: params, decoder: questionDecoder })
+          if (outcome.kind === "dismissed") {
+            return {
+              title: "Question dismissed",
+              output: "User dismissed the question.",
+              metadata: { answers: [] as ReadonlyArray<Question.Answer>, dismissed: true },
+            }
+          }
+          const submitted = outcome.value as ExternalSubmitValue
+          const formatted = formatAnswers(params.questions, submitted.answers)
           return {
             title: `Asked ${params.questions.length} question${params.questions.length > 1 ? "s" : ""}`,
             output: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`,
-            metadata: { answers },
+            metadata: { answers: submitted.answers, dismissed: false },
           }
         }),
     }

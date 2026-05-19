@@ -55,7 +55,6 @@ import { EffectLogger } from "@/effect"
 import { InstanceState } from "@/effect"
 import { AgentTool, type AgentPromptOps } from "@/tool/agent"
 import { SessionRunState } from "./run-state"
-import { SessionBlocker } from "./blocker"
 import { EffectBridge } from "@/effect"
 import { attachWith, makeRuntime } from "@/effect/run-service"
 import { Instance } from "@/project/instance"
@@ -287,7 +286,6 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
-    const blockers = yield* SessionBlocker.Service
     const revert = yield* SessionRevert.Service
     const summary = yield* SessionSummary.Service
     const sys = yield* SystemPrompt.Service
@@ -324,17 +322,6 @@ export const layer = Layer.effect(
       const mode = options?.mode ?? "hard"
       const source = options?.source ?? "session.prompt.cancel"
       yield* elog.info("cancel", { sessionID, mode, source })
-      // Soft cancel must not abort sessions where the user is mid-answer.
-      // OR both signals: legacy `hasAwaitingQuestion` (flag-off path) and
-      // `ExternalResult.hasPending` (flag-on path). Mirrors llm.ts silent-
-      // timeout re-arm — see llm.ts:486.
-      if (
-        mode === "soft" &&
-        ((yield* blockers.hasAwaitingQuestion(sessionID)) || ExternalResult.hasPending(sessionID))
-      ) {
-        yield* elog.info("cancel ignored", { sessionID, mode, source, reason: "awaiting_question" })
-        return false
-      }
       yield* state.cancel(sessionID, {
         source,
         reason: mode === "soft" ? "soft_cancel" : "hard_cancel",
@@ -2355,7 +2342,6 @@ export const defaultLayer: Layer.Layer<Service, never, never> = Layer.suspend(()
     Layer.provide(Session.defaultLayer),
     Layer.provide(SessionRevert.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
-    Layer.provide(SessionBlocker.defaultLayer),
     Layer.provide(
       Layer.mergeAll(
         Agent.defaultLayer,

@@ -40,13 +40,11 @@ import { Permission } from "../../src/permission"
 import { Plugin } from "../../src/plugin"
 import { Provider as ProviderSvc } from "../../src/provider/provider"
 import { Env } from "../../src/env"
-import { Question } from "../../src/question"
 import { Skill } from "../../src/skill"
 import { Settings } from "../../src/settings"
 import { SystemPrompt } from "../../src/session/system"
 import { Todo } from "../../src/session/todo"
 import { SessionCompaction } from "../../src/session/compaction"
-import { SessionBlocker } from "../../src/session/blocker"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionRunState } from "../../src/session/run-state"
@@ -124,14 +122,12 @@ function makeHttp() {
     Plugin.defaultLayer,
     Config.defaultLayer,
     ProviderSvc.defaultLayer,
-    SessionBlocker.defaultLayer,
     lsp,
     mcp,
     AppFileSystem.defaultLayer,
     TurnChange.defaultLayer,
     status,
   ).pipe(Layer.provideMerge(infra))
-  const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
     Layer.provide(Skill.defaultLayer),
@@ -143,7 +139,6 @@ function makeHttp() {
     Layer.provide(Format.defaultLayer),
     Layer.provide(SubagentRun.defaultLayer),
     Layer.provideMerge(todo),
-    Layer.provideMerge(question),
     Layer.provideMerge(deps),
   )
   const trunc = Truncate.layer.pipe(Layer.provideMerge(deps))

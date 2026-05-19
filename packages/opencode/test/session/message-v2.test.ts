@@ -4,7 +4,6 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { ProviderTransform, type Provider } from "../../src/provider"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionID, MessageID, PartID } from "../../src/session/schema"
-import { Question } from "../../src/question"
 import { Permission } from "../../src/permission"
 import { fromDeniedRule } from "../../src/permission/diagnostic"
 import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
@@ -1508,13 +1507,13 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
-  test("serializes tagged errors with their message", () => {
-    const result = MessageV2.fromError(new Question.RejectedError(), { providerID })
+  test("serializes generic errors with their message", () => {
+    const result = MessageV2.fromError(new Error("synthetic failure"), { providerID })
 
     expect(result).toStrictEqual({
       name: "UnknownError",
       data: {
-        message: "The user dismissed this question",
+        message: "synthetic failure",
       },
     })
   })
