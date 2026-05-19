@@ -1576,13 +1576,13 @@ export default function Layout(props: ParentProps) {
       })
   }
 
-  function openSettingsSurface() {
-    setSettingsTab("general")
+  function openSettingsSurface(tab?: SettingsPageTab) {
+    setSettingsTab(tab ?? "general")
     setSettingsOpen(true)
   }
 
-  function openSettings() {
-    shellNavigation.openSettings()
+  function openSettings(tab?: SettingsPageTab) {
+    shellNavigation.openSettings(tab)
   }
 
   createEffect(() => {

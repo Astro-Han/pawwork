@@ -1,3 +1,4 @@
+import type { SettingsPageTab } from "../../components/settings-page"
 import { newSessionRoute, openSessionRoute } from "./helpers"
 
 export type ShellNavigationReleaseReason = "new-session" | "session" | "settings" | "choose-project"
@@ -13,7 +14,7 @@ export function createShellNavigation(input: {
   resolveProjectRoot: (directory: string) => string | undefined
   currentProjectRoot: () => string | undefined
   chooseProject: () => void
-  openSettingsSurface: () => void
+  openSettingsSurface: (tab?: SettingsPageTab) => void
   closeSettingsSurface: () => void
 }) {
   const resolveNewSessionRoot = (directory?: string) => {
@@ -40,9 +41,9 @@ export function createShellNavigation(input: {
     input.navigate(openSessionRoute(session.directory, session.id))
   }
 
-  const openSettings = () => {
+  const openSettings = (tab?: SettingsPageTab) => {
     input.releaseTransientLocks("settings")
-    input.openSettingsSurface()
+    input.openSettingsSurface(tab)
   }
 
   return {
