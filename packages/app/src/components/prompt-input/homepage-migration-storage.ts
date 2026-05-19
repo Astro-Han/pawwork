@@ -10,6 +10,12 @@ export type RawStorageTarget = { storage?: string; key: string }
 export interface RawStorageIO {
   read: (target: RawStorageTarget) => Promise<string | null>
   write: (target: RawStorageTarget, value: string) => Promise<void>
+  /**
+   * Removes a key. On desktop this awaits the async window.api delete so a
+   * rejection propagates back to the migration's failed-sentinel path; web
+   * storage removeItem is synchronous so the await is a no-op there.
+   */
+  remove: (target: RawStorageTarget) => Promise<void>
 }
 
 export function createMigrationStorageIO(platform: Platform): RawStorageIO {
@@ -34,5 +40,15 @@ export function createMigrationStorageIO(platform: Platform): RawStorageIO {
     store.setItem(target.key, value)
   }
 
-  return { read, write }
+  const remove = async (target: RawStorageTarget): Promise<void> => {
+    if (isDesktop) {
+      await platform.storage?.(target.storage)?.removeItem(target.key)
+      return
+    }
+    const { localStorageWithPrefix, localStorageDirect } = await import("@/utils/persist-local-storage")
+    const store = target.storage ? localStorageWithPrefix(target.storage) : localStorageDirect()
+    store.removeItem(target.key)
+  }
+
+  return { read, write, remove }
 }

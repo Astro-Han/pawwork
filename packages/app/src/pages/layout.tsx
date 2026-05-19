@@ -17,7 +17,7 @@ import { makeEventListener } from "@solid-primitives/event-listener"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
-import { Persist, persisted, removePersisted } from "@/utils/persist"
+import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -1739,7 +1739,7 @@ export default function Layout(props: ParentProps) {
 
     const portable = usePortableDraft()
     const sentinelTarget = Persist.global(HOMEPAGE_MIGRATION_SENTINEL_KEY)
-    const { read: readRaw, write: writeRaw } = createMigrationStorageIO(platform)
+    const { read: readRaw, write: writeRaw, remove: removeRaw } = createMigrationStorageIO(platform)
 
     void runHomepageMigration({
       portable,
@@ -1767,8 +1767,11 @@ export default function Layout(props: ParentProps) {
         }
       },
       clearLegacyHomepage: async (dir) => {
-        const target = Persist.workspace(dir, "prompt")
-        removePersisted(target, platform)
+        // Must await: desktop removeItem is async and a rejection here must
+        // propagate up to homepage-migration's failed-sentinel path. Without
+        // the await, the migration would write status: "complete" even if
+        // the legacy store delete failed.
+        await removeRaw(Persist.workspace(dir, "prompt"))
       },
     }).catch((err) => {
       // Log diagnostic; migration retries automatically on next boot.
