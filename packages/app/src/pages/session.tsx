@@ -17,7 +17,7 @@ import { useShellSurface } from "@/context/shell-surface"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { buildDesktopContext } from "@/utils/desktop-context"
-import { createSessionComposerState } from "@/pages/session/composer"
+import { createSessionComposerState, HomeComposerRegion } from "@/pages/session/composer"
 import { createExecutionScopeTracker, type ExecutionScope } from "@/pages/session/execution-scope"
 import { createSizing } from "@/pages/session/helpers"
 import { useSessionLayout } from "@/pages/session/session-layout"
@@ -371,20 +371,16 @@ export default function Page() {
     ),
   )
 
-  const renderComposerRegion = (
-    variant: "session" | "home",
-    ctx?: {
-      onModeChange: (mode: "normal" | "shell") => void
-    },
-  ) => (
+  const renderComposerRegion = (ctx?: {
+    onModeChange: (mode: "normal" | "shell") => void
+  }) => (
     <SessionPageComposerRegion
-      variant={variant}
       state={composer}
-      ready={!deferRender() && (variant === "home" ? timelineMessagesReady() : sessionActionReady())}
-      actionReady={variant === "home" ? workspaceSubmitReady() : submitReady()}
-      abortReady={variant === "home" ? true : sessionActionReady()}
-      displaySessionID={variant === "session" ? timelineSessionID() : undefined}
-      displaySessionKey={variant === "session" && timelineSessionID() ? timelineSessionKey() : undefined}
+      ready={!deferRender() && sessionActionReady()}
+      actionReady={submitReady()}
+      abortReady={sessionActionReady()}
+      displaySessionID={timelineSessionID()}
+      displaySessionKey={timelineSessionID() ? timelineSessionKey() : undefined}
       centered={centered()}
       inputRef={(el) => {
         inputRef = el
@@ -398,7 +394,7 @@ export default function Page() {
       onResponseSubmit={submitLatest}
       onModeChange={ctx?.onModeChange}
       followup={
-        variant === "session" && timelineSessionID() && submitReady() && !timelineIsChildSession()
+        timelineSessionID() && submitReady() && !timelineIsChildSession()
           ? {
               queue: followups.queueEnabled,
               items: followups.followupDock(),
@@ -426,6 +422,25 @@ export default function Page() {
             }
           : undefined
       }
+      setPromptDockRef={scrollDock.setPromptDockRef}
+    />
+  )
+
+  const renderHomeComposerRegion = (ctx?: {
+    onModeChange: (mode: "normal" | "shell") => void
+  }) => (
+    <HomeComposerRegion
+      inputRef={(el) => {
+        inputRef = el
+      }}
+      actionReady={workspaceSubmitReady()}
+      newSessionWorktree={newSessionWorktree.selected()}
+      onNewSessionWorktreeReset={newSessionWorktree.reset}
+      onSubmit={() => {
+        comments.clear()
+        submitLatest()
+      }}
+      onModeChange={ctx?.onModeChange}
       setPromptDockRef={scrollDock.setPromptDockRef}
     />
   )
@@ -477,8 +492,8 @@ export default function Page() {
       anchor={timelineInteraction.anchor}
       onRetryOpenSession={retryOpenRouteSession}
       onOpenNewSession={openNewRouteSession}
-      composerSession={renderComposerRegion("session")}
-      composerHome={(ctx) => renderComposerRegion("home", ctx)}
+      composerSession={renderComposerRegion()}
+      composerHome={renderHomeComposerRegion}
       canReview={canReview}
       reviewDiffs={reviewPanel.diffs}
       hasReview={reviewPanel.hasReview}
