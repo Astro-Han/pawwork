@@ -42,6 +42,7 @@ import { createSessionDeferredRender } from "@/pages/session/use-session-deferre
 import { createSessionPageDiagnostics } from "@/pages/session/use-session-page-diagnostics"
 import { useSessionRoutePromptBootstrap } from "@/pages/session/use-session-route-prompt-bootstrap"
 import { useSessionVcsRefresh } from "@/pages/session/use-session-vcs-refresh"
+import { rendererAbortDiagnosticSource } from "@/session/abort-source"
 import { diffs as list } from "@/utils/diffs"
 import { decode64 } from "@/utils/base64"
 
@@ -141,20 +142,24 @@ export default function Page() {
   const emitAbortDiagnostic = diagnostics.emitAbortDiagnostic
   const haltAbort = (sessionID: string, source: "revert" | "autoHeal" = "autoHeal") =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
-      ? sdk.client.session.abort({ sessionID, mode: "hard" }).then((result) => {
-          emitAbortDiagnostic(sessionID, source, result.data === false ? "ignored_awaiting_question" : "aborted")
-          return result
-        })
+      ? sdk.client.session
+          .abort({ sessionID, mode: "hard", source: rendererAbortDiagnosticSource({ sessionID, source }) })
+          .then((result) => {
+            emitAbortDiagnostic(sessionID, source, result.data === false ? "ignored_awaiting_question" : "aborted")
+            return result
+          })
       : Promise.resolve()
   const haltWithSnapshot = (
     snapshot: ReturnType<typeof sync.retainDirectory> & { client: typeof sdk.client },
     sessionID: string,
   ) =>
     isSessionRunning(snapshot.store.session_status[sessionID], snapshot.store.message[sessionID])
-      ? snapshot.client.session.abort({ sessionID, mode: "hard" }).then((result) => {
-          emitAbortDiagnostic(sessionID, "revert", result.data === false ? "ignored_awaiting_question" : "aborted")
-          return result
-        })
+      ? snapshot.client.session
+          .abort({ sessionID, mode: "hard", source: rendererAbortDiagnosticSource({ sessionID, source: "revert" }) })
+          .then((result) => {
+            emitAbortDiagnostic(sessionID, "revert", result.data === false ? "ignored_awaiting_question" : "aborted")
+            return result
+          })
       : Promise.resolve()
   // sessionRevert chains halt with .then(), so its existing outer .catch
   // already handles abort failures. The auto-heal clock wants to see the

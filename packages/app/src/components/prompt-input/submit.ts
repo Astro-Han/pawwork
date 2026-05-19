@@ -17,6 +17,7 @@ import { useSync } from "@/context/sync"
 import { promptProbe } from "@/testing/prompt"
 import { Identifier } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
+import { rendererAbortDiagnosticSource, type RendererAbortSource } from "@/session/abort-source"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
@@ -30,7 +31,7 @@ type PendingPrompt = {
 
 const pending = new Map<string, PendingPrompt>()
 type AbortMode = "soft" | "hard"
-type AbortSource = "stopButton" | "emptyEnter" | "ctrlG" | "escape"
+type AbortSource = Extract<RendererAbortSource, "ctrlG" | "emptyEnter" | "escape" | "stopButton">
 
 export type FollowupDraft = {
   sessionID: string
@@ -281,6 +282,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
       .abort({
         sessionID: activeSessionID,
         mode,
+        source: rendererAbortDiagnosticSource({ sessionID: activeSessionID, source }),
       })
       .then((result) => {
         emitAbortDiagnostic({

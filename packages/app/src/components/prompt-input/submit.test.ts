@@ -26,7 +26,7 @@ const commandCalls: Array<Record<string, unknown>> = []
 const commandDefinitions: Array<{ name: string }> = []
 let commandsReady = true
 let promptAsyncFailure: Error | undefined
-const abortedSessions: Array<{ sessionID: string; mode?: string }> = []
+const abortedSessions: Array<{ sessionID: string; mode?: string; source?: string }> = []
 const globalTodoSets: Array<{ sessionID: string; todos: unknown }> = []
 const childTodoSets: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 const promptSetCalls: Array<{ prompt: Prompt; cursor?: number; target?: { dir: string; id?: string } }> = []
@@ -75,8 +75,8 @@ const clientFor = (directory: string) => {
         commandCalls.push(input)
         return { data: undefined }
       },
-      abort: async (input: { sessionID: string; mode?: string }) => {
-        abortedSessions.push({ sessionID: input.sessionID, mode: input.mode })
+      abort: async (input: { sessionID: string; mode?: string; source?: string }) => {
+        abortedSessions.push({ sessionID: input.sessionID, mode: input.mode, source: input.source })
         return { data: true }
       },
     },
@@ -303,7 +303,7 @@ describe("prompt submit worktree selection", () => {
     await submit.abort()
 
     expect(aborts).toEqual(["called"])
-    expect(abortedSessions).toEqual([{ sessionID: "session-visible", mode: "soft" }])
+    expect(abortedSessions).toEqual([{ sessionID: "session-visible", mode: "soft", source: "renderer.stopButton" }])
     expect(globalTodoSets).toEqual([])
     expect(childTodoSets).toEqual([])
   })
@@ -431,9 +431,36 @@ describe("prompt submit worktree selection", () => {
     await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
 
     expect(aborts).toEqual(["called"])
-    expect(abortedSessions).toEqual([{ sessionID: "session-visible", mode: "soft" }])
+    expect(abortedSessions).toEqual([{ sessionID: "session-visible", mode: "soft", source: "renderer.stopButton" }])
     expect(submits).toEqual([])
     expect(promptAsyncCalls).toEqual([])
+  })
+
+  test("marks keyboard empty-enter abort with caller source", async () => {
+    params = { id: "session-visible" }
+    promptValue = [{ type: "text", content: "", start: 0, end: 0 }]
+    const submit = createPromptSubmit({
+      sessionID: () => "session-visible",
+      isNewSession: () => false,
+      info: () => ({ id: "session-visible" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => true,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) =>
+        value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+    })
+
+    await submit.handleSubmit(new KeyboardEvent("keydown", { key: "Enter" }))
+
+    expect(abortedSessions).toEqual([{ sessionID: "session-visible", mode: "soft", source: "renderer.emptyEnter" }])
   })
 
   test("reads the latest worktree accessor value per submit", async () => {

@@ -37,6 +37,7 @@ import { Env } from "@/env"
 
 const log = Log.create({ service: "server" })
 const AbortMode = z.enum(["soft", "hard"])
+const AbortSource = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/)
 const e2eSessionRoutesEnabled = () => Env.get("OPENCODE_E2E_ENABLED") === "true" && !!Env.get("OPENCODE_E2E_LLM_URL")
 
 function publishTurnChangeFiles(display: TurnChangeDisplay, mode: "undo" | "redo", mutatedPaths?: string[]) {
@@ -475,11 +476,14 @@ export const SessionRoutes = lazy(() =>
         "query",
         z.object({
           mode: AbortMode.optional(),
+          source: AbortSource.optional(),
         }),
       ),
       async (c) => {
+        const query = c.req.valid("query")
         const aborted = await SessionPrompt.cancel(c.req.valid("param").sessionID, {
-          mode: c.req.valid("query").mode ?? "hard",
+          mode: query.mode ?? "hard",
+          source: query.source,
         })
         return c.json(aborted)
       },
