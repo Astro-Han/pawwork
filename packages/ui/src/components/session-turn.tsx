@@ -156,6 +156,12 @@ export function SessionTurn(
     active?: boolean
     status?: SessionStatus
     onUserInteracted?: () => void
+    /**
+     * Render slot for the rate-limit card (free_quota_exhausted classification).
+     * App layer (RateLimitCardWiring in packages/app) supplies this so packages/ui
+     * stays framework-agnostic. Forwarded to SessionRetry.
+     */
+    rateLimitCardSlot?: import("./session-retry").SessionRetryRateLimitSlot
     classes?: {
       root?: string
       content?: string
@@ -422,7 +428,7 @@ export function SessionTurn(
                     </Show>
                   </div>
                 </Show>
-                <SessionRetry status={status()} show={active()} />
+                <SessionRetry status={status()} show={active()} rateLimitCardSlot={props.rateLimitCardSlot} />
                 <Show when={visibleTurnChange()}>
                   {(display) => (
                     <SessionTurnChangesPanel

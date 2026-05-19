@@ -3,6 +3,7 @@ import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
 import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
+import { RateLimitCardWiring } from "@/components/rate-limit-card-wiring"
 import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import type { AssistantMessage, Message as MessageType, Part, UserMessage } from "@opencode-ai/sdk/v2"
 import { showToast } from "@opencode-ai/ui/toast"
@@ -438,6 +439,7 @@ export function MessageTimeline(props: {
                         actions={props.actions}
                         active={active()}
                         status={active() ? sessionStatus() : undefined}
+                        rateLimitCardSlot={(classification) => <RateLimitCardWiring classification={classification} />}
                         showReasoningSummaries={settings.general.showReasoningSummaries()}
                         shellToolDefaultOpen={settings.general.shellToolPartsExpanded()}
                         editToolDefaultOpen={settings.general.editToolPartsExpanded()}
