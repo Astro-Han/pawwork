@@ -1,4 +1,5 @@
 import type { FilePart, Part, TextPart } from "@opencode-ai/sdk/v2"
+import { deriveCommandInvocation } from "@opencode-ai/ui/lib/command-invocation"
 import type { FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 
 type Inline =
@@ -54,10 +55,31 @@ function textPartValue(parts: Part[]) {
  * This is used by undo to restore the original user prompt.
  */
 export function extractPromptFromParts(parts: Part[], opts?: { directory?: string; attachmentName?: string }): Prompt {
+  const attachmentName = opts?.attachmentName ?? "attachment"
+  const invocation = deriveCommandInvocation(parts)
+  if (invocation) {
+    const restoreText = invocation.restoreText
+    const out: Prompt = [{ type: "text", content: restoreText, start: 0, end: restoreText.length }]
+    for (const part of parts) {
+      if (part.type !== "file") continue
+      const filePart = part as FilePart
+      if (!filePart.url.startsWith("data:")) continue
+      if (invocation.suppressFilePartIds.includes(filePart.id)) continue
+      const image: ImageAttachmentPart = {
+        type: "image",
+        id: filePart.id,
+        filename: filePart.filename ?? attachmentName,
+        mime: filePart.mime,
+        dataUrl: filePart.url,
+      }
+      out.push(image)
+    }
+    return out
+  }
+
   const textPart = textPartValue(parts)
   const text = textPart?.text ?? ""
   const directory = opts?.directory
-  const attachmentName = opts?.attachmentName ?? "attachment"
 
   const toRelative = (path: string) => {
     if (!directory) return path

@@ -193,6 +193,32 @@
     color: var(--fg-strong);
   }
 
+  [data-slot="user-message-body"] + [data-slot="user-message-attachments"] {
+    margin-top: 8px;
+  }
+
+  .user-message-command-mark {
+    display: inline;
+  }
+
+  .user-message-command-prefix {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    white-space: nowrap;
+    color: var(--brand-primary);
+  }
+
+  .user-message-command-label {
+    color: inherit;
+    font-weight: var(--font-weight-body);
+  }
+
+  .user-message-command-args {
+    color: var(--fg-strong);
+    overflow-wrap: anywhere;
+  }
+
 }
 
 [data-color-scheme="dark"] [data-component="user-message"] [data-slot="user-message-text"] {

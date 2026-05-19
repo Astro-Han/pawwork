@@ -6,6 +6,7 @@ import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import { Log } from "@opencode-ai/core/util/log"
 import { SessionRevert } from "./revert"
+import { inheritMetadata } from "./inherit-metadata"
 import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
@@ -212,6 +213,26 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   })
   return { kind: "stop", toolErrorMessage } satisfies GateOutcome
 })
+
+// Title generation reads a single user-side seed. When the user message comes
+// from a command template the first text part may not be the one carrying the
+// invocation metadata — resolvePart can prepend synthetic text in front of a
+// `@file` reference, and the stamper only writes commandInvocation onto the
+// first text part of the *template*, not the first text part of the assembled
+// message. Scan for the part that actually owns the invocation so the title
+// model always sees `Command: /<name> <args>` instead of the expanded body.
+export function deriveCommandTitleSeed(parts: ReadonlyArray<MessageV2.Part>): string | null {
+  const carrier = parts.find((p): p is MessageV2.TextPart => {
+    if (p.type !== "text") return false
+    const meta = (p as { metadata?: { commandInvocation?: { name?: unknown } } }).metadata
+    return typeof meta?.commandInvocation?.name === "string" && meta.commandInvocation.name.length > 0
+  })
+  if (!carrier) return null
+  const meta = (carrier as { metadata?: { commandInvocation?: { name?: unknown; args?: unknown } } }).metadata
+  const name = meta?.commandInvocation?.name as string
+  const args = typeof meta?.commandInvocation?.args === "string" ? meta.commandInvocation.args : ""
+  return "Command: /" + name + (args.length > 0 ? " " + args : "")
+}
 
 function officePathOnly(filepath: string) {
   return OFFICE_EXTS.has(pathSuffix(filepath))
@@ -443,15 +464,19 @@ export const layer = Layer.effect(
       const subtasks = firstUser.parts.filter((p): p is MessageV2.SubtaskPart => p.type === "subtask")
       const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
 
+      const commandTitleSeed = deriveCommandTitleSeed(firstUser.parts)
+
       const ag = yield* agents.get("title")
       if (!ag) return
       const mdl = ag.model
         ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
         : ((yield* provider.getSmallModel(input.providerID)) ??
           (yield* provider.getModel(input.providerID, input.modelID)))
-      const msgs = onlySubtasks
-        ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
-        : yield* MessageV2.toModelMessagesEffect(context, mdl)
+      const msgs = commandTitleSeed
+        ? [{ role: "user" as const, content: commandTitleSeed }]
+        : onlySubtasks
+          ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
+          : yield* MessageV2.toModelMessagesEffect(context, mdl)
       titleGenerationProgress.set(input.session.id, { startedAt })
       const titleExit = yield* llm
         .stream({
@@ -1592,13 +1617,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     })
                     if (attachments.length) {
                       pieces.push(
-                        ...attachments.map((a) => ({
-                          ...a,
-                          synthetic: true,
-                          filename: a.filename ?? part.filename,
-                          messageID: info.id,
-                          sessionID: input.sessionID,
-                        })),
+                        ...attachments.map((a) =>
+                          inheritMetadata(part, {
+                            ...a,
+                            synthetic: true,
+                            filename: a.filename ?? part.filename,
+                            messageID: info.id,
+                            sessionID: input.sessionID,
+                          }),
+                        ),
                       )
                     }
                     if (attachments.length < result.attachments.length) {
@@ -1677,18 +1704,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   synthetic: true,
                   text: `Called the Read tool with the following input: {"filePath":"${filepath}"}`,
                 },
-                {
+                inheritMetadata(part, {
                   id: part.id,
                   messageID: info.id,
                   sessionID: input.sessionID,
-                  type: "file",
+                  type: "file" as const,
                   url:
                     `data:${part.mime};base64,` +
                     Buffer.from(yield* fsys.readFile(filepath).pipe(Effect.catch(Effect.die))).toString("base64"),
                   mime: part.mime,
                   filename: part.filename!,
                   source: part.source,
-                },
+                }),
               ]
             }
           }
@@ -2263,6 +2290,36 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       const templateParts = yield* resolvePromptParts(template)
       const isSubtask = (agent.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
+
+      const stampedTemplate = (() => {
+        const trimmedArgs = (input.arguments ?? "").trim()
+        const displayArgs = trimmedArgs.length > 80 ? trimmedArgs.slice(0, 79) + "…" : trimmedArgs
+        const invocation: Record<string, unknown> = {
+          name: cmd.name,
+          source: cmd.source ?? "command",
+          icon: "command",
+        }
+        if (trimmedArgs.length > 0) invocation.args = trimmedArgs
+        if (displayArgs.length > 0) invocation.displayArgs = displayArgs
+        let stampedFirstText = false
+        return templateParts.map((part) => {
+          if (part.type === "text") {
+            const prevMeta = (part as { metadata?: Record<string, unknown> }).metadata ?? {}
+            const nextMeta: Record<string, unknown> = { ...prevMeta, commandTemplate: true }
+            if (!stampedFirstText) {
+              nextMeta.commandInvocation = invocation
+              stampedFirstText = true
+            }
+            return { ...part, metadata: nextMeta }
+          }
+          if (part.type === "file") {
+            const prevMeta = (part as { metadata?: Record<string, unknown> }).metadata ?? {}
+            return { ...part, metadata: { ...prevMeta, commandTemplate: true } }
+          }
+          return part
+        })
+      })()
+
       const parts = isSubtask
         ? [
             {
@@ -2276,7 +2333,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               recent_events: [],
             },
           ]
-        : [...templateParts, ...(input.parts ?? [])]
+        : [...stampedTemplate, ...(input.parts ?? [])]
 
       const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultAgent())) : agentName
       const userModel = isSubtask
