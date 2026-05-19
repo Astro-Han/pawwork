@@ -576,6 +576,16 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       sessionID: SessionID,
       reason: "session_deleted" | "session_archived",
     ) {
+      // Tear down external-result Deferreds held for this session. Pending
+      // entries' Deferreds are rejected with ExternalResultError({reason:
+      // "shutdown"}) so the running tool transitions to error state with the
+      // right durable reason. This hook fires on session delete / archive
+      // only — NOT on turn abort (that path runs through ctx.abort →
+      // failIfPending with reason: "aborted"). The two paths never overlap.
+      // Runs BEFORE the instance-context guard because the registry is
+      // module-level and `remove()` explicitly supports cleanup on broken
+      // sessions that have no InstanceState.
+      yield* ExternalResult.onSessionDestroyed(sessionID)
       if (!(yield* hasInstanceContext())) return
       yield* Question.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
         Effect.provide(Question.defaultLayer),
@@ -586,13 +596,6 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       yield* SessionBlocker.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
         Effect.provide(SessionBlocker.defaultLayer),
       )
-      // Tear down external-result Deferreds held for this session. Pending
-      // entries' Deferreds are rejected with ExternalResultError({reason:
-      // "shutdown"}) so the running tool transitions to error state with the
-      // right durable reason. This hook fires on session delete / archive
-      // only — NOT on turn abort (that path runs through ctx.abort →
-      // failIfPending with reason: "aborted"). The two paths never overlap.
-      yield* ExternalResult.onSessionDestroyed(sessionID)
     })
 
     const createNext = Effect.fn("Session.createNext")(function* (input: {
