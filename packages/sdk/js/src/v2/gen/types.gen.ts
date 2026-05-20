@@ -585,6 +585,7 @@ export type AssistantMessage = {
       completed_at?: number
       stream?: unknown
     }
+    run_observability?: unknown
     abort?: {
       source?: string
       reason?: string

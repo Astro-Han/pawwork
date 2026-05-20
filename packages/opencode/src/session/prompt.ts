@@ -99,7 +99,11 @@ export function reconcileTitleGenerationStateAfterCompletion(input: {
   abortRecordedAt?: number
   completedAt?: number
 }): TitleGenerationState | undefined {
-  if (input.state === "in_flight" && typeof input.abortRecordedAt === "number" && typeof input.completedAt === "number") {
+  if (
+    input.state === "in_flight" &&
+    typeof input.abortRecordedAt === "number" &&
+    typeof input.completedAt === "number"
+  ) {
     return input.completedAt <= input.abortRecordedAt ? "completed_before_abort" : "completed_after_abort"
   }
   return input.state
@@ -320,10 +324,7 @@ export const layer = Layer.effect(
       } satisfies AgentPromptOps
     })
 
-    const cancel = Effect.fn("SessionPrompt.cancel")(function* (
-      sessionID: SessionID,
-      options?: { source?: string },
-    ) {
+    const cancel = Effect.fn("SessionPrompt.cancel")(function* (sessionID: SessionID, options?: { source?: string }) {
       const source = options?.source ?? "session.prompt.cancel"
       yield* elog.info("cancel", { sessionID, source })
       yield* state.cancel(sessionID, {
@@ -403,7 +404,9 @@ export const layer = Layer.effect(
         let assistant: MessageV2.WithParts | undefined
         for (let attempt = 0; attempt < 50; attempt++) {
           const messages = yield* sessions.messages({ sessionID: input.session.id })
-          assistant = messages.find((message) => message.info.role === "assistant" && message.info.parentID === firstInfo.id)
+          assistant = messages.find(
+            (message) => message.info.role === "assistant" && message.info.parentID === firstInfo.id,
+          )
           if (assistant) break
           yield* Effect.sleep("10 millis")
         }
@@ -501,7 +504,9 @@ export const layer = Layer.effect(
         .map((line) => line.trim())
         .find((line) => line.length > 0)
       if (!cleaned) {
-        yield* recordTitleTrace({ completedAt, success: true, applied: false }).pipe(Effect.catchCause(() => Effect.void))
+        yield* recordTitleTrace({ completedAt, success: true, applied: false }).pipe(
+          Effect.catchCause(() => Effect.void),
+        )
         return
       }
       const t = cleaned.length > 100 ? cleaned.substring(0, 97) + "..." : cleaned
@@ -791,9 +796,9 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const abortHandler = () => {
               const result = ExternalResult.abortPendingSync({ sessionID, messageID, callID })
               if (!result.ok) return
-              run.promise(
-                Deferred.fail(result.deferred, new ExternalResult.Error({ reason: "aborted" })),
-              ).catch(() => {})
+              run
+                .promise(Deferred.fail(result.deferred, new ExternalResult.Error({ reason: "aborted" })))
+                .catch(() => {})
             }
             const signal = options.abortSignal
             if (signal) {
@@ -841,7 +846,24 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       { tool: item.id, sessionID: ctx.sessionID, callID: ctx.callID },
                       { args },
                     )
-                    const result = yield* item.execute(args, ctx)
+                    if (input.processor.recordToolExecutionStarted) {
+                      yield* input.processor.recordToolExecutionStarted({
+                        tool: item.id,
+                        toolCallID: options.toolCallId,
+                      })
+                    }
+                    let result: Tool.ExecuteResult
+                    try {
+                      result = yield* item.execute(args, ctx)
+                    } catch (error) {
+                      if (input.processor.recordToolExecutionFailed) {
+                        yield* input.processor.recordToolExecutionFailed({ toolCallID: options.toolCallId, error })
+                      }
+                      throw error
+                    }
+                    if (input.processor.recordToolExecutionCompleted) {
+                      yield* input.processor.recordToolExecutionCompleted({ toolCallID: options.toolCallId })
+                    }
                     const output = {
                       ...result,
                       attachments: result.attachments?.map((attachment) => ({
@@ -898,7 +920,21 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   )
                   const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
                     yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-                    return yield* Effect.promise(() => execute(args, opts))
+                    if (input.processor.recordToolExecutionStarted) {
+                      yield* input.processor.recordToolExecutionStarted({ tool: key, toolCallID: opts.toolCallId })
+                    }
+                    try {
+                      const result = yield* Effect.promise(() => execute(args, opts))
+                      if (input.processor.recordToolExecutionCompleted) {
+                        yield* input.processor.recordToolExecutionCompleted({ toolCallID: opts.toolCallId })
+                      }
+                      return result
+                    } catch (error) {
+                      if (input.processor.recordToolExecutionFailed) {
+                        yield* input.processor.recordToolExecutionFailed({ toolCallID: opts.toolCallId, error })
+                      }
+                      throw error
+                    }
                   }).pipe(
                     Effect.withSpan("Tool.execute", {
                       attributes: {
@@ -2079,11 +2115,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     "",
                     "At reply/task closeout, if the user explicitly stated a stable long-lived preference, workflow, project convention, or durable fact worth future recall, update this MEMORY.md file with existing file editing tools.",
                     "Only write stable explicit facts. Do not write temporary tasks, emotions, one-off decisions, guesses, or unconfirmed facts. If a new fact conflicts with an old memory, update the old memory instead of appending a contradiction.",
-                    "Record only what the user has stated explicitly. Do not extrapolate preferences from how the user phrases questions or what tasks they request. For example, do not turn \"the user asked me to change one PR line\" into \"the user prefers small PRs.\"",
+                    'Record only what the user has stated explicitly. Do not extrapolate preferences from how the user phrases questions or what tasks they request. For example, do not turn "the user asked me to change one PR line" into "the user prefers small PRs."',
                     "Never write passwords, API keys, tokens, private keys, ID/passport/license numbers, credit card/bank/CVV data, private health records, home addresses, or private phone numbers.",
                     "Keep Profile short because it is loaded at session start. Put longer history in Archive.",
-                    "If this is the first time you auto-write to memory and MEMORY.md was effectively empty or still only had the default template, mention it briefly and naturally in the normal reply, e.g. \"I'll remember this preference for future chats.\" After this first time, subsequent auto-writes are silent.",
-                    "Do not show toast, dialog, or inline UI feedback. If the user explicitly asks you to remember something, acknowledge naturally in the normal reply, e.g. \"Got it, I'll remember that.\"",
+                    'If this is the first time you auto-write to memory and MEMORY.md was effectively empty or still only had the default template, mention it briefly and naturally in the normal reply, e.g. "I\'ll remember this preference for future chats." After this first time, subsequent auto-writes are silent.',
+                    'Do not show toast, dialog, or inline UI feedback. If the user explicitly asks you to remember something, acknowledge naturally in the normal reply, e.g. "Got it, I\'ll remember that."',
                     "</pawwork-memory>",
                   ].join("\n")
                 }).pipe(
@@ -2095,7 +2131,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   ),
                 )
               : undefined
-            const system = [...env, ...(skills ? [skills] : []), ...instructions, ...(memoryProfile ? [memoryProfile] : [])]
+            const system = [
+              ...env,
+              ...(skills ? [skills] : []),
+              ...instructions,
+              ...(memoryProfile ? [memoryProfile] : []),
+            ]
             const format = lastUser.format ?? { type: "text" as const }
             if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
             const result = yield* handle.process({
@@ -2154,7 +2195,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     const loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts> = Effect.fn(
       "SessionPrompt.loop",
     )(function* (input: z.infer<typeof LoopInput>) {
-      const onInterrupt = (meta?: { source?: string; reason?: string; viaCtxAbort?: boolean; propagationPoint?: string; recordedAt?: number }) =>
+      const onInterrupt = (meta?: {
+        source?: string
+        reason?: string
+        viaCtxAbort?: boolean
+        propagationPoint?: string
+        recordedAt?: number
+      }) =>
         Effect.gen(function* () {
           interruptedSessions.add(input.sessionID)
           const assistant = yield* currentTurnTarget(input.sessionID)

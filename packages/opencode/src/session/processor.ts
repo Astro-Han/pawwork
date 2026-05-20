@@ -24,6 +24,7 @@ import { Log } from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
+import { RunObservability } from "./run-observability"
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
@@ -47,6 +48,9 @@ export interface Handle {
       attachments?: MessageV2.FilePart[]
     },
   ) => Effect.Effect<void>
+  readonly recordToolExecutionStarted?: (input: { tool: string; toolCallID: string }) => Effect.Effect<void>
+  readonly recordToolExecutionCompleted?: (input: { toolCallID: string }) => Effect.Effect<void>
+  readonly recordToolExecutionFailed?: (input: { toolCallID: string; error?: unknown }) => Effect.Effect<void>
   readonly process: (streamInput: LLM.StreamInput) => Effect.Effect<Result>
   readonly errorRecords: (parentID: MessageV2.Assistant["parentID"]) => SessionDiagnostics.ToolErrorRecord[]
   readonly syntheticBlockSigKeys: (parentID: MessageV2.Assistant["parentID"]) => string[]
@@ -126,6 +130,9 @@ interface ProcessorContext extends Input {
   currentText: MessageV2.TextPart | undefined
   reasoningMap: Record<string, MessageV2.ReasoningPart>
   trace: LLMTrace.Recorder
+  runTrace: RunObservability.Recorder
+  attemptCount: number
+  currentAttemptID: RunObservability.AttemptID | undefined
   streamError: boolean
   /** Set by policy() signalTerminal when free_quota_exhausted is detected. Read
    *  and reset to undefined at the start of halt() to avoid cross-call staling. */
@@ -192,6 +199,19 @@ export const layer: Layer.Layer<
           variant: input.assistantMessage.variant,
           createdAt: input.assistantMessage.time.created,
         }),
+        runTrace: RunObservability.createRecorder({
+          runID: RunObservability.makeRunID(input.assistantMessage.id),
+          traceID: input.assistantMessage.id,
+          sessionID: input.sessionID,
+          messageID: input.assistantMessage.id,
+          parentMessageID: input.assistantMessage.parentID,
+          providerID: input.model.providerID,
+          modelID: input.model.id,
+          createdAt: input.assistantMessage.time.created,
+          monotonicStartMs: performance.now(),
+        }),
+        attemptCount: 0,
+        currentAttemptID: undefined,
         streamError: false,
         terminalClassification: undefined,
       }
@@ -225,6 +245,47 @@ export const layer: Layer.Layer<
         return { call, part }
       })
 
+      const recordToolExecutionStarted = Effect.fn("SessionProcessor.recordToolExecutionStarted")(function* (input: {
+        tool: string
+        toolCallID: string
+      }) {
+        void input.toolCallID
+        if (!ctx.currentAttemptID) return
+        ctx.runTrace.recordToolExecutionStarted({
+          attemptID: ctx.currentAttemptID,
+          at: Date.now(),
+          monotonicMs: performance.now(),
+          toolName: RunObservability.safeToolName(input.tool),
+          effect: RunObservability.toolEffect(input.tool),
+        })
+      })
+
+      const recordToolExecutionCompleted = Effect.fn("SessionProcessor.recordToolExecutionCompleted")(
+        function* (input: { toolCallID: string }) {
+          void input.toolCallID
+          if (!ctx.currentAttemptID) return
+          ctx.runTrace.recordToolCompleted({
+            attemptID: ctx.currentAttemptID,
+            at: Date.now(),
+            monotonicMs: performance.now(),
+          })
+        },
+      )
+
+      const recordToolExecutionFailed = Effect.fn("SessionProcessor.recordToolExecutionFailed")(function* (input: {
+        toolCallID: string
+        error?: unknown
+      }) {
+        void input.toolCallID
+        if (!ctx.currentAttemptID) return
+        ctx.runTrace.recordToolFailed({
+          attemptID: ctx.currentAttemptID,
+          at: Date.now(),
+          monotonicMs: performance.now(),
+          error: input.error,
+        })
+      })
+
       const updateToolCall = Effect.fn("SessionProcessor.updateToolCall")(function* (
         toolCallID: string,
         update: (part: MessageV2.ToolPart) => MessageV2.ToolPart,
@@ -244,7 +305,9 @@ export const layer: Layer.Layer<
         return part
       })
 
-      const applyPendingToolUpdates = Effect.fn("SessionProcessor.applyPendingToolUpdates")(function* (toolCallID: string) {
+      const applyPendingToolUpdates = Effect.fn("SessionProcessor.applyPendingToolUpdates")(function* (
+        toolCallID: string,
+      ) {
         const pending = ctx.pendingToolUpdates[toolCallID]
         if (!pending?.length) return
         const match = yield* readToolCall(toolCallID)
@@ -311,8 +374,7 @@ export const layer: Layer.Layer<
             if (part.type !== "tool") return []
             const loop = toolDiagnostics(part)?.loop
             if (!loop) return []
-            const isLoopRelevant =
-              !!loop.errorFingerprint || loop.loopAction === "block" || loop.loopAction === "stop"
+            const isLoopRelevant = !!loop.errorFingerprint || loop.loopAction === "block" || loop.loopAction === "stop"
             if (!isLoopRelevant) return []
             const targetHash = loop.targetHashIsFallback ? undefined : loop.targetHash
             return [
@@ -567,6 +629,19 @@ export const layer: Layer.Layer<
 
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent) {
         ctx.trace.observeEvent(value)
+        if (ctx.currentAttemptID) {
+          const now = Date.now()
+          const monotonicMs = performance.now()
+          if (value.type !== "error") {
+            ctx.runTrace.recordProviderProgress({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+          }
+          if (value.type === "text-start" || value.type === "text-delta" || value.type === "reasoning-start") {
+            ctx.runTrace.recordVisibleOutput({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+          }
+          if (value.type === "tool-input-start" || value.type === "tool-call") {
+            ctx.runTrace.recordToolCall({ attemptID: ctx.currentAttemptID, at: now, monotonicMs })
+          }
+        }
         switch (value.type) {
           case "start":
             yield* status.set(ctx.sessionID, { type: "busy" })
@@ -871,9 +946,7 @@ export const layer: Layer.Layer<
           // (cancelled before answered), don't claim whether the user saw it
           // — they may have. See issue #419.
           const errorText =
-            part.tool === "question"
-              ? "Question cancelled before the user answered it."
-              : "Tool execution aborted"
+            part.tool === "question" ? "Question cancelled before the user answered it." : "Tool execution aborted"
           yield* session.updatePart({
             ...part,
             state: {
@@ -884,6 +957,13 @@ export const layer: Layer.Layer<
               time: { start: "time" in part.state ? part.state.time.start : end, end },
             },
           })
+          if (ctx.currentAttemptID) {
+            ctx.runTrace.recordToolInterrupted({
+              attemptID: ctx.currentAttemptID,
+              at: end,
+              monotonicMs: performance.now(),
+            })
+          }
         }
         ctx.toolcalls = {}
         ctx.assistantMessage.time.completed = Date.now()
@@ -901,6 +981,10 @@ export const layer: Layer.Layer<
             streamError: ctx.streamError,
             aborted,
           }),
+          run_observability: ctx.runTrace.finalize({
+            completedAt: ctx.assistantMessage.time.completed,
+            monotonicMs: performance.now(),
+          }),
         }
         yield* session.updateMessage(ctx.assistantMessage)
         yield* turnChange.finalize({ sessionID: ctx.sessionID, messageID: ctx.assistantMessage.id })
@@ -909,6 +993,15 @@ export const layer: Layer.Layer<
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         ctx.streamError = true
+        if (ctx.currentAttemptID) {
+          ctx.runTrace.recordTransportFailure({
+            attemptID: ctx.currentAttemptID,
+            at: Date.now(),
+            monotonicMs: performance.now(),
+            error: e,
+            evidence: ["iterator_error"],
+          })
+        }
 
         // Read-then-reset: free_quota path leaves a value here; all other paths
         // leave it undefined. Resetting at entry guards against "previous halt
@@ -949,11 +1042,24 @@ export const layer: Layer.Layer<
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
             ctx.reasoningMap = {}
-            const stream = llm.stream({
-              ...ProviderTransform.streamTimeouts(streamInput.model),
-              ...streamInput,
-              trace: ctx.trace,
+            ctx.attemptCount++
+            const attempt = ctx.runTrace.beginAttempt({
+              attemptIndex: ctx.attemptCount,
+              at: Date.now(),
+              monotonicMs: performance.now(),
             })
+            ctx.currentAttemptID = attempt.attemptID
+            let stream: Stream.Stream<LLM.Event, unknown>
+            try {
+              stream = llm.stream({
+                ...ProviderTransform.streamTimeouts(streamInput.model),
+                ...streamInput,
+                trace: ctx.trace,
+              })
+            } catch (error) {
+              ctx.runTrace.recordSetupFailure({ at: Date.now(), monotonicMs: performance.now(), error })
+              throw error
+            }
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),
@@ -967,6 +1073,13 @@ export const layer: Layer.Layer<
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
+                ctx.runTrace.recordScopeClosed({
+                  at: Date.now(),
+                  monotonicMs: performance.now(),
+                  source: "session.processor.onInterrupt",
+                  reason: "aborted",
+                  propagationPoint: "session.processor.process.onInterrupt",
+                })
                 ctx.trace.recordAbortState({
                   provenanceSource: "session.processor.onInterrupt",
                   provenanceReason: "aborted",
@@ -1192,6 +1305,9 @@ export const layer: Layer.Layer<
         },
         updateToolCall,
         completeToolCall,
+        recordToolExecutionStarted,
+        recordToolExecutionCompleted,
+        recordToolExecutionFailed,
         process,
         errorRecords,
         syntheticBlockSigKeys,
