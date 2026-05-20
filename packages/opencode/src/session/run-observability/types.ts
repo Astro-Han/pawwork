@@ -1,0 +1,155 @@
+import { MessageID, SessionID } from "../schema"
+import z from "zod"
+
+export const SCHEMA_VERSION = 1
+
+export const RunID = z.string().brand<"RunID">()
+export type RunID = z.infer<typeof RunID>
+
+export const AttemptID = z.string().brand<"RunAttemptID">()
+export type AttemptID = z.infer<typeof AttemptID>
+
+export const Classification = z.enum([
+  "success",
+  "external_stream_disconnect",
+  "known_lifecycle_close",
+  "unknown_scope_close",
+  "request_setup_failure",
+  "tool_failure",
+  "unknown_failure",
+])
+export type Classification = z.infer<typeof Classification>
+
+export const SummaryKey = z.string().brand<"RunObservabilitySummaryKey">()
+export type SummaryKey = z.infer<typeof SummaryKey>
+
+export type Confidence = "low" | "medium" | "high"
+
+export type RetrySafety = {
+  recommendation: "candidate_safe_auto_retry" | "do_not_auto_retry" | "ask_user" | "unknown"
+  confidence: Confidence
+  reason:
+    | "completed_without_failure"
+    | "no_visible_output_or_tool_execution"
+    | "visible_output_seen"
+    | "tool_execution_started"
+    | "unsafe_side_effect_started"
+    | "local_abort_or_lifecycle_close"
+    | "unknown"
+  safety_scope: "user_visible_and_tool_side_effects"
+}
+
+export type SafeErrorFingerprint = {
+  name?: string
+  message?: string
+  code?: string
+  cause_name?: string
+  cause_message?: string
+  cause_code?: string
+}
+
+export type ToolEffectKind = "read_only" | "local_file_write" | "local_process" | "unknown"
+export type ToolEffect = {
+  kind: ToolEffectKind
+  unsafe: boolean
+  complete: boolean
+}
+
+export type AttemptSummary = {
+  attempt_id: AttemptID
+  attempt_index: number
+  started_at: number
+  last_tool_completed_at?: number
+  provider_progress_seen: boolean
+  visible_output_seen: boolean
+  tool_call_seen: boolean
+  tool_execution_started: boolean
+  unsafe_side_effect_started: boolean
+}
+
+export type Summary = {
+  schema_version: typeof SCHEMA_VERSION
+  run_id: RunID
+  trace_id: MessageID
+  session_id: SessionID
+  message_id: MessageID
+  parent_message_id?: MessageID
+  provider: string
+  model: string
+  created_at: number
+  completed_at?: number
+  classification: Classification
+  summary_key: SummaryKey
+  retry_safety: RetrySafety
+  attempts: AttemptSummary[]
+  terminal_attempt_id?: AttemptID
+  provider_progress_seen: boolean
+  visible_output_seen: boolean
+  tool_call_seen: boolean
+  tool_execution_started: boolean
+  read_only_tool_started: boolean
+  unsafe_side_effect_started: boolean
+  unsafe_side_effect_kinds: ToolEffectKind[]
+  side_effect_facts_complete: boolean
+  missing_provenance?: string[]
+  durations_ms: {
+    total?: number
+    last_event_to_failure?: number
+  }
+  error?: SafeErrorFingerprint
+}
+
+export type RecorderInput = {
+  runID: RunID
+  traceID: MessageID
+  sessionID: SessionID
+  messageID: MessageID
+  parentMessageID?: MessageID
+  providerID: string
+  modelID: string
+  createdAt: number
+  monotonicStartMs: number
+}
+
+export type BeginAttemptInput = {
+  attemptIndex: number
+  at: number
+  monotonicMs: number
+}
+
+export type Recorder = {
+  beginAttempt(input: BeginAttemptInput): { attemptID: AttemptID }
+  recordProviderProgress(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordVisibleOutput(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordToolCall(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordToolExecutionStarted(input: {
+    attemptID: AttemptID
+    at: number
+    monotonicMs: number
+    toolName: SafeToolName
+    effect: ToolEffect
+  }): void
+  recordToolCompleted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordToolFailed(input: { attemptID: AttemptID; at: number; monotonicMs: number; error?: unknown }): void
+  recordToolInterrupted(input: { attemptID: AttemptID; at: number; monotonicMs: number }): void
+  recordTransportFailure(input: {
+    attemptID?: AttemptID
+    at: number
+    monotonicMs: number
+    error: unknown
+    evidence?: string[]
+  }): void
+  recordSetupFailure(input: { at: number; monotonicMs: number; error: unknown }): void
+  recordScopeClosed(input: {
+    at: number
+    monotonicMs: number
+    source?: string
+    reason?: string
+    propagationPoint?: string
+    lifecycleActionID?: string
+  }): void
+  finalize(input: { completedAt?: number; monotonicMs: number }): Summary
+}
+
+export const SafeToolName = z.string().brand<"SafeToolName">()
+export type SafeToolName = z.infer<typeof SafeToolName>

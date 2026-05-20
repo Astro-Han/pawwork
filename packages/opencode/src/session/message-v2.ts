@@ -19,6 +19,7 @@ import { Effect } from "effect"
 import { EffectLogger } from "@/effect"
 import { isMedia } from "@/util/media"
 import { LLMTrace } from "./llm-trace"
+import { RunObservability } from "./run-observability"
 export { isMedia } from "@/util/media"
 
 function truncateToolOutput(text: string, maxChars?: number) {
@@ -275,9 +276,7 @@ export const SubtaskPart = PartBase.extend({
   parent_message_id: z.string().optional(),
   subagent_session_id: z.string().optional(),
   // lifecycle (NEW)
-  status: z
-    .enum(["running", "completed", "completed_empty", "failed", "canceled_by_user"])
-    .default("completed"),
+  status: z.enum(["running", "completed", "completed_empty", "failed", "canceled_by_user"]).default("completed"),
   started_at: z.number().optional(),
   updated_at: z.number().optional(),
   ended_at: z.number().optional(),
@@ -492,10 +491,7 @@ export const Assistant = Base.extend({
   agent: z.string(),
   // Pre-design messages serialised path as a single absolute string. Readers lift it to
   // {cwd, root} where cwd === root; writers still emit only the modern object shape.
-  path: z.union([
-    z.object({ cwd: z.string(), root: z.string() }),
-    z.string().transform((s) => ({ cwd: s, root: s })),
-  ]),
+  path: z.union([z.object({ cwd: z.string(), root: z.string() }), z.string().transform((s) => ({ cwd: s, root: s }))]),
   summary: z.boolean().optional(),
   cost: z.number(),
   tokens: z.object({
@@ -514,6 +510,7 @@ export const Assistant = Base.extend({
   diagnostics: z
     .object({
       llm_trace: LLMTrace.Summary.optional(),
+      run_observability: z.any().optional(),
       abort: z
         .object({
           source: z.string().optional(),
@@ -887,10 +884,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
                 state: "output-error",
                 toolCallId: part.callID,
                 input: part.state.input,
-                errorText: formatToolFailureForModel(
-                  part.state.error,
-                  part.state.metadata?.diagnostics?.failure,
-                ),
+                errorText: formatToolFailureForModel(part.state.error, part.state.metadata?.diagnostics?.failure),
                 ...(part.metadata?.providerExecuted ? { providerExecuted: true } : {}),
                 ...(differentModel ? {} : { callProviderMetadata: providerMeta(part.metadata) }),
               })

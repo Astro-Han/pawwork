@@ -13,6 +13,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Config } from "../../src/config"
 import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
 import { LLMTrace } from "../../src/session/llm-trace"
+import { RunObservability } from "../../src/session/run-observability"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -682,6 +683,80 @@ describe("Export.session", () => {
           const result = await AppRuntime.runPromise(Export.session(root.id))
           expect(result.diagnostics.llm_traces).toBeUndefined()
           expect(result.diagnostics.llm_trace_schema_version).toBeUndefined()
+        } finally {
+          await SessionNs.remove(root.id)
+        }
+      },
+    })
+  })
+
+  test("collects run observability diagnostics as a top-level projection", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "run observability" })
+        const userID = MessageID.make("msg_run_obs_user")
+        const assistantID = MessageID.make("msg_run_obs_assistant")
+        const summary: RunObservability.Summary = {
+          schema_version: 1,
+          run_id: RunObservability.RunID.make("run_export"),
+          trace_id: assistantID,
+          session_id: root.id,
+          message_id: assistantID,
+          parent_message_id: userID,
+          provider: "test",
+          model: "test-model",
+          created_at: 10,
+          completed_at: 20,
+          classification: "external_stream_disconnect",
+          summary_key: RunObservability.summaryKeyFor("external_stream_disconnect", "provider_progress_socket_closed"),
+          retry_safety: {
+            recommendation: "candidate_safe_auto_retry",
+            confidence: "medium",
+            reason: "no_visible_output_or_tool_execution",
+            safety_scope: "user_visible_and_tool_side_effects",
+          },
+          attempts: [],
+          provider_progress_seen: true,
+          visible_output_seen: false,
+          tool_call_seen: false,
+          tool_execution_started: false,
+          read_only_tool_started: false,
+          unsafe_side_effect_started: false,
+          unsafe_side_effect_kinds: [],
+          side_effect_facts_complete: true,
+          durations_ms: { total: 10 },
+          error: { name: "TypeError", message: "terminated", cause_code: "UND_ERR_SOCKET" },
+        }
+        try {
+          await SessionNs.updateMessage({
+            id: userID,
+            sessionID: root.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+          } as MessageV2.User)
+          await SessionNs.updateMessage({
+            id: assistantID,
+            role: "assistant",
+            sessionID: root.id,
+            mode: "build",
+            agent: "build",
+            path: { cwd: projectRoot, root: projectRoot },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "test-model",
+            providerID: "test",
+            parentID: userID,
+            time: { created: 10, completed: 20 },
+            finish: "error",
+            diagnostics: { run_observability: summary },
+          } as MessageV2.Assistant)
+
+          const result = await AppRuntime.runPromise(Export.session(root.id))
+          expect(result.diagnostics.run_observability_schema_version).toBe(1)
+          expect(result.diagnostics.run_observability).toEqual([summary])
         } finally {
           await SessionNs.remove(root.id)
         }
@@ -1580,6 +1655,99 @@ describe("redactPart", () => {
         ? sanitized.session.messages[0].info.diagnostics?.llm_trace?.stream?.provider?.safe_headers
         : undefined,
     ).toEqual({ "x-request-id": "req_123" })
+  })
+
+  test("sanitizeSnapshot preserves safe run observability error fingerprints", () => {
+    const summary: RunObservability.Summary = {
+      schema_version: 1,
+      run_id: RunObservability.RunID.make("run_sanitize"),
+      trace_id: MessageID.make("msg_sanitize"),
+      session_id: SessionID.make("ses_sanitize"),
+      message_id: MessageID.make("msg_sanitize"),
+      provider: "test",
+      model: "test-model",
+      created_at: 1,
+      completed_at: 2,
+      classification: "external_stream_disconnect",
+      summary_key: RunObservability.summaryKeyFor("external_stream_disconnect", "provider_progress_socket_closed"),
+      retry_safety: {
+        recommendation: "candidate_safe_auto_retry",
+        confidence: "medium",
+        reason: "no_visible_output_or_tool_execution",
+        safety_scope: "user_visible_and_tool_side_effects",
+      },
+      attempts: [],
+      provider_progress_seen: true,
+      visible_output_seen: false,
+      tool_call_seen: false,
+      tool_execution_started: false,
+      read_only_tool_started: false,
+      unsafe_side_effect_started: false,
+      unsafe_side_effect_kinds: [],
+      side_effect_facts_complete: true,
+      durations_ms: { total: 1 },
+      error: { name: "TypeError", message: "terminated", cause_code: "UND_ERR_SOCKET" },
+    }
+    const fakeSnapshot: Export.Snapshot = {
+      schema_version: 1,
+      format: "pawwork-session-export",
+      exported_at: 1,
+      root_session_id: SessionID.make("ses_sanitize"),
+      runtime_context: {
+        app_version: "test",
+        runtime_namespace: "pawwork",
+        platform: process.platform,
+        os_version: "test",
+        locale: "en-US",
+        timezone: "UTC",
+        instruction_sources: [],
+        model_refs: {},
+        stats: { session_count: 1, message_count: 1, part_count: 0, omitted_attachment_count: 0 },
+      },
+      diagnostics: { run_observability_schema_version: 1, run_observability: [summary] },
+      session: {
+        info: {
+          id: SessionID.make("ses_sanitize"),
+          version: "0.0.0",
+          time: { created: 1, updated: 1 },
+          title: "x",
+          directory: "/tmp/project",
+        } as SessionNs.Info,
+        had_cloud_share: false,
+        diffs: [],
+        messages: [
+          {
+            info: {
+              id: MessageID.make("msg_sanitize"),
+              role: "assistant",
+              sessionID: SessionID.make("ses_sanitize"),
+              parentID: MessageID.make("msg_parent_sanitize"),
+              mode: "build",
+              agent: "build",
+              path: { cwd: "/tmp/project", root: "/tmp/project" },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: "test-model",
+              providerID: "test",
+              time: { created: 1 },
+              diagnostics: { run_observability: summary },
+            } as MessageV2.Assistant,
+            parts: [],
+          },
+        ],
+        children: [],
+      },
+    }
+
+    const sanitized = Export.sanitizeSnapshot(fakeSnapshot)
+    expect(sanitized.diagnostics.run_observability?.[0]?.error?.cause_code).toBe("UND_ERR_SOCKET")
+    expect(
+      sanitized.session.messages[0].info.role === "assistant"
+        ? sanitized.session.messages[0].info.diagnostics?.run_observability?.error?.cause_code
+        : undefined,
+    ).toBe("UND_ERR_SOCKET")
+    expect(JSON.stringify(sanitized)).not.toContain("/Users/")
+    expect(JSON.stringify(sanitized)).not.toContain("sk-")
   })
 
   test("redacts data: url inside completed tool attachments", () => {

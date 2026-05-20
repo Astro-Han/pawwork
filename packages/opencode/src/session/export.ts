@@ -26,6 +26,7 @@ import { Glob } from "@/util/glob"
 import { safeToolFailureMetadata } from "./tool-failure"
 import { LLMTrace } from "./llm-trace"
 import { safeErrorFingerprint, safeProviderCorrelation } from "./llm-trace/stream-diagnostics"
+import { RunObservability } from "./run-observability"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -155,6 +156,8 @@ export namespace Export {
       }
       llm_trace_schema_version?: typeof LLMTrace.SCHEMA_VERSION
       llm_traces?: LLMTrace.Summary[]
+      run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
+      run_observability?: RunObservability.Summary[]
       aborts?: Array<{
         session_id: SessionID
         message_id: MessageID
@@ -205,6 +208,8 @@ export namespace Export {
     }
     llm_trace_schema_version?: typeof LLMTrace.SCHEMA_VERSION
     llm_traces?: LLMTrace.Summary[]
+    run_observability_schema_version?: typeof RunObservability.SCHEMA_VERSION
+    run_observability?: RunObservability.Summary[]
     aborts?: Array<{
       session_id: SessionID
       message_id: MessageID
@@ -289,11 +294,15 @@ export namespace Export {
     }
     walk(node)
     const llm_traces = collectLLMTraces(node)
+    const run_observability = collectRunObservability(node)
     const aborts = collectAbortDiagnostics(node)
     const title_generations = collectTitleGenerations(node)
     return {
       ...(last ? { loop: { last } } : {}),
       ...(llm_traces.length ? { llm_trace_schema_version: LLMTrace.SCHEMA_VERSION, llm_traces } : {}),
+      ...(run_observability.length
+        ? { run_observability_schema_version: RunObservability.SCHEMA_VERSION, run_observability }
+        : {}),
       ...(aborts.length ? { aborts } : {}),
       ...(title_generations.length ? { title_generations } : {}),
     }
@@ -306,6 +315,23 @@ export namespace Export {
         if (message.info.role !== "assistant") continue
         const trace = message.info.diagnostics?.llm_trace
         if (trace) traces.push(trace)
+      }
+      for (const child of t.children ?? []) walk(child)
+    }
+    walk(node)
+    return traces.sort((a, b) => {
+      if (a.session_id !== b.session_id) return a.session_id.localeCompare(b.session_id)
+      return a.message_id.localeCompare(b.message_id)
+    })
+  }
+
+  function collectRunObservability(node: Tree) {
+    const traces: RunObservability.Summary[] = []
+    const walk = (t: Tree) => {
+      for (const message of t.messages ?? []) {
+        if (message.info.role !== "assistant") continue
+        const summary = message.info.diagnostics?.run_observability
+        if (summary) traces.push(summary)
       }
       for (const child of t.children ?? []) walk(child)
     }
@@ -945,6 +971,9 @@ export namespace Export {
                       llm_trace: msg.info.diagnostics.llm_trace
                         ? sanitizeLLMTrace(msg.info.diagnostics.llm_trace)
                         : undefined,
+                      run_observability: msg.info.diagnostics.run_observability
+                        ? sanitizeRunObservability(msg.info.diagnostics.run_observability)
+                        : undefined,
                     },
               },
         parts: msg.parts.map(partFn),
@@ -998,6 +1027,14 @@ export namespace Export {
             : redact("title-generation-error-message", String(index), trace.error_message),
       })),
       llm_traces: diagnostics.llm_traces?.map(sanitizeLLMTrace),
+      run_observability: diagnostics.run_observability?.map(sanitizeRunObservability),
+    }
+  }
+
+  function sanitizeRunObservability(summary: RunObservability.Summary): RunObservability.Summary {
+    return {
+      ...summary,
+      error: summary.error,
     }
   }
 
