@@ -29,6 +29,11 @@ export function createTextFragment(content: string): DocumentFragment {
 
 export function getNodeLength(node: Node): number {
   if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR") return 1
+  // Slash-command pill: logical length is 1 (the slash trigger) + name length.
+  // This must run before the textContent fallback because textContent only holds the name (no slash).
+  if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.cmdMark === "true") {
+    return 1 + ((node as HTMLElement).dataset.name ?? "").length
+  }
   return (node.textContent ?? "").replace(/\u200B/g, "").length
 }
 
@@ -61,7 +66,9 @@ export function setCursorPosition(parent: HTMLElement, position: number) {
     const isText = node.nodeType === Node.TEXT_NODE
     const isPill =
       node.nodeType === Node.ELEMENT_NODE &&
-      ((node as HTMLElement).dataset.type === "file" || (node as HTMLElement).dataset.type === "agent")
+      ((node as HTMLElement).dataset.type === "file" ||
+        (node as HTMLElement).dataset.type === "agent" ||
+        (node as HTMLElement).dataset.cmdMark === "true")
     const isBreak = node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR"
 
     if (isText && remaining <= length) {
@@ -126,7 +133,9 @@ export function setRangeEdge(parent: HTMLElement, range: Range, edge: "start" | 
     const isText = node.nodeType === Node.TEXT_NODE
     const isPill =
       node.nodeType === Node.ELEMENT_NODE &&
-      ((node as HTMLElement).dataset.type === "file" || (node as HTMLElement).dataset.type === "agent")
+      ((node as HTMLElement).dataset.type === "file" ||
+        (node as HTMLElement).dataset.type === "agent" ||
+        (node as HTMLElement).dataset.cmdMark === "true")
     const isBreak = node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR"
 
     if (isText && remaining <= length) {
