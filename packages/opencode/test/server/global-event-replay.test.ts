@@ -7,7 +7,7 @@ const envelope = (type: string, id = type) => ({
   directory: "/repo",
   payload: {
     type,
-    properties: type === "question.asked" ? { id, sessionID: "ses_1", questions: [] } : { id },
+    properties: type === "permission.asked" ? { id, sessionID: "ses_1", questions: [] } : { id },
   },
 })
 
@@ -43,12 +43,12 @@ describe("createGlobalEventReplayBridge", () => {
     const packets: Array<{ id?: string; replaySeq?: number; data: string }> = []
     const unsubscribe = bridge.subscribe((packet) => packets.push(packet))
 
-    bridge.append(envelope("question.asked", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
     bridge.append(envelope("message.part.delta", "delta1"))
 
     expect(packets[0].id).toBe("boot:1")
     expect(packets[0].replaySeq).toBe(1)
-    expect(JSON.parse(packets[0].data).payload.type).toBe("question.asked")
+    expect(JSON.parse(packets[0].data).payload.type).toBe("permission.asked")
     expect(packets[1].id).toBeUndefined()
     expect(packets[1].replaySeq).toBeUndefined()
     expect(JSON.parse(packets[1].data).payload.type).toBe("message.part.delta")
@@ -57,14 +57,14 @@ describe("createGlobalEventReplayBridge", () => {
 
   test("connection seeds a fresh cursor and valid reconnect replays without server.connected", () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
-    bridge.append(envelope("question.asked", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
     const fresh: Array<{ id?: string; replaySeq?: number; data: string }> = []
 
     openGlobalEventReplayConnection({ bridge, push: (packet) => fresh.push(packet) })()
 
     expect(fresh[0].id).toBe("boot:1")
 
-    bridge.append(envelope("question.replied", "q1"))
+    bridge.append(envelope("permission.replied", "q1"))
     const reconnect: Array<{ id?: string; replaySeq?: number; data: string }> = []
 
     openGlobalEventReplayConnection({
@@ -73,13 +73,13 @@ describe("createGlobalEventReplayBridge", () => {
       push: (packet) => reconnect.push(packet),
     })()
 
-    expect(reconnect.map((packet) => JSON.parse(packet.data).payload.type)).toEqual(["question.replied"])
+    expect(reconnect.map((packet) => JSON.parse(packet.data).payload.type)).toEqual(["permission.replied"])
     expect(reconnect[0].id).toBe("boot:2")
   })
 
   test("invalid reconnect emits one server.connected with the fence id", () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
-    bridge.append(envelope("question.asked", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
     const packets: Array<{ id?: string; replaySeq?: number; data: string }> = []
 
     openGlobalEventReplayConnection({
@@ -96,8 +96,8 @@ describe("createGlobalEventReplayBridge", () => {
     const bridge = createGlobalEventReplayBridge({
       replayStore: new EventReplayStore({ bootID: "boot", maxRecords: 1 }),
     })
-    bridge.append(envelope("question.asked", "q1"))
-    bridge.append(envelope("question.replied", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
+    bridge.append(envelope("permission.replied", "q1"))
     const packets: Array<{ id?: string; replaySeq?: number; data: string }> = []
 
     openGlobalEventReplayConnection({
@@ -112,7 +112,7 @@ describe("createGlobalEventReplayBridge", () => {
 
   test("dispose events invalidate retained replay records", () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
-    bridge.append(envelope("question.asked", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
     bridge.append({
       directory: "/repo",
       payload: {
@@ -134,7 +134,7 @@ describe("createGlobalEventReplayBridge", () => {
 
   test("global dispose resets the replay generation and clears retained records", () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
-    bridge.append(envelope("question.asked", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
 
     const packet = bridge.append({
       payload: {
@@ -151,7 +151,7 @@ describe("createGlobalEventReplayBridge", () => {
 
   test("missed instance dispose advances reconnect recovery from the previous fence", () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
-    bridge.append(envelope("question.asked", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
     bridge.append({
       directory: "/repo",
       payload: {
@@ -173,7 +173,7 @@ describe("createGlobalEventReplayBridge", () => {
 
   test("route reads Last-Event-ID and writes replay ids into SSE output", async () => {
     const bridge = createGlobalEventReplayBridge({ replayStore: new EventReplayStore({ bootID: "boot" }) })
-    bridge.append(envelope("question.asked", "q1"))
+    bridge.append(envelope("permission.asked", "q1"))
     const app = new Hono().get("/event", (c) => streamGlobalEvents(c, bridge))
     const controller = new AbortController()
 
@@ -182,11 +182,11 @@ describe("createGlobalEventReplayBridge", () => {
       signal: controller.signal,
     })
     expect(response.status).toBe(200)
-    const text = await readSseUntil(response, (value) => value.includes("question.asked"))
+    const text = await readSseUntil(response, (value) => value.includes("permission.asked"))
     controller.abort()
 
     expect(text).toContain("id: boot:1")
-    expect(text).toContain("data: {\"directory\":\"/repo\",\"payload\":{\"type\":\"question.asked\"")
+    expect(text).toContain("data: {\"directory\":\"/repo\",\"payload\":{\"type\":\"permission.asked\"")
     expect(text).not.toContain("server.connected")
   })
 })

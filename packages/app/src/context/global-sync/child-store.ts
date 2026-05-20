@@ -192,8 +192,6 @@ export function createChildStoreManager(input: {
             session_diff: {},
             todo: {},
             permission: {},
-            question: {},
-            blocker: {},
             mcp_ready: false,
             mcp: {},
             lsp_ready: false,

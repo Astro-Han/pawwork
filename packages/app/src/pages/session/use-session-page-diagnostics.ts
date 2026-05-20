@@ -49,7 +49,6 @@ export function createSessionPageDiagnostics(options: SessionPageDiagnosticsOpti
         visibleSessionID: timelineSessionID,
         timelineSessionID,
         source,
-        mode: "hard",
         result,
       }),
     )

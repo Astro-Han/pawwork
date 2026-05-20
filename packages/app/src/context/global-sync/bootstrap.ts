@@ -1,12 +1,14 @@
+import { Binary } from "@opencode-ai/util/binary"
 import type {
   Config,
+  Message,
   OpencodeClient,
+  Part,
   Path,
   PermissionRequest,
   Project,
   ProviderAuthResponse,
   ProviderListResponse,
-  QuestionRequest,
   Session,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
@@ -14,8 +16,8 @@ import { showToast } from "@opencode-ai/ui/toast"
 import { getFilename } from "@opencode-ai/util/path"
 import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
-import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
-import type { SessionBlockerEntry, State, VcsCache } from "./types"
+import { produce, reconcile, type SetStoreFunction, type Store } from "solid-js/store"
+import type { State, VcsCache } from "./types"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
@@ -153,16 +155,6 @@ function groupBySession<T extends { id: string; sessionID: string }>(input: T[])
   }, {})
 }
 
-function groupBlockersBySession(input: SessionBlockerEntry[]) {
-  return input.reduce<Record<string, SessionBlockerEntry[]>>((acc, item) => {
-    if (!item?.requestID || !item.sessionID) return acc
-    const list = acc[item.sessionID]
-    if (list) list.push(item)
-    else acc[item.sessionID] = [item]
-    return acc
-  }, {})
-}
-
 function projectID(directory: string, projects: Project[]) {
   return projects.find((project) => project.worktree === directory || project.sandboxes?.includes(directory))?.id
 }
@@ -241,6 +233,63 @@ function filterGroupedByWarmSessions<T>(grouped: Record<string, T[]>, result: { 
   const filtered = { ...grouped }
   for (const sessionID of result.missing) delete filtered[sessionID]
   return filtered
+}
+
+// Hydrate session/message/part trios returned by GET /external-result. The
+// dock walks `sync.data.session` + `sync.data.message[child]` + `part[msg]`
+// to surface a pending question on a parent route. SSE message.part.updated
+// is intentionally not in the replay buffer (high-volume), so a reload after
+// the SSE cursor expires loses the dock without this hydrate.
+export function hydratePendingExternalResults(input: {
+  store: Store<State>
+  setStore: SetStoreFunction<State>
+  entries: ReadonlyArray<{ session: Session; message: Message; part: Part }>
+}) {
+  batch(() => {
+    for (const entry of input.entries) {
+      const session = entry.session
+      const message = entry.message
+      const part = entry.part
+      if (!session?.id || !message?.id || !part?.id || !part.messageID) continue
+      mergeSession(input.setStore, session)
+
+      const messages = input.store.message[session.id]
+      if (!messages) {
+        input.setStore("message", session.id, [message])
+      } else {
+        const result = Binary.search(messages, message.id, (m) => m.id)
+        if (result.found) {
+          input.setStore("message", session.id, result.index, reconcile(message))
+        } else {
+          input.setStore(
+            "message",
+            session.id,
+            produce((draft) => {
+              draft.splice(result.index, 0, message)
+            }),
+          )
+        }
+      }
+
+      const parts = input.store.part[part.messageID]
+      if (!parts) {
+        input.setStore("part", part.messageID, [part])
+      } else {
+        const result = Binary.search(parts, part.id, (p) => p.id)
+        if (result.found) {
+          input.setStore("part", part.messageID, result.index, reconcile(part))
+        } else {
+          input.setStore(
+            "part",
+            part.messageID,
+            produce((draft) => {
+              draft.splice(result.index, 0, part)
+            }),
+          )
+        }
+      }
+    }
+  })
 }
 
 const inactiveQueryFn = async () => null
@@ -426,57 +475,25 @@ export async function bootstrapDirectory(input: {
         ),
       () =>
         retry(() =>
-          input.sdk.question.list().then((x) => {
-            const ids = (x.data ?? []).map((question) => question?.sessionID).filter((id): id is string => !!id)
-            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then((warm) => {
-              const grouped = filterGroupedByWarmSessions(
-                groupBySession((x.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID)),
-                warm,
-              )
-              return batch(() => {
-                for (const sessionID of Object.keys(input.store.question)) {
-                  if (grouped[sessionID]) continue
-                  input.setStore("question", sessionID, [])
-                }
-                for (const [sessionID, questions] of Object.entries(grouped)) {
-                  input.setStore(
-                    "question",
-                    sessionID,
-                    reconcile(
-                      questions.filter((q) => !!q?.id).sort((a, b) => cmp(a.id, b.id)),
-                      { key: "id" },
-                    ),
-                  )
-                }
-              })
+          input.sdk.externalResult.list().then((x) => {
+            const entries = (x.data ?? []).filter(
+              (entry): entry is { session: Session; message: Message; part: Part } =>
+                !!entry?.session?.id && !!entry.message?.id && !!entry.part?.id,
+            )
+            if (entries.length === 0) return
+            hydratePendingExternalResults({
+              store: input.store,
+              setStore: input.setStore,
+              entries,
             })
           }),
-        ),
-      () =>
-        retry(() =>
-          input.sdk.blocker.list().then((x) => {
-            const ids = (x.data ?? []).map((blocker) => blocker?.sessionID).filter((id): id is string => !!id)
-            return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then((warm) => {
-              const grouped = filterGroupedByWarmSessions(groupBlockersBySession(x.data ?? []), warm)
-              return batch(() => {
-                for (const sessionID of Object.keys(input.store.blocker)) {
-                  if (grouped[sessionID]) continue
-                  input.setStore("blocker", sessionID, [])
-                }
-                for (const [sessionID, blockers] of Object.entries(grouped)) {
-                  input.setStore(
-                    "blocker",
-                    sessionID,
-                    reconcile(
-                      blockers.sort((a, b) => cmp(a.requestID, b.requestID)),
-                      { key: "requestID" },
-                    ),
-                  )
-                }
-              })
-            })
-          }),
-        ),
+        ).catch((err) => {
+          // Hydrate is best-effort: a transient failure should not surface
+          // the project-level "reloadFailed" toast. The dock recovers on
+          // the next SSE message.part.updated for live questions, or on
+          // the next bootstrap pass for cold-open ones.
+          console.warn("Failed to hydrate pending external-result questions", err)
+        }),
       () => Promise.resolve(input.loadSessions(input.directory)),
       () =>
         retry(() =>

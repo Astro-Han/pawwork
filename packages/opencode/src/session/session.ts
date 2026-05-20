@@ -45,9 +45,7 @@ import { Runtime } from "@opencode-ai/core/runtime"
 
 import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
-import { Question } from "@/question"
 import { ExternalResult } from "@/tool/external-result"
-import { SessionBlocker } from "@/session/blocker"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
 import { SubagentRunWriterContext, SubagentRunGuardViolation, lifecycleFieldsChanged } from "./subagent-run-context"
@@ -587,14 +585,8 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service> =
       // sessions that have no InstanceState.
       yield* ExternalResult.onSessionDestroyed(sessionID)
       if (!(yield* hasInstanceContext())) return
-      yield* Question.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
-        Effect.provide(Question.defaultLayer),
-      )
       yield* Permission.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
         Effect.provide(Permission.defaultLayer),
-      )
-      yield* SessionBlocker.Service.use((svc) => svc.clearSession(sessionID, reason)).pipe(
-        Effect.provide(SessionBlocker.defaultLayer),
       )
     })
 

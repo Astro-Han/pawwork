@@ -175,6 +175,114 @@ describe("tool.external-result.Registry shutdown semantics", () => {
   })
 })
 
+describe("tool.external-result.Registry pending snapshot list", () => {
+  test("list returns every pending entry with its identifying keys + snapshot", async () => {
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID: "m1", callID: "c1", inputSnapshot: { questions: ["q1"] } }),
+    )
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionB, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } }),
+    )
+    const snapshots = ExternalResult.list()
+    expect(snapshots.length).toBe(2)
+    expect(snapshots).toEqual(
+      expect.arrayContaining([
+        { sessionID: sessionA, messageID: "m1", callID: "c1", inputSnapshot: { questions: ["q1"] } },
+        { sessionID: sessionB, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } },
+      ]),
+    )
+  })
+
+  test("list excludes resolved tombstones and not_found entries", async () => {
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID: "m1", callID: "c1", inputSnapshot: { questions: ["q1"] } }),
+    )
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } }),
+    )
+    await runEffect(
+      ExternalResult.resolveIfPending({ sessionID: sessionA, messageID: "m1", callID: "c1", value: {} }),
+    )
+    const snapshots = ExternalResult.list()
+    expect(snapshots).toEqual([
+      { sessionID: sessionA, messageID: "m2", callID: "c2", inputSnapshot: { questions: ["q2"] } },
+    ])
+  })
+
+  test("list returns an empty array when there is nothing pending", () => {
+    expect(ExternalResult.list()).toEqual([])
+  })
+})
+
+describe("tool.external-result.Registry abort vs respond race", () => {
+  test("abortPendingSync transitions a pending entry synchronously and returns its Deferred", async () => {
+    const deferred = await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID, callID, inputSnapshot: {} }),
+    )
+    const result = ExternalResult.abortPendingSync({ sessionID: sessionA, messageID, callID })
+    expect(result.ok).toBe(true)
+    expect(ExternalResult.lookup({ sessionID: sessionA, messageID, callID }).state).toBe("resolved")
+    if (result.ok) expect(result.deferred).toBe(deferred)
+  })
+
+  test("abortPendingSync returns ok:false when entry is missing or already resolved", async () => {
+    expect(ExternalResult.abortPendingSync({ sessionID: sessionA, messageID, callID })).toEqual({ ok: false })
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID, callID, inputSnapshot: {} }),
+    )
+    await runEffect(
+      ExternalResult.resolveIfPending({ sessionID: sessionA, messageID, callID, value: {} }),
+    )
+    expect(ExternalResult.abortPendingSync({ sessionID: sessionA, messageID, callID })).toEqual({ ok: false })
+  })
+
+  test("respond after abortPendingSync sees a tombstone and returns already_resolved", async () => {
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID, callID, inputSnapshot: {} }),
+    )
+    const abortResult = ExternalResult.abortPendingSync({ sessionID: sessionA, messageID, callID })
+    expect(abortResult.ok).toBe(true)
+    const outcome = await runEffect(
+      ExternalResult.resolveIfPending({ sessionID: sessionA, messageID, callID, value: { kind: "submitted" } }),
+    )
+    expect(outcome).toBe("already_resolved")
+  })
+
+  test("Deferred.fail wired after abortPendingSync surfaces aborted error to the awaiter", async () => {
+    const deferred = await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID, callID, inputSnapshot: {} }),
+    )
+    const result = ExternalResult.abortPendingSync({ sessionID: sessionA, messageID, callID })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("unreachable")
+    await Effect.runPromise(Deferred.fail(result.deferred, new ExternalResult.Error({ reason: "aborted" })))
+    let caught: unknown
+    try {
+      await Effect.runPromise(Deferred.await(deferred))
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(ExternalResult.Error)
+    expect((caught as ExternalResult.Error).reason).toBe("aborted")
+  })
+
+  test("resolveIfPending tombstones synchronously so a racing abortPendingSync sees resolved", async () => {
+    // Reverse direction: when respond Effect's tick 1 commits the tombstone
+    // before the abort signal handler runs, abortPendingSync must see the
+    // resolved state and bail (ok: false). This is the "submit beat stop"
+    // case where the user's submit had already crossed the registry commit
+    // line before the abort signal fired.
+    await runEffect(
+      ExternalResult.register({ sessionID: sessionA, messageID, callID, inputSnapshot: {} }),
+    )
+    const outcome = await runEffect(
+      ExternalResult.resolveIfPending({ sessionID: sessionA, messageID, callID, value: { kind: "submitted" } }),
+    )
+    expect(outcome).toBe("resolved")
+    expect(ExternalResult.abortPendingSync({ sessionID: sessionA, messageID, callID })).toEqual({ ok: false })
+  })
+})
+
 describe("tool.external-result.Registry parallel sessions", () => {
   test("two sessions each have their own pending entry; independent lifecycle", async () => {
     await runEffect(

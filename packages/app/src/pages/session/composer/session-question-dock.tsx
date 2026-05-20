@@ -5,7 +5,12 @@ import { Button } from "@opencode-ai/ui/button"
 import { DockPrompt } from "@opencode-ai/ui/dock-prompt"
 import { Icon } from "@opencode-ai/ui/icon"
 import { showToast } from "@opencode-ai/ui/toast"
-import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
+import type { DockQuestionRequest } from "@/pages/session/blockers/use-session-blockers"
+
+// One question's selected labels. Mirrors the per-row shape of the
+// `payload.answers: string[][]` body sent to POST /session/:id/tool/respond
+// (validated by questionDecoder in packages/opencode/src/tool/question.ts).
+type QuestionAnswer = readonly string[]
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
@@ -98,7 +103,7 @@ function Option(props: {
   )
 }
 
-export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit: () => void }> = (props) => {
+export const SessionQuestionDock: Component<{ request: DockQuestionRequest; onSubmit: () => void }> = (props) => {
   const sdk = useSDK()
   const language = useLanguage()
 
@@ -203,13 +208,54 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   })
 
   const fail = (err: unknown) => {
+    // The route handler returns typed status codes. Surface a dedicated copy
+    // so the user understands whether to retry, reload, or accept that
+    // another client answered.
+    const status = (err as { response?: { status?: number } } | undefined)?.response?.status
+    if (status === 404) {
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t("session.question.error.staleSession"),
+      })
+      return
+    }
+    if (status === 409) {
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: language.t("session.question.error.alreadyAnswered"),
+      })
+      return
+    }
+    if (status === 422 || status === 400) {
+      const body = (err as { error?: unknown } | undefined)?.error
+      const detail =
+        typeof body === "object" && body !== null && "error" in body
+          ? String((body as { error?: unknown }).error ?? "")
+          : err instanceof Error
+            ? err.message
+            : String(err)
+      showToast({
+        title: language.t("common.requestFailed"),
+        description: detail || language.t("session.question.error.invalidPayload"),
+      })
+      return
+    }
     const message = err instanceof Error ? err.message : String(err)
     showToast({ title: language.t("common.requestFailed"), description: message })
   }
 
   const replyMutation = useMutation(() => ({
-    mutationFn: (answers: QuestionAnswer[]) =>
-      sdk.client.question.reply({ requestID: props.request.id, questionReply: { answers } }),
+    mutationFn: async (answers: QuestionAnswer[]): Promise<void> => {
+      await sdk.client.session.toolRespond({
+        sessionID: props.request.sessionID,
+        body: {
+          kind: "submit",
+          messageID: props.request.messageID,
+          callID: props.request.callID,
+          payload: { answers },
+        },
+      })
+    },
     onMutate: () => {
       props.onSubmit()
     },
@@ -221,7 +267,16 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   }))
 
   const rejectMutation = useMutation(() => ({
-    mutationFn: () => sdk.client.question.reject({ requestID: props.request.id }),
+    mutationFn: async (): Promise<void> => {
+      await sdk.client.session.toolRespond({
+        sessionID: props.request.sessionID,
+        body: {
+          kind: "dismiss",
+          messageID: props.request.messageID,
+          callID: props.request.callID,
+        },
+      })
+    },
     onMutate: () => {
       props.onSubmit()
     },
@@ -255,7 +310,10 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       focus(pickFocus(pending))
       return
     }
-    void reply(questions().map((_, i) => store.answers[i] ?? []))
+    // mutateAsync rethrows after onError(fail) handles the toast; swallow
+    // the rejection here so the void-call site doesn't leak an unhandled
+    // promise rejection on 404/409/422/network failures.
+    reply(questions().map((_, i) => store.answers[i] ?? [])).catch(() => {})
   }
 
   const picked = (answer: string) => store.answers[store.tab]?.includes(answer) ?? false
@@ -325,7 +383,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
 
     if (event.key === "Escape") {
       event.preventDefault()
-      void reject()
+      reject().catch(() => {})
       return
     }
 

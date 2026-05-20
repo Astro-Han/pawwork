@@ -143,7 +143,7 @@ export default function Page() {
   const haltAbort = (sessionID: string, source: "revert" | "autoHeal" = "autoHeal") =>
     isSessionRunning(sync.data.session_status[sessionID], sync.data.message[sessionID])
       ? sdk.client.session
-          .abort({ sessionID, mode: "hard", source: rendererAbortDiagnosticSource({ sessionID, source }) })
+          .abort({ sessionID, source: rendererAbortDiagnosticSource({ sessionID, source }) })
           .then((result) => {
             emitAbortDiagnostic(sessionID, source, result.data === false ? "ignored_awaiting_question" : "aborted")
             return result
@@ -155,20 +155,15 @@ export default function Page() {
   ) =>
     isSessionRunning(snapshot.store.session_status[sessionID], snapshot.store.message[sessionID])
       ? snapshot.client.session
-          .abort({ sessionID, mode: "hard", source: rendererAbortDiagnosticSource({ sessionID, source: "revert" }) })
+          .abort({ sessionID, source: rendererAbortDiagnosticSource({ sessionID, source: "revert" }) })
           .then((result) => {
             emitAbortDiagnostic(sessionID, "revert", result.data === false ? "ignored_awaiting_question" : "aborted")
             return result
           })
       : Promise.resolve()
-  // sessionRevert chains halt with .then(), so its existing outer .catch
-  // already handles abort failures. The auto-heal clock wants to see the
-  // error so it can structured-warn — pass haltAbort directly there.
-  const halt = (sessionID: string) => haltAbort(sessionID, "autoHeal").catch(() => {})
   const composer = createSessionComposerState({
     sessionID: timelineSessionID,
     fallbackSessionID: () => params.id,
-    halt: haltAbort,
   })
   createEffect(() => {
     const tab = activeFileTab()

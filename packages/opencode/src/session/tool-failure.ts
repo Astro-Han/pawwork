@@ -1,5 +1,4 @@
 import { Permission } from "@/permission"
-import { Question } from "@/question"
 
 export const TOOL_FAILURE_KINDS = [
   "invalid_arguments",
@@ -110,7 +109,6 @@ export function classifyToolFailure(input: { tool: string; error: unknown }): To
   }
 
   if (
-    error instanceof Question.RejectedError ||
     name === "AbortError" ||
     code === "ABORT_ERR" ||
     hasAny(value, ["user aborted", "user cancelled", "user canceled", "cancelled before", "canceled before"])

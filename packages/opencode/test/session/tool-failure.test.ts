@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { APICallError } from "ai"
 import { Permission } from "../../src/permission"
-import { Question } from "../../src/question"
 import {
   TOOL_FAILURE_HINTS,
   classifyToolFailure,
@@ -45,11 +44,6 @@ describe("tool failure classification", () => {
         name: "tool timeout",
         error: Object.assign(new Error("Tool execution timed out after 1000ms"), { name: "TimeoutError" }),
         errorKind: "timeout",
-      },
-      {
-        name: "user aborted question",
-        error: new Question.RejectedError({ cancelled: true }),
-        errorKind: "user_aborted",
       },
       {
         name: "unknown fallback",
