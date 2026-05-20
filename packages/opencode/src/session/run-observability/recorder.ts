@@ -9,6 +9,7 @@ import {
   SCHEMA_VERSION,
   type Summary,
   type SummaryKey,
+  type LifecycleKind,
   type ToolEffectKind,
 } from "./types"
 import { safeErrorFingerprint } from "./sanitize"
@@ -25,6 +26,7 @@ type Failure =
       source?: string
       reason?: string
       lifecycleActionID?: string
+      lifecycleKind?: LifecycleKind
     }
   | { type: "tool"; at: number; monotonicMs: number; error?: unknown; attemptID?: AttemptID }
 
@@ -155,6 +157,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         source: next.source,
         reason: next.reason,
         lifecycleActionID: next.lifecycleActionID,
+        lifecycleKind: next.lifecycleKind,
       }
       rememberEvent(next.monotonicMs)
     },
@@ -196,6 +199,7 @@ export function createRecorder(input: RecorderInput): Recorder {
         unsafe_side_effect_started: unsafeSideEffectStarted,
         unsafe_side_effect_kinds: unsafeKinds,
         side_effect_facts_complete: sideEffectFactsComplete,
+        lifecycle: lifecycleSummary(failure),
         missing_provenance: missingProvenance,
         durations_ms: {
           total: duration(input.monotonicStartMs, final.monotonicMs),
@@ -219,8 +223,16 @@ function classify(failure: Failure | undefined): Classification {
   if (!failure) return "success"
   if (failure.type === "setup") return "request_setup_failure"
   if (failure.type === "tool") return "tool_failure"
-  if (failure.type === "scope_closed")
+  if (failure.type === "scope_closed") {
+    if (failure.lifecycleKind === "instance_reload") return "local_instance_reload"
+    if (
+      failure.lifecycleKind === "instance_dispose" ||
+      failure.lifecycleKind === "instance_dispose_directory" ||
+      failure.lifecycleKind === "instance_dispose_all"
+    )
+      return "local_instance_dispose"
     return failure.lifecycleActionID ? "known_lifecycle_close" : "unknown_scope_close"
+  }
   if (failure.type === "transport") return "external_stream_disconnect"
   return "unknown_failure"
 }
@@ -232,7 +244,10 @@ function summarySuffix(input: { failure: Failure | undefined; providerProgressSe
     if (input.providerProgressSeen) return "provider_progress_transport_failure"
     return "transport_failure"
   }
-  if (input.failure?.type === "scope_closed") return "missing_lifecycle_provenance"
+  if (input.failure?.type === "scope_closed") {
+    if (input.failure.lifecycleActionID) return "lifecycle_close"
+    return "missing_lifecycle_provenance"
+  }
   if (input.failure?.type === "setup") return "request_setup_failed"
   if (input.failure?.type === "tool") return "tool_execution_failed"
   if (!input.failure) return "completed"
@@ -241,6 +256,16 @@ function summarySuffix(input: { failure: Failure | undefined; providerProgressSe
 
 export function summaryKeyFor(classification: Classification, suffix: string): SummaryKey {
   return `${classification}.${suffix}` as SummaryKey
+}
+
+function lifecycleSummary(failure: Failure | undefined): Summary["lifecycle"] {
+  if (failure?.type !== "scope_closed" || !failure.lifecycleActionID || !failure.lifecycleKind) return undefined
+  return {
+    action_id: failure.lifecycleActionID,
+    kind: failure.lifecycleKind,
+    source: failure.source,
+    reason: failure.reason,
+  }
 }
 
 export function isProviderProgressEvent(event: { type: string }) {
