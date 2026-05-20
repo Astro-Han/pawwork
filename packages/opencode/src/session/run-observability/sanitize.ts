@@ -1,6 +1,15 @@
 import { isRecord } from "@/util/record"
 import type { SafeErrorFingerprint, SafeToolName, ToolEffect } from "./types"
 
+export const TOOL_READ = "read"
+export const TOOL_GLOB = "glob"
+export const TOOL_GREP = "grep"
+export const TOOL_WEBFETCH = "webfetch"
+export const TOOL_APPLY_PATCH = "apply_patch"
+export const TOOL_BASH = "bash"
+
+const READ_ONLY_TOOLS = new Set([TOOL_READ, TOOL_GLOB, TOOL_GREP, TOOL_WEBFETCH])
+
 export function safeToolName(value: unknown): SafeToolName {
   if (typeof value !== "string") return "unknown" as SafeToolName
   const trimmed = value.trim().slice(0, 80)
@@ -13,11 +22,11 @@ export function safeToolName(value: unknown): SafeToolName {
 }
 
 export function toolEffect(toolName: string): ToolEffect {
-  if (toolName === "read" || toolName === "glob" || toolName === "grep" || toolName === "webfetch") {
+  if (READ_ONLY_TOOLS.has(toolName)) {
     return { kind: "read_only", unsafe: false, complete: true }
   }
-  if (toolName === "apply_patch") return { kind: "local_file_write", unsafe: true, complete: true }
-  if (toolName === "bash") return { kind: "local_process", unsafe: true, complete: true }
+  if (toolName === TOOL_APPLY_PATCH) return { kind: "local_file_write", unsafe: true, complete: true }
+  if (toolName === TOOL_BASH) return { kind: "local_process", unsafe: true, complete: true }
   return { kind: "unknown", unsafe: true, complete: false }
 }
 
