@@ -381,6 +381,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     },
     readFileDataUrl: platform.readFileDataUrl,
     readClipboardImage: platform.readClipboardImage,
+    // Path C dependencies (paste of `/<known-name> args` into empty input).
+    imageAttachments,
+    composing,
+    sync,
   })
 
   const accepting = createMemo(() => {
