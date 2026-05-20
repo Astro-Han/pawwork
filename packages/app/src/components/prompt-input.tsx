@@ -1,4 +1,5 @@
 import { useSpring } from "@opencode-ai/ui/motion-spring"
+import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
@@ -114,7 +115,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         type: "idle",
       },
   )
-  const working = createMemo(() => status()?.type !== "idle")
+  const working = createMemo(() => isWorkInFlightStatus(status()))
   const imageAttachments = createMemo(() =>
     prompt.current().filter((part): part is ImageAttachmentPart => part.type === "image"),
   )
@@ -484,6 +485,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             prompt.context.remove(item.key)
           }}
           t={(key) => language.t(key as Parameters<typeof language.t>[0])}
+          sourceFilesystemDirectory={sdk.directory}
         />
         <PromptImageAttachments
           attachments={imageAttachments()}

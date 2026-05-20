@@ -26,6 +26,11 @@ function wrap(message: unknown): ReturnType<NamedError["toObject"]> {
   return { data: { message } } as ReturnType<NamedError["toObject"]>
 }
 
+// Helper: extract the raw message from a classifyRetry result (mirrors old retryable() string return)
+function retryableRaw(error: ReturnType<NamedError["toObject"]>): string | undefined {
+  return SessionRetry.classifyRetry(error)?.raw
+}
+
 describe("session.retry.delay", () => {
   test("caps delay at 30 seconds when headers missing", () => {
     const error = apiError()
@@ -106,6 +111,7 @@ describe("session.retry.delay", () => {
                       ),
                     ),
                   ),
+                signalTerminal: () => {},
               }),
             )
             yield* step(error)
@@ -139,6 +145,7 @@ describe("session.retry.delay", () => {
           SessionRetry.policy({
             parse: (err) => err as MessageV2.APIError,
             set: (info) => Effect.sync(() => attempts.push(info.attempt)),
+            signalTerminal: () => {},
           }),
         ),
       ),
@@ -150,50 +157,50 @@ describe("session.retry.delay", () => {
   })
 })
 
-describe("session.retry.retryable", () => {
+describe("session.retry.classifyRetry", () => {
   test("maps too_many_requests json messages", () => {
     const error = wrap(JSON.stringify({ type: "error", error: { type: "too_many_requests" } }))
-    expect(SessionRetry.retryable(error)).toBe("Too Many Requests")
+    expect(retryableRaw(error)).toBe("Too Many Requests")
   })
 
   test("maps overloaded provider codes", () => {
     const error = wrap(JSON.stringify({ code: "resource_exhausted" }))
-    expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
+    expect(retryableRaw(error)).toBe("Provider is overloaded")
   })
 
   test("does not retry unknown json messages", () => {
     const error = wrap(JSON.stringify({ error: { message: "no_kv_space" } }))
-    expect(SessionRetry.retryable(error)).toBeUndefined()
+    expect(retryableRaw(error)).toBeUndefined()
   })
 
   test("does not throw on numeric error codes", () => {
     const error = wrap(JSON.stringify({ type: "error", error: { code: 123 } }))
-    const result = SessionRetry.retryable(error)
+    const result = retryableRaw(error)
     expect(result).toBeUndefined()
   })
 
   test("returns undefined for non-json message", () => {
     const error = wrap("not-json")
-    expect(SessionRetry.retryable(error)).toBeUndefined()
+    expect(retryableRaw(error)).toBeUndefined()
   })
 
   test("retries plain text rate limit errors from Alibaba", () => {
     const msg =
       "Upstream error from Alibaba: Request rate increased too quickly. To ensure system stability, please adjust your client logic to scale requests more smoothly over time."
     const error = wrap(msg)
-    expect(SessionRetry.retryable(error)).toBe(msg)
+    expect(retryableRaw(error)).toBe(msg)
   })
 
   test("retries plain text rate limit errors", () => {
     const msg = "Rate limit exceeded, please try again later"
     const error = wrap(msg)
-    expect(SessionRetry.retryable(error)).toBe(msg)
+    expect(retryableRaw(error)).toBe(msg)
   })
 
   test("retries too many requests in plain text", () => {
     const msg = "Too many requests, please slow down"
     const error = wrap(msg)
-    expect(SessionRetry.retryable(error)).toBe(msg)
+    expect(retryableRaw(error)).toBe(msg)
   })
 
   test("does not retry context overflow errors", () => {
@@ -202,7 +209,7 @@ describe("session.retry.retryable", () => {
       responseBody: '{"error":{"code":"context_length_exceeded"}}',
     }).toObject() as ReturnType<NamedError["toObject"]>
 
-    expect(SessionRetry.retryable(error)).toBeUndefined()
+    expect(retryableRaw(error)).toBeUndefined()
   })
 
   test("retries 500 errors even when isRetryable is false", () => {
@@ -213,7 +220,7 @@ describe("session.retry.retryable", () => {
       responseBody: '{"type":"api_error","message":"Internal server error"}',
     }).toObject() as MessageV2.APIError
 
-    expect(SessionRetry.retryable(error)).toBe("Internal server error")
+    expect(retryableRaw(error)).toBe("Internal server error")
   })
 
   test("retries 502 bad gateway errors", () => {
@@ -223,7 +230,7 @@ describe("session.retry.retryable", () => {
       statusCode: 502,
     }).toObject() as MessageV2.APIError
 
-    expect(SessionRetry.retryable(error)).toBe("Bad gateway")
+    expect(retryableRaw(error)).toBe("Bad gateway")
   })
 
   test("retries 503 service unavailable errors", () => {
@@ -233,7 +240,7 @@ describe("session.retry.retryable", () => {
       statusCode: 503,
     }).toObject() as MessageV2.APIError
 
-    expect(SessionRetry.retryable(error)).toBe("Service unavailable")
+    expect(retryableRaw(error)).toBe("Service unavailable")
   })
 
   test("does not retry 4xx errors when isRetryable is false", () => {
@@ -243,7 +250,7 @@ describe("session.retry.retryable", () => {
       statusCode: 400,
     }).toObject() as MessageV2.APIError
 
-    expect(SessionRetry.retryable(error)).toBeUndefined()
+    expect(retryableRaw(error)).toBeUndefined()
   })
 
   test("retries ZlibError decompression failures", () => {
@@ -253,9 +260,9 @@ describe("session.retry.retryable", () => {
       metadata: { code: "ZlibError" },
     }).toObject() as MessageV2.APIError
 
-    const retryable = SessionRetry.retryable(error)
-    expect(retryable).toBeDefined()
-    expect(retryable).toBe("Response decompression failed")
+    const raw = retryableRaw(error)
+    expect(raw).toBeDefined()
+    expect(raw).toBe("Response decompression failed")
   })
 })
 
@@ -303,9 +310,9 @@ describe("session.message-v2.fromError", () => {
       metadata: { code: "ECONNRESET", message: "The socket connection was closed unexpectedly" },
     }).toObject() as MessageV2.APIError
 
-    const retryable = SessionRetry.retryable(error)
-    expect(retryable).toBeDefined()
-    expect(retryable).toBe("Connection reset by server")
+    const raw = retryableRaw(error)
+    expect(raw).toBeDefined()
+    expect(raw).toBe("Connection reset by server")
   })
 
   test("marks OpenAI 404 status codes as retryable", () => {
@@ -341,7 +348,7 @@ describe("session.message-v2.fromError", () => {
 
     expect(MessageV2.APIError.isInstance(result)).toBe(true)
     expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
-    expect(SessionRetry.retryable(result)).toBe("An error occurred while processing your request.")
+    expect(retryableRaw(result)).toBe("An error occurred while processing your request.")
   })
 
   test("converts OpenAI server_is_overloaded stream chunks to retryable APIError", () => {
@@ -360,7 +367,7 @@ describe("session.message-v2.fromError", () => {
 
     expect(MessageV2.APIError.isInstance(result)).toBe(true)
     expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
-    expect(SessionRetry.retryable(result)).toBe("The server is overloaded. Please try again later.")
+    expect(retryableRaw(result)).toBe("The server is overloaded. Please try again later.")
   })
 
   test("uses fallback message for OpenAI server_error stream chunks without message", () => {
@@ -379,7 +386,7 @@ describe("session.message-v2.fromError", () => {
     expect(MessageV2.APIError.isInstance(result)).toBe(true)
     expect((result as MessageV2.APIError).data.isRetryable).toBe(true)
     expect((result as MessageV2.APIError).data.message).toBe("Server error.")
-    expect(SessionRetry.retryable(result)).toBe("Server error.")
+    expect(retryableRaw(result)).toBe("Server error.")
   })
 
   test("does not convert unknown OpenAI stream error chunks to retryable APIError", () => {
@@ -397,6 +404,6 @@ describe("session.message-v2.fromError", () => {
     )
 
     expect(MessageV2.APIError.isInstance(result)).toBe(false)
-    expect(SessionRetry.retryable(result)).toBeUndefined()
+    expect(retryableRaw(result)).toBeUndefined()
   })
 })

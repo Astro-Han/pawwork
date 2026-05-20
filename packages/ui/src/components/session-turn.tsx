@@ -7,6 +7,7 @@ import {
 } from "@opencode-ai/sdk/v2/client"
 import type { SessionStatus } from "@opencode-ai/sdk/v2"
 import { useData } from "../context"
+import { isWorkInFlightStatus } from "../util/session-status"
 
 import { Binary } from "@opencode-ai/core/util/binary"
 import { createEffect, createMemo, createSignal, ParentProps, Show } from "solid-js"
@@ -155,6 +156,12 @@ export function SessionTurn(
     active?: boolean
     status?: SessionStatus
     onUserInteracted?: () => void
+    /**
+     * Render slot for the rate-limit card (free_quota_exhausted classification).
+     * App layer (RateLimitCardWiring in packages/app) supplies this so packages/ui
+     * stays framework-agnostic. Forwarded to SessionRetry.
+     */
+    rateLimitCardSlot?: import("./session-retry").SessionRetryRateLimitSlot
     classes?: {
       root?: string
       content?: string
@@ -311,7 +318,7 @@ export function SessionTurn(
     if (typeof props.active === "boolean" && !props.active) return idle
     return data.store.session_status[props.sessionID] ?? idle
   })
-  const working = createMemo(() => status().type !== "idle" && active())
+  const working = createMemo(() => isWorkInFlightStatus(status()) && active())
   const visibleTurnChange = createMemo(() => {
     const current = turnChange()
     if (!hasVisibleTurnChanges(current) || working() || turnInProgress()) return
@@ -421,7 +428,7 @@ export function SessionTurn(
                     </Show>
                   </div>
                 </Show>
-                <SessionRetry status={status()} show={active()} />
+                <SessionRetry status={status()} show={active()} rateLimitCardSlot={props.rateLimitCardSlot} />
                 <Show when={visibleTurnChange()}>
                   {(display) => (
                     <SessionTurnChangesPanel

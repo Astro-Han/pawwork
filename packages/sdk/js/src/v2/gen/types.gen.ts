@@ -47,6 +47,22 @@ export type EventLspClientDiagnostics = {
   }
 }
 
+export type RetryClassification =
+  | {
+      kind: "free_quota_exhausted"
+      providerID: string
+      raw: string
+      statusCode?: number
+      retryAfterMs?: number
+      resetAt?: number
+    }
+  | {
+      kind: "unknown"
+      raw: string
+      statusCode?: number
+      retryAfterMs?: number
+    }
+
 export type SessionStatus =
   | {
       type: "idle"
@@ -56,9 +72,14 @@ export type SessionStatus =
       attempt: number
       message: string
       next: number
+      classification?: RetryClassification
     }
   | {
       type: "busy"
+    }
+  | {
+      type: "rate_limit_blocked"
+      classification: RetryClassification
     }
 
 export type EventSessionStatus = {
@@ -206,6 +227,7 @@ export type ApiError = {
     metadata?: {
       [key: string]: string
     }
+    providerID?: string
   }
 }
 
@@ -561,6 +583,7 @@ export type AssistantMessage = {
       }
       created_at: number
       completed_at?: number
+      stream?: unknown
     }
     abort?: {
       source?: string

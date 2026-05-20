@@ -25,6 +25,7 @@ import { isRecord } from "@/util/record"
 import { Glob } from "@/util/glob"
 import { safeToolFailureMetadata } from "./tool-failure"
 import { LLMTrace } from "./llm-trace"
+import { safeErrorFingerprint, safeProviderCorrelation } from "./llm-trace/stream-diagnostics"
 
 export function getRuntimeNamespace(): "pawwork" | "opencode" {
   return Runtime.isPawWork() ? "pawwork" : "opencode"
@@ -292,9 +293,7 @@ export namespace Export {
     const title_generations = collectTitleGenerations(node)
     return {
       ...(last ? { loop: { last } } : {}),
-      ...(llm_traces.length
-        ? { llm_trace_schema_version: LLMTrace.SCHEMA_VERSION, llm_traces }
-        : {}),
+      ...(llm_traces.length ? { llm_trace_schema_version: LLMTrace.SCHEMA_VERSION, llm_traces } : {}),
       ...(aborts.length ? { aborts } : {}),
       ...(title_generations.length ? { title_generations } : {}),
     }
@@ -939,6 +938,14 @@ export namespace Export {
                 structured:
                   msg.info.structured === undefined ? undefined : { redacted: `assistant-structured:${msg.info.id}` },
                 error: namedError("assistant-error", msg.info.id, msg.info.error),
+                diagnostics: !msg.info.diagnostics
+                  ? msg.info.diagnostics
+                  : {
+                      ...msg.info.diagnostics,
+                      llm_trace: msg.info.diagnostics.llm_trace
+                        ? sanitizeLLMTrace(msg.info.diagnostics.llm_trace)
+                        : undefined,
+                    },
               },
         parts: msg.parts.map(partFn),
       })),
@@ -990,7 +997,157 @@ export namespace Export {
             ? undefined
             : redact("title-generation-error-message", String(index), trace.error_message),
       })),
+      llm_traces: diagnostics.llm_traces?.map(sanitizeLLMTrace),
     }
+  }
+
+  function sanitizeLLMTrace(trace: LLMTrace.Summary): LLMTrace.Summary {
+    const stream = trace.stream as Record<string, unknown> | undefined
+    if (!stream) return trace
+    return {
+      ...trace,
+      stream: sanitizeStreamDiagnostics(stream),
+    } as LLMTrace.Summary
+  }
+
+  function sanitizeStreamDiagnostics(stream: Record<string, unknown>) {
+    const timeline = isRecord(stream.timeline) ? stream.timeline : undefined
+    const durations = timeline && isRecord(timeline.durations_ms) ? timeline.durations_ms : undefined
+    const watchdog = isRecord(stream.watchdog) ? stream.watchdog : undefined
+    const attempt = isRecord(stream.attempt) ? stream.attempt : undefined
+    const abort = isRecord(stream.abort) ? stream.abort : undefined
+    const rawError = isRecord(stream.error) ? stream.error : undefined
+    const safeError = rawError
+      ? compactObject({
+          ...(typeof rawError.boundary === "string" ? { boundary: rawError.boundary } : {}),
+          ...(typeof rawError.confidence === "string" ? { confidence: rawError.confidence } : {}),
+          ...(Array.isArray(rawError.evidence)
+            ? { evidence: rawError.evidence.filter((item): item is string => typeof item === "string") }
+            : {}),
+          ...safeErrorFingerprint(rawError),
+        })
+      : undefined
+    const rawProvider = isRecord(stream.provider) ? stream.provider : undefined
+    const safeProvider = rawProvider ? safeProviderCorrelation(rawProvider) : undefined
+    return compactObject({
+      ...(stream.schema_version === 2 ? { schema_version: 2 } : {}),
+      ...(attempt
+        ? {
+            attempt: compactObject({
+              ...(typeof attempt.attempt_index === "number" ? { attempt_index: attempt.attempt_index } : {}),
+              ...(typeof attempt.attempt_id === "string" ? { attempt_id: attempt.attempt_id } : {}),
+              ...(typeof attempt.terminal_attempt === "boolean" ? { terminal_attempt: attempt.terminal_attempt } : {}),
+              ...(attempt.note === "terminal_attempt_only" || attempt.note === "per_attempt_recorded"
+                ? { note: attempt.note }
+                : {}),
+            }),
+          }
+        : {}),
+      ...(stream.legacy_v1_counters === "terminal_attempt" || stream.legacy_v1_counters === "aggregate"
+        ? { legacy_v1_counters: stream.legacy_v1_counters }
+        : {}),
+      ...(timeline
+        ? {
+            timeline: compactObject({
+              ...(typeof timeline.collector_created_at === "number"
+                ? { collector_created_at: timeline.collector_created_at }
+                : {}),
+              ...(typeof timeline.sdk_stream_returned_at === "number"
+                ? { sdk_stream_returned_at: timeline.sdk_stream_returned_at }
+                : {}),
+              ...(typeof timeline.watchdog_armed_at === "number"
+                ? { watchdog_armed_at: timeline.watchdog_armed_at }
+                : {}),
+              ...(typeof timeline.first_event_at === "number" ? { first_event_at: timeline.first_event_at } : {}),
+              ...(typeof timeline.first_provider_progress_at === "number"
+                ? { first_provider_progress_at: timeline.first_provider_progress_at }
+                : {}),
+              ...(typeof timeline.last_event_at === "number" ? { last_event_at: timeline.last_event_at } : {}),
+              ...(typeof timeline.last_provider_progress_at === "number"
+                ? { last_provider_progress_at: timeline.last_provider_progress_at }
+                : {}),
+              ...(typeof timeline.completed_at === "number" ? { completed_at: timeline.completed_at } : {}),
+              ...(typeof timeline.failed_at === "number" ? { failed_at: timeline.failed_at } : {}),
+              ...(durations
+                ? {
+                    durations_ms: compactObject({
+                      ...(typeof durations.created_to_sdk_stream_returned === "number"
+                        ? { created_to_sdk_stream_returned: durations.created_to_sdk_stream_returned }
+                        : {}),
+                      ...(typeof durations.watchdog_armed_to_first_event === "number"
+                        ? { watchdog_armed_to_first_event: durations.watchdog_armed_to_first_event }
+                        : {}),
+                      ...(typeof durations.watchdog_armed_to_first_provider_progress === "number"
+                        ? {
+                            watchdog_armed_to_first_provider_progress:
+                              durations.watchdog_armed_to_first_provider_progress,
+                          }
+                        : {}),
+                      ...(typeof durations.first_to_last_provider_progress === "number"
+                        ? { first_to_last_provider_progress: durations.first_to_last_provider_progress }
+                        : {}),
+                      ...(typeof durations.last_provider_progress_to_failure === "number"
+                        ? { last_provider_progress_to_failure: durations.last_provider_progress_to_failure }
+                        : {}),
+                      ...(typeof durations.total === "number" ? { total: durations.total } : {}),
+                    }),
+                  }
+                : {}),
+            }),
+          }
+        : {}),
+      ...(watchdog
+        ? {
+            watchdog: compactObject({
+              ...(typeof watchdog.connect_timeout_ms === "number"
+                ? { connect_timeout_ms: watchdog.connect_timeout_ms }
+                : {}),
+              ...(typeof watchdog.stream_timeout_ms === "number"
+                ? { stream_timeout_ms: watchdog.stream_timeout_ms }
+                : {}),
+              ...(typeof watchdog.provider_progressed === "boolean"
+                ? { provider_progressed: watchdog.provider_progressed }
+                : {}),
+              ...(watchdog.phase_at_end === "before_first_provider_progress" ||
+              watchdog.phase_at_end === "between_provider_events" ||
+              watchdog.phase_at_end === "completed" ||
+              watchdog.phase_at_end === "unknown"
+                ? { phase_at_end: watchdog.phase_at_end }
+                : {}),
+              ...(typeof watchdog.fired === "boolean" ? { fired: watchdog.fired } : {}),
+              ...(watchdog.fired_phase === "connect" || watchdog.fired_phase === "silent_stream"
+                ? { fired_phase: watchdog.fired_phase }
+                : {}),
+            }),
+          }
+        : {}),
+      ...(abort
+        ? {
+            abort: compactObject({
+              ...(typeof abort.signal_aborted_at_error === "boolean"
+                ? { signal_aborted_at_error: abort.signal_aborted_at_error }
+                : {}),
+              ...(typeof abort.provenance_source === "string" ? { provenance_source: abort.provenance_source } : {}),
+              ...(typeof abort.provenance_reason === "string" ? { provenance_reason: abort.provenance_reason } : {}),
+              ...(abort.provenance_mode === "soft" || abort.provenance_mode === "hard"
+                ? { provenance_mode: abort.provenance_mode }
+                : {}),
+              ...(typeof abort.provenance_recorded_at === "number"
+                ? { provenance_recorded_at: abort.provenance_recorded_at }
+                : {}),
+              ...(typeof abort.provenance_missing === "boolean"
+                ? { provenance_missing: abort.provenance_missing }
+                : {}),
+            }),
+          }
+        : {}),
+      ...(safeError && Object.keys(safeError).length > 0 ? { error: safeError } : {}),
+      ...(safeProvider ? { provider: safeProvider } : {}),
+    })
+  }
+
+  function compactObject<T extends Record<string, unknown>>(input: T): T {
+    return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as T
   }
 
   // Snapshot-level sanitize. Wraps sanitizeTree (the conversation tree) AND redacts top-level

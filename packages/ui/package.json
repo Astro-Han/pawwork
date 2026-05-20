@@ -6,6 +6,8 @@
   "exports": {
     "./package.json": "./package.json",
     "./*": "./src/components/*.tsx",
+    "./util/*": "./src/util/*.ts",
+    "./lib/*": "./src/lib/*.ts",
     "./i18n/*": "./src/i18n/*.ts",
     "./pierre": "./src/pierre/index.ts",
     "./pierre/*": "./src/pierre/*.ts",

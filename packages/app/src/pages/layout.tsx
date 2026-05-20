@@ -17,7 +17,7 @@ import { makeEventListener } from "@solid-primitives/event-listener"
 import { useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
-import { persisted } from "@/utils/persist"
+import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
@@ -53,6 +53,14 @@ import { playSoundById } from "@/utils/sound"
 import { setNavigate } from "@/utils/notification-click"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { setSessionHandoff } from "@/pages/session/handoff"
+import { usePinnedDraft } from "@/components/prompt-input/pinned-draft"
+import {
+  runHomepageMigration,
+  HOMEPAGE_MIGRATION_SENTINEL_KEY,
+  type LegacyHomepagePromptStore,
+} from "@/components/prompt-input/homepage-migration"
+import { usePortableDraft } from "@/components/prompt-input/portable-draft"
+import { createMigrationStorageIO } from "@/components/prompt-input/homepage-migration-storage"
 
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
@@ -1601,13 +1609,13 @@ export default function Layout(props: ParentProps) {
       })
   }
 
-  function openSettingsSurface() {
-    setSettingsTab("general")
+  function openSettingsSurface(tab?: SettingsPageTab) {
+    setSettingsTab(tab ?? "general")
     setSettingsOpen(true)
   }
 
-  function openSettings() {
-    shellNavigation.openSettings()
+  function openSettings(tab?: SettingsPageTab) {
+    shellNavigation.openSettings(tab)
   }
 
   createEffect(() => {
@@ -1710,6 +1718,9 @@ export default function Layout(props: ParentProps) {
     if (shouldNavigate) return navigateToProject(directory)
   }
 
+  // Singleton; same instance returned every call.
+  const pinned = usePinnedDraft()
+
   const handleDeepLinks = (urls: string[]) => {
     if (!server.isLocal()) return
 
@@ -1721,9 +1732,16 @@ export default function Layout(props: ParentProps) {
       openProject(link.directory, false)
       const slug = base64Encode(link.directory)
       if (link.prompt) {
+        // Pin the prompt to this directory so it is NOT carried portably to
+        // other homepages. The pinned slot is consumed by editor-input.ts when
+        // the user lands on the /repo homepage.
+        pinned.adopt({ directory: link.directory, prompt: link.prompt })
+        // Also keep the session handoff for the new-session composer region
+        // that shows the prefill text before the session is created (T7 will
+        // decide whether to clear it on submit).
         setSessionHandoff(slug, { prompt: link.prompt })
       }
-      const href = link.prompt ? `/${slug}/session?prompt=${encodeURIComponent(link.prompt)}` : `/${slug}/session`
+      const href = `/${slug}/session`
       navigate(href)
     }
   }
@@ -1738,6 +1756,60 @@ export default function Layout(props: ParentProps) {
 
     handleDeepLinks(drainPendingDeepLinks(window))
     makeEventListener(window, deepLinkEvent, handler as EventListener)
+  })
+
+  // Run the v7 homepage-draft migration as soon as a directory becomes
+  // available (fire-and-forget). currentDir() can be empty during the initial
+  // autoselect phase, so onMount alone would skip migration for that session.
+  // The migration writes a sentinel internally and is idempotent, so subsequent
+  // effect ticks are no-ops once it has run.
+  let homepageMigrationStarted = false
+  createEffect(() => {
+    if (homepageMigrationStarted) return
+    const directory = currentDir()
+    if (!directory) return
+    homepageMigrationStarted = true
+
+    const portable = usePortableDraft()
+    const sentinelTarget = Persist.global(HOMEPAGE_MIGRATION_SENTINEL_KEY)
+    const { read: readRaw, write: writeRaw, remove: removeRaw } = createMigrationStorageIO(platform)
+
+    void runHomepageMigration({
+      portable,
+      currentDirectory: directory,
+      readSentinel: async () => {
+        const raw = await readRaw(sentinelTarget)
+        if (!raw) return null
+        try {
+          return JSON.parse(raw) as import("@/components/prompt-input/homepage-migration").MigrationSentinel
+        } catch {
+          return null
+        }
+      },
+      writeSentinel: async (sentinel) => {
+        await writeRaw(sentinelTarget, JSON.stringify(sentinel))
+      },
+      loadLegacyHomepage: async (dir) => {
+        const target = Persist.workspace(dir, "prompt")
+        const raw = await readRaw(target)
+        if (!raw) return null
+        try {
+          return JSON.parse(raw) as LegacyHomepagePromptStore
+        } catch {
+          return null
+        }
+      },
+      clearLegacyHomepage: async (dir) => {
+        // Must await: desktop removeItem is async and a rejection here must
+        // propagate up to homepage-migration's failed-sentinel path. Without
+        // the await, the migration would write status: "complete" even if
+        // the legacy store delete failed.
+        await removeRaw(Persist.workspace(dir, "prompt"))
+      },
+    }).catch((err) => {
+      // Log diagnostic; migration retries automatically on next boot.
+      console.warn("[homepage-migration] unexpected failure", err)
+    })
   })
 
   async function renameProject(project: LocalProject, next: string) {

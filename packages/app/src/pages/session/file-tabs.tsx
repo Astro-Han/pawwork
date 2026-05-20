@@ -4,6 +4,8 @@ import { Dynamic } from "solid-js/web"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import type { FileSearchHandle } from "@opencode-ai/ui/file"
 import { useFileComponent } from "@opencode-ai/ui/context/file"
+import { useSDK } from "@/context/sdk"
+import { captureCommentMentions } from "@/components/prompt-input/mention-metadata"
 import { cloneSelectedLineRange, previewSelectedLines } from "@opencode-ai/ui/pierre/selection-bridge"
 import { createLineCommentController } from "@opencode-ai/ui/line-comment-annotations"
 import { sampledChecksum } from "@opencode-ai/util/encode"
@@ -176,6 +178,7 @@ export function FileTabContent(props: { tab: string }) {
   const comments = useComments()
   const language = useLanguage()
   const prompt = usePrompt()
+  const sdk = useSDK()
   const fileComponent = useFileComponent()
   const { layoutRouteKey, tabs, view } = useSessionLayout()
   const activeFileTab = createSessionTabs({
@@ -239,6 +242,10 @@ export function FileTabContent(props: { tab: string }) {
       selection: input.selection,
       comment: input.comment,
     })
+    const resolvedMentions = captureCommentMentions({
+      comment: input.comment,
+      sourceFilesystemDirectory: sdk.directory,
+    })
     prompt.context.add({
       type: "file",
       path: input.file,
@@ -247,6 +254,7 @@ export function FileTabContent(props: { tab: string }) {
       commentID: saved.id,
       commentOrigin: input.origin,
       preview,
+      resolvedMentions,
     })
   }
 
@@ -258,8 +266,16 @@ export function FileTabContent(props: { tab: string }) {
   }) => {
     comments.update(input.file, input.id, input.comment)
     const preview = input.file === path() ? buildPreview(input.file, selectionFromLines(input.selection)) : undefined
+    // Always recapture: an updated body may have added, removed, or moved
+    // @mentions, so stale resolvedMentions from the previous text must be
+    // dropped (an empty array clears them).
+    const resolvedMentions = captureCommentMentions({
+      comment: input.comment,
+      sourceFilesystemDirectory: sdk.directory,
+    })
     prompt.context.updateComment(input.file, input.id, {
       comment: input.comment,
+      resolvedMentions,
       ...(preview ? { preview } : {}),
     })
   }

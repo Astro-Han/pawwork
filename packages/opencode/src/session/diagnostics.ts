@@ -98,7 +98,6 @@ export namespace SessionDiagnostics {
     loopLastError?: unknown
     attemptedInput?: unknown
     stepIndex?: number
-    mutationEpoch?: number
   }
 
   export type Metadata = {
@@ -115,7 +114,6 @@ export namespace SessionDiagnostics {
     inputHash: string
     targetHash: string
     outputHash?: string
-    mutationEpoch?: number
     metadata: Metadata
   }
 
@@ -460,12 +458,10 @@ export namespace SessionDiagnostics {
   }
 
   export function deriveParentLoopState(input: {
-    successRecords?: ToolCallRecord[]
     errorRecords: ToolErrorRecord[]
     syntheticBlockSigKeys: string[]
     parentID: MessageID
     currentStepIndex?: number
-    currentMutationEpoch?: number
   }): ParentLoopState {
     const signatures: Record<string, SignatureState> = {}
 
@@ -473,83 +469,6 @@ export namespace SessionDiagnostics {
       if (input.currentStepIndex === undefined) return true
       const stepIndex = record.metadata.diagnostics?.loop?.stepIndex
       return typeof stepIndex === "number" && stepIndex < input.currentStepIndex
-    }
-
-    const successes = (input.successRecords ?? []).filter(
-      (r) =>
-        r.parentID === input.parentID &&
-        r.metadata.diagnostics?.loop?.loopAction !== "block" &&
-        r.metadata.diagnostics?.loop?.loopAction !== "stop" &&
-        r.inputHash !== "" &&
-        isFromPreviousStep(r),
-    )
-
-    const successInputBuckets = new Map<
-      string,
-      {
-        sigKey: string
-        kind: "input"
-        outputHash: string
-        completedCount: number
-        recoverEmitted: boolean
-      }
-    >()
-
-    const sameMutationEpoch = (record: ToolCallRecord) => {
-      if (input.currentMutationEpoch === undefined) return true
-      return (record.mutationEpoch ?? record.metadata.diagnostics?.loop?.mutationEpoch ?? 0) === input.currentMutationEpoch
-    }
-
-    for (const r of successes) {
-      const loop = r.metadata.diagnostics?.loop
-      const inputSigKey = r.inputHash
-        ? signatureKey({ outcome: "success", kind: "input", tool: r.tool, hash: r.inputHash })
-        : null
-      const targetSigKey = r.targetHash && !loop?.targetHashIsFallback
-        ? signatureKey({ outcome: "success", kind: "target", tool: r.tool, hash: r.targetHash })
-        : null
-      const fired = loop?.loopRecoverFiredFor ?? []
-      if (inputSigKey && sameMutationEpoch(r)) {
-        const outHash = r.outputHash ?? loop?.outputHash
-        if (outHash) {
-          const bucketKey = `${inputSigKey}:${outHash}`
-          const bucket = (successInputBuckets.get(bucketKey) ?? {
-            sigKey: inputSigKey,
-            kind: "input" as const,
-            outputHash: outHash,
-            completedCount: 0,
-            recoverEmitted: false,
-          })
-          bucket.completedCount += 1
-          if (fired.includes(inputSigKey)) bucket.recoverEmitted = true
-          successInputBuckets.set(bucketKey, bucket)
-        }
-      }
-
-      if (targetSigKey) {
-        const s = (signatures[targetSigKey] ??= {
-          outcome: "success",
-          kind: "target",
-          completedCount: 0,
-          recoverEmitted: false,
-          blockEmitted: false,
-        })
-        s.completedCount += 1
-        if (fired.includes(targetSigKey)) s.recoverEmitted = true
-      }
-    }
-
-    for (const bucket of successInputBuckets.values()) {
-      const existing = signatures[bucket.sigKey]
-      if (existing && existing.completedCount > bucket.completedCount) continue
-      signatures[bucket.sigKey] = {
-        outcome: "success",
-        kind: bucket.kind,
-        completedCount: bucket.completedCount,
-        outputHash: bucket.outputHash,
-        recoverEmitted: bucket.recoverEmitted || existing?.recoverEmitted === true,
-        blockEmitted: existing?.blockEmitted ?? false,
-      }
     }
 
     const real = input.errorRecords.filter(
@@ -617,13 +536,16 @@ export namespace SessionDiagnostics {
   }): GateDecision {
     const { parentLoopState: state, tool, inputHash, targetHash } = input
     const outcome = input.outcome ?? "failure"
+    // Success-side hard gate removed (#767). Snapshot patch parts (the mutation-epoch
+    // signal source) silently disappear in real sessions, so successful TDD verify-edit
+    // cycles look identical to a no-op loop and were getting hard-stopped. Reminders at
+    // reminderAt still fire via observeToolCall; tool-layer protections handle stable-
+    // success side-effecting tools (idempotency keys, permission prompts, rate limits).
+    if (outcome === "success") return { action: "observe" }
     const inputKey = signatureKey({ outcome, kind: "input", tool, hash: inputHash })
     const targetKey = targetHash ? signatureKey({ outcome, kind: "target", tool, hash: targetHash }) : null
 
-    // Successful same_target repeats are weak evidence: reading different ranges of the same
-    // file or fetching the same URL after context changes can be normal progress. Keep hard
-    // gating for successful exact-input repeats, while failed repeats still check target first.
-    const candidates = outcome === "success" ? [inputKey] as const : [targetKey, inputKey] as const
+    const candidates = [targetKey, inputKey] as const
     for (const sigKey of candidates) {
       if (!sigKey) continue
       const s = state.signatures[sigKey]
@@ -656,14 +578,6 @@ export namespace SessionDiagnostics {
     }
 
     return { action: "observe" }
-  }
-
-  export function chooseGateDecision(failureDecision: GateDecision, successDecision: GateDecision): GateDecision {
-    if (failureDecision.action === "stop") return failureDecision
-    if (successDecision.action === "stop") return successDecision
-    if (failureDecision.action === "block") return failureDecision
-    if (successDecision.action === "block") return successDecision
-    return failureDecision
   }
 
   export function mergeMetadata<T extends Record<string, any> | undefined>(current: T, update: Metadata): NonNullable<T> & Metadata {

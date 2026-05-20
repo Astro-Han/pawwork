@@ -13,6 +13,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { showToast } from "@opencode-ai/ui/toast"
+import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
@@ -235,7 +236,7 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const sessionID = params.id
     if (!sessionID) return
 
-    if (status().type !== "idle") {
+    if (isWorkInFlightStatus(status())) {
       await sdk.client.session
         .abort({ sessionID, source: rendererAbortDiagnosticSource({ sessionID, source: "undo" }) })
         .then((result) => {

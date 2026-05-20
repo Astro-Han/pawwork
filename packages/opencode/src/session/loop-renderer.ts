@@ -15,6 +15,9 @@ export namespace LoopRenderer {
     const isZh = (locale ?? "").toLowerCase().startsWith("zh")
     const completedFailures = state.completedFailures ?? state.completedCount
 
+    // Back-compat: the session loop gate no longer emits success-outcome stop
+    // markers (#767). This branch only fires when rendering historical sessions
+    // saved before the success-side hard gate was removed; new sessions skip it.
     if (state.outcome === "success") {
       return isZh
         ? "我刚才在重复检查同一处，已停止重复。\n下一步需要换个办法继续。"

@@ -8,6 +8,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { List } from "@opencode-ai/ui/list"
 import { showToast } from "@opencode-ai/ui/toast"
 import { extractPromptFromParts } from "@/utils/prompt"
+import { deriveCommandInvocation } from "@opencode-ai/ui/lib/command-invocation"
 import type { TextPart as SDKTextPart } from "@opencode-ai/sdk/v2/client"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { useLanguage } from "@/context/language"
@@ -42,6 +43,16 @@ export const DialogFork: Component = () => {
       if (message.role !== "user") continue
 
       const parts = sync.data.part[message.id] ?? []
+      const invocation = deriveCommandInvocation(parts)
+      if (invocation) {
+        result.push({
+          id: message.id,
+          text: invocation.forkPreviewText.replace(/\n/g, " ").slice(0, 200),
+          time: formatTime(new Date(message.time.created)),
+        })
+        continue
+      }
+
       const textPart = parts.find((x): x is SDKTextPart => x.type === "text" && !x.synthetic && !x.ignored)
       if (!textPart) continue
 

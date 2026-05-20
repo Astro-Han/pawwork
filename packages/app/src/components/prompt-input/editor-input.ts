@@ -14,7 +14,9 @@ import {
   type usePrompt,
 } from "@/context/prompt"
 import type { useSDK } from "@/context/sdk"
-import { recordDraftEdit, consumeCarryOver } from "./draft-carryover"
+import { useParams } from "@solidjs/router"
+import { usePortableDraft } from "./portable-draft"
+import { usePinnedDraft } from "./pinned-draft"
 import {
   createTextFragment,
   getCursorPosition,
@@ -30,6 +32,7 @@ import { promptLength } from "./history"
 import type { EditorImperatives } from "./editor-imperatives"
 import type { PopoverControllers } from "./popover-controllers"
 import type { PromptStore } from "./store-types"
+import type { ResolvedMention } from "./mention-metadata"
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
 
@@ -76,6 +79,11 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     closePopover,
     resetHistoryNavigation,
   } = deps
+
+  const params = useParams()
+  const portable = usePortableDraft()
+  // Pinned owner is created once per factory call (not inside handleInput).
+  const pinned = usePinnedDraft()
 
   const [composing, setComposing] = createSignal(false)
   const isImeComposing = (event: KeyboardEvent) =>
@@ -124,19 +132,66 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     ),
   )
 
+  // Centralized "is the homepage draft empty" check.
+  // The prompt store, the context-item store, AND the imageAttachments accessor
+  // are three independent surfaces. A homepage with chips or images is NOT
+  // empty even if the text part is whitespace — using a text-only check would
+  // overwrite those surfaces on pinned/portable hydration (Bug 4).
+  const isHomepageDraftEmpty = () => {
+    const parts = prompt.current()
+    const textIsEmpty =
+      parts.length === 0 ||
+      (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
+    if (!textIsEmpty) return false
+    if (prompt.context.items().length > 0) return false
+    if (imageAttachments().length > 0) return false
+    return true
+  }
+
   createEffect(
     on(
-      () => [sdk.directory, prompt.ready()] as const,
-      ([dir, ready]) => {
+      () => [sdk.directory, prompt.ready(), params.id] as const,
+      ([dir, ready, sessionID]) => {
         if (!ready || !dir) return
-        const parts = prompt.current()
-        const isEmpty =
-          parts.length === 0 ||
-          (parts.length === 1 && parts[0]?.type === "text" && !parts[0].content.trim())
-        const carry = consumeCarryOver(dir, isEmpty)
+        if (sessionID) {
+          // Concrete session route: do nothing with the portable owner.
+          portable.hide()
+          return
+        }
+
+        // Homepage route: check pinned scope BEFORE portable.
+        // If a pinned slot is bound to this directory, project it into the
+        // displayed prompt and suppress portable consumption for this homepage.
+        const pinnedSlot = pinned.current()
+        if (pinnedSlot && pinnedSlot.directory === dir) {
+          const isEmpty = isHomepageDraftEmpty()
+          if (isEmpty) {
+            // Replay the full Prompt array (file/agent/text parts) directly.
+            // The snapshot already stored a well-formed Prompt; reconstructing
+            // from text-only would silently drop attachment parts (Bug 6).
+            prompt.set(pinnedSlot.prompt, undefined)
+            prompt.context.replaceAll(pinnedSlot.context.map(({ key: _omit, ...rest }) => rest))
+          }
+          // Do NOT fall through to portable consumption while pinned is active.
+          return
+        }
+
+        // Homepage route: attempt to consume a snapshot that moved here from another homepage.
+        const isEmpty = isHomepageDraftEmpty()
+        const carry = portable.consumeForHomepage(dir, isEmpty)
         if (!carry) return
-        const text = carry.text
-        prompt.set([{ type: "text", content: text, start: 0, end: text.length }], text.length)
+        // Replay the full Prompt array from the snapshot, preserving file/agent
+        // attachment parts (Bug 6). Previously this filtered to text-only and
+        // joined into a single text part, which dropped attachments.
+        prompt.set(carry.prompt, undefined)
+        // Hydrate context items atomically. Strip keys so contextItemKey regenerates
+        // them for the target route, avoiding collisions with pre-existing items.
+        prompt.context.replaceAll(
+          carry.context.map(({ key: _omitKey, ...rest }) => rest),
+        )
+        // Image hydration: imageAttachments is fed by an external signal in the
+        // parent component and does not expose a setter here. File/agent parts
+        // hydrate via prompt.set above; image parts remain a follow-up.
       },
     ),
   )
@@ -151,7 +206,13 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         ? rawParts[0].content
         : rawParts.map((p) => ("content" in p ? p.content : "")).join("")
     const hasNonText = rawParts.some((part) => part.type !== "text")
-    const shouldReset = !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0
+    // Context chips (drag/drop, picker, hand-off draft, comment hydration) live
+    // in prompt.context.items() and don't appear as editor parts, so we have to
+    // include them — otherwise an empty textarea with existing chips would hit
+    // the reset branch and record {empty} into the owner, clearing ownership
+    // while the chips are still rendered.
+    const shouldReset =
+      !NON_EMPTY_TEXT.test(rawText) && !hasNonText && images.length === 0 && prompt.context.items().length === 0
 
     if (shouldReset) {
       closePopover()
@@ -161,6 +222,35 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         prompt.set(DEFAULT_PROMPT, 0)
       }
       imperatives.queueScroll()
+
+      // Homepage route: clearing all input must also clear the active owner
+      // (Bug 3). Without this, navigating away later carries the stale
+      // snapshot — the user thinks they cleared the draft but the portable
+      // owner still has it.
+      if (!params.id) {
+        const pinnedSlot = pinned.current()
+        if (pinnedSlot && pinnedSlot.directory === sdk.directory) {
+          // Don't release the pinned binding. Recording an empty payload keeps
+          // the slot bound for future edits while signaling that the user
+          // cleared the prefill.
+          pinned.recordEdit({
+            directory: sdk.directory,
+            prompt: DEFAULT_PROMPT,
+            context: [],
+            images: [],
+            resolvedMentions: {},
+          })
+        } else {
+          // Portable owner: record({empty}) tears down the snapshot.
+          portable.record({
+            sourceFilesystemDirectory: sdk.directory,
+            prompt: DEFAULT_PROMPT,
+            context: [],
+            images: [],
+            resolvedMentions: {},
+          })
+        }
+      }
       return
     }
 
@@ -187,7 +277,38 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
 
     mirror.input = true
     prompt.set([...rawParts, ...images], cursorPosition)
-    recordDraftEdit(sdk.directory, { text: rawText })
+    if (!params.id) {
+      // Homepage route: mirror edit into pinned or portable owner after prompt.set.
+      // Build resolvedMentions from current context items.
+      const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
+      for (const item of prompt.context.items()) {
+        if (item.type === "file" && item.resolvedMentions?.length) {
+          resolvedMentionsMap[item.key] = item.resolvedMentions
+        }
+      }
+      const currentPinnedSlot = pinned.current()
+      if (currentPinnedSlot && currentPinnedSlot.directory === sdk.directory) {
+        // Pinned scope is active for this directory: route edits to pinned owner.
+        // This ensures "clearing pinned prefill and typing fresh text remains pinned-scope".
+        pinned.recordEdit({
+          directory: sdk.directory,
+          prompt: prompt.current(),
+          context: prompt.context.items().slice(),
+          images: imageAttachments(),
+          resolvedMentions: resolvedMentionsMap,
+        })
+      } else {
+        // No active pinned slot for this directory: route edits to portable owner.
+        portable.record({
+          sourceFilesystemDirectory: sdk.directory,
+          prompt: prompt.current(),
+          context: prompt.context.items().slice(),
+          images: imageAttachments(),
+          resolvedMentions: resolvedMentionsMap,
+        })
+      }
+    }
+    // Session routes do not mirror into the portable owner.
     imperatives.queueScroll()
   }
 

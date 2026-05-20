@@ -235,6 +235,7 @@ export default function Page() {
   const commentContext = createSessionCommentContext({
     attachmentLabel: () => language.t("common.attachment"),
     getFileContent: (path) => file.get(path)?.content?.content,
+    sourceFilesystemDirectory: () => sdk.directory,
     comments,
     promptContext: prompt.context,
   })

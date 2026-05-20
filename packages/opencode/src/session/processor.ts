@@ -52,12 +52,10 @@ export interface Handle {
   readonly syntheticBlockSigKeys: (parentID: MessageV2.Assistant["parentID"]) => string[]
   readonly hasStopped: (parentID: MessageV2.Assistant["parentID"]) => boolean
   readonly buildLoopContext: (parentID: MessageV2.Assistant["parentID"]) => {
-    successRecords: SessionDiagnostics.ToolCallRecord[]
     errorRecords: SessionDiagnostics.ToolErrorRecord[]
     syntheticBlockSigKeys: string[]
     hasStopped: boolean
     currentStepIndex?: number
-    currentMutationEpoch?: number
   }
   readonly recordSyntheticBlock: (input: {
     toolCallId: string
@@ -129,6 +127,9 @@ interface ProcessorContext extends Input {
   reasoningMap: Record<string, MessageV2.ReasoningPart>
   trace: LLMTrace.Recorder
   streamError: boolean
+  /** Set by policy() signalTerminal when free_quota_exhausted is detected. Read
+   *  and reset to undefined at the start of halt() to avoid cross-call staling. */
+  terminalClassification: import("./retry-classification").RetryClassification | undefined
 }
 
 type StreamEvent = Event
@@ -192,6 +193,7 @@ export const layer: Layer.Layer<
           createdAt: input.assistantMessage.time.created,
         }),
         streamError: false,
+        terminalClassification: undefined,
       }
       let aborted = false
       const slog = log.clone().tag("sessionID", input.sessionID).tag("messageID", input.assistantMessage.id)
@@ -270,20 +272,18 @@ export const layer: Layer.Layer<
       const loopRecords = (parentID: MessageV2.Assistant["parentID"]) => {
         if (!parentID) return []
         const out: SessionDiagnostics.ToolCallRecord[] = []
-        let mutationEpoch = 0
         for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
           if (message.info.role !== "assistant" || message.info.parentID !== parentID) continue
           for (const part of message.parts) {
-            if (part.type === "patch") {
-              mutationEpoch += 1
-              continue
-            }
+            // patch parts are skipped so they cannot consume the tool-record path or
+            // affect failure-side same-step gating downstream; the success-side gate
+            // that previously consumed a mutation epoch was removed for #767.
+            if (part.type === "patch") continue
             if (part.type !== "tool") continue
             if (part.state.status !== "completed") continue
             const loop = toolDiagnostics(part)?.loop
             if (!loop?.inputHash) continue
             if (loop.errorFingerprint || loop.loopAction) continue
-            const loopWithEpoch = { ...loop, mutationEpoch: loop.mutationEpoch ?? mutationEpoch }
             out.push({
               sessionID: ctx.sessionID,
               parentID,
@@ -291,8 +291,7 @@ export const layer: Layer.Layer<
               inputHash: loop.inputHash,
               targetHash: loop.targetHash ?? "",
               outputHash: loop.outputHash,
-              mutationEpoch: loopWithEpoch.mutationEpoch,
-              metadata: { diagnostics: { loop: loopWithEpoch } },
+              metadata: { diagnostics: { loop } },
             } satisfies SessionDiagnostics.ToolCallRecord)
           }
         }
@@ -364,21 +363,16 @@ export const layer: Layer.Layer<
       // call errorRecords + syntheticBlockSigKeys + hasStopped (three full O(n) scans of the message
       // stream); this helper folds them into one scan.
       const buildLoopContext = (parentID: MessageV2.Assistant["parentID"]) => {
-        const successRecordsOut: SessionDiagnostics.ToolCallRecord[] = []
         const errorRecordsOut: SessionDiagnostics.ToolErrorRecord[] = []
         const syntheticBlockSigKeysOut: string[] = []
         let hasStoppedOut = false
         let currentStepIndex: number | undefined
-        let mutationEpoch = 0
-        let currentMutationEpoch = 0
         if (!parentID) {
           return {
-            successRecords: successRecordsOut,
             errorRecords: errorRecordsOut,
             syntheticBlockSigKeys: syntheticBlockSigKeysOut,
             hasStopped: hasStoppedOut,
             currentStepIndex,
-            currentMutationEpoch,
           }
         }
         for (const message of Array.from(MessageV2.stream(ctx.sessionID)).reverse()) {
@@ -387,13 +381,12 @@ export const layer: Layer.Layer<
           let sawStepStart = false
           let afterStepFinish = false
           const currentMessage = message.info.id === ctx.assistantMessage.id
-          if (currentMessage) currentMutationEpoch = mutationEpoch
           for (const part of message.parts) {
-            if (part.type === "patch") {
-              mutationEpoch += 1
-              if (currentMessage) currentMutationEpoch = mutationEpoch
-              continue
-            }
+            // patch parts are skipped before currentStepIndex / tool-record processing
+            // so failure-side same-step gating semantics are preserved exactly as before.
+            // The success-side gate that previously consumed a mutation epoch was removed
+            // for #767.
+            if (part.type === "patch") continue
             if (part.type === "step-start") {
               sawStepStart = true
               afterStepFinish = false
@@ -413,22 +406,9 @@ export const layer: Layer.Layer<
             const loopWithStep = {
               ...loop,
               stepIndex: loop.stepIndex ?? observedStepIndex,
-              mutationEpoch: loop.mutationEpoch ?? mutationEpoch,
             }
             if (loop.loopAction === "stop") hasStoppedOut = true
             if (loop.loopAction === "block" && loop.loopSigKey) syntheticBlockSigKeysOut.push(loop.loopSigKey)
-            if (part.state.status === "completed" && loop.inputHash && !loop.errorFingerprint && !loop.loopAction) {
-              successRecordsOut.push({
-                sessionID: ctx.sessionID,
-                parentID,
-                tool: part.tool,
-                inputHash: loop.inputHash,
-                targetHash: loop.targetHash ?? "",
-                outputHash: loop.outputHash,
-                mutationEpoch: loopWithStep.mutationEpoch,
-                metadata: { diagnostics: { loop: loopWithStep } },
-              } satisfies SessionDiagnostics.ToolCallRecord)
-            }
             if (loop.errorFingerprint || loop.loopAction === "block" || loop.loopAction === "stop") {
               const targetHash = loop.targetHashIsFallback ? undefined : loop.targetHash
               errorRecordsOut.push({
@@ -446,12 +426,10 @@ export const layer: Layer.Layer<
           }
         }
         return {
-          successRecords: successRecordsOut,
           errorRecords: errorRecordsOut,
           syntheticBlockSigKeys: syntheticBlockSigKeysOut,
           hasStopped: hasStoppedOut,
           currentStepIndex,
-          currentMutationEpoch,
         }
       }
 
@@ -716,6 +694,12 @@ export const layer: Layer.Layer<
           }
 
           case "error":
+            ctx.trace.recordProviderErrorEvent({
+              error: value.error,
+              provider: "providerMetadata" in value ? value.providerMetadata : undefined,
+              failedAt: Date.now(),
+              monotonicMs: performance.now(),
+            })
             throw value.error
 
           case "start-step":
@@ -925,6 +909,23 @@ export const layer: Layer.Layer<
       const halt = Effect.fn("SessionProcessor.halt")(function* (e: unknown) {
         slog.error("process", { error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined })
         ctx.streamError = true
+
+        // Read-then-reset: free_quota path leaves a value here; all other paths
+        // leave it undefined. Resetting at entry guards against "previous halt
+        // set free_quota → next halt generic" cross-call staling.
+        const cls = ctx.terminalClassification
+        ctx.terminalClassification = undefined
+
+        if (cls?.kind === "free_quota_exhausted") {
+          // Terminal rate-limit path: write blocked status and set ctx.blocked so
+          // process() returns "stop". Intentionally does NOT publish
+          // Session.Event.Error (would trigger the OS notification toast) and does
+          // NOT write ctx.assistantMessage.error (would render the generic error card).
+          yield* status.set(ctx.sessionID, { type: "rate_limit_blocked", classification: cls })
+          ctx.blocked = true
+          return
+        }
+
         const error = parse(e)
         if (MessageV2.ContextOverflowError.isInstance(error)) {
           ctx.needsCompaction = true
@@ -966,6 +967,12 @@ export const layer: Layer.Layer<
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
+                ctx.trace.recordAbortState({
+                  provenanceSource: "session.processor.onInterrupt",
+                  provenanceReason: "aborted",
+                  provenanceMode: "hard",
+                  provenanceRecordedAt: Date.now(),
+                })
                 if (!ctx.assistantMessage.error) {
                   yield* halt(new DOMException("Aborted", "AbortError"))
                 }
@@ -985,6 +992,9 @@ export const layer: Layer.Layer<
                     message: info.message,
                     next: info.next,
                   }),
+                signalTerminal: (classification) => {
+                  ctx.terminalClassification = classification
+                },
               }),
             ),
             Effect.catch(halt),

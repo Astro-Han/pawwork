@@ -160,7 +160,7 @@ function fake(
     errorRecords: () => [],
     syntheticBlockSigKeys: () => [],
     hasStopped: () => false,
-    buildLoopContext: () => ({ successRecords: [], errorRecords: [], syntheticBlockSigKeys: [], hasStopped: false }),
+    buildLoopContext: () => ({ errorRecords: [], syntheticBlockSigKeys: [], hasStopped: false }),
     recordSyntheticBlock: Effect.fn("TestSessionProcessor.recordSyntheticBlock")(() => Effect.void),
     recordSyntheticStop: Effect.fn("TestSessionProcessor.recordSyntheticStop")(() => Effect.void),
   } satisfies SessionProcessorModule.SessionProcessor.Handle
