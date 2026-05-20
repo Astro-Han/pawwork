@@ -175,60 +175,60 @@ export const PawworkSidebar = (props: {
     dialog.show(() => <DialogRemoveProject name={projectLabel} onConfirm={() => props.onRemoveProject(projectKey)} />)
   }
 
-  const renderSessionItem = (row: Accessor<PawworkSidebarSession | undefined>) => {
-    const menuLabels = () => ({
-      pin: language.t("sidebar.pawwork.pinSession"),
-      unpin: language.t("sidebar.pawwork.unpinSession"),
-      rename: language.t("common.rename"),
-      export: language.t("session.export.action.export"),
-      delete: language.t("common.delete"),
+  const menuLabels = () => ({
+    pin: language.t("sidebar.pawwork.pinSession"),
+    unpin: language.t("sidebar.pawwork.unpinSession"),
+    rename: language.t("common.rename"),
+    export: language.t("session.export.action.export"),
+    delete: language.t("common.delete"),
+  })
+  const menuActions = (target: Session, onRenameSession: (session: Session) => void) =>
+    buildSessionMenuActions({
+      session: target,
+      pinned: props.pinnedIDs().includes(target.id),
+      exportAvailable: props.exportSessionAvailable(),
+      labels: menuLabels(),
+      onTogglePinnedSession: props.onTogglePinnedSession,
+      onRenameSession,
+      onExportSession: props.onExportSession,
+      onDeleteSession: props.onDeleteSession,
     })
-    const menuActions = (target: Session, onRenameSession: (session: Session) => void) =>
-      buildSessionMenuActions({
-        session: target,
-        pinned: props.pinnedIDs().includes(target.id),
-        exportAvailable: props.exportSessionAvailable(),
-        labels: menuLabels(),
-        onTogglePinnedSession: props.onTogglePinnedSession,
-        onRenameSession,
-        onExportSession: props.onExportSession,
-        onDeleteSession: props.onDeleteSession,
-      })
-    const renderDropdownActions = (actions: SessionMenuAction[]) => (
-      <>
-        <For each={actions}>
-          {(action) => (
-            <>
-              <Show when={action.separatorBefore}>
-                <DropdownMenu.Separator />
-              </Show>
-              <DropdownMenu.Item onSelect={() => void action.run()}>
-                <Icon name={action.icon} class="text-icon-weak" />
-                <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
-              </DropdownMenu.Item>
-            </>
-          )}
-        </For>
-      </>
-    )
-    const renderContextActions = (actions: SessionMenuAction[]) => (
-      <>
-        <For each={actions}>
-          {(action) => (
-            <>
-              <Show when={action.separatorBefore}>
-                <ContextMenu.Separator />
-              </Show>
-              <ContextMenu.Item onSelect={() => void action.run()}>
-                <Icon name={action.icon} class="text-icon-weak" />
-                <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
-              </ContextMenu.Item>
-            </>
-          )}
-        </For>
-      </>
-    )
+  const renderDropdownActions = (actions: SessionMenuAction[]) => (
+    <>
+      <For each={actions}>
+        {(action) => (
+          <>
+            <Show when={action.separatorBefore}>
+              <DropdownMenu.Separator />
+            </Show>
+            <DropdownMenu.Item onSelect={() => void action.run()}>
+              <Icon name={action.icon} class="text-icon-weak" />
+              <DropdownMenu.ItemLabel>{action.label}</DropdownMenu.ItemLabel>
+            </DropdownMenu.Item>
+          </>
+        )}
+      </For>
+    </>
+  )
+  const renderContextActions = (actions: SessionMenuAction[]) => (
+    <>
+      <For each={actions}>
+        {(action) => (
+          <>
+            <Show when={action.separatorBefore}>
+              <ContextMenu.Separator />
+            </Show>
+            <ContextMenu.Item onSelect={() => void action.run()}>
+              <Icon name={action.icon} class="text-icon-weak" />
+              <ContextMenu.ItemLabel>{action.label}</ContextMenu.ItemLabel>
+            </ContextMenu.Item>
+          </>
+        )}
+      </For>
+    </>
+  )
 
+  const renderSessionItem = (row: Accessor<PawworkSidebarSession | undefined>) => {
     return (
       <Show when={row()}>
         {(current) => (
