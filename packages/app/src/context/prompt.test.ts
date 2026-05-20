@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, mock, test } from "bun:test"
-import type { ContextItem, Prompt } from "./prompt"
+import type { ContextItem, ImageAttachmentPart, Prompt } from "./prompt"
 
 let createPromptBinding: typeof import("./prompt").createPromptBinding
 let DEFAULT_PROMPT: typeof import("./prompt").DEFAULT_PROMPT
+let isPromptEqual: typeof import("./prompt").isPromptEqual
+let isStructurallyEmpty: typeof import("./prompt").isStructurallyEmpty
 
 beforeAll(async () => {
   mock.module("@solidjs/router", () => ({
@@ -17,6 +19,8 @@ beforeAll(async () => {
   const mod = await import("./prompt")
   createPromptBinding = mod.createPromptBinding
   DEFAULT_PROMPT = mod.DEFAULT_PROMPT
+  isPromptEqual = mod.isPromptEqual
+  isStructurallyEmpty = mod.isStructurallyEmpty
 })
 
 function promptSession() {
@@ -130,3 +134,52 @@ describe("createPromptBinding", () => {
     expect(current.current()).toEqual([{ type: "text", content: "hello", start: 0, end: 5 }])
   })
 })
+
+// Task 1: isPartEqual with command field
+describe("isPartEqual with command field", () => {
+  test("two marked TextParts with same name+source+icon are equal", () => {
+    const a: Prompt = [{ type: "text", content: "/brainstorming ", start: 0, end: 15,
+      command: { name: "brainstorming", source: "skill", icon: "command" } }]
+    const b: Prompt = [{ type: "text", content: "/brainstorming ", start: 0, end: 15,
+      command: { name: "brainstorming", source: "skill", icon: "command" } }]
+    expect(isPromptEqual(a, b)).toBe(true)
+  })
+
+  test("marked vs plain TextPart with same content are NOT equal", () => {
+    const marked: Prompt = [{ type: "text", content: "/brainstorming ", start: 0, end: 15,
+      command: { name: "brainstorming", source: "skill", icon: "command" } }]
+    const plain: Prompt = [{ type: "text", content: "/brainstorming ", start: 0, end: 15 }]
+    expect(isPromptEqual(marked, plain)).toBe(false)
+  })
+
+  test("two marked TextParts with different command.name are NOT equal", () => {
+    const a: Prompt = [{ type: "text", content: "/a ", start: 0, end: 3,
+      command: { name: "a", source: "skill", icon: "command" } }]
+    const b: Prompt = [{ type: "text", content: "/a ", start: 0, end: 3,
+      command: { name: "b", source: "skill", icon: "command" } }]
+    expect(isPromptEqual(a, b)).toBe(false)
+  })
+})
+
+describe("isStructurallyEmpty", () => {
+  test("DEFAULT_PROMPT + no context + no images → true", () => {
+    expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [])).toBe(true)
+  })
+  test("whitespace-only text → false", () => {
+    const p: Prompt = [{ type: "text", content: "   ", start: 0, end: 3 }]
+    expect(isStructurallyEmpty(p, [], [])).toBe(false)
+  })
+  test("attachments present → false", () => {
+    const file = { type: "file" as const, content: "@foo.ts", start: 0, end: 7, path: "foo.ts" }
+    expect(isStructurallyEmpty([file], [], [])).toBe(false)
+  })
+  test("context items present → false", () => {
+    const ctx: ContextItem[] = [{ type: "file", path: "foo.ts" }]
+    expect(isStructurallyEmpty(DEFAULT_PROMPT, ctx, [])).toBe(false)
+  })
+  test("image attachments present → false", () => {
+    const image: ImageAttachmentPart = { type: "image", id: "1", filename: "a.png", mime: "image/png", dataUrl: "data:" }
+    expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [image])).toBe(false)
+  })
+})
+

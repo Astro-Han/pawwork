@@ -311,3 +311,101 @@ describe("PortableDraftOwner canonicalizes file paths against the source directo
     expect(moved?.context[0]?.path).toBe("/repo-A/src/app.ts")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Marked TextPart (command pill) round-trip through the owner.
+//
+// Path A/B/C all produce a Prompt whose leading TextPart carries a `command`
+// field. The homepage owner mirror effect records that Prompt verbatim; on
+// route-back hydration, the snapshot is replayed via prompt.set(snapshot.prompt).
+// This test pins that the `command` metadata survives intact through the
+// owner — otherwise the user's pill would silently degrade to raw slash text
+// after a route change.
+// ---------------------------------------------------------------------------
+
+describe("PortableDraftOwner preserves command metadata on marked TextPart", () => {
+  test("snapshot retains command field after record", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: [{
+        type: "text",
+        content: "/brainstorming hello",
+        start: 0,
+        end: 20,
+        command: { name: "brainstorming", source: "skill", icon: "command" },
+      }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    const snap = owner.snapshot()
+    expect(snap).not.toBeNull()
+    const first = snap!.prompt[0]
+    expect(first?.type).toBe("text")
+    expect((first as any).command).toEqual({
+      name: "brainstorming",
+      source: "skill",
+      icon: "command",
+    })
+    expect((first as any).content).toBe("/brainstorming hello")
+  })
+
+  test("regression guard: empty payload destroys an existing non-empty snapshot", () => {
+    // record() short-circuits empty payloads to setSnapshot(null). If the
+    // editor-input.ts homepage owner mirror effect ever fires at mount with
+    // DEFAULT_PROMPT (empty), this is what would happen to a portable
+    // snapshot from another homepage that hasn't been consumed yet —
+    // silently destroying the user's draft before hydration can move it.
+    // The mirror effect's {defer: true} option is what prevents this.
+    const owner = createPortableDraftOwner()
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: [{
+        type: "text",
+        content: "/brainstorming the failing test",
+        start: 0,
+        end: 31,
+        command: { name: "brainstorming", source: "skill", icon: "command" },
+      }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    expect(owner.snapshot()).not.toBeNull()
+
+    // Empty payload — the shape the prompt has at mount.
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: [{ type: "text", content: "", start: 0, end: 0 }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    expect(owner.snapshot()).toBeNull()
+  })
+
+  test("consumeForHomepage round-trip preserves command field", () => {
+    const owner = createPortableDraftOwner()
+    owner.record({
+      sourceFilesystemDirectory: "/repo-A",
+      prompt: [{
+        type: "text",
+        content: "/review HEAD~3",
+        start: 0,
+        end: 14,
+        command: { name: "review", source: "command", icon: "command" },
+      }],
+      context: [],
+      images: [],
+      resolvedMentions: {},
+    })
+    // Same-dir homepage navigation: snapshot restored via restore(), not consumed.
+    const restored = owner.restore()
+    expect((restored!.prompt[0] as any).command?.name).toBe("review")
+    // Different-dir move via consumeForHomepage: command still preserved.
+    const moved = owner.consumeForHomepage("/repo-B", true)
+    expect((moved!.prompt[0] as any).command?.name).toBe("review")
+    expect((moved!.prompt[0] as any).content).toBe("/review HEAD~3")
+  })
+})

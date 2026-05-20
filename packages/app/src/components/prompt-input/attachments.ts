@@ -4,11 +4,14 @@ import { pathBasename } from "@opencode-ai/util/file-extensions"
 import { showToast } from "@opencode-ai/ui/toast"
 import { usePrompt, type ContentPart, type ImageAttachmentPart } from "@/context/prompt"
 import { useLanguage } from "@/context/language"
+import type { useSync } from "@/context/sync"
 import { uuid } from "@/utils/uuid"
 import { getCursorPosition } from "./editor-dom"
 import { textMime } from "./files"
 import { normalizePaste, pasteMode } from "./paste"
 import { routeBrowserFile, routePickedPath, type AttachRoute, type ModelInputSupport } from "./attachment-routing"
+import { buildSlashRegistry } from "./command-text-part"
+import { tryPathCConversion } from "./command-paste"
 
 function dataUrlMimeCompatible(actual: string, expected: string) {
   if (actual === expected) return true
@@ -64,6 +67,12 @@ type PromptAttachmentsInput = {
   openModelSelector: () => void
   readFileDataUrl?: (path: string, mime: string) => Promise<string | null>
   readClipboardImage?: () => Promise<File | null>
+  // Path C (paste of `/<known-name> args` into structurally-empty input)
+  // dependencies. Default to empty/false so callers that do not need pill
+  // paste behaviour (e.g. legacy tests) can omit them.
+  imageAttachments?: () => readonly ImageAttachmentPart[]
+  composing?: () => boolean
+  sync?: ReturnType<typeof useSync>
 }
 
 export function createPromptAttachments(input: PromptAttachmentsInput) {
@@ -269,6 +278,26 @@ export function createPromptAttachments(input: PromptAttachmentsInput) {
     }
 
     if (!plainText) return
+
+    // Path C: command-shaped paste into structurally-empty input.
+    // Runs against RAW clipboard text (NOT normalizePaste output) so command
+    // boundary semantics stay verbatim. On miss → falls through to existing
+    // text-insert path unchanged.
+    if (input.sync) {
+      const pathC = tryPathCConversion({
+        plainText,
+        currentPrompt: prompt.current(),
+        contextItems: prompt.context.items(),
+        imageAttachments: input.imageAttachments?.() ?? [],
+        registry: buildSlashRegistry(input.sync.data.command),
+        composing: input.composing?.() ?? false,
+      })
+      if (pathC) {
+        const marked = pathC[0]
+        prompt.set(pathC, "content" in marked ? marked.content.length : 0)
+        return
+      }
+    }
 
     const text = normalizePaste(plainText)
 

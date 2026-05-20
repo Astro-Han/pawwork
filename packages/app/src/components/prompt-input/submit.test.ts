@@ -796,3 +796,171 @@ describe("prompt submit worktree selection", () => {
     expect(promptResetCalls.at(-1)?.target?.id).toBeUndefined()
   })
 })
+
+describe("Path D — marked TextPart routes through session.command", () => {
+  test("marked('/brainstorming ') alone → command call with arguments ''", async () => {
+    params = { id: "session-existing" }
+    commandDefinitions.push({ name: "brainstorming" })
+    promptValue = [{
+      type: "text", content: "/brainstorming ", start: 0, end: 15,
+      command: { name: "brainstorming", source: "skill", icon: "command" },
+    }]
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => commandCalls.length > 0)
+
+    expect(commandCalls.at(-1)?.command).toBe("brainstorming")
+    expect(commandCalls.at(-1)?.arguments).toBe("")
+  })
+
+  test("marked + FilePart args projection → args includes file content", async () => {
+    params = { id: "session-existing" }
+    commandDefinitions.push({ name: "brainstorming" })
+    promptValue = [
+      { type: "text", content: "/brainstorming ", start: 0, end: 15,
+        command: { name: "brainstorming", source: "skill", icon: "command" } },
+      { type: "file", path: "foo.ts", content: "@foo.ts", start: 15, end: 22 } as any,
+    ]
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => commandCalls.length > 0)
+
+    expect(commandCalls.at(-1)?.command).toBe("brainstorming")
+    expect(commandCalls.at(-1)?.arguments).toBe("@foo.ts")
+  })
+
+  test("invariant-violated marked TextPart falls through to plain-prompt path", async () => {
+    params = { id: "session-existing" }
+    commandDefinitions.push({ name: "brainstorming" })
+    const before = commandCalls.length
+    // content does NOT start with /<name> — invariant breach
+    promptValue = [{
+      type: "text", content: "WRONG", start: 0, end: 5,
+      command: { name: "brainstorming", source: "skill", icon: "command" },
+    }]
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+
+    // Invariant breach + content not starting with /<name> → falls through.
+    // The legacy fallback also won't fire (text "WRONG" doesn't start with /).
+    // So no NEW command call is made.
+    expect(commandCalls.length).toBe(before)
+  })
+})
+
+describe("Legacy fallback boundary (no marked TextPart)", () => {
+  test("[Text('/brainstorming'), File('@foo.ts')] → NOT a command (no separator space)", async () => {
+    params = { id: "session-existing" }
+    commandDefinitions.push({ name: "brainstorming" })
+    const before = commandCalls.length
+    promptValue = [
+      { type: "text", content: "/brainstorming", start: 0, end: 14 },
+      { type: "file", path: "foo.ts", content: "@foo.ts", start: 14, end: 21 } as any,
+    ]
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    // flatText = "/brainstorming@foo.ts", head split-by-space = "/brainstorming@foo.ts",
+    // slice(1) = "brainstorming@foo.ts", registry miss → submits as plain prompt.
+    expect(commandCalls.length).toBe(before)
+  })
+
+  test("[Text('/brainstorming '), File('@foo.ts')] → command, args '@foo.ts'", async () => {
+    params = { id: "session-existing" }
+    commandDefinitions.push({ name: "brainstorming" })
+    promptValue = [
+      { type: "text", content: "/brainstorming ", start: 0, end: 15 },
+      { type: "file", path: "foo.ts", content: "@foo.ts", start: 15, end: 22 } as any,
+    ]
+
+    const submit = createPromptSubmit({
+      info: () => ({ id: "session-existing" }),
+      imageAttachments: () => [],
+      commentCount: () => 0,
+      autoAccept: () => false,
+      mode: () => "normal",
+      working: () => false,
+      editor: () => undefined,
+      queueScroll: () => undefined,
+      promptLength: (value) => value.reduce((sum, part) => sum + ("content" in part ? part.content.length : 0), 0),
+      addToHistory: () => undefined,
+      resetHistoryNavigation: () => undefined,
+      setMode: () => undefined,
+      setPopover: () => undefined,
+      onSubmit: () => undefined,
+    })
+
+    await submit.handleSubmit({ preventDefault: () => undefined } as unknown as Event)
+    await waitForCall(() => commandCalls.length > 0)
+
+    expect(commandCalls.at(-1)?.command).toBe("brainstorming")
+    expect(commandCalls.at(-1)?.arguments).toBe("@foo.ts")
+  })
+})

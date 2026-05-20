@@ -13,8 +13,15 @@ interface PartBase {
   end: number
 }
 
+export type CommandSource = "skill" | "mcp" | "command"
+
 export interface TextPart extends PartBase {
   type: "text"
+  command?: {
+    name: string
+    source: CommandSource
+    icon: string
+  }
 }
 
 export interface FileAttachmentPart extends PartBase {
@@ -63,10 +70,20 @@ function isSelectionEqual(a?: FileSelection, b?: FileSelection) {
   )
 }
 
+function isCommandMetaEqual(a: TextPart["command"], b: TextPart["command"]) {
+  if (!a && !b) return true
+  if (!a || !b) return false
+  return a.name === b.name && a.source === b.source && a.icon === b.icon
+}
+
 function isPartEqual(partA: ContentPart, partB: ContentPart) {
   switch (partA.type) {
     case "text":
-      return partB.type === "text" && partA.content === partB.content
+      return (
+        partB.type === "text" &&
+        partA.content === partB.content &&
+        isCommandMetaEqual(partA.command, partB.command)
+      )
     case "file":
       return partB.type === "file" && partA.path === partB.path && isSelectionEqual(partA.selection, partB.selection)
     case "agent":
@@ -82,6 +99,16 @@ export function isPromptEqual(promptA: Prompt, promptB: Prompt): boolean {
     if (!isPartEqual(promptA[i], promptB[i])) return false
   }
   return true
+}
+
+export function isStructurallyEmpty(
+  prompt: Prompt,
+  contextItems: readonly ContextItem[],
+  imageAttachments: readonly ImageAttachmentPart[],
+): boolean {
+  if (contextItems.length > 0) return false
+  if (imageAttachments.length > 0) return false
+  return isPromptEqual(prompt, DEFAULT_PROMPT)
 }
 
 function cloneSelection(selection?: FileSelection) {

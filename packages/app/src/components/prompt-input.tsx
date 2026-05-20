@@ -271,6 +271,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setStore,
     prompt,
     sdk,
+    sync,
     imageAttachments,
     editorRef: () => editorRef,
     mirror,
@@ -297,6 +298,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     clearEditor,
     setEditorText,
     focusEditorEnd,
+    renderEditorWithCursor,
   })
   popoversRef = popovers
 
@@ -321,6 +323,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     handleCompositionStart,
     handleCompositionEnd,
     handleInput,
+    handleCopy,
     addPart,
   } = editorInput
 
@@ -378,6 +381,10 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     },
     readFileDataUrl: platform.readFileDataUrl,
     readClipboardImage: platform.readClipboardImage,
+    // Path C dependencies (paste of `/<known-name> args` into empty input).
+    imageAttachments,
+    composing,
+    sync,
   })
 
   const accepting = createMemo(() => {
@@ -531,6 +538,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               // @ts-expect-error
               autocomplete="off"
               onInput={handleInput}
+              onCopy={handleCopy}
               onPaste={(event) => {
                 if (!actionReady()) {
                   event.preventDefault()

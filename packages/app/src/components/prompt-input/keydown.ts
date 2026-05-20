@@ -4,11 +4,12 @@
 
 import type { Accessor } from "solid-js"
 import type { SetStoreFunction } from "solid-js/store"
-import type { ContentPart, usePrompt } from "@/context/prompt"
+import type { ContentPart, TextPart, usePrompt } from "@/context/prompt"
 import { canNavigateHistoryAtCursor } from "./history"
 import { getCursorPosition } from "./editor-dom"
 import { promptKeyActionReady } from "./readiness"
 import type { PromptStore } from "./store-types"
+import { computeCommandBackspaceResult } from "./command-backspace"
 
 export interface PromptKeydownDeps {
   store: PromptStore
@@ -89,6 +90,27 @@ export function createPromptKeydownHandler(deps: PromptKeydownDeps): (event: Key
     if (event.key === "Backspace") {
       const selection = window.getSelection()
       if (selection && selection.isCollapsed) {
+        // Pre-check: if leading TextPart is command-marked and caret is inside
+        // or immediately after the "/<name> " prefix, apply the fallback ladder
+        // instead of the browser default delete.
+        const parts = prompt.current()
+        const first = parts[0]
+        if (first?.type === "text" && first.command) {
+          const prefix = `/${first.command.name} `
+          const cursorPos = getCursorPosition(editorRef())
+          // "Adjacent to pill": caret logical position <= prefix length covers
+          // caret-before-pill (0), caret-inside-pill, and caret-right-after-pill.
+          if (cursorPos <= prefix.length) {
+            event.preventDefault()
+            const markedFirst = first as TextPart & { command: NonNullable<TextPart["command"]> }
+            const newParts = computeCommandBackspaceResult(parts, markedFirst, prefix)
+            prompt.set(newParts, 0)
+            return
+          }
+        }
+
+        // Existing ZWSP cleanup: move caret to start of a ZWSP-only text node
+        // so the next keydown deletes the sentinel rather than real content.
         const node = selection.anchorNode
         const offset = selection.anchorOffset
         if (node && node.nodeType === Node.TEXT_NODE) {

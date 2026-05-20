@@ -9,6 +9,7 @@ import {
   type ContentPart,
   DEFAULT_PROMPT,
   type ImageAttachmentPart,
+  type Prompt,
   type usePrompt,
 } from "@/context/prompt"
 import type { useCommand } from "@/context/command"
@@ -18,6 +19,7 @@ import type { useLanguage } from "@/context/language"
 import { promptEnabled, promptProbe } from "@/testing/prompt"
 import { type AtOption, type SlashCommand } from "./slash-popover"
 import type { PromptStore } from "./store-types"
+import { prependCommandMark } from "./command-prepend"
 
 export interface PopoverControllersDeps {
   store: PromptStore
@@ -38,6 +40,8 @@ export interface PopoverControllersDeps {
   clearEditor: () => void
   setEditorText: (text: string) => void
   focusEditorEnd: () => void
+  // renderEditorWithCursor is needed to push pill DOM for custom commands
+  renderEditorWithCursor: (parts: Prompt) => void
 }
 
 export interface PopoverControllers {
@@ -73,6 +77,7 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     clearEditor,
     setEditorText,
     focusEditorEnd,
+    renderEditorWithCursor,
   } = deps
 
   const handleAtSelect = (option: AtOption | undefined) => {
@@ -136,9 +141,20 @@ export function createPopoverControllers(deps: PopoverControllersDeps): PopoverC
     const images = imageAttachments()
 
     if (cmd.type === "custom") {
-      const text = `/${cmd.trigger} `
-      setEditorText(text)
-      prompt.set([{ type: "text", content: text, start: 0, end: text.length }, ...images], text.length)
+      // Build a marked TextPart (pill) and prepend it to the current prompt.
+      // source is always present on custom commands (set in slashCommands memo).
+      // icon is not stored on SlashCommand; default to "command" per spec.
+      const descriptor = {
+        name: cmd.trigger,
+        source: cmd.source ?? "command",
+        icon: "command",
+      }
+      const newPrompt = prependCommandMark(prompt.current(), images, descriptor)
+      // prependCommandMark always places the marked TextPart at index 0.
+      const markedPart = newPrompt[0] as import("@/context/prompt").TextPart
+      prompt.set(newPrompt, markedPart.content.length)
+      // Explicitly push pill DOM: prompt.set alone does not re-render the editor.
+      renderEditorWithCursor(newPrompt)
       focusEditorEnd()
       return
     }

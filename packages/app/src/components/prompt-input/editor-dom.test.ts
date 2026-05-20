@@ -96,4 +96,102 @@ describe("prompt-input editor dom", () => {
 
     container.remove()
   })
+
+  test("getNodeLength returns 1 + name.length for a cmd-mark pill", () => {
+    // A slash-command pill has data-cmd-mark="true" and textContent equal to the command name.
+    // Logical length is 1 (for the slash trigger) + name.length, which is asymmetric to textContent.
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = "summarize"
+    pill.textContent = "summarize"
+
+    expect(getNodeLength(pill)).toBe(1 + "summarize".length) // 10
+  })
+
+  test("getNodeLength cmd-mark branch fires BEFORE textContent fallback", () => {
+    // If the textContent fallback ran first it would return 9, not 10.
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = "run"
+    pill.textContent = "run"
+
+    expect(getNodeLength(pill)).toBe(4) // 1 + 3
+    expect(pill.textContent!.length).toBe(3) // confirm asymmetry
+  })
+
+  test("setCursorPosition treats cmd-mark pill as a pill (cursor snaps around it)", () => {
+    // Layout: "ab" + [/go] + "cd"
+    // Logical offsets: a=0,b=1, pill occupies [2,4) (length 1+2=3? — "/go" name is "go" length 2 so 1+2=3)
+    // position 2 → before pill, position 4 (after pill) → after pill
+    const container = document.createElement("div")
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = "go"
+    pill.textContent = "go"
+
+    container.appendChild(document.createTextNode("ab"))
+    container.appendChild(pill)
+    container.appendChild(document.createTextNode("cd"))
+    document.body.appendChild(container)
+
+    // Position 2 = just before the cmd-mark pill → cursor before pill node
+    setCursorPosition(container, 2)
+    const sel2 = window.getSelection()!
+    // The range should be positioned before the pill (startContainer is parent, offset = pill index)
+    expect(sel2.rangeCount).toBe(1)
+
+    // Position 5 (2 + 3) = just after the cmd-mark pill → cursor after pill node
+    setCursorPosition(container, 5)
+    const sel5 = window.getSelection()!
+    expect(sel5.rangeCount).toBe(1)
+
+    container.remove()
+  })
+
+  test("getTextLength counts cmd-mark pill as 1 + name.length (NOT visible label)", () => {
+    // Pill DOM has label child whose textContent is name; logical length is
+    // 1 + name.length because the slash literal is NOT in the visible DOM.
+    // getCursorPosition feeds cloned ranges through getTextLength — if this
+    // reports the wrong length, caret math after a pill is off-by-one.
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = "brainstorming"
+    const label = document.createElement("span")
+    label.dataset.cmdLabel = "true"
+    label.textContent = "brainstorming"
+    pill.appendChild(label)
+
+    expect(getTextLength(pill)).toBe(1 + "brainstorming".length)
+    // Confirm asymmetry vs the textContent walk that would happen without
+    // the cmd-mark branch.
+    expect(pill.textContent!.length).toBe("brainstorming".length)
+  })
+
+  test("getCursorPosition after pill + ' args' caret returns (1 + name.length) + 5", () => {
+    const container = document.createElement("div")
+    container.contentEditable = "true"
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = "go"
+    const label = document.createElement("span")
+    label.dataset.cmdLabel = "true"
+    label.textContent = "go"
+    pill.appendChild(label)
+    container.appendChild(pill)
+    container.appendChild(document.createTextNode(" args"))
+    document.body.appendChild(container)
+
+    try {
+      const sel = window.getSelection()!
+      const r = document.createRange()
+      r.setStart(container.lastChild!, 5) // end of " args"
+      r.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(r)
+      // Expected: 1 (slash) + 2 ("go") + 5 (" args") = 8
+      expect(getCursorPosition(container)).toBe(8)
+    } finally {
+      container.remove()
+    }
+  })
 })

@@ -1,0 +1,21 @@
+/* Input-side command pill — visual parity with sent bubble.
+ * Source of truth: packages/ui/src/components/message-part.css
+ * (.user-message-command-prefix + .user-message-command-label).
+ * The icon span carries class="command-icon" so .command-icon rules from
+ * packages/ui/src/components/command-icon.css apply automatically.
+ */
+
+[data-cmd-mark] {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--brand-primary);
+  user-select: text;
+  cursor: default;
+}
+
+[data-cmd-mark] [data-cmd-label] {
+  color: inherit;
+  font-weight: var(--font-weight-body);
+}

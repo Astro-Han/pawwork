@@ -186,7 +186,12 @@ describe("extractPromptFromParts", () => {
     const result = extractPromptFromParts(parts)
 
     expect(result).toHaveLength(2)
-    expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming fold the bubble" })
+    // Must be a marked TextPart (command field present) for pill re-render.
+    expect(result[0]).toMatchObject({
+      type: "text",
+      content: "/brainstorming fold the bubble",
+      command: { name: "brainstorming", source: "command" },
+    })
     expect(result[1]).toMatchObject({
       type: "image",
       filename: "screenshot.png",
@@ -215,7 +220,12 @@ describe("extractPromptFromParts", () => {
     const result = extractPromptFromParts(parts)
 
     expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ type: "text", content: "/brainstorming " })
+    // Marked TextPart: trailing space present, command metadata attached.
+    expect(result[0]).toMatchObject({
+      type: "text",
+      content: "/brainstorming ",
+      command: { name: "brainstorming", source: "command" },
+    })
   })
 
   test("command mode: suppresses commandTemplate-tagged file even when alone", () => {
@@ -248,6 +258,11 @@ describe("extractPromptFromParts", () => {
     const result = extractPromptFromParts(parts)
 
     expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ type: "text", content: "/explain this" })
+    // Marked TextPart: template file suppressed, command metadata attached.
+    expect(result[0]).toMatchObject({
+      type: "text",
+      content: "/explain this",
+      command: { name: "explain", source: "command" },
+    })
   })
 })

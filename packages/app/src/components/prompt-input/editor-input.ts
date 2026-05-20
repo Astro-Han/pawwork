@@ -4,6 +4,7 @@
 // reflects state into the prompt store.
 
 import { createEffect, createSignal, on, type Accessor } from "solid-js"
+import { createOwnerMirrorEffect } from "./owner-mirror"
 import type { SetStoreFunction } from "solid-js/store"
 import {
   type ContentPart,
@@ -14,9 +15,13 @@ import {
   type usePrompt,
 } from "@/context/prompt"
 import type { useSDK } from "@/context/sdk"
+import type { useSync } from "@/context/sync"
 import { useParams } from "@solidjs/router"
 import { usePortableDraft } from "./portable-draft"
 import { usePinnedDraft } from "./pinned-draft"
+import { buildSlashRegistry } from "./command-text-part"
+import { tryPathBConversion } from "./command-space-trigger"
+import { rewriteRangeForCommandCopy, selectionTouchesCommandMark } from "./command-copy"
 import {
   createTextFragment,
   getCursorPosition,
@@ -32,7 +37,6 @@ import { promptLength } from "./history"
 import type { EditorImperatives } from "./editor-imperatives"
 import type { PopoverControllers } from "./popover-controllers"
 import type { PromptStore } from "./store-types"
-import type { ResolvedMention } from "./mention-metadata"
 
 const NON_EMPTY_TEXT = /[^\s\u200B]/
 
@@ -41,6 +45,7 @@ export interface EditorInputDeps {
   setStore: SetStoreFunction<PromptStore>
   prompt: ReturnType<typeof usePrompt>
   sdk: ReturnType<typeof useSDK>
+  sync: ReturnType<typeof useSync>
   imageAttachments: Accessor<ImageAttachmentPart[]>
   editorRef: () => HTMLDivElement
   mirror: { input: boolean }
@@ -61,7 +66,8 @@ export interface EditorInput {
   handleBlur: () => void
   handleCompositionStart: () => void
   handleCompositionEnd: () => void
-  handleInput: () => void
+  handleInput: (event?: InputEvent) => void
+  handleCopy: (event: ClipboardEvent) => void
   addPart: (part: ContentPart) => boolean
 }
 
@@ -71,6 +77,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     setStore,
     prompt,
     sdk,
+    sync,
     imageAttachments,
     editorRef,
     mirror,
@@ -95,14 +102,19 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       mirror.input = false
       if (isNormalizedEditor(editor)) return
 
-      imperatives.renderEditorWithCursor(input)
+      imperatives.renderEditorWithCursor(input, prompt.cursor())
       return
     }
 
     const dom = parseEditorToParts(editor)
     if (isNormalizedEditor(editor) && isPromptEqual(input, dom)) return
 
-    imperatives.renderEditorWithCursor(input)
+    // Store-originated reconcile (Path B Space-trigger, Path C paste, Backspace
+    // ladder, popover select, history navigation): the prompt store already
+    // holds the target cursor. currentCursor() would read the pre-repaint DOM
+    // selection, which is stale whenever the editor has not yet caught up to
+    // the new prompt (e.g. Path C paste was preventDefault'd so DOM is empty).
+    imperatives.renderEditorWithCursor(input, prompt.cursor())
   }
 
   const handleBlur = () => {
@@ -131,6 +143,23 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       },
     ),
   )
+
+  // Homepage owner mirror — single source of truth for portable/pinned draft
+  // recording. Runs as an effect on the prompt store so EVERY path that mutates
+  // the prompt (normal text input, Path A popover select, Path B Space-trigger,
+  // Path C paste, Backspace ladder, history navigation, attachment add/remove)
+  // automatically records into the active owner. See owner-mirror.ts for the
+  // defer / scopeChanged / composing guard semantics.
+  createOwnerMirrorEffect({
+    prompt: () => prompt.current(),
+    contextItems: () => prompt.context.items(),
+    images: imageAttachments,
+    directory: () => sdk.directory,
+    sessionID: () => params.id,
+    composing,
+    portable,
+    pinned,
+  })
 
   // Centralized "is the homepage draft empty" check.
   // The prompt store, the context-item store, AND the imageAttachments accessor
@@ -196,7 +225,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     ),
   )
 
-  const handleInput = () => {
+  const handleInput = (event?: InputEvent) => {
     const editor = editorRef()
     const rawParts = parseEditorToParts(editor)
     const images = imageAttachments()
@@ -205,6 +234,33 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
       rawParts.length === 1 && rawParts[0]?.type === "text"
         ? rawParts[0].content
         : rawParts.map((p) => ("content" in p ? p.content : "")).join("")
+
+    // Path B: Space-typed conversion of `/<known-name>` into a marked TextPart.
+    // The browser fires inputType="insertText" with data=" " only when the user
+    // types a single Space character — naturally false on paste, Backspace,
+    // IME commit, and programmatic mutations. No flag state machine needed.
+    if (!composing()) {
+      const registry = buildSlashRegistry(sync.data.command)
+      const pathB = tryPathBConversion({
+        inputType: event?.inputType,
+        data: event?.data,
+        rawText,
+        images,
+        registry,
+      })
+      if (pathB) {
+        closePopover()
+        resetHistoryNavigation()
+        // Do NOT set mirror.input=true here. The DOM still holds the raw
+        // "/<name> " text node; only the prompt store gets the marked
+        // TextPart. Letting reconcile run the non-mirror branch is what
+        // forces the editor to repaint into pill DOM. Marking as mirror
+        // would short-circuit on isNormalizedEditor() and leave raw text
+        // visible to the user (#778 main acceptance path).
+        prompt.set(pathB.prompt, pathB.cursor)
+        return
+      }
+    }
     const hasNonText = rawParts.some((part) => part.type !== "text")
     // Context chips (drag/drop, picker, hand-off draft, comment hydration) live
     // in prompt.context.items() and don't appear as editor parts, so we have to
@@ -222,35 +278,10 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         prompt.set(DEFAULT_PROMPT, 0)
       }
       imperatives.queueScroll()
-
-      // Homepage route: clearing all input must also clear the active owner
-      // (Bug 3). Without this, navigating away later carries the stale
-      // snapshot — the user thinks they cleared the draft but the portable
-      // owner still has it.
-      if (!params.id) {
-        const pinnedSlot = pinned.current()
-        if (pinnedSlot && pinnedSlot.directory === sdk.directory) {
-          // Don't release the pinned binding. Recording an empty payload keeps
-          // the slot bound for future edits while signaling that the user
-          // cleared the prefill.
-          pinned.recordEdit({
-            directory: sdk.directory,
-            prompt: DEFAULT_PROMPT,
-            context: [],
-            images: [],
-            resolvedMentions: {},
-          })
-        } else {
-          // Portable owner: record({empty}) tears down the snapshot.
-          portable.record({
-            sourceFilesystemDirectory: sdk.directory,
-            prompt: DEFAULT_PROMPT,
-            context: [],
-            images: [],
-            resolvedMentions: {},
-          })
-        }
-      }
+      // Owner clear is handled by the homepage owner mirror effect above —
+      // setting prompt to DEFAULT_PROMPT with no context/images flips
+      // isPayloadEmpty=true, which makes portable.record() tear down the
+      // snapshot (Bug 3 still covered, just centralized).
       return
     }
 
@@ -277,38 +308,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
 
     mirror.input = true
     prompt.set([...rawParts, ...images], cursorPosition)
-    if (!params.id) {
-      // Homepage route: mirror edit into pinned or portable owner after prompt.set.
-      // Build resolvedMentions from current context items.
-      const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
-      for (const item of prompt.context.items()) {
-        if (item.type === "file" && item.resolvedMentions?.length) {
-          resolvedMentionsMap[item.key] = item.resolvedMentions
-        }
-      }
-      const currentPinnedSlot = pinned.current()
-      if (currentPinnedSlot && currentPinnedSlot.directory === sdk.directory) {
-        // Pinned scope is active for this directory: route edits to pinned owner.
-        // This ensures "clearing pinned prefill and typing fresh text remains pinned-scope".
-        pinned.recordEdit({
-          directory: sdk.directory,
-          prompt: prompt.current(),
-          context: prompt.context.items().slice(),
-          images: imageAttachments(),
-          resolvedMentions: resolvedMentionsMap,
-        })
-      } else {
-        // No active pinned slot for this directory: route edits to portable owner.
-        portable.record({
-          sourceFilesystemDirectory: sdk.directory,
-          prompt: prompt.current(),
-          context: prompt.context.items().slice(),
-          images: imageAttachments(),
-          resolvedMentions: resolvedMentionsMap,
-        })
-      }
-    }
-    // Session routes do not mirror into the portable owner.
+    // Owner mirror is handled by the homepage owner mirror effect above.
     imperatives.queueScroll()
   }
 
@@ -394,6 +394,21 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     return true
   }
 
+  // Scoped copy handler: intercepts when selection touches any [data-cmd-mark]
+  // pill and rewrites text/plain to substitute the pill with `/<dataset.name>`.
+  // Browser default copies the visible textContent (just `<name>`, no slash),
+  // which would lose the slash for Path C paste / cross-app round-trip.
+  // Selections that do NOT touch a pill are untouched — default copy proceeds.
+  const handleCopy = (event: ClipboardEvent) => {
+    const editor = editorRef()
+    if (!selectionTouchesCommandMark(editor)) return
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return
+    event.preventDefault()
+    const rewritten = rewriteRangeForCommandCopy(sel.getRangeAt(0))
+    event.clipboardData?.setData("text/plain", rewritten)
+  }
+
   return {
     composing,
     isImeComposing,
@@ -401,6 +416,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
     handleCompositionStart,
     handleCompositionEnd,
     handleInput,
+    handleCopy,
     addPart,
   }
 }
