@@ -13,6 +13,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Config } from "../../src/config"
 import { TOOL_FAILURE_HINTS } from "../../src/session/tool-failure"
 import { LLMTrace } from "../../src/session/llm-trace"
+import { RunObservability } from "../../src/session/run-observability"
 
 const projectRoot = path.join(__dirname, "../..")
 void Log.init({ print: false })
@@ -682,6 +683,80 @@ describe("Export.session", () => {
           const result = await AppRuntime.runPromise(Export.session(root.id))
           expect(result.diagnostics.llm_traces).toBeUndefined()
           expect(result.diagnostics.llm_trace_schema_version).toBeUndefined()
+        } finally {
+          await SessionNs.remove(root.id)
+        }
+      },
+    })
+  })
+
+  test("collects run observability diagnostics as a top-level projection", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const root = await SessionNs.create({ title: "run observability" })
+        const userID = MessageID.make("msg_run_obs_user")
+        const assistantID = MessageID.make("msg_run_obs_assistant")
+        const summary: RunObservability.Summary = {
+          schema_version: 1,
+          run_id: RunObservability.RunID.make("run_export"),
+          trace_id: assistantID,
+          session_id: root.id,
+          message_id: assistantID,
+          parent_message_id: userID,
+          provider: "test",
+          model: "test-model",
+          created_at: 10,
+          completed_at: 20,
+          classification: "external_stream_disconnect",
+          summary_key: RunObservability.summaryKeyFor("external_stream_disconnect", "provider_progress_socket_closed"),
+          retry_safety: {
+            recommendation: "candidate_safe_auto_retry",
+            confidence: "medium",
+            reason: "no_visible_output_or_tool_execution",
+            safety_scope: "user_visible_and_tool_side_effects",
+          },
+          attempts: [],
+          provider_progress_seen: true,
+          visible_output_seen: false,
+          tool_call_seen: false,
+          tool_execution_started: false,
+          read_only_tool_started: false,
+          unsafe_side_effect_started: false,
+          unsafe_side_effect_kinds: [],
+          side_effect_facts_complete: true,
+          durations_ms: { total: 10 },
+          error: { name: "TypeError", message: "terminated", cause_code: "UND_ERR_SOCKET" },
+        }
+        try {
+          await SessionNs.updateMessage({
+            id: userID,
+            sessionID: root.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "build",
+            model: { providerID: "test", modelID: "test-model" },
+          } as MessageV2.User)
+          await SessionNs.updateMessage({
+            id: assistantID,
+            role: "assistant",
+            sessionID: root.id,
+            mode: "build",
+            agent: "build",
+            path: { cwd: projectRoot, root: projectRoot },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: "test-model",
+            providerID: "test",
+            parentID: userID,
+            time: { created: 10, completed: 20 },
+            finish: "error",
+            diagnostics: { run_observability: summary },
+          } as MessageV2.Assistant)
+
+          const result = await AppRuntime.runPromise(Export.session(root.id))
+          expect(result.diagnostics.run_observability_schema_version).toBe(1)
+          expect(result.diagnostics.run_observability).toEqual([summary])
         } finally {
           await SessionNs.remove(root.id)
         }
