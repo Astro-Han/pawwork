@@ -7,6 +7,8 @@ export const sessionComposerColumnSelector = '[data-component="session-composer-
 export const sessionTimelineColumnSelector = '[data-component="session-timeline-column"]'
 export const sessionTurnListSelector = '[data-slot="session-turn-list"]'
 export const sessionMessageItemSelector = "[data-message-id]"
+export const sessionVirtualizerSelector = '[data-component="session-timeline-virtualizer"]'
+export const sessionVirtualRowSelector = '[data-component="session-virtual-row"]'
 export const scrollViewSelector = '[data-component="scroll-view"]'
 export const scrollViewportSelector = '[data-component="scroll-viewport"]'
 export const scrollThumbSelector = '[data-component="scroll-thumb"]'

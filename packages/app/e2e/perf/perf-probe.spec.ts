@@ -7,6 +7,8 @@ import {
   promptSelector,
   sessionMessageItemSelector,
   sessionTurnListSelector,
+  sessionVirtualizerSelector,
+  sessionVirtualRowSelector,
   scrollViewportSelector,
   terminalSelector,
 } from "../selectors"
@@ -22,7 +24,8 @@ import {
 } from "./timeline-fixture"
 import { CONCURRENT_SHIMMER_COUNT, buildConcurrentShimmerReply } from "./concurrent-shimmer-fixture"
 
-const outputPath = process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
+const outputPath =
+  process.env.PAWWORK_PERF_OUTPUT ?? path.join(process.cwd(), "e2e", "perf-results", "pr0.1-baseline.json")
 const perfBranch = process.env.PAWWORK_PERF_BRANCH ?? "dev"
 const PERF_PROFILE = readPerfProfile()
 
@@ -54,7 +57,8 @@ const inputLagText = [
 ].join(" ")
 
 const longScrollSeedTurns = 104
-const longScrollMinimumRenderedMessages = 80
+const longScrollMinimumAvailableRows = 80
+const longScrollMaximumMountedMessages = 48
 const longScrollCoverageRatio = 0.95
 const longScrollMinimumProbeWindowMs = 15_000
 const longScrollMaxRouteDurationMs = 30_000
@@ -91,7 +95,10 @@ type WheelRouteResult = {
   final: TimelineMetrics
 }
 
-const chatChunk = (delta: Record<string, unknown>, input?: { finish?: string; usage?: { input: number; output: number } }) => ({
+const chatChunk = (
+  delta: Record<string, unknown>,
+  input?: { finish?: string; usage?: { input: number; output: number } },
+) => ({
   id: "chatcmpl-test",
   object: "chat.completion.chunk",
   choices: [
@@ -183,11 +190,16 @@ async function submitVisiblePrompt(page: Parameters<typeof snapshotPerfProbe>[0]
   await prompt.fill("")
   await page.keyboard.type(text)
   await page.keyboard.press("Enter")
-  await expect.poll(async () => (await readPromptSend(page)).started, { timeout: 10_000 }).toBeGreaterThan(previous.started)
+  await expect
+    .poll(async () => (await readPromptSend(page)).started, { timeout: 10_000 })
+    .toBeGreaterThan(previous.started)
 }
 
 async function readPromptText(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  return page.locator(promptSelector).first().evaluate((el) => (el.textContent ?? "").replace(/\u200B/g, "").trim())
+  return page
+    .locator(promptSelector)
+    .first()
+    .evaluate((el) => (el.textContent ?? "").replace(/\u200B/g, "").trim())
 }
 
 async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfProbe>[0], expectedCount: number) {
@@ -203,6 +215,31 @@ async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfP
     await loadEarlier.click()
   }
   await expect(messages).toHaveCount(expectedCount, { timeout: 30_000 })
+}
+
+async function readTimelineDomBudget(page: Parameters<typeof snapshotPerfProbe>[0]) {
+  return page.evaluate(
+    ({ messageSelector, rowSelector, virtualizerSelector }) => {
+      const virtualizer = document.querySelector(virtualizerSelector)
+      const rows = Array.from(document.querySelectorAll(rowSelector))
+      const messages = Array.from(document.querySelectorAll(messageSelector))
+      return {
+        totalRows: Number((virtualizer as HTMLElement | null)?.dataset.totalRows ?? 0),
+        mountedRows: rows.length,
+        mountedMessages: messages.length,
+        visibleRows: rows.filter((row) => {
+          if (!(row instanceof HTMLElement)) return false
+          const rect = row.getBoundingClientRect()
+          return rect.bottom > 0 && rect.top < window.innerHeight
+        }).length,
+      }
+    },
+    {
+      messageSelector: sessionMessageItemSelector,
+      rowSelector: sessionVirtualRowSelector,
+      virtualizerSelector: sessionVirtualizerSelector,
+    },
+  )
 }
 
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
@@ -266,13 +303,16 @@ async function revealLongScrollWindow(page: Parameters<typeof snapshotPerfProbe>
   await expect(messages.first()).toBeVisible({ timeout: 30_000 })
   await hoverTimelineScrollLane(page)
   for (let attempt = 0; attempt < 24; attempt += 1) {
-    if ((await messages.count()) >= longScrollMinimumRenderedMessages) return
+    const budget = await readTimelineDomBudget(page)
+    if (budget.totalRows >= longScrollMinimumAvailableRows) return
     await page.mouse.wheel(0, -2400)
     await settleFrames(page, 2)
     await scrollTimelineTo(page, 0)
     await settleFrames(page, 2)
   }
-  await expect.poll(async () => messages.count().catch(() => -1), { timeout: 1_000 }).toBeGreaterThanOrEqual(longScrollMinimumRenderedMessages)
+  await expect
+    .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 1_000 })
+    .toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
 }
 
 async function installComposerPerfDriver(page: Parameters<typeof snapshotPerfProbe>[0]) {
@@ -319,11 +359,7 @@ function longScrollTodoDriver(run: number, phase: number): ComposerDriverState {
   }
 }
 
-function longScrollTodoPulse(
-  page: Parameters<typeof snapshotPerfProbe>[0],
-  sessionID: string,
-  run: number,
-) {
+function longScrollTodoPulse(page: Parameters<typeof snapshotPerfProbe>[0], sessionID: string, run: number) {
   const checkpoints = [700, 1_600, 2_800, 4_200]
   let next = 0
   return async (elapsedMs: number) => {
@@ -492,11 +528,7 @@ async function enableShellToolPartsExpanded(page: Parameters<typeof snapshotPerf
   await page.evaluate(apply)
 }
 
-async function seedHeavyBashSession(input: {
-  project: PerfProject
-  llm: PerfLlm
-  run: number
-}) {
+async function seedHeavyBashSession(input: { project: PerfProject; llm: PerfLlm; run: number }) {
   const session = await input.project.sdk.session
     .create({
       title: `perf heavy bash ${Date.now()}-${input.run}`,
@@ -571,7 +603,9 @@ test.describe("PR0.1 perf probe baseline", () => {
       if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "homepage-cold", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "homepage-cold", runs }),
+    )
   })
 
   test("long-session-input-lag emits a 3-run JSON baseline", async ({ page, project }) => {
@@ -602,7 +636,9 @@ test.describe("PR0.1 perf probe baseline", () => {
       })
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "long-session-input-lag", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "long-session-input-lag", runs }),
+    )
   })
 
   test("session-streaming-long emits a 3-run JSON baseline", async ({ page, project, llm }) => {
@@ -616,7 +652,10 @@ test.describe("PR0.1 perf probe baseline", () => {
       const firstWave = deferred()
       const secondWave = deferred()
       const chunks = splitText(longMarkdown, 320)
-      const headChunks = [chatChunk({ role: "assistant" }), ...chunks.slice(0, 3).map((chunk) => chatChunk({ content: chunk }))]
+      const headChunks = [
+        chatChunk({ role: "assistant" }),
+        ...chunks.slice(0, 3).map((chunk) => chatChunk({ content: chunk })),
+      ]
       const stageOneChunks = chunks.slice(3, 9).map((chunk) => chatChunk({ content: chunk }))
       const stageTwoChunks = chunks.slice(9).map((chunk) => chatChunk({ content: chunk }))
 
@@ -634,7 +673,9 @@ test.describe("PR0.1 perf probe baseline", () => {
 
       const send = project.prompt(`Stream probe ${run + 1}`)
       await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
-      await expect(page.getByText("This stream exists to stress markdown rendering while the session remains interactive.")).toBeVisible({
+      await expect(
+        page.getByText("This stream exists to stress markdown rendering while the session remains interactive."),
+      ).toBeVisible({
         timeout: 30_000,
       })
 
@@ -649,7 +690,9 @@ test.describe("PR0.1 perf probe baseline", () => {
       if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-streaming-long", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-streaming-long", runs }),
+    )
   })
 
   test("tool-call-expand emits a 3-run JSON baseline", async ({ page, project, llm }) => {
@@ -667,7 +710,10 @@ test.describe("PR0.1 perf probe baseline", () => {
       await llm.tool("enter-worktree", { path: created.directory })
       await llm.text(`tool call baseline ${run + 1}`)
       await project.prompt(`Create todos for perf probe run ${run + 1}.`)
-      const trigger = page.locator('[data-slot="collapsible-trigger"]').filter({ has: page.locator('[data-component="tool-trigger"]') }).first()
+      const trigger = page
+        .locator('[data-slot="collapsible-trigger"]')
+        .filter({ has: page.locator('[data-component="tool-trigger"]') })
+        .first()
       await expect(trigger).toBeVisible({ timeout: 30_000 })
       await resetPerfProbe(page)
       await trigger.click()
@@ -681,7 +727,9 @@ test.describe("PR0.1 perf probe baseline", () => {
       if (run < 2) await cooldownAfterRun(page)
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-call-expand", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-call-expand", runs }),
+    )
   })
 
   test("tool-default-open-heavy-bash emits a 3-run JSON baseline", async ({ page, project, llm }) => {
@@ -696,7 +744,10 @@ test.describe("PR0.1 perf probe baseline", () => {
       const session = await seedHeavyBashSession({ project, llm, run })
       try {
         await page.goto(sessionPath(project.directory, session.id))
-        const trigger = page.locator('[data-slot="collapsible-trigger"]').filter({ has: page.locator('[data-component="tool-trigger"]') }).first()
+        const trigger = page
+          .locator('[data-slot="collapsible-trigger"]')
+          .filter({ has: page.locator('[data-component="tool-trigger"]') })
+          .first()
         await expect(trigger).toBeVisible({ timeout: 30_000 })
         await expect(trigger).toHaveAttribute("aria-expanded", "true")
         await settleFrames(page, 2)
@@ -708,7 +759,12 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(
-      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "tool-default-open-heavy-bash", runs }),
+      summarizeScenarioRuns({
+        branch: perfBranch,
+        profile: PERF_PROFILE,
+        scenario: "tool-default-open-heavy-bash",
+        runs,
+      }),
     )
   })
 
@@ -738,7 +794,9 @@ test.describe("PR0.1 perf probe baseline", () => {
       })
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "terminal-side-panel-open", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "terminal-side-panel-open", runs }),
+    )
   })
 
   test("session-scroll-reading emits a 3-run JSON baseline", async ({ page, project }) => {
@@ -779,7 +837,9 @@ test.describe("PR0.1 perf probe baseline", () => {
       })
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-scroll-reading", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-scroll-reading", runs }),
+    )
   })
 
   test("session-scroll-reading-long emits a low-end full-coverage JSON baseline", async ({ page, project }) => {
@@ -796,6 +856,10 @@ test.describe("PR0.1 perf probe baseline", () => {
         await seedLongScrollSession(project, session.id, run)
         await page.goto(sessionPath(project.directory, session.id))
         await revealLongScrollWindow(page)
+        const budget = await readTimelineDomBudget(page)
+        expect(budget.totalRows).toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
+        expect(budget.mountedMessages).toBeLessThanOrEqual(longScrollMaximumMountedMessages)
+        expect(budget.mountedMessages).toBeLessThan(budget.totalRows)
         await writeComposerDriver(page, session.id, longScrollTodoDriver(run, 0))
         await expandLongScrollTodoDock(page)
 
@@ -852,7 +916,12 @@ test.describe("PR0.1 perf probe baseline", () => {
     }
 
     scenarioResults.push(
-      summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-scroll-reading-long", runs }),
+      summarizeScenarioRuns({
+        branch: perfBranch,
+        profile: PERF_PROFILE,
+        scenario: "session-scroll-reading-long",
+        runs,
+      }),
     )
   })
 
@@ -882,7 +951,14 @@ test.describe("PR0.1 perf probe baseline", () => {
       })
     }
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "session-timeline-recompute", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({
+        branch: perfBranch,
+        profile: PERF_PROFILE,
+        scenario: "session-timeline-recompute",
+        runs,
+      }),
+    )
   })
 
   test("concurrent-shimmer-extreme emits a low-end JSON baseline", async ({ page, project, llm }) => {
@@ -911,9 +987,7 @@ test.describe("PR0.1 perf probe baseline", () => {
     // Guard against CI runners with reduced-motion forced on — text-shimmer.css
     // disables the animation entirely in that mode, which would silently mask
     // any regression.
-    const reducedMotion = await page.evaluate(
-      () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    )
+    const reducedMotion = await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)
     expect(reducedMotion).toBe(false)
 
     // Sample idle-shimmer cost across at least 2 full 1800ms cycles so the
@@ -923,6 +997,13 @@ test.describe("PR0.1 perf probe baseline", () => {
     await settleFrames(page, 4)
     const runs = [await snapshotPerfProbe(page)]
 
-    scenarioResults.push(summarizeScenarioRuns({ branch: perfBranch, profile: PERF_PROFILE, scenario: "concurrent-shimmer-extreme", runs }))
+    scenarioResults.push(
+      summarizeScenarioRuns({
+        branch: perfBranch,
+        profile: PERF_PROFILE,
+        scenario: "concurrent-shimmer-extreme",
+        runs,
+      }),
+    )
   })
 })
