@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo } from "solid-js"
+import { Show, createEffect, createMemo, createSignal, on } from "solid-js"
 import { useNavigate } from "@solidjs/router"
 import { useSpring } from "@opencode-ai/ui/motion-spring"
 import { DockCard, DockSegment } from "@opencode-ai/ui/dock-card"
@@ -88,13 +88,34 @@ export function SessionComposerRegion(props: {
 
   const rolled = createMemo(() => (props.revert?.items.length ? props.revert : undefined))
 
-  // Animate the Todo dock from 0 → visible when todos first appear (and back
-  // out when the dock closes). Multiplied into max-height inside the segment
-  // for slide-in + fed as dockProgress for content fade. Without this the
-  // dock pops in the moment props.state.dock() flips true.
+  // Animate the Todo dock from 0 → visible only for newly created live todos
+  // (and back out when the dock closes). Restored session todos jump straight
+  // to the settled height so opening an existing session does not replay the
+  // entrance animation from history.
   const dockOpen = createMemo(() => props.state.dock())
+  const [dockOpeningMotion, setDockOpeningMotion] = createSignal(false)
   const dockSpring = useSpring(() => (dockOpen() ? 1 : 0), DOCK_MOTION)
-  const dockProgress = createMemo(() => Math.max(0, Math.min(1, dockSpring())))
+  createEffect(
+    on(
+      () => ({ open: dockOpen(), opening: props.state.opening(), key: displaySessionKey() }),
+      (current, previous) => {
+        if (!current.open) {
+          setDockOpeningMotion(false)
+          return
+        }
+        if (current.opening) setDockOpeningMotion(true)
+        else if (previous?.key !== current.key) setDockOpeningMotion(false)
+      },
+    ),
+  )
+  createEffect(() => {
+    if (dockOpeningMotion() && dockSpring() >= 0.999) setDockOpeningMotion(false)
+  })
+  const dockProgress = createMemo(() => {
+    const progress = Math.max(0, Math.min(1, dockSpring()))
+    if (dockOpen() && !dockOpeningMotion()) return 1
+    return progress
+  })
   const dockMounted = createMemo(() => dockOpen() || dockProgress() > 0.001)
   const dockKind = createMemo(() => {
     if (props.state.questionRequest()) return "question"
