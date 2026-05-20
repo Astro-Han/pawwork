@@ -25,6 +25,8 @@ import { isRecord } from "@/util/record"
 import { TurnChange } from "./turn-change"
 import { LLMTrace } from "./llm-trace"
 import { RunObservability } from "./run-observability"
+import { currentLifecycleCloseAction } from "./lifecycle-provenance"
+import { Instance } from "@/project/instance"
 
 const log = Log.create({ service: "session.processor" })
 const TOOL_CLEANUP_TIMEOUT_MS = 1_000
@@ -1073,12 +1075,15 @@ export const layer: Layer.Layer<
             Effect.onInterrupt(() =>
               Effect.gen(function* () {
                 aborted = true
+                const lifecycleAction = currentLifecycleCloseAction(Instance.directory)
                 ctx.runTrace.recordScopeClosed({
                   at: Date.now(),
                   monotonicMs: performance.now(),
                   source: "session.processor.onInterrupt",
                   reason: "aborted",
                   propagationPoint: "session.processor.process.onInterrupt",
+                  lifecycleActionID: lifecycleAction?.actionID,
+                  lifecycleKind: lifecycleAction?.kind,
                 })
                 ctx.trace.recordAbortState({
                   provenanceSource: "session.processor.onInterrupt",

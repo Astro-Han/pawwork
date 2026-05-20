@@ -36,6 +36,8 @@ interface PendingHandle<A, E> {
 export interface InterruptMeta {
   source?: string
   reason?: string
+  lifecycleActionID?: string
+  lifecycleKind?: string
   // Reserved for future paths that originate from a tool or model ctx.abort signal instead of
   // an explicit session.cancel call.
   viaCtxAbort?: boolean
@@ -55,7 +57,7 @@ export const make = <A, E = never>(
     onIdle?: Effect.Effect<void>
     onBusy?: Effect.Effect<void>
     onInterrupt?: (meta?: InterruptMeta) => Effect.Effect<A, E>
-    interruptFallback?: InterruptMeta
+    interruptFallback?: InterruptMeta | (() => InterruptMeta)
     busy?: () => never
   },
 ): Runner<A, E> => {
@@ -79,6 +81,8 @@ export const make = <A, E = never>(
     source: "runner.interrupt_without_meta",
     reason: "fiber_interrupt_without_meta",
   }
+  const getInterruptFallback = () =>
+    typeof interruptFallback === "function" ? interruptFallback() : interruptFallback
 
   const complete = (done: Deferred.Deferred<A, E | Cancelled>, exit: Exit.Exit<A, E>) =>
     Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
@@ -117,7 +121,7 @@ export const make = <A, E = never>(
 
   const resolveInterrupt = (interruptMeta: Ref.Ref<InterruptMeta | undefined>): Effect.Effect<A, E> =>
     Effect.gen(function* () {
-      const meta = withRecordedInterruptMeta(yield* Ref.get(interruptMeta), interruptFallback)
+      const meta = withRecordedInterruptMeta(yield* Ref.get(interruptMeta), getInterruptFallback())
       if (onInterrupt) return yield* onInterrupt(meta)
       return yield* Effect.die(new Cancelled())
     })
