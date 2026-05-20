@@ -15,6 +15,7 @@ import type { createSdk } from "../utils"
 import { composerEvent, type ComposerDriverState, type ComposerWindow } from "../../src/testing/session-composer"
 import { installPerfProbe, resetPerfProbe, snapshotPerfProbe, summarizeScenarioRuns } from "./probe"
 import { applyPerfProfile, readPerfProfile, shouldRunScenario, type PerfScenarioName } from "./profiles"
+import { readTimelineDomBudget, shouldAssertTimelineVirtualization } from "./timeline-dom-budget"
 import {
   TIMELINE_RECOMPUTE_SEED_TURN_COUNT,
   buildHeterogeneousScrollSeedText,
@@ -55,8 +56,6 @@ const inputLagText = [
 ].join(" ")
 
 const longScrollSeedTurns = 104
-const sessionVirtualizerSelector = '[data-component="session-timeline-virtualizer"]'
-const sessionVirtualRowSelector = '[data-component="session-virtual-row"]'
 const longScrollMinimumAvailableRows = 80
 const longScrollMaximumMountedMessages = 48
 const longScrollCoverageRatio = 0.95
@@ -217,33 +216,6 @@ async function revealCachedSessionMessages(page: Parameters<typeof snapshotPerfP
   await expect
     .poll(async () => (await readTimelineDomBudget(page)).totalRows, { timeout: 30_000 })
     .toBeGreaterThanOrEqual(expectedCount)
-}
-
-async function readTimelineDomBudget(page: Parameters<typeof snapshotPerfProbe>[0]) {
-  return page.evaluate(
-    ({ messageSelector, rowSelector, virtualizerSelector }) => {
-      const virtualizer = document.querySelector(virtualizerSelector)
-      const rows = Array.from(document.querySelectorAll(rowSelector))
-      const messages = Array.from(document.querySelectorAll(messageSelector))
-      const virtualizedTotalRows = Number((virtualizer as HTMLElement | null)?.dataset.totalRows ?? 0)
-      return {
-        hasVirtualizer: virtualizer instanceof HTMLElement,
-        totalRows: virtualizedTotalRows > 0 ? virtualizedTotalRows : messages.length,
-        mountedRows: rows.length,
-        mountedMessages: messages.length,
-        visibleRows: rows.filter((row) => {
-          if (!(row instanceof HTMLElement)) return false
-          const rect = row.getBoundingClientRect()
-          return rect.bottom > 0 && rect.top < window.innerHeight
-        }).length,
-      }
-    },
-    {
-      messageSelector: sessionMessageItemSelector,
-      rowSelector: sessionVirtualRowSelector,
-      virtualizerSelector: sessionVirtualizerSelector,
-    },
-  )
 }
 
 async function scrollTimelineTo(page: Parameters<typeof snapshotPerfProbe>[0], top: number) {
@@ -864,7 +836,7 @@ test.describe("PR0.1 perf probe baseline", () => {
         await revealLongScrollWindow(page)
         const budget = await readTimelineDomBudget(page)
         expect(budget.totalRows).toBeGreaterThanOrEqual(longScrollMinimumAvailableRows)
-        if (perfBranch !== "base") {
+        if (shouldAssertTimelineVirtualization(perfBranch)) {
           expect(budget.hasVirtualizer).toBe(true)
           expect(budget.mountedMessages).toBeLessThanOrEqual(longScrollMaximumMountedMessages)
           expect(budget.mountedMessages).toBeLessThan(budget.totalRows)
