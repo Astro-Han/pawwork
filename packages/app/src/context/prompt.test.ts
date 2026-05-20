@@ -161,3 +161,25 @@ describe("isPartEqual with command field", () => {
   })
 })
 
+describe("isStructurallyEmpty", () => {
+  test("DEFAULT_PROMPT + no context + no images → true", () => {
+    expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [])).toBe(true)
+  })
+  test("whitespace-only text → false", () => {
+    const p: Prompt = [{ type: "text", content: "   ", start: 0, end: 3 }]
+    expect(isStructurallyEmpty(p, [], [])).toBe(false)
+  })
+  test("attachments present → false", () => {
+    const file = { type: "file" as const, content: "@foo.ts", start: 0, end: 7, path: "foo.ts" }
+    expect(isStructurallyEmpty([file], [], [])).toBe(false)
+  })
+  test("context items present → false", () => {
+    const ctx: ContextItem[] = [{ type: "file", path: "foo.ts" }]
+    expect(isStructurallyEmpty(DEFAULT_PROMPT, ctx, [])).toBe(false)
+  })
+  test("image attachments present → false", () => {
+    const image: ImageAttachmentPart = { type: "image", id: "1", filename: "a.png", mime: "image/png", dataUrl: "data:" }
+    expect(isStructurallyEmpty(DEFAULT_PROMPT, [], [image])).toBe(false)
+  })
+})
+

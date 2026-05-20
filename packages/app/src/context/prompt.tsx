@@ -101,6 +101,16 @@ export function isPromptEqual(promptA: Prompt, promptB: Prompt): boolean {
   return true
 }
 
+export function isStructurallyEmpty(
+  prompt: Prompt,
+  contextItems: readonly ContextItem[],
+  imageAttachments: readonly ImageAttachmentPart[],
+): boolean {
+  if (contextItems.length > 0) return false
+  if (imageAttachments.length > 0) return false
+  return isPromptEqual(prompt, DEFAULT_PROMPT)
+}
+
 function cloneSelection(selection?: FileSelection) {
   if (!selection) return undefined
   return { ...selection }
