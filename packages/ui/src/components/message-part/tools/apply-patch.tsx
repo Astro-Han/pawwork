@@ -15,6 +15,8 @@ import { getDirectory } from "../markdown-render"
 import { ToolRegistry } from "../registry"
 import { ToolFileAccordion } from "./_file-accordion"
 
+const applyPatchExpandedState = new Map<string, string[]>()
+
 ToolRegistry.register({
   name: "apply_patch",
   render(props) {
@@ -27,7 +29,9 @@ ToolRegistry.register({
       if (list.length !== 1) return
       return list[0]
     })
-    const [expanded, setExpanded] = createSignal<string[]>([])
+    const [expanded, setExpanded] = createSignal<string[]>(
+      props.stateKey ? (applyPatchExpandedState.get(props.stateKey) ?? []) : [],
+    )
     let seeded = false
 
     createEffect(() => {
@@ -35,7 +39,9 @@ ToolRegistry.register({
       if (list.length === 0) return
       if (seeded) return
       seeded = true
-      setExpanded(list.filter((f) => f.type !== "delete").map((f) => f.filePath))
+      const next = list.filter((f) => f.type !== "delete").map((f) => f.filePath)
+      setExpanded(next)
+      if (props.stateKey) applyPatchExpandedState.set(props.stateKey, next)
     })
 
     const subtitle = createMemo(() => {
@@ -64,7 +70,11 @@ ToolRegistry.register({
                   data-scope="apply-patch"
                   style={{ "--sticky-accordion-offset": "calc(32px + var(--tool-content-gap))" }}
                   value={expanded()}
-                  onChange={(value) => setExpanded(Array.isArray(value) ? value : value ? [value] : [])}
+                  onChange={(value) => {
+                    const next = Array.isArray(value) ? value : value ? [value] : []
+                    setExpanded(next)
+                    if (props.stateKey) applyPatchExpandedState.set(props.stateKey, next)
+                  }}
                 >
                   <For each={files()}>
                     {(file) => {

@@ -37,7 +37,10 @@ export interface BasicToolProps {
   onTriggerClick?: JSX.EventHandlerUnion<HTMLElement, MouseEvent>
   triggerHref?: string
   clickable?: boolean
+  stateKey?: string
 }
+
+const basicToolOpenState = new Map<string, boolean>()
 
 const SPRING = { type: "spring" as const, visualDuration: 0.35, bounce: 0 }
 
@@ -47,9 +50,12 @@ export function basicToolInitialReady(props: { defaultOpen?: boolean; defer?: bo
 }
 
 export function BasicTool(props: BasicToolProps) {
+  const initialOpen = props.stateKey
+    ? (basicToolOpenState.get(props.stateKey) ?? props.defaultOpen ?? false)
+    : (props.defaultOpen ?? false)
   const [state, setState] = createStore({
-    open: props.defaultOpen ?? false,
-    ready: basicToolInitialReady(props),
+    open: initialOpen,
+    ready: basicToolInitialReady({ defaultOpen: initialOpen, defer: props.defer }),
   })
   const open = () => state.open
   const ready = () => state.ready
@@ -74,7 +80,9 @@ export function BasicTool(props: BasicToolProps) {
   onCleanup(cancel)
 
   createEffect(() => {
-    if (props.forceOpen) setState("open", true)
+    if (!props.forceOpen) return
+    setState("open", true)
+    if (props.stateKey) basicToolOpenState.set(props.stateKey, true)
   })
 
   createEffect(() => {
@@ -97,7 +105,7 @@ export function BasicTool(props: BasicToolProps) {
   // Animated height for collapsible open/close
   let contentRef: HTMLDivElement | undefined
   let heightAnim: AnimationPlaybackControls | undefined
-  const initialOpen = open()
+  const animatedInitialOpen = open()
 
   createEffect(
     on(
@@ -134,6 +142,7 @@ export function BasicTool(props: BasicToolProps) {
     if (pending()) return
     if (props.locked && !value) return
     setState("open", value)
+    if (props.stateKey) basicToolOpenState.set(props.stateKey, value)
   }
 
   const triggerInfo = () => {
@@ -237,8 +246,8 @@ export function BasicTool(props: BasicToolProps) {
           data-slot="collapsible-content"
           data-animated
           style={{
-            height: initialOpen ? "auto" : "0px",
-            overflow: initialOpen ? "visible" : "hidden",
+            height: animatedInitialOpen ? "auto" : "0px",
+            overflow: animatedInitialOpen ? "visible" : "hidden",
             "pointer-events": closingAnimatedDetails() ? "none" : undefined,
           }}
           aria-hidden={closingAnimatedDetails() ? "true" : undefined}

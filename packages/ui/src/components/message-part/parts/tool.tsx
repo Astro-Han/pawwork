@@ -41,9 +41,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
   // renders. Flag-on: render the thin marker (no hide).
   const hideQuestion = createMemo(() => isQuestionRunning() && !newQuestionPath())
   // Hide synthetic stop tool parts while keeping metadata available for exported diagnostics.
-  const hideSyntheticStop = createMemo(
-    () => partMetadata().diagnostics?.loop?.loopAction === "stop",
-  )
+  const hideSyntheticStop = createMemo(() => partMetadata().diagnostics?.loop?.loopAction === "stop")
   const taskId = createMemo(() => {
     if (part().tool !== TOOL_AGENT_LEGACY && part().tool !== TOOL_AGENT) return // agent-rename:legacy-render
     const value = partMetadata().sessionId
@@ -84,17 +82,9 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
               "completed", so this branch would otherwise be unreachable.
               `metadata.dismissed === true` is unique to the new path (the
               legacy dismiss flow routes through the error branch). */}
-          <Match
-            when={
-              isQuestion() &&
-              part().state.status === "completed" &&
-              partMetadata()?.dismissed === true
-            }
-          >
+          <Match when={isQuestion() && part().state.status === "completed" && partMetadata()?.dismissed === true}>
             <div style="width: 100%; display: flex; justify-content: flex-end;">
-              <span class="text-body text-fg-weak cursor-default">
-                {i18n.t("ui.messagePart.questions.dismissed")}
-              </span>
+              <span class="text-body text-fg-weak cursor-default">{i18n.t("ui.messagePart.questions.dismissed")}</span>
             </div>
           </Match>
           <Match when={part().state.status === "error" && toolStateError(part().state)}>
@@ -104,7 +94,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
               // fall through to the substring fallback below for back-compat.
               const reason =
                 part().state.status === "error" && "reason" in part().state
-                  ? ((part().state as { reason?: "aborted" | "shutdown" | "tool_failure" }).reason)
+                  ? (part().state as { reason?: "aborted" | "shutdown" | "tool_failure" }).reason
                   : undefined
               if (isQuestion() && (reason === "aborted" || reason === "shutdown")) {
                 return (
@@ -147,6 +137,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
                   tool={part().tool}
                   error={webSearchError?.error ?? error()}
                   defaultOpen={props.defaultOpen}
+                  stateKey={props.stateKey ? `${props.stateKey}:error` : undefined}
                   subtitle={webSearchError?.subtitle ?? taskSubtitle()}
                   href={taskHref()}
                 />
@@ -164,6 +155,7 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
               status={part().state.status}
               hideDetails={props.hideDetails}
               defaultOpen={props.defaultOpen}
+              stateKey={props.stateKey}
             />
           </Match>
         </Switch>

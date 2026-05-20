@@ -440,7 +440,11 @@ export function SessionTurn(
                   )}
                 </Show>
                 <Show when={!hasVisibleTurnChanges(turnChange()) && diffs().length > 0 && !working()}>
-                  <SessionTurnDiffs diffs={diffs()} onShowAllToggle={() => autoScroll.pause()} />
+                  <SessionTurnDiffs
+                    diffs={diffs()}
+                    onShowAllToggle={() => autoScroll.pause()}
+                    stateKey={props.messageID}
+                  />
                 </Show>
                 <Show when={error()}>
                   <Card variant="error" class="error-card">

@@ -12,16 +12,19 @@ import { normalize } from "./session-diff"
 import { StickyAccordionHeader } from "./sticky-accordion-header"
 
 const MAX_FILES = 10
+const turnDiffState = new Map<string, { showAll: boolean; expanded: string[] }>()
 
 export function SessionTurnDiffs(props: {
   diffs: SnapshotFileDiff[]
   onShowAllToggle?: () => void
+  stateKey?: string
 }) {
   const i18n = useI18n()
   const fileComponent = useFileComponent()
+  const persisted = props.stateKey ? turnDiffState.get(props.stateKey) : undefined
   const [state, setState] = createStore({
-    showAll: false,
-    expanded: [] as string[],
+    showAll: persisted?.showAll ?? false,
+    expanded: persisted?.expanded ?? ([] as string[]),
   })
   const showAll = () => state.showAll
   const expanded = () => state.expanded
@@ -30,7 +33,13 @@ export function SessionTurnDiffs(props: {
   const visible = createMemo(() => (showAll() ? props.diffs : props.diffs.slice(0, MAX_FILES)))
   const toggleAll = () => {
     props.onShowAllToggle?.()
-    setState("showAll", !showAll())
+    const next = !showAll()
+    setState("showAll", next)
+    if (props.stateKey) turnDiffState.set(props.stateKey, { showAll: next, expanded: expanded() })
+  }
+  const setExpandedPersistent = (value: string[]) => {
+    setState("expanded", value)
+    if (props.stateKey) turnDiffState.set(props.stateKey, { showAll: showAll(), expanded: value })
   }
 
   return (
@@ -56,7 +65,7 @@ export function SessionTurnDiffs(props: {
           multiple
           style={{ "--sticky-accordion-offset": "44px" }}
           value={expanded()}
-          onChange={(value) => setState("expanded", Array.isArray(value) ? value : value ? [value] : [])}
+          onChange={(value) => setExpandedPersistent(Array.isArray(value) ? value : value ? [value] : [])}
         >
           <For each={visible()}>
             {(diff) => {

@@ -70,6 +70,7 @@ export function AssistantMessageDisplay(props: {
                       part={stableItem()!}
                       message={props.message}
                       showAssistantCopyPartID={props.showAssistantCopyPartID}
+                      stateKey={`tool:${stableItem()!.id}`}
                     />
                   </Show>
                 )

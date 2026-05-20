@@ -7,9 +7,16 @@ import { AnimatedCountList } from "../tool-count-summary"
 import { ToolStatusTitle } from "../tool-status-title"
 import { contextToolSummary, contextToolTrigger } from "./context-tool-helpers"
 
+const contextToolGroupOpenState = new Map<string, boolean>()
+
 export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   const i18n = useI18n()
-  const [open, setOpen] = createSignal(false)
+  const stateKey = createMemo(() => props.parts.map((part) => part.id).join(":"))
+  const [open, setOpen] = createSignal(contextToolGroupOpenState.get(stateKey()) ?? false)
+  const setPersistentOpen = (value: boolean) => {
+    setOpen(value)
+    contextToolGroupOpenState.set(stateKey(), value)
+  }
   const pending = createMemo(
     () =>
       !!props.busy || props.parts.some((part) => part.state.status === "pending" || part.state.status === "running"),
@@ -17,13 +24,10 @@ export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   const summary = createMemo(() => contextToolSummary(props.parts))
 
   return (
-    <Collapsible open={open()} onOpenChange={setOpen} variant="ghost" class="tool-collapsible">
+    <Collapsible open={open()} onOpenChange={setPersistentOpen} variant="ghost" class="tool-collapsible">
       <Collapsible.Trigger>
         <div data-component="context-tool-group-trigger">
-          <span
-            data-slot="context-tool-group-title"
-            class="min-w-0 flex items-center gap-2 text-h3 text-fg-strong"
-          >
+          <span data-slot="context-tool-group-title" class="min-w-0 flex items-center gap-2 text-h3 text-fg-strong">
             <span data-slot="context-tool-group-label" class="shrink-0">
               <ToolStatusTitle
                 active={pending()}
