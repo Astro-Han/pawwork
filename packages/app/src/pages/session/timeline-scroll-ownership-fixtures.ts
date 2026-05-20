@@ -53,6 +53,12 @@ export const timelineScrollOwnershipFixtures = {
       sink.scrollTo({ top: 10 })
     }
   `,
+  fakeNestedSinkProperty: `
+    export function bypass(viewport: HTMLElement) {
+      const wrapper = { fake_scrollCommandSink: viewport }
+      wrapper.fake_scrollCommandSink.scrollTo({ top: 10 })
+    }
+  `,
   importedUtility: `
     import { scrollTimelineViewport } from "./scroll-utils"
     export function bypass(viewport: HTMLElement) {

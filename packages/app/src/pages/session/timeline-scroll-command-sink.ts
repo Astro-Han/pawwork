@@ -77,25 +77,30 @@ export function createTimelineScrollCommandSink(input?: {
   const remember = (record: TimelineScrollCommandRecord) => {
     records.push(record)
     while (records.length > maxRecords) records.shift()
-    input?.emitDiagnostic?.({
-      name: "session.timeline.scroll_command",
-      route_session_id: record.routeSessionID,
-      visible_session_id: record.visibleSessionID,
-      timeline_session_id: record.timelineSessionID,
-      monotonic_ms: record.monotonicMs,
-      data: {
-        command_type: record.type,
-        command_method: record.method,
-        command_source: record.source,
-        command_reason: record.reason,
-        command_top: record.top,
-        command_behavior: record.behavior,
-        before_scroll_top: record.before?.scrollTop,
-        before_distance_from_bottom: record.before?.distanceFromBottom,
-        after_scroll_top: record.after?.scrollTop,
-        after_distance_from_bottom: record.after?.distanceFromBottom,
-      },
-    })
+    try {
+      const maybePromise = input?.emitDiagnostic?.({
+        name: "session.timeline.scroll_command",
+        route_session_id: record.routeSessionID,
+        visible_session_id: record.visibleSessionID,
+        timeline_session_id: record.timelineSessionID,
+        monotonic_ms: record.monotonicMs,
+        data: {
+          command_type: record.type,
+          command_method: record.method,
+          command_source: record.source,
+          command_reason: record.reason,
+          command_top: record.top,
+          command_behavior: record.behavior,
+          before_scroll_top: record.before?.scrollTop,
+          before_distance_from_bottom: record.before?.distanceFromBottom,
+          after_scroll_top: record.after?.scrollTop,
+          after_distance_from_bottom: record.after?.distanceFromBottom,
+        },
+      })
+      void maybePromise?.catch?.(() => {})
+    } catch {
+      // Diagnostics should never affect timeline scroll command execution.
+    }
     return record
   }
 

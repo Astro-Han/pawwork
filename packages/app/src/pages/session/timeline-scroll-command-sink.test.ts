@@ -99,4 +99,26 @@ describe("TimelineScrollCommandSink", () => {
 
     expect(sink.records().map((record) => record.source)).toEqual(["two", "three"])
   })
+
+  test("keeps diagnostic failures out of the scroll path", async () => {
+    const scroller = makeScroller({ clientHeight: 100, scrollHeight: 900, scrollTop: 0 })
+    const syncSink = createTimelineScrollCommandSink({
+      emitDiagnostic: () => {
+        throw new Error("diagnostic sync failure")
+      },
+    })
+    const asyncSink = createTimelineScrollCommandSink({
+      emitDiagnostic: () => Promise.reject(new Error("diagnostic async failure")),
+    })
+
+    expect(() => {
+      syncSink.setScrollTop({ element: scroller.el, top: 10, type: "bottom-follow", source: "sync" })
+    }).not.toThrow()
+
+    asyncSink.setScrollTop({ element: scroller.el, top: 20, type: "bottom-follow", source: "async" })
+    await Promise.resolve()
+
+    expect(syncSink.records()[0]?.source).toBe("sync")
+    expect(asyncSink.records()[0]?.source).toBe("async")
+  })
 })

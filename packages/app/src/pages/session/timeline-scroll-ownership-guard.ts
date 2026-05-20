@@ -123,8 +123,17 @@ function isTimelineScrollCommandSinkCall(node: ts.CallExpression, sinkIdentifier
   if (method !== "scrollTo" && method !== "setScrollTop") return false
   const receiver = node.expression.expression
   if (ts.isIdentifier(receiver)) return sinkIdentifiers.has(receiver.text)
-  const receiverText = receiver.getText()
-  return receiverText.includes("scrollCommandSink") || receiverText.includes("TimelineScrollCommandSink")
+  if (ts.isPropertyAccessExpression(receiver)) return receiver.name.text === "scrollCommandSink"
+  if (ts.isElementAccessExpression(receiver)) {
+    const argument = receiver.argumentExpression
+    if (ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)) {
+      return argument.text === "scrollCommandSink"
+    }
+  }
+  if (ts.isCallExpression(receiver) && ts.isIdentifier(receiver.expression)) {
+    return receiver.expression.text === "scrollCommandSink"
+  }
+  return false
 }
 
 export function scanTimelineScrollOwnershipText(input: ScanTextInput) {

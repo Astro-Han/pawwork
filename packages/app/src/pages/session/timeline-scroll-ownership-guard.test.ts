@@ -22,6 +22,7 @@ describe("timeline scroll ownership guard", () => {
       timelineScrollOwnershipFixtures.computedScrollTop,
       timelineScrollOwnershipFixtures.scrollTopIncrement,
       timelineScrollOwnershipFixtures.fakeSinkAlias,
+      timelineScrollOwnershipFixtures.fakeNestedSinkProperty,
       timelineScrollOwnershipFixtures.importedUtility,
       timelineScrollOwnershipFixtures.virtualizerReveal,
     ]
