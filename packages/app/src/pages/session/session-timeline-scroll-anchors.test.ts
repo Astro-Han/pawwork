@@ -4,6 +4,7 @@ import {
   restoreTimelineSafePosition,
   sampleTimelineSafePosition,
 } from "./session-timeline-scroll-anchors"
+import { createTimelineScrollCommandSink } from "./timeline-scroll-command-sink"
 
 type RectInput = {
   top: number
@@ -163,14 +164,25 @@ describe("session timeline scroll anchors", () => {
       clientHeight: 400,
       scrollHeight: 1000,
     })
+    const scrollCommandSink = createTimelineScrollCommandSink({ now: () => 200 })
 
     expect(
       restoreTimelineSafePosition({
         viewport: scroller.viewport,
         position: { kind: "latest", messageID: "msg_latest" },
+        scrollCommandSink,
       }),
     ).toEqual({ ok: true, restoredTo: { kind: "latest", messageID: "msg_latest" } })
     expect(scroller.scrollTop).toBe(600)
+    expect(scrollCommandSink.records()).toEqual([
+      expect.objectContaining({
+        monotonicMs: 200,
+        type: "anchor-restore",
+        source: "session-timeline-scroll-anchors/restoreLatest",
+        reason: "scroll-height-bottom",
+        top: 600,
+      }),
+    ])
   })
 
   test("restores reading anchor to its previous viewport offset", () => {

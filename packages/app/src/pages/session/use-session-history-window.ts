@@ -2,6 +2,10 @@ import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { createEffect, createMemo, on } from "solid-js"
 import { createStore } from "solid-js/store"
 import { emptyUserMessages } from "@/pages/session/session-messages"
+import {
+  createTimelineScrollCommandSink,
+  type TimelineScrollCommandSink,
+} from "@/pages/session/timeline-scroll-command-sink"
 import { same } from "@/utils/same"
 
 export type SessionHistoryWindowInput = {
@@ -15,6 +19,7 @@ export type SessionHistoryWindowInput = {
   userScrolled: () => boolean
   isAtBottom: () => boolean
   scroller: () => HTMLDivElement | undefined
+  scrollCommandSink?: TimelineScrollCommandSink
 }
 
 type HistoryWindowMode = "bottom" | "reading" | "hash"
@@ -61,6 +66,8 @@ export function resolveClearedHashTarget(input: {
  * small batches while scrolling upward, and prefetches older history near top.
  */
 export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
+  const fallbackTimelineScrollCommandSink = createTimelineScrollCommandSink()
+  const scrollCommandSink = () => input.scrollCommandSink ?? fallbackTimelineScrollCommandSink
   const turnInit = 10
   const turnBatch = 8
   const turnScrollThreshold = 200
@@ -157,7 +164,13 @@ export function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
     requestAnimationFrame(() => {
       const delta = el.scrollHeight - beforeHeight
       if (!delta) return
-      el.scrollTop = beforeTop + delta
+      scrollCommandSink().setScrollTop({
+        element: el,
+        top: beforeTop + delta,
+        type: "history-prepend-preserve",
+        source: "use-session-history-window/preserveScroll",
+        reason: "preserve-scroll-after-backfill",
+      })
     })
   }
 

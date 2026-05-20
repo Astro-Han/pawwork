@@ -6,6 +6,7 @@ import {
   resolveClearedHashTarget,
   resolveHistoryTurnStart,
 } from "./use-session-history-window"
+import { createTimelineScrollCommandSink } from "./timeline-scroll-command-sink"
 
 const userMessage = (id: number) =>
   ({
@@ -16,6 +17,38 @@ const userMessage = (id: number) =>
 
 const userMessages = (count: number) => Array.from({ length: count }, (_, index) => userMessage(index))
 const ids = (start: number, end: number) => Array.from({ length: end - start }, (_, index) => `msg_${start + index}`)
+
+function makeScroller(input: { clientHeight: number; scrollHeight: number; scrollTop: number }) {
+  const el = document.createElement("div") as HTMLDivElement
+  let top = input.scrollTop
+  let height = input.scrollHeight
+
+  Object.defineProperties(el, {
+    clientHeight: { value: input.clientHeight, configurable: true },
+    scrollHeight: {
+      configurable: true,
+      get: () => height,
+      set: (value) => {
+        height = value
+      },
+    },
+    scrollTop: {
+      configurable: true,
+      get: () => top,
+      set: (value) => {
+        top = value
+      },
+    },
+  })
+
+  return {
+    el,
+    setScrollHeight: (value: number) => {
+      height = value
+    },
+    top: () => top,
+  }
+}
 
 const createHarness = (input: { count: number; userScrolled?: boolean; atBottom?: boolean; historyMore?: boolean }) => {
   const [state, setState] = createSignal({
@@ -192,6 +225,47 @@ describe("session history window extraction", () => {
           expect(
             resolveHistoryTurnStart({ mode: "reading", storedTurnStart: 0, length: 40, userScrolled: false }),
           ).toBe(0)
+          dispose()
+          resolve()
+        })
+      })
+    })
+  })
+
+  test("records history prepend scroll preservation through the command sink", async () => {
+    await new Promise<void>((resolve) => {
+      createRoot((dispose) => {
+        const scroller = makeScroller({ clientHeight: 400, scrollHeight: 1000, scrollTop: 120 })
+        const scrollCommandSink = createTimelineScrollCommandSink({ now: () => 500 })
+
+        const history = createSessionHistoryWindow({
+          sessionID: () => "ses_1",
+          messagesReady: () => true,
+          loaded: () => 30,
+          visibleUserMessages: () => userMessages(30),
+          historyMore: () => false,
+          historyLoading: () => false,
+          loadMore: async () => undefined,
+          userScrolled: () => true,
+          isAtBottom: () => false,
+          scroller: () => scroller.el,
+          scrollCommandSink,
+        })
+
+        history.expandForReading(10)
+        history.onScrollerScroll()
+        scroller.setScrollHeight(1120)
+
+        requestAnimationFrame(() => {
+          expect(scroller.top()).toBe(240)
+          expect(scrollCommandSink.records()).toEqual([
+            expect.objectContaining({
+              monotonicMs: 500,
+              type: "history-prepend-preserve",
+              source: "use-session-history-window/preserveScroll",
+              top: 240,
+            }),
+          ])
           dispose()
           resolve()
         })

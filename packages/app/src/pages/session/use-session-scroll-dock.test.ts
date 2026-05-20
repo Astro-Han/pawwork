@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
+import { createTimelineScrollCommandSink } from "./timeline-scroll-command-sink"
 import {
   calculateSessionScrollState,
   createSessionScrollDock,
@@ -252,12 +253,14 @@ describe("session scroll dock", () => {
           scrollHeight: 1000,
           scrollTop: 600,
         })
+        const scrollCommandSink = createTimelineScrollCommandSink({ now: () => 400 })
 
         try {
           const scrollDock = createSessionScrollDock({
             clearMessageHash: () => undefined,
             clearActiveMessage: () => undefined,
             fill: () => undefined,
+            scrollCommandSink,
             onDockHeightChange: (event) => events.push(event),
           })
 
@@ -293,6 +296,54 @@ describe("session scroll dock", () => {
         }
       })
     })
+  })
+
+  test("records a dock-resize bottom-follow command when resize needs a scroll write", () => {
+    withResizeObserver((triggerResize) => {
+      createRoot((dispose) => {
+        const previousDockHeight = document.documentElement.style.getPropertyValue("--composer-dock-height")
+        const promptDock = makeMeasuredDiv(120)
+        const scroller = makeScroller({
+          clientHeight: 400,
+          scrollHeight: 1000,
+          scrollTop: 500,
+        })
+        const scrollCommandSink = createTimelineScrollCommandSink({ now: () => 450 })
+
+        try {
+          const scrollDock = createSessionScrollDock({
+            clearMessageHash: () => undefined,
+            clearActiveMessage: () => undefined,
+            fill: () => undefined,
+            scrollCommandSink,
+          })
+
+          scrollDock.setScrollRef(scroller.el)
+          scrollDock.setPromptDockRef(promptDock.el)
+          triggerResize(promptDock.el)
+
+          expect(scrollCommandSink.records()).toEqual([
+            expect.objectContaining({
+              monotonicMs: 450,
+              type: "dock-resize-bottom-follow",
+              reason: "dock-resize",
+              top: 1000,
+            }),
+          ])
+        } finally {
+          dispose()
+          if (previousDockHeight)
+            document.documentElement.style.setProperty("--composer-dock-height", previousDockHeight)
+          else document.documentElement.style.removeProperty("--composer-dock-height")
+        }
+      })
+    })
+  })
+
+  test("tags the auto-scroll ResizeObserver path as content resize", async () => {
+    const source = await Bun.file(new URL("../../../../ui/src/hooks/create-auto-scroll.tsx", import.meta.url)).text()
+
+    expect(source).toContain('scrollToBottom(false, "content-resize")')
   })
 
   test("restores a submit-time browser reset while bottom follow is locked", () => {

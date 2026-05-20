@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createRoot, createSignal } from "solid-js"
 import { createSessionHashScroll } from "./use-session-hash-scroll-core"
 import { messageIdFromHash } from "./message-id-from-hash"
+import { createTimelineScrollCommandSink } from "./timeline-scroll-command-sink"
 
 describe("messageIdFromHash", () => {
   test("parses hash with leading #", () => {
@@ -53,6 +54,7 @@ describe("useSessionHashScroll", () => {
     const navigationCalls: string[] = []
     const activeMessages: string[] = []
     const markedTargets: number[] = []
+    const scrollCommandSink = createTimelineScrollCommandSink({ now: () => 300 })
 
     root.id = "session-root"
     target.id = "message-msg_2"
@@ -111,6 +113,7 @@ describe("useSessionHashScroll", () => {
           anchor: (id) => `message-${id}`,
           scheduleScrollState: () => undefined,
           consumePendingMessage: () => undefined,
+          scrollCommandSink,
           onMessageNavigation: (messageID) => navigationCalls.push(messageID),
         },
         { hash: "#message-msg_2", pathname: "/session/ses_1", search: "" },
@@ -122,6 +125,15 @@ describe("useSessionHashScroll", () => {
     })
 
     expect(scrollPositions).toEqual([{ top: 160, behavior: "auto" }])
+    expect(scrollCommandSink.records()).toEqual([
+      expect.objectContaining({
+        monotonicMs: 300,
+        type: "hash-target",
+        source: "use-session-hash-scroll-core/scrollToElement",
+        method: "scroll-to",
+        top: 160,
+      }),
+    ])
     expect(activeMessages).toEqual(["msg_2"])
     expect(markedTargets).toEqual([1])
     expect(navigationCalls).toEqual(["msg_2"])
