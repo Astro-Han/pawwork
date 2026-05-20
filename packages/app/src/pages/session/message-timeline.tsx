@@ -1,4 +1,5 @@
-import { For, createEffect, createMemo, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, on, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { Virtualizer } from "virtua/solid"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { SessionTurn } from "@opencode-ai/ui/session-turn"
@@ -22,6 +23,13 @@ import {
   shouldMarkTimelineBoundaryGesture,
 } from "@/pages/session/session-timeline-scroll-intents"
 import { createTimelineStaging } from "@/pages/session/session-timeline-staging"
+import {
+  createTimelineVirtualRows,
+  classifyTimelineRowMutation,
+  type TimelineRowMutation,
+  type TimelineVirtualRow,
+} from "@/pages/session/timeline-virtual-rows"
+import type { TimelineVirtualizerBridge } from "@/pages/session/timeline-virtualizer-bridge"
 import {
   areMessageCommentsEqual,
   extractMessageComments,
@@ -83,6 +91,7 @@ export function MessageTimeline(props: {
   onLoadEarlier: () => void
   renderedUserMessages: UserMessage[]
   anchor: (id: string) => string
+  virtualizerBridge: TimelineVirtualizerBridge
 }) {
   let touchGesture: number | undefined
   let scrollSampleFrame: number | undefined
@@ -253,6 +262,17 @@ export function MessageTimeline(props: {
     messages: () => props.renderedUserMessages,
     config: stageCfg,
   })
+  const rows = createMemo(() =>
+    createTimelineVirtualRows({
+      messages: props.renderedUserMessages,
+      historyMore: props.historyMore,
+      turnStart: props.turnStart,
+    }),
+  )
+  const rowMutation = createMemo<{ rows: readonly TimelineVirtualRow[]; mutation: TimelineRowMutation }>((previous) => {
+    const next = rows()
+    return { rows: next, mutation: classifyTimelineRowMutation({ previous: previous?.rows ?? [], next }) }
+  })
 
   return (
     <Show
@@ -264,8 +284,7 @@ export function MessageTimeline(props: {
           class="absolute left-1/2 -translate-x-1/2 bottom-[calc(var(--composer-dock-height,0px)+2.5rem)] z-[60] pointer-events-none transition-opacity duration-200 ease-out"
           classList={{
             "opacity-100": props.scroll.overflow && props.scroll.jump && !staging.isStaging(),
-            "opacity-0 pointer-events-none":
-              !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
+            "opacity-0 pointer-events-none": !props.scroll.overflow || !props.scroll.jump || staging.isStaging(),
           }}
         >
           {/* 偏离: W1 preview L267 锁 cursor:pointer，用户 2026-05-15 决定改回默认。preview/DESIGN 同步留 follow-up。 */}
@@ -387,9 +406,10 @@ export function MessageTimeline(props: {
           >
             <div
               role="log"
-              data-component="session-timeline-column"
+              data-component="session-timeline-virtualizer"
               data-slot="session-turn-list"
-              class="flex flex-col items-start justify-start pb-4 transition-[margin]"
+              data-total-rows={rows().length}
+              class="transition-[margin]"
               classList={{
                 "w-full": true,
                 "md:max-w-[800px] md:mx-auto 2xl:max-w-[1000px]": props.centered,
@@ -397,46 +417,57 @@ export function MessageTimeline(props: {
                 "mt-0": !props.centered,
               }}
             >
-              <Show when={props.turnStart > 0 || props.historyMore}>
-                <div class="w-full flex justify-center">
-                  <Button
-                    variant="ghost"
-                    size="large"
-                    class="text-h3 opacity-50"
-                    disabled={props.historyLoading}
-                    onClick={props.onLoadEarlier}
-                  >
-                    {props.historyLoading
-                      ? language.t("session.messages.loadingEarlier")
-                      : language.t("session.messages.loadEarlier")}
-                  </Button>
-                </div>
-              </Show>
-              <For each={rendered()}>
-                {(messageID, index) => {
-                  const userMessage = createMemo(() => props.renderedUserMessages[index()])
+              <Virtualizer
+                ref={(handle) => props.virtualizerBridge.setHandle(handle)}
+                data={rows()}
+                scrollRef={viewportRef}
+                shift={rowMutation().mutation === "prepend"}
+                overscan={8}
+              >
+                {(row) => {
+                  if (row.type === "load-earlier") {
+                    return (
+                      <div
+                        data-component="session-virtual-row"
+                        data-row-type="load-earlier"
+                        class="w-full flex justify-center"
+                      >
+                        <Button
+                          variant="ghost"
+                          size="large"
+                          class="text-h3 opacity-50"
+                          disabled={props.historyLoading}
+                          onClick={props.onLoadEarlier}
+                        >
+                          {props.historyLoading
+                            ? language.t("session.messages.loadingEarlier")
+                            : language.t("session.messages.loadEarlier")}
+                        </Button>
+                      </div>
+                    )
+                  }
+
+                  const messageID = row.messageID
                   const active = createMemo(() => activeMessageID() === messageID)
                   const comments = createMemo(() => extractMessageComments(sync.data.part[messageID] ?? []), [], {
                     equals: areMessageCommentsEqual,
                   })
                   return (
                     <div
+                      data-component="session-virtual-row"
                       id={props.anchor(messageID)}
+                      data-row-type="message"
                       data-message-id={messageID}
                       classList={{
                         "min-w-0 w-full max-w-full": true,
                         "md:max-w-[800px] 2xl:max-w-[1000px]": props.centered,
-                      }}
-                      style={{
-                        "content-visibility": active() ? undefined : "auto",
-                        "contain-intrinsic-size": active() ? undefined : "auto 500px",
                       }}
                     >
                       <SessionMessageComments comments={comments()} />
                       <SessionTurn
                         sessionID={sessionID() ?? ""}
                         messageID={messageID}
-                        message={userMessage()}
+                        message={row.message}
                         assistantMessages={turnMessagesByUserID().get(messageID) ?? emptyAssistantMessages}
                         messages={sessionMessages()}
                         actions={props.actions}
@@ -465,7 +496,7 @@ export function MessageTimeline(props: {
                     </div>
                   )
                 }}
-              </For>
+              </Virtualizer>
             </div>
           </div>
         </ScrollView>

@@ -45,12 +45,11 @@ export function SessionMainView(props: {
   historyMore: boolean
   historyLoading: boolean
   anchor: TimelineProps["anchor"]
+  virtualizerBridge: TimelineProps["virtualizerBridge"]
   onRetryOpenSession: () => void
   onOpenNewSession: () => void
   composerSession: JSX.Element
-  composerHome: (ctx: {
-    onModeChange: (mode: "normal" | "shell") => void
-  }) => JSX.Element
+  composerHome: (ctx: { onModeChange: (mode: "normal" | "shell") => void }) => JSX.Element
   canReview: () => boolean
   reviewDiffs: ReturnType<typeof createSessionReviewState>["reviewDiffs"]
   hasReview: ReturnType<typeof createSessionReviewState>["hasReview"]
@@ -129,11 +128,7 @@ export function SessionMainView(props: {
                   </div>
                 </div>
               </Match>
-              <Match
-                when={
-                  props.activeSessionID && props.timelineSessionID ? props.timelineSessionID : undefined
-                }
-              >
+              <Match when={props.activeSessionID && props.timelineSessionID ? props.timelineSessionID : undefined}>
                 <MessageTimeline
                   sessionID={props.timelineSessionID ?? ""}
                   sessionKey={props.timelineSessionKey}
@@ -163,6 +158,7 @@ export function SessionMainView(props: {
                   }}
                   renderedUserMessages={props.historyWindow.renderedUserMessages()}
                   anchor={props.anchor}
+                  virtualizerBridge={props.virtualizerBridge}
                 />
               </Match>
               <Match when={!props.activeSessionID}>
@@ -173,9 +169,7 @@ export function SessionMainView(props: {
               </Match>
             </Switch>
           </div>
-          <Show when={props.activeSessionID && !showSessionOpeningState()}>
-            {props.composerSession}
-          </Show>
+          <Show when={props.activeSessionID && !showSessionOpeningState()}>{props.composerSession}</Show>
         </div>
 
         <SessionSidePanel
