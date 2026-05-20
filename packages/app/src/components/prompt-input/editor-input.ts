@@ -178,8 +178,13 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
   // prompt to the snapshot's own contents) is a no-op and cannot loop.
   //
   // Session routes have no owner — guarded by params.id.
-  // IME composition is in-flight raw bytes, not a stable draft — skip and
-  // wait for compositionend to commit before recording.
+  // IME composition is in-flight raw bytes, not a stable draft — skip while
+  // composing() is true. composing() is in the tracked deps so the false→true
+  // and true→false transitions wake this effect. Most browsers fire an
+  // additional `inputType: "insertCompositionText"` input event after
+  // compositionend that would wake mirror via prompt.set in handleInput, but
+  // not all do; tracking composing directly guarantees a record on commit
+  // regardless of the post-compositionend input event.
   let lastSeenDir: string | undefined = sdk.directory
   let lastSeenSessionID: string | undefined = params.id
   createEffect(
@@ -191,9 +196,10 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
           imageAttachments(),
           sdk.directory,
           params.id,
+          composing(),
         ] as const,
-      ([parts, contextItems, images, dir, sessionID]) => {
-        if (composing()) return
+      ([parts, contextItems, images, dir, sessionID, compose]) => {
+        if (compose) return
 
         // Scope change detection. Track sdk.directory and params.id so the
         // session swap in prompt.current() doesn't slip through unguarded.
