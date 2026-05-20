@@ -59,6 +59,20 @@ describe("timeline scroll ownership guard", () => {
     ).toEqual([])
   })
 
+  test("matches reviewed exceptions when scanned file paths use Windows separators", () => {
+    expect(
+      scanTimelineScrollOwnershipText({
+        filePath: "packages\\app\\src\\pages\\session\\composer\\session-question-dock.tsx",
+        sourceText: `
+          function keepVisibleInQuestionOptions(scroller: HTMLElement) {
+            scroller.scrollTop += 1
+          }
+        `,
+        allowlist: timelineScrollCommandAllowlist,
+      }).violations,
+    ).toEqual([])
+  })
+
   test("keeps production session timeline writes behind the command sink", async () => {
     const result = await scanTimelineScrollOwnership({
       roots: [here],
