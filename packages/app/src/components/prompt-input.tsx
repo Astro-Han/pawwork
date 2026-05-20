@@ -297,6 +297,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     clearEditor,
     setEditorText,
     focusEditorEnd,
+    renderEditorWithCursor,
   })
   popoversRef = popovers
 
