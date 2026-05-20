@@ -152,32 +152,56 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
   // tail-only mirror missed Path A/B/C and silently dropped the user's draft
   // when they navigated away from the homepage and came back.
   //
-  // {defer: true} is load-bearing: at mount the prompt is DEFAULT_PROMPT,
-  // which is an "empty payload" for both owner implementations. Without
-  // defer this effect would fire immediately and call portable.record() /
-  // pinned.recordEdit() with an empty payload, which clears the portable
-  // snapshot and overwrites a pending pinned prefill — before the
-  // hydration effect below has a chance to consume them. Deferring means
-  // we wait for the first real prompt change. Hydration runs and replaces
-  // the empty default with the snapshot's content; that change is what
-  // wakes this effect up, at which point we record the hydrated payload
-  // (which dedupes against the owner's own snapshot, so it's a no-op).
-  // A fresh homepage with no owner data simply stays quiet until the
-  // user types.
+  // Two layers of protection against firing with an empty payload at the
+  // wrong moment:
+  //
+  // 1. {defer: true} skips the initial mount-time invocation. At mount the
+  //    prompt is DEFAULT_PROMPT, which is an "empty payload" — without defer
+  //    this effect would call portable.record() / pinned.recordEdit() with
+  //    empty before the hydration effect below has a chance to consume the
+  //    snapshot or apply the pinned prefill.
+  //
+  // 2. lastSeenDir / lastSeenSessionID skip the first fire after the route
+  //    scope changes (homepage A → homepage B navigation, or session →
+  //    homepage). prompt.current() is session-keyed by {dir, id} in the
+  //    prompt binding, so when sdk.directory flips, prompt.current() flips
+  //    to the new session's value (typically DEFAULT_PROMPT for a fresh
+  //    homepage). That value change would otherwise wake this effect and
+  //    record an empty payload against the NEW directory, destroying the
+  //    portable snapshot held for the OLD directory before the hydration
+  //    effect can move it. Skipping the first fire after a scope change
+  //    lets hydration run; the next prompt change (carried content or user
+  //    keystroke) records normally.
+  //
+  // The portable/pinned record() implementations dedupe by deep-equal payload,
+  // so firing more often than strictly necessary (e.g. hydration setting the
+  // prompt to the snapshot's own contents) is a no-op and cannot loop.
   //
   // Session routes have no owner — guarded by params.id.
   // IME composition is in-flight raw bytes, not a stable draft — skip and
   // wait for compositionend to commit before recording.
-  // The portable/pinned record() implementations both dedupe by deep-equal
-  // payload, so this effect firing more often than the old tail-only path
-  // (e.g. on hydration that sets the prompt to the snapshot's own contents)
-  // is a no-op and cannot loop.
+  let lastSeenDir: string | undefined = sdk.directory
+  let lastSeenSessionID: string | undefined = params.id
   createEffect(
     on(
-      () => [prompt.current(), prompt.context.items(), imageAttachments()] as const,
-      ([parts, contextItems, images]) => {
+      () =>
+        [
+          prompt.current(),
+          prompt.context.items(),
+          imageAttachments(),
+          sdk.directory,
+          params.id,
+        ] as const,
+      ([parts, contextItems, images, dir, sessionID]) => {
         if (composing()) return
-        if (params.id) return // session route, no owner mirror
+
+        // Scope change detection. Track sdk.directory and params.id so the
+        // session swap in prompt.current() doesn't slip through unguarded.
+        const scopeChanged = lastSeenDir !== dir || lastSeenSessionID !== sessionID
+        lastSeenDir = dir
+        lastSeenSessionID = sessionID
+        if (sessionID) return // session route, no owner mirror
+        if (scopeChanged) return // wait for hydration; next prompt change records
 
         const resolvedMentionsMap: Record<string, ResolvedMention[]> = {}
         for (const item of contextItems) {
@@ -187,9 +211,9 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
         }
 
         const currentPinnedSlot = pinned.current()
-        if (currentPinnedSlot && currentPinnedSlot.directory === sdk.directory) {
+        if (currentPinnedSlot && currentPinnedSlot.directory === dir) {
           pinned.recordEdit({
-            directory: sdk.directory,
+            directory: dir,
             prompt: parts,
             context: contextItems.slice(),
             images: [...images],
@@ -197,7 +221,7 @@ export function createEditorInput(deps: EditorInputDeps): EditorInput {
           })
         } else {
           portable.record({
-            sourceFilesystemDirectory: sdk.directory,
+            sourceFilesystemDirectory: dir,
             prompt: parts,
             context: contextItems.slice(),
             images: [...images],
