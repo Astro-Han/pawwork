@@ -278,8 +278,15 @@ async function expectTimelineAvailableRows(page: Page, target: number) {
 }
 
 async function expectVirtualTimelineMounted(page: Page) {
-  const value = await page.locator(sessionVirtualizerSelector).first().getAttribute("data-total-rows")
-  expect(Number(value ?? 0)).toBeGreaterThan(0)
+  await expect
+    .poll(
+      async () => {
+        const value = await page.locator(sessionVirtualizerSelector).first().getAttribute("data-total-rows")
+        return Number(value ?? 0)
+      },
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0)
   await expect.poll(async () => page.locator(sessionMessageItemSelector).count()).toBeLessThanOrEqual(48)
 }
 
@@ -587,7 +594,8 @@ test("keeps long timeline stable across worktree exit follow-up", async ({ page,
     const followupVisibleCounts = followupEvents
       .filter((event) => event.name === "session.timeline.visible")
       .map((event) => numberData(event, "rendered_count") ?? 0)
-    if (followupVisibleCounts.length > 0) expect(Math.max(...followupVisibleCounts)).toBeGreaterThan(0)
+    expect(followupVisibleCounts.length).toBeGreaterThan(0)
+    expect(Math.max(...followupVisibleCounts)).toBeGreaterThan(0)
 
     const followupScrollJumps = followupEvents.filter((event) => {
       if (event.name !== "session.scroll.sample") return false

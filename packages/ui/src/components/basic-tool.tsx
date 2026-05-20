@@ -49,10 +49,14 @@ export function basicToolInitialReady(props: { defaultOpen?: boolean; defer?: bo
   return props.defaultOpen ?? false
 }
 
-export function BasicTool(props: BasicToolProps) {
-  const initialOpen = props.stateKey
+function basicToolInitialOpen(props: { stateKey?: string; defaultOpen?: boolean }) {
+  return props.stateKey
     ? (basicToolOpenState.get(props.stateKey) ?? props.defaultOpen ?? false)
     : (props.defaultOpen ?? false)
+}
+
+export function BasicTool(props: BasicToolProps) {
+  const initialOpen = basicToolInitialOpen(props)
   const [state, setState] = createStore({
     open: initialOpen,
     ready: basicToolInitialReady({ defaultOpen: initialOpen, defer: props.defer }),
@@ -78,6 +82,18 @@ export function BasicTool(props: BasicToolProps) {
   }
 
   onCleanup(cancel)
+
+  createEffect(
+    on(
+      () => props.stateKey,
+      () => {
+        const nextOpen = basicToolInitialOpen(props)
+        setState("open", nextOpen)
+        setState("ready", basicToolInitialReady({ defaultOpen: nextOpen, defer: props.defer }))
+      },
+      { defer: true },
+    ),
+  )
 
   createEffect(() => {
     if (!props.forceOpen) return

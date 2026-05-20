@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Index, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js"
 import type { ToolPart } from "@opencode-ai/sdk/v2"
 import { useI18n } from "../../context/i18n"
 import { Collapsible } from "../collapsible"
@@ -13,6 +13,7 @@ export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   const i18n = useI18n()
   const stateKey = createMemo(() => props.parts.map((part) => part.id).join(":"))
   const [open, setOpen] = createSignal(contextToolGroupOpenState.get(stateKey()) ?? false)
+  createEffect(on(stateKey, (key) => setOpen(contextToolGroupOpenState.get(key) ?? false), { defer: true }))
   const setPersistentOpen = (value: boolean) => {
     setOpen(value)
     contextToolGroupOpenState.set(stateKey(), value)

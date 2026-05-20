@@ -39,6 +39,7 @@ ToolRegistry.register({
       if (list.length === 0) return
       if (seeded) return
       seeded = true
+      if (props.stateKey && applyPatchExpandedState.has(props.stateKey)) return
       const next = list.filter((f) => f.type !== "delete").map((f) => f.filePath)
       setExpanded(next)
       if (props.stateKey) applyPatchExpandedState.set(props.stateKey, next)

@@ -41,10 +41,10 @@ registerPartComponent("tool", function ToolPartDisplay(props) {
   // renders. Flag-on: render the thin marker (no hide).
   const hideQuestion = createMemo(() => isQuestionRunning() && !newQuestionPath())
   // Hide synthetic stop tool parts while keeping metadata available for exported diagnostics.
-  const hideSyntheticStop = createMemo(() => partMetadata().diagnostics?.loop?.loopAction === "stop")
+  const hideSyntheticStop = createMemo(() => partMetadata()?.diagnostics?.loop?.loopAction === "stop")
   const taskId = createMemo(() => {
     if (part().tool !== TOOL_AGENT_LEGACY && part().tool !== TOOL_AGENT) return // agent-rename:legacy-render
-    const value = partMetadata().sessionId
+    const value = partMetadata()?.sessionId
     if (typeof value === "string" && value) return value
   })
   const taskHref = createMemo(() => {

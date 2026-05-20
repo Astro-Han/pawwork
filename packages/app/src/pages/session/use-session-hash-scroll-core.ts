@@ -100,6 +100,7 @@ export const createSessionHashScroll = (
     const el = document.getElementById(input.anchor(id))
     if (el) return scrollToElement(el, behavior)
     if (input.virtualizerReveal?.({ messageID: id, behavior })) {
+      if (left <= 0) return false
       queue(() => {
         seek(id, behavior, left - 1)
       })
