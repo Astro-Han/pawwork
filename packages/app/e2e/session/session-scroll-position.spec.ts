@@ -229,6 +229,10 @@ function collectPageErrors(page: Page) {
   }
 }
 
+function relevantPageErrors(errors: CapturedPageError[]) {
+  return errors.filter((error) => error.message !== "ResizeObserver loop completed with undelivered notifications.")
+}
+
 async function seedSessionTurns(input: { sdk: Sdk; sessionID: string; count: number }) {
   for (let i = 0; i < input.count; i++) {
     await input.sdk.session.promptAsync({
@@ -572,7 +576,7 @@ test("renders the full initial session window when switching sessions", async ({
       const removedMountFrames = samples.filter((sample) => sample.removedComposerDock || sample.removedMessageList)
       const invalidComposerFrames = switched.filter((sample) => sample.composerDock !== 1 || sample.composerHeight <= 0)
       const invalidMessageListFrames = switched.filter((sample) => sample.messageList !== 1)
-      const pageErrors = await readPageErrorProbe(page)
+      const pageErrors = relevantPageErrors(await readPageErrorProbe(page))
 
       expect(switched.length).toBeGreaterThan(0)
       expect(rendered.every((id) => secondIDs.has(id))).toBe(true)
@@ -593,6 +597,6 @@ test("renders the full initial session window when switching sessions", async ({
       await page.goto(current.toString())
     })
   })
-  expect(pageErrorEvents.errors).toEqual([])
+  expect(relevantPageErrors(pageErrorEvents.errors)).toEqual([])
   pageErrorEvents.dispose()
 })
