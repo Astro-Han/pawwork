@@ -1,5 +1,6 @@
 import type { FilePart, Part, TextPart } from "@opencode-ai/sdk/v2"
 import { deriveCommandInvocation } from "@opencode-ai/ui/lib/command-invocation"
+import { createCommandTextPart } from "@/components/prompt-input/command-text-part"
 import type { FileAttachmentPart, ImageAttachmentPart, Prompt } from "@/context/prompt"
 
 type Inline =
@@ -58,8 +59,12 @@ export function extractPromptFromParts(parts: Part[], opts?: { directory?: strin
   const attachmentName = opts?.attachmentName ?? "attachment"
   const invocation = deriveCommandInvocation(parts)
   if (invocation) {
-    const restoreText = invocation.restoreText
-    const out: Prompt = [{ type: "text", content: restoreText, start: 0, end: restoreText.length }]
+    // Restore as a marked TextPart so the editor can re-render it as a pill.
+    const commandPart = createCommandTextPart(
+      { name: invocation.name, source: invocation.source, icon: invocation.markIcon },
+      invocation.args,
+    )
+    const out: Prompt = [commandPart]
     for (const part of parts) {
       if (part.type !== "file") continue
       const filePart = part as FilePart
