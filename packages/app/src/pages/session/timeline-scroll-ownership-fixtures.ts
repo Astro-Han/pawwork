@@ -14,6 +14,18 @@ export const timelineScrollOwnershipFixtures = {
       viewport.scroll({ top: 10 })
     }
   `,
+  directScrollShorthandTop: `
+    export function bypass(viewport: HTMLElement) {
+      const top = 10
+      viewport.scroll({ top })
+    }
+  `,
+  directScrollSpreadOptions: `
+    export function bypass(viewport: HTMLElement) {
+      const opts = { top: 10 }
+      viewport.scroll({ ...opts })
+    }
+  `,
   directScrollIntoView: `
     export function bypass(target: HTMLElement) {
       target.scrollIntoView({ block: "nearest" })

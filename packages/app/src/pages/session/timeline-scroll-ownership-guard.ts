@@ -108,6 +108,8 @@ function isDomScrollCall(node: ts.CallExpression, prop: string | undefined) {
   if (ts.isNumericLiteral(firstArgument)) return true
   if (!ts.isObjectLiteralExpression(firstArgument)) return false
   return firstArgument.properties.some((property) => {
+    if (ts.isShorthandPropertyAssignment(property)) return property.name.text === "top" || property.name.text === "left"
+    if (ts.isSpreadAssignment(property)) return true
     if (!ts.isPropertyAssignment(property)) return false
     const name = property.name
     if (ts.isIdentifier(name) || ts.isStringLiteral(name)) return name.text === "top" || name.text === "left"

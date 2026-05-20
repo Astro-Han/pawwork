@@ -15,6 +15,8 @@ describe("timeline scroll ownership guard", () => {
       timelineScrollOwnershipFixtures.directScrollTop,
       timelineScrollOwnershipFixtures.directScrollTo,
       timelineScrollOwnershipFixtures.directScroll,
+      timelineScrollOwnershipFixtures.directScrollShorthandTop,
+      timelineScrollOwnershipFixtures.directScrollSpreadOptions,
       timelineScrollOwnershipFixtures.directScrollIntoView,
       timelineScrollOwnershipFixtures.helperAlias,
       timelineScrollOwnershipFixtures.computedScrollTop,
