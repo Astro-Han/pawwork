@@ -1,4 +1,4 @@
-import { Show } from "solid-js"
+import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import type { RetryClassification } from "@opencode-ai/sdk/v2/client"
 import { useI18n } from "../context/i18n"
 import { Card, CardActions, CardDescription, CardTitle } from "./card"
@@ -34,8 +34,23 @@ export function formatResetTime(
 
 export function RateLimitCard(props: RateLimitCardProps) {
   const i18n = useI18n()
-  const formatted = () =>
-    props.classification.resetAt === undefined ? undefined : formatResetTime(props.classification.resetAt)
+  // rate_limit_blocked is a sticky terminal state (see session/status.ts), so
+  // the card stays mounted past resetAt unless the user starts a new turn.
+  // Tick `now` once at resetAt so the "today"/"tomorrow" copy falls through to
+  // the no-time subtitle instead of pointing at an already-elapsed time.
+  const [now, setNow] = createSignal(Date.now())
+  onMount(() => {
+    const resetAt = props.classification.resetAt
+    if (resetAt === undefined) return
+    const remaining = resetAt - Date.now()
+    if (remaining <= 0) return
+    const timer = setTimeout(() => setNow(Date.now()), remaining + 1000)
+    onCleanup(() => clearTimeout(timer))
+  })
+  const formatted = () => {
+    const resetAt = props.classification.resetAt
+    return resetAt === undefined ? undefined : formatResetTime(resetAt, now())
+  }
   return (
     <Card variant="warning" data-slot="rate-limit-card" data-kind="rate-limit-card">
       <CardTitle variant="warning">{i18n.t("ui.rateLimitCard.title")}</CardTitle>

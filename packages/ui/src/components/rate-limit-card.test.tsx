@@ -136,6 +136,41 @@ describe("RateLimitCard: CSS token contract", () => {
   })
 })
 
+// ── Live invalidation at resetAt ───────────────────────────────────────────
+//
+// rate_limit_blocked is a sticky terminal state (see session/status.ts), so
+// the card outlives resetAt unless the user submits a new turn. The component
+// schedules a one-shot tick at resetAt that flips its internal `now` signal,
+// forcing formatResetTime to fall through to the no-time subtitle.
+
+describe("RateLimitCard: invalidates copy at resetAt", () => {
+  test("imports onMount, createSignal, and onCleanup from solid-js", () => {
+    expect(src).toMatch(/from\s+["']solid-js["']/)
+    expect(src).toContain("onMount")
+    expect(src).toContain("createSignal")
+    expect(src).toContain("onCleanup")
+  })
+
+  test("schedules a setTimeout whose delay is derived from resetAt minus Date.now()", () => {
+    expect(src).toContain("setTimeout")
+    // Delay is computed from resetAt; we don't pin the exact arithmetic but do
+    // require both pieces appear in the same function so the relation is local.
+    expect(src).toMatch(/resetAt\s*-\s*Date\.now\(\)/)
+  })
+
+  test("clears the scheduled timer on unmount", () => {
+    expect(src).toContain("clearTimeout")
+    expect(src).toMatch(/onCleanup\(\s*\(\s*\)\s*=>\s*clearTimeout/)
+  })
+
+  test("skips scheduling when resetAt is undefined or already past", () => {
+    // The guard keeps the timer cost at zero for the no-time fallback path and
+    // avoids a setTimeout(_, 0) thrash when the provider sent a past HTTP-date.
+    expect(src).toMatch(/if\s*\(\s*resetAt\s*===\s*undefined\s*\)\s*return/)
+    expect(src).toMatch(/if\s*\(\s*remaining\s*<=\s*0\s*\)\s*return/)
+  })
+})
+
 // ── formatResetTime pure helper ────────────────────────────────────────────
 
 describe("formatResetTime", () => {
