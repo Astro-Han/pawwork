@@ -96,7 +96,7 @@ describe("server error middleware", () => {
 
     expect(response.status).toBe(404)
     expect(body.name).toBe("NotFoundError")
-    expect(calls.some((call) => call.message === "failed" && call.extra?.error instanceof NotFoundError)).toBe(false)
+    expect(calls).toEqual([])
   })
 
   test("still error-logs unexpected server failures", async () => {
@@ -112,6 +112,6 @@ describe("server error middleware", () => {
     })
 
     expect(response.status).toBe(500)
-    expect(calls.some((call) => call.message === "failed" && call.extra?.error === error)).toBe(true)
+    expect(calls).toEqual([{ message: "failed", extra: { error } }])
   })
 })
