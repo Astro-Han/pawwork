@@ -147,4 +147,51 @@ describe("prompt-input editor dom", () => {
 
     container.remove()
   })
+
+  test("getTextLength counts cmd-mark pill as 1 + name.length (NOT visible label)", () => {
+    // Pill DOM has label child whose textContent is name; logical length is
+    // 1 + name.length because the slash literal is NOT in the visible DOM.
+    // getCursorPosition feeds cloned ranges through getTextLength — if this
+    // reports the wrong length, caret math after a pill is off-by-one.
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = "brainstorming"
+    const label = document.createElement("span")
+    label.dataset.cmdLabel = "true"
+    label.textContent = "brainstorming"
+    pill.appendChild(label)
+
+    expect(getTextLength(pill)).toBe(1 + "brainstorming".length)
+    // Confirm asymmetry vs the textContent walk that would happen without
+    // the cmd-mark branch.
+    expect(pill.textContent!.length).toBe("brainstorming".length)
+  })
+
+  test("getCursorPosition after pill + ' args' caret returns (1 + name.length) + 5", () => {
+    const container = document.createElement("div")
+    container.contentEditable = "true"
+    const pill = document.createElement("span")
+    pill.dataset.cmdMark = "true"
+    pill.dataset.name = "go"
+    const label = document.createElement("span")
+    label.dataset.cmdLabel = "true"
+    label.textContent = "go"
+    pill.appendChild(label)
+    container.appendChild(pill)
+    container.appendChild(document.createTextNode(" args"))
+    document.body.appendChild(container)
+
+    try {
+      const sel = window.getSelection()!
+      const r = document.createRange()
+      r.setStart(container.lastChild!, 5) // end of " args"
+      r.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(r)
+      // Expected: 1 (slash) + 2 ("go") + 5 (" args") = 8
+      expect(getCursorPosition(container)).toBe(8)
+    } finally {
+      container.remove()
+    }
+  })
 })

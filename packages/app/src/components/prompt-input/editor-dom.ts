@@ -40,6 +40,13 @@ export function getNodeLength(node: Node): number {
 export function getTextLength(node: Node): number {
   if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? "").replace(/\u200B/g, "").length
   if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "BR") return 1
+  // Command pill: logical length is "/<name>" (1 + name.length), NOT the visible
+  // label-only textContent which would be name.length. getCursorPosition feeds
+  // its cloned-range fragment through this function, so any data-cmd-mark inside
+  // the fragment must report its logical length or caret math goes off by one.
+  if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).dataset.cmdMark === "true") {
+    return 1 + ((node as HTMLElement).dataset.name ?? "").length
+  }
   let length = 0
   for (const child of Array.from(node.childNodes)) {
     length += getTextLength(child)

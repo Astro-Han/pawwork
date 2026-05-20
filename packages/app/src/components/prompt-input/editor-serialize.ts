@@ -68,6 +68,10 @@ export function isNormalizedEditor(editor: HTMLElement): boolean {
     const el = node as HTMLElement
     if (el.dataset.type === "file") return true
     if (el.dataset.type === "agent") return true
+    // Command pill at index 0 is a normal expected child; without this the
+    // reconcile pass forces a full DOM rebuild on every keystroke after a pill
+    // exists, which moves the caret and breaks IME / selections.
+    if (el.dataset.cmdMark === "true") return true
     return el.tagName === "BR"
   })
 }
