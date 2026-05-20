@@ -168,11 +168,14 @@ async function e2eAskPermission(
     always?: string[]
   },
 ) {
-  const response = await fetch(`${project.url}/permission/__e2e/ask?directory=${encodeURIComponent(project.directory)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  })
+  const response = await fetch(
+    `${project.url}/permission/__e2e/ask?directory=${encodeURIComponent(project.directory)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  )
   expect(response.status).toBe(204)
 }
 
@@ -222,7 +225,8 @@ async function waitForQuestionSeed(project: ProjectQuestionSeed, sessionID: stri
       async () => {
         const questions = await project.sdk.question.list().then((response) => response.data ?? [])
         current = questions.find(
-          (question) => question.sessionID === sessionID && question.questions[0]?.header === defaultQuestions[0]?.header,
+          (question) =>
+            question.sessionID === sessionID && question.questions[0]?.header === defaultQuestions[0]?.header,
         )
         return !!current
       },
@@ -436,6 +440,7 @@ async function todoDock(page: any, sessionID: string) {
       await expect.poll(readState, { timeout }).toMatchObject(expected)
       return api
     },
+    readState,
     async expectUnmounted(timeout = 10_000) {
       await expect.poll(readUi, { timeout }).toMatchObject({
         mounted: false,
@@ -1254,6 +1259,8 @@ test("todo dock appears from real todowrite tool parts", async ({ page, llm, pro
 
       await project.prompt("Create a todo list and start counting.")
 
+      await dock.expectState({ dock: true, count: 3, states: ["completed", "in_progress", "pending"] }, 30_000)
+      expect((await dock.readState())?.openingSamples).toContain(true)
       await dock.expectCollapsed(["completed", "in_progress", "pending"])
     },
     { trackSession: project.trackSession },
@@ -1721,9 +1728,11 @@ test("todo dock does not flash on home after navigating from a session", async (
             }
           })
           observer.observe(document.body, { childList: true, subtree: true })
-          ;(window as unknown as {
-            __todoDockObserver: { observer: MutationObserver; records: string[] }
-          }).__todoDockObserver = { observer, records }
+          ;(
+            window as unknown as {
+              __todoDockObserver: { observer: MutationObserver; records: string[] }
+            }
+          ).__todoDockObserver = { observer, records }
         })
 
         await openSidebar(page)
@@ -1810,7 +1819,11 @@ test("submit to question dock keeps latest turn visible", async ({ page, llm, pr
   )
 })
 
-test("overflow question dock keeps keyboard focus visible without moving timeline", async ({ page, project, assistant }) => {
+test("overflow question dock keeps keyboard focus visible without moving timeline", async ({
+  page,
+  project,
+  assistant,
+}) => {
   const title = `e2e question overflow dock ${Date.now()}`
   const overflowQuestions = [
     {
@@ -1981,7 +1994,9 @@ test("cancelled question tool surfaces interrupted hint in message stream", asyn
         // Hint string lives in packages/ui/src/i18n/en.ts (not the app dict);
         // hardcode it here as the contract anchor for this fix.
         await expect(
-          page.getByText("This question was cancelled before it was answered. Ask again below if you want to continue."),
+          page.getByText(
+            "This question was cancelled before it was answered. Ask again below if you want to continue.",
+          ),
         ).toBeVisible({ timeout: 10_000 })
       })
     },

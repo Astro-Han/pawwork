@@ -173,4 +173,18 @@ describe("createTodoDockRestoreTracker", () => {
     expect(restored({ sessionID: "s", known: true, count: 0, phase: "empty" })).toBe(false)
     expect(restored({ sessionID: "s", known: true, count: 1, phase: "active" })).toBe(false)
   })
+
+  test("does not mark the first live tool-parts todo snapshot as restored", () => {
+    const restored = createTodoDockRestoreTracker()
+    const liveToolPartsSnapshot = {
+      sessionID: "s",
+      known: true,
+      count: 1,
+      phase: "active" as const,
+      source: "primary-parts" as const,
+    }
+
+    expect(restored({ sessionID: "s", known: false, count: 0, phase: "empty" })).toBe(false)
+    expect(restored(liveToolPartsSnapshot)).toBe(false)
+  })
 })

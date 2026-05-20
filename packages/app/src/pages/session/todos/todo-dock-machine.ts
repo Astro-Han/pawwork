@@ -1,4 +1,4 @@
-import type { TodoPhase } from "./todo-model"
+import type { TodoPhase, TodoSourceKind } from "./todo-model"
 
 export const TODO_DOCK_COMPLETING_DELAY_MS = 3000
 
@@ -58,6 +58,7 @@ export type TodoDockTransition =
 export type TodoDockRestoreTrackerInput = {
   sessionID?: string
   known: boolean
+  source?: TodoSourceKind
   count: number
   phase: TodoPhase
 }
@@ -78,7 +79,13 @@ export function createTodoDockRestoreTracker() {
       primed = false
     }
 
-    const restored = input.known && !primed && input.count > 0 && input.phase === "active"
+    const restored =
+      input.known &&
+      !primed &&
+      input.count > 0 &&
+      input.phase === "active" &&
+      input.source !== "primary-parts" &&
+      input.source !== "fallback-parts"
     if (input.known) primed = true
     return restored
   }

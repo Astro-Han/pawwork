@@ -20,6 +20,7 @@ export type ComposerStateProbeState = {
   completing: boolean
   count: number
   states: Todo["status"][]
+  openingSamples?: boolean[]
 }
 
 type ComposerState = {
@@ -101,6 +102,7 @@ export const composerStateProbe = (sessionID?: string) => {
       stateProbe: {
         ...next,
         states: [...next.states],
+        openingSamples: [...(prev.stateProbe?.openingSamples ?? []), next.opening],
       },
     }
   }

@@ -122,6 +122,7 @@ export function createSessionTodoModel(input: {
       restoredSnapshot({
         sessionID,
         known: snapshotKnown(current, sessionID),
+        source: current.source,
         count: current.items.length,
         phase: current.phase,
       }),
