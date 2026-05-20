@@ -56,21 +56,6 @@ export function SettingsMemory(props: { directory?: string }) {
     }
   }
 
-  const reset = async () => {
-    if (!window.confirm(language.t("settings.memory.resetConfirm"))) return
-    try {
-      await client().memory.reset()
-      showToast({ variant: "success", title: language.t("settings.memory.resetDone") })
-      refresh()
-    } catch (error) {
-      showToast({
-        variant: "error",
-        title: language.t("common.requestFailed"),
-        description: errorMessage(error, language.t("common.requestFailed")),
-      })
-    }
-  }
-
   const toggle = async (enabled: boolean) => {
     try {
       await client().memory.disabled({ memoryDisabledInput: { disabled: !enabled } })
@@ -131,9 +116,6 @@ export function SettingsMemory(props: { directory?: string }) {
           <div class="flex gap-2">
             <Button variant="primary" onClick={save} disabled={state.loading}>
               {language.t("common.save")}
-            </Button>
-            <Button onClick={reset} disabled={state.loading}>
-              {language.t("settings.memory.reset")}
             </Button>
           </div>
         </section>
